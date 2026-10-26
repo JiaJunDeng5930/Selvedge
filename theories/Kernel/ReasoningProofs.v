@@ -2,7 +2,7 @@ From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch WorldInvariant LifecycleProofs.
-From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -193,7 +193,7 @@ Theorem context_requests_capture_the_current_history_revision : forall id task v
  task_history waiting = task_history task /\ task_contract waiting = task_contract task.
 Proof.
  intros id task value phase operations Found ObserveAllowed RunningTask.
- rewrite context_retry_expression, Found, ObserveAllowed.
+ rewrite (context_retry_uses_the_current_task id value task Found), ObserveAllowed.
  split; [reflexivity|].
  eexists; split; [eapply find_put_task; exact Found|].
  unfold Reasoning.capture, with_activity. rewrite RunningTask. repeat split; reflexivity.
@@ -239,7 +239,7 @@ Proof.
  assert (Phase : task_activity task = ObservingContext ticket revision).
  { unfold task_activity; now rewrite Status. }
  rewrite context_completed_expression, Found, Phase, N.eqb_refl, Stale, Status.
- rewrite context_retry_expression, Found.
+ rewrite (context_retry_uses_the_current_task id value task Found).
  unfold TicketedRequest.Scoped.can_observe; rewrite Resource; cbn.
  unfold Reasoning.context_retry_wait; now rewrite Status.
 Qed.
@@ -368,7 +368,7 @@ Proof.
  unfold Dispatch.side_task in Selected.
  destruct (find_task id value) as [task|] eqn:Found; [|discriminate].
  destruct (task_side_parent task); inversion Selected; subst task.
- unfold Dispatch.capture_request; now rewrite Found, Phase, N.eqb_refl.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite Found, Phase, N.eqb_refl.
 Qed.
 
 

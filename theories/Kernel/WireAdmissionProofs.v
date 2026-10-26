@@ -6,19 +6,6 @@ From Selvedge.Features Require Import Remote.
 Open Scope string_scope.
 Module G := Selvedge.Generated.Commands.
 
-Theorem decode_requires_variant_field_admission : forall fields kind output,
- lookup "kind" fields = Some (JString kind) ->
- InputDecoder.decode (JObject fields) = Some output ->
- InputDecoder.variant_fields_valid kind (JObject fields) = true.
-Proof.
- intros fields kind output Kind Decoded.
- unfold InputDecoder.decode in Decoded.
- destruct (Schema.unique_names (map fst fields)) eqn:Unique; try discriminate.
- rewrite Kind in Decoded.
- destruct (InputDecoder.variant_fields_valid kind (JObject fields)) eqn:Valid; try discriminate.
- reflexivity.
-Qed.
-
 Theorem completion_rejects_unadmitted_remote_request : forall execute source value (prepared : bool),
  string_field "kind" source = Some (if prepared then "remote_command" else "remote_probe") ->
  Remote.parse_request prepared source = None ->

@@ -16,7 +16,6 @@ Definition content_declaration := D.Union [D.text;D.Array part_declaration].
 Definition images_declaration := D.Array reference_declaration.
 Definition fields_of source := match source with JObject fields => fields | _ => [] end.
 Definition reference_schema := D.schema reference_declaration.
-Definition part_schema := D.schema part_declaration.
 Definition content_schema := fields_of (D.schema content_declaration).
 Definition images_schema := fields_of (D.schema images_declaration).
 Definition native_argument_fields (command : string) :=

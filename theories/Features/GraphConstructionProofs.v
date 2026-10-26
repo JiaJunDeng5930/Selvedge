@@ -179,4 +179,8 @@ Theorem public_idle_missing_work_follows_successful_profile_resolution : forall 
  Work.lookup owner before = None ->
  Worktree.handle_create_idle request None before =
  reject "invalid_arguments" "The Work does not exist." before.
-Proof. intros; unfold Worktree.handle_create_idle,Worktree.create_idle_owned; now rewrite H,H0,H1. Qed.
+Proof.
+ intros request before start owner Owner Started Missing.
+ unfold Worktree.handle_create_idle,Worktree.create_idle_owned.
+ rewrite Started,Owner,(Work.select_missing_owner owner before Missing); reflexivity.
+Qed.

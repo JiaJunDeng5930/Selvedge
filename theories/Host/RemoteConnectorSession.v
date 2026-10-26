@@ -1,9 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema RemoteIdentity.
 From Selvedge.Host Require Import RemoteProtocol.
+From Selvedge.Kernel Require ModelDeclarations.
+Module MD := Selvedge.Kernel.ModelDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Open Scope list_scope.
 
 Definition grant := authorization.
 Definition Grant := Authorization.
@@ -116,47 +119,69 @@ Definition pairing_json value := match value with None => JNull | Some pairing_v
 Definition pairing_decode value := match value with JObject _ => Some (Pairing (str value "code") (num value "expires_at")) | _ => None end.
 Definition queued_json value := JObject [("connection_id",JString (owner value));("bytes",number (bytes value));
  ("notice_sequence",match queued_notice value with Some sequence => number sequence | None => JNull end)].
-Definition state_json s := JObject ([("generation",number (generation s));("notice_sequence",number (notice_sequence s));
- ("pairing",pairing_json (pairing_of (current s)))] ++
- match current s with Offline _ _ => [("phase",JString "offline")]
- | Negotiating _ _ => [("phase",JString "negotiating")]
- | Ready _ data => [("phase",JString "ready");("grants",JArray (map grant_json (grants data)));
-   ("connections",JArray (map connection_json (connections data)));("pending",JArray (map queued_json (pending data)))] end).
-Definition state_of source :=
- let n := num source "generation" in let pairing_value := pairing_decode (get source "pairing") in
- option_map (fun phase => State phase (num source "notice_sequence")) (match str source "phase" with
- | "offline" => Some (Offline n pairing_value) | "negotiating" => Some (Negotiating n pairing_value)
- | "ready" => Some (Ready n (Session pairing_value (map grant_of (items (get source "grants")))
-     (map connection_of (items (get source "connections")))
-     (map (fun value => Queued (str value "connection_id") (num value "bytes")
-       (Schema.decode_value Schema.KNatural (get value "notice_sequence"))) (items (get source "pending")))))
- | _ => None end).
+Definition queued_of value := Queued (str value "connection_id") (num value "bytes")
+ (Schema.decode_value Schema.KNatural (get value "notice_sequence")).
+Definition generation_field := Field "generation" KNatural.
+Definition notice_field := Field "notice_sequence" KNatural.
+Definition state_fields := [generation_field;Field "pairing" KJson;notice_field].
+Definition state_declaration name extra := MD.Variant "phase" (JString name) (state_fields ++ extra)
+ (map field_name (state_fields ++ extra)) None.
+Definition offline := state_declaration "offline" [].
+Definition negotiating := state_declaration "negotiating" [].
+Definition ready := state_declaration "ready"
+ [Field "grants" (KArray KJson);Field "connections" (KArray KJson);Field "pending" (KArray KJson)].
+Definition state_packet s := match current s with
+ | Offline n pairing_value=>MD.pack offline [!n;pairing_json pairing_value;notice_sequence s!]
+ | Negotiating n pairing_value=>MD.pack negotiating [!n;pairing_json pairing_value;notice_sequence s!]
+ | Ready n data=>MD.pack ready [!n;pairing_json (pairing_code data);notice_sequence s;
+     map grant_json (grants data);map connection_json (connections data);map queued_json (pending data)!] end.
+Definition state_json s := MD.encode_packet (state_packet s).
+Definition state_decoders : list (MD.decoder state) := [
+ MD.Decoder offline (fun v=>Some (State (Offline (head v) (pairing_decode (head (tail v)))) (head (tail (tail v)))));
+ MD.Decoder negotiating (fun v=>Some (State (Negotiating (head v) (pairing_decode (head (tail v)))) (head (tail (tail v)))));
+ MD.Decoder ready (fun v=>let n:=head v in let v:=tail v in let pairing_value:=pairing_decode (head v) in
+   let v:=tail v in let sequence:=head v in let v:=tail v in
+   Some (State (Ready n (Session pairing_value (map grant_of (head v))
+     (map connection_of (head (tail v))) (map queued_of (head (tail (tail v)))))) sequence))].
+Definition state_of := MD.decode_cases state_decoders.
 Definition frame_of source := match str source "type" with
  | "ready" => Some RelayReady | "controller_open" => Some (ControllerOpen (Connection (str source "connection_id") (grant_of source) None))
  | "controller_close" => Some (ControllerClose (str source "connection_id"))
  | "request" => Some (Request (str source "connection_id") (grant_of source))
  | "pair_request" => Some PairRequest | "pong" => Some Pong | _ => None end.
-Definition event_of source :=
- let n := num source "generation" in
- if String.eqb (str source "kind") "install" then Some (Install n) else
- if String.eqb (str source "kind") "notice" then Some Notice else
- option_map (Observe n) (match str source "kind" with
- | "retire" => Some Retire | "pair" => option_map (fun pairing_value => SetPairing pairing_value (num source "now")) (pairing_decode (get source "frame"))
- | "pairing_current" => Some (CurrentPairing (num source "now"))
- | "grants" => Some (Grants (map grant_of (items (get source "grants"))))
- | "enqueue" => Some (Enqueue (str source "connection_id") (num source "bytes") (Schema.decode_value Schema.KNatural (get source "notice_sequence")))
- | "dequeue" => Some (Dequeue (str source "connection_id") (num source "bytes") (Schema.decode_value Schema.KNatural (get source "notice_sequence")))
- | "capture" => match str source "method" with
-   "unsubscribe" => Some (Unsubscribe (str source "connection_id"))
-   | "snapshot" => Some (Snapshot (str source "connection_id") false)
-   | "subscribe" => Some (Snapshot (str source "connection_id") true) | _ => None end
- | "deliver" => Some (Deliver (str source "connection_id") (num source "notice_sequence"))
- | "frame" => option_map Frame (frame_of (get source "frame")) | _ => None end).
+Definition event_decoder name description construct : MD.decoder event :=
+ MD.Decoder (MD.Variant "kind" (JString name) description (map field_name description) None) construct.
+Definition observation_decoder name description (construct : fields description -> option observation) :=
+ event_decoder name (generation_field::description)
+   (fun values=>option_map (Observe (head values)) (construct (tail values))).
+Definition queue_fields := [Field "connection_id" KText;Field "bytes" KNatural;Field "notice_sequence" KJson].
+Definition queue_decoder name construct := observation_decoder name queue_fields
+ (fun values=>Some (construct (head values) (head (tail values))
+   (Schema.decode_value KNatural (head (tail (tail values)))))).
+Definition event_decoders : list (MD.decoder event) := [
+ event_decoder "install" [generation_field] (fun v=>Some (Install (head v)));
+ observation_decoder "retire" [] (fun _=>Some Retire);
+ observation_decoder "pair" [Field "now" KNatural;Field "frame" KJson]
+   (fun v=>option_map (fun pairing_value=>SetPairing pairing_value (head v)) (pairing_decode (head (tail v))));
+ observation_decoder "pairing_current" [Field "now" KNatural] (fun v=>Some (CurrentPairing (head v)));
+ observation_decoder "grants" [Field "grants" (KArray KJson)] (fun v=>Some (Grants (map grant_of (head v))));
+ queue_decoder "enqueue" Enqueue;queue_decoder "dequeue" Dequeue;
+ event_decoder "notice" [] (fun _=>Some Notice);
+ observation_decoder "capture" [Field "connection_id" KText;Field "method" (KEnum "snapshot" ["subscribe";"unsubscribe"])]
+   (fun v=>Some (match proj1_sig (head (tail v)) with "unsubscribe"=>Unsubscribe (head v)
+      | "subscribe"=>Snapshot (head v) true | _=>Snapshot (head v) false end));
+ observation_decoder "deliver" [Field "connection_id" KText;notice_field]
+   (fun v=>Some (Deliver (head v) (head (tail v))));
+ observation_decoder "frame" [Field "frame" KJson] (fun v=>option_map Frame (frame_of (head v)))].
+Definition event_of := MD.decode_cases event_decoders.
 Definition action_text value := match value with Ignore => "ignore" | Installed => "installed" | Retired => "retire"
  | PublishPairing => "pairing" | PendingPairing => "pending" | PairingExpired => "expired" | GrantsUpdated => "grants"
  | Enqueued => "enqueue" | Dequeued => "dequeue" | Disconnect => "disconnect" | BecameReady => "ready"
  | Opened => "controller_open" | Closed => "controller_close" | Requested => "request" | PairRequested => "pair_request" | ReceivedPong => "pong"
  | RecordedNotice => "notice" | CapturedSnapshot => "snapshot" | Unsubscribed => "unsubscribed" | DeliverNotice => "deliver" end.
+Definition action_kind := KEnum (action_text Ignore) (map action_text
+ [Installed;Retired;PublishPairing;PendingPairing;PairingExpired;GrantsUpdated;Enqueued;Dequeued;Disconnect;
+  BecameReady;Opened;Closed;Requested;PairRequested;ReceivedPong;RecordedNotice;CapturedSnapshot;Unsubscribed;DeliverNotice]).
 Definition connector_step source observed := match state_of source,event_of observed with
  | Some state,Some event => let '(next,action) := step state event in
    Some (JObject [("state",state_json next);("action",JString (action_text action))])

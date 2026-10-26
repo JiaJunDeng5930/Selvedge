@@ -17,9 +17,10 @@ Proof.
 Qed.
 
 Lemma the_manual_fork_proposal_preserves_world_requirements : forall request before,
- well_formed before -> well_formed (decision_world (ForkCommit.propose request before)).
+ well_formed before ->
+ well_formed (decision_world (CommandResult.decide before (ForkCommit.propose_result request before))).
 Proof.
- intros; unfold ForkCommit.propose, ForkCommit.propose_result.
+ intros; unfold ForkCommit.propose_result.
  destruct (Worktree.execution_allowed _ _).
  - apply the_actual_manual_fork_handler_preserves_world_requirements; assumption.
  - assumption.

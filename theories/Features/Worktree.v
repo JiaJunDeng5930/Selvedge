@@ -2,7 +2,7 @@ From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace Tasks CommandExecution.
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work WorkspaceBinding.
 Import ListNotations.
@@ -337,8 +337,6 @@ Definition transition_effects {origin before} (created : start_transition origin
 Definition transition_change {origin before} (created : start_transition origin before) :=
  CommandResult.Change (JObject [("task_id",number (transition_identity created))])
    (transition_world created) (transition_effects created).
-Definition transition_decision {origin before} (created : start_transition origin before) :=
- CommandResult.accept (transition_change created).
 Definition consume_scoped_start {origin current} (plan : scoped_start origin)
  (frame : birth_frame origin current) (owner : option (Work.owner_scope origin))
  : start_transition origin current.
@@ -389,6 +387,11 @@ Definition start_allowed (settings:option json) (caller:option N) (before:world)
 Definition creation_result (before : world) := CommandResult.result (start_transition before before).
 Definition creation_decision {before} (result : creation_result before) :=
  CommandResult.commit before transition_change result.
+Definition prepare_selected_birth {before:world} (owner:option (Work.owner_scope before))
+ (intent:creation_intent) (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
+ (start:Tasks.resolved_start) : creation_result before :=
+ CommandResult.map (fun plan=>consume_scoped_start plan InitialFrame owner)
+   (prepare_scoped intent caller managed backend start before).
 Definition resolve_start_birth (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (before:world) : creation_result before :=
@@ -396,8 +399,7 @@ Definition resolve_start_birth (intent:creation_intent) (settings:option json)
  match cached with
  | Tasks.StartRefused cause=>CommandResult.refuse (Tasks.failure_code entry cause) (Tasks.failure_message cause)
  | Tasks.StartResolved start=>if start_allowed settings caller before cached then
-   CommandResult.map (fun plan => consume_scoped_start plan InitialFrame None)
-     (prepare_scoped intent caller managed backend start before)
+   prepare_selected_birth None intent caller managed backend start
    else CommandResult.refuse (Tasks.failure_code entry Tasks.AuthorityExpansion)
      (Tasks.failure_message Tasks.AuthorityExpansion) end.
 Definition consume_start_resolution (intent:creation_intent) (settings:option json)
@@ -427,9 +429,6 @@ Definition create_backend (backend:WorkspaceBackend.backend) (name:string) (effo
  create_intent WorkspaceTaskCreation name effort contents settings false caller None (Some backend) value.
 Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
  create_intent WorktreeTaskCreation name effort contents settings false caller (Some managed) None value.
-Definition attach_planned_birth {before:world} (owner : Work.owner_scope before)
- (plan : scoped_start before) :=
- transition_decision (consume_scoped_start plan InitialFrame (Some owner)).
 Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (value:world) :=
@@ -437,8 +436,8 @@ Definition consume_owned_start (owner:option N) (intent:creation_intent) (settin
  | Some id=>match Work.select_owner id value with None=>reject "work_not_found" "The Work does not exist." value
    | Some owner=>match cached with
      | Tasks.StartRefused cause=>Tasks.refuse_start (creation_entry intent caller) cause value
-     | Tasks.StartResolved start=>CommandResult.resolve value (attach_planned_birth owner)
-       (prepare_scoped intent caller managed backend start value) end end
+     | Tasks.StartResolved start=>creation_decision
+       (prepare_selected_birth (Some owner) intent caller managed backend start) end end
  | None=>consume_start_resolution intent settings caller managed backend cached value end.
 Definition create_owned_cached (owner:N) (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
@@ -452,11 +451,13 @@ Definition create_idle_owned (owner:option N) (name:string) (effort:option strin
  let cached:=CommandExecution.resolve_context_start entry name effort [] settings true caller value in
  match cached with
  | Tasks.StartRefused cause=>Tasks.refuse_start entry cause value
- | Tasks.StartResolved _=>if match owner with None=>true | Some id=>match Work.lookup id value with Some _=>true | None=>false end end then
-   if start_allowed settings caller value cached then
-     consume_owned_start owner IdleTaskCreation settings caller managed None cached value
-   else Tasks.refuse_start entry Tasks.AuthorityExpansion value
-   else reject "invalid_arguments" "The Work does not exist." value end.
+ | Tasks.StartResolved start=>
+   match match owner with None=>Some None | Some id=>option_map (@Some (Work.owner_scope value)) (Work.select_owner id value) end with
+   | Some selected=>if start_allowed settings caller value cached then
+       creation_decision (prepare_selected_birth selected IdleTaskCreation caller managed None start)
+     else Tasks.refuse_start entry Tasks.AuthorityExpansion value
+   | None=>reject "invalid_arguments" "The Work does not exist." value end end.
+
 Definition configure_task_execution (payload : Selvedge.Generated.Commands.configure_task_execution_payload) (value : world) :=
  Tasks.configure_execution_with
    (if WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.configure_task_execution_task_id payload) value
@@ -550,67 +551,81 @@ Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:opti
  let failed:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreateFailed root reason) tree in
  let updated:=store failed (Selvedge.Kernel.State.put_task id (failed_task reason task) value) in
  if archived task then archive_tree failed updated else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) updated [] end.
-Definition shape (fields:Schema.schema) (source:json) := match Schema.decode fields source with Some _=>true | None=>false end.
 Inductive archive_outcome := ArchivedAt (root : string)
  | ReservationReleased (previous_root reservation_id : string).
-Definition decode_archive_outcome (source : json) : option archive_outcome :=
- let outcome := value_or_null "outcome" source in
- if shape [Field "kind" KText;Field "root" KText] outcome &&
-    String.eqb (text_default "kind" outcome "") "archived_at" &&
-    Workspace.valid_path (text_default "root" outcome "") then
-   Some (ArchivedAt (text_default "root" outcome ""))
- else if shape [Field "kind" KText;Field "previous_root" KText;Field "reservation_id" KText] outcome &&
-    String.eqb (text_default "kind" outcome "") "reservation_released" &&
-    Workspace.valid_path (text_default "previous_root" outcome "") &&
-    negb (String.eqb (text_default "reservation_id" outcome "") "") then
-   Some (ReservationReleased (text_default "previous_root" outcome "") (text_default "reservation_id" outcome ""))
- else None.
+Definition archive_outcome_decoders : list (ModelDeclarations.decoder archive_outcome) := [
+ ModelDeclarations.Decoder (ModelDeclarations.effect "archived_at" [Field "root" KText] None)
+   (fun values=>if Workspace.valid_path (head values) then Some (ArchivedAt (head values)) else None);
+ ModelDeclarations.Decoder (ModelDeclarations.effect "reservation_released"
+   [Field "previous_root" KText;Field "reservation_id" KText] None)
+   (fun values=>if Workspace.valid_path (head values) && negb (String.eqb (head (tail values)) "")
+     then Some (ReservationReleased (head values) (head (tail values))) else None)].
+Definition archive_outcome_of := ModelDeclarations.decode_cases archive_outcome_decoders.
 Definition archived_root (outcome : archive_outcome) : option string :=
  match outcome with ArchivedAt root => Some root | ReservationReleased _ _ => None end.
 Definition archive_outcome_matches (tree : Selvedge.Features.Domain.worktree) (root : string) (outcome : archive_outcome) :=
  match outcome with ArchivedAt _ => true | ReservationReleased previous _ =>
    negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)) && String.eqb previous root end.
+Record creation_completion := CreationCompletion {
+ creation_owner : N; creation_root : option string; creation_workspace : option workspace;
+ creation_guidance : json; creation_message : string
+}.
+Definition decode_creation_completion (source : json) (ok : bool) : option creation_completion :=
+ if ok then match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) true) source with
+ | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail (tail fields) in
+   let root:=head fields in let fields:=tail fields in let observed:=head fields in let guidance:=head (tail fields) in
+   match parse_workspace observed with
+   | Some space => if Workspace.valid_path root && Codec.valid_guidance guidance && Codec.guidance_member space guidance &&
+       match string_field "primary_root" observed with Some _=>true | None=>false end
+     then Some (CreationCompletion id (Some root) (Some space) guidance "") else None
+   | None=>None end
+ | None=>None end
+ else match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) false) source with
+ | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail (tail fields) in
+   let root:=head fields in let message:=head (tail fields) in
+   if match root with Some root=>Workspace.valid_path root | None=>true end
+   then Some (CreationCompletion id root None JNull message) else None
+ | None=>None end.
+Definition decode_archive_completion (source : json) (ok : bool) : option (N * option archive_outcome * string) :=
+ if ok then match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) true) source with
+ | Some fields => let fields:=tail fields in
+   option_map (fun outcome=>(head fields,Some outcome,"")) (archive_outcome_of (head (tail (tail fields))))
+ | None=>None end
+ else match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) false) source with
+ | Some fields => let fields:=tail fields in Some (head fields,None,head (tail (tail fields)))
+ | None=>None end.
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
- match string_field "kind" source,natural_field "task_id" source,bool_field "ok" source with
- | Some kind,Some id,Some ok=>
+ match string_field "kind" source,bool_field "ok" source with
+ | Some kind,Some ok=>
  if String.eqb kind "worktree_created" then
- let root:=string_field "root" source in
- let space:=match field "workspace" source with Some source=>parse_workspace source | None=>None end in
- let guidance:=value_or_null "guidance" source in
- let valid:=if ok then shape (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) true) source &&
- match root,space with Some root,Some observed=>
-   Workspace.valid_path root && Codec.valid_guidance guidance && Codec.guidance_member observed guidance &&
-   match field "workspace" source with
-   | Some workspace=>match string_field "primary_root" workspace with Some _=>true | None=>false end
-   | None=>false end
- | _,_=>false end
- else shape (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) false) source &&
- match root with Some root=>Workspace.valid_path root | None=>true end in
- if negb valid then None else Some (true,true,match lookup id value with
- | Some tree=>match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _=>created tree ok root space guidance (text_default "message" source "") value
- | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
- | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ match decode_creation_completion source ok with
+ | Some payload=>Some (true,true,match lookup (creation_owner payload) value with
+   | Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
+     | Selvedge.Features.Domain.TreeCreating _=>created tree ok (creation_root payload) (creation_workspace payload)
+         (creation_guidance payload) (creation_message payload) value
+     | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
+   | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ | None=>None end
  else if String.eqb kind "worktree_archived" then
- let outcome := decode_archive_outcome source in
- if negb (if ok then shape (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) true) source &&
-   match outcome with Some _ => true | None => false end
- else shape (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) false) source) then None else
- Some (true,true,match lookup id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
- | Selvedge.Features.Domain.TreeArchiving root target=>
-   if match outcome with Some outcome => archive_outcome_matches tree root outcome | None => negb ok end then
-   Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)])
-   (store (Selvedge.Features.Domain.with_worktree_phase (if ok then
-      Selvedge.Features.Domain.TreeArchived (match outcome with Some outcome => archived_root outcome | None => None end) target
-      else Selvedge.Features.Domain.TreeArchiveFailed root target (text_default "message" source "")) tree) value) []
-   else Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value []
- | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
- else None | _,_,_=>None end.
+ match decode_archive_completion source ok with
+ | Some (id,outcome,message)=>Some (true,true,match lookup id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
+   | Selvedge.Features.Domain.TreeArchiving root target=>
+     if match outcome with Some outcome => archive_outcome_matches tree root outcome | None => negb ok end then
+     Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)])
+     (store (Selvedge.Features.Domain.with_worktree_phase (if ok then
+        Selvedge.Features.Domain.TreeArchived (match outcome with Some outcome => archived_root outcome | None => None end) target
+        else Selvedge.Features.Domain.TreeArchiveFailed root target message) tree) value) []
+     else Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value []
+   | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
+   | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ | None=>None end
+ else None | _,_=>None end.
 Definition archive_after (tree:Selvedge.Features.Domain.worktree) (result:decision) :=
  let value:=decision_world result in
  match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with Some task=>if archived task then
  match Selvedge.Features.Domain.worktree_phase tree with
  | Selvedge.Features.Domain.TreeCreating false=>Selvedge.Kernel.State.Decision (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating true) tree) value) (decision_reply result) (decision_effects result)
- | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>let next:=archive_tree tree value in Selvedge.Kernel.State.Decision (decision_world next) (decision_reply result) (decision_effects result++decision_effects next)
+ | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>DecisionComposition.follow result (archive_tree tree value)
  | _=>result end else result | None=>result end.
 Definition after_transition (_before:world) (result:decision) := fold_left (fun current tree=>archive_after tree current) (Selvedge.Features.Domain.feature_worktrees (world_features (decision_world result))) result.
 Definition recover (value:world) := value.

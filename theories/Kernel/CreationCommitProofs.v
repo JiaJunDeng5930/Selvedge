@@ -40,7 +40,7 @@ Proof.
    Worktree.create_intent_result, Worktree.resolve_start_birth.
  fold (requested_start request contents before).
  rewrite Resolved. cbn [Worktree.start_allowed CommandExecution.creation_allowed].
- unfold Worktree.prepare_scoped. rewrite Prepared.
+ unfold Worktree.prepare_selected_birth,Worktree.prepare_scoped. rewrite Prepared.
  cbn [Worktree.final_authority].
  change ((let born := Worktree.consume_planned_start plan before in
    Decision (decision_world born) (decision_reply born)

@@ -26,8 +26,6 @@ Fixpoint message_of_fields (depth : nat) :
      Selvedge.Features.Domain.GraphConcat (map (message_of_fields remaining) parts)
    | inr (inr (inr impossible)) => match impossible with end
    end end.
-Definition parse_message depth source := option_map (message_of_fields depth)
- (ArgumentDeclaration.decode (TaskGraphDeclarations.message_declaration depth) source).
 Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition action_of_fields (values : ArgumentDeclaration.denote TaskGraphDeclarations.action_declaration) :=
@@ -93,7 +91,6 @@ Definition paired (name:string) (tests implementation:Selvedge.Features.Domain.g
  Declaration name [tests;implementation]
  [Selvedge.Features.Domain.GraphRule rule (node_key tests)
    [Selvedge.Features.Domain.GraphAction (node_key implementation) message]].
-Definition work_valid (owner:option N) (value:world) := match owner with None=>true | Some id=>match Work.lookup id value with Some _=>true | None=>false end end.
 Definition task_in_work (owner:option N) (id:N) (value:world) := match owner with None=>true | Some expected=>match Work.task_owner id value with Some actual=>N.eqb expected actual | None=>false end end.
 (* Cache ordinary start outcomes against the original world. Native authority
    observes successful starts before domain failures are projected. *)

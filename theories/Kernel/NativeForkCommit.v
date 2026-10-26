@@ -31,8 +31,8 @@ Definition resolve (source : Inputs.input) (before : world) : option (plan befor
  | _ => None end.
 Definition started_world {before : world} (accepted : plan before) :=
  let step := planned_step accepted in
- Scheduler.commit_changes (Scheduler.native_fork_owner step)
-   (fun _ => [TaskChange.ChangePhase (PendingCalls (Scheduler.native_fork_remaining step))]) before.
+ TaskChange.interpret (TaskChange.Plan before (planned_target accepted)
+   [TaskChange.ChangePhase (PendingCalls (Scheduler.native_fork_remaining step))]).
 Definition business_result {before : world} (accepted : plan before) :=
  let step := planned_step accepted in
  let started := started_world accepted in

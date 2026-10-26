@@ -15,8 +15,8 @@ Definition valid_plugin (source : json) :=
    valid_reference (head values) && Schema.unique_names events &&
    forallb (fun event => existsb (String.eqb event) Limits.plugin_events) events end.
 Definition valid_global_instructions (source : json) := match source with JNull => true | _ =>
- match Schema.decode [Field "path" KText; Field "revision" KText; Field "content" KText] source with
- | None => false | Some values => match ContextUpdates.global_guidance_snapshot source with
+ match Schema.decode ContextUpdates.global_guidance_fields source with
+ | None => false | Some values => match ContextUpdates.global_guidance_from_fields values with
    | None => false | Some _ => Workspace.valid_path (head values) &&
      Utf8.no_nul (head (tail (tail values))) && Nat.leb (String.length (head (tail (tail values)))) 32768
    end end end.

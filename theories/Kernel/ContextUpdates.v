@@ -69,11 +69,14 @@ Definition construct_snapshot (definition : ContextTypes.definition)
  let key := ContextKey definition identity in
  let value := Snapshot key revision fields in
  if valid_snapshot value then Some value else None.
+Definition global_guidance_fields :=
+ [Field "path" KText; Field "revision" KText; Field "content" KText].
+Definition global_guidance_from_fields (values : fields global_guidance_fields) :=
+ construct_snapshot Context.global_guidance [("path",head values)]
+   (head (tail values)) [("content",head (tail (tail values)))].
 Definition global_guidance_snapshot (source : json) : option snapshot :=
- match string_field "path" source, string_field "revision" source, string_field "content" source with
- | Some path, Some revision, Some content =>
-   construct_snapshot Context.global_guidance [("path",path)] revision [("content",content)]
- | _,_,_ => None end.
+ match Schema.decode global_guidance_fields source with
+ | Some values => global_guidance_from_fields values | None => None end.
 
 Definition registered_key_candidate (source : json) : option context_key :=
  match string_field "type" source, parse_fields (value_or_null "identity" source),

@@ -2,7 +2,7 @@ From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks CommandExecution Scheduler Codec Limits Inputs TicketedRequest ScopedRequestProofs ReasoningPlan.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks CommandExecution Scheduler Codec Limits Inputs TicketedRequest ScopedRequestProofs ReasoningPlan TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

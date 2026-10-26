@@ -57,13 +57,11 @@ Definition grants_declaration := D.Array (D.Object [
  ("sandbox",true,sandbox_declaration)]).
 Definition connection_grants_schema := fields_of (D.schema grants_declaration).
 
-Definition graph_message_declaration := TaskGraphDeclarations.message_declaration.
 Definition graph_node_declaration (observed : bool) := D.Union [
  D.Object [("key",true,D.text);("task_id",true,identity)];
  D.Object [("key",true,D.text);("profile",false,D.text);
  ("reasoning",false,D.text);("message",false,D.text);
  ("settings",false,settings_declaration observed)]].
-Definition graph_action_declaration := TaskGraphDeclarations.action_declaration.
 Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
 Definition graph_command (name : string) := String.eqb name "create_task_graph" || String.eqb name "update_task_graph".
 Definition board_metadata (name : string) := existsb (String.eqb name) ["create_card";"update_card"].

@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs OptionListProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs TaskScopeProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
 From Selvedge.Kernel Require Import DecisionCompositionProofs.
 Import ListNotations.
@@ -14,6 +14,28 @@ Module CC := Selvedge.Features.CompactionCodec.
 Module A := Selvedge.Features.Compaction.
 Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
+
+Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
+ TicketedRequest.Scoped.feature_valid before (TicketedRequest.Scoped.MaintainRequest id request) = true ->
+ exists plan : TicketedRequest.Scoped.feature_plan before,
+   A.run_request id request before = TicketedRequest.Scoped.feature_issue plan /\
+   TicketedRequest.Scoped.feature_intent plan = TicketedRequest.Scoped.MaintainRequest id request.
+Proof.
+ intros id request before Ready; pose proof Ready as HasOwner.
+ cbn [TicketedRequest.Scoped.feature_valid] in HasOwner.
+ unfold TicketedRequest.Scoped.maintenance_ready in HasOwner.
+ destruct (K.find_task id before) as [current|] eqn:Found; [|discriminate].
+ destruct (selecting_an_existing_task_retains_its_key id before current Found)
+   as [reference [Selected [Owner Current]]].
+ assert (Eligible : TicketedRequest.Scoped.feature_valid before
+   (TicketedRequest.Scoped.MaintainRequest (TaskScope.owner reference) request) = true) by now rewrite Owner.
+ destruct (admitted_maintenance_has_a_selected_plan before (TaskScope.owner reference) request
+   (TaskScope.selected reference) (TaskScope.observed reference) Eligible) as [admitted Resolved].
+ exists (TicketedRequest.Scoped.FeaturePlan
+   (TicketedRequest.Scoped.MaintainRequest (TaskScope.owner reference) request) admitted).
+ split; [unfold A.run_request; rewrite Selected; unfold A.run_request_selected; now rewrite Resolved|].
+ cbn [TicketedRequest.Scoped.feature_intent]; now rewrite Owner.
+Qed.
 
 Lemma a_blocked_model_waits_with_live_operations : forall id value task operations,
  K.find_task id value = Some task ->
@@ -79,31 +101,25 @@ Proof. intros; apply (proj1 (synchronization_retains_the_operation_result result
     The shared synchronization step starts a request for that actual current
     capture; it does not leave the ready model waiting on the old count. *)
 Theorem a_stale_ready_measurement_is_planned_again :
- forall id value task operations target entry input scope tokens budget reply effects,
- K.find_task id value = Some task ->
- task_lifecycle task = Running ReadyForModel operations ->
- TicketedRequest.Scoped.resources_available task value = true ->
- A.enabled_target task (A.registry value) = Some target ->
- entry = A.synchronized_entry task (A.current_entry id (A.registry value)) (A.registry value) ->
- entry_job entry = NoJob ->
- entry_measurement entry = Measured input scope tokens budget ->
- A.fresh (entry_measurement entry) task value = false ->
- A.synchronize_task id (K.Decision value reply effects) =
- A.combine (K.Decision value reply effects)
-   (A.begin_scope id (A.capture_task task value) None entry value).
+ forall id value current operations target entry input scope tokens budget,
+ task_lifecycle current = Running ReadyForModel operations ->
+ TicketedRequest.Scoped.resources_available current value = true ->
+ A.enabled_target current (A.registry value) = Some target ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry_job entry = NoJob -> entry_measurement entry = Measured input scope tokens budget ->
+ A.fresh (entry_measurement entry) current value = false ->
+ A.synchronize id current value = Some (A.begin_scope id (A.capture_task current value) None entry value).
 Proof.
- intros id value task operations target entry input scope tokens budget reply effects
-   Found Lifecycle Available Enabled Entry Job Measured Stale.
- assert (Phase : task_activity task = ReadyForModel)
+ intros id value current operations target entry input scope tokens budget
+   Lifecycle Available Enabled Entry Job Measured Stale.
+ assert (Phase : task_activity current = ReadyForModel)
    by (unfold task_activity; now rewrite Lifecycle).
- assert (NotIdle : A.idle_due task entry (A.registry value) = false).
- { unfold A.idle_due, A.idle; rewrite Phase. now rewrite !andb_false_r. }
- unfold A.synchronize_task; cbn [K.decision_world]; rewrite Found.
- unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
- unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
- rewrite Phase, Job, Enabled, Measured.
- cbn [A.validating A.pending_measurement]. rewrite NotIdle.
- rewrite Measured in Stale; now rewrite Stale.
+ assert (NotIdle : A.idle_due current entry (A.registry value) = false).
+ { unfold A.idle_due,A.idle; rewrite Phase; now rewrite !andb_false_r. }
+ unfold A.synchronize; cbv beta zeta; unfold A.current_entry in Entry; rewrite <- Entry.
+ unfold A.alive,A.running; rewrite Lifecycle,Available; cbn.
+ rewrite Phase,Job,Enabled,Measured; cbn [A.validating A.pending_measurement].
+ rewrite NotIdle; rewrite Measured in Stale; now rewrite Stale.
 Qed.
 
 Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
@@ -114,20 +130,16 @@ Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
  entry_measurement (A.current_entry id (A.registry (K.decision_world result))) =
    Measuring (K.world_next_ticket value) input InspectScope.
 Proof.
- intros id input entry value Ready; cbn zeta.
- unfold A.begin_scope, A.run_request, TicketedRequest.Scoped.feature.
- cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_replacement_ready].
- destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id input value && true) true)
-   as [Admitted|Refused]; [|exfalso; apply Refused; now rewrite Ready].
- cbn [TicketedRequest.Scoped.feature_issue TicketedRequest.Scoped.feature_issue_change
-   CommandResult.accept CommandResult.change_world CommandResult.change_effects TicketedRequest.Scoped.feature_intent
-   TicketedRequest.Scoped.feature_space TicketedRequest.allocate_identity TicketedRequest.next_identity
-   TicketedRequest.Scoped.feature_build TicketedRequest.Scoped.maintenance_build
-   K.accept K.decision_world K.decision_effects].
- split; [reflexivity|].
- unfold A.current_entry, A.find_entry, A.registry, TicketedRequest.Scoped.put_compaction,
-   K.with_features, Selvedge.Features.State.with_compaction, set; cbn.
- now rewrite N.eqb_refl.
+ intros id input entry value Ready; cbn zeta; unfold A.begin_scope.
+ assert (Admitted : TicketedRequest.Scoped.feature_valid value
+   (TicketedRequest.Scoped.MaintainRequest id (TicketedRequest.Scoped.ScopeRequest input None entry)) = true).
+ { cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_input
+     TicketedRequest.Scoped.maintenance_replacement_ready]; now rewrite Ready. }
+ destruct (admitted_maintenance_runs_its_resolved_plan id _ value Admitted) as [plan [Issued Intent]].
+ rewrite Issued.
+ destruct (resolved_maintenance_installs_its_exact_receiver value plan id _ Intent) as [Installed Effects].
+ split; [exact Effects|].
+ unfold A.current_entry,A.find_entry,A.registry; rewrite Installed; reflexivity.
 Qed.
 
 Lemma printed_natural_is_admitted : forall value, natural (number value) = Some value.
@@ -147,12 +159,11 @@ Definition owns_compactor_ticket (id ticket : N) (value : K.world) :=
 Lemma stale_result_does_not_change_the_component : forall id ticket result value,
  owns_compactor_ticket id ticket value = false -> A.resolve (Completed id ticket result false) value = None.
 Proof.
- intros id ticket result value stale.
- unfold A.resolve, A.resolve_task_completion.
- destruct (K.find_task id value) as [task|]; [|reflexivity].
- unfold owns_compactor_ticket in stale.
- unfold A.running, A.alive, A.compact_result.
- destruct (task_lifecycle task);
+ intros id ticket result value stale; unfold A.resolve,A.resolve_task_completion.
+ destruct (K.find_task id value) as [current|]; [|reflexivity].
+ unfold owns_compactor_ticket in stale; cbv beta zeta.
+ unfold A.running,A.alive,A.compact_result.
+ destruct (task_lifecycle current);
  destruct (entry_job (A.current_entry id (A.registry value))); cbn in *;
  try reflexivity; now rewrite stale.
 Qed.
@@ -186,10 +197,10 @@ Lemma storing_maintenance_preserves_tasks : forall id state value,
 Proof. reflexivity. Qed.
 Lemma supplied_history_is_an_append : forall id task summary value,
  K.find_task id value = Some task ->
- exists stored, K.find_task id (K.decision_world (A.supplied id task summary value)) = Some stored /\
+ exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
- intros. unfold A.supplied,A.supplied_change,A.commit_change,CommandResult.accept.
+ intros. unfold A.supplied_change,A.commit_change.
  cbn -[A.store K.put_task ContextSelection.adopt]. rewrite storing_maintenance_preserves_tasks.
  eexists. split; [eapply find_put_task;exact H|].
  change (ContextSelection.adopt (task_history task) (ContextSelection.portable summary) (task_history task) =
@@ -202,12 +213,16 @@ Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary ca
  K.find_task id value = Some task -> A.alive task = true -> A.idle task = true ->
  (negb (String.eqb summary "") && (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes) &&
  ContextSelection.closed_prefix (task_history task)) = true ->
- A.handle_compact (G.Build_compact id (Some summary)) caller value = A.supplied id task summary value /\
- exists stored, K.find_task id (K.decision_world (A.supplied id task summary value)) = Some stored /\
+ A.handle_compact_result (G.Build_compact id (Some summary)) caller value = CommandResult.Accepted (A.supplied_change id task summary value) /\
+ exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
  intros. split.
- - unfold A.handle_compact,A.handle_compact_result. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
+ - destruct (selecting_an_existing_task_retains_its_key id value task H)
+     as [[owner current Observed] [Selected [Owner Current]]].
+   cbn in Owner,Current; subst owner current.
+   unfold A.handle_compact_result; cbn [G.compact_task_id G.compact_summary].
+   rewrite Selected; cbn [TaskScope.selected]; rewrite H0,H1; cbn; now rewrite H2.
  - apply supplied_history_is_an_append. assumption.
 Qed.
 Theorem measured_scope_and_reserve_reach_the_executed_request : forall request scope tokens budget input value,
@@ -217,21 +232,23 @@ Theorem measured_scope_and_reserve_reach_the_executed_request : forall request s
 Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
 
 
-Theorem manual_compaction_captures_context_before_any_summary_request : forall id task value entry,
- K.find_task id value = Some task ->
- TicketedRequest.Scoped.can_observe_maintenance task value = true ->
- ContextSelection.closed_prefix (task_history task) = true ->
+Theorem manual_compaction_captures_context_before_any_summary_request :
+ forall value (target : TaskScope.task_reference value) entry,
+ let id := TaskScope.owner target in let current := TaskScope.selected target in
+ TicketedRequest.Scoped.can_observe_maintenance current value = true ->
+ ContextSelection.closed_prefix (task_history current) = true ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
- K.decision_effects (A.manual id task value) =
+ CommandResult.change_effects (A.manual_change target) =
  (map K.MaintainContext (A.cancellations id entry) ++
-  [K.ObserveContext id (K.world_next_ticket value) task])%list.
+  [K.ObserveContext id (K.world_next_ticket value) current])%list.
 Proof.
- intros id task value entry Found ObserveAllowed Closed Entry Ready.
- destruct (maintenance_observation_uses_the_current_task id task (Some Manual) entry value Found ObserveAllowed Closed)
-   as [request [Selected Effects]].
- unfold A.manual,A.manual_change,CommandResult.accept. rewrite <- Entry, Ready. unfold A.wait_for_context. rewrite Found, Selected.
- cbn [K.decision_effects]. now rewrite Effects.
+ intros value target entry; cbn zeta; intros ObserveAllowed Closed Entry Ready.
+ destruct (maintenance_observation_uses_the_current_task value target
+   (Some Manual) entry ObserveAllowed Closed) as [request [Planned Effects]].
+ unfold A.manual_change; rewrite <- Entry,Ready.
+ unfold A.wait_for_context_selected; rewrite Planned.
+ cbn [CommandResult.change_effects]; now rewrite Effects.
 Qed.
 
 Definition manual_waiting_entry (current : task) (entry : C.entry) (before : K.world) :=
@@ -260,15 +277,21 @@ Theorem manual_compaction_accepts_an_open_prefix_and_waits :
  manual_waiting_decision id current before.
 Proof.
  intros id current operations caller before Found Lifecycle Available NoJob Open.
- pose proof (an_open_summary_prefix_has_no_context_plan id current Manual
-   (A.current_entry id (A.registry before)) before Found Open) as NoPlan.
+ destruct (selecting_an_existing_task_retains_its_key id before current Found)
+   as [[owner task Observed] [Selected [Owner Current]]].
+ cbn in Owner,Current; subst owner task.
+ pose proof (an_open_summary_prefix_has_no_context_plan before
+   (TaskScope.TaskReference before id current Observed) Manual
+   (A.current_entry id (A.registry before)) Open) as NoPlan.
  assert (Alive : A.alive current = true) by (unfold A.alive; now rewrite Lifecycle).
  assert (RunningTask : A.running current = true) by (unfold A.running; now rewrite Lifecycle).
  assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
  unfold A.handle_compact,A.handle_compact_result; cbn [G.compact_task_id G.compact_summary].
- rewrite Found, Alive, Phase, RunningTask; cbn.
- unfold A.manual,A.manual_change,CommandResult.accept; rewrite NoJob.
- unfold A.wait_for_context; rewrite Found, NoPlan, Available.
+ rewrite Selected; cbn [TaskScope.selected]; rewrite Alive,Phase,RunningTask; cbn.
+ unfold A.manual_change,CommandResult.accept; cbn [TaskScope.owner]; rewrite NoJob.
+ unfold A.wait_for_context_selected; rewrite NoPlan.
+ cbn [TaskScope.owner TaskScope.selected].
+ unfold A.retain_context_wait; rewrite Available.
  unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry.
  cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world K.decision_effects].
  now rewrite app_nil_r.
@@ -305,7 +328,7 @@ Proof.
  intros id current before input entry operations phase Lifecycle NoDemand NoObservation
    Available Entry Job Relevant Closed.
  assert (Phase : task_activity current = phase) by (unfold task_activity; now rewrite Lifecycle).
- unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
+ unfold A.synchronize; cbv beta zeta; unfold A.current_entry in Entry; rewrite <- Entry.
  unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
  rewrite Phase. destruct phase; try contradiction;
  try (exfalso; eapply NoObservation; reflexivity);
@@ -324,7 +347,7 @@ Theorem an_open_manual_wait_keeps_waiting_without_io :
 Proof.
  intros id current before input entry operations Lifecycle Available Entry Job Relevant Open.
  assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
- unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
+ unfold A.synchronize; cbv beta zeta; unfold A.current_entry in Entry; rewrite <- Entry.
  unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
  now rewrite Phase, Job, Relevant, Open.
 Qed.
@@ -344,26 +367,36 @@ Theorem a_closed_manual_wait_starts_a_fresh_context_read :
  K.decision_effects result = [K.ObserveContext id (K.world_next_ticket before) current].
 Proof.
  intros id current before input entry operations phase Found Lifecycle Phase Available Entry Job Unobserved Relevant Closed.
+ destruct (selecting_an_existing_task_retains_its_key id before current Found)
+   as [[owner selected Observed] [Selected [Owner Current]]].
+ cbn in Owner,Current; subst owner selected.
  assert (CanObserve : TicketedRequest.Scoped.can_observe_maintenance current before = true).
- { unfold TicketedRequest.Scoped.can_observe_maintenance; rewrite Available, Lifecycle.
+ { unfold TicketedRequest.Scoped.can_observe_maintenance; rewrite Available,Lifecycle;
    destruct Phase as [Phase|Phase]; subst phase; reflexivity. }
- destruct (maintenance_observation_uses_the_current_task id current (Some Manual)
-   (A.with_job NoJob entry) before Found CanObserve Closed) as [request [Selected Effects]].
- assert (NeedObservation : TicketedRequest.Scoped.maintenance_ready id (A.capture_task current before) before = false).
- { unfold TicketedRequest.Scoped.maintenance_ready.
-   replace (TicketedRequest.Scoped.compaction_entry id before) with (A.find_entry id (A.registry before)) by reflexivity.
-   rewrite Found. destruct (A.find_entry id (A.registry before)) as [stored|] eqn:Stored; [|reflexivity].
-   unfold A.current_entry in Unobserved; rewrite Stored in Unobserved.
-   now rewrite Unobserved, andb_false_r. }
+ destruct (maintenance_observation_uses_the_current_task before
+   (TaskScope.TaskReference before id current Observed) (Some Manual) (A.with_job NoJob entry) CanObserve Closed)
+   as [request [Planned Effects]].
  exists (A.begin_scope id (A.capture_task current before) (Some Manual) (A.with_job NoJob entry) before).
  split.
  - eapply a_closed_manual_wait_recaptures_its_current_prefix; eauto;
      destruct Phase as [Phase|Phase]; subst phase; discriminate.
- - unfold A.begin_scope, A.run_request, TicketedRequest.Scoped.feature.
-   cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_replacement_ready].
-   destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id (A.capture_task current before) before && true) true)
-     as [Admitted|Refused]; [exfalso; rewrite NeedObservation in Admitted; discriminate|].
-   unfold A.wait_for_context; rewrite Found, Selected; exact Effects.
+ - unfold A.begin_scope,A.run_request; rewrite Selected.
+   unfold A.run_request_selected,TicketedRequest.Scoped.maintenance_selected;
+     cbn [TaskScope.owner TaskScope.selected TaskScope.observed].
+   apply observe_cases.
+   + intros stored Stored.
+     assert (Missing : entry_observation stored = None).
+     { unfold A.current_entry in Unobserved.
+       change (A.find_entry id (A.registry before) = Some stored) in Stored.
+       now rewrite Stored in Unobserved. }
+     unfold TicketedRequest.Scoped.maintenance_observed,TicketedRequest.Scoped.boolean_admission.
+     destruct (Bool.bool_dec _ true) as [Eligible|Unavailable].
+     { exfalso; unfold TicketedRequest.Scoped.maintenance_ready_from in Eligible.
+       rewrite Missing,!andb_false_r in Eligible; discriminate. }
+     cbn [option_map TicketedRequest.Scoped.maintenance_waiting_entry].
+     unfold A.wait_for_context_selected; rewrite Planned; exact Effects.
+   + intros Absent; cbn [TicketedRequest.Scoped.maintenance_waiting_entry].
+     unfold A.wait_for_context_selected; rewrite Planned; exact Effects.
 Qed.
 
 Theorem suspended_manual_context_completion_cancels_its_job :
@@ -591,26 +624,29 @@ Proof.
  apply N.eqb_eq in Same; subst expected; exfalso; apply (Unrelated purpose demand); reflexivity.
 Qed.
 
-Theorem manual_compaction_waits_without_resource_io : forall id task value entry,
- K.find_task id value = Some task ->
- TicketedRequest.Scoped.resources_available task value = false ->
+Theorem manual_compaction_waits_without_resource_io : forall value
+ (target : TaskScope.task_reference value) entry,
+ let id := TaskScope.owner target in let current := TaskScope.selected target in
+ TicketedRequest.Scoped.resources_available current value = false ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
- K.decision_effects (A.manual id task value) = map K.MaintainContext (A.cancellations id entry) /\
- entry_job (A.current_entry id (A.registry (K.decision_world (A.manual id task value)))) = WaitingForResource (Some Manual).
+ CommandResult.change_effects (A.manual_change target) = map K.MaintainContext (A.cancellations id entry) /\
+ entry_job (A.current_entry id (A.registry (CommandResult.change_world (A.manual_change target)))) =
+   WaitingForResource (Some Manual).
 Proof.
- intros id task value entry Found Unavailable Entry Ready.
- assert (NoObservation : TicketedRequest.Scoped.can_observe_maintenance task value = false).
- { unfold TicketedRequest.Scoped.can_observe_maintenance. now rewrite Unavailable. }
- pose proof (unavailable_maintenance_observation_has_no_plan id task (Some Manual) entry value Found NoObservation) as NoPlan.
- unfold A.manual,A.manual_change,CommandResult.accept. rewrite <- Entry, Ready.
- unfold A.wait_for_context. rewrite Found, NoPlan, Unavailable.
+ intros value target entry; cbn zeta; intros Unavailable Entry Ready.
+ assert (NoObservation : TicketedRequest.Scoped.can_observe_maintenance (TaskScope.selected target) value = false).
+ { unfold TicketedRequest.Scoped.can_observe_maintenance; now rewrite Unavailable. }
+ pose proof (unavailable_maintenance_observation_has_no_plan value target (Some Manual) entry NoObservation) as NoPlan.
+ unfold A.manual_change; rewrite <- Entry,Ready.
+ unfold A.wait_for_context_selected; rewrite NoPlan.
+ unfold A.retain_context_wait; rewrite Unavailable.
  split.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world].
-   unfold A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, A.with_observation,
-     A.with_measurement, A.with_job, K.with_features,
-     Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
+   unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry,A.with_observation,
+     A.with_measurement,A.with_job,K.with_features,Selvedge.Features.State.with_compaction,set;
+   cbn; now rewrite N.eqb_refl.
 Qed.
 
 (** The feature callback forwards recovered progress with its captured input,
@@ -780,7 +816,7 @@ Proof.
  { rewrite Failed; reflexivity. }
  assert (NotDue : A.idle_due current entry (A.registry value) = false).
  { unfold A.idle_due; rewrite Deadline; cbn [N.ltb]; now rewrite !andb_false_r. }
- unfold A.synchronize in Outcome; cbv beta zeta in Outcome; rewrite <- Entry in Outcome.
+ unfold A.synchronize in Outcome; cbv beta zeta in Outcome; unfold A.current_entry in Entry; rewrite <- Entry in Outcome.
  destruct (negb (A.alive current)).
  - destruct (A.find_entry id (A.registry value)); inversion Outcome; subst result.
    cbn [A.cancel A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects].

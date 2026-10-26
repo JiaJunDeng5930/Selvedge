@@ -87,6 +87,27 @@ Proof.
  destruct (world_valid _); reflexivity.
 Qed.
 
+Lemma a_noncommitting_unchanged_candidate_has_no_effect : forall source raw before candidate,
+ decision_world candidate = before -> decision_effects candidate = [] ->
+ fst (CommitPacket.finalize before (DeferredCommit.select false source raw before candidate)) = before /\
+ Json.field "effects" (snd (CommitPacket.finalize before (DeferredCommit.select false source raw before candidate))) = Some (JArray []) /\
+ Json.field "durable" (snd (CommitPacket.finalize before (DeferredCommit.select false source raw before candidate))) = Some (JBool false).
+Proof.
+ intros source raw before candidate Unchanged Empty.
+ pose proof (actual_commit_admission_keeps_an_unchanged_world
+   false source raw before candidate Unchanged) as World.
+ pose proof (actual_commit_admission_keeps_an_empty_effect_list
+   false source raw before candidate Empty) as Effects.
+ unfold admitted_decision in World,Effects.
+ unfold DeferredCommit.select,CommitPacket.choose,CommitPacket.finalize.
+ destruct (DeferredCommit.admit_with_status false source raw before candidate) as [admitted result].
+ cbn [fst snd selected_durable selected_admitted selected_source selected_decision] in *.
+ split; [exact World|split].
+ - rewrite NotificationsProofs.a_query_has_no_notification_batch.
+   unfold Observation.envelope; rewrite Effects; reflexivity.
+ - apply NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
+Qed.
+
 Theorem actual_commit_admission_is_authorized_or_rolled_back : forall durable source raw_source before candidate,
  (decision_world (admitted_decision durable source raw_source before candidate) = before /\
   decision_effects (admitted_decision durable source raw_source before candidate) = []) \/

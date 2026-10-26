@@ -7,10 +7,8 @@ Theorem global_snapshot_is_valid : forall source snapshot,
  ContextUpdates.valid_snapshot snapshot = true.
 Proof.
  intros source snapshot Created; unfold ContextUpdates.global_guidance_snapshot in Created.
- destruct (string_field "path" source); [|discriminate].
- destruct (string_field "revision" source); [|discriminate].
- destruct (string_field "content" source); [|discriminate].
- unfold ContextUpdates.construct_snapshot in Created.
+ destruct (Schema.decode _ _) as [values|]; [|discriminate].
+ unfold ContextUpdates.global_guidance_from_fields, ContextUpdates.construct_snapshot in Created.
  destruct (ContextUpdates.valid_snapshot _) eqn:Valid; [|discriminate].
  inversion Created; subst; exact Valid.
 Qed.
@@ -23,10 +21,10 @@ Proof.
  intros source Present Admitted.
  assert (Constructed : exists snapshot, ContextUpdates.global_guidance_snapshot source = Some snapshot).
  { unfold Configuration.valid_global_instructions in Admitted.
-   destruct source; try contradiction;
-   destruct (Schema.decode _ _) eqn:Shape; try discriminate;
-   destruct (ContextUpdates.global_guidance_snapshot _) eqn:Created; try discriminate;
-   eexists; reflexivity. }
+   destruct source; try contradiction; try discriminate.
+   destruct (Schema.decode _ _) as [values|] eqn:Shape; [|discriminate].
+   destruct (ContextUpdates.global_guidance_from_fields values) eqn:Created; [|discriminate].
+   unfold ContextUpdates.global_guidance_snapshot; rewrite Shape, Created; eauto. }
  destruct Constructed as [snapshot Created]; exists snapshot; split; [exact Created|].
  eapply global_snapshot_is_valid; exact Created.
 Qed.

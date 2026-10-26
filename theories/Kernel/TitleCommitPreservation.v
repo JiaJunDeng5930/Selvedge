@@ -1,4 +1,5 @@
-From Stdlib Require Import String List Bool NArith PeanoNat Lia.
+From Selvedge.Kernel Require Import TicketSupplyProofs.
+From Stdlib Require Import String List Bool NArith PeanoNat Lia Sorting.Permutation.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State WorldInvariant WorldInvariantProofs FeatureFrameProofs.
@@ -44,30 +45,6 @@ Proof.
  repeat rewrite andb_true_iff in *; intuition.
 Qed.
 
-Lemma distinct_tickets_pass_the_unique_checker : forall values,
- NoDup values -> unique_tickets values = true.
-Proof.
- intros values Unique. unfold unique_tickets.
- assert (Same : nodup N.eq_dec values = values).
- { induction Unique as [|first rest Absent Unique IH]; cbn; [reflexivity|].
-   destruct (in_dec N.eq_dec first rest); [contradiction|]. now rewrite IH. }
- rewrite Same. apply Nat.eqb_refl.
-Qed.
-
-Lemma inserting_one_fresh_ticket_preserves_distinctness : forall (left right : list N) ticket,
- NoDup (left ++ right) -> ~ In ticket (left ++ right) ->
- NoDup (left ++ ticket :: right).
-Proof.
- induction left as [|first rest IH]; intros right ticket Unique Fresh; cbn in *.
- - constructor; assumption.
- - inversion Unique as [|? ? Absent Tail]; subst. constructor.
-   + intro Member. apply in_app_iff in Member as [InRest|[Same|InRight]].
-     * apply Absent. apply in_app_iff; now left.
-     * apply Fresh. subst; now left.
-     * apply Absent. apply in_app_iff; now right.
-   + apply IH; [exact Tail|]. intro Member. apply Fresh; now right.
-Qed.
-
 Theorem a_fresh_title_preserves_global_ticket_ownership : forall owner selected prompt before,
  tickets_valid before = true -> TitleRuntime.entry owner before = None ->
  tickets_valid (TitleRuntime.store owner
@@ -75,21 +52,10 @@ Theorem a_fresh_title_preserves_global_ticket_ownership : forall owner selected 
    (with_ticket (N.succ (world_next_ticket before)) before)) = true.
 Proof.
  intros owner selected prompt before Supply Absent.
- unfold tickets_valid in Supply. apply andb_true_iff in Supply as [Unique Bounds].
- unfold tickets_valid. cbn [world_tasks world_next_ticket].
+ apply one_fresh_owner_preserves_the_ticket_supply with before; [exact Supply|reflexivity|].
+ unfold allocated_tickets; cbn [world_tasks].
  rewrite storing_a_fresh_title_allocates_one_feature_ticket by exact Absent.
- apply andb_true_iff; split.
- - apply distinct_tickets_pass_the_unique_checker, inserting_one_fresh_ticket_preserves_distinctness.
-   + now apply unique_tickets_denotes_distinct_correlation_owners.
-   + intro Member. apply forallb_forall with (x:=world_next_ticket before) in Bounds; [|exact Member].
-     now rewrite N.ltb_irrefl in Bounds.
- - apply forallb_forall; intros ticket Member.
-   apply in_app_iff in Member as [Task|[Fresh|Feature]].
-   + apply N.ltb_lt. apply N.lt_lt_succ_r. apply N.ltb_lt.
-     apply forallb_forall with (x:=ticket) in Bounds; [exact Bounds|]. apply in_app_iff; now left.
-   + subst ticket. apply N.ltb_lt, N.lt_succ_diag_r.
-   + apply N.ltb_lt. apply N.lt_lt_succ_r. apply N.ltb_lt.
-     apply forallb_forall with (x:=ticket) in Bounds; [exact Bounds|]. apply in_app_iff; now right.
+ apply Permutation_sym, Permutation_middle.
 Qed.
 
 Lemma storing_one_eligible_title_preserves_title_requirements :
@@ -117,7 +83,7 @@ Proof.
  cbn [with_features Selvedge.Features.State.with_titles set].
  rewrite (an_absent_title_has_no_previous_registry_entry owner before Absent).
  cbn [map forallb]. repeat rewrite andb_true_iff; repeat split; try assumption.
- - apply distinct_tickets_pass_the_unique_checker. constructor; [exact NoOwner|].
+ - apply distinct_tickets_pass_the_uniqueness_checker. constructor; [exact NoOwner|].
    now apply unique_tickets_denotes_distinct_correlation_owners.
  - change (title_valid (F.TitleEntry owner (F.TitlePending ticket selected prompt)) before &&
      forallb (fun entry => title_valid entry before) (F.feature_titles (world_features before)) = true).

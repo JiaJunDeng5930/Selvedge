@@ -85,24 +85,11 @@ Definition approval_decoder := ModelDeclarations.Decoder (CallbackDeclarations.d
 Definition decoders := [command_decoder;configure_decoder;context_decoder;model_decoder;reasoning_decoder;
  tool_decoder;hook_decoder;after_decoder;approval_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
-(* DEFENSE: Native callbacks can supply the other variant's fields as explicit
-   nulls; optional decoding alone would conflate those keys with absence. *)
-Definition variant_fields_valid (kind : string) (source : json) :=
- match kind with
- | "context_observed" => match bool_field "ok" source with
-   | Some true => negb (has_field "message" source)
-   | Some false => negb (has_field "observations" source)
-   | None => true end
- | "reasoning" => match bool_field "ok" source with
-   | Some true => negb (has_field "message" source)
-   | Some false => negb (has_field "effort" source || has_field "generations" source)
-   | None => true end
- | _ => true end.
 Definition decode (source : json) : option input :=
  match source with
  | JObject members => if Schema.unique_names (map fst members) then
    match lookup "kind" members with
-   | Some (JString kind) => if variant_fields_valid kind source then ModelDeclarations.decode_cases decoders source else None
+   | Some (JString _) => ModelDeclarations.decode_cases decoders source
    | _ => None end
    else None
  | _ => None end.

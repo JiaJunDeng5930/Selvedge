@@ -122,10 +122,8 @@ Theorem every_refused_exported_native_fork_commits_its_error_with_an_acknowledge
  WorldInvariant.well_formed before ->
  InputDecoder.decode raw = Some Continue -> Delivery.fits_json raw = true ->
  NativeForkCommit.resolve Continue before = Some accepted ->
- CommandHandlers.execute (G.Cmd_fork (Scheduler.native_fork_request step))
-   (Some (Tasks.NativeCall (Scheduler.native_fork_owner step) (Scheduler.native_fork_invocation step)
-     (Scheduler.native_fork_remaining step))) (started_world accepted) =
- reject code reason (started_world accepted) ->
+ NativeForkCommit.business_result accepted =
+ CommandResult.Rejected (CommandResult.Refusal code reason) ->
  WorldInvariant.hooks_correspond (Scheduler.native_fork_owner step) original
    (Scheduler.native_fork_invocation step) [] = true ->
  historical_result_tickets_below (world_next_ticket before) (task_history original) ->
@@ -179,12 +177,13 @@ Proof.
  destruct (NativeForkSchedulingProofs.a_ready_native_fork_carries_its_final_dispatch_gate _ _ _ _ Ready)
    as [_ [_ [_ [_ Owner]]]].
  fold step in Owner |- *.
- rewrite <- Owner.
- change (CommandHandlers.execute (G.Cmd_fork (Scheduler.native_fork_request step))
+ assert (Refused : CommandExecution.handle_fork_result (Scheduler.native_fork_request step)
    (Some (Tasks.NativeCall (G.fork_task_id (Scheduler.native_fork_request step))
      (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step))) (started_world accepted) =
-   Tasks.refuse_start Tasks.NativeForkEntry Tasks.DescendantCapacity (started_world accepted)).
- eapply exhausted_descendant_capacity_refuses_the_actual_native_fork_handler; [exact Parsed| |].
- - rewrite Owner; apply a_started_native_fork_keeps_its_continued_parent.
- - rewrite Owner; exact Capacity.
+   CommandResult.Rejected (Tasks.start_refusal Tasks.NativeForkEntry Tasks.DescendantCapacity)).
+ { eapply exhausted_descendant_capacity_refuses_the_actual_native_fork_handler; [exact Parsed| |].
+   - rewrite Owner; apply a_started_native_fork_keeps_its_continued_parent.
+   - rewrite Owner; exact Capacity. }
+ unfold NativeForkCommit.business_result; fold step; fold (started_world accepted).
+ rewrite <- Owner,Refused; reflexivity.
 Qed.

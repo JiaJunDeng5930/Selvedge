@@ -37,7 +37,7 @@ Lemma capture_keeps_an_archived_owner : forall owner task operations value reque
  find_task owner (fst (Dispatch.capture_request request value)) = Some task.
 Proof.
  intros owner task operations value request Found ArchivedTask.
- destruct request; cbn [Dispatch.capture_request]; try exact Found.
+ destruct request; cbn [Dispatch.capture_request RequestReceiver.pending_phase RequestReceiver.phase_receiver]; try exact Found.
  all: repeat match goal with
  | |- context [match ?term with _ => _ end] => destruct term eqn:?
  end; cbn; try exact Found.
@@ -45,14 +45,16 @@ Proof.
  all: intro Same; subst owner.
  all: match goal with
  | Selected : find_task ?id ?stored = Some ?active,
-   Phase : task_activity ?active = ?phase |- _ =>
+   Phase : RequestReceiver.pending_phase ?kind ?ticket ?active = Some ?payload |- _ =>
      assert (active = task) by congruence; subst active;
-     unfold task_activity in Phase; rewrite ArchivedTask in Phase; discriminate
+     unfold RequestReceiver.pending_phase, RequestReceiver.phase_receiver, task_activity in Phase;
+     rewrite ArchivedTask in Phase; discriminate
  | Side : Dispatch.side_task ?id ?stored = Some ?active,
-   Phase : task_activity ?active = ?phase |- _ =>
+   Phase : RequestReceiver.pending_phase ?kind ?ticket ?active = Some ?payload |- _ =>
      unfold Dispatch.side_task in Side; rewrite Found in Side;
      destruct (task_side_parent task); inversion Side; subst active;
-     unfold task_activity in Phase; rewrite ArchivedTask in Phase; discriminate
+     unfold RequestReceiver.pending_phase, RequestReceiver.phase_receiver, task_activity in Phase;
+     rewrite ArchivedTask in Phase; discriminate
  end.
 Qed.
 

@@ -200,12 +200,6 @@ Definition checkpoint_world (owner : N) (current : task) (summary : string) (bef
  A.store (A.with_entry owner (A.checkpoint_entry (task_history current) (A.current_entry owner (A.registry before)))
    (A.registry before)) (put_task owner (checkpoint_task current summary) before).
 
-Lemma supplied_checkpoints_use_the_declared_world_constructor : forall owner current summary before,
- decision_world (A.supplied owner current summary before) = checkpoint_world owner current summary before.
-Proof.
- intros; unfold A.supplied, A.supplied_change; rewrite compaction_supplied_history_is_an_exact_append; reflexivity.
-Qed.
-
 Lemma a_checkpoint_retains_every_persistent_task_field : forall current summary,
  ForkPreservation.fork_retains_task current (checkpoint_task current summary).
 Proof.

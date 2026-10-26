@@ -27,17 +27,6 @@ Theorem accepted_query_never_runs_the_scheduler : forall source command reply va
  Packet.transition source value = (false,false,Some (UserCommand command),Decision value reply []).
 Proof. intros; unfold Packet.transition, Packet.transition_decoded; rewrite H,H0; reflexivity. Qed.
 
-(* This covers the complete exported entry, including frame admission and the
-   final output admission. An oversized query result remains read-only. *)
-Lemma a_query_is_not_a_manual_fork : forall source command reply value,
- InputDecoder.decode source = Some (UserCommand command) ->
- Packet.query command None value = Some reply -> Packet.manual_fork source = None.
-Proof.
- intros source command reply value Decoded Query.
- unfold Packet.manual_fork; rewrite Decoded; destruct command; try reflexivity.
- unfold Packet.query, CommandHandlers.query, Selvedge.Generated.Commands.dispatch in Query.
- cbn [CommandHandlers.handlers Selvedge.Generated.Commands.handle_fork] in Query; discriminate.
-Qed.
 Lemma a_nondurable_transition_has_no_typed_input : forall source value result,
  Packet.transition source value = (false,false,None,result) ->
  InputDecoder.decode source = None.
@@ -48,46 +37,38 @@ Proof.
  destruct input; try discriminate.
  destruct (Packet.query command None value); discriminate.
 Qed.
-Lemma a_nondurable_transition_is_not_a_manual_fork : forall source value result,
- Packet.transition source value = (false,false,None,result) -> Packet.manual_fork source = None.
-Proof.
- intros source value result Transition; unfold Packet.manual_fork.
- rewrite (a_nondurable_transition_has_no_typed_input _ _ _ Transition); reflexivity.
-Qed.
-Lemma a_query_is_not_a_public_creation : forall source command reply value,
+
+Lemma actual_query_selects_its_ordinary_commit : forall source command reply value admission,
  InputDecoder.decode source = Some (UserCommand command) ->
  Packet.query command None value = Some reply ->
- CreationCommit.input (InputDecoder.decode source) = None.
+ Packet.select_admitted source admission value =
+ DeferredCommit.select false (Some (UserCommand command)) source value (Decision value reply []).
 Proof.
- intros source command reply value Decoded Query.
- rewrite Decoded; destruct command; try reflexivity.
- unfold Packet.query, CommandHandlers.query, Selvedge.Generated.Commands.dispatch in Query.
- cbn [CommandHandlers.handlers Selvedge.Generated.Commands.handle_create] in Query; discriminate.
-Qed.
-Lemma a_nondurable_transition_is_not_a_public_creation : forall source value result,
- Packet.transition source value = (false,false,None,result) ->
- CreationCommit.input (InputDecoder.decode source) = None.
-Proof.
- intros source value result Transition.
- rewrite (a_nondurable_transition_has_no_typed_input _ _ _ Transition); reflexivity.
-Qed.
-Lemma a_query_is_not_a_deferred_transaction : forall source command reply value,
- InputDecoder.decode source = Some (UserCommand command) ->
- Packet.query command None value = Some reply ->
- Packet.deferred_candidate (InputDecoder.decode source) value = None.
-Proof.
- intros source command reply value Decoded Query.
- rewrite Decoded; destruct command; try reflexivity.
- all: unfold Packet.query, CommandHandlers.query, Selvedge.Generated.Commands.dispatch in Query;
+ intros source command reply value admission Decoded Query.
+ unfold Packet.select_admitted; rewrite InputDecoder.admitted_input_is_its_decoder_result, Decoded.
+ destruct command;
+ cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
+   Packet.native_fork_input NativeForkCommit.resolve TitleCommit.input
+   Packet.terminal_settlement_input TerminalSettlement.resolve Packet.transition_decoded Packet.prepare];
+ try solve [rewrite Query; reflexivity].
+ all: unfold Packet.query,CommandHandlers.query,Selvedge.Generated.Commands.dispatch in Query;
    cbn [CommandHandlers.handlers] in Query; discriminate.
 Qed.
-Lemma a_nondurable_transition_is_not_a_deferred_transaction : forall source value result,
+Lemma a_nondurable_transition_selects_its_ordinary_commit : forall source value result admission,
  Packet.transition source value = (false,false,None,result) ->
- Packet.deferred_candidate (InputDecoder.decode source) value = None.
+ Packet.select_admitted source admission value = DeferredCommit.select false None source value result.
 Proof.
- intros source value result Transition.
- rewrite (a_nondurable_transition_has_no_typed_input _ _ _ Transition); reflexivity.
+ intros source value result admission Transition.
+ pose proof (a_nondurable_transition_has_no_typed_input _ _ _ Transition) as Decoded.
+ unfold Packet.select_admitted; rewrite InputDecoder.admitted_input_is_its_decoder_result, Decoded.
+ change ((let '(durable,schedules,input,observed) := Packet.transition_decoded None source value in
+ DeferredCommit.select durable input source value (Packet.prepare schedules input observed)) =
+ DeferredCommit.select false None source value result).
+ unfold Packet.transition in Transition; rewrite Decoded in Transition.
+ rewrite Transition; reflexivity.
 Qed.
+
+
 Theorem actual_query_preserves_world_and_emits_no_effect : forall source command reply value,
  InputDecoder.decode source = Some (UserCommand command) ->
  Packet.query command None value = Some reply ->
@@ -96,28 +77,9 @@ Theorem actual_query_preserves_world_and_emits_no_effect : forall source command
  field "durable" (snd (Packet.packet source value)) = Some (JBool false).
 Proof.
  intros source command reply value Decoded Query.
- unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted;
- rewrite !InputDecoder.admitted_input_is_its_decoder_result;
- cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
- - cbv beta zeta; fold (Packet.manual_fork source).
-   rewrite (a_query_is_not_a_manual_fork source command reply value Decoded Query).
-   rewrite (a_query_is_not_a_public_creation source command reply value Decoded Query).
-   rewrite (a_query_is_not_a_deferred_transaction source command reply value Decoded Query).
-   fold (Packet.transition source value).
-   rewrite (accepted_query_never_runs_the_scheduler source command reply value Decoded Query).
-   cbn [Packet.prepare]; unfold DeferredCommit.select,CommitPacket.choose.
-   destruct (DeferredCommit.admit_with_status false (Some (UserCommand command)) source value
-     (Decision value reply [])) as [admitted committed] eqn:Outcome.
-   cbn [fst snd CommitPacket.finalize selected_durable selected_admitted selected_source selected_decision].
-   pose proof (DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world
-     false (Some (UserCommand command)) source value (Decision value reply []) eq_refl) as Unchanged.
-   pose proof (DeferredCommitProofs.actual_commit_admission_keeps_an_empty_effect_list
-     false (Some (UserCommand command)) source value (Decision value reply []) eq_refl) as Empty.
-   rewrite (DeferredCommitProofs.admit_result_is_the_selected_outcome _ _ _ _ _ _ _ Outcome) in Unchanged,Empty.
-   split; [exact Unchanged|split].
-   + rewrite NotificationsProofs.a_query_has_no_notification_batch.
-     unfold Observation.envelope; rewrite Empty; reflexivity.
-   + apply NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
+ unfold Packet.packet,Packet.packet_admitted; destruct (N.leb _ _).
+ - rewrite (actual_query_selects_its_ordinary_commit source command reply value _ Decoded Query).
+   apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.
  - repeat split; reflexivity.
 Qed.
 Definition describe_input := JObject [("kind",JString "command");("command",JObject [("op",JString "describe")])].

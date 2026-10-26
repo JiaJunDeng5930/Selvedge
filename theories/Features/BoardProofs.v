@@ -31,22 +31,21 @@ Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
 
 (** A well-formed callback with no current card lease is acknowledged as
     ignored, without changing the board or dispatching another turn. *)
-Theorem board_text_without_current_lease_is_ignored : forall source value id ticket ok,
+Theorem board_text_without_current_lease_is_ignored : forall source value ok payload,
  string_field "kind" source=Some "board_text" ->
- natural_field "card_id" source=Some id ->
- natural_field "ticket" source=Some ticket ->
  bool_field "ok" source=Some ok ->
- Board.valid_completion_payload source ok=true ->
- (forall card, Board.lookup id value=Some card -> ~ current_board_lease ticket card) ->
+ Board.decode_completion_payload source ok=Some payload ->
+ (forall card, Board.lookup (Board.completion_card payload) value=Some card ->
+   ~ current_board_lease (Board.completion_ticket payload) card) ->
  exists result,
    Board.completion source value=Some (false,false,result) /\
    decision_reply result=success (JObject [("accepted"%string,JBool false)]) /\
    decision_world result=value /\ decision_effects result=[] /\
-   Board.lookup id (decision_world result)=Board.lookup id value.
+   Board.lookup (Board.completion_card payload) (decision_world result)=Board.lookup (Board.completion_card payload) value.
 Proof.
- intros source value id ticket ok kind identity issued outcome payload_valid no_lease.
- unfold Board.completion. rewrite kind,identity,issued,outcome.
- cbn zeta. rewrite payload_valid.
+ intros source value ok payload kind outcome Parsed no_lease.
+ set (id:=Board.completion_card payload) in *; set (ticket:=Board.completion_ticket payload) in *.
+ unfold Board.completion; rewrite kind, outcome, Parsed; cbn zeta; fold id ticket.
  destruct (Board.lookup id value) as [card|] eqn:found.
  - destruct (F.card_enrichment card) as [|expected revision retitle|reason] eqn:lease.
    + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
@@ -348,8 +347,6 @@ Proof.
  eapply require_satisfied; [exact Mutable|]; intros Editable.
  reflexivity.
 Qed.
-Definition observed_board_clock_is_bounded := Board.observed_clock_is_bounded.
-
 (** An existing ordinary endpoint and a current editable card suffice to emit
     the real request. The effect freezes identity, lease, profile, prompt and
     draft; model success or request acceptance is not assumed. *)

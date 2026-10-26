@@ -17,12 +17,15 @@ Lemma a_terminal_plan_carries_its_exact_owned_operation : forall before (accepte
  operation_stage original = AwaitingAfterHook expected plugin pending previous failed /\
  expected = TerminalSettlement.ticket payload /\
  (match HookRules.after_apply previous (TerminalSettlement.outcome payload), pending with
-  | HookRules.RefuseResult _ _, _ | _, [] => true | _, _ => false end) = true.
+  | HookRules.RefuseResult _ _, _ | _, [] => true | _, _ => false end) = true /\
+ TerminalSettlement.update accepted = HookCallbacks.after_result_plan_for
+   (TerminalSettlement.owner payload) original plugin pending failed (TerminalSettlement.outcome payload)
+   (HookRules.after_apply previous (TerminalSettlement.outcome payload)).
 Proof.
  intros before accepted payload current.
- pose proof (TerminalSettlement.finishes_operation accepted) as Final.
- change (TerminalSettlement.eligible payload current = true) in Final.
- unfold TerminalSettlement.eligible,TerminalSettlement.resolved_update in Final.
+ pose proof (TerminalSettlement.observed_update accepted) as Final.
+ change (TerminalSettlement.resolved_update payload current = Some (TerminalSettlement.update accepted)) in Final.
+ unfold TerminalSettlement.resolved_update in Final.
  destruct (task_lifecycle current) as [phase operations|phase operations|phase operations|operations] eqn:ArchivedTask;
  try discriminate.
  unfold RequestReceiver.pending_after,RequestReceiver.operation_at,task_operations in Final; rewrite ArchivedTask in Final.
@@ -34,6 +37,7 @@ Proof.
  destruct (N.eqb expected (TerminalSettlement.ticket payload)) eqn:Matched; [|discriminate].
  destruct (TerminalSettlement.final_action (HookRules.after_apply previous (TerminalSettlement.outcome payload)) pending) eqn:Terminal;
    [|discriminate].
+ injection Final as Update; symmetry in Update.
  apply N.eqb_eq in Matched; unfold TerminalSettlement.final_action in Terminal.
  exists operations, original, expected, plugin, pending, previous, failed; repeat split; try assumption.
  unfold payload, current. rewrite <- (TerminalSettlement.owns_request accepted).
@@ -56,16 +60,19 @@ Theorem every_terminal_plan_constructs_its_exact_successful_settlement :
 Proof.
  intros before accepted.
  destruct (a_terminal_plan_carries_its_exact_owned_operation before accepted)
-   as [operations [original [expected [plugin [pending [previous [failed [Found [ArchivedTask [Owned [Stage [Matched Terminal]]]]]]]]]]]].
+   as [operations [original [expected [plugin [pending [previous [failed [Found [ArchivedTask [Owned [Stage [Matched [Terminal Update]]]]]]]]]]]]].
  pose proof Owned as Identified; apply find_some in Identified as [Member Identity]; apply N.eqb_eq in Identity.
  exists operations, original, plugin, previous, failed; cbn beta zeta; repeat split; try assumption.
  - rewrite <- Identity; exact Owned.
  - unfold CommitAdmission.operation_nonexecuting; rewrite Stage; reflexivity.
- - rewrite a_terminal_candidate_matches_the_callback_continuation.
-   rewrite a_terminal_archived_callback_uses_the_exact_settlement with
-    (current:=TaskScope.selected (TerminalSettlement.target accepted)) (operations:=operations) (original:=original) (expected:=expected) (plugin:=plugin)
-    (pending:=pending) (previous:=previous) (failed:=failed) by assumption.
-   reflexivity.
+ - change (Decision (Tasks.interpret_result (TerminalSettlement.target accepted) (TerminalSettlement.update accepted))
+     (State.success (JObject [("accepted"%string,JBool true)])) [ContinueScheduling] =
+     Decision (put_task (TerminalSettlement.owner (TerminalSettlement.request accepted))
+       (settled_task (TerminalSettlement.owner (TerminalSettlement.request accepted)) original plugin previous failed
+         (TerminalSettlement.outcome (TerminalSettlement.request accepted)) (TaskScope.selected (TerminalSettlement.target accepted))) before)
+       (State.success (JObject [("accepted"%string,JBool true)])) [ContinueScheduling]).
+   f_equal; unfold Tasks.interpret_result; rewrite Update, (TerminalSettlement.owns_request accepted).
+   eapply a_final_update_constructs_the_exact_settlement; eassumption.
 Qed.
 
 Theorem every_terminal_plan_preserves_the_world_requirements :

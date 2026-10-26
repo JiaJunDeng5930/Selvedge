@@ -7,9 +7,6 @@ Open Scope list_scope.
 
 Definition ignored := State.ignored.
 Definition acknowledged (value : world) := accept (JObject [("accepted",JBool true)]) value [].
-Definition matching_activity (ticket : N) (phase : activity) := match phase with
- | ObservingContext expected _ | AskingModel expected _ _ | EvaluatingReasoning expected _
- | CheckingHook expected _ _ _ _ => N.eqb ticket expected | _ => false end.
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
   | NativeToolSource _ _ => NativeTools.arguments_valid tool invocation
@@ -115,11 +112,6 @@ Definition context_completed (id ticket : N) (observations : option (list contex
     else match task_lifecycle task with
       | Running _ _ => Reasoning.context_retry id value
       | _ => context_ready false id task value end).
-Definition operation_ticket (value : operation) : option N := match operation_stage value with
- | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => Some ticket
- | Granted _ | AfterHooksReady _ _ _ => None end.
-Definition operation_matches (ticket : N) (value : operation) := match operation_ticket value with
- | Some expected => N.eqb expected ticket | None => false end.
 Definition operation_executing := RequestReceiver.operation_executing.
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
 Definition replace_operation := TicketedRequest.replace_operation.

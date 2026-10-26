@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery RequestReceiver.
 From Selvedge.Kernel Require ModelDeclarations.
 Import ListNotations.
 Open Scope string_scope.
@@ -81,10 +81,10 @@ Definition model_outcome_json (outcome : model_outcome) := match outcome with
  | ModelContextLimit => JObject [("ok",JBool false);("error",JString "context_limit")] end.
 Definition input_events (source : option input) (before after : world) := match source with
  | Some (ModelCompleted id ticket outcome) => match find_task id before with
-   | Some value => match task_activity value with
-     | AskingModel expected _ _ => if N.eqb expected ticket then task_event id value "model_completed" None
-       (JObject [("ticket",number ticket);("kind",JString "model");("outcome",model_outcome_json outcome)]) else []
-     | _ => [] end | None => [] end
+   | Some value => match RequestReceiver.pending_phase RequestReceiver.ModelReceiver ticket value with
+     | Some _ => task_event id value "model_completed" None
+       (JObject [("ticket",number ticket);("kind",JString "model");("outcome",model_outcome_json outcome)])
+     | None => [] end | None => [] end
  | Some Recover => event "recovered" None None JNull (environment_plugins (world_environment after))
  | Some (Configure _) => event "configured" None None (JArray (environment_plugins (world_environment after))) (environment_plugins (world_environment after))
  | _ => [] end.

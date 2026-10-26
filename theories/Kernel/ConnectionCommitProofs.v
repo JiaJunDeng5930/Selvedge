@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TicketSupplyProofs.
 From Selvedge.Kernel Require Import FeatureAdmissionProofs.
 From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Selvedge.Kernel Require Import FeatureFrameProofs.
@@ -93,16 +94,6 @@ Proof.
  rewrite Fresh. cbn. apply a_connection_job_has_reflexive_authority.
 Qed.
 
-Lemma distinct_tickets_are_unique : forall tickets,
- NoDup tickets -> W.unique_tickets tickets=true.
-Proof.
- intros tickets Distinct. unfold W.unique_tickets.
- assert (Identity: nodup N.eq_dec tickets=tickets).
- { induction Distinct; cbn; [reflexivity|].
-   destruct (in_dec N.eq_dec x l); [contradiction|]. now rewrite IHDistinct. }
- rewrite Identity; apply Nat.eqb_refl.
-Qed.
-
 Lemma sharing_jobs_stay_below_their_supply : forall before,
  W.sharing_valid before=true ->
  forallb (fun entry : N * F.connection_job => (fst entry <? F.sharing_next (Chatgpt.registry before))%N)
@@ -137,7 +128,7 @@ Proof.
  repeat rewrite andb_true_iff; repeat split; try assumption.
  - apply Nat.leb_le; lia.
  - unfold W.within_u32. apply N.leb_le;lia.
- - apply distinct_tickets_are_unique. cbn.
+ - apply distinct_tickets_pass_the_uniqueness_checker. cbn.
    constructor.
    + intro Member. apply in_map_iff in Member as [[id old] [Equal Member]]. cbn in Equal;subst id.
      apply forallb_forall with (x:=(F.sharing_next (F.feature_sharing (world_features before)),old)) in Bounded;
@@ -197,40 +188,13 @@ Definition bash_arguments := ChatgptArgumentsProofs.argument_values.
 Definition bounded_bash_arguments_have_a_valid_canonical_wire :=
  ChatgptArgumentsProofs.bounded_arguments_have_a_valid_canonical_wire.
 
-Lemma sequence_keeps_graph_requirements : forall sequence before owner entries,
- W.graphs_valid owner entries (with_sequence sequence before)=W.graphs_valid owner entries before.
-Proof.
- intros sequence before owner entries;revert owner;induction entries as [|entry rest IH];intros;
- cbn [W.graphs_valid];[reflexivity|]. rewrite IH.
- destruct entry;[|reflexivity].
- unfold W.graph_valid,TaskGraph.task_in_work,find_task,with_sequence,set;reflexivity.
-Qed.
-
-Lemma sequence_keeps_feature_requirements : forall sequence before,
- W.features_valid (with_sequence sequence before)=W.features_valid before.
-Proof.
- intros. unfold W.features_valid,W.graph_registry_valid.
- change (W.titles_valid (with_sequence sequence before) &&
- W.remote_valid (F.feature_remote (world_features before)) &&
- W.worktrees_valid (with_sequence sequence before) && W.board_valid (with_sequence sequence before) &&
- W.sharing_valid (with_sequence sequence before) &&
- (Nat.leb (List.length (filter W.present (F.feature_graphs (world_features before)))) 32 &&
-  W.graphs_valid 0 (F.feature_graphs (world_features before)) (with_sequence sequence before)) &&
- W.works_valid (with_sequence sequence before) && W.compaction_valid (with_sequence sequence before) = W.features_valid before).
- rewrite sequence_keeps_graph_requirements.
- unfold W.titles_valid,W.title_valid,W.worktrees_valid,W.tree_owner_valid,
- W.board_valid,W.card_valid,Board.valid_draft,Board.lookup_agent,W.sharing_valid,
- W.works_valid,W.work_owners_valid,Selvedge.Features.Work.lookup,W.compaction_valid,W.maintenance_entry_valid,
- WorkspaceBinding.resource_ready,WorkspaceBinding.owned,find_task,with_sequence,set; reflexivity.
-Qed.
-
 Lemma a_valid_world_supplies_connection_requirements : forall before,
  W.world_valid before=true ->
  W.features_valid before=true /\ W.sharing_valid before=true.
 Proof.
  intros before Valid. unfold W.world_valid,W.world_structure in Valid.
  apply andb_true_iff in Valid as [_ Features].
- rewrite sequence_keeps_feature_requirements in Features.
+ rewrite feature_requirements_ignore_journal_cursor in Features.
  split;[exact Features|]. unfold W.features_valid in Features;repeat rewrite andb_true_iff in Features;tauto.
 Qed.
 

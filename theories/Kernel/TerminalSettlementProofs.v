@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Inputs History ContextUpdates ContextSelection
- Tasks Callbacks HookCallbacks HookRules TaskScope TerminalSettlement CallbackChangesProofs
- WorldInvariant WorldInvariantProofs ForkPreservation
+ Tasks Callbacks HookCallbacks HookRules TaskScope TerminalSettlement
+ WorldInvariant WorldInvariantProofs ForkPreservation ForkNativeHistoryProofs
  CommitAdmission LifecycleProofs ArchivedRuntimeFrameProofs.
 From Selvedge.Features Require Import TaskGraph.
 Import ListNotations.
@@ -20,28 +20,22 @@ Definition settled_task (owner : N) (original : Domain.operation) (plugin : json
    (append_history [AfterReceipt owner (operation_id original) plugin (Inputs.after_json outcome);
      History.operation_result original result error] current).
 
-Lemma a_terminal_archived_callback_uses_the_exact_settlement :
- forall owner identity ticket outcome before current operations original expected plugin pending previous failed,
- find_task owner before = Some current -> task_lifecycle current = Archived operations ->
- find (fun operation => N.eqb identity (operation_id operation)) operations = Some original ->
- operation_stage original = AwaitingAfterHook expected plugin pending previous failed ->
- expected = ticket ->
- (match HookRules.after_apply previous outcome, pending with
-  | HookRules.RefuseResult _ _, _ | _, [] => true | _, _ => false end) = true ->
- HookCallbacks.after_completed owner identity ticket outcome before =
- Callbacks.acknowledged (put_task owner
-   (settled_task owner original plugin previous failed outcome current) before).
+Lemma a_final_update_constructs_the_exact_settlement :
+ forall before owner current operations original plugin pending previous failed outcome,
+ task_lifecycle current = Archived operations ->
+ TerminalSettlement.final_action (HookRules.after_apply previous outcome) pending = true ->
+ Tasks.apply_result owner current
+   (HookCallbacks.after_result_plan_for owner original plugin pending failed outcome
+     (HookRules.after_apply previous outcome)) before =
+ put_task owner (settled_task owner original plugin previous failed outcome current) before.
 Proof.
- intros owner identity ticket outcome before current operations original expected plugin pending previous failed
- Found ArchivedTask Owned Stage Same Terminal.
- rewrite CallbackChangesProofs.after_completed_expression, Found.
- unfold task_operations; rewrite ArchivedTask, Owned, Stage, Same, N.eqb_refl.
- unfold settled_task, result_value.
+ intros before owner current operations original plugin pending previous failed outcome ArchivedTask Terminal.
+ unfold settled_task, result_value, TerminalSettlement.final_action in *.
  destruct outcome; cbn [HookRules.after_apply] in Terminal |- *;
  try (destruct pending; try discriminate).
  all: destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
    cbn in ArchivedTask; subst lifecycle;
-   cbv [HookCallbacks.after_result_plan HookCallbacks.after_result_plan_for Tasks.apply_result Tasks.result_changes Tasks.prefix_result
+   cbv [HookCallbacks.after_result_plan_for Tasks.apply_result Tasks.result_changes Tasks.prefix_result
      Tasks.mark_context_wake Callbacks.settle_operation_plan
      TaskChange.apply TaskChange.apply_edit List.fold_left Callbacks.settle_operation_changes Tasks.wake_after_result_changes Tasks.promote_changes
      append_history with_history with_operations with_lifecycle task_operations task_lifecycle task_activity RecordSet.set]; cbn;
@@ -157,17 +151,6 @@ Proof.
  destruct (operation_announced original); reflexivity.
 Qed.
 
-Lemma unique_call_names_are_distinct : forall names,
- Schema.unique_names names = true -> NoDup names.
-Proof.
- intros names; induction names as [|first rest IH]; intros Valid; [constructor|].
- cbn in Valid; apply andb_true_iff in Valid as [Fresh Tail]; constructor; [|apply IH; exact Tail].
- intro Present; apply negb_true_iff in Fresh.
- assert (existsb (String.eqb first) rest = true).
- { apply existsb_exists; exists first; split; [exact Present|apply String.eqb_refl]. }
- congruence.
-Qed.
-
 Lemma a_unique_projection_selects_one_member : forall A B (project : A -> B) values selected other,
  NoDup (map project values) -> In selected values -> In other values ->
  project selected = project other -> selected = other.
@@ -185,17 +168,12 @@ Lemma filtered_projection_keeps_unique_names : forall A (project : A -> string) 
  Schema.unique_names (map project values) = true ->
  Schema.unique_names (map project (filter keep values)) = true.
 Proof.
- intros A project keep values; induction values as [|first rest IH]; intros Unique; [reflexivity|].
- cbn in Unique; apply andb_true_iff in Unique as [Fresh Tail].
- cbn [filter]; destruct (keep first); [|apply IH; exact Tail].
- cbn [map Schema.unique_names]; apply andb_true_iff; split; [|apply IH; exact Tail].
- apply negb_true_iff; apply negb_true_iff in Fresh.
- apply Bool.not_true_iff_false; intro Present; apply existsb_exists in Present as [name [Member Equal]].
- apply in_map_iff in Member as [value [Name Member]].
- apply filter_In in Member as [Member _].
- assert (existsb (String.eqb (project first)) (map project rest) = true).
- { apply existsb_exists; exists name; split; [apply in_map_iff; exists value; auto|exact Equal]. }
- congruence.
+ intros A project keep values Unique; apply unique_names_nodup in Unique.
+ apply unique_names_nodup; apply NoDup_map_NoDup_ForallPairs.
+ - intros left right Left Right Same.
+   apply filter_In in Left as [Left _]; apply filter_In in Right as [Right _].
+   eapply a_unique_projection_selects_one_member; eassumption.
+ - apply NoDup_filter; eapply NoDup_map_inv; exact Unique.
 Qed.
 
 Lemma terminal_receipts_preserve_operation_history :
@@ -351,7 +329,7 @@ Proof.
    assert (DistinctCall : call_id (operation_call selected) <> call_id (operation_call original)).
    { intro Same.
      assert (selected = original) by
-      (eapply a_unique_projection_selects_one_member; [apply unique_call_names_are_distinct; exact Unique|exact Member|exact Owned|exact Same]).
+      (eapply a_unique_projection_selects_one_member; [apply unique_names_nodup; exact Unique|exact Member|exact Owned|exact Same]).
      congruence. }
    rewrite <- (NewContract (task_history current ++ terminal_suffix owner original plugin outcome result error)).
    rewrite other_operations_do_not_change_a_certificate.

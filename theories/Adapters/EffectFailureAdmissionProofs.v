@@ -108,111 +108,104 @@ Local Opaque show_natural parse_natural diagnostic Common.get BoardParameters.li
  Board.lookup Board.put Board.suggestion HookRules.parse_hook HookRules.parse_after
  InputDecoder.parse_approval_outcome.
 
-Local Transparent Common.get.
-Definition kernel_failure_input kind id ticket operation message (limit : bool) : option input := match kind with
- | Hook => Some (HookCompleted id ticket (HookFailure message))
- | AfterHook => Some (AfterCompleted id operation ticket (AfterFailure message))
- | Approval => Some (ApprovalCompleted id ticket (ApprovalFailed message))
- | Model => Some (ModelCompleted id ticket (if limit then ModelContextLimit else ModelFailure message))
- | Tool => Some (ToolCompleted id ticket (error_value message) true)
- | Context => Some (ContextCompleted id ticket None message)
- | Reasoning => Some (ReasoningCompleted id ticket (Reasoning.EvaluationFailed message))
- | _ => None end.
-Ltac prove_raw_fields :=
- first [apply RawNil | apply RawCons;
-   [cbn [decode_field Field OmittableField field_kind field_omittable field_representation
-      CallbackDeclarations.operation_identity CallbackDeclarations.failure_kind
-      decode_value missing_value as_number as_string as_bool option_map];
-    rewrite ?natural_print_parse; reflexivity | prove_raw_fields]].
-Ltac failure_wire_roundtrip kind decoder tuple effect message limit Identity Issued Operation :=
- let typed := constr:(Schema.of_tuple (InputDecoder.decoder_fields decoder) tuple) in
- let raw := constr:(CallbackDeclarations.raw_values kind false effect (failure_payload kind (diagnostic kind message) limit)) in
- lazymatch goal with |- _ = ?expected =>
- change (InputDecoder.decode (ModelDeclarations.encode (raw_variant (decoder_declaration decoder)) raw) = expected) end;
- transitivity (ModelDeclarations.decoder_construct decoder typed);
- [apply declared_input_wire; [reflexivity|reflexivity|reflexivity|];
-  cbn [CallbackDeclarations.raw_values CallbackDeclarations.append_raw CallbackDeclarations.raw_source CallbackDeclarations.coordinates
-    List.app ModelDeclarations.identity CallbackDeclarations.operation_identity Schema.of_tuple Schema.head Schema.tail Schema.Field Schema.field_name];
-  unfold Common.get in Identity, Issued; try unfold Common.get in Operation;
-  rewrite Identity, Issued; try rewrite Operation;
-  prove_raw_fields
- |cbv beta iota zeta delta -[diagnostic InputDecoder.parse_approval_outcome
-   InputDecoder.parse_hook InputDecoder.parse_after HookRules.parse_hook HookRules.parse_after
-   Nat.leb Utf8.byte_length String.length]].
+Definition kernel_failure_input (kind : callback_kind) : fields (coordinates kind) -> string -> bool -> option input :=
+ match kind as kind return fields (coordinates kind) -> string -> bool -> option input with
+ | Hook => fun address message _ => Some (HookCompleted (Schema.head address) (Schema.head (Schema.tail address)) (HookFailure message))
+ | AfterHook => fun address message _ => Some (AfterCompleted (Schema.head address)
+     (Schema.head (Schema.tail (Schema.tail address))) (Schema.head (Schema.tail address)) (AfterFailure message))
+ | Approval => fun address message _ => Some (ApprovalCompleted (Schema.head address) (Schema.head (Schema.tail address)) (ApprovalFailed message))
+ | Model => fun address message limit => Some (ModelCompleted (Schema.head address) (Schema.head (Schema.tail address))
+     (if limit then ModelContextLimit else ModelFailure message))
+ | Tool => fun address message _ => Some (ToolCompleted (Schema.head address) (Schema.head (Schema.tail address)) (error_value message) true)
+ | Context => fun address message _ => Some (ContextCompleted (Schema.head address) (Schema.head (Schema.tail address)) None message)
+ | Reasoning => fun address message _ => Some (ReasoningCompleted (Schema.head address) (Schema.head (Schema.tail address)) (Reasoning.EvaluationFailed message))
+ | _ => fun _ _ _ => None end.
 
-(** One statement covers all kernel failure callbacks. The coordinates are
-    assumptions of this admission theorem, never new restrictions on encoding. *)
-Theorem every_kernel_failure_callback_is_decoded kind effect id ticket operation message limit expected :
- kernel_failure_input kind id ticket operation (diagnostic kind message) limit = Some expected ->
- get effect "task_id" = JNumber (show_natural id) -> get effect "ticket" = JNumber (show_natural ticket) ->
- (kind = AfterHook -> get effect "operation_id" = JNumber (show_natural operation)) ->
- InputDecoder.decode (CallbackDeclarations.encode kind false effect (failure_payload kind (diagnostic kind message) limit)) = Some expected.
+Ltac compute_typed_roundtrip Roundtrip :=
+ cbv beta iota zeta delta -[diagnostic show_natural parse_natural] in Roundtrip;
+ repeat rewrite natural_print_parse in Roundtrip.
+Ltac failure_wire_roundtrip decoder :=
+ lazymatch goal with
+ | |- InputDecoder.decode (CallbackDeclarations.encode ?kind false ?address ?values) = ?expected =>
+ let typed := constr:(append_fields (coordinates kind) (payload kind false) address values) in
+ destruct (declared_input_wire (InputDecoder.decoder_name decoder) (InputDecoder.decoder_fields decoder)
+   (ModelDeclarations.decoder_construct decoder) typed eq_refl eq_refl eq_refl)
+   as [canonical [Roundtrip Decoded]];
+ change (InputDecoder.decode (ModelDeclarations.encode (decoder_declaration decoder) typed) = expected);
+ transitivity (ModelDeclarations.decoder_construct decoder canonical); [exact Decoded|];
+ compute_typed_roundtrip Roundtrip; inversion Roundtrip; subst canonical;
+ cbv beta iota zeta delta -[diagnostic InputDecoder.parse_approval_outcome
+   InputDecoder.parse_hook InputDecoder.parse_after HookRules.parse_hook HookRules.parse_after
+   Nat.leb Utf8.byte_length String.length]
+ end.
+
+(** Issued coordinates are typed before callback construction. The schema
+    roundtrip is shared; these cases constrain the actual outcome decoders. *)
+Theorem every_kernel_failure_callback_is_decoded kind address message limit expected :
+ kernel_failure_input kind address (diagnostic kind message) limit = Some expected ->
+ InputDecoder.decode (CallbackDeclarations.encode kind false address
+   (failure_payload kind (diagnostic kind message) limit)) = Some expected.
 Proof.
  destruct kind; cbn [kernel_failure_input]; try discriminate;
- intros Expected Identity Issued Operation; inversion Expected; subst expected.
- - failure_wire_roundtrip Approval InputDecoder.approval_decoder [!id;ticket;failure_outcome (diagnostic Approval message)!] effect message limit Identity Issued Operation.
+ intros Expected; inversion Expected; subst expected.
+ - failure_wire_roundtrip InputDecoder.approval_decoder.
    now rewrite approval_failure_diagnostic_is_decoded.
- - failure_wire_roundtrip Hook InputDecoder.hook_decoder [!id;ticket;failure_outcome (diagnostic Hook message)!] effect message limit Identity Issued Operation.
+ - failure_wire_roundtrip InputDecoder.hook_decoder.
    now rewrite hook_failure_diagnostic_is_decoded.
- - specialize (Operation eq_refl).
-   failure_wire_roundtrip AfterHook InputDecoder.after_decoder [!id;ticket;operation;failure_outcome (diagnostic AfterHook message)!] effect message limit Identity Issued Operation.
+ - failure_wire_roundtrip InputDecoder.after_decoder.
    now rewrite after_failure_diagnostic_is_decoded.
- - failure_wire_roundtrip Context InputDecoder.context_decoder [!id;ticket;false;(@None (list json));Some (diagnostic Context message)!] effect message limit Identity Issued Operation.
+ - failure_wire_roundtrip InputDecoder.context_decoder.
    destruct (diagnostic_text_contract Context message) as [_ [_ Bound]].
-   change ((if Nat.leb (String.length (diagnostic Context message)) 4096 then Some (ContextCompleted id ticket None (diagnostic Context message)) else None) = Some (ContextCompleted id ticket None (diagnostic Context message))).
+   lazymatch goal with |- (if ?within then _ else _) = _ => change (within = true) in Bound end.
    now rewrite Bound.
- - failure_wire_roundtrip Reasoning InputDecoder.reasoning_decoder [!id;ticket;false;(@None string);(@None N);Some (diagnostic Reasoning message)!] effect message limit Identity Issued Operation.
+ - failure_wire_roundtrip InputDecoder.reasoning_decoder.
    destruct (diagnostic_text_contract Reasoning message) as [_ [_ Bound]].
-   change ((if Nat.leb (String.length (diagnostic Reasoning message)) 4096 then Some (ReasoningCompleted id ticket (Reasoning.EvaluationFailed (diagnostic Reasoning message))) else None) = Some (ReasoningCompleted id ticket (Reasoning.EvaluationFailed (diagnostic Reasoning message)))).
+   lazymatch goal with |- (if ?within then _ else _) = _ => change (within = true) in Bound end.
    now rewrite Bound.
- - destruct limit.
-   + failure_wire_roundtrip Model InputDecoder.model_decoder [!id;ticket;false;(@None (list json));Some (diagnostic Model message);
-       Schema.decode_value (KEnum "context_limit" []) (JString "context_limit")!] effect message true Identity Issued Operation. reflexivity.
-   + failure_wire_roundtrip Model InputDecoder.model_decoder [!id;ticket;false;(@None (list json));Some (diagnostic Model message);(@None (denote (KEnum "context_limit" [])))!] effect message false Identity Issued Operation. reflexivity.
- - failure_wire_roundtrip Tool InputDecoder.tool_decoder [!id;ticket;true;Some (error_value (diagnostic Tool message))!] effect message limit Identity Issued Operation. reflexivity.
+ - destruct limit; failure_wire_roundtrip InputDecoder.model_decoder; reflexivity.
+ - failure_wire_roundtrip InputDecoder.tool_decoder; reflexivity.
 Qed.
 
-Ltac callback_body_is_decoded Identity Issued :=
- cbn [CallbackDeclarations.raw_values CallbackDeclarations.append_raw CallbackDeclarations.raw_source
-   CallbackDeclarations.coordinates ModelDeclarations.identity Schema.of_tuple Schema.head Schema.tail Schema.Field Schema.field_name];
- unfold Common.get in Identity, Issued; rewrite Identity, Issued; prove_raw_fields.
+Ltac callback_schema_roundtrip kind address values :=
+ let description := constr:(full_schema kind false) in
+ let typed := constr:(FCons (field:=Field "kind" KText) (callback_text kind)
+   (append_fields (coordinates kind) (payload kind false) address values)) in
+ destruct (schema_wire_roundtrip description typed eq_refl eq_refl) as [canonical [Decoded _]];
+ change (Schema.decode description (CallbackDeclarations.encode kind false address values) = Some canonical) in Decoded;
+ let Computed := fresh "Computed" in pose proof Decoded as Computed;
+ compute_typed_roundtrip Computed; inversion Computed; subst canonical.
 
-Theorem board_failure_wire_is_admitted effect id ticket message limit :
- get effect "card_id" = JNumber (show_natural id) ->
- get effect "ticket" = JNumber (show_natural ticket) ->
- Board.valid_completion_payload
-   (CallbackDeclarations.encode BoardText false effect (failure_payload BoardText (diagnostic BoardText message) limit)) false = true.
+Lemma board_failure_wire_is_decoded id ticket message limit :
+ Board.decode_completion_payload
+   (CallbackDeclarations.encode BoardText false (Schema.of_tuple (coordinates BoardText) [!id;ticket!])
+     (failure_payload BoardText (diagnostic BoardText message) limit)) false =
+ Some (Board.CompletionPayload id ticket "" "" (diagnostic BoardText message)).
 Proof.
- intros Identity Issued.
- assert (Decoded : Schema.decode (CallbackDeclarations.full_schema BoardText false)
-   (CallbackDeclarations.encode BoardText false effect (failure_payload BoardText (diagnostic BoardText message) limit)) =
-   Some (Schema.of_tuple (CallbackDeclarations.full_schema BoardText false)
-     [!callback_text BoardText;id;ticket;false;diagnostic BoardText message!])).
- { apply full_callback_roundtrip; [reflexivity|callback_body_is_decoded Identity Issued]. }
- unfold Board.valid_completion_payload, Selvedge.Features.Worktree.shape.
- rewrite Decoded; cbn; apply board_failure_diagnostic_is_admitted.
+ callback_schema_roundtrip BoardText (Schema.of_tuple (coordinates BoardText) [!id;ticket!])
+   (failure_payload BoardText (diagnostic BoardText message) limit).
+ unfold Board.decode_completion_payload.
+ rewrite Decoded; cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
+   CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect ModelDeclarations.payload_fields
+   List.app Schema.of_tuple Schema.head Schema.tail fst snd].
+ rewrite board_failure_diagnostic_is_admitted; reflexivity.
 Qed.
 
-Theorem title_failure_wire_is_decoded effect id ticket message limit value :
- get effect "task_id" = JNumber (show_natural id) ->
- get effect "ticket" = JNumber (show_natural ticket) ->
+Theorem title_failure_wire_is_decoded id ticket message limit value :
  TitleRuntime.completion
-   (CallbackDeclarations.encode TaskTitle false effect (failure_payload TaskTitle (diagnostic TaskTitle message) limit)) value =
+   (CallbackDeclarations.encode TaskTitle false (Schema.of_tuple (coordinates TaskTitle) [!id;ticket!])
+     (failure_payload TaskTitle (diagnostic TaskTitle message) limit)) value =
  Some (true,true,TitleRuntime.complete id ticket false (diagnostic TaskTitle message) value).
 Proof.
- intros Identity Issued.
- assert (Decoded : Schema.decode (CallbackDeclarations.full_schema TaskTitle false)
-   (CallbackDeclarations.encode TaskTitle false effect (failure_payload TaskTitle (diagnostic TaskTitle message) limit)) =
-   Some (Schema.of_tuple (CallbackDeclarations.full_schema TaskTitle false)
-     [!callback_text TaskTitle;id;ticket;false;diagnostic TaskTitle message!])).
- { apply full_callback_roundtrip; [reflexivity|callback_body_is_decoded Identity Issued]. }
+ callback_schema_roundtrip TaskTitle (Schema.of_tuple (coordinates TaskTitle) [!id;ticket!])
+   (failure_payload TaskTitle (diagnostic TaskTitle message) limit).
  destruct (diagnostic_text_contract TaskTitle message) as [unicode [_ bytes]].
  assert (bound : N.leb (N.of_nat (String.length (diagnostic TaskTitle message))) Titles.response_title_bytes = true).
  { apply N.leb_le. apply Nat.leb_le in bytes.
    change (N.of_nat (String.length (diagnostic TaskTitle message)) <= N.of_nat 4096)%N. lia. }
  unfold TitleRuntime.completion.
  change (match Schema.decode (CallbackDeclarations.full_schema TaskTitle false)
-   (CallbackDeclarations.encode TaskTitle false effect (failure_payload TaskTitle (diagnostic TaskTitle message) limit)) with
+   (CallbackDeclarations.encode TaskTitle false (Schema.of_tuple (coordinates TaskTitle) [!id;ticket!])
+     (failure_payload TaskTitle (diagnostic TaskTitle message) limit)) with
    | Some fields => let fields := tail fields in let id := head fields in let fields := tail fields in
      let ticket := head fields in let text := head (tail (tail fields)) in
      if negb (N.leb (N.of_nat (String.length text)) Titles.response_title_bytes && Utf8.well_formed text)
@@ -228,37 +221,33 @@ Qed.
 
 Theorem failed_context_effect_is_decoded effect id ticket message limit :
  callback_kind_of (str effect "kind") = Some Context ->
- get effect "task_id" = JNumber (show_natural id) ->
- get effect "ticket" = JNumber (show_natural ticket) ->
- InputDecoder.decode (failed effect message limit) =
+ decode_fields (coordinates Context) (object_fields effect) = Some (Schema.of_tuple (coordinates Context) [!id;ticket!]) ->
+ (match failed effect message limit with Some reply => InputDecoder.decode reply | None => None end) =
  Some (ContextCompleted id ticket None (diagnostic Context message)).
 Proof.
- intros callback identity issued; unfold failed; rewrite callback.
- eapply every_kernel_failure_callback_is_decoded with (operation:=0%N);
-   [reflexivity|exact identity|exact issued|discriminate].
+ intros Callback Address; unfold failed; rewrite Callback, Address; cbn [option_map].
+ apply every_kernel_failure_callback_is_decoded; reflexivity.
 Qed.
-
-Local Opaque Board.valid_completion_payload.
 
 Theorem failed_board_effect_settles_issued_ticket effect id ticket message limit value card retitle :
  callback_kind_of (str effect "kind") = Some BoardText ->
- get effect "card_id" = JNumber (show_natural id) ->
- get effect "ticket" = JNumber (show_natural ticket) ->
+ decode_fields (coordinates BoardText) (object_fields effect) = Some (Schema.of_tuple (coordinates BoardText) [!id;ticket!]) ->
  Board.lookup id value = Some card ->
  Selvedge.Features.Domain.card_enrichment card =
    Selvedge.Features.Domain.Enriching ticket (Selvedge.Features.Domain.card_revision card) retitle ->
  Selvedge.Features.Domain.card_archived card = false ->
- Board.completion (failed effect message limit) value =
+ (match failed effect message limit with Some reply => Board.completion reply value | None => None end) =
  Some (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)])
    (Board.put id (Board.suggestion false retitle "" "" (diagnostic BoardText message) card value) value) []).
 Proof.
- intros callback identity issued found pending active.
- unfold failed. rewrite callback.
- pose proof (board_failure_wire_is_admitted effect id ticket message limit identity issued) as admitted.
- unfold Board.completion.
- unfold Common.get in identity, issued.
- cbn in admitted |- *.
- rewrite identity, issued in admitted |- *. cbn. rewrite !natural_print_parse. cbn.
- rewrite admitted. cbn.
- rewrite found, pending, !N.eqb_refl, active. reflexivity.
+ intros Callback Address found pending active.
+ unfold failed; rewrite Callback, Address; cbn [option_map].
+ pose proof (board_failure_wire_is_decoded id ticket message limit) as Parsed.
+ set (wire:=CallbackDeclarations.encode BoardText false (Schema.of_tuple (coordinates BoardText) [!id;ticket!])
+   (failure_payload BoardText (diagnostic BoardText message) limit)) in *.
+ assert (Kind:string_field "kind" wire=Some "board_text") by reflexivity.
+ assert (Outcome:bool_field "ok" wire=Some false) by reflexivity.
+ unfold Board.completion; rewrite Kind, Outcome, Parsed;
+ cbn [Board.completion_card Board.completion_ticket Board.completion_title Board.completion_description Board.completion_message].
+ rewrite found, pending, !N.eqb_refl, active; reflexivity.
 Qed.

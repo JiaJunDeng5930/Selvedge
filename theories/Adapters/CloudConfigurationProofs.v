@@ -1,7 +1,5 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import SchemaProofs.
 From Selvedge.Adapters Require Import Common CloudConfiguration.
-From Selvedge.Kernel Require Import WorkspaceBackend.
 Open Scope string_scope.
 
 Theorem enabled_configuration_passed_admission : forall source value,
@@ -21,19 +19,19 @@ Theorem configured_backend_is_tencent : forall value,
   CloudConfiguration.valid value = true ->
   str value "backend" = WorkspaceBackend.name WorkspaceBackend.TencentCvm.
 Proof.
-  intros value accepted. unfold CloudConfiguration.valid in accepted.
-  destruct (Schema.decode cloud_schema value); [|discriminate].
-  apply andb_true_iff in accepted as [backend settings].
-  now apply String.eqb_eq in backend.
-Qed.
-
-Theorem enabled_configuration_has_declared_fields : forall source,
-  CloudConfiguration.valid (JObject source) = true ->
-  Schema.keys_declared cloud_schema source = true.
-Proof.
-  intros source accepted. unfold CloudConfiguration.valid in accepted.
-  destruct (Schema.keys_declared cloud_schema source) eqn:declared; [reflexivity|].
-  assert (Schema.decode cloud_schema (JObject source) = None) as refused.
-  { now apply SchemaProofs.rejects_unknown_field. }
-  rewrite refused in accepted. discriminate.
+ intros source Accepted; unfold CloudConfiguration.valid, D.check in Accepted.
+ destruct (D.decode declaration source) as [values|] eqn:Decoded; [|discriminate].
+ destruct source as [|flag|number|text|items|members]; try discriminate.
+ cbn [declaration D.decode] in Decoded.
+ match type of Decoded with (if ?shape then _ else _) = _ => destruct shape; [|discriminate] end.
+ destruct (Json.lookup "backend" members) as [raw|] eqn:Backend; [|discriminate].
+ destruct raw as [|flag|number|name|items|object]; try discriminate.
+ cbn [D.of_kind D.decode] in Decoded.
+ match type of Decoded with context [if ?allowed then _ else _] =>
+   destruct allowed eqn:Allowed; [|discriminate] end.
+ unfold D.check_text in Allowed.
+ destruct (Utf8.scalar_count name); [|discriminate].
+ apply andb_true_iff in Allowed as [_ Choice]; cbn in Choice.
+ rewrite orb_false_r in Choice; apply String.eqb_eq in Choice.
+ unfold Common.str,Common.text,Common.get,Json.field; rewrite Backend; exact Choice.
 Qed.

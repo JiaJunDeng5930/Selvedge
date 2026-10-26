@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Registry RegistryProofs.
+From Selvedge.Foundation Require Import Json Registry RegistryProofs OptionListProofs.
 From Selvedge.Kernel Require Import Domain State TicketedRequest TaskScopeProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -72,7 +72,7 @@ Theorem every_feature_request_has_its_installed_receiver : forall before (reques
 Proof.
  intros before [source Valid] emitted Member. unfold S.feature_issue,S.feature_issue_change,CommandResult.accept in *; cbn in *.
  destruct source as [owner selected prompt|owner card selected prompt retitle|job|owner request];
- cbn [S.feature_space allocate_identity next_identity S.feature_build] in *.
+ cbn [S.feature_space allocate_identity next_identity S.feature_build S.feature_observation S.feature_evidence] in *.
  - destruct Member as [<-|[]]. apply put_title_installs.
  - destruct Member as [<-|[]]. apply put_card_installs.
    apply andb_true_iff in Valid as [Bound Scope]. now apply N.leb_le.
@@ -82,8 +82,7 @@ Proof.
    cbn in *. destruct Member as [<-|[]].
    pose proof (put_maintenance_installs owner (world_next_ticket before) request
      (with_ticket (N.succ (world_next_ticket before)) before)
-     (match S.compaction_entry owner (with_ticket (N.succ (world_next_ticket before)) before) with
-      | Some current => C.entry_observation current | None => None end)) as Installed.
+     (C.entry_observation (S.maintenance_previous Valid))) as Installed.
    rewrite Built in Installed; cbn in Installed.
    destruct request as [input purpose entry|input purpose candidate preview entry|
      input purpose candidate scope entry|input purpose target progress scope entry];
@@ -99,43 +98,51 @@ Theorem feature_requests_preserve_execution_frame : forall before (request : S.f
  world_environment after=world_environment before /\ world_sequence after=world_sequence before.
 Proof.
  intros before [source Valid]; cbn. unfold S.feature_issue,S.feature_issue_change,CommandResult.accept; cbn.
- destruct source; cbn [S.feature_space allocate_identity next_identity S.feature_build];
+ destruct source; cbn [S.feature_space allocate_identity next_identity S.feature_build S.feature_observation S.feature_evidence];
  try (repeat split; reflexivity).
  destruct (S.maintenance_build owner (world_next_ticket before) request); repeat split; reflexivity.
 Qed.
 
-Theorem every_responded_feature_request_has_its_installed_receiver : forall reply source before emitted,
- In emitted (decision_effects (CommandResult.decide before (S.feature_result reply source before))) ->
- receiver_installed emitted (decision_world (CommandResult.decide before (S.feature_result reply source before))).
-Proof.
- intros reply source before emitted Member. unfold S.feature_result in *.
- destruct (S.feature source before) as [request|]; [|contradiction].
- change (receiver_installed emitted (decision_world (S.feature_issue request))).
- eapply every_feature_request_has_its_installed_receiver; exact Member.
-Qed.
-Theorem every_resolved_feature_request_has_its_installed_receiver : forall source before emitted,
- In emitted (decision_effects (S.feature_run source before)) ->
- receiver_installed emitted (decision_world (S.feature_run source before)).
-Proof. intros; eapply every_responded_feature_request_has_its_installed_receiver; eassumption. Qed.
-
-Theorem maintenance_request_installs_its_exact_receiver : forall before owner request,
+Lemma admitted_maintenance_has_a_selected_plan : forall before owner request current
+ (Found : find_task owner before = Some current),
  S.feature_valid before (S.MaintainRequest owner request) = true ->
- let issued:=S.feature_run (S.MaintainRequest owner request) before in
- let built:=S.maintenance_build owner (world_next_ticket before) request in
+ exists reference, S.maintenance_selected owner request before current Found = Some reference.
+Proof.
+ intros before owner request current Found Ready.
+ cbn [S.feature_valid] in Ready; unfold S.maintenance_ready in Ready; rewrite Found in Ready.
+ unfold S.maintenance_selected.
+ eapply observe_cases; [intros entry Stored|intro Missing].
+ - rewrite Stored in Ready; unfold S.maintenance_observed,S.boolean_admission.
+   destruct (Bool.bool_dec _ true) as [Eligible|Refused]; [eexists; reflexivity|contradiction].
+ - rewrite Missing in Ready; discriminate.
+Qed.
+
+Lemma maintenance_issue_retains_the_observed_entry : forall before (plan : S.feature_plan before) owner request,
+ S.feature_intent plan = S.MaintainRequest owner request ->
+ S.feature_observation plan = match S.compaction_entry owner before with
+   | Some entry => C.entry_observation entry | None => None end.
+Proof.
+ intros before [source Evidence] owner request Same; cbn in Same; subst source.
+ destruct Evidence as [current Found entry Stored Eligible]; cbn [S.feature_observation S.maintenance_previous].
+ now rewrite Stored.
+Qed.
+
+Lemma resolved_maintenance_installs_its_exact_receiver : forall before (plan : S.feature_plan before) owner request,
+ S.feature_intent plan = S.MaintainRequest owner request ->
+ let issued:=S.feature_issue plan in let built:=S.maintenance_build owner (world_next_ticket before) request in
  find (fun item => N.eqb (fst item) owner)
   (C.maintenance_entries (F.feature_compaction (world_features (decision_world issued)))) =
   Some (owner,set C.entry_observation (fun _ => match S.compaction_entry owner before with
     | Some current => C.entry_observation current | None => None end) (fst built)) /\
  decision_effects issued=[MaintainContext (snd built)].
 Proof.
- intros before owner request Admitted.
- unfold S.feature_run,S.feature_result,S.feature,CommandResult.decide,CommandResult.resolve,CommandResult.accept.
- destruct (Bool.bool_dec (S.feature_valid before (S.MaintainRequest owner request)) true) as [Valid|Refused];
-   [|contradiction].
- cbn [S.feature_issue S.feature_issue_change CommandResult.accept S.feature_intent S.feature_space allocate_identity next_identity S.feature_build].
+ intros before plan owner request Intent.
+ pose proof (maintenance_issue_retains_the_observed_entry before plan owner request Intent) as Observation.
+ unfold S.feature_issue,S.feature_issue_change; rewrite Intent,Observation.
+ cbn [CommandResult.accept S.feature_space allocate_identity next_identity S.feature_build].
  destruct (S.maintenance_build owner (world_next_ticket before) request) as [entry effect] eqn:Built.
  unfold S.put_compaction,with_features,Selvedge.Features.State.with_compaction,set.
- cbn. unfold S.FS.with_compaction,with_features,with_ticket,set. cbn. now rewrite N.eqb_refl.
+ cbn. now rewrite N.eqb_refl.
 Qed.
 
 (** The typed production capability requires a ready resource and an actual
@@ -152,17 +159,23 @@ Theorem maintenance_plan_has_observed_resource_admission :
  S.capture_compatible observed current before = true /\
  ContextSelection.history_extends (C.captured_history observed) (C.captured_history input) = true.
 Proof.
- intros before [source Admitted] owner request Same; cbn in Same; subst source.
- cbn [S.feature_valid] in Admitted.
+ intros before [source Evidence] owner request Same; cbn in Same; subst source.
+ destruct Evidence as [current Found entry Stored Admitted].
  apply andb_true_iff in Admitted as [Admitted Replacement].
- unfold S.maintenance_ready in Admitted.
- destruct (find_task owner before) as [current|] eqn:Found; [|discriminate].
- destruct (S.compaction_entry owner before) as [entry|] eqn:Entry; [|discriminate].
+ unfold S.maintenance_ready_from in Admitted.
  destruct (C.entry_observation entry) as [observed|] eqn:Observed; [|repeat rewrite andb_false_r in Admitted; discriminate].
- exists current, entry,
-  (match request with S.ScopeRequest input _ _ | S.ValidationScopeRequest input _ _ _ _ |
-   S.MeasureRequest input _ _ _ _ | S.CompactRequest input _ _ _ _ _ => input end), observed.
+ exists current, entry, (S.maintenance_input request), observed.
  repeat rewrite andb_true_iff in Admitted. repeat split; try assumption; tauto.
+Qed.
+
+Lemma maintenance_plans_meet_the_replacement_contract : forall before
+ (plan : S.feature_plan before) owner request,
+ S.feature_intent plan = S.MaintainRequest owner request ->
+ S.maintenance_replacement_ready request = true.
+Proof.
+ intros before [source Evidence] owner request Same; cbn in Same; subst source.
+ destruct Evidence as [current Found entry Stored Eligible].
+ now apply andb_true_iff in Eligible as [_ Replacement].
 Qed.
 
 Theorem compaction_plans_own_a_closed_source_prefix :
@@ -171,10 +184,8 @@ Theorem compaction_plans_own_a_closed_source_prefix :
    (S.CompactRequest input purpose target progress scope entry) ->
  ContextSelection.closed_prefix (C.captured_history input) = true.
 Proof.
- intros before [source Admitted] owner input purpose target progress scope entry Same.
- cbn in Same; subst source.
- cbn [S.feature_valid S.maintenance_replacement_ready] in Admitted.
- now apply andb_true_iff in Admitted as [_ Closed].
+ intros before plan owner input purpose target progress scope entry Same.
+ exact (maintenance_plans_meet_the_replacement_contract before plan owner _ Same).
 Qed.
 
 Theorem validation_plans_own_a_closed_source_prefix :
@@ -183,10 +194,8 @@ Theorem validation_plans_own_a_closed_source_prefix :
    (S.ValidationScopeRequest input purpose candidate preview entry) ->
  ContextSelection.closed_prefix (C.captured_history input) = true.
 Proof.
- intros before [source Admitted] owner input purpose candidate preview entry Same.
- cbn in Same; subst source.
- cbn [S.feature_valid S.maintenance_replacement_ready] in Admitted.
- now apply andb_true_iff in Admitted as [_ Closed].
+ intros before plan owner input purpose candidate preview entry Same.
+ exact (maintenance_plans_meet_the_replacement_contract before plan owner _ Same).
 Qed.
 
 Theorem maintenance_context_installs_the_exact_shared_ticket :
@@ -222,54 +231,43 @@ Proof.
    rewrite N.eqb_refl. eexists; split; reflexivity.
 Qed.
 
-Theorem maintenance_observation_uses_the_current_task : forall owner current purpose entry before,
- find_task owner before = Some current ->
- S.can_observe_maintenance current before = true ->
- S.maintenance_prefix_ready purpose (task_history current) = true ->
- exists request, S.maintenance_context owner purpose entry before = Some request /\
+Theorem maintenance_observation_uses_the_current_task : forall before
+ (reference : TaskScope.task_reference before) purpose entry,
+ S.can_observe_maintenance (TaskScope.selected reference) before = true ->
+ S.maintenance_prefix_ready purpose (task_history (TaskScope.selected reference)) = true ->
+ exists request, S.maintenance_context_selected reference purpose entry = Some request /\
    decision_effects (S.maintenance_observe request) =
-     [ObserveContext owner (world_next_ticket before) current].
+     [ObserveContext (TaskScope.owner reference) (world_next_ticket before) (TaskScope.selected reference)].
 Proof.
- intros owner current purpose entry before Found Allowed Closed.
- destruct (selecting_an_existing_task_retains_its_key owner before current Found)
-   as [reference [Selected [Owner Current]]].
- unfold S.maintenance_context. rewrite Selected.
+ intros before reference purpose entry Allowed Closed.
+ unfold S.maintenance_context_selected,S.boolean_admission.
  destruct (Bool.bool_dec (S.maintenance_context_ready purpose (TaskScope.selected reference) before) true)
    as [Admitted|Refused].
- - eexists; split; [reflexivity|].
-   cbn [S.maintenance_observe S.maintenance_context_target S.maintenance_context_purpose
-     S.maintenance_context_entry allocate_identity next_identity decision_effects accept].
-   now rewrite Owner, Current.
- - unfold S.maintenance_context_ready in Refused.
-   rewrite Current, Allowed, Closed in Refused; contradiction.
+ - eexists; split; reflexivity.
+ - unfold S.maintenance_context_ready in Refused; rewrite Allowed,Closed in Refused; contradiction.
 Qed.
 
-Theorem unavailable_maintenance_observation_has_no_plan : forall owner current purpose entry before,
- find_task owner before = Some current ->
- S.can_observe_maintenance current before = false ->
- S.maintenance_context owner purpose entry before = None.
+Theorem unavailable_maintenance_observation_has_no_plan : forall before
+ (reference : TaskScope.task_reference before) purpose entry,
+ S.can_observe_maintenance (TaskScope.selected reference) before = false ->
+ S.maintenance_context_selected reference purpose entry = None.
 Proof.
- intros owner current purpose entry before Found Unavailable.
- destruct (selecting_an_existing_task_retains_its_key owner before current Found)
-   as [reference [Selected [Owner Current]]].
- unfold S.maintenance_context. rewrite Selected.
+ intros before reference purpose entry Unavailable.
+ unfold S.maintenance_context_selected,S.boolean_admission.
  destruct (Bool.bool_dec (S.maintenance_context_ready purpose (TaskScope.selected reference) before) true)
    as [Admitted|Refused]; [|reflexivity].
- exfalso. unfold S.maintenance_context_ready in Admitted.
- rewrite Current, Unavailable in Admitted; discriminate.
+ exfalso; unfold S.maintenance_context_ready in Admitted; rewrite Unavailable in Admitted; discriminate.
 Qed.
 
-Theorem an_open_summary_prefix_has_no_context_plan : forall owner current purpose entry before,
- find_task owner before = Some current ->
- ContextSelection.closed_prefix (task_history current) = false ->
- S.maintenance_context owner (Some purpose) entry before = None.
+Theorem an_open_summary_prefix_has_no_context_plan : forall before
+ (reference : TaskScope.task_reference before) purpose entry,
+ ContextSelection.closed_prefix (task_history (TaskScope.selected reference)) = false ->
+ S.maintenance_context_selected reference (Some purpose) entry = None.
 Proof.
- intros owner current purpose entry before Found Open.
- destruct (selecting_an_existing_task_retains_its_key owner before current Found)
-   as [reference [Selected [Owner Current]]].
- unfold S.maintenance_context. rewrite Selected.
+ intros before reference purpose entry Open.
+ unfold S.maintenance_context_selected,S.boolean_admission.
  destruct (Bool.bool_dec (S.maintenance_context_ready (Some purpose) (TaskScope.selected reference) before) true)
    as [Admitted|Refused]; [|reflexivity].
- exfalso. unfold S.maintenance_context_ready, S.maintenance_prefix_ready in Admitted.
- rewrite Current, Open, andb_false_r in Admitted; discriminate.
+ exfalso; unfold S.maintenance_context_ready,S.maintenance_prefix_ready in Admitted.
+ rewrite Open,andb_false_r in Admitted; discriminate.
 Qed.

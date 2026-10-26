@@ -30,16 +30,6 @@ Proof.
    apply appended_history_preserves_captured_prefix,the_same_history_retains_its_captured_prefix.
 Qed.
 
-Lemma retained_task_registries_follow_their_actual_lookups :
- forall source raw before features old next first,
- (forall offset task,registry_at offset old = Some task ->
-   exists current,registry_at offset next = Some current /\
-   CommitAdmission.retained_task source raw before (first+offset)%N features features task current = true) ->
- CommitAdmission.retained_tasks_from source raw before first features features old next = true.
-Proof.
- intros; apply retained_task_registries_follow_lookups; assumption.
-Qed.
-
 Theorem a_single_active_native_result_retains_cross_state_authority :
  forall source raw before born owner original current phase operations running,
  WorldInvariant.well_formed before ->
@@ -60,7 +50,7 @@ Proof.
  apply andb_true_iff; split.
  - apply andb_true_iff; split.
    + apply andb_true_iff; split.
-     * apply retained_task_registries_follow_their_actual_lookups; intros offset task Original.
+     * apply retained_task_registries_follow_lookups; intros offset task Original.
        change (find_task offset before = Some task) in Original.
        destruct (N.eq_dec offset owner) as [Same|Different].
        -- subst offset; rewrite Found in Original; inversion Original; subst task.
@@ -82,6 +72,53 @@ Qed.
 
 From Selvedge.Kernel Require Import Numbers Codec NativeForkCommit NativeForkCommitProofs NativeForkSchedulingProofs NativeForkStartProofs.
 
+Lemma a_retained_native_parent_settles_with_cross_state_authority :
+ forall entry raw before (accepted : NativeForkCommit.plan before) after parent result failed,
+ let step := NativeForkCommit.planned_step accepted in
+ WorldInvariant.well_formed before -> WorldInvariant.well_formed after ->
+ find_task (Scheduler.native_fork_owner step) after = Some parent ->
+ parent = continued_parent accepted -> world_next_ticket after = world_next_ticket before ->
+ (forall other old,other <> Scheduler.native_fork_owner step ->
+   find_task other before = Some old -> find_task other after = Some old) ->
+ world_projects after = world_projects before -> world_features after = world_features before ->
+ CommitAdmission.world_evolution entry raw before
+   (decision_world (Scheduler.internal_result (Scheduler.native_fork_owner step)
+     (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step)
+     result failed parent after)) = true.
+Proof.
+ intros entry raw before accepted after parent result failed step Valid AfterValid Found Parent Supply
+   Others Projects Features.
+ pose proof (a_selected_native_fork_settlement_uses_its_exact_result_task
+   before accepted after parent result failed AfterValid Found Parent Supply) as Exact.
+ fold step in Exact; rewrite Exact.
+ pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
+ destruct (a_ready_native_fork_keeps_its_dispatch_call _ _ _ _ Ready) as [retry Call].
+ destruct (a_final_native_call_has_its_stored_dispatch_phase _ _ _ _ Call)
+   as [_ [_ [phase [operations [running [Lifecycle NonIdle]]]]]].
+ set (original := TaskScope.selected (NativeForkCommit.planned_target accepted)).
+ fold original in Lifecycle.
+ eapply a_single_active_native_result_retains_cross_state_authority with
+   (original:=original) (phase:=phase) (operations:=operations) (running:=running).
+ - exact Valid.
+ - apply every_native_fork_plan_has_its_observed_source.
+ - exact Lifecycle.
+ - rewrite Parent; unfold continued_parent; fold step; fold original.
+   eapply continuing_an_active_result_keeps_its_task_frame; exact Lifecycle.
+ - rewrite result_task_history.
+   exists (match Callbacks.after_plugins parent with
+   | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) result failed]
+   | _ => [ToolReceipt (Scheduler.native_fork_owner step) (world_next_ticket before)
+       (Scheduler.native_fork_invocation step) result failed] end).
+   rewrite Parent; unfold continued_parent; fold step; fold original.
+   unfold with_activity; rewrite Lifecycle; destruct running; reflexivity.
+ - exists parent; destruct (Callbacks.after_plugins parent); exact Found.
+ - intros other old Different Original; destruct (Callbacks.after_plugins parent);
+   apply Others; assumption.
+ - destruct (Callbacks.after_plugins parent); destruct after; cbn in Supply |- *; lia.
+ - destruct (Callbacks.after_plugins parent); exact Projects.
+ - destruct (Callbacks.after_plugins parent); exact Features.
+Qed.
+
 Theorem every_native_fork_settlement_retains_its_actual_cross_state_authority :
  forall entry raw before (accepted : NativeForkCommit.plan before) messages parent selected,
  let step := NativeForkCommit.planned_step accepted in
@@ -95,53 +132,22 @@ Theorem every_native_fork_settlement_retains_its_actual_cross_state_authority :
    (decision_world (requested_settlement accepted messages parent selected)) = true.
 Proof.
  intros entry raw before accepted messages parent selected step Valid Admissible.
- pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
- destruct (a_ready_native_fork_keeps_its_dispatch_call _ _ _ _ Ready) as [retry Call].
- destruct (a_final_native_call_has_its_stored_dispatch_phase _ _ _ _ Call) as [_ [_ [phase [operations [running [Lifecycle NonIdle]]]]]].
- set (original := TaskScope.selected (NativeForkCommit.planned_target accepted)).
- fold original in Lifecycle.
- pose proof (each_native_fork_keeps_the_exact_started_parent before accepted messages parent selected Admissible) as Parent.
- fold step in Parent; fold original in Parent.
- destruct (a_native_fork_keeps_its_parent_and_exact_ticket_supply before accepted messages parent selected (proj1 Admissible)) as [Found Supply].
+ destruct (a_native_fork_keeps_its_parent_and_exact_ticket_supply before accepted messages parent selected (proj1 Admissible))
+   as [Found Supply].
  pose proof (fork_candidate_keeps_the_non_task_world_frame
    (Tasks.AcceptedNativeFork (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step))
    (Scheduler.native_fork_owner step) (Selvedge.Generated.Commands.fork_child_count (Scheduler.native_fork_request step))
    messages parent selected (started_world accepted)) as [_ [_ [Projects Features]]].
- fold (requested_world accepted messages parent selected) in Projects,Features.
- change (world_projects (requested_world accepted messages parent selected) = world_projects (started_world accepted)) in Projects.
- change (world_features (requested_world accepted messages parent selected) = world_features (started_world accepted)) in Features.
- assert (StartedProjects : world_projects (started_world accepted) = world_projects before).
- { rewrite a_native_fork_start_is_the_exact_pending_phase_change; destruct before; reflexivity. }
- assert (StartedFeatures : world_features (started_world accepted) = world_features before).
- { rewrite a_native_fork_start_is_the_exact_pending_phase_change; destruct before; reflexivity. }
- rewrite StartedProjects in Projects; rewrite StartedFeatures in Features.
- rewrite (each_native_fork_settlement_uses_its_exact_result_task before accepted messages parent selected Valid Admissible).
- set (current := result_task (Scheduler.native_fork_owner step) (world_next_ticket before) (Scheduler.native_fork_invocation step)
-   (Scheduler.native_fork_remaining step) (number 0) false parent).
- eapply a_single_active_native_result_retains_cross_state_authority with
-   (original:=original) (phase:=phase) (operations:=operations) (running:=running).
- - exact Valid.
- - apply every_native_fork_plan_has_its_observed_source.
- - exact Lifecycle.
- - unfold current; rewrite Parent; eapply continuing_an_active_result_keeps_its_task_frame; exact Lifecycle.
- - unfold current; rewrite result_task_history.
-   exists (match Callbacks.after_plugins parent with
-   | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) (number 0) false]
-   | _ => [ToolReceipt (Scheduler.native_fork_owner step) (world_next_ticket before) (Scheduler.native_fork_invocation step) (number 0) false] end).
-   rewrite Parent; unfold with_activity; rewrite Lifecycle; destruct running; reflexivity.
- - exists parent; destruct (Callbacks.after_plugins parent); exact Found.
+ unfold requested_settlement; fold step.
+ eapply a_retained_native_parent_settles_with_cross_state_authority; try eassumption.
+ - eapply every_admissible_native_fork_constructs_a_well_formed_birth_world; eassumption.
+ - eapply each_native_fork_keeps_the_exact_started_parent; exact Admissible.
  - intros other old Different Original.
-   destruct (Callbacks.after_plugins parent);
-   change (find_task other (requested_world accepted messages parent selected) = Some old);
-   unfold requested_world,fork_candidate; fold step;
-   cbn [fork_retained fork_snapshot_parent fork_invocation];
-   apply fork_children_preserve_every_existing_task;
-   rewrite a_native_fork_start_is_the_exact_pending_phase_change;
-   unfold find_task,put_task,with_tasks; cbv [set]; cbn;
+   unfold requested_world,fork_candidate; fold step; cbn [fork_retained fork_snapshot_parent fork_invocation].
+   apply fork_children_preserve_every_existing_task.
+   rewrite a_native_fork_start_is_the_exact_pending_phase_change.
+   unfold find_task,put_task,with_tasks; cbv [set]; cbn.
    rewrite registry_replace_other by congruence; exact Original.
- - destruct (Callbacks.after_plugins parent); destruct (requested_world accepted messages parent selected); cbn in Supply |- *; lia.
- - destruct (Callbacks.after_plugins parent); destruct (requested_world accepted messages parent selected); exact Projects.
- - destruct (Callbacks.after_plugins parent); destruct (requested_world accepted messages parent selected); exact Features.
 Qed.
 
 Theorem every_refused_native_fork_retains_its_actual_cross_state_authority :
@@ -151,49 +157,13 @@ Theorem every_refused_native_fork_retains_its_actual_cross_state_authority :
    (decision_world (refused_settlement accepted code reason)) = true.
 Proof.
  intros entry raw before accepted code reason Valid.
- set (step := NativeForkCommit.planned_step accepted).
- set (original := TaskScope.selected (NativeForkCommit.planned_target accepted)).
- pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
- destruct (a_ready_native_fork_keeps_its_dispatch_call _ _ _ _ Ready) as [retry Call].
- destruct (a_final_native_call_has_its_stored_dispatch_phase _ _ _ _ Call)
-   as [_ [_ [phase [operations [running [Lifecycle NonIdle]]]]]].
- fold original in Lifecycle.
- pose proof (a_started_native_fork_keeps_its_continued_parent before accepted) as Found.
- destruct (a_refused_native_fork_keeps_the_exact_error_and_continuation before accepted code reason Valid)
-   as [Exact _].
- rewrite Exact.
- set (current := result_task (Scheduler.native_fork_owner step) (world_next_ticket before)
-   (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step)
-   (failure code reason) true (continued_parent accepted)).
- eapply a_single_active_native_result_retains_cross_state_authority with
-   (original:=original) (phase:=phase) (operations:=operations) (running:=running).
+ unfold refused_settlement.
+ eapply a_retained_native_parent_settles_with_cross_state_authority; try reflexivity.
  - exact Valid.
- - apply every_native_fork_plan_has_its_observed_source.
- - exact Lifecycle.
- - unfold current,continued_parent; fold step; fold original.
-   eapply continuing_an_active_result_keeps_its_task_frame; exact Lifecycle.
- - unfold current; rewrite result_task_history.
-   exists (match Callbacks.after_plugins (continued_parent accepted) with
-   | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) (failure code reason) true]
-   | _ => [ToolReceipt (Scheduler.native_fork_owner step) (world_next_ticket before)
-       (Scheduler.native_fork_invocation step) (failure code reason) true] end).
-   unfold continued_parent; fold step; fold original.
-   unfold with_activity; rewrite Lifecycle; destruct running; reflexivity.
- - exists (continued_parent accepted); destruct (Callbacks.after_plugins (continued_parent accepted)); exact Found.
+ - apply every_selected_native_fork_starts_in_a_well_formed_world; exact Valid.
+ - apply a_started_native_fork_keeps_its_continued_parent.
  - intros other old Different Original.
-   destruct (Callbacks.after_plugins (continued_parent accepted));
-   change (find_task other (started_world accepted) = Some old);
-   rewrite a_native_fork_start_is_the_exact_pending_phase_change;
-   unfold find_task,put_task,with_tasks; cbv [set]; cbn;
+   rewrite a_native_fork_start_is_the_exact_pending_phase_change.
+   unfold find_task,put_task,with_tasks; cbv [set]; cbn.
    rewrite registry_replace_other by congruence; exact Original.
- - assert (Supply : world_next_ticket (started_world accepted) = world_next_ticket before).
-   { rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity. }
-   destruct (Callbacks.after_plugins (continued_parent accepted));
-   destruct (started_world accepted); cbn in Supply |- *; lia.
- - destruct (Callbacks.after_plugins (continued_parent accepted));
-   change (world_projects (started_world accepted) = world_projects before);
-   rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity.
- - destruct (Callbacks.after_plugins (continued_parent accepted));
-   change (world_features (started_world accepted) = world_features before);
-   rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity.
 Qed.

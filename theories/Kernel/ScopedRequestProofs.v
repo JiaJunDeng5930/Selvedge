@@ -2,27 +2,29 @@ From Selvedge.Kernel Require Import TaskScopeProofs.
 From Selvedge.Kernel Require Import TaskScope.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Tasks ReasoningPlan TicketedRequest TicketedRequestProofs Scheduler Limits.
+From Selvedge.Kernel Require Import Domain State Tasks ReasoningPlan TicketedRequest Scheduler Limits.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition selected_result_erases_its_lookup_witness := @TaskScopeProofs.selected_result_erases_its_lookup_witness.
 
-Lemma observe_selected_erases_its_capability : forall before publish reference,
- TicketedRequest.Scoped.run (@TicketedRequest.Scoped.observe_selected before publish reference) =
+Lemma observe_selected_erases_its_capability : forall before publish reference fallback,
+ (match @TicketedRequest.Scoped.observe_selected before publish reference with
+ | Some request => TicketedRequest.Scoped.issue request | None => fallback end) =
  if TicketedRequest.Scoped.can_observe publish (TaskScope.selected reference) before then
  TicketedRequest.issue (TaskScope.owner reference)
    (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations
      (Tasks.promote (TaskScope.selected reference)) else TaskScope.selected reference)) before
- else State.ignored before.
+ else fallback.
 Proof.
- intros before publish reference.
+ intros before publish reference fallback.
  assert (Erase : forall allowed evidence,
-   TicketedRequest.Scoped.run (@TicketedRequest.Scoped.observe_allowed before publish reference allowed evidence) =
+   (match @TicketedRequest.Scoped.observe_allowed before publish reference allowed evidence with
+    | Some request => TicketedRequest.Scoped.issue request | None => fallback end) =
    if allowed then TicketedRequest.issue (TaskScope.owner reference)
     (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations
      (Tasks.promote (TaskScope.selected reference)) else TaskScope.selected reference)) before
-   else State.ignored before).
+   else fallback).
  { intros [] evidence; reflexivity. }
  apply Erase.
 Qed.
@@ -38,7 +40,8 @@ Proof.
  intros id before current publish Found.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [reference [Selected [Owner Current]]].
- unfold TicketedRequest.Scoped.observe; rewrite Selected, observe_selected_erases_its_capability.
+ unfold TicketedRequest.Scoped.observe; rewrite Selected.
+ unfold TicketedRequest.Scoped.run; rewrite observe_selected_erases_its_capability.
  now rewrite ?Owner, ?Current.
 Qed.
 
@@ -80,15 +83,6 @@ Proof.
    as [reference [Selected [Owner Current]]].
  unfold TicketedRequest.Scoped.model; rewrite Selected, model_selected_erases_its_capability.
  now rewrite Owner, Current, Allowed.
-Qed.
-
-Theorem a_scoped_request_writes_only_its_actual_target : forall before
- (request : TicketedRequest.Scoped.plan before) other,
- TaskScope.owner (TicketedRequest.Scoped.target request) <> other ->
- find_task other (decision_world (TicketedRequest.Scoped.issue request)) = find_task other before.
-Proof.
- intros before request other Different.
- apply TicketedRequestProofs.issue_preserves_other_tasks; exact Different.
 Qed.
 
 Theorem starting_uses_the_current_call : forall id before current tool invocation remaining authority,

@@ -11,10 +11,6 @@ Definition callback_kind_of (kind : string) :=
  match find (fun declaration => Json.equal declaration.(ModelDeclarations.tag_value) (JString kind)) ModelDeclarations.effects with
  | Some declaration => declaration.(ModelDeclarations.callback_name)
  | None => None end.
-Definition unreserved (reserved : list string) (fields : list (string * json)) :=
-  filter (fun pair => negb (existsb (String.eqb (fst pair)) reserved)) fields.
-Definition extend (fields : list (string * json)) (result : json) :=
-  JObject (fields ++ unreserved (map (@fst string json) fields) (object_fields result)).
 Definition diagnostic_contract (kind : ModelDeclarations.callback_kind) :=
   match kind with
   | Approval => BoundedDiagnostic.Contract 2048 true
@@ -23,58 +19,85 @@ Definition diagnostic_contract (kind : ModelDeclarations.callback_kind) :=
   end.
 Definition diagnostic (kind : ModelDeclarations.callback_kind) (message : string) :=
   BoundedDiagnostic.make (diagnostic_contract kind) message.
-Definition worktree_reply (created : bool) (effect result : json) (message : string) :=
- let ok := boolean_field result "ok" in
- if created then if ok then CallbackDeclarations.encode (Worktree true) true effect
-   [!Some (JBool true);Some (get result "root");Some (get result "workspace");Some (get result "guidance")!]
-   else CallbackDeclarations.encode (Worktree true) false effect [!Some (JBool false);Some (get result "root");Some (JString message)!]
- else if ok then CallbackDeclarations.encode (Worktree false) true effect [!Some (JBool true);Some
-   (if Json.is_null (get result "outcome") then JObject [("kind",JString "archived_at");("root",get result "root")] else get result "outcome")!]
- else CallbackDeclarations.encode (Worktree false) false effect [!Some (JBool false);Some (JString message)!].
+Definition reply_fields kind := { ok : bool & fields (CallbackDeclarations.payload kind ok) }.
+Definition observed_payload kind ok members : option (reply_fields kind) :=
+ option_map (fun values => existT _ ok values) (decode_fields (CallbackDeclarations.payload kind ok) members).
+Definition observed_result (kind : callback_kind) (result : json) : option (reply_fields kind) :=
+ let members := object_fields result in
+ match kind as kind return option (reply_fields kind) with
+ | TaskTitle => observed_payload TaskTitle true (("ok",JBool true) :: members)
+| BoardText => observed_payload BoardText true (("ok",JBool true) :: members)
+| Context => observed_payload Context true (("ok",JBool true) :: members)
+| Reasoning => observed_payload Reasoning true (("ok",JBool true) :: members)
+ | Tool => observed_payload Tool true members
+ | ChatgptExec => observed_payload ChatgptExec true members
+ | Approval => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Approval true) [!result!]))
+| Hook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Hook true) [!result!]))
+| AfterHook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload AfterHook true) [!result!]))
+ | Compaction done => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload (Compaction done) true) [!result;false!]))
+ | Model => option_map (fun items => existT _ true
+     (Schema.of_tuple (CallbackDeclarations.payload Model true) [!true;Some items;None;None!])) (as_array result)
+ | Worktree created =>
+   match bool_field "ok" result with
+   | None => None
+   | Some true => if created as created return option (reply_fields (Worktree created))
+     then observed_payload (Worktree true) true members
+     else option_map (fun outcome => existT _ true
+       (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) true) [!true;outcome!]))
+       (match Json.field "outcome" result with
+        | Some outcome => Some outcome
+        (* Cloud workspace receipts carry their archived root; local receipts
+           already distinguish an archived root from a released reservation. *)
+        | None => option_map (fun root => JObject [("kind",JString "archived_at");("root",JString root)])
+            (string_field "root" result) end)
+   | Some false => if created as created return option (reply_fields (Worktree created)) then
+       option_map (fun values : fields (CallbackDeclarations.payload (Worktree true) false) => existT _ false
+         (Schema.of_tuple (CallbackDeclarations.payload (Worktree true) false)
+           [!false;Schema.head (Schema.tail values);diagnostic (Worktree true) (Schema.head (Schema.tail (Schema.tail values)))!]))
+         (decode_fields (CallbackDeclarations.payload (Worktree true) false) members)
+     else option_map (fun values : fields (CallbackDeclarations.payload (Worktree false) false) => existT _ false
+         (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) false)
+           [!false;diagnostic (Worktree false) (Schema.head (Schema.tail values))!]))
+         (decode_fields (CallbackDeclarations.payload (Worktree false) false) members)
+   end
+ end.
 Definition completed (effect result : json) : option json :=
- let encoded kind values := CallbackDeclarations.encode kind true effect values in
- let extended kind values := extend (object_fields (encoded kind values)) result in
  match callback_kind_of (str effect "kind") with
- | Some TaskTitle => Some (encoded TaskTitle [!Some (JBool true);Some (get result "title")!])
- | Some ChatgptExec => Some (extended ChatgptExec [!None;None!])
- | Some BoardText => Some (extended BoardText [!Some (JBool true);None;None!])
- | Some Approval => Some (encoded Approval [!Some result!])
- | Some Hook => Some (encoded Hook [!Some result!])
- | Some AfterHook => Some (encoded AfterHook [!Some result!])
- | Some Context => Some (encoded Context [!Some (JBool true);Some (get result "observations");None!])
- | Some (Compaction done) => Some (encoded (Compaction done) [!Some result;Some (JBool false)!])
- | Some (Worktree created) => Some (worktree_reply created effect result (diagnostic (Worktree created) (str result "message")))
- | Some Reasoning => Some (extended Reasoning [!Some (JBool true);None;None;None!])
- | Some Model => Some (encoded Model [!Some (JBool true);Some result;None;None!])
- | Some Tool => Some (extended Tool [!None;None!])
+ | Some kind => match decode_fields (CallbackDeclarations.coordinates kind) (object_fields effect), observed_result kind result with
+   | Some address,Some (existT _ ok values) => Some (CallbackDeclarations.encode kind ok address values)
+   | _,_ => None end
  | None => None end.
 Definition error_value (message : string) := JObject [("error",JObject
  [("code",JString "external_execution_failed");("message",JString message)])].
 Definition failure_outcome (message : string) := JObject [("decision",JString "failed");("reason",JString message)].
 Definition failure_payload (kind : callback_kind) (message : string) (context_limit : bool)
- : Schema.tuple (CallbackDeclarations.raw_schema (CallbackDeclarations.payload kind false)) := match kind as kind return Schema.tuple (CallbackDeclarations.raw_schema (CallbackDeclarations.payload kind false)) with
- | TaskTitle | BoardText => [!Some (JBool false);Some (JString message)!]
- | Approval | Hook | AfterHook => [!Some (failure_outcome message)!]
- | Context => [!Some (JBool false);None;Some (JString message)!]
- | Reasoning => [!Some (JBool false);None;None;Some (JString message)!]
- | Model => [!Some (JBool false);None;Some (JString message);if context_limit then Some (JString "context_limit") else None!]
- | Tool | ChatgptExec => [!Some (JBool true);Some (error_value message)!]
- | Compaction _ => [!Some (JObject [("message",JString message)]);Some (JBool true)!]
- | Worktree created => if created as created return Schema.tuple (CallbackDeclarations.raw_schema (CallbackDeclarations.payload (Worktree created) false)) then [!Some (JBool false);Some JNull;Some (JString message)!]
-   else [!Some (JBool false);Some (JString message)!] end.
-Definition failed (effect : json) (original : string) (context_limit : bool) : json :=
+ : fields (CallbackDeclarations.payload kind false) := Schema.of_tuple _
+ (match kind as kind return Schema.tuple (CallbackDeclarations.payload kind false) with
+ | TaskTitle | BoardText => [!false;message!]
+ | Approval | Hook | AfterHook => [!failure_outcome message!]
+ | Context => [!false;None;Some message!]
+ | Reasoning => [!false;None;None;Some message!]
+ | Model => [!false;None;Some message;if context_limit then Some (exist _ "context_limit" (or_introl eq_refl)) else None!]
+ | Tool => [!true;Some (error_value message)!]
+ | ChatgptExec => [!true;error_value message!]
+ | Compaction _ => [!JObject [("message",JString message)];true!]
+ | Worktree created => if created as created return Schema.tuple (CallbackDeclarations.payload (Worktree created) false)
+     then [!false;None;message!] else [!false;message!] end).
+Definition failed (effect : json) (original : string) (context_limit : bool) : option json :=
  match callback_kind_of (str effect "kind") with
- | Some kind => CallbackDeclarations.encode kind false effect (failure_payload kind (diagnostic kind original) context_limit)
- | None => type_error "The effect has no completion callback" end.
+ | Some kind => option_map (fun address => CallbackDeclarations.encode kind false address
+     (failure_payload kind (diagnostic kind original) context_limit))
+     (decode_fields (CallbackDeclarations.coordinates kind) (object_fields effect))
+ | None => None end.
 Definition completion (source : json) :=
-  match completed (get source "effect") (get source "result") with
-  | Some value => success value
-  | None => type_error "Completion contains invalid UTF-8 text"
-  end.
+ match completed (get source "effect") (get source "result") with
+ | Some value => success value
+ (* DEFENSE: Provider results can violate their declared payload shape. The
+    service converts a rejected completion into the issued effect's failure. *)
+ | None => type_error "Completion does not satisfy its declared callback fields" end.
 Definition failure (source : json) :=
-  let original := match as_string (get source "message") with
-    | Some value => value | None => "External execution failed" end in
-  match callback_kind_of (str (get source "effect") "kind") with
- | None => type_error "The effect has no completion callback"
- | Some _ => success (failed (get source "effect") original (boolean_field source "context_limit"))
- end.
+ match as_string (get source "message") with
+ | Some original => match failed (get source "effect") original (boolean_field source "context_limit") with
+   | Some value => success value
+   | None => type_error "Failure requires an issued effect with callback coordinates" end
+ | None => type_error "Failure requires a diagnostic message" end.

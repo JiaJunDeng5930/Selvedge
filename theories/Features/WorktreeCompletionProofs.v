@@ -30,38 +30,20 @@ Proof.
  split; try reflexivity; now rewrite <- app_assoc.
 Qed.
 
-Ltac finish_accepted_creation entered found pending :=
- match type of entered with
- | context [negb ?valid] =>
-     destruct valid eqn:validated in entered; cbn in entered;
-     [rewrite found, pending in entered; inversion entered; reflexivity | discriminate]
- end.
-
 (** Once the native completion entry accepts a creation result for a pending
     owner, it dispatches the parsed host observations to the actual transition. *)
-Theorem accepted_creation_completion_dispatches : forall source value id tree archived ok root space result,
- string_field "kind" source = Some "worktree_created" ->
- natural_field "task_id" source = Some id ->
- bool_field "ok" source = Some ok ->
- string_field "root" source = root ->
- (match field "workspace" source with Some encoded => parse_workspace encoded | None => None end) = space ->
- Worktree.lookup id value = Some tree ->
+Theorem accepted_creation_completion_dispatches : forall source value payload tree archived ok,
+ string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some ok ->
+ Worktree.decode_creation_completion source ok = Some payload ->
+ Worktree.lookup (Worktree.creation_owner payload) value = Some tree ->
  F.worktree_phase tree = F.TreeCreating archived ->
- Worktree.completion source value = Some (true, true, result) ->
- result = Worktree.created tree ok root space (value_or_null "guidance" source)
-   (text_default "message" source "") value.
+ Worktree.completion source value = Some (true,true,
+   Worktree.created tree ok (Worktree.creation_root payload) (Worktree.creation_workspace payload)
+     (Worktree.creation_guidance payload) (Worktree.creation_message payload) value).
 Proof.
- intros source value id tree archived ok root space result kind identity reported root_field workspace_field found pending entered.
- unfold Worktree.completion in entered.
- rewrite kind, identity, reported, root_field, workspace_field in entered.
- cbn [String.eqb] in entered.
- destruct ok; cbn in entered.
- - destruct root as [root|].
-   + destruct space as [space|].
-     * finish_accepted_creation entered found pending.
-     * rewrite Bool.andb_false_r in entered. cbn in entered. discriminate.
-   + rewrite Bool.andb_false_r in entered. cbn in entered. discriminate.
- - finish_accepted_creation entered found pending.
+ intros source value payload tree archived ok Kind Outcome Parsed Found Pending.
+ unfold Worktree.completion; rewrite Kind, Outcome, Parsed; cbn [String.eqb].
+ now rewrite Found, Pending.
 Qed.
 
 Lemma failed_task_stops_live_owner : forall message task,
@@ -140,12 +122,12 @@ Qed.
     Its valid observed workspace and guidance become the completed task's
     current settings and frozen contract, and its owner reference resolves to
     the Ready resource. Every accepted non-success outcome stops that owner. *)
-Theorem accepted_creation_completion_binds_or_stops : forall source value id tree task ok root space result,
- string_field "kind" source = Some "worktree_created" ->
- natural_field "task_id" source = Some id ->
- bool_field "ok" source = Some ok ->
- string_field "root" source = root ->
- (match field "workspace" source with Some encoded => parse_workspace encoded | None => None end) = space ->
+Theorem accepted_creation_completion_binds_or_stops : forall source value payload tree task ok result,
+ let id:=Worktree.creation_owner payload in let root:=Worktree.creation_root payload in
+ let space:=Worktree.creation_workspace payload in let guidance:=Worktree.creation_guidance payload in
+ let message:=Worktree.creation_message payload in
+ string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some ok ->
+ Worktree.decode_creation_completion source ok = Some payload ->
  Worktree.lookup id value = Some tree ->
  F.worktree_phase tree = F.TreeCreating false ->
  find_task id value = Some task ->
@@ -153,17 +135,14 @@ Theorem accepted_creation_completion_binds_or_stops : forall source value id tre
  settings_resource (task_current_settings task) = Some (F.worktree_task tree) ->
  Worktree.completion source value = Some (true, true, result) ->
  (exists observed_root observed_space completed ready,
-   root = Some observed_root /\
-   space = Some observed_space /\
-   Worktree.created_valid observed_root observed_space (value_or_null "guidance" source) task = true /\
+   root = Some observed_root /\ space = Some observed_space /\
+   Worktree.created_valid observed_root observed_space guidance task = true /\
    decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\
    find_task (F.worktree_task tree) (decision_world result) = Some completed /\
-   task_current_settings completed = Worktree.selected_settings observed_space
-     (value_or_null "guidance" source) (task_current_settings task) /\
+   task_current_settings completed = Worktree.selected_settings observed_space guidance (task_current_settings task) /\
    contract_settings (task_contract completed) = Worktree.selected_settings
      (Worktree.selected_workspace (Worktree.primary observed_space)
-       (settings_workspace (contract_settings (task_contract task))))
-     (value_or_null "guidance" source) (contract_settings (task_contract task)) /\
+       (settings_workspace (contract_settings (task_contract task)))) guidance (contract_settings (task_contract task)) /\
    Worktree.lookup (F.worktree_task tree) (decision_world result) = Some ready /\
    WorkspaceBinding.for_task (F.worktree_task tree) (decision_world result) = Some ready /\
    F.worktree_phase ready = F.TreeReady observed_root (Worktree.primary observed_space)) \/
@@ -173,17 +152,15 @@ Theorem accepted_creation_completion_binds_or_stops : forall source value id tre
    task_lifecycle failed = Stopped Idle [] /\
    Worktree.lookup (F.worktree_task tree) (decision_world result) = Some failed_tree /\
    F.worktree_phase failed_tree = F.TreeCreateFailed root
-     (if ok then "Worktree creation returned an invalid workspace or guidance"%string
-      else text_default "message" source "")).
+     (if ok then "Worktree creation returned an invalid workspace or guidance"%string else message)).
 Proof.
- intros source value id tree task ok root space result kind identity reported root_field workspace_field
+ intros source value payload tree task ok result id root space guidance message kind reported parsed
    found pending task_found live resource entered.
  assert (tree_owner : F.worktree_task tree = id) by
    (eapply WorktreeProofs.lookup_has_owner; exact found).
- set (guidance := value_or_null "guidance" source).
- set (message := text_default "message" source "").
  assert (dispatch : result = Worktree.created tree ok root space guidance message value).
- { unfold guidance, message. eapply accepted_creation_completion_dispatches; eassumption. }
+ { pose proof (accepted_creation_completion_dispatches _ _ _ _ _ _ kind reported parsed found pending) as Dispatch.
+   rewrite entered in Dispatch; now inversion Dispatch. }
  subst result.
  assert (owner_task : find_task (F.worktree_task tree) value = Some task) by
    (rewrite tree_owner; exact task_found).

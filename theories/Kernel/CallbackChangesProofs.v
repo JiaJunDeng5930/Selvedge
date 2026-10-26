@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskChangesProofs TaskWakeProofs History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs
- ApprovalProtocol Scheduler HookRules RequestReceiver.
+ ApprovalProtocol Scheduler HookRules RequestReceiver ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -89,40 +89,18 @@ Definition context_ready_expression (accepted : bool) (id : N) (task : task) (va
  let body := eval unfold Callbacks.context_ready in (Callbacks.context_ready accepted id task value) in
  derive_callback_view constr:(Callbacks.context_ready accepted id task value) body id value).
 
-Lemma context_retry_selected_expression : forall before (reference : TaskScope.task_reference before),
- (match TicketedRequest.Scoped.observe_selected false reference with
-  | Some request => TicketedRequest.Scoped.issue request
-  | None => Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before end) =
- if TicketedRequest.Scoped.can_observe false (TaskScope.selected reference) before then
-   TicketedRequest.issue (TaskScope.owner reference) (TicketedRequest.Observe (TaskScope.selected reference)) before
- else Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before.
-Proof.
- intros before reference. unfold TicketedRequest.Scoped.observe_selected.
- assert (Erase : forall allowed evidence,
-  (match @TicketedRequest.Scoped.observe_allowed before false reference allowed evidence with
-   | Some request => TicketedRequest.Scoped.issue request
-   | None => Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before end) =
-  if allowed then TicketedRequest.issue (TaskScope.owner reference) (TicketedRequest.Observe (TaskScope.selected reference)) before
-  else Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before).
- { intros [] evidence; reflexivity. }
- apply Erase.
-Qed.
-
-Lemma context_retry_expression : forall id value,
+Lemma context_retry_uses_the_current_task : forall id value current,
+ find_task id value = Some current ->
  Reasoning.context_retry id value =
- match find_task id value with
- | None => State.ignored value
- | Some current => if TicketedRequest.Scoped.can_observe false current value then
-     TicketedRequest.issue id (TicketedRequest.Observe current) value
-   else Reasoning.context_retry_wait id current value end.
+ if TicketedRequest.Scoped.can_observe false current value then
+   TicketedRequest.issue id (TicketedRequest.Observe current) value
+ else Reasoning.context_retry_wait id current value.
 Proof.
- intros. unfold Reasoning.context_retry.
- pattern (TaskScope.select id value) at 1.
- apply selected_reference_elimination.
- - intros reference Owner.
-   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
-   rewrite Selected, context_retry_selected_expression. now rewrite Owner.
- - intros Missing. now rewrite Missing.
+ intros id value current Found.
+ destruct (selecting_an_existing_task_retains_its_key id value current Found)
+   as [reference [Selected [Owner Current]]].
+ unfold Reasoning.context_retry; rewrite Selected, observe_selected_erases_its_capability.
+ now rewrite Owner, Current.
 Qed.
 
 Definition context_completed_expression (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) := ltac:(

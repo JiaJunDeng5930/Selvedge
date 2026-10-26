@@ -2,7 +2,7 @@ From Selvedge.Kernel Require Import TaskScope RequestReceiver.
 From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Foundation Require Import Json JsonObjects OptionList.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -305,15 +305,16 @@ Definition compaction_entry (owner : N) (before : world) :=
    (C.maintenance_entries (F.feature_compaction (world_features before)))).
 (* A provider request consumes an observation from the actual registry. A
    caller's proposed entry or captured history cannot create that capability. *)
+Definition maintenance_ready_from (input : C.capture) (current : task) (entry : C.entry) (before : world) :=
+ (match task_lifecycle current with Running _ _ => true | _ => false end) &&
+ resources_available current before && capture_compatible input current before &&
+ match C.entry_observation entry with
+ | Some observed => capture_compatible observed current before &&
+     ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
+ | None => false end.
 Definition maintenance_ready (owner : N) (input : C.capture) (before : world) :=
  match find_task owner before, compaction_entry owner before with
- | Some current, Some entry =>
-   (match task_lifecycle current with Running _ _ => true | _ => false end) &&
-   resources_available current before && capture_compatible input current before &&
-   match C.entry_observation entry with
-   | Some observed => capture_compatible observed current before &&
-       ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
-   | None => false end
+ | Some current, Some entry => maintenance_ready_from input current entry before
  | _, _ => false end.
 Inductive maintenance_action :=
 | ScopeRequest (input : C.capture) (purpose : option C.reason) (entry : C.entry)
@@ -323,6 +324,12 @@ Inductive maintenance_action :=
     (candidate : option (ContextSelection.artifact * list message)) (scope : string) (entry : C.entry)
 | CompactRequest (input : C.capture) (purpose : C.reason)
     (target : C.target) (progress : Compaction.compaction_state) (scope : string) (entry : C.entry).
+Definition maintenance_input (request : maintenance_action) := match request with
+ | ScopeRequest input _ _ | ValidationScopeRequest input _ _ _ _ |
+   MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end.
+Definition maintenance_waiting_entry (request : maintenance_action) := match request with
+ | ScopeRequest _ purpose entry | MeasureRequest _ purpose _ _ entry => (purpose,entry)
+ | ValidationScopeRequest _ purpose _ _ entry | CompactRequest _ purpose _ _ _ entry => (Some purpose,entry) end.
 Definition maintenance_replacement_ready (request : maintenance_action) :=
  match request with
  | ScopeRequest _ _ _ | MeasureRequest _ _ None _ _ => true
@@ -342,17 +349,48 @@ Definition feature_valid (before : world) (source : feature_action) :=
    FeatureRequestAdmission.card owner card selected prompt retitle before
  | ConnectionRequest job => match F.job_state job with
    | F.JobRunning => FeatureRequestAdmission.connection job before | _ => false end
- | MaintainRequest owner request => maintenance_ready owner
-    (match request with ScopeRequest input _ _ | ValidationScopeRequest input _ _ _ _ |
-      MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end) before &&
+ | MaintainRequest owner request => maintenance_ready owner (maintenance_input request) before &&
       maintenance_replacement_ready request
  end.
+Record maintenance_reference (before : world) (owner : N) (request : maintenance_action) := MaintenanceReference {
+ maintenance_current : task;
+ maintenance_current_found : find_task owner before = Some maintenance_current;
+ maintenance_previous : C.entry;
+ maintenance_previous_found : compaction_entry owner before = Some maintenance_previous;
+ maintenance_eligible : maintenance_ready_from (maintenance_input request) maintenance_current maintenance_previous before &&
+   maintenance_replacement_ready request = true
+}.
+Arguments maintenance_current {before owner request}.
+Arguments maintenance_current_found {before owner request}.
+Arguments maintenance_previous {before owner request}.
+Arguments maintenance_previous_found {before owner request}.
+Arguments maintenance_eligible {before owner request}.
+Definition boolean_admission (condition : bool) : option (condition = true) :=
+ match Bool.bool_dec condition true with left evidence => Some evidence | right _ => None end.
+Definition maintenance_observed owner request before current
+ (Found : find_task owner before = Some current) entry
+ (Stored : compaction_entry owner before = Some entry) : option (maintenance_reference before owner request) :=
+ option_map (fun Eligible => MaintenanceReference before owner request current Found entry Stored Eligible)
+   (boolean_admission (maintenance_ready_from (maintenance_input request) current entry before &&
+     maintenance_replacement_ready request)).
+Definition maintenance_selected owner request before current
+ (Found : find_task owner before = Some current) : option (maintenance_reference before owner request) :=
+ OptionList.observe (compaction_entry owner before)
+   (fun entry Stored => maintenance_observed owner request before current Found entry Stored) (fun _ => None).
+Definition feature_evidence (before : world) (source : feature_action) : Type := match source with
+ | MaintainRequest owner request => maintenance_reference before owner request
+ | _ => feature_valid before source = true end.
 Record feature_plan (before : world) := FeaturePlan {
  feature_intent : feature_action;
- feature_admitted : feature_valid before feature_intent = true
+ feature_admitted : feature_evidence before feature_intent
 }.
 Arguments FeaturePlan {before}.
 Arguments feature_intent {before}.
+Definition feature_observation {before} (request : feature_plan before) : option C.capture :=
+ match request with FeaturePlan source evidence =>
+   (match source as actual return feature_evidence before actual -> option C.capture with
+    | MaintainRequest _ _ => fun reference => C.entry_observation (maintenance_previous reference)
+    | _ => fun _ => None end) evidence end.
 Definition feature_space (source : feature_action) := match source with
  | ConnectionRequest _ => ConnectionIdentity | _ => TaskTicket end.
 Definition put_title owner state value :=
@@ -394,13 +432,10 @@ Arguments MaintenanceContextPlan {before}.
 Arguments maintenance_context_target {before}.
 Arguments maintenance_context_purpose {before}.
 Arguments maintenance_context_entry {before}.
-Definition maintenance_context (owner : N) (purpose : option C.reason) (entry : C.entry) (before : world)
+Definition maintenance_context_selected {before} (target : task_reference before) purpose entry
  : option (maintenance_context_plan before) :=
- match select owner before with
- | None => None
- | Some target => match Bool.bool_dec (maintenance_context_ready purpose (selected target) before) true with
-   | left admitted => Some (MaintenanceContextPlan target purpose entry admitted)
-   | right _ => None end end.
+ option_map (fun admitted => MaintenanceContextPlan target purpose entry admitted)
+   (boolean_admission (maintenance_context_ready purpose (selected target) before)).
 Definition maintenance_observe {before} (request : maintenance_context_plan before) :=
  let target := maintenance_context_target request in
  let current := selected target in
@@ -437,7 +472,7 @@ Definition maintenance_build owner identity source : C.entry * C.effect :=
  | CompactRequest input purpose target progress scope entry =>
    (set C.entry_job (fun _ => C.Compacting identity input purpose progress scope) entry,
     C.Compact owner identity input target progress scope) end.
-Definition feature_build identity source allocated : world * effect :=
+Definition feature_build identity source observation allocated : world * effect :=
  match source with
  | TitleRequest owner selected prompt =>
    (put_title owner (F.TitlePending identity selected prompt) allocated, SuggestTitle owner identity selected prompt)
@@ -447,25 +482,20 @@ Definition feature_build identity source allocated : world * effect :=
  | ConnectionRequest job => (put_connection identity job allocated, RunConnectionJob identity job)
  | MaintainRequest owner request =>
    let '(pending, request_effect) := maintenance_build owner identity request in
-   let pending := set C.entry_observation (fun _ => match compaction_entry owner allocated with
-     | Some current => C.entry_observation current | None => None end) pending in
+   let pending := set C.entry_observation (fun _ => observation) pending in
    (put_compaction owner pending allocated, MaintainContext request_effect) end.
 Definition feature_issue_change {before} (request : feature_plan before) : CommandResult.change :=
  let '(identity,allocated) := allocate_identity (feature_space (feature_intent request)) before in
- let '(installed,request_effect) := feature_build identity (feature_intent request) allocated in
+ let '(installed,request_effect) := feature_build identity (feature_intent request) (feature_observation request) allocated in
  CommandResult.Change (JObject [("accepted",JBool true)]) installed [request_effect].
 Definition feature_issue {before} (request : feature_plan before) : decision :=
  CommandResult.accept (feature_issue_change request).
-Definition feature (source : feature_action) (before : world) : option (feature_plan before) :=
- match Bool.bool_dec (feature_valid before source) true with
- | left evidence => Some (FeaturePlan source evidence)
- | right _ => None end.
 Definition connection_plan {before identity project request_id}
  (request : FeatureRequestAdmission.resolved_connection before identity project request_id)
  : feature_plan before.
 Proof.
  refine (FeaturePlan (ConnectionRequest (FeatureRequestAdmission.resolved_job request)) _).
- cbn [feature_valid]. rewrite (FeatureRequestAdmission.resolved_running request).
+ cbn [feature_evidence feature_valid]. rewrite (FeatureRequestAdmission.resolved_running request).
  exact (FeatureRequestAdmission.resolved_admitted request).
 Defined.
 Definition title_plan {before} (request : FeatureRequestAdmission.resolved_title before) : feature_plan before.
@@ -473,20 +503,11 @@ Proof.
  refine (FeaturePlan (TitleRequest (TaskScope.owner (FeatureRequestAdmission.title_reference request))
    (FeatureRequestAdmission.title_profile request)
    (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before)) _).
- cbn [feature_valid]. apply FeatureRequestAdmission.title_from_observations.
+ cbn [feature_evidence feature_valid]. apply FeatureRequestAdmission.title_from_observations.
  - apply TaskScope.observed.
  - apply FeatureRequestAdmission.title_absent.
  - exact (proj1 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
  - exact (proj2 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
  - apply FeatureRequestAdmission.title_chosen.
 Defined.
-Definition feature_result (reply : json) (source : feature_action) (before : world)
- : CommandResult.result CommandResult.change :=
- match feature source before with
- | Some request => let issued := feature_issue_change request in
-   CommandResult.Accepted (CommandResult.Change reply
-     (CommandResult.change_world issued) (CommandResult.change_effects issued))
- | None => CommandResult.refuse "invalid_request_receiver" "The request has no installable pending receiver" end.
-Definition feature_run (source : feature_action) (before : world) :=
- CommandResult.decide before (feature_result (JObject [("accepted",JBool true)]) source before).
 End Scoped.

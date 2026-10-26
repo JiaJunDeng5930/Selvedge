@@ -22,7 +22,7 @@ Proof.
    (Commands.create_settings request) false None before) as [cause|start] eqn:Resolved.
  - exact Valid.
  - cbn [Worktree.start_allowed CommandExecution.creation_allowed].
-   unfold Worktree.prepare_scoped.
+   unfold Worktree.prepare_selected_birth,Worktree.prepare_scoped.
    destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before)
      as [plan|reply] eqn:Prepared.
    + cbn [Worktree.final_authority].

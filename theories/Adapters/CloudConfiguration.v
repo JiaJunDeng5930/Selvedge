@@ -1,10 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Schema.
+From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module D := ArgumentDeclaration.
 
 Definition required_settings_text : list string :=
   ["region";"zone";"image_id";"instance_type";"vpc_id";"subnet_id";
@@ -13,37 +15,18 @@ Definition optional_settings_text : list string := ["ssh_user";"api_endpoint"].
 Definition optional_bounds : list (string * (N*N)) :=
   [("ssh_port",(1,65535));("internet_max_bandwidth_out",(0,1000));
    ("startup_timeout_ms",(1000,3600000))].
-Definition settings_schema : Schema.schema :=
-  (map (fun name => Field name KText) required_settings_text ++
-  [Field "security_group_ids" (KArray KText)] ++
-  map (fun name => Field name (KOptional KText)) optional_settings_text ++
-  map (fun entry => Field (fst entry) (KOptional KNatural)) optional_bounds ++
-  [Field "address_type" (KOptional (KEnum "public" ["private"]))])%list.
-Definition cloud_schema : Schema.schema :=
-  [Field "backend" WorkspaceBackend.declaration;
-   Field (WorkspaceBackend.name WorkspaceBackend.TencentCvm) KJson].
-Definition nonempty_text (value : json) :=
-  is_text value && negb (String.eqb (text value) "").
-Definition bounded_natural (value : json) (lower upper : N) :=
-  match natural value with Some n => (lower <=? n) && (n <=? upper) | None => false end.
-Definition settings_valid (source : json) :=
-  match Schema.decode settings_schema source with
-  | None => false
-  | Some _ =>
-    forallb (fun name => nonempty_text (get source name)) required_settings_text &&
-    forallb (fun name => negb (has source name) || nonempty_text (get source name)) optional_settings_text &&
-    negb (Nat.eqb (List.length (items (get source "security_group_ids"))) 0%nat) &&
-    forallb nonempty_text (items (get source "security_group_ids")) &&
-    forallb (fun entry => negb (has source (fst entry)) ||
-      bounded_natural (get source (fst entry)) (fst (snd entry)) (snd (snd entry))) optional_bounds &&
-    (negb (has source "address_type") || negb (is_null (get source "address_type")))
-  end.
-Definition valid (source : json) :=
-  match Schema.decode cloud_schema source with
-  | None => false
-  | Some _ => String.eqb (str source "backend") (WorkspaceBackend.name WorkspaceBackend.TencentCvm) &&
-    settings_valid (get source (WorkspaceBackend.name WorkspaceBackend.TencentCvm))
-  end.
+Definition nonempty_text := D.Text (D.TextConstraints
+  1 D.maximum_natural D.maximum_natural false false false None).
+Definition settings_declaration := D.Object
+  (map (fun name => (name,true,nonempty_text)) required_settings_text ++
+  [("security_group_ids",true,D.BoundedArray 1 D.maximum_natural nonempty_text)] ++
+  map (fun name => (name,false,nonempty_text)) optional_settings_text ++
+  map (fun entry => (fst entry,false,D.Natural (fst (snd entry)) (snd (snd entry)))) optional_bounds ++
+  [("address_type",false,D.of_kind (KEnum "public" ["private"]))])%list.
+Definition declaration := D.Object
+  [("backend",true,D.of_kind (KEnum (WorkspaceBackend.name WorkspaceBackend.TencentCvm) []));
+   (WorkspaceBackend.name WorkspaceBackend.TencentCvm,true,settings_declaration)].
+Definition valid := D.check declaration.
 Definition disabled (value : json) := is_null value || equal value (JBool false).
 Definition call (source : json) :=
   let value := get source "cloud" in

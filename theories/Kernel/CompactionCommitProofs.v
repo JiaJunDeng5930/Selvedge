@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskScopeProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -145,7 +146,10 @@ Proof.
  intros request before current summary Owned Alive Idle Summary Admitted.
  unfold CompactionCommit.candidate,DeferredCommit.continue_result.
  apply CommandResult.appending_effects_to_an_accepted_result.
- unfold M.handle_compact_result; rewrite Owned,Alive,Summary,Idle.
+ destruct (selecting_an_existing_task_retains_its_key (Commands.compact_task_id request) before current Owned)
+   as [[owner selected Observed] [Selected [Owner Current]]].
+ cbn in Owner,Current; subst owner selected.
+ unfold M.handle_compact_result; rewrite Selected; cbn [TaskScope.selected]; rewrite Alive,Summary,Idle.
  unfold summary_admitted in Admitted; rewrite Admitted.
  unfold M.supplied_change,M.commit_change.
  rewrite compaction_supplied_history_is_an_exact_append; reflexivity.

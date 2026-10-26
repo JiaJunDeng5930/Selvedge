@@ -24,15 +24,10 @@ Definition workspace_error (before after : world) : option CommandResult.refusal
 Definition admit_workspace (before : world) (candidate : CommandResult.result CommandResult.change) :=
  CommandResult.bind candidate (fun change => match workspace_error before (CommandResult.change_world change) with
  | None => CommandResult.Accepted change | Some reason => CommandResult.Rejected reason end).
-Definition admit_decision (before : world) (candidate : decision) :=
- match workspace_error before (decision_world candidate) with
- | None => candidate | Some reason => CommandResult.reject before reason end.
 Definition propose_result (request : Commands.fork_payload) (before : world) :=
  if Worktree.execution_allowed (Commands.fork_task_id request) before
  then CommandExecution.handle_fork_result request None before
  else CommandResult.Rejected Worktree.failed_execution_reason.
-Definition propose (request : Commands.fork_payload) (before : world) :=
- CommandResult.decide before (propose_result request before).
 Definition candidate (request : Commands.fork_payload) (before : world) :=
  CommandResult.commit before
    (fun change => CommandResult.Change (CommandResult.change_value change)

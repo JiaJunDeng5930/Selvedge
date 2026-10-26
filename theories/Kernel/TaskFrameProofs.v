@@ -115,10 +115,6 @@ Hypothesis RelationFeatures : forall before after,
 
 Local Definition related_contract old next evidence :=
  frame_contract old next (RelationConfiguration old next evidence).
-Local Definition related_profile old next evidence :=
- frame_profile old next (RelationConfiguration old next evidence).
-Local Definition related_settings old next evidence :=
- frame_settings old next (RelationConfiguration old next evidence).
 Local Definition related_lineage old next evidence :=
  frame_lineage old next (RelationConfiguration old next evidence).
 

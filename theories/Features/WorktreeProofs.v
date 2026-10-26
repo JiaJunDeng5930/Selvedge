@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require CommandResult.
 From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Foundation Require Import Json JsonProofs Schema SchemaProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs Tasks.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
@@ -116,31 +116,50 @@ Proof.
  rewrite Different, Live, Bound. unfold Workspace.same_resource. rewrite N.eqb_refl; reflexivity.
 Qed.
 (** A host success must name its primary directory and carry guidance from that
-    directory. Malformed observations never turn a pending setup into failure. *)
-Theorem created_completion_requires_explicit_primary : forall source value id observed,
- string_field "kind" source = Some "worktree_created" ->
- natural_field "task_id" source = Some id -> bool_field "ok" source = Some true ->
+    directory. These boundary requirements observe only the relevant fields. *)
+Theorem created_completion_requires_explicit_primary : forall source value observed,
+ string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
  field "workspace" source = Some observed -> string_field "primary_root" observed = None ->
  Worktree.completion source value = None.
 Proof.
- intros source value id observed kind identity succeeded workspace missing.
- unfold Worktree.completion; rewrite kind, identity, succeeded; cbn zeta.
- rewrite workspace, missing.
- destruct (string_field "root" source), (parse_workspace observed); cbn;
-   repeat rewrite Bool.andb_false_r; reflexivity.
+ intros source value observed kind succeeded workspace missing.
+ unfold Worktree.completion; rewrite kind, succeeded; cbn [String.eqb].
+ unfold Worktree.decode_creation_completion.
+ destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
+ cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
+  CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect
+  ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
+ destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
+ do 4 apply decoded_field_tail in Fields.
+ pose proof (decoded_field_head _ _ _ _ Fields) as Workspace; cbn [field_name] in Workspace.
+ change (Json.lookup "workspace" members=Some observed) in workspace.
+ rewrite workspace in Workspace; cbn [decode_field decode_value] in Workspace; injection Workspace as Workspace.
+ rewrite <-Workspace; destruct (parse_workspace observed); cbn; rewrite ?missing;
+ repeat rewrite andb_false_r; reflexivity.
 Qed.
-Theorem created_completion_rejects_other_directory_guidance : forall source value id observed space,
- string_field "kind" source = Some "worktree_created" ->
- natural_field "task_id" source = Some id -> bool_field "ok" source = Some true ->
+Theorem created_completion_rejects_other_directory_guidance : forall source value observed space,
+ string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
  field "workspace" source = Some observed -> parse_workspace observed = Some space ->
  Codec.guidance_member space (value_or_null "guidance" source) = false ->
  Worktree.completion source value = None.
 Proof.
- intros source value id observed space kind identity succeeded workspace parsed mismatch.
- unfold Worktree.completion; rewrite kind, identity, succeeded; cbn zeta.
- rewrite workspace, parsed.
- destruct (string_field "root" source); cbn; [rewrite mismatch|];
-   repeat rewrite Bool.andb_false_r; reflexivity.
+ intros source value observed space kind succeeded workspace parsed mismatch.
+ unfold Worktree.completion; rewrite kind, succeeded; cbn [String.eqb].
+ unfold Worktree.decode_creation_completion.
+ destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
+ cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
+  CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect
+  ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
+ destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
+ do 4 apply decoded_field_tail in Fields.
+ pose proof (decoded_field_head _ _ _ _ Fields) as Workspace; cbn [field_name] in Workspace.
+ change (Json.lookup "workspace" members=Some observed) in workspace.
+ rewrite workspace in Workspace; cbn [decode_field decode_value] in Workspace; injection Workspace as Workspace.
+ apply decoded_field_tail in Fields; apply decoded_field_head in Fields; cbn [field_name] in Fields.
+ destruct (Json.lookup "guidance" members) as [guidance|] eqn:Guidance;
+ cbn [decode_field decode_value missing_value] in Fields; [|discriminate].
+ injection Fields as Fields; unfold value_or_null in mismatch; cbn [Json.field] in mismatch; rewrite Guidance in mismatch.
+ rewrite <-Workspace, parsed; cbn; rewrite <-Fields, mismatch; repeat rewrite andb_false_r; reflexivity.
 Qed.
 (** Resource phases carry their roots, so a ready tree cannot have no root. *)
 Theorem ready_tree_has_root : forall tree,
@@ -537,19 +556,12 @@ Proof.
  unfold find_task; rewrite Worktree.transition_tasks_are_the_witnessed_birth.
  apply Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append; exact Found.
 Qed.
-Theorem attach_planned_birth_preserves_existing_tasks : forall before
- (owner : Work.owner_scope before) (plan : Worktree.scoped_start before) id task,
- find_task id before=Some task ->
- find_task id (decision_world (Worktree.attach_planned_birth owner plan))=Some task.
-Proof.
- intros; apply scoped_birth_preserves_existing_tasks; exact H.
-Qed.
 Theorem consume_start_resolution_preserves_existing_tasks : forall intent settings caller managed backend cached value id task,
  find_task id value=Some task ->
  find_task id (decision_world (Worktree.consume_start_resolution intent settings caller managed backend cached value))=Some task.
 Proof.
  intros intent settings caller managed backend cached value id task Found.
- unfold Worktree.consume_start_resolution, Worktree.resolve_start_birth.
+ unfold Worktree.consume_start_resolution, Worktree.resolve_start_birth,Worktree.prepare_selected_birth.
  destruct cached as [cause|start]; [exact Found|].
  destruct (Worktree.start_allowed settings caller value (Tasks.StartResolved start)); [|exact Found].
  destruct (Worktree.prepare_scoped intent caller managed backend start value) as [plan|reply];

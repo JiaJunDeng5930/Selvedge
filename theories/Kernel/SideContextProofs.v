@@ -52,7 +52,7 @@ Theorem matching_side_model_capture_uses_full_history : forall value request cur
  (put_task (ModelRequest.owner request) (with_model_cursor (List.length (task_history current)) current) value,
   RequestModel (ModelRequest.with_history (task_history current) request)).
 Proof.
- intros; unfold Dispatch.capture_request; now rewrite H, H0, N.eqb_refl.
+ intros; unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite H, H0, N.eqb_refl.
 Qed.
 
 Theorem matching_side_reasoning_capture_uses_full_history : forall value id ticket original current source_length,
@@ -62,7 +62,7 @@ Theorem matching_side_reasoning_capture_uses_full_history : forall value id tick
  (put_task id (with_activity (EvaluatingReasoning ticket (List.length (task_history current))) current) value,
   RequestReasoning id ticket (with_history (task_history current) original)).
 Proof.
- intros; unfold Dispatch.capture_request; now rewrite H, H0, N.eqb_refl.
+ intros; unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite H, H0, N.eqb_refl.
 Qed.
 
 Theorem nonmatching_side_model_capture_preserves_original_history : forall value request current,
@@ -73,7 +73,7 @@ Theorem nonmatching_side_model_capture_preserves_original_history : forall value
  Dispatch.capture_request (RequestModel request) value = (value,RequestModel request).
 Proof.
  intros value request current Found Mismatch.
- unfold Dispatch.capture_request, Dispatch.side_task. rewrite Found.
+ unfold Dispatch.capture_request, Dispatch.side_task, RequestReceiver.pending_phase, RequestReceiver.phase_receiver. rewrite Found.
  destruct Mismatch as [NoParent|[parent [Parent WrongPhase]]].
  - rewrite NoParent; reflexivity.
  - rewrite Parent.
@@ -96,7 +96,7 @@ Theorem nonmatching_side_reasoning_capture_preserves_original_history : forall v
  (value,RequestReasoning id ticket original).
 Proof.
  intros value id ticket original current Found Mismatch.
- unfold Dispatch.capture_request, Dispatch.side_task.
+ unfold Dispatch.capture_request, Dispatch.side_task, RequestReceiver.pending_phase, RequestReceiver.phase_receiver.
  rewrite Found.
  destruct Mismatch as [NoParent|[parent [Parent WrongPhase]]].
  - rewrite NoParent; reflexivity.

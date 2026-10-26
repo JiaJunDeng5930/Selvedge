@@ -294,7 +294,7 @@ Proof.
    eexists; split; [eapply find_put_task; exact Found|].
    apply task_changes_preserve_the_frozen_contract.
  - destruct (task_lifecycle before).
-   + rewrite context_retry_expression, Found.
+   + rewrite (context_retry_uses_the_current_task id value before Found).
      destruct (TicketedRequest.Scoped.can_observe false before value).
      * cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
        eexists; split; [eapply find_put_task; exact Found|].

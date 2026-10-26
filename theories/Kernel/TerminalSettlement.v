@@ -39,9 +39,6 @@ Arguments request {before}.
 Arguments owns_request {before}.
 Arguments update {before}.
 Arguments observed_update {before}.
-Definition finishes_operation {before} (accepted : plan before) : eligible (request accepted) (TaskScope.selected (target accepted)) = true.
-Proof. unfold eligible; rewrite (observed_update accepted); reflexivity. Defined.
-
 Definition resolve_observed (payload : after_request) (before : world) (current : task)
  (observed : find_task (owner payload) before = Some current) : option (plan before) :=
  OptionList.observe (resolved_update payload current)
@@ -59,9 +56,6 @@ Definition resolve (input : input) (before : world) := match input with
 Definition interpret_change {before : world} (accepted : plan before) :=
  CommandResult.Change (JObject [("accepted"%string,JBool true)])
    (Tasks.interpret_result (target accepted) (update accepted)) [].
-Definition interpret {before : world} (accepted : plan before) :=
- CommandResult.accept (interpret_change accepted).
-
 (* The settled callback commits before independent runtime maintenance. The
    selected plan is an accepted settlement even when its hook result failed. *)
 Definition candidate {before : world} (accepted : plan before) :=

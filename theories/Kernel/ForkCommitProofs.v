@@ -39,17 +39,6 @@ Lemma the_actual_fork_handler_has_its_typed_result : forall request context befo
  CommandResult.decide before (CommandExecution.handle_fork_result request context before).
 Proof. intros request [context|] before; reflexivity. Qed.
 
-Lemma workspace_admission_commutes_with_typed_outcomes : forall before outcome,
- CommandResult.decide before (ForkCommit.admit_workspace before outcome) =
- ForkCommit.admit_decision before (CommandResult.decide before outcome).
-Proof.
- intros before [change|reason]; unfold ForkCommit.admit_workspace,ForkCommit.admit_decision;
- cbn [CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.reject
-   accept reject decision_world].
- - destruct (ForkCommit.workspace_error before (CommandResult.change_world change)); reflexivity.
- - unfold ForkCommit.workspace_error; rewrite skipn_all; reflexivity.
-Qed.
-
 Lemma the_actual_fork_handler_interprets_its_message_admission : forall request context before,
  CommandHandlers.execute (G.Cmd_fork request) context before =
  match Selvedge.Kernel.Codec.traverse Images.parse_content (message_sources request) with
@@ -86,14 +75,6 @@ Proof.
  rewrite the_actual_manual_fork_handler_interprets_its_message_admission.
  destruct (Selvedge.Kernel.Codec.traverse Images.parse_content (message_sources request)) as [messages|]; [|reflexivity].
  apply the_fork_constructor_emits_no_unbound_effects.
-Qed.
-
-Lemma the_manual_fork_proposal_emits_no_unbound_effects : forall request before,
- decision_effects (ForkCommit.propose request before) = [].
-Proof.
- intros; unfold ForkCommit.propose, ForkCommit.propose_result.
- destruct (Worktree.execution_allowed _ _); [|reflexivity].
- apply the_manual_fork_handler_emits_no_unbound_effects.
 Qed.
 
 Lemma the_fork_transaction_emits_only_its_durable_continuation : forall request before,

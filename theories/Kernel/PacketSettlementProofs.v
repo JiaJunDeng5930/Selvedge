@@ -183,36 +183,33 @@ Theorem every_owned_terminal_callback_commits_at_the_public_packet :
  forall raw before payload current,
  let input := AfterCompleted (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
    (TerminalSettlement.ticket payload) (TerminalSettlement.outcome payload) in
- let result := DeferredCommit.continue (HookCallbacks.after_completed
-   (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
-   (TerminalSettlement.ticket payload) (TerminalSettlement.outcome payload) before) in
  InputDecoder.decode raw = Some input ->
  find_task (TerminalSettlement.owner payload) before = Some current ->
  TerminalSettlement.eligible payload current = true ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
- WorldInvariant.well_formed before -> Delivery.fits true result = true ->
- Packet.packet raw before =
- (with_sequence (N.succ (world_sequence before)) (decision_world result),
-  Notifications.envelope true true (Some input) before result) /\
- decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
- decision_effects result = [ContinueScheduling].
+ WorldInvariant.well_formed before ->
+ exists accepted, TerminalSettlement.resolve_request payload before = Some accepted /\
+ (Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
+  let result := TerminalSettlement.candidate accepted in
+  Packet.packet raw before =
+  (with_sequence (N.succ (world_sequence before)) (decision_world result),
+   Notifications.envelope true true (Some input) before result) /\
+  decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
+  decision_effects result = [ContinueScheduling]).
 Proof.
- intros raw before payload current input result Decoded Found Eligible InputBudget Valid OutputBudget.
+ intros raw before payload current input Decoded Found Eligible InputBudget Valid.
  destruct (every_owned_terminal_callback_resolves_its_finite_transaction payload before current Found Eligible)
   as [accepted Resolved].
  pose proof (resolution_retains_the_callback_payload payload before accepted Resolved) as Payload.
  assert (Source : TerminalSettlement.source accepted = input).
  { unfold TerminalSettlement.source; rewrite Payload; reflexivity. }
- assert (Candidate : TerminalSettlement.candidate accepted = result).
- { rewrite TerminalSettlementPlanProofs.a_terminal_candidate_matches_the_callback_continuation, Payload; reflexivity. }
- split.
- - rewrite <- Candidate, <- Source.
+ exists accepted; split; [exact Resolved|]; intro OutputBudget; cbn beta zeta; split.
+ - rewrite <- Source.
    apply an_archived_result_is_committed_by_the_exported_packet; try assumption.
    + rewrite Source; exact Decoded.
    + rewrite Source; unfold input, TerminalSettlement.resolve.
      destruct payload; exact Resolved.
-   + rewrite Candidate; exact OutputBudget.
  - destruct (every_terminal_plan_constructs_its_exact_successful_settlement before accepted)
    as [operations [original [plugin [previous [failed [_ [_ [_ [_ Exact]]]]]]]]].
-   rewrite <- Candidate, Exact; split; reflexivity.
+   rewrite Exact; split; reflexivity.
 Qed.

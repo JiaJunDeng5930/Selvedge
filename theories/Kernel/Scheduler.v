@@ -1,4 +1,4 @@
-From Selvedge.Kernel Require Import TaskScope TaskChange.
+From Selvedge.Kernel Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search TicketedRequest.
@@ -95,9 +95,8 @@ Definition finish_call (id : N) (invocation : call) (remaining : list call)
  (value : json) (failed : bool) (result : decision) :=
  match find_task id (decision_world result) with
  | Some caller =>
-   let settled := internal_result id invocation remaining value failed caller (decision_world result) in
-   Decision (decision_world settled) (decision_reply result)
-     (decision_effects result ++ decision_effects settled)
+   DecisionComposition.follow result
+     (internal_result id invocation remaining value failed caller (decision_world result))
  | None => result end.
 Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (invocation : call)
  (remaining : list call) (task : task) (value : world) :=
@@ -111,10 +110,10 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
       remaining calls, but must not also close this executing call as pending. *)
    let started := commit_changes id (fun _ => [TaskChange.ChangePhase (PendingCalls remaining)]) value in
    let result := execute command (Some (Tasks.NativeCall id invocation remaining)) started in
-   let result_value := if String.eqb (call_name invocation) "fork_task" && bool_default "ok" (decision_reply result) false
+   let accepted := bool_default "ok" (decision_reply result) false in
+   let result_value := if String.eqb (call_name invocation) "fork_task" && accepted
      then number 0 else decision_reply result in
-   finish_call id invocation remaining result_value
-     (negb (bool_default "ok" (decision_reply result) false)) result
+   finish_call id invocation remaining result_value (negb accepted) result
    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
  | None =>
    if String.eqb (call_name invocation) "discover_tools" then

@@ -1,8 +1,9 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import ModelDeclarations.
-From Selvedge.Host Require RemoteTransport.
+From Selvedge.Host Require RemoteTransport RemoteConnectorSession.
 Module RT := Selvedge.Host.RemoteTransport.
+Module RC := Selvedge.Host.RemoteConnectorSession.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -164,22 +165,9 @@ Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
 Definition remote_authorization_actions := map (fun action => variant "kind" (grant_action_name action) [] [])
  [RT.CheckAgain;RT.Capture;RT.Deny;RT.Disconnect].
-Definition remote_connector_actions := KEnum "ignore" ["installed";"retire";"pairing";"pending";"expired";
- "grants";"enqueue";"dequeue";"disconnect";"ready";"controller_open";"controller_close";"request";"pair_request";"pong";
- "notice";"snapshot";"unsubscribed";"deliver"].
-Definition remote_notice_sequence := Field "notice_sequence" KNatural.
-Definition remote_connector_states := [remote_state "offline" [Field "pairing" KJson;remote_notice_sequence];
- remote_state "negotiating" [Field "pairing" KJson;remote_notice_sequence];remote_state "ready" [Field "pairing" KJson;remote_notice_sequence;
- Field "grants" (KArray KJson);Field "connections" (KArray KJson);Field "pending" (KArray KJson)]].
-Definition remote_connector_observations := [remote_observation "install" [remote_generation];
- remote_observation "retire" [remote_generation];remote_observation "pair" (remote_timed++[Field "frame" KJson]);
- remote_observation "pairing_current" remote_timed;remote_observation "grants" [remote_generation;Field "grants" (KArray KJson)];
- remote_observation "enqueue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural;Field "notice_sequence" KJson];
- remote_observation "dequeue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural;Field "notice_sequence" KJson];
- remote_observation "notice" [];
- remote_observation "capture" [remote_generation;Field "connection_id" KText;Field "method" (KEnum "snapshot" ["subscribe";"unsubscribe"])];
- remote_observation "deliver" [remote_generation;Field "connection_id" KText;remote_notice_sequence];
- remote_observation "frame" [remote_generation;Field "frame" KJson]].
+Definition remote_connector_actions := RC.action_kind.
+Definition remote_connector_states := map ModelDeclarations.decoder_declaration RC.state_decoders.
+Definition remote_connector_observations := map ModelDeclarations.decoder_declaration RC.event_decoders.
 Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
  ("RemoteTransportObservation",remote_transport_observations);("RemoteAuthorizationState",remote_authorization_states);
  ("RemoteAuthorizationAction",remote_authorization_actions);("HttpPlan",http_plans);("BrowserObservationPlan",browser_plans);

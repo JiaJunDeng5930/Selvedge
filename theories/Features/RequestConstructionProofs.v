@@ -97,12 +97,12 @@ Local Ltac derive_maintenance_contract :=
 
 Lemma waiting_for_context_installs_every_emitted_receiver : forall id purpose entry before,
  emissions_satisfy maintenance_receiver_installed (Compaction.wait_for_context id purpose entry before).
-Proof. intros id purpose entry before; unfold Compaction.wait_for_context; derive_maintenance_contract. Qed.
+Proof. intros id purpose entry before; unfold Compaction.wait_for_context,Compaction.wait_for_context_selected; derive_maintenance_contract. Qed.
 #[local] Hint Resolve waiting_for_context_installs_every_emitted_receiver : maintenance_receivers.
 
 Theorem maintenance_requests_install_every_emitted_receiver : forall id request before,
  emissions_satisfy maintenance_receiver_installed (Compaction.run_request id request before).
-Proof. intros id request before; unfold Compaction.run_request; derive_maintenance_contract. Qed.
+Proof. intros id request before; unfold Compaction.run_request,Compaction.run_request_selected,Compaction.wait_for_context_selected; derive_maintenance_contract. Qed.
 #[local] Hint Resolve maintenance_requests_install_every_emitted_receiver : maintenance_receivers.
 
 Theorem scope_requests_install_their_receiver : forall id input purpose entry before,
@@ -137,6 +137,7 @@ Theorem measurement_requests_install_their_receiver : forall id task input scope
  emissions_satisfy maintenance_receiver_installed
    (Compaction.measured_call id task input scope purpose candidate entry before).
 Proof. intros id task input scope purpose candidate entry before; unfold Compaction.measured_call; derive_maintenance_contract. Qed.
+#[local] Hint Resolve measurement_requests_install_their_receiver : maintenance_receivers.
 
 Theorem validation_requests_install_their_receiver : forall id task input purpose candidate entry before,
  emissions_satisfy maintenance_receiver_installed
@@ -149,3 +150,4 @@ Theorem validation_completion_requests_install_their_receiver :
  emissions_satisfy maintenance_receiver_installed
    (Compaction.finish_validation id task input purpose candidate preview scope tokens budget entry before).
 Proof. intros id task input purpose candidate preview scope tokens budget entry before; unfold Compaction.finish_validation; derive_maintenance_contract. Qed.
+#[local] Hint Resolve validation_completion_requests_install_their_receiver : maintenance_receivers.

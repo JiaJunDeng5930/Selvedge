@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State TaskScope TaskChange ModelRequest
- Dispatch Scheduler Delivery DeferredCommit HookCallbacks.
+ Dispatch Scheduler Delivery DeferredCommit HookCallbacks RequestReceiver.
 From Selvedge.Features Require Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -33,10 +33,12 @@ Definition failure_message :=
 Definition refusal_changes :=
  [TaskChange.AppendHistory [FailureMessage failure_message];TaskChange.ChangePhase Idle].
 Definition owns_inference (request : effect) (current : task) :=
- match request,task_activity current with
- | RequestModel request,AskingModel expected _ _ => N.eqb (ModelRequest.ticket request) expected
- | RequestReasoning _ ticket _,EvaluatingReasoning expected _ => N.eqb ticket expected
- | _,_ => false end.
+ match request with
+ | RequestModel request => match RequestReceiver.pending_phase RequestReceiver.ModelReceiver
+     (ModelRequest.ticket request) current with Some _ => true | None => false end
+ | RequestReasoning _ ticket _ => match RequestReceiver.pending_phase RequestReceiver.ReasoningReceiver
+     ticket current with Some _ => true | None => false end
+ | _ => false end.
 Definition same_inference (first second : effect) :=
  match inference_coordinate first,inference_coordinate second with
  | Some (owner,ticket),Some (actual,expected) => N.eqb owner actual && N.eqb ticket expected

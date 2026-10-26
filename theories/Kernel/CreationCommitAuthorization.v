@@ -10,9 +10,6 @@ From Selvedge.Features Require Import Worktree.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
 
-Definition an_unchanged_task_retains_authority_across_feature_updates :=
- FeatureAuthorityProofs.a_task_keeps_authority_across_other_features.
-
 Lemma appending_a_birth_retains_all_old_task_authorities :
  forall source raw before owner old_features new_features entries suffix,
  CommitAdmission.retained_tasks_from source raw before owner old_features new_features
@@ -125,7 +122,7 @@ Proof.
    (Commands.create_settings request) false None before) as [cause|start];
    [apply an_unchanged_world_preserves_cross_state_authority; exact Valid|].
  cbn [Worktree.start_allowed CommandExecution.creation_allowed].
- unfold Worktree.prepare_scoped.
+ unfold Worktree.prepare_selected_birth,Worktree.prepare_scoped.
  destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reason];
    [|apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
  cbn [Worktree.final_authority].

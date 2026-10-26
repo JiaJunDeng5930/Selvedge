@@ -141,7 +141,7 @@ Proof.
  apply filter_In; split; [exact Present|].
  cbn [Dispatch.live_request Dispatch.request_coordinate]; rewrite Found.
  apply existsb_exists; exists pending; split; [exact Pending|].
- now rewrite Identity, Stage, !N.eqb_refl.
+ unfold RequestReceiver.operation_receiver; now rewrite Identity, Stage, !N.eqb_refl.
 Qed.
 
 (** Ordinary tasks and side conversations share the final context-capture
@@ -156,7 +156,7 @@ Theorem matching_uncommitted_context_captures_the_current_history :
     ObserveContext owner ticket (with_history (task_history current) original)).
 Proof.
  intros value owner ticket original current revision Found Phase.
- unfold Dispatch.capture_request; now rewrite Found, Phase, N.eqb_refl.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite Found, Phase, N.eqb_refl.
 Qed.
 
 Theorem nonmatching_context_capture_keeps_the_original_request :
@@ -167,7 +167,7 @@ Theorem nonmatching_context_capture_keeps_the_original_request :
    (value,ObserveContext owner ticket original).
 Proof.
  intros value owner ticket original current Found WrongPhase.
- unfold Dispatch.capture_request; rewrite Found.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; rewrite Found.
  destruct (task_activity current) as
    [| | | expected revision | modelTicket callable mode
     | reasoningTicket length | calls | invocation pending remaining
@@ -236,6 +236,7 @@ Proof.
  destruct (find_task id value) as [owner|] eqn:Owned; [|discriminate].
  apply existsb_exists in Live as [pending [Member Checked]].
  apply andb_true_iff in Checked as [Identity Stage]. apply N.eqb_eq in Identity.
+ unfold RequestReceiver.operation_receiver in Stage.
  destruct (operation_stage pending) as [execution|execution reviewer|reviewer|execution reviewer|chain original raw_error|expected expected_plugin remaining original original_error] eqn:Phase; try discriminate.
  apply N.eqb_eq in Stage; subst expected.
  exists owner,pending,expected_plugin,remaining,original,original_error; repeat split; try assumption; congruence.

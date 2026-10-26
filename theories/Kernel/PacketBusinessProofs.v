@@ -64,7 +64,7 @@ Proof.
    Found Member Owned Waiting.
  unfold Dispatch.live_request; rewrite Found.
  apply existsb_exists. exists pending; split; [exact Member|].
- rewrite Owned, Waiting, !N.eqb_refl; reflexivity.
+ unfold RequestReceiver.operation_receiver; rewrite Owned, Waiting, !N.eqb_refl; reflexivity.
 Qed.
 
 Lemma replacing_an_operation_installs_its_settlement :
@@ -108,9 +108,9 @@ Proof.
  unfold Dispatch.live_request; rewrite Installed.
  assert (Live : existsb (fun operation =>
    N.eqb (operation_id original) (operation_id operation) &&
-   match operation_stage operation with
-   | AwaitingAfterHook expected _ _ _ _ => N.eqb (world_next_ticket before) expected
-   | _ => false end)
+   match RequestReceiver.operation_receiver RequestReceiver.AfterReceiver operation with
+   | Some (expected,_) => N.eqb (world_next_ticket before) expected
+   | None => false end)
    (task_operations (with_operations (TicketedRequest.replace_operation
      (Operation (operation_id original) (operation_call original) (operation_announced original)
        (AwaitingAfterHook (world_next_ticket before) plugin pending result error))

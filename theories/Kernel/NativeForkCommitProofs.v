@@ -34,41 +34,6 @@ Definition continued_parent {before : world} (accepted : NativeForkCommit.plan b
  with_activity (PendingCalls (Scheduler.native_fork_remaining (NativeForkCommit.planned_step accepted)))
    (TaskScope.selected (NativeForkCommit.planned_target accepted)).
 
-Lemma typed_fork_settlement_preserves_the_business_reply : forall owner invocation remaining before outcome,
- NativeForkCommit.settle_result owner invocation remaining before outcome =
- let result := CommandResult.decide before outcome in
- Scheduler.finish_call owner invocation remaining
-   (if bool_default "ok" (decision_reply result) false then number 0 else decision_reply result)
-   (negb (bool_default "ok" (decision_reply result) false)) result.
-Proof. intros owner invocation remaining before [change|reason]; reflexivity. Qed.
-
-(** Resolving a native fork has already performed the final dispatch gate.
-    Execution consumes that plan once; this equality binds the specialized
-    typed path to the scheduler's original checked-call semantics. *)
-Theorem the_selected_native_fork_consumes_its_checked_dispatch :
- forall before (accepted : NativeForkCommit.plan before),
- NativeForkCommit.interpret accepted =
- let step := NativeForkCommit.planned_step accepted in
- Scheduler.execute_checked_call
-   (fun command context value => ForkCommit.admit_decision value (CommandHandlers.execute command context value))
-   (Scheduler.native_fork_owner step) (Scheduler.native_fork_tool step)
-   (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step)
-   (TaskScope.selected (NativeForkCommit.planned_target accepted)) before.
-Proof.
- intros before accepted; cbv zeta.
- pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
- destruct (a_ready_native_fork_carries_its_final_dispatch_gate _ _ _ _ Ready)
-   as [Admitted [Decoded [Room [Name Owner]]]].
- unfold NativeTools.command in Decoded.
- destruct (NativeTools.admit_command _ _) as [native|] eqn:Native; [|discriminate].
- cbn [option_map] in Decoded; injection Decoded as Decoded.
- unfold NativeForkCommit.interpret; rewrite typed_fork_settlement_preserves_the_business_reply.
- unfold NativeForkCommit.business_result.
- rewrite workspace_admission_commutes_with_typed_outcomes, <- the_actual_fork_handler_has_its_typed_result.
- unfold Scheduler.execute_checked_call; rewrite Admitted,Native,Decoded,Room,Name.
- reflexivity.
-Qed.
-
 Lemma a_native_fork_request_names_its_selected_owner : forall before (accepted : NativeForkCommit.plan before),
  G.fork_task_id (Scheduler.native_fork_request (NativeForkCommit.planned_step accepted)) =
  Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted).
@@ -109,19 +74,19 @@ Proof.
  intros before accepted messages parent selected step request Parsed Admissible Workspace.
  pose proof (a_native_fork_request_names_its_selected_owner before accepted) as Owner.
  fold step in Owner; fold request in Owner.
- assert (Constructed : CommandHandlers.execute (G.Cmd_fork request)
+ assert (Constructed : CommandExecution.handle_fork_result request
    (Some (Tasks.NativeCall (Scheduler.native_fork_owner step) (Scheduler.native_fork_invocation step)
      (Scheduler.native_fork_remaining step))) (started_world accepted) =
-   accept (fork_reply (G.fork_child_count request) (started_world accepted))
-     (requested_world accepted messages parent selected) []).
+   CommandResult.Accepted (CommandResult.Change (fork_reply (G.fork_child_count request) (started_world accepted))
+     (requested_world accepted messages parent selected) [])).
  { unfold requested_world; fold step; fold request; rewrite <- Owner.
    apply every_admissible_native_fork_handler_constructs_its_business_result; [exact Parsed|].
    rewrite Owner; exact Admissible. }
- assert (Business : CommandResult.decide (started_world accepted) (NativeForkCommit.business_result accepted) =
-   accept (fork_reply (G.fork_child_count request) (started_world accepted))
-     (requested_world accepted messages parent selected) []).
+ assert (Business : NativeForkCommit.business_result accepted =
+   CommandResult.Accepted (CommandResult.Change (fork_reply (G.fork_child_count request) (started_world accepted))
+     (requested_world accepted messages parent selected) [])).
  { unfold NativeForkCommit.business_result; fold step; fold request; fold (started_world accepted).
-   rewrite workspace_admission_commutes_with_typed_outcomes, <- the_actual_fork_handler_has_its_typed_result,Constructed.
+   rewrite Constructed.
    apply a_positive_native_fork_admits_its_observed_workspace with (raw:=G.fork_settings request) (origin:=settings_origin request); assumption. }
  assert (Parent : find_task (Scheduler.native_fork_owner step)
    (requested_world accepted messages parent selected) = Some parent).
@@ -129,10 +94,12 @@ Proof.
    unfold requested_world,fork_candidate; fold step; fold request.
    cbn [fork_retained fork_snapshot_parent fork_invocation].
    apply fork_children_preserve_every_existing_task; exact Found. }
- unfold NativeForkCommit.candidate,NativeForkCommit.interpret,requested_decision.
- rewrite typed_fork_settlement_preserves_the_business_reply; fold step; fold (started_world accepted).
- rewrite Business; cbn [accept decision_reply decision_world decision_effects bool_default bool_field field lookup as_bool negb].
- unfold Scheduler.finish_call; cbn [accept decision_world]; rewrite Parent; reflexivity.
+ unfold NativeForkCommit.candidate,NativeForkCommit.interpret,NativeForkCommit.settle_result,requested_decision.
+ fold step; fold (started_world accepted); rewrite Business.
+ cbn [CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.change_value
+   CommandResult.change_world CommandResult.change_effects accept decision_world decision_effects].
+ unfold Scheduler.finish_call,CommandResult.accept.
+ cbn [accept decision_world CommandResult.change_world]; rewrite Parent; reflexivity.
 Qed.
 
 From Selvedge.Kernel Require Import NativeForkStartProofs NativeForkPreservation NativeResultTicketProofs WorldInvariant WorldInvariantProofs.
@@ -150,10 +117,7 @@ Lemma a_native_fork_start_is_the_exact_pending_phase_change : forall before (acc
    (with_activity (PendingCalls (Scheduler.native_fork_remaining (NativeForkCommit.planned_step accepted)))
      (TaskScope.selected (NativeForkCommit.planned_target accepted))) before.
 Proof.
- intros before accepted; unfold started_world,NativeForkCommit.started_world.
- rewrite commit_changes_use_the_observed_owner with
-   (task:=TaskScope.selected (NativeForkCommit.planned_target accepted)) by apply every_native_fork_plan_has_its_observed_source.
- reflexivity.
+ intros before accepted; rewrite <- (NativeForkCommit.planned_owner before accepted); reflexivity.
 Qed.
 
 Theorem every_selected_native_fork_starts_in_a_well_formed_world :
@@ -399,40 +363,38 @@ Lemma exhausted_descendant_capacity_refuses_the_actual_native_fork_handler :
  find_task (G.fork_task_id request) before = Some parent ->
  Tasks.ancestors_fit (G.fork_task_id request :: task_lineage parent)
    (G.fork_child_count request) before = false ->
- CommandHandlers.execute (G.Cmd_fork request)
+ CommandExecution.handle_fork_result request
    (Some (Tasks.NativeCall (G.fork_task_id request) invocation remaining)) before =
- Tasks.refuse_start Tasks.NativeForkEntry Tasks.DescendantCapacity before.
+ CommandResult.Rejected (Tasks.start_refusal Tasks.NativeForkEntry Tasks.DescendantCapacity).
 Proof.
  intros request invocation remaining messages before parent Parsed Found Capacity.
  change (Tasks.ancestors_fit (@cons N (G.fork_task_id request) (task_lineage parent))
    (G.fork_child_count request) before = false) in Capacity.
- rewrite the_actual_fork_handler_interprets_its_message_admission,Parsed.
+ unfold CommandExecution.handle_fork_result.
+ match goal with |- match ?parsed with Some _ => _ | None => _ end = _ =>
+   change (parsed = Some messages) in Parsed end; rewrite Parsed.
  cbn [Tasks.native_owner Tasks.native_invocation Tasks.native_remaining].
- rewrite N.eqb_refl,TaskChangesProofs.fork_with_caller_expression.
- rewrite Found,Capacity,andb_false_r.
- unfold Tasks.fork_refusal,Tasks.fork_refusal_reason; rewrite ?Capacity; reflexivity.
+ rewrite N.eqb_refl; unfold Tasks.fork_result.
+ destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key _ _ _ Found)
+   as [target [Selected [_ Current]]].
+ rewrite Selected; cbn beta iota zeta; rewrite Current,Capacity,andb_false_r.
+ unfold Tasks.fork_refusal_reason; rewrite Capacity; reflexivity.
 Qed.
 
 Theorem every_refused_native_fork_plan_constructs_its_error_settlement :
  forall before (accepted : NativeForkCommit.plan before) code reason,
  let step := NativeForkCommit.planned_step accepted in
- CommandHandlers.execute (G.Cmd_fork (Scheduler.native_fork_request step))
-   (Some (Tasks.NativeCall (Scheduler.native_fork_owner step) (Scheduler.native_fork_invocation step)
-     (Scheduler.native_fork_remaining step))) (started_world accepted) =
- reject code reason (started_world accepted) ->
+ NativeForkCommit.business_result accepted =
+ CommandResult.Rejected (CommandResult.Refusal code reason) ->
  NativeForkCommit.candidate accepted = refused_decision accepted code reason.
 Proof.
  intros before accepted code reason step Refused.
- assert (Business : CommandResult.decide (started_world accepted) (NativeForkCommit.business_result accepted) =
-   reject code reason (started_world accepted)).
- { unfold NativeForkCommit.business_result; fold step; fold (started_world accepted).
-   rewrite workspace_admission_commutes_with_typed_outcomes, <- the_actual_fork_handler_has_its_typed_result,Refused.
-   unfold ForkCommit.admit_decision,ForkCommit.workspace_error; cbn [reject decision_world]; now rewrite skipn_all. }
- unfold NativeForkCommit.candidate,NativeForkCommit.interpret,refused_decision.
- rewrite typed_fork_settlement_preserves_the_business_reply; fold step; fold (started_world accepted).
- rewrite Business.
- cbn [reject decision_world decision_reply decision_effects bool_default bool_field field lookup as_bool negb].
- unfold Scheduler.finish_call; cbn [reject decision_world].
+ unfold NativeForkCommit.candidate,NativeForkCommit.interpret,NativeForkCommit.settle_result,refused_decision.
+ fold step; fold (started_world accepted); rewrite Refused.
+ cbn [CommandResult.decide CommandResult.resolve CommandResult.reject CommandResult.refusal_code
+   CommandResult.refusal_message reject decision_world decision_effects].
+ unfold Scheduler.finish_call,CommandResult.reject.
+ cbn [reject decision_world CommandResult.refusal_code CommandResult.refusal_message].
  unfold step; rewrite a_started_native_fork_keeps_its_continued_parent; reflexivity.
 Qed.
 
