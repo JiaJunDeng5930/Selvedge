@@ -17,9 +17,9 @@ test('public command preparation enforces the task ID wire bound and rejects cli
   const ordinary = await post('{"op":"fork","task_id":7000,"child_count":1,"settings":{}}');
   const exact = await post('{"op":"fork","task_id":9007199254740993,"child_count":1,"settings":{}}');
   assert.equal(ordinary.body.error.code, 'task_not_found');
-  assert.equal(exact.body.error.code, 'invalid_input');
+  assert.equal(exact.body.error.code, 'command_not_submitted');
   const noSelection = await post('{"op":"read","task_id":9007199254740993}');
-  assert.equal(noSelection.body.error.code, 'invalid_input');
+  assert.equal(noSelection.body.error.code, 'command_not_submitted');
 
   const guidance = { workspace: directory, path: `${directory}/AGENTS.md`, revision: 'a'.repeat(64), instructions: 'Client supplied text' };
   for (const command of [
