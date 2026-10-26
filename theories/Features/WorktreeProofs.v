@@ -6,6 +6,41 @@ From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend 
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
+
+(** The public Interrupt and composed feature controls share this resource gate.
+    Preparing an owner's workspace is a business refusal, with no tentative
+    task or feature update for a later invariant gate to undo. *)
+Theorem interrupt_pending_resource_is_rejected : forall id value tree,
+ Worktree.execution_allowed id value = true ->
+ Worktree.lookup id value = Some tree ->
+ Worktree.pending tree = true ->
+ Worktree.control_guard Tasks.Interrupt id value = Some
+   (reject "worktree_pending"%string
+     "Wait for worktree creation or archive the task before changing its execution"%string value).
+Proof.
+ intros id value tree executable found pending.
+ unfold Worktree.control_guard, Worktree.execution_guard, Worktree.control_allowed.
+ rewrite executable, found, pending. reflexivity.
+Qed.
+
+Theorem interrupt_admitted_resource_passes_shared_guard : forall id value,
+ Worktree.control_allowed Tasks.Interrupt id value = true ->
+ Worktree.control_guard Tasks.Interrupt id value = None.
+Proof.
+ intros id value admitted.
+ pose proof admitted as executable.
+ unfold Worktree.control_allowed in executable.
+ apply Bool.andb_true_iff in executable as [executable _].
+ unfold Worktree.control_guard, Worktree.execution_guard.
+ rewrite executable, admitted. reflexivity.
+Qed.
+
+Theorem public_interrupt_uses_shared_resource_guard : forall payload caller value,
+ Worktree.guard_command (Selvedge.Generated.Commands.Cmd_interrupt payload) caller value =
+ Worktree.control_guard Tasks.Interrupt
+   (Selvedge.Generated.Commands.interrupt_task_id payload) value.
+Proof. reflexivity. Qed.
+
 (** A completion looked up by owner can only update that registry identity. *)
 Lemma lookup_has_owner : forall id value tree,
  Worktree.lookup id value = Some tree -> F.worktree_task tree = id.

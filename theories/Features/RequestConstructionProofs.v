@@ -133,6 +133,18 @@ Proof.
  eapply compact_requests_install_their_receiver; exact Member.
 Qed.
 
+Lemma oversized_candidates_install_every_emitted_receiver :
+ forall id task scope candidate entry reason before emitted,
+ In emitted (decision_effects (Compaction.oversized_candidate id task scope candidate entry reason before)) ->
+ maintenance_receiver_installed emitted
+   (decision_world (Compaction.oversized_candidate id task scope candidate entry reason before)).
+Proof.
+ intros id task scope candidate entry reason before emitted Member.
+ unfold Compaction.oversized_candidate in *.
+ destruct candidate as [candidate|]; [destruct candidate|]; try contradiction;
+   eapply portable_requests_install_their_receiver; exact Member.
+Qed.
+
 Theorem measurement_requests_install_their_receiver : forall id task input scope purpose candidate entry before emitted,
  In emitted (decision_effects (Compaction.measured_call id task input scope purpose candidate entry before)) ->
  maintenance_receiver_installed emitted (decision_world (Compaction.measured_call id task input scope purpose candidate entry before)).
@@ -141,7 +153,7 @@ Proof.
  unfold Compaction.measured_call in *.
  destruct (N.leb _ _).
  - eapply maintenance_requests_install_every_emitted_receiver; exact Member.
- - eapply portable_requests_install_their_receiver; exact Member.
+ - eapply oversized_candidates_install_every_emitted_receiver; exact Member.
 Qed.
 
 Theorem validation_requests_install_their_receiver : forall id task input purpose candidate entry before emitted,
@@ -152,4 +164,22 @@ Proof.
  unfold Compaction.begin_validation in *.
  destruct (Compaction.relevant input task before); [|contradiction].
  eapply maintenance_requests_install_every_emitted_receiver; exact Member.
+Qed.
+
+Theorem validation_completion_requests_install_their_receiver :
+ forall id task input purpose candidate preview scope tokens budget entry before emitted,
+ In emitted (decision_effects
+   (Compaction.finish_validation id task input purpose candidate preview scope tokens budget entry before)) ->
+ maintenance_receiver_installed emitted (decision_world
+   (Compaction.finish_validation id task input purpose candidate preview scope tokens budget entry before)).
+Proof.
+ intros id task input purpose candidate preview scope tokens budget entry before emitted Member.
+ unfold Compaction.finish_validation in *.
+ destruct (Compaction.relevant input task before && ContextSelection.consumes candidate scope)%bool;
+   [|contradiction].
+ destruct (Compaction.same_history preview
+   (ContextSelection.adopt (CompactionTypes.captured_history input) candidate (task_history task))).
+ - destruct (_ && _)%bool; [contradiction|].
+   eapply oversized_candidates_install_every_emitted_receiver; exact Member.
+ - eapply validation_requests_install_their_receiver; exact Member.
 Qed.

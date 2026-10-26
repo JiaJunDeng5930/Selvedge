@@ -121,7 +121,8 @@ Proof.
 Qed.
 
 (** Archiving a busy linked card keeps the association and the Task's frozen
-    authority while the real Interrupt transition emits its cancellation. *)
+    authority while the real Interrupt transition emits its cancellation. The
+    resource admission premise is the same one required by public Interrupt. *)
 Theorem archive_busy_card_retains_task_authority : forall id revision observed value card target task now,
  Board.lookup id value=Some card ->
  Board.clock observed=Some now ->
@@ -131,6 +132,7 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
  Selvedge.Kernel.Domain.task_archived task=false ->
+ Worktree.control_guard Tasks.Interrupt target value=None ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\
@@ -146,13 +148,13 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
      Selvedge.Kernel.Domain.task_current_settings task /\
    decision_effects archived=[Selvedge.Kernel.State.CancelTask target].
 Proof.
- intros id revision observed value card target task now found clock current pending linked task_found busy not_archived archived.
+ intros id revision observed value card target task now found clock current pending linked task_found busy not_archived admitted archived.
  subst revision.
  unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
  unfold Board.with_card. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
- unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
- rewrite linked, task_found, busy. cbn zeta.
+ unfold Board.archive_interrupt_target.
+ rewrite linked, task_found, busy, not_archived. cbn [andb negb]. rewrite admitted. cbn zeta.
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
@@ -179,6 +181,50 @@ Proof.
  - exact (proj2 (proj2 (interrupt_preserves_task_authority task))).
 Qed.
 
+(** Every resource refusal is returned before saving the card, rather than
+    converting an invalid Interrupt into a saved card with a success reply. *)
+Theorem archive_card_control_refusal_is_atomic : forall id revision observed value card target task now refused,
+ Board.lookup id value=Some card ->
+ Board.clock observed=Some now ->
+ revision=F.card_revision card ->
+ Board.pending card=false ->
+ F.card_task card=Some target ->
+ Selvedge.Kernel.State.find_task target value=Some task ->
+ Selvedge.Kernel.Domain.task_busy task=true ->
+ Selvedge.Kernel.Domain.task_archived task=false ->
+ Worktree.control_guard Tasks.Interrupt target value=Some refused ->
+ Board.archive_card id revision observed true value=refused.
+Proof.
+ intros id revision observed value card target task now refused found clock current pending linked task_found busy not_archived rejected.
+ subst revision.
+ unfold Board.archive_card, Board.at_clock. rewrite clock.
+ unfold Board.with_card. rewrite found, N.eqb_refl, pending.
+ unfold Board.archive_interrupt_target.
+ rewrite linked, task_found, busy, not_archived. cbn [andb negb].
+ rewrite rejected. reflexivity.
+Qed.
+
+Theorem archive_card_pending_owner_rejected : forall id revision observed value card target task now tree,
+ Board.lookup id value=Some card ->
+ Board.clock observed=Some now ->
+ revision=F.card_revision card ->
+ Board.pending card=false ->
+ F.card_task card=Some target ->
+ Selvedge.Kernel.State.find_task target value=Some task ->
+ Selvedge.Kernel.Domain.task_busy task=true ->
+ Selvedge.Kernel.Domain.task_archived task=false ->
+ Worktree.execution_allowed target value=true ->
+ Worktree.lookup target value=Some tree ->
+ Worktree.pending tree=true ->
+ Board.archive_card id revision observed true value=
+   reject "worktree_pending"%string
+     "Wait for worktree creation or archive the task before changing its execution"%string value.
+Proof.
+ intros id revision observed value card target task now tree found clock current pending linked task_found busy not_archived executable owned preparing.
+ eapply archive_card_control_refusal_is_atomic; try eassumption.
+ eapply interrupt_pending_resource_is_rejected; eassumption.
+Qed.
+
 (** An already archived linked Task can retain pending operation records. The
     card archive must not turn those records into renewed interrupt authority. *)
 Theorem archive_busy_archived_task_retains_task : forall id revision observed value card target task now,
@@ -189,7 +235,7 @@ Theorem archive_busy_archived_task_retains_task : forall id revision observed va
  F.card_task card=Some target ->
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_lifecycle task=(Selvedge.Kernel.Domain.Archived []) ->
+ Selvedge.Kernel.Domain.task_archived task=true ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\
@@ -204,26 +250,16 @@ Proof.
  unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
  unfold Board.with_card. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
- unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
- rewrite linked, task_found, busy. cbn zeta.
+ unfold Board.archive_interrupt_target.
+ rewrite linked, task_found, busy, archived_lifecycle. cbn [andb negb].
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
    (F.card_contents card) (Some target) true (F.card_created card) now
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
  exists updated.
- assert (interrupt_rejected : Tasks.control_command target Tasks.Interrupt
-   (Board.put id updated value)=
-   Selvedge.Kernel.State.reject "invalid_transition" "This lifecycle control is unavailable for the task"
-     (Board.put id updated value)).
- { rewrite TaskChangesProofs.control_command_expression.
-   rewrite BoardRelations.task_lookup_after_board_put, task_found.
-   unfold Tasks.control_target, Tasks.control_transition.
-   rewrite archived_lifecycle. reflexivity. }
- rewrite interrupt_rejected.
- cbn [andb Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject].
  cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.decision_effects
-   Selvedge.Kernel.State.reject].
+   Selvedge.Kernel.State.accept].
  repeat split.
  - eapply BoardRelations.board_lookup_after_put_selected. exact found.
  - rewrite BoardRelations.task_lookup_after_board_put. exact task_found.
@@ -253,8 +289,8 @@ Proof.
  unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
  unfold Board.with_card. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
- unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
- rewrite linked, task_found, idle. cbn zeta.
+ unfold Board.archive_interrupt_target.
+ rewrite linked, task_found, idle. cbn [andb negb].
  cbn [andb Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))

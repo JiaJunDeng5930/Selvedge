@@ -116,13 +116,25 @@ Definition link (id revision:N) (supplied:option string) (target:option N) (valu
  save id ((set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some target)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(Selvedge.Features.Domain.card_revision updated)) (card)))))))) value
  else Selvedge.Kernel.State.reject "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" value end
  | None=>Selvedge.Kernel.State.reject "invalid_card_command" "task_id is required" value end)).
+Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Domain.card) (value:world) :=
+ if archived then match Selvedge.Features.Domain.card_task card with
+ | Some target=>match Selvedge.Kernel.State.find_task target value with
+   | Some task=>if task_busy task && negb (task_archived task) then Some target else None
+   | None=>None end
+ | None=>None end else None.
 Definition archive_card (id revision:N) (supplied:option string) (archived:bool) (value:world) := at_clock supplied value (fun now=>with_card id revision value (fun card=>
  if pending card then Selvedge.Kernel.State.reject "card_locked" "Wait for pending drafting before archiving or restoring the card" value else
+ let target:=archive_interrupt_target archived card value in
+ (* The resource owner can still be preparing. Refuse the entire card edit
+    before its revision changes; an already archived task only needs the edit. *)
+ match match target with Some target=>Worktree.control_guard Tasks.Interrupt target value | None=>None end with
+ | Some refused=>refused
+ | None=>
  let updated:=(set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>archived) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) in
  let saved:=save id updated value in
- if archived && busy card value then match Selvedge.Features.Domain.card_task card with Some target=>
+ match target with Some target=>
  let stopped:=Tasks.control_command target Tasks.Interrupt (decision_world saved) in
- Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end else saved)).
+ Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end end)).
 Definition delete_card (id revision:N) (value:world) := with_card id revision value (fun card=>if pending card || busy card value then Selvedge.Kernel.State.reject "card_locked" "Stop the running conversation and wait for pending drafting before deleting this card" value else
  let b:=registry value in Selvedge.Kernel.State.accept (JObject [("card_id",number id)]) (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "

@@ -29,7 +29,7 @@ Proof.
    CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
    G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
- cbn [G.stop_task_id]. unfold Worktree.execution_guard.
+ cbn [G.stop_task_id]. unfold Worktree.control_guard, Worktree.execution_guard.
  rewrite Executable, Allowed. cbn [Selvedge.Features.Runtime.or_else].
  cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
    Selvedge.Kernel.Commands.origin_allowed G.handle_stop
