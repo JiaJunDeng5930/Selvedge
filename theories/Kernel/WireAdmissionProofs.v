@@ -45,10 +45,13 @@ Theorem completion_rejects_non_root_configuration : forall execute source value 
    reject "invalid_input" "Remote environment observations are limited to task creation" value).
 Proof.
  intros execute source value request command configuration Kind Parsed Decoded Config NonNull Root.
+ rewrite <- G.admit_projects_decode in Decoded.
+ destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
+ cbn in Decoded; inversion Decoded; subst command.
  unfold Remote.completion.
  rewrite Kind.
  cbn.
- rewrite Parsed, Decoded.
+ rewrite Parsed, Admitted.
  unfold Remote.execute_remote, Remote.configuration_allowed.
  rewrite Config.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);

@@ -359,7 +359,7 @@ Definition graph_registry_valid (state : world) := let features := world_feature
  graphs_valid 0 (F.feature_graphs features) state.
 
 Definition job_history_valid (job : C.job) (history : list Domain.message) := match job with
- | C.NoJob => true
+ | C.NoJob | C.WaitingForResource _ | C.AwaitingContext _ _ _ => true
  | C.Resuming input _ | C.Preparing _ input _ _ | C.Compacting _ input _ _ _ | C.Validating _ input _ _ _ _ =>
    ContextSelection.history_extends (C.captured_history input) history end.
 Definition maintenance_entry_valid (entry : N * C.entry) (state : world) := let '(id,entry) := entry in
@@ -377,7 +377,7 @@ Definition feature_tickets (features : F.state) :=
  flat_map (fun value => match F.card_enrichment value with F.Enriching ticket _ _ => [ticket] | _ => [] end) (cards_present (F.feature_board features)) ++
  flat_map (fun entry =>
    (match Compaction.measurement_ticket (C.entry_measurement (snd entry)) with Some ticket => [ticket] | None => [] end) ++
-   (match Compaction.job_ticket (C.entry_job (snd entry)) with Some ticket => [ticket] | None => [] end)) (C.maintenance_entries (F.feature_compaction features)).
+   (match Compaction.provider_job_ticket (C.entry_job (snd entry)) with Some ticket => [ticket] | None => [] end)) (C.maintenance_entries (F.feature_compaction features)).
 Definition features_valid (state : world) :=
  titles_valid state && remote_valid (F.feature_remote (world_features state)) && worktrees_valid state &&
  board_valid state && sharing_valid state && graph_registry_valid state && works_valid state && compaction_valid state.

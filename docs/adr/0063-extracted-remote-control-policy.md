@@ -62,3 +62,14 @@ format themselves. Similarly, bounded wire integers use mathematical value,
 while domain naturals retain their separate canonical-token contract. These
 choices prevent host representation details from silently narrowing the
 domain accepted by another boundary.
+
+The connector session also owns subscription and notice cutoffs. Its notice
+sequence survives transport replacement; each connection carries either no
+subscription or the last captured sequence. A subscription captures the current
+sequence in the same synchronous action that exposes its snapshot. Queued
+notices retain their sequence, and delivery requires both a still-present queue
+entry and a sequence beyond the connection's current cutoff. Unsubscribe,
+re-subscribe, revocation and delayed queue completion therefore share one
+transition authority. The physical connector retains socket handles and Promise
+ordering; `interpretConnectorCapture` and `interpretConnectorDelivery` interpret
+the generated action union without choosing cursor policy in JavaScript.

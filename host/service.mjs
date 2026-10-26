@@ -198,7 +198,9 @@ export class Service extends EventEmitter {
       const active = this.#running.get(naturalKey(action.generation));
       // DEFENSE: A promise can finish after cancellation was planned and before its AbortController is visited.
       if (!active) continue;
-      if (action.provider) this.#cancelProvider(active.task);
+      // Keep the registered invocation through synchronous receipt retirement;
+      // aborting its observer must not retarget a later task request.
+      if (action.provider) this.#cancelProvider(active.effect);
       active.controller.abort(reason);
     }
   }

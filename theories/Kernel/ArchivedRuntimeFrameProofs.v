@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Kernel Require Import Domain State TaskScope TaskChange TaskChangeProofs
  Tasks TaskChangesProofs Callbacks CallbackChangesProofs SideContext Dispatch Scheduler RuntimeCompositionProofs.
-From Selvedge.Features Require Import Runtime Board Compaction Worktree TaskGraph.
+From Selvedge.Features Require Import Runtime Board Compaction Worktree TaskGraph TaskGraphProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -44,6 +44,10 @@ Proof.
  all: apply replacing_another_owner_keeps_the_archived_reference; [|exact Found].
  all: intro Same; subst owner.
  all: match goal with
+ | Selected : find_task ?id ?stored = Some ?active,
+   Phase : task_activity ?active = ?phase |- _ =>
+     assert (active = task) by congruence; subst active;
+     unfold task_activity in Phase; rewrite ArchivedTask in Phase; discriminate
  | Side : Dispatch.side_task ?id ?stored = Some ?active,
    Phase : task_activity ?active = ?phase |- _ =>
      unfold Dispatch.side_task in Side; rewrite Found in Side;
@@ -108,11 +112,13 @@ Proof.
  intros owner ticket result error value task original operations Found ArchivedTask Owned Hooks.
  rewrite CallbackChangesProofs.tool_completed_expression, Found.
  unfold task_operations; rewrite ArchivedTask, Owned.
- rewrite CallbackChangesProofs.begin_result_expression, Hooks.
+ unfold Callbacks.begin_result_plan; rewrite Hooks.
  cbn [Callbacks.acknowledged State.accept decision_reply decision_world].
  split; [reflexivity|]. exists (Callbacks.settle_operation original result error task).
  split.
- - unfold find_task, put_task; rewrite writing_tasks_installs_the_registry.
+ - unfold Tasks.apply_result, Callbacks.settle_operation_plan.
+   rewrite TaskWakeProofs.context_wake_preserves_every_task_lookup.
+   unfold find_task, put_task; rewrite writing_tasks_installs_the_registry.
    eapply registry_replace_selected; exact Found.
  - apply settling_an_archived_operation_keeps_the_result; exact ArchivedTask.
 Qed.
@@ -189,11 +195,15 @@ Lemma graph_delivery_keeps_an_archived_owner : forall source item current owner 
  find_task owner (decision_world current) = Some task -> task_lifecycle task = Archived operations ->
  find_task owner (decision_world (TaskGraph.send_delivery source item current)) = Some task.
 Proof.
- intros; unfold TaskGraph.send_delivery; cbn [decision_world].
- unfold TaskGraph.record_receipt.
- destruct (TaskGraph.lookup (TaskGraph.delivery_graph item) (decision_world (Tasks.send (TaskGraph.delivery_target item) [TextPart (TaskGraph.delivery_text item)] (decision_world current)))); cbn [decision_world];
- change (find_task owner (decision_world (Tasks.send (TaskGraph.delivery_target item) [TextPart (TaskGraph.delivery_text item)] (decision_world current))) = Some task).
- all: eapply sending_input_keeps_an_archived_owner; eauto.
+ intros source item current owner task operations Found ArchivedTask.
+ unfold TaskGraph.send_delivery, Worktree.execution_guard.
+ destruct (Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world current));
+   cbn [decision_world Worktree.failed_execution reject];
+   unfold find_task at 1; rewrite TaskGraphProofs.recording_receipt_preserves_tasks.
+ - change (find_task owner (decision_world (Tasks.send (TaskGraph.delivery_target item)
+     [TextPart (TaskGraph.delivery_text item)] (decision_world current))) = Some task).
+   eapply sending_input_keeps_an_archived_owner; eauto.
+ - exact Found.
 Qed.
 
 Theorem graph_maintenance_keeps_an_archived_owner : forall before current owner task operations,

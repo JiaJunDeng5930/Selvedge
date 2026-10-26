@@ -2,7 +2,7 @@ From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Callbacks
- LifecycleProofs WorldInvariant WorldInvariantProofs.
+ LifecycleProofs WorldInvariant WorldInvariantProofs TaskWakeProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -49,7 +49,12 @@ Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
  (released = [] \/ released = task_queued task).
 Proof.
  intros id ticket result error value task operation Found Owned Hooks.
- rewrite !tool_completed_expression; rewrite Found, Owned; rewrite !begin_result_expression, Hooks; cbn.
+ rewrite !tool_completed_expression; rewrite Found, Owned.
+ unfold Callbacks.begin_result_plan; rewrite Hooks.
+ change (Tasks.apply_result id task (Callbacks.settle_operation_plan operation result error) value)
+   with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+ cbn [decision_effects decision_world acknowledged accept].
+ rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
  split; [reflexivity|].
  set (settled := with_operations
    (Callbacks.remove_operation (operation_id operation) (task_operations task))
@@ -222,7 +227,12 @@ Theorem an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand :
    Running WantsModel (Callbacks.remove_operation (operation_id operation) operations).
 Proof.
  intros id ticket result error value task operations operation Found Frozen Owned Hooks.
- rewrite !tool_completed_expression; rewrite Found, Owned; rewrite !begin_result_expression, Hooks.
+ rewrite !tool_completed_expression; rewrite Found, Owned.
+ unfold Callbacks.begin_result_plan; rewrite Hooks.
+ change (Tasks.apply_result id task (Callbacks.settle_operation_plan operation result error) value)
+   with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+ cbn [decision_world acknowledged accept].
+ rewrite context_wake_preserves_every_task_lookup.
  exists (Callbacks.settle_operation operation result error task); split.
  - apply find_put_task with task; exact Found.
  - destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
@@ -243,6 +253,7 @@ Theorem an_owned_cancellation_while_frozen_keeps_the_unfreeze_demand :
 Proof.
  intros id identity value task operations operation Found Frozen Owned.
  rewrite TaskChangesProofs.cancel_operation_expression, Found, Owned.
+ cbn [decision_world accept]. rewrite context_wake_preserves_every_task_lookup.
  eexists; split; [apply find_put_task with task; exact Found|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
  cbn in Frozen; subst lifecycle; split; reflexivity.

@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema JsonProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Codec ChatgptArguments.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Chatgpt.
+From Selvedge.Features Require Import Domain State Chatgpt FeatureScopeProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -43,9 +43,9 @@ Qed.
 Theorem query_cannot_reveal_foreign_operation : forall connection project id value,
  Chatgpt.ids_valid [connection;project;id] = true ->
  Chatgpt.authority connection project (Chatgpt.registry value) = None ->
- Chatgpt.query (G.Cmd_chatgpt_operation (G.Build_chatgpt_operation connection project id)) None value = Some Chatgpt.forbidden.
+ Chatgpt.handle_chatgpt_operation (G.Build_chatgpt_operation connection project id) None value = Chatgpt.forbidden.
 Proof.
- intros. change (Some (Chatgpt.valid_query [connection;project;id] (Chatgpt.read_job connection project id value))=Some Chatgpt.forbidden).
+ intros. change (Chatgpt.valid_query [connection;project;id] (Chatgpt.read_job connection project id value)=Chatgpt.forbidden).
  unfold Chatgpt.valid_query. rewrite H. unfold Chatgpt.read_job. now rewrite H0.
 Qed.
 
@@ -99,14 +99,14 @@ Theorem public_forget_removes_settled_receipt : forall connection project id val
  Chatgpt.owned connection project job = true ->
  Chatgpt.pending job = false ->
  exists decision,
- Chatgpt.command (G.Cmd_chatgpt_forget (G.Build_chatgpt_forget connection project id)) caller value = Some decision /\
+ Chatgpt.handle_chatgpt_forget (G.Build_chatgpt_forget connection project id) caller value = decision /\
  Chatgpt.find_job id (Chatgpt.registry (decision_world decision)) = None /\
  F.sharing_next (Chatgpt.registry (decision_world decision)) = F.sharing_next (Chatgpt.registry value) /\
  decision_effects decision = [].
 Proof.
  intros connection project id value job granted caller ids authority found owner settled.
- change (Chatgpt.command (G.Cmd_chatgpt_forget (G.Build_chatgpt_forget connection project id)) caller value)
-   with (Some (Chatgpt.edit true connection project id value)).
+ change (Chatgpt.handle_chatgpt_forget (G.Build_chatgpt_forget connection project id) caller value)
+   with (Chatgpt.edit true connection project id value).
  unfold Chatgpt.edit. rewrite ids,authority,found,owner,settled. cbn.
  eexists. split; [reflexivity|].
  cbn beta iota zeta delta [decision_world decision_effects accept].
@@ -152,19 +152,24 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
  ((N.of_nat (List.length (F.sharing_jobs (Chatgpt.registry value))) <? 128) &&
    (F.sharing_next (Chatgpt.registry value) <? ChatgptArguments.identity_maximum))=true ->
  exists decision job,
- Chatgpt.command (G.Cmd_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments)) caller value=Some decision /\
+ Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value=decision /\
  decision_effects decision=[RunConnectionJob (F.sharing_next (Chatgpt.registry value)) job] /\
  F.job_connection job=connection /\ F.job_project job=project /\ F.job_arguments job=decoded /\
  F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
 Proof.
  intros connection project request arguments decoded granted target value caller ids bounded admitted authority project_found primary retry available resource capacity.
- change (Chatgpt.command (G.Cmd_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments)) caller value)
-   with (Some (Chatgpt.run connection project request arguments value)).
+ pose proof (connection_scope_from_current_grant connection project request arguments decoded granted target value
+   bounded admitted authority project_found primary retry available resource capacity) as Scope.
+ change (Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value)
+   with (Chatgpt.run connection project request arguments value).
  unfold Chatgpt.run. rewrite ids,bounded,admitted,authority,project_found.
  cbn beta iota zeta delta [andb negb].
  destruct (workspace_primary (project_workspace target)) eqn:found; [|contradiction].
  unfold Chatgpt.start. rewrite retry,available,resource,capacity.
- eexists; eexists; repeat split;reflexivity.
+ unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
+ destruct (Bool.bool_dec _ true) as [Admitted|Refused].
+ - eexists; eexists; repeat split; reflexivity.
+ - exfalso; apply Refused; exact Scope.
 Qed.
 
 (** A retry remains a receipt lookup, but a new physical job cannot enter

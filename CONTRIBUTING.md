@@ -28,12 +28,21 @@ field and command descriptions, indexed types and generic operations rather than
 maintaining repeated structural facts. Keep computational modules independent of
 MetaRocq and proof automation to preserve useful incremental checking.
 
-Choose assurance for the behavior at risk. Domain construction, types and proofs
-should carry properties they can establish. Permanent tests exercise real public
-end-to-end behavior without reading internal implementation. Avoid duplicate
-assertions and tests that merely reproduce a function's branches. Temporary
+Assign every desired property one earliest sufficient assurance owner:
+construction and domain languages, then types and proofs, then unit/component
+tests, then end-to-end tests. Permanent unit tests are appropriate for pure
+boundary code that cannot be covered by the earlier mechanisms. Public
+end-to-end tests are reserved for faults that require real processes, storage,
+networking, extraction or several interacting boundaries. A theorem about a
+helper does not cover an unrelated public dispatcher; retain the boundary
+assertion until the theorem is bound to the operation the product executes.
+
+For an assertion, identify the property and its quantifier, the construction,
+type or theorem that already owns it, and any remaining independent boundary
+fault. Remove duplicate pure assertions after that binding is established.
+Do not retain tests that merely reproduce a function's branches. Temporary
 experiments, complete command logs and migration accounting belong in ignored
-.workpad/. Tests use fresh temporary service homes.
+.workpad/. Tests use fresh temporary service homes where a service is needed.
 
 ## Persistent data
 

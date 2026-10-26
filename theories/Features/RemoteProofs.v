@@ -212,7 +212,7 @@ Qed.
 
 (** A task-owned execution cannot administer native remote grants. *)
 Theorem delegated_remote_administration_is_denied : forall payload caller value,
- Remote.command (G.Cmd_remote_enable payload) (Some caller) value = Some (Remote.local_only value).
+ Remote.handle_remote_enable payload (Some caller) value = Remote.local_only value.
 Proof. reflexivity. Qed.
 
 (** Even an effectful supplied executor cannot mutate the world through a remote query. *)
@@ -228,7 +228,8 @@ Proof.
  destruct (Remote.authorize_command true command request (Remote.registry value)) as [code reason| |reply];
    try (split;reflexivity).
  destruct (field "command" source) as [prepared|]; [|split;reflexivity].
- destruct (G.decode prepared) as [prepared_command|]; [|split;reflexivity].
+ destruct (G.admit prepared) as [[prepared_source prepared_command Admitted]|]; [|split;reflexivity].
+ cbn [G.admitted_value].
  destruct (Remote.configuration_allowed prepared_command source); [|split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
    [|split;reflexivity].
@@ -242,12 +243,12 @@ Theorem public_grant_issues_generation : forall controller permissions rights va
  (match Remote.find_grant controller (Remote.registry value) with
  | Some _=>true | None=>N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end)=true ->
  exists result,
- Remote.command (G.Cmd_remote_grant (G.Build_remote_grant controller permissions)) None value=Some result /\
+ Remote.handle_remote_grant (G.Build_remote_grant controller permissions) None value=result /\
  F.remote_next_epoch (Remote.registry (decision_world result))=N.succ (F.remote_next_epoch (Remote.registry value)).
 Proof.
  intros controller permissions rights value valid parsed Epoch capacity.
- change (Remote.command (G.Cmd_remote_grant (G.Build_remote_grant controller permissions)) None value)
-   with (Some (Remote.grant controller permissions value)).
+ change (Remote.handle_remote_grant (G.Build_remote_grant controller permissions) None value)
+   with (Remote.grant controller permissions value).
  unfold Remote.grant. rewrite valid.
  cbn beta iota zeta delta [negb]. rewrite parsed,Epoch; cbn [negb]; rewrite capacity.
  eexists; split;[reflexivity|].
@@ -338,9 +339,12 @@ Proof.
      Remote.Replay (decision_reply candidate)).
  { unfold Remote.authorize_command, Remote.observation_command.
    rewrite Rights. cbn. now rewrite Mutation. }
+ rewrite <- G.admit_projects_decode in Decoded.
+ destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
+ cbn in Decoded; inversion Decoded; subst command.
  unfold Remote.completion. rewrite Kind.
  cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
- rewrite Parsed, Decoded.
+ rewrite Parsed, Admitted.
  rewrite Authorized. reflexivity.
 Qed.
 
@@ -429,18 +433,21 @@ Proof.
  - apply N.le_refl.
 Qed.
 
-Theorem local_administration_never_reuses_a_generation : forall command caller value result,
- Remote.command command caller value = Some result ->
- F.remote_next_epoch (Remote.registry value) <=
- F.remote_next_epoch (Remote.registry (decision_world result)).
+Theorem local_administration_never_reuses_a_generation : forall caller value controller permissions,
+ let advances := fun result => F.remote_next_epoch (Remote.registry value) <=
+   F.remote_next_epoch (Remote.registry (decision_world result)) in
+ advances (Remote.handle_remote_enable tt caller value) /\
+ advances (Remote.handle_remote_disable tt caller value) /\
+ advances (Remote.handle_remote_grant (G.Build_remote_grant controller permissions) caller value) /\
+ advances (Remote.handle_remote_revoke (G.Build_remote_revoke controller) caller value).
 Proof.
- intros command caller value result Handled.
- unfold Remote.command in Handled; destruct command; cbn in Handled; try discriminate.
- all: destruct caller; inversion Handled; subst result;
-   try (change (F.remote_next_epoch (Remote.registry value) <= F.remote_next_epoch (Remote.registry value));
-        apply N.le_refl).
+ intros caller value controller permissions; cbv zeta.
+ destruct caller; repeat split;
+ try (change (F.remote_next_epoch (Remote.registry value) <= F.remote_next_epoch (Remote.registry value)); apply N.le_refl).
  - apply granting_never_reuses_a_generation.
- - rewrite revocation_never_reuses_generation; apply N.le_refl.
+ - change (F.remote_next_epoch (Remote.registry value) <=
+     F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke controller value)))).
+   rewrite revocation_never_reuses_generation; apply N.le_refl.
 Qed.
 
 Theorem exhausted_epoch_rejects_grant_without_changing_world : forall controller permissions rights value,

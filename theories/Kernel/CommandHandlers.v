@@ -4,6 +4,8 @@ From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Domain State Queries CommandExecution Tasks.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime WorkspaceBinding.
 Module G := Selvedge.Generated.Commands.
+Module Declarations := Selvedge.Kernel.Commands.
+Open Scope string_scope.
 Inductive interpretation :=
  | Observation (run : option N -> world -> json)
  | Mutation (run : option Tasks.native_call -> world -> decision).
@@ -85,11 +87,19 @@ Definition handlers : G.handler_table interpretation := {|
  G.handle_retry_worktree_archive := fun payload => Mutation (fun context value => Selvedge.Features.Worktree.handle_retry_worktree_archive payload (option_map Tasks.native_owner context) value);
  G.handle_resolve_workspace := fun payload => Observation (fun caller value => Selvedge.Features.Worktree.handle_resolve_workspace payload caller value)
 |}.
+Definition task_origin {A : Type} (context : option A) := match context with Some _ => true | None => false end.
+Definition origin_failure := State.failure "access_denied" "This command is not available to task-originated calls".
+(* Every real interpretation is selected through the same origin policy that
+   NativeTools uses to construct the advertised task capability surface. *)
+Definition interpret (command : G.command) (from_task : bool) :=
+ if Declarations.origin_allowed from_task (Selvedge.Foundation.Schema.command_name (G.declared_command command))
+ then G.dispatch handlers command
+ else Observation (fun _ _ => origin_failure).
 Definition query (command : G.command) (caller : option N) (value : world) :=
- match G.dispatch handlers command with
+ match interpret command (task_origin caller) with
  | Observation run => Some (run caller value)
  | Mutation _ => None end.
 Definition execute (command : G.command) (context : option Tasks.native_call) (value : world) :=
- match G.dispatch handlers command with
+ match interpret command (task_origin context) with
  | Observation run => Decision value (run (option_map Tasks.native_owner context) value) nil
  | Mutation run => run context value end.

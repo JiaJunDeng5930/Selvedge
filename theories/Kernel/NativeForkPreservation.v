@@ -179,6 +179,17 @@ Proof.
  cbn [find app]; destruct (test head); [reflexivity|exact (IH right)].
 Qed.
 
+Local Lemma pending_after_hook_results_keep_the_feature_frame :
+ forall owner operation result failed current before plugin plugins,
+ Callbacks.after_plugins current = plugin :: plugins ->
+ Tasks.apply_result owner current (Callbacks.begin_result_plan owner operation result failed current) before =
+ put_task owner (Callbacks.begin_result owner operation result failed current) before.
+Proof.
+ intros owner operation result failed current before plugin plugins Hooks.
+ unfold Tasks.apply_result, Callbacks.begin_result, Callbacks.begin_result_changes, Callbacks.begin_result_plan.
+ now rewrite Hooks.
+Qed.
+
 Theorem internal_native_results_use_the_exact_result_task :
  forall value owner source invocation remaining result failed,
  find_task owner value = Some source ->
@@ -226,14 +237,15 @@ Proof.
    rewrite Operations, find_over_append, (old_operation_search_skips_a_fresh_ticket _ _ Bounded).
    cbn [find Callbacks.operation_executing operation_stage]. rewrite N.eqb_refl.
    cbn [acknowledged accept decision_world].
-   rewrite begin_result_expression.
    assert (SamePlugins : Callbacks.after_plugins
      (with_operations (task_operations source ++ [Operation (world_next_ticket value) invocation false
        (Executing (world_next_ticket value))]) (with_activity (PendingCalls remaining) source)) =
      plugin :: plugins).
    { destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
        cbn [task_lifecycle] in Running; subst lifecycle; destruct running; exact Plugins. }
-   rewrite SamePlugins, Operations, map_app.
+   rewrite pending_after_hook_results_keep_the_feature_frame with (plugin:=plugin) (plugins:=plugins)
+     by exact SamePlugins.
+   rewrite begin_result_expression, SamePlugins, Operations, map_app.
    assert (Ids : Forall (fun operation => (operation_id operation < world_next_ticket value)%N)
      (task_operations source)).
    { eapply Forall_impl; [|exact Bounded]. intros operation Bound; inversion Bound; assumption. }

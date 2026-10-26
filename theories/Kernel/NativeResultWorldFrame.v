@@ -2,6 +2,7 @@ From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Features Require Import BoardFacts.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes Domain Codec State Tasks
  ForkConstructionProofs ForkIdentityProofs WorldInvariant ForkSettingsProofs ForkLineageProofs ForkNativeHistoryProofs.
@@ -105,8 +106,9 @@ Proof.
  intros card Valid; unfold WorldInvariant.card_valid in *.
  assert (Draft : Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) before =
    Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) after).
- { unfold Selvedge.Features.Board.valid_draft, Selvedge.Features.Board.lookup_agent,
-     Selvedge.Features.Board.registry; rewrite SameProjects, SameFeatures; reflexivity. }
+ { unfold Selvedge.Features.Board.valid_draft, BoardFacts.valid_draft,
+     BoardFacts.lookup_agent, BoardFacts.registry;
+   rewrite SameProjects, SameFeatures; reflexivity. }
  apply andb_true_iff in Valid as [Static Enrichment].
  apply andb_true_iff; split.
  - apply andb_true_iff in Static as [Fixed Linked]; apply andb_true_iff; split.

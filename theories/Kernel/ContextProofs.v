@@ -318,13 +318,18 @@ Proof.
    eexists; split; [eapply find_put_task; exact Found|].
    apply task_changes_preserve_the_frozen_contract.
  - destruct (task_lifecycle before).
-   + unfold Reasoning.observe_context.
-     rewrite (ScopedRequestProofs.observing_resolves_the_current_task id value before false Found).
-     destruct (TicketedRequest.Scoped.can_observe false before value);
-       [|exists before; split; [exact Found|reflexivity]].
-     cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
-     eexists; split; [eapply find_put_task; exact Found|].
-     unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
+   + rewrite context_retry_expression, Found.
+     destruct (TicketedRequest.Scoped.can_observe false before value).
+     * cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
+       eexists; split; [eapply find_put_task; exact Found|].
+       unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
+     * unfold Reasoning.context_retry_wait.
+       destruct (task_lifecycle before) as [retry_phase retry_operations|retry_phase retry_operations|retry_phase retry_operations|retry_operations]; try destruct retry_phase;
+         try (exists before; split; [exact Found|reflexivity]).
+       cbn [decision_world accept].
+       eexists; split; [eapply find_put_task; exact Found|].
+       destruct before as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+         destruct lifecycle; reflexivity.
    + apply context_ready_preserves_the_frozen_contract; exact Found.
    + apply context_ready_preserves_the_frozen_contract; exact Found.
    + apply context_ready_preserves_the_frozen_contract; exact Found.

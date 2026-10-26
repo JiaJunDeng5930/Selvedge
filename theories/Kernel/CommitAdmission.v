@@ -438,16 +438,16 @@ Definition task_history_matches (snapshot current : D.task) :=
  same_history (D.task_history snapshot) (D.task_history current).
 Definition approval_history_retained (snapshot current : D.task) :=
  ContextSelection.history_extends (D.task_history snapshot) (D.task_history current).
-Definition active_manual_context_matches (owner : N) (snapshot : D.task) (after : K.world) :=
+Definition active_manual_context_matches (owner ticket : N) (snapshot : D.task) (after : K.world) :=
  match C.entry_job (Compaction.current_entry owner (Compaction.registry after)) with
- | C.Resuming input C.Manual => Compaction.same_input input snapshot after
+ | C.AwaitingContext expected _ _ => N.eqb ticket expected
  | _ => true
  end.
 Definition observe_effect_valid (owner ticket : N) (snapshot : D.task) (after : K.world) :=
  match K.find_task owner after with
  | Some current => task_is_running snapshot && task_is_running current && task_context_matches snapshot current &&
    task_history_matches snapshot current &&
-   active_manual_context_matches owner snapshot after &&
+   active_manual_context_matches owner ticket snapshot after &&
    match D.task_activity current with
    | D.ObservingContext expected length =>
      N.eqb ticket expected && Nat.eqb length (List.length (D.task_history current))

@@ -172,12 +172,13 @@ Proof.
 Qed.
 
 (** Field presence distinguishes an actual null result from a dropped result. *)
-Theorem public_issued_rpc_result_resolves_its_pending_request : forall source state id,
+Theorem public_issued_plain_rpc_result_resolves_its_pending_request : forall source state id,
   decode_state source = Some state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = Some id ->
   has (get source "message") "result" = true -> has (get source "message") "error" = false ->
+  contains id state.(preparable) = false ->
   field "ok" (Api.call "rpc.message" source) = Some (JBool true) /\
   exists reply,
     field "value" (Api.call "rpc.message" source) = Some reply /\
@@ -190,14 +191,14 @@ Theorem public_issued_rpc_result_resolves_its_pending_request : forall source st
       ~ In id remaining /\
       (forall other, other <> id -> (In other remaining <-> In other state.(pending))).
 Proof.
- intros source state id decoded shape version method identity result_present error_absent.
+ intros source state id decoded shape version method identity result_present error_absent plain_result.
  assert (execution : Api.call "rpc.message" source = encode_action
    (consume "resolve" state id [("value",get (get source "message") "result")])).
  { change (Rpc.call "rpc.message" source = encode_action
      (consume "resolve" state id [("value",get (get source "message") "result")])).
    unfold Rpc.call;rewrite decoded;cbn.
    unfold message;rewrite shape,version;cbn;rewrite method,identity.
-   unfold response;rewrite result_present,error_absent;reflexivity. }
+   unfold response;rewrite result_present,error_absent;cbn;rewrite plain_result;reflexivity. }
  split; [rewrite execution;reflexivity|].
  exists (get (encode_action (consume "resolve" state id
    [("value",get (get source "message") "result")])) "value").
@@ -210,6 +211,59 @@ Proof.
  split; [reflexivity|].
  split; [apply consumed_identity_cannot_remain_pending|].
  intros other different;now apply unrelated_pending_identity_is_preserved.
+Qed.
+
+Theorem public_issued_media_rpc_result_reserves_before_materialization : forall source state id,
+  decode_state source = Some state ->
+  is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
+  as_string (get (get source "message") "method") = None ->
+  correlate state (get (get source "message") "id") = Some id ->
+  has (get source "message") "result" = true -> has (get source "message") "error" = false ->
+  contains id state.(preparable) = true ->
+  Api.call "rpc.message" source = encode_action
+    (reserve_materialization state id (get (get source "message") "result")) /\
+  ~ In id (action_pending (reserve_materialization state id (get (get source "message") "result"))) /\
+  In id (action_materializing (reserve_materialization state id (get (get source "message") "result"))).
+Proof.
+ intros source state id decoded shape version method identity result_present error_absent media_result.
+ split.
+ - change (Rpc.call "rpc.message" source = encode_action
+     (reserve_materialization state id (get (get source "message") "result"))).
+   unfold Rpc.call;rewrite decoded;cbn.
+   unfold message;rewrite shape,version;cbn;rewrite method,identity.
+   unfold response;rewrite result_present,error_absent;cbn;rewrite media_result;reflexivity.
+ - apply materialization_reserves_and_removes_its_pending_identity.
+Qed.
+
+Theorem public_reserved_rpc_materialization_resolves_once : forall source state,
+  decode_state source = Some state -> canonical_natural (get source "id") = true ->
+  contains (nat_value (get source "id")) state.(materializing) = true ->
+  boolean_field source "ok" = true ->
+  Api.call "rpc.prepared" source = encode_action
+    (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")]) /\
+  ~ In (nat_value (get source "id"))
+    (action_materializing (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
+Proof.
+ intros source state decoded canonical reserved successful. split.
+ - change (Rpc.call "rpc.prepared" source = encode_action
+     (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
+   unfold Rpc.call;rewrite decoded;cbn.
+   unfold prepared;rewrite canonical,reserved,successful;reflexivity.
+ - apply consumed_materialization_cannot_remain_active.
+Qed.
+
+Theorem public_mcp_media_plan_admits_every_part_within_one_byte_budget : forall source result,
+  Api.call "plugin.mcp_media_plan" source = success result ->
+  Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source) /\
+  mcp_media_bytes source <= num source "maximum".
+Proof.
+ intros source result H. change (mcp_media_plan source = success result) in H.
+ unfold mcp_media_plan in H. destruct (negb (is_object (get source "result"))); [discriminate|].
+ destruct (mcp_media_admitted source) eqn:Admitted; [|discriminate].
+ unfold mcp_media_admitted in Admitted. repeat rewrite andb_true_iff in Admitted.
+ destruct Admitted as [[_ Parts] Budget]. split.
+ - apply Forall_forall. intros pair Present. apply forallb_forall with (x:=pair) in Parts; assumption.
+ - now apply N.leb_le in Budget.
 Qed.
 
 Theorem public_compaction_policy_has_ordered_thresholds : forall source result,

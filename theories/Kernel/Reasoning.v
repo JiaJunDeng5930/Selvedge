@@ -6,10 +6,21 @@ Open Scope string_scope.
 
 Definition capture (ticket : N) (task : task) :=
  with_activity (ObservingContext ticket (List.length (task_history task))) task.
-Definition observe_context (id : N) (value : world) :=
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id false value).
 Definition observe_scheduled_context (id : N) (value : world) :=
  TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id true value).
+(* A stale read has already completed. If its replacement cannot acquire the
+   resource, retain demand rather than leaving the completed ticket pending. *)
+Definition context_retry_wait (id : N) (current : task) (value : world) :=
+ match task_lifecycle current with
+ | Running (ObservingContext _ _) _ =>
+   accept (JObject [("accepted",JBool false)]) (put_task id (with_activity WantsModel current) value) []
+ | _ => State.ignored value end.
+Definition context_retry (id : N) (value : world) :=
+ match TaskScope.select id value with
+ | None => State.ignored value
+ | Some target => match TicketedRequest.Scoped.observe_selected false target with
+   | Some request => TicketedRequest.Scoped.issue request
+   | None => context_retry_wait (TaskScope.owner target) (TaskScope.selected target) value end end.
 
 
 Definition allowed := ReasoningPlan.allowed.

@@ -53,7 +53,8 @@ test('assisted cards trim the saved title and provider request before applying t
   const ordinary = await service.command({ op: 'create_card', title: '  Keep spacing  ' });
   assert.equal(ordinary.reply.ok, true);
   const id = ordinary.reply.result.card_id;
-  assert.equal((await service.command({ op: 'read_card', card_id: id })).reply.result.title, '  Keep spacing  ');
+  // Birth whitespace is owned by FeaturePacketProofs.every_public_board_birth_with_its_actual_budget_commits.
+  // Keep the update assertion until its actual entry has the corresponding universal proof.
   assert.equal((await service.command({ op: 'update_card', card_id: id, revision: 0, title: '  Updated title  ' })).reply.ok, true);
   assert.equal((await service.command({ op: 'read_card', card_id: id })).reply.result.title, '  Updated title  ');
   const invalid = await service.command({ op: 'create_card', title: ' '.repeat(3000), assisted: true,
@@ -61,33 +62,5 @@ test('assisted cards trim the saved title and provider request before applying t
   assert.equal(invalid.reply.error.code, 'invalid_card');
 });
 
-test('board agent validation precedes capacity, lookup and revision failures', async t => {
-  const directory = await home(t);
-  const config = validateConfig({ ...defaultConfig, chatgpt: false });
-  const service = await Service.open({ home: directory, cwd: directory, config });
-  t.after(() => service.close());
-  const agent = { op: 'save_board_agent', agent: '', revision: 0, name: 'Reviewer',
-    profile: 'demo', reasoning: 'default', instructions: 'Review the saved request.', concurrency: 1 };
-  const error = async (changes, expected) => {
-    const result = await service.command({ ...agent, ...changes });
-    assert.equal(result.reply.ok, false);
-    assert.equal(result.reply.error.code, expected);
-  };
-  await error({ agent: '999', revision: 99, name: '' }, 'invalid_agent');
-  await error({ agent: '999', revision: 99 }, 'agent_not_found');
-  for (let index = 0; index < 64; index++) {
-    const result = await service.command({ ...agent, name: `Reviewer ${index}` });
-    assert.equal(result.reply.ok, true, JSON.stringify(result.reply));
-  }
-  await error({ name: '' }, 'invalid_agent');
-  await error({}, 'agent_limit');
-  await error({ agent: '999' }, 'agent_not_found');
-  await error({ agent: '0', revision: 1 }, 'agent_conflict');
-  const updated = await service.command({ ...agent, agent: '0', name: 'Updated at capacity' });
-  assert.equal(updated.reply.ok, true, JSON.stringify(updated.reply));
-  assert.equal(updated.reply.result.revision, 1);
-  assert.equal((await service.command({ op: 'delete_board_agent', agent_id: 1, revision: 0 })).reply.ok, true);
-  await error({ agent: '1' }, 'agent_not_found');
-  const replacement = await service.command(agent);
-  assert.equal(replacement.reply.ok, true, JSON.stringify(replacement.reply));
-});
+// Pure agent capacity, validation/lookup/revision priority and slot reuse are
+// owned by theories/Features/BoardAgentProofs.v at the actual save/delete handlers.

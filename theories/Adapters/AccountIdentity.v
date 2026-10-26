@@ -47,9 +47,24 @@ Definition same_registration source :=
   same (get registered "client_id") (get value "client_id") &&
   same (get registered "subject") (get value "subject").
 Definition identity_failure := "ChatGPT credential does not match its registered identity".
+Definition same_request_identity (expected current : json) :=
+  forallb (fun field => same (get expected field) (get current field))
+    ["issuer";"client_id";"subject";"account_id"].
+Definition request_identity_retained source :=
+  negb (has source "requestCredential") ||
+    same_request_identity (get source "requestCredential") (get source "value").
+Definition request_identity_failure :=
+  "ChatGPT account changed during an active request; start a new request".
+(* A rejected request owns its original principal. Token rotation may replace
+   secrets, but cannot change that principal underneath the retained body,
+   provider scope, model catalog cache or audio session. *)
+Definition refresh_admission source accepted :=
+  if same_registration source then
+    if request_identity_retained source then accepted else err request_identity_failure
+  else err identity_failure.
 Definition issuer_admission source := if same (get (get source "value") "issuer") (get source "issuer")
   then success (get source "value") else err "ChatGPT credential belongs to a different issuer; sign in again".
-Definition refresh_registration source := if same_registration source then success JNull else err identity_failure.
+Definition refresh_registration source := refresh_admission source (success JNull).
 Inductive refresh_action := Keep | AwaitEarliest | Refresh.
 Definition rejected_current source := has source "rejectedToken" &&
   same (get source "rejectedToken") (get (get source "value") "access_token").
@@ -60,8 +75,8 @@ Definition initial_action source :=
     then AwaitEarliest else Refresh.
 Definition refresh_action_name action := match action with
   | Keep => "keep" | AwaitEarliest => "earliest" | Refresh => "refresh" end.
-Definition refresh_initial source := if same_registration source
-  then success (JString (refresh_action_name (initial_action source))) else err identity_failure.
+Definition refresh_initial source := refresh_admission source
+  (success (JString (refresh_action_name (initial_action source)))).
 Definition reusable source :=
   (before_expiration source && negb (rejected_current source)) ||
   (negb (is_null (get (get source "value") "earliest_refresh_at")) &&
@@ -70,7 +85,7 @@ Definition reusable source :=
 Definition refresh source :=
   if negb (same (get (get source "value") "issuer") (get source "issuer"))
   then err "ChatGPT credential belongs to a different issuer; sign in again"
-  else if same_registration source then success (JBool (reusable source)) else err identity_failure.
+  else refresh_admission source (success (JBool (reusable source))).
 
 Fixpoint mantissa_nonzero source := match source with
   | EmptyString => false | String first rest =>

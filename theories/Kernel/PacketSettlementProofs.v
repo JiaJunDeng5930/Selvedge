@@ -100,8 +100,13 @@ Lemma scheduling_a_quiet_world_keeps_its_effects : forall fuel execute permitted
  Scheduler.schedule fuel execute permitted value effects = (value,effects).
 Proof.
  intros fuel execute permitted value effects Reconciled Quiet.
- destruct fuel; cbn [Scheduler.schedule]; rewrite Reconciled.
- - rewrite a_quiet_task_registry_needs_no_continuation by exact Quiet; reflexivity.
+ assert (NoContinuation : Scheduler.continue_runnable permitted value effects = effects).
+ { unfold Scheduler.continue_runnable, Scheduler.has_runnable_work.
+   rewrite a_quiet_task_registry_needs_no_continuation by exact Quiet; reflexivity. }
+ destruct fuel; cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted];
+   destruct (existsb Scheduler.effect_requires_commit effects); try (now rewrite NoContinuation);
+   rewrite Reconciled.
+ - rewrite NoContinuation; reflexivity.
  - rewrite a_quiet_task_registry_has_no_native_fork by exact Quiet.
    rewrite a_quiet_task_registry_has_no_step by exact Quiet; reflexivity.
 Qed.
@@ -132,15 +137,16 @@ Proof.
      (Scheduler.operation_step (N.of_nat (List.length prefix)) issued task before)) effects)).
  { rewrite Registry, a_quiet_task_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.find_step]. rewrite Selected, Interpreted; reflexivity. }
- unfold Scheduler.run. cbn [decision_world decision_reply decision_effects].
+ unfold Scheduler.run, Scheduler.run_with. cbn [decision_world decision_reply decision_effects].
  change ((let '(value,effects) := Scheduler.schedule (S (Nat.pred Limits.schedule_steps)) execute permitted before [] in
    let '(value,effects) := Dispatch.prepare value effects in Decision value reply effects) =
    Decision after reply effects).
  assert (NoFork : Scheduler.first_native_fork permitted 0 (world_tasks before) before = None).
  { rewrite Registry, a_quiet_native_fork_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.first_native_fork]. rewrite Selected; reflexivity. }
- cbn [Scheduler.schedule]; rewrite BeforeReconciled, NoFork, First; cbn [decision_world decision_effects app].
+ cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted]; rewrite BeforeReconciled, NoFork, First; cbn [decision_world decision_effects app].
  rewrite scheduling_a_quiet_world_keeps_its_effects by assumption.
+ cbn [existsb].
  rewrite Prepared; reflexivity.
 Qed.
 
@@ -160,7 +166,9 @@ Theorem an_archived_result_is_committed_by_the_exported_packet :
     (TerminalSettlement.candidate accepted)).
 Proof.
  intros raw before accepted Decoded Resolved InputBudget Valid OutputBudget.
- unfold Packet.packet; rewrite InputBudget; cbv beta zeta; rewrite Decoded.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ rewrite InputBudget; cbv beta zeta; rewrite Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].

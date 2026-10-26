@@ -15,8 +15,8 @@ Proof. reflexivity. Qed.
 Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments attempt,
  Callbacks.model_call_arguments_valid
    (Tool name description (ExtensionToolSource schema reference remote))
-   (Call id name arguments attempt) = JsonSchema.valid schema arguments.
-Proof. reflexivity. Qed.
+   (Call id name arguments attempt) = JsonSchema.valid (JsonSchema.registered_source schema) arguments.
+Proof. intros; apply JsonSchema.registered_arguments_use_the_compiled_declaration. Qed.
 
 (* The normal admission premises do not assume an emitted effect. This positive
    obligation rules out an implementation that accepts MCP calls but drops them. *)
@@ -42,7 +42,11 @@ Proof.
    Found ExecuteAllowed Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
- rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
+ rewrite Arguments; cbn.
+ assert (NoAdmitted : NativeTools.admit_command id invocation = None).
+ { unfold NativeTools.command in NoNative.
+   destruct (NativeTools.admit_command id invocation); [discriminate|reflexivity]. }
+ rewrite NoAdmitted, NoDiscover.
  rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task advertised invocation remaining
    (TicketedRequest.Scoped.external_authority_for task invocation) Found).
  2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }

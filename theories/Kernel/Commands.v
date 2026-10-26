@@ -1,24 +1,22 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Arguments JsonSchema.
 From Selvedge.Kernel Require Import WorkspaceBackend Pagination.
+From Selvedge.Kernel Require Export CommandArguments.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition req (name : string) (type : kind) := Field name type.
-Definition opt (name : string) (type : kind) := OmittableField name type.
-Definition nullable (name : string) (type : kind) := Field name (KOptional type).
-Definition task_identity := [req "task_id" KNatural].
-Definition content_fields := [opt "message" KJson; opt "images" (KArray KJson)].
+Definition task_identity := [u32 (req "task_id" KNatural)].
+Definition content_fields := [typed (content_declaration) (opt "message" KJson); typed (images_declaration) (opt "images" (KArray KJson))].
 Definition creation_fields := [req "profile" KText; opt "reasoning" KText] ++
-  content_fields ++ [opt "settings" KJson].
-Definition card_metadata := [OmittableField "title" KText; OmittableField "description" KText;
-  OmittableField "status" KText; OmittableField "priority" KText; OmittableField "assignee" KText;
-  OmittableField "project" KText; OmittableField "labels" (KArray KText); OmittableField "attachments" (KArray KJson)].
-Definition card_identity := [req "card_id" KNatural; req "revision" KNatural; opt "observed_at" KText].
-Definition graph_fields := [req "name" KText; req "nodes" (KArray KJson); req "rules" (KArray KJson)].
-Definition connection_project := [req "connection_id" KNatural; req "project_id" KNatural].
-Definition connection_operation := connection_project ++ [req "operation_id" KNatural].
+  content_fields ++ [staged settings_declaration (opt "settings" KJson)].
+Definition card_metadata := [opt "title" KText; opt "description" KText;
+  typed board_status (opt "status" KText); typed board_priority (opt "priority" KText); typed board_assignee (opt "assignee" KText);
+  typed board_project (opt "project" KText); opt "labels" (KArray KText); staged attachments_declaration (opt "attachments" (KArray KJson))].
+Definition card_identity := [u32 (req "card_id" KNatural); u32 (req "revision" KNatural); typed board_clock (opt "observed_at" KText)].
+Definition graph_fields := [req "name" KText; staged (fun observed => D.BoundedArray 0 32 (graph_node_declaration observed)) (req "nodes" (KArray KJson)); typed (D.BoundedArray 0 32 graph_rule_declaration) (req "rules" (KArray KJson))].
+Definition connection_project := [u32 (req "connection_id" KNatural); u32 (req "project_id" KNatural)].
+Definition connection_operation := connection_project ++ [u32 (req "operation_id" KNatural)].
 
 (** These declarations own public command names and fields. The schema
     interpreter and MetaRocq derivation consume this same list. *)
@@ -43,86 +41,110 @@ Definition owner_name (owner : command_owner) := match owner with
  | TitleChange => "TitleChange"
  | KernelChange => "KernelChange"
  end.
-Record command_declaration := DeclareCommand { declared_owner : command_owner; declared_schema : command_spec }.
+(** Task exposure belongs to the command declaration. It controls both the
+    resident native catalog and the final dispatcher. External commands retain
+    their existing owner/remote/connection authentication and grant checks. *)
+Inductive task_exposure := TaskAllowed | TaskExcluded.
+Record command_declaration := DeclareCommand {
+ declared_owner : command_owner;
+ declared_task_exposure : task_exposure;
+ declared_wire : wire_command
+}.
+Definition declared_schema (declaration : command_declaration) := command_shape (declared_wire declaration).
 Definition command_declarations : list command_declaration := [
-  DeclareCommand WorktreeChange (Command "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; opt "sandbox" KJson; opt "approval" KJson]));
-  DeclareCommand WorktreeChange (Command "create" creation_fields);
-  DeclareCommand WorktreeChange (Command "create_idle" ([req "profile" KText; opt "reasoning" KText; opt "settings" KJson; opt "work_id" KNatural; opt "create_worktree" KBool]));
-  DeclareCommand KernelChange (Command "send" (task_identity ++ content_fields));
-  DeclareCommand KernelChange (Command "steer" (task_identity ++ content_fields));
-  DeclareCommand KernelChange (Command "cancel_operation" (task_identity ++ [req "operation_id" KNatural]));
-  DeclareCommand KernelChange (Command "freeze" task_identity);
-  DeclareCommand KernelChange (Command "unfreeze" task_identity);
-  DeclareCommand KernelChange (Command "stop" task_identity);
-  DeclareCommand KernelChange (Command "interrupt" task_identity);
-  DeclareCommand KernelChange (Command "archive" task_identity);
-  DeclareCommand KernelChange (Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; nullable "settings_origin" (KEnum "parent" ["environment"])]));
-  DeclareCommand KernelChange (Command "open_side_conversation" (task_identity ++ content_fields));
-  DeclareCommand KernelChange (Command "return_side_conversation" task_identity);
-  DeclareCommand CompactionChange (Command "compact" (task_identity ++ [opt "summary" KText]));
-  DeclareCommand KernelQuery (Command "read" (task_identity ++ [opt "after" KNatural; opt "limit" KNatural]));
-  DeclareCommand KernelQuery (Command "search_history" [req "query" KText; opt "project_id" KNatural; opt "work_id" KNatural; opt "after" KNatural; opt "limit" KNatural]);
-  DeclareCommand KernelQuery (Command "list" []);
-  DeclareCommand KernelQuery (Command "describe" []);
-  DeclareCommand KernelChange (Command "create_project" [req "name" KText; req "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson]);
-  DeclareCommand KernelChange (Command "update_project" [req "project_id" KNatural; opt "name" KText; opt "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson]);
-  DeclareCommand KernelChange (Command "delete_project" [req "project_id" KNatural]);
-  DeclareCommand KernelQuery (Command "list_projects" []);
-  DeclareCommand KernelQuery (Command "read_project" [req "project_id" KNatural]);
-  DeclareCommand KernelChange (Command "review_approval" (task_identity ++ [req "operation_id" KNatural; req "decision" (KEnum "allow" ["deny"]); opt "reason" KText]));
-  DeclareCommand KernelChange (Command "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]));
-  DeclareCommand KernelChange (Command "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]));
-  DeclareCommand BoardChange (Command "create_card" (opt "observed_at" KText :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
-  DeclareCommand BoardChange (Command "update_card" (card_identity ++ card_metadata));
-  DeclareCommand BoardChange (Command "move_card" (card_identity ++ [opt "status" KText; opt "before_card" KText]));
-  DeclareCommand BoardChange (Command "archive_card" card_identity);
-  DeclareCommand BoardChange (Command "restore_card" card_identity);
-  DeclareCommand BoardChange (Command "delete_card" card_identity);
-  DeclareCommand BoardChange (Command "run_card" card_identity);
-  DeclareCommand BoardChange (Command "link_card" (card_identity ++ [opt "task_id" KNatural]));
-  DeclareCommand BoardChange (Command "regenerate_card_title" (card_identity ++ [opt "draft_profile" KText]));
-  DeclareCommand BoardChange (Command "pin_card" (card_identity ++ [opt "pinned" KBool]));
-  DeclareCommand BoardChange (Command "board_settings" [req "automatic" KBool; req "draft_profile" KText]);
-  DeclareCommand BoardChange (Command "save_board_agent" [req "agent" KText; req "revision" KNatural; req "name" KText; req "profile" KText; req "reasoning" KText; req "instructions" KText; opt "settings" KJson; req "concurrency" KNatural]);
-  DeclareCommand BoardChange (Command "delete_board_agent" [req "agent_id" KNatural; req "revision" KNatural]);
-  DeclareCommand BoardQuery (Command "list_cards" []);
-  DeclareCommand BoardQuery (Command "read_card" [req "card_id" KNatural]);
-  DeclareCommand BoardQuery (Command "list_board_agents" []);
-  DeclareCommand ChatgptChange (Command "configure_chatgpt_connections" [req "connections" (KArray KJson)]);
-  DeclareCommand ChatgptChange (Command "chatgpt_exec" (connection_project ++ [req "request_id" KText; req "arguments" KJson]));
-  DeclareCommand ChatgptChange (Command "chatgpt_cancel" connection_operation);
-  DeclareCommand ChatgptChange (Command "chatgpt_forget" connection_operation);
-  DeclareCommand ChatgptQuery (Command "chatgpt_projects" [req "connection_id" KNatural]);
-  DeclareCommand ChatgptQuery (Command "chatgpt_project" connection_project);
-  DeclareCommand ChatgptQuery (Command "chatgpt_operation" connection_operation);
-  DeclareCommand ChatgptQuery (Command "chatgpt_operations" connection_project);
-  DeclareCommand RemoteChange (Command "remote_enable" []);
-  DeclareCommand RemoteChange (Command "remote_disable" []);
-  DeclareCommand RemoteChange (Command "remote_grant" [req "controller_id" KText; req "permissions" KJson]);
-  DeclareCommand RemoteChange (Command "remote_revoke" [req "controller_id" KText]);
-  DeclareCommand RemoteQuery (Command "remote_status" []);
-  DeclareCommand TaskGraphChange (Command "create_task_graph" (opt "work_id" KNatural :: graph_fields));
-  DeclareCommand TaskGraphChange (Command "update_task_graph" (req "graph_id" KNatural :: graph_fields));
-  DeclareCommand TaskGraphChange (Command "delete_task_graph" [req "graph_id" KNatural]);
-  DeclareCommand TaskGraphQuery (Command "list_task_graphs" []);
-  DeclareCommand TaskGraphQuery (Command "read_task_graph" [req "graph_id" KNatural]);
-  DeclareCommand TitleQuery (Command "read_title_settings" []);
-  DeclareCommand TitleChange (Command "configure_title_settings" [req "revision" KNatural; req "task_prompt" KText; req "agent_prompt" KText]);
-  DeclareCommand WorkChange (Command "create_work" [opt "name" KText]);
-  DeclareCommand WorkChange (Command "rename_work" [req "work_id" KNatural; req "name" KText]);
-  DeclareCommand WorktreeChange (Command "create_work_task" (req "work_id" KNatural :: creation_fields ++ [opt "create_worktree" KBool]));
-  DeclareCommand WorkQuery (Command "list_works" []);
-  DeclareCommand WorkQuery (Command "read_work" [req "work_id" KNatural]);
-  DeclareCommand WorkQuery (Command "read_work_ui" []);
-  DeclareCommand WorkChange (Command "apply_work_ui_patch" [req "patch" KText; req "revision" KNatural]);
-  DeclareCommand WorktreeChange (Command "create_worktree_task" creation_fields);
-  DeclareCommand WorktreeChange (Command "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [opt "work_id" KNatural]));
-  DeclareCommand WorktreeQuery (Command "list_worktrees" []);
-  DeclareCommand WorktreeQuery (Command "read_worktree" task_identity);
-  DeclareCommand WorktreeChange (Command "retry_worktree_archive" task_identity);
-  DeclareCommand WorktreeQuery (Command "resolve_workspace" [nullable "workspace" KJson; nullable "project_id" KNatural])
+  DeclareCommand WorktreeChange TaskExcluded (WireCommand "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; typed (sandbox_patch_declaration) (opt "sandbox" KJson); typed (approval_declaration) (opt "approval" KJson)]));
+  DeclareCommand WorktreeChange TaskAllowed (WireCommand "create" creation_fields);
+  DeclareCommand WorktreeChange TaskExcluded (WireCommand "create_idle" ([req "profile" KText; opt "reasoning" KText; staged settings_declaration (opt "settings" KJson); u32 (opt "work_id" KNatural); opt "create_worktree" KBool]));
+  DeclareCommand KernelChange TaskAllowed (WireCommand "send" (task_identity ++ content_fields));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "steer" (task_identity ++ content_fields));
+  DeclareCommand KernelChange TaskAllowed (WireCommand "cancel_operation" (task_identity ++ [u32 (req "operation_id" KNatural)]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "freeze" task_identity);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "unfreeze" task_identity);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "stop" task_identity);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "interrupt" task_identity);
+  DeclareCommand KernelChange TaskAllowed (WireCommand "archive" task_identity);
+  DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [bounded 1 JsonSchema.maximum_natural (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"])]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "open_side_conversation" (task_identity ++ content_fields));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "return_side_conversation" task_identity);
+  DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [opt "summary" KText]));
+  DeclareCommand KernelQuery TaskAllowed (WireCommand "read" (task_identity ++ [u32 (opt "after" KNatural); bounded 1 Pagination.history_limit (opt "limit" KNatural)]));
+  DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural)]);
+  DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);
+  DeclareCommand KernelQuery TaskExcluded (WireCommand "describe" []);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [req "name" KText; typed workspace_declaration (req "workspace" KJson); staged (fun observed => if observed then guidance_declaration else from_fields Codec.guidance_schema) (opt "guidance" KJson); opt "create_worktree" KBool; opt "workspace_binding" KJson]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); opt "name" KText; typed workspace_declaration (opt "workspace" KJson); staged (fun observed => if observed then guidance_declaration else from_fields Codec.guidance_schema) (opt "guidance" KJson); opt "create_worktree" KBool; opt "workspace_binding" KJson]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "delete_project" [u32 (req "project_id" KNatural)]);
+  DeclareCommand KernelQuery TaskExcluded (WireCommand "list_projects" []);
+  DeclareCommand KernelQuery TaskExcluded (WireCommand "read_project" [u32 (req "project_id" KNatural)]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "review_approval" (task_identity ++ [u32 (req "operation_id" KNatural); req "decision" (KEnum "allow" ["deny"]); opt "reason" KText]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "update_card" (card_identity ++ card_metadata));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "move_card" (card_identity ++ [required (typed board_status (opt "status" KText)); optional_identity_text (opt "before_card" KText)]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "archive_card" card_identity);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "restore_card" card_identity);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "delete_card" card_identity);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "run_card" card_identity);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "link_card" (card_identity ++ [required (u32 (opt "task_id" KNatural))]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "regenerate_card_title" (card_identity ++ [opt "draft_profile" KText]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "pin_card" (card_identity ++ [required (opt "pinned" KBool)]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "board_settings" [req "automatic" KBool; req "draft_profile" KText]);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "save_board_agent" [optional_identity_text (req "agent" KText); u32 (req "revision" KNatural); req "name" KText; req "profile" KText; req "reasoning" KText; req "instructions" KText; staged settings_declaration (opt "settings" KJson); u32 (req "concurrency" KNatural)]);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "delete_board_agent" [u32 (req "agent_id" KNatural); u32 (req "revision" KNatural)]);
+  DeclareCommand BoardQuery TaskExcluded (WireCommand "list_cards" []);
+  DeclareCommand BoardQuery TaskExcluded (WireCommand "read_card" [u32 (req "card_id" KNatural)]);
+  DeclareCommand BoardQuery TaskExcluded (WireCommand "list_board_agents" []);
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "configure_chatgpt_connections" [typed grants_declaration (req "connections" (KArray KJson))]);
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_exec" (connection_project ++ [req "request_id" KText; typed (shape ChatgptArguments.args_schema) (req "arguments" KJson)]));
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_cancel" connection_operation);
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_forget" connection_operation);
+  DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_projects" [u32 (req "connection_id" KNatural)]);
+  DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_project" connection_project);
+  DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_operation" connection_operation);
+  DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_operations" connection_project);
+  DeclareCommand RemoteChange TaskExcluded (WireCommand "remote_enable" []);
+  DeclareCommand RemoteChange TaskExcluded (WireCommand "remote_disable" []);
+  DeclareCommand RemoteChange TaskExcluded (WireCommand "remote_grant" [typed controller_id_declaration (req "controller_id" KText); typed permissions_declaration (req "permissions" KJson)]);
+  DeclareCommand RemoteChange TaskExcluded (WireCommand "remote_revoke" [typed controller_id_declaration (req "controller_id" KText)]);
+  DeclareCommand RemoteQuery TaskExcluded (WireCommand "remote_status" []);
+  DeclareCommand TaskGraphChange TaskAllowed (WireCommand "create_task_graph" (u32 (opt "work_id" KNatural) :: graph_fields));
+  DeclareCommand TaskGraphChange TaskAllowed (WireCommand "update_task_graph" (u32 (req "graph_id" KNatural) :: graph_fields));
+  DeclareCommand TaskGraphChange TaskAllowed (WireCommand "delete_task_graph" [u32 (req "graph_id" KNatural)]);
+  DeclareCommand TaskGraphQuery TaskAllowed (WireCommand "list_task_graphs" []);
+  DeclareCommand TaskGraphQuery TaskAllowed (WireCommand "read_task_graph" [u32 (req "graph_id" KNatural)]);
+  DeclareCommand TitleQuery TaskExcluded (WireCommand "read_title_settings" []);
+  DeclareCommand TitleChange TaskExcluded (WireCommand "configure_title_settings" [req "revision" KNatural; typed title_prompt_declaration (req "task_prompt" KText); typed title_prompt_declaration (req "agent_prompt" KText)]);
+  DeclareCommand WorkChange TaskAllowed (WireCommand "create_work" [opt "name" KText]);
+  DeclareCommand WorkChange TaskAllowed (WireCommand "rename_work" [u32 (req "work_id" KNatural); req "name" KText]);
+  DeclareCommand WorktreeChange TaskAllowed (WireCommand "create_work_task" (u32 (req "work_id" KNatural) :: creation_fields ++ [opt "create_worktree" KBool]));
+  DeclareCommand WorkQuery TaskAllowed (WireCommand "list_works" []);
+  DeclareCommand WorkQuery TaskAllowed (WireCommand "read_work" [u32 (req "work_id" KNatural)]);
+  DeclareCommand WorkQuery TaskAllowed (WireCommand "read_work_ui" []);
+  DeclareCommand WorkChange TaskAllowed (WireCommand "apply_work_ui_patch" [req "patch" KText; u32 (req "revision" KNatural)]);
+  DeclareCommand WorktreeChange TaskExcluded (WireCommand "create_worktree_task" creation_fields);
+  DeclareCommand WorktreeChange TaskExcluded (WireCommand "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [u32 (opt "work_id" KNatural)]));
+  DeclareCommand WorktreeQuery TaskExcluded (WireCommand "list_worktrees" []);
+  DeclareCommand WorktreeQuery TaskExcluded (WireCommand "read_worktree" task_identity);
+  DeclareCommand WorktreeChange TaskExcluded (WireCommand "retry_worktree_archive" task_identity);
+  DeclareCommand WorktreeQuery TaskExcluded (WireCommand "resolve_workspace" [typed (D.nullable workspace_declaration) (nullable "workspace" KJson); typed (D.nullable identity) (nullable "project_id" KNatural)])
 ].
 Definition command_specs := map declared_schema command_declarations.
+Definition task_command_allowed (name : string) :=
+ match find (fun declaration => String.eqb name (command_name (declared_schema declaration)))
+   command_declarations with
+ | Some declaration => match declared_task_exposure declaration with
+   | TaskAllowed => true | TaskExcluded => false end
+ | None => false end.
+Definition origin_allowed (task_origin : bool) (name : string) :=
+ if task_origin then task_command_allowed name else true.
+
+Theorem excluded_commands_reject_task_origin : forall name,
+ task_command_allowed name = false -> origin_allowed true name = false.
+Proof. intros name Excluded; exact Excluded. Qed.
+Theorem external_origin_preserves_existing_authorization : forall name,
+ origin_allowed false name = true.
+Proof. reflexivity. Qed.
 
 Definition command_field_description (command field : string) :=
   if String.eqb field "profile" then "Key of a configured model profile." else
@@ -165,14 +187,8 @@ Definition command_field_description (command field : string) :=
     "Maximum results to return, from 1 to 50; defaults to 20." else "".
 
 Definition command_argument (command : string) (field : field_spec) :=
-  let argument := Arguments.with_description
-    (command_field_description command (field_name field)) (Arguments.from_field field) in
-  if String.eqb command "fork" && String.eqb (field_name field) "child_count" then
-    Arguments.with_bounds (1%N, JsonSchema.maximum_natural) argument else
-  if String.eqb command "read" && String.eqb (field_name field) "limit" then
-    Arguments.with_bounds (1%N, Pagination.history_limit) argument else
-  if String.eqb command "search_history" && String.eqb (field_name field) "limit" then
-    Arguments.with_bounds (1%N, Pagination.search_limit) argument else argument.
+ Arguments.with_description (command_field_description command (field_name field))
+   (Arguments.from_field field).
 
 Definition command_arguments (specification : command_spec) :=
   map (command_argument (command_name specification))

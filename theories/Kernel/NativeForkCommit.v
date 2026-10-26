@@ -39,7 +39,10 @@ Definition interpret {before : world} (accepted : plan before) :=
    (TaskScope.selected (planned_target accepted)) before.
 Definition candidate {before : world} (accepted : plan before) :=
  let result := interpret accepted in
- Decision (decision_world result) (decision_reply result)
+ (* The native invocation already receives its exact business result through
+    internal_result. This independent Continue packet acknowledges dispatch,
+    including a refused fork; it is not a second public fork command. *)
+ accept JNull (decision_world result)
    (decision_effects result ++ [ContinueScheduling]).
 Definition packet {before : world} (accepted : plan before) (raw : json) : world * json :=
  DeferredCommit.packet (Some Continue) raw before (candidate accepted).

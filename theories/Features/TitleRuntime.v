@@ -21,16 +21,10 @@ Definition handle_read_title_settings (_payload : Selvedge.Generated.Commands.re
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
  Selvedge.Kernel.State.success (Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings (world_features value))).
 
-Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_read_title_settings payload => Some (handle_read_title_settings payload _caller value)
- | _=>None end.
 Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.configure_title_settings_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  configure (Selvedge.Generated.Commands.configure_title_settings_revision p) (Selvedge.Generated.Commands.configure_title_settings_task_prompt p) (Selvedge.Generated.Commands.configure_title_settings_agent_prompt p) value.
 
-Definition command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_configure_title_settings p => Some (handle_configure_title_settings p _caller value)
- | _=>None end.
 Definition first_request := Observation.first_request.
 Fixpoint split_slash (text:string) (part:string) :list string := match text with
  | EmptyString=>[part] | String ch rest=>if Ascii.eqb ch "/"%char then part::split_slash rest "" else split_slash rest (String.append part (String ch "")) end.

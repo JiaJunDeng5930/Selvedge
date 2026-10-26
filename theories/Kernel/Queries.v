@@ -57,19 +57,8 @@ Definition handle_search_history (request : Selvedge.Generated.Commands.search_h
 
 Definition handle_list_projects (_payload : Selvedge.Generated.Commands.list_projects_payload)
  (_caller : option N) (value : world) : json :=
- State.success (JObject [("projects",JArray (projects_json value))]).
+ State.success (JArray (projects_json value)).
 
 Definition handle_read_project (request : Selvedge.Generated.Commands.read_project_payload)
  (_caller : option N) (value : world) : json :=
  read_project (Selvedge.Generated.Commands.read_project_project_id request) value.
-
-Definition answer (command : Selvedge.Generated.Commands.command) (value : world) : option json :=
- match command with
- | Selvedge.Generated.Commands.Cmd_describe payload => Some (handle_describe payload None value)
- | Selvedge.Generated.Commands.Cmd_list payload => Some (handle_list payload None value)
- | Selvedge.Generated.Commands.Cmd_read request => Some (handle_read request None value)
- | Selvedge.Generated.Commands.Cmd_search_history request => Some (handle_search_history request None value)
- | Selvedge.Generated.Commands.Cmd_list_projects payload => Some (handle_list_projects payload None value)
- | Selvedge.Generated.Commands.Cmd_read_project request => Some (handle_read_project request None value)
- | _ => None
- end.

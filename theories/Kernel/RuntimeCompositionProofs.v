@@ -1,21 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Scheduler Packet.
+From Selvedge.Kernel Require Import Domain State StateProofs Scheduler Packet RequestDeliveryProofs.
 From Selvedge.Features Require Import Runtime Worktree TaskGraph Board TitleRuntime Compaction.
 Import ListNotations.
 
 (* Runtime maintenance may advance other tasks and feature registries. Its
    acknowledgement belongs to the operation that caused the turn, so every
    maintenance fold must retain that operation's exact reply. *)
-Lemma reply_preserving_fold : forall A (step : decision -> A -> decision),
- (forall current item, decision_reply (step current item) = decision_reply current) ->
- forall items current, decision_reply (fold_left step items current) = decision_reply current.
-Proof.
- intros A step Preserves items; induction items as [|item rest IH]; intros current; cbn.
- - reflexivity.
- - rewrite IH, Preserves; reflexivity.
-Qed.
-
 Local Ltac split_matches :=
  repeat match goal with
  | |- context [match ?term with _ => _ end] => destruct term eqn:?
@@ -66,7 +57,7 @@ Proof. intros; unfold Compaction.arm_clock, Compaction.combine; split_matches. Q
 Theorem runtime_maintenance_retains_the_operation_reply : forall before current,
  decision_reply (Runtime.after_transition before current) = decision_reply current.
 Proof.
- intros before current; unfold Runtime.after_transition, Compaction.after_transition.
+ intros before current; unfold Runtime.after_transition, Compaction.after_transition, Compaction.synchronize_all.
  rewrite compaction_clock_retains_reply.
  rewrite reply_preserving_fold by (intros; apply compaction_synchronization_retains_reply).
  rewrite reply_preserving_fold by (intros; apply compaction_observation_retains_reply).
@@ -78,28 +69,19 @@ Proof.
  apply reply_preserving_fold; intros; apply worktree_archive_retains_reply.
 Qed.
 
-Theorem scheduling_retains_the_operation_reply : forall execute permitted current,
- decision_reply (Scheduler.run execute permitted current) = decision_reply current.
+(* No quiet-world or identity-maintenance premise: the actual Packet entry
+   retains the operation's reply through either bounded scheduling or durable
+   callback deferral, including request normalization and feature finalization. *)
+Theorem the_production_runtime_preserves_the_exact_operation_result :
+ forall schedules source before current,
+ decision_reply (Packet.prepare schedules source (Runtime.after_transition before current)) =
+   decision_reply current.
 Proof.
- intros; unfold Scheduler.run.
- destruct (Scheduler.schedule _ _ _ _ _); destruct (Dispatch.prepare _ _); reflexivity.
-Qed.
-
-Theorem finishing_retains_the_operation_reply : forall current,
- decision_reply (Runtime.finish current) = decision_reply current.
-Proof.
- intros; unfold Runtime.finish, TitleCommit.enqueue.
- destruct (TitleCommit.resolve _); reflexivity.
-Qed.
-
-(* No quiet-world or identity-maintenance premise: all real production folds,
-   scheduling steps, model-effect preparation and board continuation run. *)
-Theorem the_production_runtime_preserves_the_exact_operation_result : forall before current,
- decision_reply (Runtime.finish (Scheduler.run Packet.execute_command Runtime.can_schedule_task
-   (Runtime.after_transition before current))) = decision_reply current.
-Proof.
- intros; rewrite finishing_retains_the_operation_reply,
- scheduling_retains_the_operation_reply, runtime_maintenance_retains_the_operation_reply; reflexivity.
+ intros schedules source before current; unfold Packet.prepare.
+ destruct schedules; [|apply runtime_maintenance_retains_the_operation_reply].
+ destruct (Packet.callback_input source).
+ - rewrite deferred_delivery_preserves_reply; apply runtime_maintenance_retains_the_operation_reply.
+ - rewrite bounded_scheduling_preserves_reply; apply runtime_maintenance_retains_the_operation_reply.
 Qed.
 
 (* A scoped observation can be followed across an arbitrarily busy scheduler.
@@ -117,8 +99,11 @@ Theorem scheduling_preserves_a_local_observation :
  kept value -> kept (fst (Scheduler.schedule fuel execute permitted value effects)).
 Proof.
  intros kept execute permitted Reconcile Step fuel; induction fuel; intros value effects Holds.
- - cbn [Scheduler.schedule]; destruct (existsb _ _); cbn; apply Reconcile; exact Holds.
- - cbn [Scheduler.schedule].
+ - cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted].
+   destruct (existsb Scheduler.effect_requires_commit effects); cbn;
+     [exact Holds|apply Reconcile; exact Holds].
+ - cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted].
+   destruct (existsb Scheduler.effect_requires_commit effects); [exact Holds|].
    destruct (Scheduler.first_native_fork permitted 0
      (world_tasks (SideContext.reconcile value)) (SideContext.reconcile value));
      [cbn; apply Reconcile; exact Holds|].

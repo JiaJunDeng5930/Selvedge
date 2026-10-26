@@ -340,13 +340,13 @@ Proof.
  - destruct (workspace_primary (settings_workspace (Tasks.start_settings start))) as [root|] eqn:Primary; [|discriminate].
    destruct (Workspace.valid_workspace (settings_workspace (Tasks.start_settings start)) &&
       Workspace.valid_path (Worktree.primary (settings_workspace (Tasks.start_settings start))) &&
-      workspace_available (settings_workspace (Tasks.start_settings start)) before) eqn:Available; [|discriminate].
+      Worktree.workspace_available (settings_workspace (Tasks.start_settings start)) before) eqn:Available; [|discriminate].
    repeat rewrite andb_true_iff in Available; tauto.
  - destruct (negb (Worktree.project_primary_matches (Tasks.start_settings start) before)); [discriminate|].
    destruct (workspace_primary (settings_workspace (Tasks.start_settings start))) as [root|] eqn:Primary; [|discriminate].
    destruct (Workspace.valid_workspace (settings_workspace (Tasks.start_settings start)) &&
       Workspace.valid_path (Worktree.primary (settings_workspace (Tasks.start_settings start))) &&
-      workspace_available (settings_workspace (Tasks.start_settings start)) before) eqn:Available; [|discriminate].
+      Worktree.workspace_available (settings_workspace (Tasks.start_settings start)) before) eqn:Available; [|discriminate].
    repeat rewrite andb_true_iff in Available.
    change (Workspace.valid_path (Worktree.primary (Worktree.primary_workspace (settings_workspace (Tasks.start_settings start)))) = true).
    unfold Worktree.primary_workspace,Worktree.primary; rewrite Primary.
@@ -392,7 +392,7 @@ Proof.
  destruct resource as [|owner tree observed| |].
  - apply root_birth_preserves_every_world_requirement; [exact Valid|reflexivity| |exact Start].
    destruct start as [chosen selected contents idle environment]; destruct idle; reflexivity.
- - unfold Worktree.consume_planned_start; cbn [Worktree.planned_task Worktree.planned_resource].
+ - unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
    destruct (WorkspaceBackend.cloud (F.worktree_backend tree)).
    + apply root_birth_preserves_every_world_requirement; [exact Valid|reflexivity| |].
      * destruct start as [chosen selected contents idle environment]; destruct idle; reflexivity.

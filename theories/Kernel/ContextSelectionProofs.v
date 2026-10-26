@@ -16,6 +16,15 @@ Proof.
  cbn in Settled; rewrite Missing in Settled; discriminate.
 Qed.
 
+Theorem a_closed_prefix_contains_every_captured_call_output : forall history invocation,
+ closed_prefix history = true -> In (FunctionCall invocation) history ->
+ has_output history (call_id invocation) = true.
+Proof.
+ intros history invocation Closed Present.
+ unfold closed_prefix, settled_calls in Closed.
+ now apply forallb_forall with (x:=FunctionCall invocation) in Closed.
+Qed.
+
 Theorem adoption_keeps_the_original_history : forall snapshot candidate current,
  exists suffix, adopt snapshot candidate current = (current ++ suffix)%list.
 Proof.

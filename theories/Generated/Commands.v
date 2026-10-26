@@ -1575,6 +1575,68 @@ Lemma decode_observed_declaration : forall source, decode source = if CommandDec
 
 Proof. intro source; unfold decode, CommandDeclarations.admit_observed; destruct (Bool.bool_dec (CommandDeclarations.valid true source) true) as [Accepted | Rejected]; cbn [CommandDeclarations.observed_source]; [rewrite Accepted; reflexivity | destruct (CommandDeclarations.valid true source); [contradiction | reflexivity]]. Qed.
 
+Record admitted_command := AdmittedCommand {
+
+ admitted_source : json;
+
+ admitted_value : command;
+
+ admitted_decoding : decode admitted_source = Some admitted_value
+
+}.
+
+Definition admit_decoded (source : json) (decoded : option command)
+
+ (Decoded : decode source = decoded) : option admitted_command :=
+
+ match decoded as result return decode source = result -> option admitted_command with
+
+ | Some value => fun Evidence => Some (AdmittedCommand source value Evidence)
+
+ | None => fun _ => None end Decoded.
+
+Definition admit (source : json) : option admitted_command :=
+
+ admit_decoded source (decode source) eq_refl.
+
+Theorem admit_decoded_projects : forall source decoded Decoded,
+
+ option_map admitted_value (admit_decoded source decoded Decoded) = decoded.
+
+Proof. intros source [value|] Decoded; reflexivity. Qed.
+
+Theorem admit_projects_decode : forall source,
+
+ option_map admitted_value (admit source) = decode source.
+
+Proof. intro source; apply admit_decoded_projects. Qed.
+
+Theorem admit_decoded_retains_source : forall source decoded Decoded admitted,
+
+ admit_decoded source decoded Decoded = Some admitted -> admitted_source admitted = source.
+
+Proof. intros source [value|] Decoded admitted Accepted; inversion Accepted; reflexivity. Qed.
+
+Theorem admission_retains_source : forall source admitted,
+
+ admit source = Some admitted -> admitted_source admitted = source.
+
+Proof. intros source admitted Accepted; eapply admit_decoded_retains_source; exact Accepted. Qed.
+
+Theorem admitted_command_has_complete_declaration : forall admitted,
+
+ CommandDeclarations.valid true (admitted_source admitted) = true.
+
+Proof.
+
+ intros [source value Decoded]; cbn.
+
+ rewrite decode_observed_declaration in Decoded.
+
+ destruct (CommandDeclarations.valid true source); [reflexivity | discriminate].
+
+Qed.
+
 Definition declared_command (value : command) : command_spec := match value with
 
 | Cmd_configure_task_execution _ => List.nth 0 Selvedge.Kernel.Commands.command_specs (Command "" [])

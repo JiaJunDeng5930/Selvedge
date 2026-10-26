@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Arguments.
+From Selvedge.Foundation Require Import Json Arguments JsonSchema.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes.
 Import ListNotations.
@@ -42,7 +42,7 @@ Record task_settings := Settings {
    advertised JSON Schema to its server. Wire metadata is only a projection. *)
 Inductive tool_source :=
 | NativeToolSource (parameters : list argument_spec) (program : json)
-| ExtensionToolSource (parameters reference : json) (remote : string)
+| ExtensionToolSource (parameters : JsonSchema.registered) (reference : json) (remote : string)
 | McpToolSource (parameters : json) (server remote : string).
 Record tool := Tool {
   tool_name : string;
@@ -51,7 +51,8 @@ Record tool := Tool {
 }.
 Definition tool_schema (value : tool) := match tool_origin value with
 | NativeToolSource parameters _ => Arguments.json_schema parameters
-| ExtensionToolSource parameters _ _ | McpToolSource parameters _ _ => parameters
+| ExtensionToolSource parameters _ _ => JsonSchema.registered_source parameters
+| McpToolSource parameters _ _ => parameters
 end.
 Definition tool_metadata (value : tool) := match tool_origin value with
 | NativeToolSource _ program => JObject [("kind",JString "native");("program",program)]

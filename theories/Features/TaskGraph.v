@@ -19,16 +19,14 @@ Fixpoint parse_message (depth:nat) (source:json) :option Selvedge.Features.Domai
  match Schema.decode TaskGraphDeclarations.literal_fields source with Some values=>Some (Selvedge.Features.Domain.GraphLiteral (Schema.head (Schema.tail values))) | None=>
  match Schema.decode TaskGraphDeclarations.concat_fields source with Some values=>
  let parts:=Schema.head (Schema.tail values) in
- if Nat.leb (List.length parts) maximum_message_nodes then
- option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts) else None
+ option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts)
  | None=>None end end end end.
 Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition parse_action (source:json) :option Selvedge.Features.Domain.graph_action :=
  match Schema.decode TaskGraphDeclarations.action_fields source with
  | Some values=>match parse_message maximum_message_depth (Schema.head (Schema.tail values)) with
- | Some message=>if Nat.leb (message_size message) maximum_message_nodes then
-   Some (Selvedge.Features.Domain.GraphAction (Schema.head values) message) else None
+ | Some message=>Some (Selvedge.Features.Domain.GraphAction (Schema.head values) message)
  | None=>None end | None=>None end.
 Definition parse_rule (source:json) :option Selvedge.Features.Domain.graph_rule :=
  match Schema.decode TaskGraphDeclarations.rule_fields source with
@@ -112,7 +110,7 @@ Definition cached_allowed (caller:option N) (original:world) (node:cached_node) 
 Inductive node_plan (original:world) (owner:option N) :=
  | ExistingPlan (key:string) (id:N) (task:task)
      (observed:find_task id original=Some task) (membership:task_in_work owner id original=true)
- | SpawnPlan (key:string) (plan:Worktree.planned_start original).
+ | SpawnPlan (key:string) (plan:Worktree.scoped_start original).
 Arguments ExistingPlan {original owner}.
 Arguments SpawnPlan {original owner}.
 Inductive node_resolution (original:world) (owner:option N) :=
@@ -132,7 +130,7 @@ Proof.
  - destruct cached as [cause|start].
    + exact (NodeRefused (failure (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
        (Tasks.failure_message cause))).
-   + destruct (Worktree.prepare_resolved Worktree.GraphTaskCreation None None start original) as [plan|reply].
+   + destruct (Worktree.prepare_scoped Worktree.GraphTaskCreation caller None None start original) as [plan|reply].
      * exact (NodeResolved (SpawnPlan key plan)).
      * exact (NodeRefused reply).
 Defined.
@@ -147,65 +145,124 @@ Fixpoint prepare_nodes (owner:option N) (caller:option N) (original:world)
    | NodeRefused reply=>NodesRefused reply
    | NodeResolved plan=>match prepare_nodes owner caller original rest with
      | NodesRefused reply=>NodesRefused reply | NodesResolved plans=>NodesResolved (plan::plans) end end end.
-Record births := Born { born_world:world; born_nodes:list Selvedge.Features.Domain.resolved_node;
- born_effects:list Selvedge.Kernel.State.effect }.
-Definition birth {original:world} {owner:option N} (plan:node_plan original owner) (progress:births) :births :=
- let value:=born_world progress in let previous:=born_nodes progress in let effects:=born_effects progress in
+(** The cache belongs to one exact declaration and one original world. It
+    cannot be swapped for an unrelated list when installing that declaration. *)
+Record cached_declaration (caller : option N) (original : world) := CachedDeclaration {
+ cached_source : declaration;
+ cached_nodes : list cached_node;
+ cached_correspondence : cached_nodes = map (cache_node caller original) (declaration_nodes cached_source)
+}.
+Arguments CachedDeclaration {caller original}.
+Arguments cached_source {caller original}.
+Arguments cached_nodes {caller original}.
+Definition cache_declaration (caller : option N) (original : world) (source : declaration) :=
+ CachedDeclaration source (map (cache_node caller original) (declaration_nodes source)) eq_refl.
+Record checked_cached (caller : option N) (original : world) := CheckedCached {
+ checked_cache : cached_declaration caller original;
+ checked_authorized : forallb (cached_allowed caller original) (cached_nodes checked_cache) = true;
+ checked_admissible : admissible (cached_source checked_cache)
+}.
+Arguments CheckedCached {caller original}.
+Arguments checked_cache {caller original}.
+Definition construct_cached {caller original} (cache : cached_declaration caller original)
+ (Authorized : forallb (cached_allowed caller original) (cached_nodes cache) = true)
+ : option (checked_cached caller original) :=
+ match Bool.bool_dec (valid_declaration (declaration_name (cached_source cache))
+   (declaration_nodes (cached_source cache)) (declaration_rules (cached_source cache))) true with
+ | left Admitted => Some (CheckedCached cache Authorized Admitted)
+ | right _ => None end.
+Definition scope_identity {original} (owner : option (Work.owner_scope original)) :=
+ option_map Work.owner_identity owner.
+Definition select_owner (owner : option N) (original : world) : option (option (Work.owner_scope original)) :=
+ match owner with None => Some None | Some id => option_map (@Some (Work.owner_scope original))
+   (Work.select_owner id original) end.
+Record births (original : world) := Born {
+ born_world : world;
+ born_frame : Worktree.birth_frame original born_world;
+ born_nodes : list Selvedge.Features.Domain.resolved_node;
+ born_effects : list Selvedge.Kernel.State.effect
+}.
+Arguments Born {original}.
+Arguments born_world {original}.
+Arguments born_frame {original}.
+Arguments born_nodes {original}.
+Arguments born_effects {original}.
+Definition birth {original : world} (owner : option (Work.owner_scope original))
+ (plan : node_plan original (scope_identity owner)) (progress : births original) : births original :=
+ let current := born_world progress in
+ let previous := born_nodes progress in
+ let effects := born_effects progress in
  match plan with
- | ExistingPlan key id _ _ _=>Born value (previous++[Selvedge.Features.Domain.ResolvedNode key id]) effects
- | SpawnPlan key plan=>
-   let created:=Worktree.consume_planned_start plan value in
-   let fresh:=next_task value in
-   let owned:=match owner with None=>decision_world created
-     | Some owner=>Work.own_birth owner fresh (decision_world created) end in
-   Born owned (previous++[Selvedge.Features.Domain.ResolvedNode key fresh]) (effects++decision_effects created) end.
+ | ExistingPlan key id _ _ _ => Born current (born_frame progress)
+   (previous ++ [Selvedge.Features.Domain.ResolvedNode key id]) effects
+ | SpawnPlan key plan =>
+   let created := Worktree.consume_scoped_start plan (born_frame progress) owner in
+   Born (Worktree.transition_world created) (Worktree.transition_frame created)
+     (previous ++ [Selvedge.Features.Domain.ResolvedNode key (Worktree.transition_identity created)])
+     (effects ++ Worktree.transition_effects created)
+ end.
+Definition initial_births (original : world) := Born original Worktree.InitialFrame [] [].
 Definition invalid_declaration (value:world) :=
  reject "invalid_task_graph" "Task graph names and keys must be nonempty and unique, every reference must resolve, and declaration bounds must hold" value.
-Definition install_cached (id:N) (owner:option N) (checked:checked_declaration)
- (caller:option N) (cached:list cached_node) (original:world) :=
- match prepare_nodes owner caller original cached with
- | NodesRefused reply=>Decision original reply []
- | NodesResolved plans=>
- match fold_left (fun progress plan=>birth plan progress) plans (Born original [] []) with
- | Born value resolved effects=>
-   let graph:=Selvedge.Features.Domain.TaskGraph (declaration_name (proj1_sig checked)) resolved
-     (declaration_rules (proj1_sig checked)) [] in
-   let installed:=store id graph value in
-   let owned:=match owner with None=>installed
-     | Some owner=>with_features (Selvedge.Features.State.with_graph_owners
-       ((id,owner)::filter (fun entry=>negb (N.eqb id (fst entry)))
-         (Selvedge.Features.Domain.feature_graph_owners (world_features installed)))
-       (world_features installed)) installed end in
-   accept (Observation.graph_json id graph) owned effects end end.
-Definition install (id:N) (owner:option N) (checked:checked_declaration) (caller:option N) (original:world) :=
- if work_valid owner original then
- install_cached id owner checked caller (map (cache_node caller original) (declaration_nodes (proj1_sig checked))) original
- else reject "work_not_found" "The Work does not exist." original.
+Record graph_plan (original : world) (caller : option N) (owner : option (Work.owner_scope original)) := GraphPlan {
+ graph_checked : checked_cached caller original;
+ graph_plans : list (node_plan original (scope_identity owner));
+ graph_resolved : prepare_nodes (scope_identity owner) caller original
+   (cached_nodes (checked_cache graph_checked)) = NodesResolved graph_plans
+}.
+Arguments GraphPlan {original caller owner}.
+Arguments graph_checked {original caller owner}.
+Arguments graph_plans {original caller owner}.
+Definition install_plan (id : N) {original caller owner} (plan : graph_plan original caller owner) :=
+ let progress := fold_left (fun progress node => birth owner node progress)
+   (graph_plans plan) (initial_births original) in
+ let source := cached_source (checked_cache (graph_checked plan)) in
+ let graph := Selvedge.Features.Domain.TaskGraph (declaration_name source)
+   (born_nodes progress) (declaration_rules source) [] in
+ let installed := store id graph (born_world progress) in
+ let owned := match owner with None => installed
+ | Some owner => with_features (Selvedge.Features.State.with_graph_owners
+   ((id,Work.owner_identity owner)::filter (fun entry => negb (N.eqb id (fst entry)))
+     (Selvedge.Features.Domain.feature_graph_owners (world_features installed)))
+   (world_features installed)) installed end in
+ accept (Observation.graph_json id graph) owned (born_effects progress).
+Definition install_resolution (id : N) {caller original}
+ (owner : option (Work.owner_scope original)) (checked : checked_cached caller original)
+ (resolved : nodes_resolution original (scope_identity owner))
+ (Evidence : prepare_nodes (scope_identity owner) caller original
+   (cached_nodes (checked_cache checked)) = resolved) : decision :=
+ match resolved as result return
+   prepare_nodes (scope_identity owner) caller original
+     (cached_nodes (checked_cache checked)) = result -> decision with
+ | NodesResolved plans => fun Resolved => install_plan id (GraphPlan checked plans Resolved)
+ | NodesRefused reply => fun _ => Decision original reply []
+ end Evidence.
+Definition install_cached (id : N) {caller original} (owner : option (Work.owner_scope original))
+ (checked : checked_cached caller original) : decision :=
+ install_resolution id owner checked
+   (prepare_nodes (scope_identity owner) caller original (cached_nodes (checked_cache checked))) eq_refl.
 Definition graph_capacity (value:world) :=
  Nat.ltb (List.length (filter (fun graph=>match graph with Some _=>true | None=>false end) (registry value))) 32.
 Definition declare (creating:bool) (id:N) (owner:option N) (name:string)
  (node_sources rule_sources:list json) (caller:option N) (value:world) :=
  match traverse parse_node node_sources,traverse parse_rule rule_sources with
  | Some nodes,Some rules=>
-   let cached:=map (cache_node caller value) nodes in
-   if forallb (cached_allowed caller value) cached then
-     if work_valid owner value then
+   let cached:=cache_declaration caller value (Declaration name nodes rules) in
+   match Bool.bool_dec (forallb (cached_allowed caller value) (cached_nodes cached)) true with
+   | left Authorized => match select_owner owner value with
+     | Some owner=>
        if negb creating || graph_capacity value then
-         match construct (Declaration name nodes rules) with
-         | Some checked=>install_cached id owner checked caller cached value
+         match construct_cached cached Authorized with
+         | Some checked=>install_cached id owner checked
          | None=>invalid_declaration value end
        else reject "invalid_task_graph" "At most 32 live Task graphs may be installed" value
-     else reject "work_not_found" "The Work does not exist." value
-   else Tasks.refuse_start Tasks.NativeFeatureCreation Tasks.AuthorityExpansion value
+     | None=>reject "work_not_found" "The Work does not exist." value end
+   | right _ => Tasks.refuse_start Tasks.NativeFeatureCreation Tasks.AuthorityExpansion value end
  | _,_=>reject "invalid_task_graph" "Invalid Task graph declaration fields" value end.
 Definition handle_list_task_graphs (payload:Selvedge.Generated.Commands.list_task_graphs_payload) (caller:option N) (value:world) :json :=
  Selvedge.Kernel.State.success (JObject [("graphs",JArray (Observation.present_values Observation.graph_json (registry value)))]).
 Definition handle_read_task_graph (payload:Selvedge.Generated.Commands.read_task_graph_payload) (caller:option N) (value:world) :json :=
  match lookup (Selvedge.Generated.Commands.read_task_graph_graph_id payload) value with Some graph=>Selvedge.Kernel.State.success (Observation.graph_json (Selvedge.Generated.Commands.read_task_graph_graph_id payload) graph) | None=>Selvedge.Kernel.State.failure "task_graph_not_found" "The Task graph does not exist" end.
-Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_list_task_graphs payload=>Some (handle_list_task_graphs payload _caller value)
- | Selvedge.Generated.Commands.Cmd_read_task_graph p=>Some (handle_read_task_graph p _caller value)
- | _=>None end.
 Definition handle_create_task_graph (payload:Selvedge.Generated.Commands.create_task_graph_payload) (caller:option N) (value:world) :decision :=
  declare true (N.of_nat (List.length (registry value))) (Selvedge.Generated.Commands.create_task_graph_work_id payload) (Selvedge.Generated.Commands.create_task_graph_name payload) (Selvedge.Generated.Commands.create_task_graph_nodes payload) (Selvedge.Generated.Commands.create_task_graph_rules payload) caller value.
 Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_task_graph_payload) (caller:option N) (value:world) :decision :=
@@ -213,11 +270,6 @@ Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_
 Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_task_graph_payload) (caller:option N) (value:world) :decision :=
  let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>
  let features:=world_features value in Selvedge.Kernel.State.accept (JObject [("graph_id",number id)]) (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) (Selvedge.Features.State.with_graphs (replace id None (registry value)) features)) value) [] end.
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_create_task_graph p=>Some (handle_create_task_graph p caller value)
- | Selvedge.Generated.Commands.Cmd_update_task_graph p=>Some (handle_update_task_graph p caller value)
- | Selvedge.Generated.Commands.Cmd_delete_task_graph p=>Some (handle_delete_task_graph p caller value)
- | _=>None end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
 Definition same_origin (a b:output_origin) := N.eqb (origin_producer a) (origin_producer b) && N.eqb (origin_operation a) (origin_operation b) && N.eqb (origin_part a) (origin_part b) &&
@@ -248,7 +300,9 @@ Definition record_receipt (graph:N) (receipt:Selvedge.Features.Domain.graph_rece
  let combined:=Selvedge.Features.Domain.graph_receipts graph_value++[receipt] in
  store graph (Selvedge.Features.Domain.TaskGraph (Selvedge.Features.Domain.graph_name graph_value) (Selvedge.Features.Domain.graph_nodes graph_value) (Selvedge.Features.Domain.graph_rules graph_value) (skipn (List.length combined-256) combined)) value end.
 Definition send_delivery (source:N) (item:delivery) (result:decision) :=
- let sent:=Tasks.send (delivery_target item) [TextPart (delivery_text item)] (decision_world result) in
+ let sent:=match Worktree.execution_guard (delivery_target item) (decision_world result) with
+ | Some refused=>refused
+ | None=>Tasks.send (delivery_target item) [TextPart (delivery_text item)] (decision_world result) end in
  Selvedge.Kernel.State.Decision (record_receipt (delivery_graph item) (Selvedge.Features.Domain.GraphReceipt source (delivery_rule item) (delivery_target item) (decision_reply sent)) (decision_world sent))
  (decision_reply result) (decision_effects result++decision_effects sent).
 Definition react_output (source:N) (output:string) (result:decision) :=

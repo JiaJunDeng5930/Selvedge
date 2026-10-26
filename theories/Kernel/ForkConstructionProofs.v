@@ -31,7 +31,9 @@ Proof.
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
-   Tasks.ancestors_fit (id :: task_lineage parent) count before); [|exact Found].
+   Tasks.ancestors_fit (id :: task_lineage parent) count before).
+ 2: { unfold Tasks.fork_refusal; destruct entry;
+      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Found. }
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)
    as [selected|]; [|exact Found].
  destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|exact Found].

@@ -47,7 +47,8 @@ Definition policy_json (value : policy) := JObject [
  ("enabled", JBool (policy_enabled value)); ("background_percent", number (policy_background value));
  ("blocking_percent", number (policy_blocking value)); ("idle_lead_ms", number (policy_idle_lead value));
  ("targets", JArray (map target_json (policy_targets value)))].
-Definition job_name (value : job) := match value with NoJob => "idle" | Resuming _ _ => "waiting"
+Definition job_name (value : job) := match value with NoJob => "idle"
+ | WaitingForResource _ => "waiting_for_resource" | AwaitingContext _ _ _ => "observing_context" | Resuming _ _ => "waiting"
  | Preparing _ _ _ _ => "preparing" | Compacting _ _ _ _ _ => "compacting" | Validating _ _ _ _ _ _ => "validating" end.
 Definition entry_json (id : N) (value : entry) := JObject [
  ("task_id", number id); ("state", JString (job_name (entry_job value)));

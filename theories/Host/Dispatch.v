@@ -1,7 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
 Import ListNotations.
 Open Scope N_scope.
-Record running := Running { handle : N; key : string; task : option N; cancellable : bool; provider : bool; reduced : bool; settled : bool }.
+Inductive provider_scope := NoProvider | TaskProvider | IndependentProvider.
+Inductive cancellation_scope := NoProviderStop | IndependentProviderStop | AnyProviderStop.
+Definition stop_provider scope provider := match scope,provider with
+ | NoProviderStop,_ | _,NoProvider => false
+ | IndependentProviderStop,TaskProvider => false
+ | _,_ => true end.
+Record running := Running { handle : N; key : string; task : option N; cancellable : bool; provider : provider_scope; reduced : bool; settled : bool }.
 Record state := State { retired : bool; next_handle : N; active : list running }.
 Definition initial := State false 0 [].
 Inductive settlement := Accepted | InputLimit | OutputLimit | Rejected | Uncertain.
@@ -18,15 +24,15 @@ Definition workspace_barrier (owner : N) (local : bool) (entries : list workspac
     (match resource_task entry with Some task => N.eqb owner task && Bool.eqb local (resource_local entry)
      | None => local && local_overlap entry end)) entries).
 Inductive observation :=
-| Launch (name : string) (task : option N) (cancellable provider : bool)
+| Launch (name : string) (task : option N) (cancellable : bool) (provider : provider_scope)
 | WorkspaceLimit (create local success : bool)
 | AwaitWorkspace (owner : N) (local : bool) (entries : list workspace_running)
 | Complete (generation : N) | CancelTask (task : N) | CancelKey (name : string)
 | Settlement (generation : N) (outcome : settlement) | Shutdown.
 Inductive primitive := Start (generation : N) | Cancel (generation : N) (provider : bool)
 | RollbackWorkspace | RetainWorkspace | Await (generation : N) | RetryFailure | Settled | Retire.
-Definition cancel_entries (stop_provider : bool) (entries : list running) :=
-  map (fun entry => Cancel (handle entry) (stop_provider && provider entry)) entries.
+Definition cancel_entries (scope : cancellation_scope) (entries : list running) :=
+  map (fun entry => Cancel (handle entry) (stop_provider scope (provider entry))) entries.
 Definition accept (s : state) generation :=
   match find (fun entry => N.eqb generation (handle entry)) (active s) with
   | Some entry => if settled entry then (s, []) else
@@ -40,7 +46,7 @@ Definition step (s : state) (o : observation) : state * list primitive :=
   | Settlement generation Accepted => accept s generation
   | Complete generation =>
       (State (retired s) (next_handle s) (filter (fun entry => negb (N.eqb generation (handle entry))) (active s)), [])
-  | Shutdown => (State true (next_handle s) (active s), cancel_entries false (active s))
+  | Shutdown => (State true (next_handle s) (active s), cancel_entries NoProviderStop (active s))
   | _ => if retired s then (s, []) else
       match o with
       | WorkspaceLimit create local success => (s, [if create && negb local && success then RollbackWorkspace else RetainWorkspace])
@@ -49,9 +55,11 @@ Definition step (s : state) (o : observation) : state * list primitive :=
           let generation := N.succ (next_handle s) in
           (State false generation (Running generation name task cancellable provider false false :: active s), [Start generation])
       | CancelTask task =>
-          (s, cancel_entries true (filter (fun entry => (match Dispatch.task entry with Some owner => N.eqb task owner | None => false end) && cancellable entry) (active s)))
+          (* The committed task cancellation already retires the task-wide
+             provider owner. Independent requests retain their own identities. *)
+          (s, cancel_entries IndependentProviderStop (filter (fun entry => (match Dispatch.task entry with Some owner => N.eqb task owner | None => false end) && cancellable entry) (active s)))
       | CancelKey name =>
-          (s, cancel_entries true (filter (fun entry => String.eqb name (key entry)) (active s)))
+          (s, cancel_entries AnyProviderStop (filter (fun entry => String.eqb name (key entry)) (active s)))
       | Settlement generation outcome =>
           match find (fun entry => N.eqb generation (handle entry)) (active s) with
           | None => (s, [])
@@ -98,6 +106,31 @@ Proof.
   change (In (Cancel generation stop_provider)
     (map (fun entry => Cancel (handle entry) false) (active s)) -> stop_provider = false).
   rewrite in_map_iff. intros [entry [H _]]. inversion H. reflexivity.
+Qed.
+
+Theorem ticket_provider_cancellation_keeps_registered_handle s name generation :
+ In (Cancel generation true) (snd (step s (CancelKey name))) ->
+ exists entry, In entry (active s) /\ handle entry = generation /\
+   key entry = name /\ provider entry <> NoProvider.
+Proof.
+ unfold step. destruct (retired s); [cbn;tauto|].
+ unfold snd, cancel_entries. rewrite in_map_iff.
+ intros [entry [Action Selected]]. apply filter_In in Selected as [Present Named].
+ apply String.eqb_eq in Named. injection Action as Handle Stops.
+ exists entry. repeat split; try congruence.
+ destruct (provider entry); cbn in Stops; congruence.
+Qed.
+
+Theorem task_provider_cancellation_only_stops_independent_entries s owner generation :
+ In (Cancel generation true) (snd (step s (CancelTask owner))) ->
+ exists entry, In entry (active s) /\ handle entry = generation /\
+   provider entry = IndependentProvider.
+Proof.
+ unfold step. destruct (retired s); [cbn;tauto|].
+ unfold snd, cancel_entries. rewrite in_map_iff.
+ intros [entry [Action Selected]]. apply filter_In in Selected as [Present _].
+ injection Action as Handle Stops. exists entry. repeat split; try congruence.
+ destruct (provider entry); cbn in Stops; congruence.
 Qed.
 
 Theorem accepted_handle_cannot_settle_again s generation entry :

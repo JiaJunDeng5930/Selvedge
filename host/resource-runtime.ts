@@ -13,6 +13,10 @@ interface LocalPrimitives {
   local_remove(state: State): Promise<JsonValue>;
   local_archive(state: State): Promise<JsonValue>;
   local_observe(state: State): Promise<JsonValue>;
+  local_sync_registration(state: State): Promise<void>;
+  local_sync_ready(state: State): Promise<void>;
+  local_sync_archive(state: State): Promise<void>;
+  local_sync_release(state: State): Promise<void>;
 }
 
 /** The decoded action selects one physical primitive; its acknowledgement is
@@ -36,6 +40,8 @@ export async function runLocalResourceController(initial: unknown, transition: T
         case 'local_remove': observation = await io.local_remove(state); break;
         case 'local_archive': observation = await io.local_archive(state); break;
         case 'local_observe': observation = await io.local_observe(state); break;
+        case 'local_sync_registration': case 'local_sync_ready': case 'local_sync_archive': case 'local_sync_release':
+          await io[action](state); observation = { kind: 'local_synchronized' }; break;
         // DEFENSE: A cloud action cannot execute through a local reservation's physical handle.
         case 'allocate': case 'prepare': case 'credentials': case 'scan': case 'terminate':
         case undefined: throw new TypeError('Invalid local resource primitive');
@@ -78,6 +84,7 @@ export async function runCloudResourceController(initial: unknown, transition: T
         // DEFENSE: A local filesystem action cannot execute with a cloud allocation's provider handle.
         case 'local_reserve': case 'local_create': case 'local_prepare': case 'local_classify':
         case 'local_release': case 'local_remove': case 'local_archive': case 'local_observe':
+        case 'local_sync_registration': case 'local_sync_ready': case 'local_sync_archive': case 'local_sync_release':
         case undefined: throw new TypeError('Invalid cloud resource primitive');
         default: { const unreachable: never = action; throw new TypeError(`Unknown cloud resource primitive: ${unreachable}`); }
       }

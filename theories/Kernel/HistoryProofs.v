@@ -34,7 +34,7 @@ Theorem an_after_hook_retains_the_original_execution_receipt :
 Proof.
  intros id ticket result error value task operation first rest Found Owned Hooks.
  rewrite CallbackChangesProofs.tool_completed_expression; rewrite Found, Owned.
- rewrite CallbackChangesProofs.begin_result_expression; rewrite Hooks.
+ unfold Callbacks.begin_result_plan; rewrite Hooks.
  eexists; split; [apply find_put_task with task; exact Found|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
  destruct lifecycle; reflexivity.

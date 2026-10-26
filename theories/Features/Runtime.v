@@ -15,7 +15,7 @@ Definition after_transition (before:world) (result:decision) :decision :=
  (Board.after_transition before (TaskGraph.after_transition before (Worktree.after_transition before result))).
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover (Worktree.recover value)))).
-Definition reconfigure := Compaction.recover.
+Definition reconfigure := Compaction.reconfigure.
 Definition schedules (command:Selvedge.Generated.Commands.command) :bool := match command with
  | Selvedge.Generated.Commands.Cmd_configure_title_settings _ | Selvedge.Generated.Commands.Cmd_read_title_settings _
  | Selvedge.Generated.Commands.Cmd_remote_enable _ | Selvedge.Generated.Commands.Cmd_remote_disable _ | Selvedge.Generated.Commands.Cmd_remote_grant _
@@ -27,6 +27,6 @@ Definition finish (result:decision) := TitleCommit.enqueue (Selvedge.Features.Co
 Definition guard_command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :=
  or_else (Worktree.guard_command command caller value) (fun _=>match command with
  | Selvedge.Generated.Commands.Cmd_delete_project p=>if Board.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value || Chatgpt.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value
- then Some (reject "project_in_use"%string "A project referenced by a board card or ChatGPT grant cannot be deleted"%string value) else None
+ then Some (reject "project_not_empty"%string "A project referenced by a board card or ChatGPT grant cannot be deleted"%string value) else None
  | _=>None end).
 Definition guard_result := Worktree.guard_result.

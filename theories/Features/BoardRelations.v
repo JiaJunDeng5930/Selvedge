@@ -111,7 +111,7 @@ Lemma board_lookup_after_consume_planned_start : forall before card_id (plan:Wor
  Board.lookup card_id (decision_world (Worktree.consume_planned_start plan current)) = Board.lookup card_id current.
 Proof.
  intros before card_id [intent start resource admitted] current.
- unfold Worktree.consume_planned_start; cbn [Worktree.planned_task Worktree.planned_resource].
+ unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
  destruct resource as [|owner tree observed| |];
    cbn [Selvedge.Kernel.State.accept decision_world];
    try rewrite board_lookup_after_worktree_store;
@@ -121,12 +121,14 @@ Lemma board_lookup_after_create_selected : forall card_id name effort contents s
  Board.lookup card_id (decision_world
    (Worktree.create_selected name effort contents settings idle caller managed value))=Board.lookup card_id value.
 Proof.
- intros. unfold Worktree.create_selected, Worktree.create_planned, Worktree.create_intent,
-   Worktree.consume_start_resolution.
+ intros. unfold Worktree.create_selected, Worktree.create_selected_result,
+   Worktree.create_intent_result, Worktree.resolve_start_birth.
  destruct (CommandExecution.resolve_context_start
    (Worktree.creation_entry (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation) caller)
    name effort contents settings idle caller value) as [cause|start]; [reflexivity|].
  destruct (Worktree.start_allowed settings caller value (Tasks.StartResolved start)); [|reflexivity].
- destruct (Worktree.prepare_resolved (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation)
-   managed None start value) as [plan|reply]; [apply board_lookup_after_consume_planned_start|reflexivity].
+ destruct (Worktree.prepare_scoped (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation)
+   caller managed None start value) as [plan|reply]; [|reflexivity].
+ unfold Worktree.creation_decision,Worktree.transition_decision,Board.lookup,Board.registry.
+ cbn [accept decision_world]. rewrite Worktree.transition_preserves_board; reflexivity.
 Qed.

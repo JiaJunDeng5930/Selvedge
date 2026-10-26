@@ -108,7 +108,9 @@ Theorem every_admissible_exported_fork_commits_its_expected_business_result :
 Proof.
  intros source request messages before parent selected Valid Decoded InputFits Parsed Admissible
    ParentAvailable WorkspaceAvailable OutputFits.
- unfold Packet.packet; fold (Delivery.fits_json source).
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ fold (Delivery.fits_json source).
  rewrite InputFits, Decoded; cbn [Packet.manual_fork_input].
  eapply a_fork_with_an_admitted_output_budget_is_delivered with
    (candidate:=requested_fork_decision request messages before parent selected).

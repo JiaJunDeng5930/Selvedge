@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require Import TaskScope.
+From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -102,7 +103,11 @@ Definition allocate_identity (space : identity_space) (before : world) : N * wor
 Definition issue (owner : N) (source : request) (before : world) :=
  let '(ticket,allocated) := allocate_identity TaskTicket before in
  let '(pending,effects) := build owner ticket (world_environment before) source in
- accept (JObject [("accepted",JBool true)]) (put_task owner pending allocated) effects.
+ let installed := put_task owner pending allocated in
+ let installed := match source with
+ | Resume _ _ _ current => Tasks.mark_context_wake owner current installed
+ | _ => installed end in
+ accept (JObject [("accepted",JBool true)]) installed effects.
 
 Module Scoped.
 Import TaskScope.
@@ -150,12 +155,12 @@ Definition resources_available (current : task) (before : world) :=
  let settings := task_current_settings current in
  WorkspaceBinding.resource_ready (settings_workspace settings) (settings_resource settings) before &&
  WorkspaceBinding.settings_execution_ready settings before.
-(* Scheduled inference captures WantsModel. Direct observation is reserved for
-   manual compaction at Idle and revision retries of an existing context read. *)
+(* Scheduled inference captures WantsModel. A direct observation retries the
+   existing read; maintenance uses its purpose-bound receiver below. *)
 Definition can_observe (publish : bool) (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
  | Running phase _ => if publish then match phase with WantsModel => true | _ => false end
-   else match phase with Idle | ObservingContext _ _ => true | _ => false end
+   else match phase with ObservingContext _ _ => true | _ => false end
  | _ => false end.
 Definition can_infer (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
@@ -282,12 +287,47 @@ Definition run {before} (candidate : option (plan before)) :=
 Module F := Selvedge.Features.Domain.
 Module FS := Selvedge.Features.State.
 Module C := Selvedge.Features.CompactionTypes.
+Definition capture_task (current : task) (before : world) :=
+ C.Capture (task_history current) (task_current_profile current) (task_current_settings current)
+   (Capabilities.task_tools current) (Capabilities.callable current (world_environment before)).
+Definition input_description (input : C.capture) := JObject [
+ ("model", Codec.model_json (C.captured_profile input)); ("profile", profile_metadata (C.captured_profile input));
+ ("settings", Codec.settings_json (C.captured_settings input)); ("guidance", settings_guidance (C.captured_settings input));
+ ("worktree", JBool (settings_worktree (C.captured_settings input)));
+ ("tools", JArray (map Codec.tool_json (C.captured_tools input))); ("callable", JArray (map JString (C.captured_callable input)))].
+Definition same_description (input : C.capture) (current : task) (before : world) :=
+ JsonObjects.equivalent (input_description input) (input_description (capture_task current before)).
+Definition capture_compatible (input : C.capture) (current : task) (before : world) :=
+ same_description input current before && ContextSelection.history_extends (C.captured_history input) (task_history current).
+Definition compaction_entry (owner : N) (before : world) :=
+ option_map (@snd N C.entry) (find (fun pair => N.eqb (fst pair) owner)
+   (C.maintenance_entries (F.feature_compaction (world_features before)))).
+(* A provider request consumes an observation from the actual registry. A
+   caller's proposed entry or captured history cannot create that capability. *)
+Definition maintenance_ready (owner : N) (input : C.capture) (before : world) :=
+ match find_task owner before, compaction_entry owner before with
+ | Some current, Some entry =>
+   (match task_lifecycle current with Running _ _ => true | _ => false end) &&
+   resources_available current before && capture_compatible input current before &&
+   match C.entry_observation entry with
+   | Some observed => capture_compatible observed current before &&
+       ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
+   | None => false end
+ | _, _ => false end.
 Inductive maintenance_action :=
 | ScopeRequest (input : C.capture) (purpose : option C.reason) (entry : C.entry)
+| ValidationScopeRequest (input : C.capture) (purpose : C.reason)
+    (candidate : ContextSelection.artifact) (preview : list message) (entry : C.entry)
 | MeasureRequest (input : C.capture) (purpose : option C.reason)
     (candidate : option (ContextSelection.artifact * list message)) (scope : string) (entry : C.entry)
 | CompactRequest (input : C.capture) (purpose : C.reason)
     (target : C.target) (progress : Compaction.compaction_state) (scope : string) (entry : C.entry).
+Definition maintenance_replacement_ready (request : maintenance_action) :=
+ match request with
+ | ScopeRequest _ _ _ | MeasureRequest _ _ None _ _ => true
+ | ValidationScopeRequest input _ _ _ _ | MeasureRequest input _ (Some _) _ _
+ | CompactRequest input _ _ _ _ _ => ContextSelection.closed_prefix (C.captured_history input)
+ end.
 Inductive feature_action :=
 | TitleRequest (owner : N) (selected : profile) (prompt : string)
 | CardRequest (owner : N) (card : F.card) (selected : profile) (prompt : string) (retitle : bool)
@@ -295,10 +335,17 @@ Inductive feature_action :=
 | MaintainRequest (owner : N) (request : maintenance_action).
 Definition feature_valid (before : world) (source : feature_action) :=
  match source with
- | CardRequest owner _ _ _ _ => N.leb owner
-    (N.of_nat (List.length (F.board_cards (F.feature_board (world_features before)))))
- | ConnectionRequest job => match F.job_state job with F.JobRunning => true | _ => false end
- | _ => true end.
+ | TitleRequest owner selected prompt => FeatureRequestAdmission.title owner selected prompt before
+ | CardRequest owner card selected prompt retitle =>
+   N.leb owner (N.of_nat (List.length (F.board_cards (F.feature_board (world_features before))))) &&
+   FeatureRequestAdmission.card owner card selected prompt retitle before
+ | ConnectionRequest job => match F.job_state job with
+   | F.JobRunning => FeatureRequestAdmission.connection job before | _ => false end
+ | MaintainRequest owner request => maintenance_ready owner
+    (match request with ScopeRequest input _ _ | ValidationScopeRequest input _ _ _ _ |
+      MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end) before &&
+      maintenance_replacement_ready request
+ end.
 Record feature_plan (before : world) := FeaturePlan {
  feature_intent : feature_action;
  feature_admitted : feature_valid before feature_intent = true
@@ -328,6 +375,44 @@ Definition put_compaction owner entry value :=
  with_features (FS.with_compaction
   (set C.maintenance_entries (fun entries => (owner,entry) :: filter (fun item => negb (N.eqb (fst item) owner)) entries) state)
   (world_features value)) value.
+Definition can_observe_maintenance (current : task) (before : world) :=
+ resources_available current before && match task_lifecycle current with
+ | Running Idle _ | Running ReadyForModel _ => true | _ => false end.
+Definition maintenance_prefix_ready (purpose : option C.reason) (history : list message) :=
+ match purpose with None => true | Some _ => ContextSelection.closed_prefix history end.
+Definition maintenance_context_ready (purpose : option C.reason) (current : task) (before : world) :=
+ can_observe_maintenance current before && maintenance_prefix_ready purpose (task_history current).
+Record maintenance_context_plan (before : world) := MaintenanceContextPlan {
+ maintenance_context_target : task_reference before;
+ maintenance_context_purpose : option C.reason;
+ maintenance_context_entry : C.entry;
+ maintenance_context_admitted : maintenance_context_ready maintenance_context_purpose
+   (selected maintenance_context_target) before = true
+}.
+Arguments MaintenanceContextPlan {before}.
+Arguments maintenance_context_target {before}.
+Arguments maintenance_context_purpose {before}.
+Arguments maintenance_context_entry {before}.
+Definition maintenance_context (owner : N) (purpose : option C.reason) (entry : C.entry) (before : world)
+ : option (maintenance_context_plan before) :=
+ match select owner before with
+ | None => None
+ | Some target => match Bool.bool_dec (maintenance_context_ready purpose (selected target) before) true with
+   | left admitted => Some (MaintenanceContextPlan target purpose entry admitted)
+   | right _ => None end end.
+Definition maintenance_observe {before} (request : maintenance_context_plan before) :=
+ let target := maintenance_context_target request in
+ let current := selected target in
+ let '(ticket,allocated) := allocate_identity TaskTicket before in
+ let resume_model := match task_activity current with ReadyForModel => true | _ => false end in
+ let entry := set C.entry_observation (fun _ => None)
+   (set C.entry_measurement (fun _ => C.Unmeasured)
+    (set C.entry_job (fun _ => C.AwaitingContext ticket (maintenance_context_purpose request) resume_model)
+      (maintenance_context_entry request))) in
+ accept (JObject [("accepted",JBool true)])
+  (put_compaction (owner target) entry
+    (put_task (owner target) (with_activity (ObservingContext ticket (List.length (task_history current))) current) allocated))
+  [ObserveContext (owner target) ticket current].
 Definition maintenance_build owner identity source : C.entry * C.effect :=
  match source with
  | ScopeRequest input purpose entry =>
@@ -336,6 +421,10 @@ Definition maintenance_build owner identity source : C.entry * C.effect :=
    | Some purpose => set C.entry_measurement (fun _ => C.Unmeasured)
        (set C.entry_job (fun _ => C.Preparing identity input purpose C.InspectScope) entry) end in
    (pending, C.Scope owner identity input)
+ | ValidationScopeRequest input purpose candidate preview entry =>
+   (set C.entry_measurement (fun _ => C.Unmeasured)
+     (set C.entry_job (fun _ => C.Validating identity input purpose candidate preview C.InspectScope) entry),
+    C.Scope owner identity input)
  | MeasureRequest input purpose candidate scope entry =>
    let pending := match purpose,candidate with
    | Some purpose,Some (candidate,preview) => set C.entry_job
@@ -357,6 +446,8 @@ Definition feature_build identity source allocated : world * effect :=
  | ConnectionRequest job => (put_connection identity job allocated, RunConnectionJob identity job)
  | MaintainRequest owner request =>
    let '(pending, request_effect) := maintenance_build owner identity request in
+   let pending := set C.entry_observation (fun _ => match compaction_entry owner allocated with
+     | Some current => C.entry_observation current | None => None end) pending in
    (put_compaction owner pending allocated, MaintainContext request_effect) end.
 Definition feature_issue {before} (request : feature_plan before) : decision :=
  let '(identity,allocated) := allocate_identity (feature_space (feature_intent request)) before in

@@ -1,7 +1,5 @@
 import { remoteControl } from '../remote/control-model.mjs';
-import { constants } from 'node:fs';
-import { open } from 'node:fs/promises';
-import { publishBytes } from './file-io.mjs';
+import { publishBytes, readBoundedRegularSnapshot } from './file-io.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requestJson } from './network.mjs';
@@ -18,34 +16,18 @@ function remoteError(code, message) {
 }
 
 async function readIdentity(home, relayUrl) {
-  let file;
   try {
-    file = await open(path.join(home, identityName), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-    const stat = await file.stat();
-    // DEFENSE: The persisted credential may be replaced with a public, foreign-owned, oversized, or nonregular file.
-    if (!stat.isFile() || stat.size > 4096 || (stat.mode & 0o077) !== 0 ||
-        stat.uid !== process.getuid()) {
-      throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
-    }
-    const buffer = Buffer.alloc(stat.size + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    const after = await file.stat();
-    // Atomic publication removes its temporary hard link after exposing the
-    // complete identity; that cleanup changes ctime without changing content.
-    const publicationCleanup = stat.nlink === 2 && after.nlink === 1;
-    // DEFENSE: Another local process can edit the credential during the bounded read; refuse a mixed or permission-changed identity.
-    if (length !== stat.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs ||
-        (after.ctimeMs !== stat.ctimeMs && !publicationCleanup) ||
-        after.mode !== stat.mode || after.uid !== stat.uid) {
-      throw remoteError('remote_identity_invalid', 'Remote identity changed while being read');
-    }
+    const { bytes } = await readBoundedRegularSnapshot(path.join(home, identityName), {
+      maximumBytes: 4096, revision: 'publication_cleanup',
+      admitMetadata(stat) {
+        // DEFENSE: Persisted credentials may be replaced with public or foreign-owned files.
+        if ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid()) {
+          throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
+        }
+      },
+    });
     let value;
-    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length))); }
+    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
     // DEFENSE: Malformed credential bytes must fail without exposing file contents in the parser's diagnostic.
     catch { throw remoteError('remote_identity_invalid', 'Remote identity has an invalid current format'); }
     // DEFENSE: A hand-edited or obsolete identity file must not supply credentials for a different relay or format.
@@ -58,8 +40,11 @@ async function readIdentity(home, relayUrl) {
     // DEFENSE: Startup before remote init has no identity; selecting a symlink must not follow it to credential data.
     if (error.code === 'ENOENT') throw remoteError('remote_identity_missing', 'Initialize this relay with remote init before enabling remote control');
     if (error.code === 'ELOOP') throw remoteError('remote_identity_permissions', 'Remote identity must not be a symbolic link');
+    // DEFENSE: Snapshot rejection must not disclose private identity contents.
+    if (['NOT_REGULAR', 'TOO_LARGE'].includes(error.code)) throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
+    if (error.code === 'CHANGED') throw remoteError('remote_identity_invalid', 'Remote identity changed while being read');
     throw error;
-  } finally { await file?.close(); }
+  }
 }
 
 /** Register one persistent installation; secrets remain in the private service home. */

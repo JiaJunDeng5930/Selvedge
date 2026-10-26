@@ -4,10 +4,12 @@ Import ListNotations.
 Open Scope string_scope.
 From Selvedge.Host Require Import LocalResources.
 Definition local_observation_only (action : LocalResources.action) :=
- match action with LocalResources.Persist | LocalResources.Classify | LocalResources.Observe | LocalResources.Finish=>True | _=>False end.
+ match action with LocalResources.Persist | LocalResources.Classify | LocalResources.Observe
+ | LocalResources.SyncTerminal _ | LocalResources.Finish=>True | _=>False end.
 Definition local_recovery_phase (phase : LocalResources.phase) :=
  match phase with LocalResources.Classifying _ | LocalResources.Observing _
- | LocalResources.TerminalPersistence _ _ | LocalResources.Complete _ _ | LocalResources.NeedsResolution _=>true | _=>false end.
+ | LocalResources.TerminalSyncing _ _ | LocalResources.TerminalPersistence _ _
+ | LocalResources.Complete _ _ | LocalResources.NeedsResolution _=>true | _=>false end.
 Theorem local_recovery_step_never_repeats_mutation : forall value event,
  LocalResources.recovering value.(LocalResources.operation) = true ->
  local_recovery_phase value.(LocalResources.current) = true ->
@@ -67,3 +69,16 @@ Theorem failed_ready_receipt_rechecks_ownership_before_rollback : forall metadat
    (LocalResources.State LocalResources.Create metadata (LocalResources.TerminalPersistence owner LocalResources.CheckoutReady))
    LocalResources.PersistenceFailed) = [LocalResources.Classify].
 Proof. reflexivity. Qed.
+
+Theorem git_registration_waits_for_physical_durability : forall intent metadata owner,
+ LocalResources.step (LocalResources.State intent metadata (LocalResources.Registering owner)) LocalResources.GitRegistered =
+ LocalResources.Plan (LocalResources.State intent metadata (LocalResources.RegistrationSyncing owner)) [LocalResources.SyncRegistration].
+Proof. reflexivity. Qed.
+Theorem terminal_receipt_requires_matching_durable_ack : forall intent metadata owner result,
+ LocalResources.step (LocalResources.State intent metadata (LocalResources.TerminalSyncing owner result)) LocalResources.Synchronized =
+ LocalResources.Plan (LocalResources.State intent metadata (LocalResources.TerminalPersistence owner result)) [LocalResources.Persist].
+Proof. intros;destruct result;reflexivity. Qed.
+Theorem receipt_ack_cannot_skip_physical_durability : forall intent metadata owner result,
+ ~ In LocalResources.Persist (LocalResources.actions (LocalResources.step
+   (LocalResources.State intent metadata (LocalResources.TerminalSyncing owner result)) LocalResources.Persisted)).
+Proof. intros;destruct result;cbn;intuition discriminate. Qed.

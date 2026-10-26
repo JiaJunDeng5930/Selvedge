@@ -29,7 +29,8 @@ Theorem every_actual_packet_preserves_global_state_relation_or_rolls_back : fora
  WorldInvariant.world_structure after = WorldInvariant.world_structure before \/
  exists input, CommitAdmission.world_evolution input source before after = true.
 Proof.
- intros source before Valid; unfold Packet.packet; cbv beta zeta;
+ intros source before Valid; unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result; cbv beta zeta;
  fold (Packet.manual_fork source) (Packet.transition source before).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
  - destruct (Packet.manual_fork source) as [request|].
@@ -58,8 +59,7 @@ Proof.
      - left; exact Retained.
      - right; exists (Some input); exact Evolved. }
    destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
-   set (prepared := if schedules then Runtime.finish
-     (Scheduler.run Packet.execute_command Runtime.can_schedule_task candidate) else candidate).
+   set (prepared := Packet.prepare schedules input candidate).
    destruct (Packet.admit_with_status durable input source before prepared) as [accepted admitted] eqn:Outcome.
    pose proof (PacketProofs.actual_commit_admission_satisfies_global_transition_or_rollback
      durable input source before prepared) as Admission.

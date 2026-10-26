@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs TaskScope TicketedRequest
  TitleCommit FeatureFrameProofs WorldInvariant WorldInvariantProofs DeferredCommit TitleCommitPreservation TicketBoundMonotonicityProofs.
-From Selvedge.Features Require Import Domain State Titles TitleRuntime TitleProofs.
+From Selvedge.Features Require Import Domain State Titles TitleRuntime TitleProofs FeatureScopeProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -63,17 +63,8 @@ Proof.
  - cbn [String.length]. lia.
 Qed.
 
-Lemma an_automatic_title_selects_a_capable_configured_profile : forall task before selected,
- TitleRuntime.selected_profile task before = Some selected ->
- In selected (environment_profiles (world_environment before)) /\ TitleRuntime.capable selected = true.
-Proof.
- intros task before selected Chosen. unfold TitleRuntime.selected_profile in Chosen.
- destruct (find _ (environment_profiles (world_environment before))) as [preferred|] eqn:Preferred.
- - inversion Chosen; subst preferred. apply find_some in Preferred as [Member Condition].
-   unfold TitleRuntime.ordinary in Condition. repeat rewrite andb_true_iff in Condition. tauto.
- - apply find_some in Chosen as [Member Condition].
-   apply andb_true_iff in Condition as [Key Capable]. tauto.
-Qed.
+Definition an_automatic_title_selects_a_capable_configured_profile :=
+ FeatureScopeProofs.selected_title_profile_is_registered_and_capable.
 
 Lemma an_automatic_title_uses_an_admitted_profile : forall task before selected,
  well_formed before -> TitleRuntime.selected_profile task before = Some selected -> profile_valid selected = true.
@@ -105,8 +96,14 @@ Theorem every_title_plan_constructs_its_exact_request : forall before (request :
    (TaskScope.selected (TitleCommit.reference request)) selected before.
 Proof.
  intros before request selected Absent Accepts Nonblank Chosen.
- unfold TitleCommit.candidate, TitleCommit.proposal, TitleRuntime.start.
- cbn [decision_world accept]. rewrite Absent, Accepts, Nonblank, Chosen. reflexivity.
+ unfold TitleCommit.candidate, TitleCommit.proposal.
+ rewrite TitleProofs.title_start_with_observed_owner with (selected:=selected).
+ - reflexivity.
+ - exact (TaskScope.observed (TitleCommit.reference request)).
+ - exact Absent.
+ - exact Accepts.
+ - exact Nonblank.
+ - exact Chosen.
 Qed.
 
 Theorem every_eligible_title_request_preserves_all_world_requirements :

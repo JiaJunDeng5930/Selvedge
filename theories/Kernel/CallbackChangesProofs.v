@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskChangesProofs History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs
+From Selvedge.Kernel Require Import Numbers Domain Codec State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskChangesProofs TaskWakeProofs History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs
  ApprovalProtocol Scheduler HookRules.
 Import ListNotations.
 Open Scope string_scope.
@@ -98,7 +98,7 @@ Lemma settle_operation_expression : forall operation result error task,
  Tasks.wake_after_result (with_operations (Callbacks.remove_operation (operation_id operation) (task_operations task))
  (append_history [History.operation_result operation result error] task)).
 Proof.
- intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes.
+ intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes, Callbacks.settle_operation_plan, Tasks.result_changes.
  rewrite applying_change_lists. reflexivity.
 Qed.
 
@@ -108,25 +108,19 @@ Lemma tool_completed_expression : forall (id ticket : N) (result : json) (error 
  | None => ignored value
  | Some task => match find (operation_executing ticket) (task_operations task) with
    | None => ignored value
-   | Some operation => acknowledged (put_task id (begin_result id operation result error task) value)
+   | Some operation => acknowledged (Tasks.apply_result id task (begin_result_plan id operation result error task) value)
    end
  end.
 Proof.
- intros. unfold Callbacks.tool_completed.
- apply (selected_result_erases_its_lookup_witness decision id value
- (fun candidate => 
- match candidate with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match find (operation_executing ticket) (task_operations task) with
-   | None => ignored value
-   | Some operation => acknowledged (TaskChange.interpret (TaskChange.Plan value target (begin_result_changes id operation result error task)))
-   end
- end)
- (fun owner task => match find (operation_executing ticket) (task_operations task) with
-   | None => ignored value
-   | Some operation => acknowledged (put_task owner (begin_result id operation result error task) value)
-   end)
- (ignored value)); intros; reflexivity.
+ intros. unfold Callbacks.tool_completed. cbn zeta.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected. unfold Tasks.interpret_result; cbn beta iota zeta. rewrite Owner.
+   repeat match goal with |- context [match ?term with _ => _ end] => destruct term eqn:? end;
+     reflexivity.
+ - intros Missing. now rewrite Missing.
 Qed.
 
 Lemma approval_completed_expression : forall (id ticket : N) (outcome : approval_outcome) (value : world),
@@ -136,25 +130,18 @@ Lemma approval_completed_expression : forall (id ticket : N) (outcome : approval
  | Some task => match find_pending_approval (fun _ expected actor => match actor with
    | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end) (task_operations task) with
    | None => ignored value
-   | Some (operation,actor) => acknowledged (put_task id (approval_decision id operation actor outcome task) value)
+   | Some (operation,actor) => acknowledged (Tasks.apply_result id task (approval_decision_plan id operation actor outcome task) value)
    end end.
 Proof.
- intros. unfold Callbacks.approval_completed.
- apply (selected_result_erases_its_lookup_witness decision id value
- (fun candidate => 
- match candidate with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match find_pending_approval (fun _ expected actor => match actor with
-   | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end) (task_operations task) with
-   | None => ignored value
-   | Some (operation,actor) => acknowledged (TaskChange.interpret (TaskChange.Plan value target (approval_decision_changes id operation actor outcome task)))
-   end end)
- (fun owner task => match find_pending_approval (fun _ expected actor => match actor with
-   | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end) (task_operations task) with
-   | None => ignored value
-   | Some (operation,actor) => acknowledged (put_task owner (approval_decision id operation actor outcome task) value)
-   end)
- (ignored value)); intros; reflexivity.
+ intros. unfold Callbacks.approval_completed. cbn zeta.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected. unfold Tasks.interpret_result; cbn beta iota zeta. rewrite Owner.
+   repeat match goal with |- context [match ?term with _ => _ end] => destruct term eqn:? end;
+     reflexivity.
+ - intros Missing. now rewrite Missing.
 Qed.
 
 Lemma review_approval_expression : forall (id operation : N) (outcome : approval_outcome) (value : world),
@@ -166,31 +153,18 @@ Lemma review_approval_expression : forall (id operation : N) (outcome : approval
  | Some task => match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
    match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
    | None => stale
-   | Some (operation,actor) => acknowledged (put_task id (approval_decision id operation actor outcome task) value)
+   | Some (operation,actor) => acknowledged (Tasks.apply_result id task (approval_decision_plan id operation actor outcome task) value)
    end end.
 Proof.
- intros. unfold Callbacks.review_approval.
- cbn zeta.
- apply (selected_result_erases_its_lookup_witness decision id value
- (fun candidate => 
- let stale := reject "approval_not_pending"
-   "This task has no pending human approval with that operation identity" value in
- match candidate with
- | None => stale
- | Some target => let task := TaskScope.selected target in match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
-   match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
-   | None => stale
-   | Some (operation,actor) => acknowledged (TaskChange.interpret (TaskChange.Plan value target (approval_decision_changes id operation actor outcome task)))
-   end end)
- (fun owner task => 
- let stale := reject "approval_not_pending"
-   "This task has no pending human approval with that operation identity" value in
- match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
-   match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
-   | None => stale
-   | Some (operation,actor) => acknowledged (put_task owner (approval_decision id operation actor outcome task) value)
-   end)
- (reject "approval_not_pending" "This task has no pending human approval with that operation identity" value)); intros; reflexivity.
+ intros. unfold Callbacks.review_approval. cbn zeta.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected. unfold Tasks.interpret_result; cbn beta iota zeta. rewrite Owner.
+   repeat match goal with |- context [match ?term with _ => _ end] => destruct term eqn:? end;
+     reflexivity.
+ - intros Missing. now rewrite Missing.
 Qed.
 
 Lemma reasoning_completed_expression : forall (id ticket : N) (outcome : Reasoning.outcome) (value : world),
@@ -245,7 +219,7 @@ Lemma begin_result_expression : forall owner operation result error task,
    (append_history [ToolReceipt owner (operation_id operation) (operation_call operation) result error] task)
  end.
 Proof.
- intros; unfold Callbacks.begin_result, Callbacks.begin_result_changes.
+ intros; unfold Callbacks.begin_result, Callbacks.begin_result_changes, Callbacks.begin_result_plan.
  destruct (Callbacks.after_plugins task); [reflexivity|].
  destruct task as [contract profile settings lifecycle history queued lineage side cursor consumed]; destruct lifecycle; reflexivity.
 Qed.
@@ -263,8 +237,9 @@ Lemma approval_decision_expression : forall owner operation reviewed_by outcome 
    (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true task
  end.
 Proof.
- intros; unfold Callbacks.approval_decision, Callbacks.approval_decision_changes.
- destruct (ApprovalProtocol.normalize_outcome outcome); reflexivity.
+ intros; unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan.
+ destruct (ApprovalProtocol.normalize_outcome outcome); try reflexivity;
+   rewrite TaskWakeProofs.prefixed_results_apply_the_prefix_once; reflexivity.
 Qed.
 Lemma failed_reasoning_expression : forall reason task,
  Reasoning.failed reason task = Tasks.promote
@@ -310,6 +285,42 @@ Proof.
    (put_task owner (TaskChange.apply [TaskChange.ChangePhase (context_phase task)] current) value)) (ignored value)); intros; reflexivity.
 Qed.
 
+Lemma context_retry_selected_expression : forall before (reference : TaskScope.task_reference before),
+ (match TicketedRequest.Scoped.observe_selected false reference with
+  | Some request => TicketedRequest.Scoped.issue request
+  | None => Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before end) =
+ if TicketedRequest.Scoped.can_observe false (TaskScope.selected reference) before then
+   TicketedRequest.issue (TaskScope.owner reference) (TicketedRequest.Observe (TaskScope.selected reference)) before
+ else Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before.
+Proof.
+ intros before reference. unfold TicketedRequest.Scoped.observe_selected.
+ assert (Erase : forall allowed evidence,
+  (match @TicketedRequest.Scoped.observe_allowed before false reference allowed evidence with
+   | Some request => TicketedRequest.Scoped.issue request
+   | None => Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before end) =
+  if allowed then TicketedRequest.issue (TaskScope.owner reference) (TicketedRequest.Observe (TaskScope.selected reference)) before
+  else Reasoning.context_retry_wait (TaskScope.owner reference) (TaskScope.selected reference) before).
+ { intros [] evidence; reflexivity. }
+ apply Erase.
+Qed.
+
+Lemma context_retry_expression : forall id value,
+ Reasoning.context_retry id value =
+ match find_task id value with
+ | None => State.ignored value
+ | Some current => if TicketedRequest.Scoped.can_observe false current value then
+     TicketedRequest.issue id (TicketedRequest.Observe current) value
+   else Reasoning.context_retry_wait id current value end.
+Proof.
+ intros. unfold Reasoning.context_retry.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected, context_retry_selected_expression. now rewrite Owner.
+ - intros Missing. now rewrite Missing.
+Qed.
+
 Lemma context_completed_expression : forall (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world),
  Callbacks.context_completed id ticket observations diagnostic value =
  match find_task id value with | None => ignored value | Some task => match task_activity task with
@@ -318,37 +329,21 @@ Lemma context_completed_expression : forall (id ticket : N) (observations : opti
        let '(accepted,changes) := observed_context_changes observations diagnostic task in
        context_response accepted (put_task id (TaskChange.apply (changes ++ [TaskChange.ChangePhase (context_phase task)]) task) value)
      else match task_lifecycle task with
-       | Running _ _ => Reasoning.observe_context id value
+       | Running _ _ => Reasoning.context_retry id value
        | _ => context_ready false id task value end
      else ignored value
    | _ => ignored value end end.
 Proof.
  intros. unfold Callbacks.context_completed.
- apply (selected_result_erases_its_lookup_witness decision id value
- (fun candidate => 
- match candidate with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match task_activity task with
-   | ObservingContext expected revision => if N.eqb expected ticket then
-     if Nat.eqb revision (List.length (task_history task)) then
-       let '(accepted,changes) := observed_context_changes observations diagnostic task in
-       context_response accepted (TaskChange.interpret (TaskChange.Plan value target          (changes ++ [TaskChange.ChangePhase (context_phase task)])))
-     else match task_lifecycle task with
-       | Running _ _ => Reasoning.observe_context id value
-       | _ => context_ready false id task value end
-     else ignored value
-   | _ => ignored value end
- end)
- (fun owner task => match task_activity task with
-   | ObservingContext expected revision => if N.eqb expected ticket then
-     if Nat.eqb revision (List.length (task_history task)) then
-       let '(accepted,changes) := observed_context_changes observations diagnostic task in
-       context_response accepted (put_task owner (TaskChange.apply (changes ++ [TaskChange.ChangePhase (context_phase task)]) task) value)
-     else match task_lifecycle task with
-       | Running _ _ => Reasoning.observe_context id value
-       | _ => context_ready false id task value end
-     else ignored value
-   | _ => ignored value end) (ignored value)); intros; reflexivity.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected. unfold TaskChange.interpret; cbn. rewrite Owner.
+   cbv beta zeta.
+   repeat match goal with |- context [match ?term with _ => _ end] => destruct term eqn:? end;
+     reflexivity.
+ - intros Missing. now rewrite Missing.
 Qed.
 
 Lemma task_changes_preserve_the_frozen_contract : forall changes task,
@@ -412,68 +407,24 @@ Qed.
 
 Lemma after_completed_expression : forall (id operation ticket : N) (outcome : after_outcome) (value : world),
  HookCallbacks.after_completed id operation ticket outcome value =
- match find_task id value with | None => ignored value | Some task => match find (fun pending => N.eqb operation (operation_id pending)) (task_operations task) with
-   | None => ignored value
-   | Some operation => match operation_stage operation with
-     | AwaitingAfterHook expected plugin pending result error =>
-       if N.eqb expected ticket then
-       let receipt := [AfterReceipt id (operation_id operation) plugin (after_json outcome)] in
-       let recorded := append_history receipt task in
-       let changes := TaskChange.AppendHistory receipt :: match HookRules.after_apply result outcome with
-       | HookRules.RefuseResult code reason => settle_operation_changes operation (State.failure code reason) true recorded
-       | HookRules.ContinueResult result =>
-         match pending with
-         | [] => settle_operation_changes operation result error recorded
-         | _ => [TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
-         end
-       end in
-       acknowledged (put_task id (TaskChange.apply changes task) value)
-       else ignored value
-     | _ => ignored value end
-   end end.
-Proof.
- intros. unfold HookCallbacks.after_completed.
- apply (selected_result_erases_its_lookup_witness decision id value
- (fun candidate => 
- match candidate with
+ match find_task id value with
  | None => ignored value
- | Some target => let task := TaskScope.selected target in match find (fun pending => N.eqb operation (operation_id pending)) (task_operations task) with
+ | Some task => match find (fun pending => N.eqb operation (operation_id pending)) (task_operations task) with
    | None => ignored value
    | Some operation => match operation_stage operation with
      | AwaitingAfterHook expected plugin pending result error =>
-       if N.eqb expected ticket then
-       let receipt := [AfterReceipt id (operation_id operation) plugin (after_json outcome)] in
-       let recorded := append_history receipt task in
-       let changes := TaskChange.AppendHistory receipt :: match HookRules.after_apply result outcome with
-       | HookRules.RefuseResult code reason => settle_operation_changes operation (State.failure code reason) true recorded
-       | HookRules.ContinueResult result =>
-         match pending with
-         | [] => settle_operation_changes operation result error recorded
-         | _ => [TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
-         end
-       end in
-       acknowledged (TaskChange.interpret (TaskChange.Plan value target changes))
+       if N.eqb expected ticket then acknowledged (Tasks.apply_result id task
+         (HookCallbacks.after_result_plan id operation plugin pending result error outcome) value)
        else ignored value
-     | _ => ignored value end
-   end
- end)
- (fun owner task => match find (fun pending => N.eqb operation (operation_id pending)) (task_operations task) with
-   | None => ignored value
-   | Some operation => match operation_stage operation with
-     | AwaitingAfterHook expected plugin pending result error =>
-       if N.eqb expected ticket then
-       let receipt := [AfterReceipt id (operation_id operation) plugin (after_json outcome)] in
-       let recorded := append_history receipt task in
-       let changes := TaskChange.AppendHistory receipt :: match HookRules.after_apply result outcome with
-       | HookRules.RefuseResult code reason => settle_operation_changes operation (State.failure code reason) true recorded
-       | HookRules.ContinueResult result =>
-         match pending with
-         | [] => settle_operation_changes operation result error recorded
-         | _ => [TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
-         end
-       end in
-       acknowledged (put_task owner (TaskChange.apply changes task) value)
-       else ignored value
-     | _ => ignored value end
-   end) (ignored value)); intros; reflexivity.
+     | _ => ignored value end end end.
+Proof.
+ intros. unfold HookCallbacks.after_completed. cbn zeta.
+ pattern (TaskScope.select id value) at 1.
+ apply selected_reference_elimination.
+ - intros reference Owner.
+   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
+   rewrite Selected. unfold Tasks.interpret_result; cbn beta iota zeta. rewrite Owner.
+   repeat match goal with |- context [match ?term with _ => _ end] => destruct term eqn:? end;
+     reflexivity.
+ - intros Missing. now rewrite Missing.
 Qed.

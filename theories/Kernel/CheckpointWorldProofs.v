@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks WorldInvariant WorldInvariantProofs
  AfterHookPreservation ForkPreservation ForkLineageProofs CompactionEntryPreservation TerminalTicketProofs.
-From Selvedge.Features Require Import Board TaskGraph Work WorkspaceBinding Compaction.
+From Selvedge.Features Require Import Board BoardFacts TaskGraph Work WorkspaceBinding Compaction.
 Import ListNotations.
 Open Scope list_scope.
 Definition without_history (value : task) := with_history [] value.
@@ -82,7 +82,8 @@ Proof.
  intros card Valid. unfold WorldInvariant.card_valid in *.
  assert (Draft : Board.valid_draft (Selvedge.Features.Domain.card_contents card) before =
    Board.valid_draft (Selvedge.Features.Domain.card_contents card) after).
- { unfold Board.valid_draft, Board.lookup_agent, Board.registry; rewrite SameProjects, SameFeatures; reflexivity. }
+ { unfold Board.valid_draft, BoardFacts.valid_draft, BoardFacts.lookup_agent, BoardFacts.registry;
+   rewrite SameProjects, SameFeatures; reflexivity. }
  assert (Linked : (match Selvedge.Features.Domain.card_task card with
    | Some owner => WorldInvariant.present (find_task owner before) | None => true end) =
    (match Selvedge.Features.Domain.card_task card with
@@ -314,7 +315,7 @@ Qed.
 
 Definition maintenance_tickets (entry : N * CompactionTypes.entry) : list N :=
  (match Compaction.measurement_ticket (CompactionTypes.entry_measurement (snd entry)) with Some ticket => [ticket] | None => [] end) ++
- (match Compaction.job_ticket (CompactionTypes.entry_job (snd entry)) with Some ticket => [ticket] | None => [] end).
+ (match Compaction.provider_job_ticket (CompactionTypes.entry_job (snd entry)) with Some ticket => [ticket] | None => [] end).
 
 Lemma checkpointing_maintenance_withdraws_only_existing_tickets : forall owner history entry before,
  ticket_subsequence

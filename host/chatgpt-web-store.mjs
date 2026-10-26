@@ -1,9 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, lstat } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { existsSync, lstatSync } from 'node:fs';
 import path from 'node:path';
 import { boundary } from './public/model-boundary.mjs';
+import { publishPreparedFile, syncDirectory } from './file-io.mjs';
 
 function closeDatabase(db) {
   try {
@@ -72,8 +73,6 @@ export class WebRequestStore {
   static async open(home, { create = true } = {}) {
     const directory = path.join(home, 'providers', 'chatgpt-web');
     const filename = path.join(directory, 'requests.sqlite');
-    if (create) await mkdir(directory, { recursive: true, mode: 0o700 });
-    let created = false;
     try {
       const info = await lstat(filename);
       // DEFENSE: A persisted receipt path can be replaced by a symlink or directory; it cannot be admitted as a private SQLite file.
@@ -82,32 +81,40 @@ export class WebRequestStore {
       // DEFENSE: Only an absent receipt file can be created; permission and wrong-file-type failures must propagate.
       if (error.code !== 'ENOENT') throw error;
       if (!create) return null;
-      const file = await open(filename, 'ax', 0o600).catch(error => {
-        // DEFENSE: Concurrent model effects can both observe ENOENT; only the first creates the shared receipt database.
-        if (error.code !== 'EEXIST') throw error;
-        return null;
-      });
-      created = file !== null;
-      await file?.close();
+      // A published name always identifies a complete database. A losing creator
+      // opens the winner below; it never replaces that database's identity.
+      await publishPreparedFile(filename, ({ filename: temporary }) => {
+        const db = new DatabaseSync(temporary);
+        try {
+          db.exec('PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+          const metadata = boundary('web.store_metadata', { rows: [], created: true, new_identity: randomUUID() });
+          db.exec(`CREATE TABLE metadata (format TEXT NOT NULL, identity TEXT NOT NULL);
+            CREATE TABLE requests (
+              ordinal INTEGER PRIMARY KEY, invocation TEXT UNIQUE NOT NULL,
+              request_key TEXT UNIQUE NOT NULL, owner TEXT NOT NULL, profile TEXT NOT NULL,
+              endpoint TEXT NOT NULL, binding TEXT NOT NULL, body TEXT NOT NULL,
+              response_id TEXT, response TEXT, rejected INTEGER NOT NULL DEFAULT 0,
+              retired INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX requests_owner ON requests(owner, ordinal);`);
+          db.prepare('INSERT INTO metadata VALUES (?, ?)').run(metadata.format, metadata.identity);
+          db.exec('COMMIT');
+        } finally { closeDatabase(db); }
+      }, { mode: 'create-if-absent' });
     }
+    // DEFENSE: Another creator may have published an invalid path while this
+    // attempt prepared its private database; validate the winning path itself.
+    if (!(await lstat(filename)).isFile()) throw new Error('Invalid ChatGPT Web receipt database');
     const db = new DatabaseSync(filename);
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
-      const rows = created ? [] : db.prepare('SELECT * FROM metadata').all();
-      const metadata = boundary('web.store_metadata', { rows, created, new_identity: randomUUID() });
-      if (created) {
-        db.exec(`CREATE TABLE metadata (format TEXT NOT NULL, identity TEXT NOT NULL);
-          CREATE TABLE requests (
-            ordinal INTEGER PRIMARY KEY, invocation TEXT UNIQUE NOT NULL,
-            request_key TEXT UNIQUE NOT NULL, owner TEXT NOT NULL, profile TEXT NOT NULL,
-            endpoint TEXT NOT NULL, binding TEXT NOT NULL, body TEXT NOT NULL,
-            response_id TEXT, response TEXT, rejected INTEGER NOT NULL DEFAULT 0,
-            retired INTEGER NOT NULL DEFAULT 0);
-          CREATE INDEX requests_owner ON requests(owner, ordinal);`);
-      }
-      if (metadata.create) db.prepare('INSERT INTO metadata VALUES (?, ?)').run(metadata.format, metadata.identity);
+      const rows = db.prepare('SELECT * FROM metadata').all();
+      const metadata = boundary('web.store_metadata', { rows, created: false, new_identity: randomUUID() });
       db.exec('COMMIT');
       db.exec('PRAGMA journal_mode=WAL');
+      // Another opener can observe the complete published inode before its
+      // creator syncs the final name. Every HTTP-capable observer crosses this
+      // directory barrier independently before returning the receipt store.
+      await syncDirectory(await realpath(directory));
       return new WebRequestStore(db, metadata.identity);
     // DEFENSE: Schema/metadata admission or transaction failure during open must release the SQLite handle before propagating.
     } catch (error) { closeDatabase(db); throw error; }

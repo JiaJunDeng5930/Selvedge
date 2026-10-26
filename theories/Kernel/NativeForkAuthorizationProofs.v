@@ -157,3 +157,60 @@ Proof.
  - destruct (Callbacks.after_plugins parent); destruct (requested_world accepted messages parent selected); exact Projects.
  - destruct (Callbacks.after_plugins parent); destruct (requested_world accepted messages parent selected); exact Features.
 Qed.
+
+Theorem every_refused_native_fork_retains_its_actual_cross_state_authority :
+ forall entry raw before (accepted : NativeForkCommit.plan before) code reason,
+ WorldInvariant.well_formed before ->
+ CommitAdmission.world_evolution entry raw before
+   (decision_world (refused_settlement accepted code reason)) = true.
+Proof.
+ intros entry raw before accepted code reason Valid.
+ set (step := NativeForkCommit.planned_step accepted).
+ set (original := TaskScope.selected (NativeForkCommit.planned_target accepted)).
+ pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
+ destruct (a_ready_native_fork_keeps_its_dispatch_call _ _ _ _ Ready) as [retry Call].
+ destruct (a_final_native_call_has_its_stored_dispatch_phase _ _ _ _ Call)
+   as [_ [_ [phase [operations [running [Lifecycle NonIdle]]]]]].
+ fold original in Lifecycle.
+ pose proof (a_started_native_fork_keeps_its_continued_parent before accepted) as Found.
+ destruct (a_refused_native_fork_keeps_the_exact_error_and_continuation before accepted code reason Valid)
+   as [Exact _].
+ rewrite Exact.
+ set (current := result_task (Scheduler.native_fork_owner step) (world_next_ticket before)
+   (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step)
+   (failure code reason) true (continued_parent accepted)).
+ eapply a_single_active_native_result_retains_cross_state_authority with
+   (original:=original) (phase:=phase) (operations:=operations) (running:=running).
+ - exact Valid.
+ - apply every_native_fork_plan_has_its_observed_source.
+ - exact Lifecycle.
+ - unfold current,continued_parent; fold step; fold original.
+   unfold result_task,native_result_task_frame.
+   destruct (Callbacks.after_plugins (with_activity (PendingCalls (Scheduler.native_fork_remaining step)) original));
+   destruct original as [contract profile settings lifecycle history queued lineage side cursor consumed];
+   cbn [task_lifecycle] in Lifecycle; subst lifecycle; destruct running; reflexivity.
+ - unfold current; rewrite result_task_history.
+   exists (match Callbacks.after_plugins (continued_parent accepted) with
+   | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) (failure code reason) true]
+   | _ => [ToolReceipt (Scheduler.native_fork_owner step) (world_next_ticket before)
+       (Scheduler.native_fork_invocation step) (failure code reason) true] end).
+   unfold continued_parent; fold step; fold original.
+   unfold with_activity; rewrite Lifecycle; destruct running; reflexivity.
+ - exists (continued_parent accepted); destruct (Callbacks.after_plugins (continued_parent accepted)); exact Found.
+ - intros other old Different Original.
+   destruct (Callbacks.after_plugins (continued_parent accepted));
+   change (find_task other (started_world accepted) = Some old);
+   rewrite a_native_fork_start_is_the_exact_pending_phase_change;
+   unfold find_task,put_task,with_tasks; cbv [set]; cbn;
+   rewrite registry_replace_other by congruence; exact Original.
+ - assert (Supply : world_next_ticket (started_world accepted) = world_next_ticket before).
+   { rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity. }
+   destruct (Callbacks.after_plugins (continued_parent accepted));
+   destruct (started_world accepted); cbn in Supply |- *; lia.
+ - destruct (Callbacks.after_plugins (continued_parent accepted));
+   change (world_projects (started_world accepted) = world_projects before);
+   rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity.
+ - destruct (Callbacks.after_plugins (continued_parent accepted));
+   change (world_features (started_world accepted) = world_features before);
+   rewrite a_native_fork_start_is_the_exact_pending_phase_change; reflexivity.
+Qed.

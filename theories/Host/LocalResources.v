@@ -39,12 +39,14 @@ Definition receipt_stage_valid source := match decode_receipt_stage source with 
 Inductive intent := Create | Archive | RecoverCreate | RecoverArchive.
 Inductive classification := Missing | OwnedEmpty | Registered | Conflict.
 Inductive terminal := Released | CheckoutReady | CheckoutArchived.
-Inductive action := Persist | Reserve | Register | Prepare | Classify | Release | Remove | Move | Observe | Finish.
+Inductive action := Persist | Reserve | Register | Prepare | Classify | Release | Remove | Move | Observe
+ | SyncRegistration | SyncTerminal (result : terminal) | Finish.
 Inductive phase :=
  | InitialPersistence (owner : option reservation)
  | Reserving
  | ReservationPersistence (owner : reservation)
  | Registering (owner : reservation)
+ | RegistrationSyncing (owner : reservation)
  | RegistrationPersistence (owner : reservation)
  | Preparing (owner : reservation)
  | Classifying (owner : option reservation)
@@ -52,11 +54,12 @@ Inductive phase :=
  | Removing (owner : reservation)
  | Moving (owner : reservation)
  | Observing (owner : reservation)
+ | TerminalSyncing (owner : reservation) (result : terminal)
  | TerminalPersistence (owner : reservation) (result : terminal)
  | Complete (owner : reservation) (result : terminal)
  | NeedsResolution (owner : option reservation).
 Record state := State { operation : intent; metadata : json; current : phase }.
-Inductive observation := Persisted | PersistenceFailed | Reserved (owner : reservation)
+Inductive observation := Persisted | PersistenceFailed | Synchronized | Reserved (owner : reservation)
  | GitRegistered | Prepared (root workspace guidance : json)
  | Classified (value : classification) | Removed | Moved (root workspace : json)
  | Observed (root workspace guidance : json) | Failed.
@@ -64,25 +67,31 @@ Record plan := Plan { next_state : state; actions : list action }.
 Definition action_name value := match value with Persist=>"persist" | Reserve=>"local_reserve"
  | Register=>"local_create" | Prepare=>"local_prepare" | Classify=>"local_classify"
  | Release=>"local_release" | Remove=>"local_remove" | Move=>"local_archive"
- | Observe=>"local_observe" | Finish=>"finish" end.
+ | Observe=>"local_observe" | SyncRegistration=>"local_sync_registration"
+ | SyncTerminal Released=>"local_sync_release" | SyncTerminal CheckoutReady=>"local_sync_ready"
+ | SyncTerminal CheckoutArchived=>"local_sync_archive" | Finish=>"finish" end.
 Definition intent_name value := match value with Create=>"create" | Archive=>"archive"
  | RecoverCreate=>"recover_create" | RecoverArchive=>"recover_archive" end.
 Definition recovering value := match value with RecoverCreate | RecoverArchive=>true | _=>false end.
 Definition owner_of value := match value with
- | ReservationPersistence owner | Registering owner | RegistrationPersistence owner | Preparing owner
- | Releasing owner | Removing owner | Moving owner | Observing owner | TerminalPersistence owner _ | Complete owner _=>Some owner
+ | ReservationPersistence owner | Registering owner | RegistrationSyncing owner | RegistrationPersistence owner | Preparing owner
+ | Releasing owner | Removing owner | Moving owner | Observing owner | TerminalSyncing owner _ | TerminalPersistence owner _ | Complete owner _=>Some owner
  | InitialPersistence owner | Classifying owner | NeedsResolution owner=>owner | _=>None end.
 Definition phase_name value := match value with InitialPersistence _=>"initial_persistence" | Reserving=>"reserving"
  | ReservationPersistence _=>"reservation_persistence" | Registering _=>"registering"
+ | RegistrationSyncing _=>"registration_syncing"
  | RegistrationPersistence _=>"registration_persistence" | Preparing _=>"preparing"
  | Classifying _=>"classifying" | Releasing _=>"releasing" | Removing _=>"removing"
- | Moving _=>"moving" | Observing _=>"observing" | TerminalPersistence _ _=>"terminal_persistence"
+ | Moving _=>"moving" | Observing _=>"observing"
+ | TerminalSyncing _ Released=>"release_syncing" | TerminalSyncing _ CheckoutReady=>"ready_syncing"
+ | TerminalSyncing _ CheckoutArchived=>"archive_syncing" | TerminalPersistence _ _=>"terminal_persistence"
  | Complete _ _=>"complete" | NeedsResolution _=>"needs_resolution" end.
 Definition terminal_name value := match value with Released=>"released" | CheckoutReady=>"ready" | CheckoutArchived=>"archived" end.
 Definition change value phase actions := Plan (State value.(operation) value.(metadata) phase) actions.
 Definition finish value phase := change value phase [Finish].
 Definition unresolved value := finish value (NeedsResolution (owner_of value.(current))).
 Definition acknowledge value owner result := change value (TerminalPersistence owner result) [Persist].
+Definition synchronize value owner result := change value (TerminalSyncing owner result) [SyncTerminal result].
 Definition install value root workspace guidance :=
  State value.(operation) (set (set (set value.(metadata) "root" root) "workspace" workspace) "guidance" guidance) value.(current).
 
@@ -100,11 +109,12 @@ Definition step (value : state) (event : observation) : plan :=
  | RegistrationPersistence owner,Persisted => change value (Preparing owner) [Prepare]
  | ReservationPersistence owner,PersistenceFailed
  | RegistrationPersistence owner,PersistenceFailed
- | Registering owner,Failed | Preparing owner,Failed => change value (Classifying (Some owner)) [Classify]
- | Registering owner,GitRegistered => change value (RegistrationPersistence owner) [Persist]
- | Preparing owner,Prepared root workspace guidance => acknowledge (install value root workspace guidance) owner CheckoutReady
+ | Registering owner,Failed | RegistrationSyncing owner,Failed | Preparing owner,Failed => change value (Classifying (Some owner)) [Classify]
+ | Registering owner,GitRegistered => change value (RegistrationSyncing owner) [SyncRegistration]
+ | RegistrationSyncing owner,Synchronized => change value (RegistrationPersistence owner) [Persist]
+ | Preparing owner,Prepared root workspace guidance => synchronize (install value root workspace guidance) owner CheckoutReady
  | Classifying owner,Classified Missing =>
-   match owner with Some owner=>acknowledge value owner Released | None=>unresolved value end
+   match owner with Some owner=>synchronize value owner Released | None=>unresolved value end
  | Classifying (Some owner),Classified OwnedEmpty =>
    match value.(operation) with RecoverCreate | RecoverArchive=>unresolved value
    | _=>change value (Releasing owner) [Release] end
@@ -115,10 +125,14 @@ Definition step (value : state) (event : observation) : plan :=
    | RecoverCreate=>if String.eqb (str value.(metadata) "status") "ready"
        then change value (Observing owner) [Observe] else unresolved value
    | RecoverArchive=>change value (Observing owner) [Observe] end
- | Releasing owner,Removed | Removing owner,Removed => acknowledge value owner Released
- | Moving owner,Moved root workspace => acknowledge (install value root workspace JNull) owner CheckoutArchived
- | Observing owner,Observed root workspace guidance => acknowledge (install value root workspace guidance) owner
+ | Releasing owner,Removed | Removing owner,Removed => synchronize value owner Released
+ | Moving owner,Moved root workspace => synchronize (install value root workspace JNull) owner CheckoutArchived
+ | Observing owner,Observed root workspace guidance => synchronize (install value root workspace guidance) owner
      (match value.(operation) with RecoverCreate=>CheckoutReady | _=>CheckoutArchived end)
+ | TerminalSyncing owner result,Synchronized => acknowledge value owner result
+ | TerminalSyncing owner CheckoutReady,Failed =>
+   match value.(operation) with Create=>change value (Classifying (Some owner)) [Classify]
+   | _=>unresolved value end
  | TerminalPersistence owner CheckoutReady,PersistenceFailed =>
    match value.(operation) with Create=>change value (Classifying (Some owner)) [Classify]
    | _=>unresolved value end
@@ -161,12 +175,16 @@ Definition decode_phase source owner : option phase :=
  else match owner with None=>None | Some owner=>
  if String.eqb tag "reservation_persistence" then Some (ReservationPersistence owner)
  else if String.eqb tag "registering" then Some (Registering owner)
+ else if String.eqb tag "registration_syncing" then Some (RegistrationSyncing owner)
  else if String.eqb tag "registration_persistence" then Some (RegistrationPersistence owner)
  else if String.eqb tag "preparing" then Some (Preparing owner)
  else if String.eqb tag "releasing" then Some (Releasing owner)
  else if String.eqb tag "removing" then Some (Removing owner)
  else if String.eqb tag "moving" then Some (Moving owner)
  else if String.eqb tag "observing" then Some (Observing owner)
+ else if String.eqb tag "release_syncing" then Some (TerminalSyncing owner Released)
+ else if String.eqb tag "ready_syncing" then Some (TerminalSyncing owner CheckoutReady)
+ else if String.eqb tag "archive_syncing" then Some (TerminalSyncing owner CheckoutArchived)
  else if String.eqb tag "terminal_persistence" then option_map (TerminalPersistence owner) (parse_terminal (str source "status"))
  else if String.eqb tag "complete" then option_map (Complete owner) (parse_terminal (str source "status"))
  else None end.
@@ -177,6 +195,7 @@ Definition decode_observation source : option observation :=
  let kind := str source "kind" in
  if String.eqb kind "persisted" then Some Persisted
  else if String.eqb kind "persistence_failed" then Some PersistenceFailed
+ else if String.eqb kind "local_synchronized" then Some Synchronized
  else if String.eqb kind "local_reserved" then option_map Reserved (parse_reservation (get source "reservation"))
  else if String.eqb kind "local_registered" then Some GitRegistered
  else if String.eqb kind "local_created" then Some (Prepared (get source "root") (get source "workspace") (get source "guidance"))
@@ -197,7 +216,10 @@ Definition git_admitted (source : json) :=
  let root := get source "root" in
  negb (boolean_field source "root_symlink") && equal root (get source "canonical_root") &&
  equal root (get source "git_top_level") && boolean_field source "git_link_file" &&
- equal (get source "backlink") (JString (str source "root" ++ "/.git")).
+ equal (get source "backlink") (JString (str source "root" ++ "/.git")) &&
+ equal (get source "dev") (get (get source "reservation") "dev") &&
+ equal (get source "ino") (get (get source "reservation") "ino") &&
+ equal (get source "repository_common_dir") (get source "checkout_common_dir").
 (** A filesystem observation is evidence, not a cleanup command. Only a captured
     identity and an independent Git registration observation establish ownership. *)
 Definition local_classification (source : json) :=

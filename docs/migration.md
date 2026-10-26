@@ -6,9 +6,36 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-7`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-11`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
+
+Format 9 records callback results before unrelated scheduling, binds refreshed
+requests to their captured account principal, and admits only complete delivery
+envelopes. It also preserves graph workspace guards and retires live maintenance
+receivers with their physical cancellations during reconfiguration. Format 10
+retains a manual compaction request while its captured tool-call prefix is still
+open, then captures the closed prefix before replacement. A single after-hook
+request that exceeds the native frame settles through the ordinary hook-failure
+path, preserving the original tool receipt instead of retrying without progress.
+These corrections change journal decisions and require the current format.
+
+Format 11 commits task-wide cancellation before later scheduler work can resume
+that task or issue a new receiver. A queued native send runs in the following
+durable continuation, after the old execution rights have been revoked.
+Unsent scope, measurement and compaction requests also use the final shared
+owner/ticket withdrawal rule, including cancellation emitted later in their
+own transaction.
+
+Format 8 also records restored Bend command result/error contracts, explicit
+empty fork input, the original task-native command surface, and maintenance
+contexts correlated with their exact observation ticket and purpose. These
+change replay decisions even when a public command's JSON shape is unchanged.
+The Web request store accepts only `selvedge-chatgpt-web-3`; local worktree
+control receipts accept only `selvedge-local-workspace-2`. Their current
+contracts include complete atomic initialization and physical synchronization
+before a managed-resource success acknowledgement. Existing older stores are
+rejected explicitly; no fallback creates a new identity over an old store.
 
 These deliberate changes correct ambiguities or defects at the old boundaries:
 

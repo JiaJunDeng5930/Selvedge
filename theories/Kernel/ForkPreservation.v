@@ -18,7 +18,7 @@ Fixpoint constructed_children (count : nat) (parent_id : N) (parent : task)
  match count with
  | O => []
  | S count =>
-   let contents := match messages with [] => [] | first :: _ => first end in
+   let contents := hd_error messages in
    Tasks.fork_child_receipt entry start owner invocation
      (Tasks.fork_child owner parent_id parent contents settings false) ::
    constructed_children count parent_id parent (tl messages) settings entry
@@ -101,7 +101,7 @@ Proof.
  specialize (IH parent_id parent (tl messages) settings entry start invocation
    (append_task (Tasks.fork_child_receipt entry start (next_task before) invocation
      (Tasks.fork_child (next_task before) parent_id parent
-       (match messages with [] => [] | first :: _ => first end) settings false)) before)).
+       (hd_error messages) settings false)) before)).
  exact IH.
 Qed.
 
@@ -498,8 +498,9 @@ Proof.
  intros card Valid; unfold WorldInvariant.card_valid in *.
  assert (Draft : Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) before =
    Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) after).
- { unfold Selvedge.Features.Board.valid_draft, Selvedge.Features.Board.lookup_agent,
-     Selvedge.Features.Board.registry; rewrite SameProjects, SameFeatures; reflexivity. }
+ { unfold Selvedge.Features.Board.valid_draft, Selvedge.Features.BoardFacts.valid_draft,
+     Selvedge.Features.BoardFacts.lookup_agent, Selvedge.Features.BoardFacts.registry;
+   rewrite SameProjects, SameFeatures; reflexivity. }
  apply andb_true_iff in Valid as [Static Enrichment].
  apply andb_true_iff; split.
  - apply andb_true_iff in Static as [Fixed Linked]; apply andb_true_iff; split.
@@ -619,18 +620,18 @@ Proof.
  change (flat_map WorldInvariant.task_tickets (world_tasks before ++
    [Tasks.fork_child_receipt entry start (next_task before) invocation
      (Tasks.fork_child (next_task before) owner parent
-       (match messages with [] => [] | first :: _ => first end) settings false)]) = flat_map WorldInvariant.task_tickets (world_tasks before)).
+       (hd_error messages) settings false)]) = flat_map WorldInvariant.task_tickets (world_tasks before)).
  rewrite flat_map_app.
  assert (Empty : WorldInvariant.task_tickets
    (Tasks.fork_child_receipt entry start (next_task before) invocation
      (Tasks.fork_child (next_task before) owner parent
-       (match messages with [] => [] | first :: _ => first end) settings false)) = []).
+       (hd_error messages) settings false)) = []).
  { unfold Tasks.fork_child_receipt, Tasks.fork_child, with_activity, with_history;
      cbv [set]; cbn; destruct entry; [|destruct remaining]; reflexivity. }
  change (flat_map WorldInvariant.task_tickets (world_tasks before) ++
    (WorldInvariant.task_tickets (Tasks.fork_child_receipt entry start (next_task before) invocation
      (Tasks.fork_child (next_task before) owner parent
-       (match messages with [] => [] | first :: _ => first end) settings false)) ++ []) =
+       (hd_error messages) settings false)) ++ []) =
    flat_map WorldInvariant.task_tickets (world_tasks before)).
  rewrite Empty; cbn; now rewrite app_nil_r.
 Qed.
@@ -746,7 +747,7 @@ Proof.
    destruct lifecycle; reflexivity. }
  rewrite HistoryFrame, fork_receipt_preserves_context_bindings.
  unfold Tasks.fork_child; cbn [task_history].
- destruct (Tasks.content_nonempty contents).
+ destruct contents.
  - apply admitted_context_suffix_preserves_bindings; [repeat constructor|].
    cbn [Tasks.fork_child_history]. apply child_context_selection_preserves_admitted_snapshots.
    rewrite closing_inherited_operations_preserves_context_bindings; exact Valid.
@@ -1236,7 +1237,9 @@ Proof.
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
-   Tasks.ancestors_fit (owner :: task_lineage parent) count before) eqn:Business; [|exact Valid].
+   Tasks.ancestors_fit (owner :: task_lineage parent) count before) eqn:Business.
+ 2: { unfold Tasks.fork_refusal; destruct entry;
+      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Valid. }
  destruct (Tasks.resolve_settings (task_current_profile parent) raw (Tasks.fork_settings_base origin parent before) before)
    as [selected|] eqn:Resolved; [|exact Valid].
  destruct (Tasks.admit_fork_selection parent before selected) as [selection|] eqn:Selection; [|exact Valid].

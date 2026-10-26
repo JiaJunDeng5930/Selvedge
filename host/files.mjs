@@ -7,8 +7,8 @@ export async function writeAtomic(filename, value) {
 }
 
 /** Freeze image bytes in the existing content-addressed attachment vault. */
-export async function storeImageContent(home, name, bytes, detail = 'auto') {
-  const attachment = await saveBoardAttachment(home, name, [bytes]);
+export async function storeImageContent(home, name, bytes, detail = 'auto', options) {
+  const attachment = await saveBoardAttachment(home, name, [bytes], options);
   return boundary('backend.image_content', { attachment, detail });
 }
 

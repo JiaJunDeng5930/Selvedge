@@ -165,15 +165,17 @@ Definition reservation_valid (value : json) (files : json) :=
   forallb (fun key => is_text (get value key) && negb (String.eqb (str value key) ""))
     ["id";"dev";"ino";"repository"] &&
   equal (get value "canonical_root") (get files "active") && path_valid (get value "repository").
-Definition worktree_receipt_fields := ["task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
+Definition worktree_receipt_format := "selvedge-local-workspace-2".
+Definition worktree_receipt_fields := ["format";"task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
 Definition worktree_receipt_encode (source : json) :=
   let state := get source "state" in
-  success (JObject (map (fun key => (key,get state key)) worktree_receipt_fields)).
+  success (JObject (map (fun key => (key,if String.eqb key "format" then JString worktree_receipt_format else get state key)) worktree_receipt_fields)).
 Definition worktree_receipt (source : json) :=
   let value := get source "value" in let workspace := get value "workspace" in let root := get value "root" in
   let files := get source "files" in
   let unreserved := String.eqb (str value "local_phase") "unreserved" && is_null (get value "reservation") in
-  type_admit (plain_fields_only worktree_receipt_fields value && LocalResources.receipt_stage_valid value &&
+  type_admit (plain_fields_only worktree_receipt_fields value && String.eqb (str value "format") worktree_receipt_format &&
+    LocalResources.receipt_stage_valid value &&
     equal (get value "task_id") (get source "task_id") && equal (get value "source_root") (get source "source_root") &&
     (unreserved || reservation_valid (get value "reservation") files) &&
     ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||

@@ -5,7 +5,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecod
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
 From Selvedge.Kernel Require Import CommitAdmission CommandHandlers ForkCommit.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement DeferredCommit
- BoardCommit ConnectionCommit CompactionCommit TitleCommit.
+ BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -32,8 +32,8 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (conte
 (* Assess against the worker's authoritative immutable world. The hypothetical
    decision is discarded: no world, scheduler work or IO effect is committed. *)
 Definition assess (source : json) (value : world) : json :=
- let candidate := match Selvedge.Generated.Commands.decode (value_or_null "command" source) with
- | Some command => decision_reply (execute_domain command None value)
+ let candidate := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
+ | Some admitted => decision_reply (execute_domain (Selvedge.Generated.Commands.admitted_value admitted) None value)
  | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
  end in
  let admitted := bool_default "ok" candidate false in
@@ -46,8 +46,9 @@ Definition execute_command (command : Selvedge.Generated.Commands.command) (cont
 Definition core_transition (source : Inputs.input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
- | Configure environment => accept (JObject [("configured",JBool true)])
-   (Selvedge.Features.Runtime.reconfigure (with_environment environment value)) []
+ | Configure environment =>
+   let result := Selvedge.Features.Runtime.reconfigure (with_environment environment value) in
+   Decision (decision_world result) (success (JObject [("configured",JBool true)])) (decision_effects result)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
@@ -76,6 +77,15 @@ Definition transition_decoded (decoded : option Inputs.input) (source : json) (v
  end.
 Definition transition (source : json) (value : world) :=
  transition_decoded (InputDecoder.decode source) source value.
+Definition callback_input (source : option Inputs.input) :=
+ match source with
+ | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false
+ | _ => true end.
+Definition prepare (schedules : bool) (source : option Inputs.input) (result : decision) :=
+ if schedules then
+   if callback_input source then RequestDelivery.defer result
+   else RequestDelivery.run execute_command Selvedge.Features.Runtime.can_schedule_task result
+ else result.
 Definition admit_with_status := DeferredCommit.admit_with_status.
 Definition admit (durable : bool) (source : option Inputs.input) (raw_source : json)
  (before : world) (result : decision) := snd (admit_with_status durable source raw_source before result).
@@ -106,9 +116,9 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | Some accepted => Some (TerminalSettlement.source accepted, TerminalSettlement.candidate accepted)
  | None => None
  end end end end end end.
-Definition packet (source : json) (value : world) : world * json :=
- if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
- let decoded := InputDecoder.decode source in
+Definition packet_admitted (source : json) (admission : InputDecoder.admitted_input source)
+ (value : world) : world * json :=
+ let decoded := InputDecoder.admitted_value admission in
  match manual_fork_input decoded with
  | Some request => ForkCommit.packet request value
  | None => match CreationCommit.input decoded with
@@ -117,10 +127,20 @@ Definition packet (source : json) (value : world) : world * json :=
  | Some (input,candidate) => DeferredCommit.packet (Some input) source value candidate
  | None =>
  let '(durable,schedules,input,result) := transition_decoded decoded source value in
- let result := if schedules then Selvedge.Features.Runtime.finish (Scheduler.run execute_command Selvedge.Features.Runtime.can_schedule_task result) else result in
+ let result := prepare schedules input result in
  let '(admitted,result) := admit_with_status durable input source value result in
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in
  (committed,Notifications.envelope durable admitted input value result)
- end end end
+ end end end.
+Definition packet (source : json) (value : world) : world * json :=
+ if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
+ packet_admitted source (InputDecoder.admit source) value
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
+Theorem actual_packet_uses_complete_input_admission : forall source admission value,
+ packet_admitted source admission value =
+ packet_admitted source (InputDecoder.admit source) value.
+Proof.
+ intros source admission value; unfold packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result; reflexivity.
+Qed.

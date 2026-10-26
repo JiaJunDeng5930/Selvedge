@@ -1,4 +1,11 @@
-# Runtime acceptance
+# Assurance and runtime acceptance
+
+Choose construction and domain languages first, then types/proofs, then focused
+unit or component tests, and use end-to-end tests only for the remaining real
+boundary behavior. Every retained assertion identifies an independent failure
+that its earlier owner cannot exclude. A theorem must refer to the actual
+production operation before replacing a domain example. Pure host projections
+and codecs should use focused tests rather than a whole service.
 
 The runtime suite exercises physical behavior through public service, HTTP,
 CLI, plugin and relay entry points. The automated suite uses local

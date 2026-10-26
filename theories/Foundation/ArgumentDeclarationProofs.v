@@ -1,21 +1,11 @@
 From Stdlib Require Import String List NArith DecimalString DecimalN DecimalPos.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers NumbersProofs.
 From Selvedge.Foundation Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 Module D := ArgumentDeclaration.
-Lemma natural_spelling_roundtrip : forall number,
- parse_natural (show_natural number) = Some number.
-Proof.
- intros number.
- assert (NonNil : N.to_uint number <> Decimal.Nil).
- { destruct number; [discriminate|apply DecimalPos.Unsigned.to_uint_nonnil]. }
- pose proof (NilZero.usu (N.to_uint number) NonNil) as Parsed.
- unfold parse_natural,show_natural.
- destruct (NilZero.string_of_uint (N.to_uint number)); [discriminate Parsed|].
- rewrite Parsed. f_equal. apply DecimalN.Unsigned.of_to.
-Qed.
+Definition natural_spelling_roundtrip := NumbersProofs.natural_print_parse.
 Lemma natural_schema_interpreted : forall fuel lower upper,
  lower <= upper ->
  D.parse_fuel (S fuel) (D.schema (D.Natural lower upper)) = Some (D.Natural lower upper).
@@ -87,7 +77,7 @@ Lemma traverse_parsed_schema : forall declarations fuel,
  Forall (fun declaration => D.parse_fuel fuel (D.schema declaration) = Some declaration) declarations ->
  D.traverse (D.parse_fuel fuel) (map D.schema declarations) = Some declarations.
 Proof.
- intros declarations fuel All. induction All; cbn; [reflexivity|].
+ intros declarations fuel All. unfold D.traverse in *. induction All; cbn; [reflexivity|].
  rewrite H,IHAll. reflexivity.
 Qed.
 Lemma union_schema_interpreted : forall fuel first rest,
@@ -125,7 +115,7 @@ Lemma traverse_object_parsed_schemas : forall fuel required properties,
    (D.parse_fuel fuel (snd property)))
    (map (fun property => (fst (fst property),D.schema (snd property))) properties) = Some properties.
 Proof.
- intros fuel required properties All. induction All; cbn; [reflexivity|].
+ intros fuel required properties All. unfold D.traverse in *. induction All; cbn; [reflexivity|].
  destruct H as [Parsed Required]. rewrite Parsed,Required,IHAll.
  destruct x as [[name needed] declaration]. reflexivity.
 Qed.

@@ -1,11 +1,11 @@
-import { constants } from 'node:fs';
-import { open, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { workspaceCommandResult, interpretWorkspaceSettings } from './model-api.ts';
+import { readBoundedRegularSnapshot } from './file-io.mjs';
 
 const contextDefinitions = boundary('config.context_definitions', {});
 
@@ -43,35 +43,19 @@ export async function snapshotContextFile(filename, limits, { signal, filesystem
     }
     return contextSnapshot(filename, bytes);
   }
-  let file;
-  try { file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW); }
+  let snapshot;
+  try { snapshot = await readBoundedRegularSnapshot(filename, { maximumBytes: maximum, signal }); }
   catch (error) {
     // DEFENSE: Guidance files are optional and may be deleted between discovery and open.
     if (error.code === 'ENOENT') return null;
+    // DEFENSE: The shared descriptor reader reports physical snapshot failures;
+    // guidance retains its public context-specific diagnostics.
+    if (error.code === 'NOT_REGULAR') throw new Error('The path must resolve to a regular file');
+    if (error.code === 'TOO_LARGE') throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
+    if (error.code === 'CHANGED') throw new Error('File changed while being read; read it again');
     throw error;
   }
-  try {
-    const before = await file.stat();
-    // DEFENSE: User-selected source paths can name devices/directories instead of regular text files.
-    if (!before.isFile()) throw new Error('The path must resolve to a regular file');
-    // DEFENSE: User-authored guidance and skill files can exceed the kernel's context byte budget.
-    if (before.size > maximum) throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
-    const buffer = Buffer.alloc(Math.min(before.size + 1, maximum + 1));
-    let length = 0;
-    while (length < buffer.length) {
-      signal?.throwIfAborted();
-      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    const after = await file.stat();
-    // DEFENSE: Editors can replace or modify source bytes while an observation is reading them.
-    if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
-      throw new Error('File changed while being read; read it again');
-    }
-    const bytes = buffer.subarray(0, length);
-    return contextSnapshot(filename, bytes);
-  } finally { await file.close(); }
+  return contextSnapshot(filename, snapshot.bytes);
 }
 
 function contextSnapshot(filename, bytes) {

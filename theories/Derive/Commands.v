@@ -87,6 +87,37 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
    line "| Some admitted => decode_admitted (CommandDeclarations.observed_source admitted) | None => None end.";
    line "Lemma decode_observed_declaration : forall source, decode source = if CommandDeclarations.valid true source then decode_admitted source else None.";
    line "Proof. intro source; unfold decode, CommandDeclarations.admit_observed; destruct (Bool.bool_dec (CommandDeclarations.valid true source) true) as [Accepted | Rejected]; cbn [CommandDeclarations.observed_source]; [rewrite Accepted; reflexivity | destruct (CommandDeclarations.valid true source); [contradiction | reflexivity]]. Qed.";
+   line "Record admitted_command := AdmittedCommand {";
+   line " admitted_source : json;";
+   line " admitted_value : command;";
+   line " admitted_decoding : decode admitted_source = Some admitted_value";
+   line "}.";
+   line "Definition admit_decoded (source : json) (decoded : option command)";
+   line " (Decoded : decode source = decoded) : option admitted_command :=";
+   line " match decoded as result return decode source = result -> option admitted_command with";
+   line " | Some value => fun Evidence => Some (AdmittedCommand source value Evidence)";
+   line " | None => fun _ => None end Decoded.";
+   line "Definition admit (source : json) : option admitted_command :=";
+   line " admit_decoded source (decode source) eq_refl.";
+   line "Theorem admit_decoded_projects : forall source decoded Decoded,";
+   line " option_map admitted_value (admit_decoded source decoded Decoded) = decoded.";
+   line "Proof. intros source [value|] Decoded; reflexivity. Qed.";
+   line "Theorem admit_projects_decode : forall source,";
+   line " option_map admitted_value (admit source) = decode source.";
+   line "Proof. intro source; apply admit_decoded_projects. Qed.";
+   line "Theorem admit_decoded_retains_source : forall source decoded Decoded admitted,";
+   line " admit_decoded source decoded Decoded = Some admitted -> admitted_source admitted = source.";
+   line "Proof. intros source [value|] Decoded admitted Accepted; inversion Accepted; reflexivity. Qed.";
+   line "Theorem admission_retains_source : forall source admitted,";
+   line " admit source = Some admitted -> admitted_source admitted = source.";
+   line "Proof. intros source admitted Accepted; eapply admit_decoded_retains_source; exact Accepted. Qed.";
+   line "Theorem admitted_command_has_complete_declaration : forall admitted,";
+   line " CommandDeclarations.valid true (admitted_source admitted) = true.";
+   line "Proof.";
+   line " intros [source value Decoded]; cbn.";
+   line " rewrite decode_observed_declaration in Decoded.";
+   line " destruct (CommandDeclarations.valid true source); [reflexivity | discriminate].";
+   line "Qed.";
    line "Definition declared_command (value : command) : command_spec := match value with"] ++
   map (fun item => line (concat ["| Cmd_"; command_name (snd item);
     " _ => List.nth "; show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])"])) (indexed 0 commands) ++

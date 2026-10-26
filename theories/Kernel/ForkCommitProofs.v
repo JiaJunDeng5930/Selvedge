@@ -23,7 +23,9 @@ Lemma the_fork_constructor_emits_no_unbound_effects : forall entry origin owner 
 Proof.
  intros; rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task owner before) as [parent|]; [|reflexivity].
- destruct (_ && _) eqn:Eligible; [|reflexivity].
+ destruct (_ && _) eqn:Eligible.
+ 2: { unfold Tasks.fork_refusal; destruct entry;
+      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity. }
  destruct (Tasks.resolve_settings _ _ _ _) as [selected|]; [|reflexivity].
  destruct (Tasks.admit_fork_selection _ _ _) as [selection|]; [|reflexivity].
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
@@ -31,13 +33,20 @@ Proof.
  reflexivity.
 Qed.
 
+Lemma the_actual_manual_fork_handler_interprets_its_message_admission : forall request before,
+ CommandHandlers.execute (G.Cmd_fork request) None before =
+ match Selvedge.Kernel.Codec.traverse Images.parse_content (message_sources request) with
+ | Some messages => Tasks.fork_with_caller Tasks.ManualFork (settings_origin request)
+   (G.fork_task_id request) (G.fork_child_count request) messages (G.fork_settings request) before
+ | None => reject "invalid_message" "Child messages contain invalid content parts" before end.
+Proof. reflexivity. Qed.
+
 Lemma the_manual_fork_handler_emits_no_unbound_effects : forall request before,
  decision_effects (CommandHandlers.execute (G.Cmd_fork request) None before) = [].
 Proof.
  intros request before.
- unfold CommandHandlers.execute, G.dispatch; cbn [CommandHandlers.handlers G.handle_fork].
- unfold CommandExecution.handle_fork.
- destruct (traverse Images.parse_content _) as [messages|]; [|reflexivity].
+ rewrite the_actual_manual_fork_handler_interprets_its_message_admission.
+ destruct (Selvedge.Kernel.Codec.traverse Images.parse_content (message_sources request)) as [messages|]; [|reflexivity].
  apply the_fork_constructor_emits_no_unbound_effects.
 Qed.
 
@@ -86,16 +95,8 @@ Proof.
  [apply the_fork_transaction_emits_only_its_durable_continuation|constructor].
 Qed.
 
-Lemma the_actual_manual_fork_handler_interprets_its_message_admission : forall request before,
- CommandHandlers.execute (G.Cmd_fork request) None before =
- match traverse Images.parse_content (message_sources request) with
- | Some messages => Tasks.fork_with_caller Tasks.ManualFork (settings_origin request)
-   (G.fork_task_id request) (G.fork_child_count request) messages (G.fork_settings request) before
- | None => reject "invalid_message" "Child messages contain invalid content parts" before end.
-Proof. reflexivity. Qed.
-
 Lemma a_manual_fork_uses_the_actual_domain_constructor : forall request messages before,
- traverse Images.parse_content (message_sources request) = Some messages ->
+ Selvedge.Kernel.Codec.traverse Images.parse_content (message_sources request) = Some messages ->
  CommandHandlers.execute (G.Cmd_fork request) None before =
  Tasks.fork_with_caller Tasks.ManualFork (settings_origin request)
    (G.fork_task_id request) (G.fork_child_count request) messages (G.fork_settings request) before.

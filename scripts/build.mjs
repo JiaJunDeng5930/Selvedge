@@ -281,32 +281,33 @@ export async function build(options = {}) {
         next[`target:${name}:artifacts`] = actual;
         return;
       }
-      const directory = `.build/extracted/${name}`;
-      await rm(path.join(root, directory), { recursive: true, force: true });
+      // This invocation owns every extracted unit it will compile and publish.
+      // Reused output paths can receive restored artifacts from another build.
+      const directory = path.relative(root, path.join(publicationDirectory, 'extracted', name));
       await mkdir(path.join(root, directory), { recursive: true });
       const aliases = target.entry.map(entry => `Definition selvedge_${name}_${entry} := Selvedge.${target.module}.${entry}.`).join('\n');
       const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
       // Separate extraction preserves module aliases used by typed domain surfaces.
       // Each target owns its OCaml units; ocamldep supplies their compilation order.
       const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
-      const extractionFile = `.build/Extract${target.model}.v`;
+      const extractionFile = path.relative(root, path.join(publicationDirectory, `Extract${target.model}.v`));
       await writeChanged(extractionFile, extraction);
       await run('rocq', ['c', ...flags, extractionFile]);
       await writeChanged(`${directory}/${target.model}.ml`, `include Json\ninclude Extract${target.model}\n`);
+      await writeChanged(`${directory}/json_io.ml`, jsonIo);
+      await writeChanged(`${directory}/entry.ml`, runtime);
+      // Extraction and its runtime wrappers share one dependency-ordered unit
+      // list. A wrapper is compiled and linked exactly once, like every unit.
       const extracted = (await readdir(path.join(root, directory)))
         .filter(filename => filename.endsWith('.ml')).map(filename => `${directory}/${filename}`);
       const ordered = (await run('ocamlfind', ['ocamldep', '-package', 'zarith,js_of_ocaml', '-I', directory, '-sort', ...extracted])).trim().split(/\s+/);
-      await writeChanged(`${directory}/json_io.ml`, jsonIo);
-      await writeChanged(`${directory}/entry.ml`, runtime);
       const ocaml = ['ocamlc', '-package', 'zarith,js_of_ocaml', '-I', directory];
       for (const source of ordered) {
         const signature = source.replace(/\.ml$/, '.mli');
         if (await exists(signature)) await run('ocamlfind', [...ocaml, '-c', signature]);
         await run('ocamlfind', [...ocaml, '-c', source]);
       }
-      await run('ocamlfind', [...ocaml, '-c', `${directory}/json_io.ml`]);
-      await run('ocamlfind', [...ocaml, '-c', `${directory}/entry.ml`]);
-      await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo')), `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
+      await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo'))]);
       const stagedRuntime = path.join(publicationDirectory, `${name}-runtime.js`);
       await run('js_of_ocaml', ['--target-env', 'browser', '-o', stagedRuntime, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
       const exports = name === 'kernel'

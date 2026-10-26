@@ -40,8 +40,10 @@ export async function durableDirectory(directory) {
   durableDirectories.set(directory, { dev: observed.dev, ino: observed.ino });
 }
 
-/** Publish bytes only after both the contents and final directory entry are durable. */
-export async function publishBytes(filename, bytes, { mode = 'replace', permissions = 0o600 } = {}) {
+/** Build one private inode, then publish its closed contents and directory entry durably.
+ * prepare must settle every writer before returning; only this function owns publication.
+ */
+export async function publishPreparedFile(filename, prepare, { mode = 'replace', permissions = 0o600 } = {}) {
   // DEFENSE: The publication contract supports only these two explicit overwrite policies.
   if (mode !== 'replace' && mode !== 'create-if-absent') throw new TypeError('Unknown publication mode');
   const directory = path.dirname(filename);
@@ -49,7 +51,7 @@ export async function publishBytes(filename, bytes, { mode = 'replace', permissi
   const temporary = `${filename}.${randomUUID()}.tmp`;
   try {
     const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, permissions);
-    try { await file.writeFile(bytes); await file.sync(); }
+    try { await prepare({ filename: temporary, file }); await file.sync(); }
     finally { await file.close(); }
     let result = 'created';
     if (mode === 'replace') await rename(temporary, filename);
@@ -67,10 +69,21 @@ export async function publishBytes(filename, bytes, { mode = 'replace', permissi
   } finally { await rm(temporary, { force: true }); }
 }
 
+/** Publish bytes through the same durable inode publication used by structured stores. */
+export async function publishBytes(filename, bytes, options) {
+  return publishPreparedFile(filename, ({ file }) => file.writeFile(bytes), options);
+}
+
 function snapshotError(code, message) { return Object.assign(new Error(message), { code }); }
 
 /** Bound allocation and reads on one nonblocking descriptor; callers own metadata and text admission. */
-export async function readBoundedRegularSnapshot(filename, { maximumBytes, noFollow = true, admitMetadata = () => {} }) {
+export async function readBoundedRegularSnapshot(filename, {
+  maximumBytes, noFollow = true, admitMetadata = () => {}, signal, revision = 'stable',
+}) {
+  // DEFENSE: Callers may select only the stable snapshot contract or the
+  // temporary hard-link cleanup performed by this module's publication primitive.
+  if (!['stable', 'publication_cleanup'].includes(revision)) throw new TypeError('Unknown file revision policy');
+  signal?.throwIfAborted();
   const file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | (noFollow ? constants.O_NOFOLLOW : 0));
   try {
     const before = await file.stat();
@@ -81,15 +94,18 @@ export async function readBoundedRegularSnapshot(filename, { maximumBytes, noFol
     const buffer = Buffer.alloc(Math.min(before.size + 1, maximumBytes + 1));
     let length = 0;
     while (length < buffer.length) {
+      signal?.throwIfAborted();
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
       if (!bytesRead) break;
       length += bytesRead;
     }
     const after = await file.stat();
     await admitMetadata(after);
+    const publicationCleanup = revision === 'publication_cleanup' && before.nlink === 2 && after.nlink === 1;
     // DEFENSE: A real external edit during the read must not combine different file revisions.
     if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
-        after.ctimeMs !== before.ctimeMs || after.mode !== before.mode || after.uid !== before.uid || after.gid !== before.gid) {
+        (after.ctimeMs !== before.ctimeMs && !publicationCleanup) ||
+        after.mode !== before.mode || after.uid !== before.uid || after.gid !== before.gid) {
       throw snapshotError('CHANGED', 'Storage changed while being read');
     }
     return { bytes: buffer.subarray(0, length), before, after };

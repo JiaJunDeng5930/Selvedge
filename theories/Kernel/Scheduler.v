@@ -95,8 +95,9 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
  (remaining : list call) (task : task) (value : world) :=
  match call_admission tool invocation value with
  | Some (code,reason) => call_error id invocation code reason remaining task value
- | None => match NativeTools.command id invocation with
- | Some command =>
+ | None => match NativeTools.admit_command id invocation with
+ | Some admitted =>
+   let command := Commands.admitted_value admitted in
    if internal_result_available task then
    (* The native action owns this invocation now. A self-archive may cancel
       remaining calls, but must not also close this executing call as pending. *)
@@ -144,8 +145,8 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
  | Granted reviewer, Some tool =>
    if Capabilities.available (environment_tools (world_environment value)) tool then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.resume id (operation_id operation) value)
-   else acknowledged (commit_changes id (Callbacks.begin_result_changes id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
- | Granted _, None => acknowledged (commit_changes id (Callbacks.begin_result_changes id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
+   else acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
+ | Granted _, None => acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
  | _,_ => acknowledged value
  end.
 Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pending : list json) (remaining : list call) (task : task) (value : world) :=
@@ -155,16 +156,16 @@ Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pendin
  end.
 Definition after_hooks_step (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation with
- | AfterHooksReady [] result error => acknowledged (commit_changes id (Callbacks.settle_operation_changes operation result error) value)
+ | AfterHooksReady [] result error => acknowledged (Tasks.commit_result id (fun _ => Callbacks.settle_operation_plan operation result error) value)
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) value)
-   else acknowledged (commit_changes id (fun task =>
+   else acknowledged (Tasks.commit_result id (fun task =>
      let receipt := TaskChange.AppendHistory [AfterReceipt id (operation_id operation) plugin
        (Inputs.after_json (Inputs.AfterFailure "The frozen result-processing plugin revision is unavailable"))] in
-     [receipt] ++ Callbacks.settle_operation_changes operation
+     Tasks.prefix_result [receipt] (Callbacks.settle_operation_plan operation
        (State.failure "after_hook_unavailable" "The frozen result-processing plugin revision is unavailable; the tool has already completed") true
-       (TaskChange.apply_edit receipt task)) value)
+       )) value)
  | _ => acknowledged value
  end.
 Definition ready_operation (operations : list operation) := find (fun operation =>
@@ -273,19 +274,54 @@ Fixpoint find_step (execute : executor) (permitted : N -> world -> bool) (id : N
  | Some step => match interpret_step execute id task value step with
    | Some decision => Some decision | None => find_step execute permitted (N.succ id) rest value end
  | None => find_step execute permitted (N.succ id) rest value end end.
-Fixpoint schedule (fuel : nat) (execute : executor) (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
- let value := SideContext.reconcile value in
+Definition has_runnable_work (permitted : N -> world -> bool) (value : world) :=
+ existsb (fun entry => let '(id,task) := entry in
+   match next_runnable_step permitted id task value with Some _ => true | None => false end)
+   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)).
+Definition continue_runnable (permitted : N -> world -> bool) (value : world) (effects : list effect) :=
+ if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
+Definition frozen_inference (request : effect) := match request with
+ | RequestModel _ | RequestReasoning _ _ _ => true | _ => false end.
+(* Task-wide cancellation retires the current owner's physical work. Commit it
+   before another native send can reactivate that owner and issue a new request;
+   the cancellation must never cover a later generation in the same packet. *)
+Definition effect_requires_commit (request : effect) := match request with
+ | CancelTask _ => true | _ => frozen_inference request end.
+(* A frozen model/evaluator request is committed before another native command
+   can change its input. Replacing its history here would reuse a measurement
+   or adaptive selection that did not observe that input. The durable
+   continuation runs the remaining work in the next ordinary transaction. *)
+Definition advancement := world -> list effect -> option (world * list effect).
+Definition unrestricted : advancement := fun value effects => Some (value,effects).
+(* Admission observes each proposed prefix before another step may depend on it.
+   A refused next step stays runnable in the retained prefix; the durable
+   continuation therefore advances a batch without discarding earlier work. *)
+Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
+ (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
+ if existsb effect_requires_commit effects then (value,continue_runnable permitted value effects) else
+ match advance (SideContext.reconcile value) effects with
+ | None => (value,effects ++ [ContinueScheduling])
+ | Some (value,effects) =>
  match fuel with
- | O => (value,if existsb (fun entry => let '(id,task) := entry in match next_runnable_step permitted id task value with Some _ => true | None => false end) (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)) then effects ++ [ContinueScheduling] else effects)
+ | O => (value,continue_runnable permitted value effects)
  | S fuel => match first_native_fork permitted 0 (world_tasks value) value with
    | Some _ => (value,effects ++ [ContinueScheduling])
    | None => match find_step execute permitted 0 (world_tasks value) value with
      | None => (value,effects)
-     | Some decision => schedule fuel execute permitted (decision_world decision) (effects ++ decision_effects decision)
+     | Some decision =>
+       match advance (decision_world decision) (effects ++ decision_effects decision) with
+       | None => (value,effects ++ [ContinueScheduling])
+       | Some (next,emitted) => schedule_with advance fuel execute permitted next emitted
+       end
      end
    end
- end.
-Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
- let '(value,effects) := schedule Limits.schedule_steps execute permitted (decision_world decision) (decision_effects decision) in
+ end end.
+Definition schedule := schedule_with unrestricted.
+Definition run_with (advance : advancement) (execute : executor)
+ (permitted : N -> world -> bool) (decision : decision) :=
+ let '(value,effects) := schedule_with advance Limits.schedule_steps execute permitted
+   (decision_world decision) (decision_effects decision) in
  let '(value,effects) := Dispatch.prepare value effects in
  Decision value (decision_reply decision) effects.
+Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
+ run_with unrestricted execute permitted decision.

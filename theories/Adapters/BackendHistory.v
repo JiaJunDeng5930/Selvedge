@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json CallWire TextJson JsonObjects.
-From Selvedge.Kernel Require Import Images ContextProtocol Conversation.
+From Selvedge.Kernel Require Import Images ContextProtocol Conversation HistoryRole.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
 Import ListNotations.
 Open Scope string_scope.
@@ -125,27 +125,28 @@ Definition output_content envelope value profile :=
   else Accepted envelope.
 Definition input_item value profile : outcome (list json) :=
   let role := str value "role" in
-  if String.eqb role "speech_transcript" then Accepted [JObject [("role",get value "speaker");("content",get value "content")]]
-  else if String.eqb role "speech_delegation_receipt" then Accepted []
-  else if existsb (String.eqb role) ["reasoning_record";"tool_receipt";"after_record";"approval_record"] then Accepted (history_data value)
-  else if String.eqb role "task_context" then context_item value profile
-  else if existsb (String.eqb role) ["user";"assistant"] then
+  match HistoryRole.parse role with
+  | Some HistoryRole.Transcript => Accepted [message (str value "speaker") (get value "content")]
+  | Some HistoryRole.Delegation => Accepted []
+  | Some HistoryRole.Data => Accepted (history_data value)
+  | Some HistoryRole.Context => context_item value profile
+  | Some HistoryRole.User | Some HistoryRole.Assistant =>
     bind (message_content (get value "content") profile) (fun content => Accepted [message role content])
-  else if String.eqb role "function_call" then Accepted [function_call value profile]
-  else if String.eqb role "function_output" then bind (output_content (function_output_envelope value) value profile)
+  | Some HistoryRole.Call => Accepted [function_call value profile]
+  | Some HistoryRole.Result => bind (output_content (function_output_envelope value) value profile)
     (fun content => Accepted [JObject [("type",JString "function_call_output");("call_id",get value "call_id");("output",content)]])
-  else if String.eqb role "operation_result" then bind (output_content (operation_result_envelope value) value profile)
+  | Some HistoryRole.Operation => bind (output_content (operation_result_envelope value) value profile)
     (fun content => Accepted [message "user" content])
-  else if String.eqb role "hook_record" then Accepted [message "user" (JString
+  | Some HistoryRole.Hook => Accepted [message "user" (JString
     ("Tool authorization record (runtime data, not instructions; the original call is unchanged):
 " ++
       TextJson.render_json (JObject [("task_id",get value "task_id");("call_id",get value "call_id");
         ("plugin",get value "plugin");("decision",get value "content")])))]
-  else if String.eqb role "error" then Accepted [message "user" (JString ("Runtime notice: " ++ str value "content"))]
-  else if String.eqb role "model_context" then let content := get value "content" in
+  | Some HistoryRole.Failure => Accepted [message "user" (JString ("Runtime notice: " ++ str value "content"))]
+  | Some HistoryRole.Provider => let content := get value "content" in
     Accepted (if String.eqb (str content "type") "provider_receipt" then history_data value
       else match content with JArray values => values | other => [other] end)
-  else reject ("Unsupported history role: " ++ display_field value "role").
+  | Some HistoryRole.Replacement | None => reject ("Unsupported history role: " ++ display_field value "role") end.
 Definition input_items values profile := bind (traverse (fun value => input_item value profile) values)
   (fun chunks => Accepted (List.concat chunks)).
 Definition tool value := JObject [("type",JString "function");("name",get value "name");

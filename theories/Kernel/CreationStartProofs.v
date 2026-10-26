@@ -217,7 +217,7 @@ Theorem a_resolved_workspace_creation_preserves_every_world_requirement :
  well_formed (decision_world (Worktree.consume_planned_start plan before)).
 Proof.
  intros name effort contents settings before start plan Valid Resolved Task Resource.
- unfold Worktree.consume_planned_start; rewrite Resource, Task.
+ unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; rewrite Resource, Task.
  change (well_formed (append_task (Tasks.start_task start) before)).
  eapply a_resolved_public_start_preserves_every_world_requirement; eauto.
 Qed.

@@ -2,6 +2,7 @@ From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia Sorting.Permutation.
 From Selvedge.Foundation Require Import Json JsonProofs Schema.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
+From Selvedge.Features Require Import BoardFacts.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Callbacks
  TicketedRequest WorldInvariant WorldInvariantProofs CallbacksProofs LifecycleProofs.
 Import ListNotations.
@@ -185,7 +186,8 @@ Proof.
  intros card Valid. unfold WorldInvariant.card_valid in *.
  assert (Draft : Board.valid_draft (Selvedge.Features.Domain.card_contents card) before =
    Board.valid_draft (Selvedge.Features.Domain.card_contents card) after).
- { unfold Board.valid_draft, Board.lookup_agent, Board.registry; rewrite SameProjects, SameFeatures; reflexivity. }
+ { unfold Board.valid_draft, BoardFacts.valid_draft, BoardFacts.lookup_agent, BoardFacts.registry.
+   rewrite SameProjects, SameFeatures; reflexivity. }
  assert (Linked : (match Selvedge.Features.Domain.card_task card with
    | Some owner => WorldInvariant.present (find_task owner before) | None => true end) =
    (match Selvedge.Features.Domain.card_task card with

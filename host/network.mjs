@@ -49,7 +49,7 @@ export async function* sseEvents(body, maximum) {
   // DEFENSE: HTTP responses with no body cannot supply the required SSE terminal event.
   if (!body) throw new Error('The provider returned no response stream');
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  let state = { pending: '', data: [], size: 0, name: 'message' };
+  let state = { pending: '', data: [], size: 0, name: 'message', after_cr: false };
   for await (const chunk of body) {
     const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum, eof: false });
     state = transition.state;

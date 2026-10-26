@@ -16,7 +16,8 @@ Theorem a_public_board_birth_uses_its_independent_transaction : forall source be
  Packet.packet source before = BoardCommit.packet request source before.
 Proof.
  intros source before request Fits Decoded. unfold input_fits in Fits.
- unfold Packet.packet. rewrite Fits, Decoded. reflexivity.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result, Fits, Decoded. reflexivity.
 Qed.
 
 Theorem a_public_connection_request_uses_its_independent_transaction : forall source before request,
@@ -24,7 +25,8 @@ Theorem a_public_connection_request_uses_its_independent_transaction : forall so
  Packet.packet source before = ConnectionCommit.packet request source before.
 Proof.
  intros source before request Fits Decoded. unfold input_fits in Fits.
- unfold Packet.packet. rewrite Fits, Decoded. reflexivity.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result, Fits, Decoded. reflexivity.
 Qed.
 
 Theorem a_public_checkpoint_uses_its_independent_transaction : forall source before request,
@@ -32,7 +34,8 @@ Theorem a_public_checkpoint_uses_its_independent_transaction : forall source bef
  Packet.packet source before = CompactionCommit.packet source request before.
 Proof.
  intros source before request Fits Decoded. unfold input_fits in Fits.
- unfold Packet.packet. rewrite Fits, Decoded. reflexivity.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result, Fits, Decoded. reflexivity.
 Qed.
 
 Theorem an_automatic_title_uses_its_independent_transaction : forall source before (request : TitleCommit.plan before),
@@ -41,7 +44,8 @@ Theorem an_automatic_title_uses_its_independent_transaction : forall source befo
  Packet.packet source before = TitleCommit.packet request source.
 Proof.
  intros source before request Fits Decoded Native Selected. unfold input_fits in Fits.
- unfold Packet.packet. rewrite Fits, Decoded.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result, Fits, Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input TitleCommit.input].
  rewrite Native, Selected. reflexivity.
 Qed.

@@ -2,8 +2,8 @@ From Selvedge.Kernel Require Import FeatureFrameProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Inputs TicketedRequest
- WorldInvariant WorldInvariantProofs CommitAdmission AfterHookAuthorizationProofs FeatureAuthorityProofs ProtocolProofs ConnectionCommit DeferredCommit.
-From Selvedge.Features Require Import Domain State Chatgpt WorkspaceBinding Board TaskGraph.
+ WorldInvariant WorldInvariantProofs CommitAdmission AfterHookAuthorizationProofs FeatureAuthorityProofs ProtocolProofs ConnectionCommit DeferredCommit ChatgptArgumentsProofs.
+From Selvedge.Features Require Import Domain State Chatgpt WorkspaceBinding Board TaskGraph FeatureScopeProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
@@ -106,22 +106,18 @@ Proof.
  cbn; rewrite Distinct; cbn; rewrite IH by exact Tail; reflexivity.
 Qed.
 
-Lemma an_issued_connection_has_the_fresh_state : forall before job,
- F.job_state job=F.JobRunning ->
+Lemma an_issued_connection_has_the_fresh_state : forall before
+ (request : TicketedRequest.Scoped.feature_plan before) job,
+ TicketedRequest.Scoped.feature_intent request = TicketedRequest.Scoped.ConnectionRequest job ->
  forallb (fun entry : N * F.connection_job => (fst entry <? F.sharing_next (Chatgpt.registry before))%N)
   (F.sharing_jobs (Chatgpt.registry before))=true ->
- TicketedRequest.Scoped.feature_run (TicketedRequest.Scoped.ConnectionRequest job) before =
+ TicketedRequest.Scoped.feature_issue request =
  accept (JObject [("accepted"%string,JBool true)])
   (Chatgpt.store (fresh_state before job) before)
   [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job].
 Proof.
- intros before job Running Bounded.
- unfold TicketedRequest.Scoped.feature_run,TicketedRequest.Scoped.feature_with_reply,
- TicketedRequest.Scoped.feature.
- destruct (Bool.bool_dec (TicketedRequest.Scoped.feature_valid before
-  (TicketedRequest.Scoped.ConnectionRequest job)) true) as [Admitted|Refused].
- 2: { exfalso;apply Refused; cbn [TicketedRequest.Scoped.feature_valid]; now rewrite Running. }
- cbn [TicketedRequest.Scoped.feature_intent].
+ intros before [source Admitted] job Intent Bounded.
+ cbn in Intent; subst source.
  unfold TicketedRequest.Scoped.feature_issue,TicketedRequest.Scoped.feature_build,
  TicketedRequest.Scoped.feature_space,TicketedRequest.allocate_identity,TicketedRequest.next_identity,
  TicketedRequest.Scoped.put_connection.
@@ -252,38 +248,9 @@ Proof.
  rewrite fresh_connection_effect_has_receiver_authority. reflexivity.
 Qed.
 
-Definition bash_arguments (command : string) (timeout maximum : N) : Schema.fields ChatgptArguments.argument_declaration :=
- @Schema.FCons (Schema.Field "command"%string Schema.KText)
-  [Schema.Field "timeout_ms"%string Schema.KNatural;Schema.Field "max_output_length"%string Schema.KNatural]
-  command (@Schema.FCons (Schema.Field "timeout_ms"%string Schema.KNatural)
-  [Schema.Field "max_output_length"%string Schema.KNatural] timeout
-  (@Schema.FCons (Schema.Field "max_output_length"%string Schema.KNatural) [] maximum Schema.FNil)).
-
-Lemma bounded_bash_arguments_have_a_valid_canonical_wire : forall command timeout maximum,
- negb (String.eqb command ""%string)=true -> Utf8.well_formed command=true ->
- (N.of_nat (String.length command) <= 32768)%N ->
- (100 <= timeout <= 1800000)%N -> (1 <= maximum <= 8192)%N ->
- ChatgptArguments.valid_args
-  (Schema.encode ChatgptArguments.argument_declaration (bash_arguments command timeout maximum))=true.
-Proof.
- intros command timeout maximum Nonempty Utf8 Length Timeout Maximum.
- unfold ChatgptArguments.valid_args,ChatgptArguments.admit_args,ChatgptArguments.bounded_number,
- ChatgptArguments.bounds,bash_arguments.
- cbv beta iota zeta delta -[parse_natural show_natural Utf8.well_formed N.leb].
- rewrite !natural_print_parse.
- cbn -[Utf8.well_formed N.leb].
- assert (LowerTimeout:(100<=?timeout)%N=true) by (apply N.leb_le;lia).
- assert (UpperTimeout:(timeout<=?1800000)%N=true) by (apply N.leb_le;lia).
- assert (LowerMaximum:(1<=?maximum)%N=true) by (apply N.leb_le;lia).
- assert (UpperMaximum:(maximum<=?8192)%N=true) by (apply N.leb_le;lia).
- assert (CommandLength:(N.of_nat (String.length command)<=?32768)%N=true) by (apply N.leb_le;exact Length).
- rewrite LowerTimeout,UpperTimeout,LowerMaximum,UpperMaximum.
- change ((match (if negb (String.eqb command ""%string) && Utf8.well_formed command &&
-  (N.of_nat (String.length command) <=? 32768)%N
-  then Some (bash_arguments command timeout maximum) else None)
-  with Some _=>true | None=>false end)=true).
- rewrite Nonempty,Utf8,CommandLength;reflexivity.
-Qed.
+Definition bash_arguments := ChatgptArgumentsProofs.argument_values.
+Definition bounded_bash_arguments_have_a_valid_canonical_wire :=
+ ChatgptArgumentsProofs.bounded_arguments_have_a_valid_canonical_wire.
 
 Lemma sequence_keeps_graph_requirements : forall sequence before owner entries,
  W.graphs_valid owner entries (with_sequence sequence before)=W.graphs_valid owner entries before.
@@ -347,6 +314,8 @@ Theorem admissible_connection_command_constructs_its_exact_result :
 Proof.
  intros connection project request arguments decoded granted target before Valid Ids Bounded Arguments Authority
  Project Primary Retry Available Resource Capacity.
+ pose proof (FeatureScopeProofs.connection_scope_from_current_grant connection project request arguments decoded granted target before
+   Bounded Arguments Authority Project Primary Retry Available Resource Capacity) as Scope.
  unfold ConnectionCommit.candidate,Chatgpt.handle_chatgpt_exec,Chatgpt.run.
  cbn [Selvedge.Generated.Commands.chatgpt_exec_connection_id Selvedge.Generated.Commands.chatgpt_exec_project_id
  Selvedge.Generated.Commands.chatgpt_exec_request_id Selvedge.Generated.Commands.chatgpt_exec_arguments].
@@ -354,9 +323,15 @@ Proof.
  cbn [andb negb].
  destruct (workspace_primary (project_workspace target)) eqn:Root;[|contradiction].
  unfold Chatgpt.start;rewrite Retry,Available,Resource,Capacity.
- rewrite an_issued_connection_has_the_fresh_state by
-  (first [reflexivity|apply sharing_jobs_stay_below_their_supply;exact Valid]).
- reflexivity.
+ unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
+ destruct (Bool.bool_dec _ true) as [Admitted|Refused].
+ - rewrite an_issued_connection_has_the_fresh_state with
+     (job:=F.ConnectionJob connection project request decoded (project_workspace target)
+       (project_resource target) (F.connection_sandbox granted) F.JobRunning).
+   + reflexivity.
+   + reflexivity.
+   + apply sharing_jobs_stay_below_their_supply; exact Valid.
+ - exfalso; apply Refused; exact Scope.
 Qed.
 
 Theorem admissible_connection_request_passes_every_commit_requirement :

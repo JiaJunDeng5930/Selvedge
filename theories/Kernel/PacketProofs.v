@@ -9,6 +9,14 @@ Import ListNotations.
 Open Scope string_scope.
 Module G := Selvedge.Generated.Commands.
 
+Theorem live_configuration_preserves_maintenance_cancellations : forall environment value,
+ Packet.core_transition (Configure environment) value =
+ Decision (Selvedge.Features.Compaction.recover (with_environment environment value))
+   (success (JObject [("configured",JBool true)]))
+   (map MaintainContext (Selvedge.Features.Compaction.pending_cancellations
+     (Selvedge.Features.Compaction.registry value))).
+Proof. reflexivity. Qed.
+
 Lemma admit_is_validation_pipeline : forall durable source raw_source before candidate,
  Packet.admit durable source raw_source before candidate =
  Delivery.deliver durable
@@ -95,13 +103,16 @@ Theorem actual_query_preserves_world_and_emits_no_effect : forall source command
  field "durable" (snd (Packet.packet source value)) = Some (JBool false).
 Proof.
  intros source command reply value Decoded Query.
- unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
+ unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
  - cbv beta zeta; fold (Packet.manual_fork source).
    rewrite (a_query_is_not_a_manual_fork source command reply value Decoded Query).
    rewrite (a_query_is_not_a_public_creation source command reply value Decoded Query).
    rewrite (a_query_is_not_a_deferred_transaction source command reply value Decoded Query).
    fold (Packet.transition source value).
    rewrite (accepted_query_never_runs_the_scheduler source command reply value Decoded Query).
+   cbn [Packet.prepare].
    unfold Packet.admit_with_status, DeferredCommit.admit_with_status, Dispatch.retain_live_effects.
    cbn [decision_world K.decision_world K.decision_reply K.decision_effects filter].
    unfold WorldInvariant.validate_with_status; cbn [decision_world].
@@ -142,7 +153,9 @@ Proof. exact DeferredCommitProofs.actual_commit_refusal_restores_the_world_and_d
 Theorem every_actual_packet_preserves_world_requirements : forall source before,
  world_valid before = true -> world_valid (fst (Packet.packet source before)) = true.
 Proof.
- intros source before Before; unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before Before; unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source).
  destruct (N.leb _ _); [|exact Before].
  destruct (Packet.manual_fork source) as [request|].
  { apply manual_fork_packets_preserve_world_requirements; exact Before. }
@@ -152,8 +165,7 @@ Proof.
  { apply DeferredCommitProofs.packet_preserves_world_validity; exact Before. }
  fold (Packet.transition source before).
    destruct (Packet.transition source before) as [[[durable schedules] input] result].
- set (prepared := if schedules then Selvedge.Features.Runtime.finish
-   (Scheduler.run Packet.execute_command Selvedge.Features.Runtime.can_schedule_task result) else result).
+ set (prepared := Packet.prepare schedules input result).
  destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
  pose proof (actual_commit_admission_preserves_world_requirements durable input source before prepared Before) as Valid.
  rewrite (admit_result_is_the_selected_outcome durable input source before prepared accepted committed Outcome) in Valid.
@@ -219,7 +231,9 @@ Theorem every_actual_packet_binds_its_emitted_inference_history : forall source 
  Forall (CommitAdmissionProofs.inference_history_bound (fst (Packet.packet source before)))
    (decision_effects committed).
 Proof.
- intros source before; unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before; unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
  - destruct (Packet.manual_fork source) as [request|] eqn:Manual.
    { unfold ForkCommit.packet.
@@ -248,9 +262,7 @@ Proof.
      exists true, admitted, (Some input), committed; auto. }
    fold (Packet.transition source before).
    destruct (Packet.transition source before) as [[[durable schedules] input] candidate].
-   set (prepared := if schedules then Selvedge.Features.Runtime.finish
-     (Scheduler.run Packet.execute_command Selvedge.Features.Runtime.can_schedule_task candidate)
-     else candidate).
+   set (prepared := Packet.prepare schedules input candidate).
    destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
    pose proof (actual_admission_binds_every_inference_to_its_exact_history
      durable input source before prepared) as Bound.

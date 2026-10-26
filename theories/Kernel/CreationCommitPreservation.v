@@ -13,17 +13,20 @@ Proof.
  unfold Worktree.handle_create, CommandExecution.with_content.
  destruct (CommandExecution.user_content (Commands.create_message request) (Commands.create_images request))
    as [contents|] eqn:Parsed; [|exact Valid].
- unfold Worktree.create_selected, Worktree.create_planned, Worktree.create_intent.
- unfold Worktree.consume_start_resolution.
+ unfold Worktree.create_selected, Worktree.create_selected_result,
+   Worktree.create_intent_result, Worktree.resolve_start_birth.
  destruct (CommandExecution.resolve_context_start
    (Worktree.creation_entry Worktree.ImplicitCreation None)
    (Commands.create_profile request) (Commands.create_reasoning request) contents
    (Commands.create_settings request) false None before) as [cause|start] eqn:Resolved.
  - exact Valid.
  - cbn [Worktree.start_allowed CommandExecution.creation_allowed].
+   unfold Worktree.prepare_scoped.
    destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before)
      as [plan|reply] eqn:Prepared.
-   + eapply a_resolved_public_resource_creation_preserves_every_world_requirement; eassumption.
+   + cbn [Worktree.final_authority].
+     change (well_formed (decision_world (Worktree.consume_planned_start plan before))).
+     eapply a_resolved_public_resource_creation_preserves_every_world_requirement; eassumption.
    + exact Valid.
 Qed.
 

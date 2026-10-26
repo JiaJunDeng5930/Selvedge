@@ -24,13 +24,14 @@ Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count m
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
  Tasks.fork_with_caller invoked origin id count messages requested value=
  match invoked with
- | Tasks.ManualFork => reject "fork_unavailable"
-  "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value
+ | Tasks.ManualFork => if Tasks.fork_parent_ready Tasks.ManualFork parent then
+    reject "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid" value
+   else reject "task_busy" "A manual fork requires an active, idle task" value
  | Tasks.AcceptedNativeFork _ _ => Tasks.refuse_start Tasks.NativeForkEntry Tasks.DescendantCapacity value end.
 Proof.
  intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
- destruct invoked; reflexivity.
+ destruct invoked; unfold Tasks.fork_refusal; unfold Tasks.ancestors_fit; rewrite ?Capacity; reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
@@ -45,7 +46,7 @@ Theorem archived_send_rejects_without_changing_world : forall id contents value 
  find_task id value = Some task ->
  task_lifecycle task = Archived operations ->
  Tasks.send id contents value =
-   reject "task_archived" "Archived tasks cannot accept input" value.
+   reject "invalid_arguments" "Archived tasks cannot accept input" value.
 Proof.
  intros id contents value task operations Hfind Harchived.
  rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. reflexivity.
@@ -154,7 +155,7 @@ Proof.
  destruct (fork_child_history_keeps_snapshot_prefix owner parent_id parent settings side)
    as [suffix Hprefix].
  unfold Tasks.fork_child. simpl. rewrite Hprefix.
- destruct (Tasks.content_nonempty contents).
+ destruct contents as [contents|]; cbn [Tasks.optional_input].
  - exists (suffix ++ [UserMessage contents]). rewrite <- app_assoc. reflexivity.
  - exists suffix. rewrite app_nil_r. reflexivity.
 Qed.
@@ -219,3 +220,17 @@ Proof.
  - apply model_item_messages_preserve_output_origin.
 Qed.
 
+
+(** Presence is the public fork contract. Even an explicitly empty content is a
+    child instruction; only an omitted list element is absent. *)
+Theorem supplied_fork_input_remains_after_its_receipt :
+ forall owner parent_id parent contents settings entry start invocation,
+ task_history (Tasks.fork_child_receipt entry start owner invocation
+   (Tasks.fork_child owner parent_id parent (Some contents) settings false)) =
+ Tasks.fork_child_history owner parent_id parent settings false ++
+   [ForkReceipt owner invocation (N.succ (owner-start)%N); UserMessage contents].
+Proof.
+ intros. unfold Tasks.fork_child_receipt, Tasks.fork_child.
+ cbn [Tasks.optional_input task_history with_history with_activity with_lifecycle].
+ unfold History.fork_receipt_history. rewrite rev_app_distr; cbn. now rewrite rev_involutive.
+Qed.
