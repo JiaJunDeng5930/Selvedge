@@ -139,6 +139,14 @@ Fixpoint unique_names (names : list string) : bool :=
   | [] => true
   | name :: rest => negb (existsb (String.eqb name) rest) && unique_names rest
   end.
+(** Concrete declarations discharge field uniqueness while they are elaborated;
+    consumers cannot construct a declaration with ambiguous wire coordinates. *)
+Class DistinctNames (names : list string) : Prop := {
+ names_distinct : unique_names names = true
+}.
+Arguments names_distinct {names} {_}.
+#[global] Hint Mode DistinctNames + : typeclass_instances.
+#[global] Hint Extern 0 (DistinctNames _) => constructor; reflexivity : typeclass_instances.
 Definition declared_names (description : schema) := map field_name description.
 Definition schema_valid (description : schema) := unique_names (declared_names description).
 Definition source_keys (source : list (string * json)) := map fst source.

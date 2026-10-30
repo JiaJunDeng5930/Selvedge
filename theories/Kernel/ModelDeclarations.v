@@ -27,15 +27,17 @@ Inductive correlation := OwnedTicket (owner_field : string) | StandaloneIdentity
 Definition correlation_fields (shape : correlation) := match shape with
  | OwnedTicket owner => [Field owner KNatural; Field "ticket" KNatural]
  | StandaloneIdentity identity => [Field identity KNatural] end.
-Record request_variant := RequestVariant {
+Record request_variant := BuildRequestVariant {
  request_name : string;
  request_correlation : correlation;
  request_body : schema;
- request_callback : callback_kind
+ request_callback : callback_kind;
+ request_unique : unique_names ("kind" :: map field_name (correlation_fields request_correlation ++ request_body)) = true
 }.
-Definition request_body_fields (request : request_variant) :=
- let reserved := "kind" :: map field_name (correlation_fields (request_correlation request)) in
- filter (fun field => negb (existsb (String.eqb (field_name field)) reserved)) (request_body request).
+Definition declare_request name shape body callback
+ `{DistinctNames ("kind" :: map field_name (correlation_fields shape ++ body))} :=
+ BuildRequestVariant name shape body callback names_distinct.
+Definition request_body_fields (request : request_variant) := request_body request.
 Definition request_variant_view (request : request_variant) :=
  effect (request_name request)
    (correlation_fields (request_correlation request) ++ request_body_fields request)
@@ -87,12 +89,12 @@ Definition worktree_create := effect "worktree_create" ([Field "backend" (KEnum 
  [Field "source_root" KText;Field "workspace" KJson]) (Some (Worktree true)).
 Definition worktree_archive := effect "worktree_archive" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
  [Field "root" KText;Field "source_root" KText]) (Some (Worktree false)).
-Definition task_title_request := RequestVariant "task_title" (OwnedTicket "task_id") [model;Field "prompt" KText] TaskTitle.
+Definition task_title_request := declare_request "task_title" (OwnedTicket "task_id") [model;Field "prompt" KText] TaskTitle.
 Definition task_title := request_variant_view task_title_request.
-Definition board_text_request := RequestVariant "board_text" (OwnedTicket "card_id")
+Definition board_text_request := declare_request "board_text" (OwnedTicket "card_id")
  [model;Field "prompt" KText;Field "retitle" KBool] BoardText.
 Definition board_text := request_variant_view board_text_request.
-Definition chatgpt_exec_request := RequestVariant "chatgpt_exec" (StandaloneIdentity "operation_id")
+Definition chatgpt_exec_request := declare_request "chatgpt_exec" (StandaloneIdentity "operation_id")
  [Field "arguments" KJson;execution] ChatgptExec.
 Definition chatgpt_exec := request_variant_view chatgpt_exec_request.
 Definition chatgpt_cancel := effect "chatgpt_cancel" [Field "operation_id" KNatural] None.
