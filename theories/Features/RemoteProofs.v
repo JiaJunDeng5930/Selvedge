@@ -141,9 +141,6 @@ Proof.
  - apply RequestDisabled; assumption.
 Qed.
 
-Theorem initial_remote_is_valid : Remote.valid (F.feature_remote F.initial) = true.
-Proof. reflexivity. Qed.
-
 (** The premises describe a current grant and an unused receipt coordinate,
     rather than assuming that authorization already succeeded. *)
 Theorem current_grant_admits_fresh_remote_request : forall required request state issued,
@@ -238,10 +235,8 @@ Proof.
 Qed.
 
 (** Successful public grants consume a fresh generation, including re-grants. *)
-Theorem public_grant_issues_generation : forall payload rights value,
- let controller := G.remote_grant_controller_id payload in
- let permissions := G.remote_grant_permissions payload in
- Remote.controller_valid controller=true -> Remote.parse_rights permissions=Some rights ->
+Theorem public_grant_issues_generation : forall payload value,
+ let controller := proj1_sig (G.remote_grant_controller_id_admitted payload) in
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch)=true ->
  (match Remote.find_grant controller (Remote.registry value) with
  | Some _=>true | None=>N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end)=true ->
@@ -249,11 +244,9 @@ Theorem public_grant_issues_generation : forall payload rights value,
  Remote.handle_remote_grant payload None value=result /\
  F.remote_next_epoch (Remote.registry (decision_world result))=N.succ (F.remote_next_epoch (Remote.registry value)).
 Proof.
- intros payload rights value controller permissions valid parsed Epoch capacity.
- change (Remote.handle_remote_grant payload None value)
-   with (Remote.grant controller permissions value).
- unfold Remote.grant. rewrite valid.
- cbn beta iota zeta delta [negb]. rewrite parsed,Epoch; cbn [negb]; rewrite capacity.
+ intros payload value controller Epoch capacity.
+ unfold Remote.handle_remote_grant, Remote.admin_command, Remote.grant.
+ fold controller. rewrite Epoch; cbn [negb]; rewrite capacity.
  eexists; split;[reflexivity|].
  cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
 Qed.
@@ -262,9 +255,8 @@ Theorem revocation_never_reuses_generation : forall controller value,
  F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke controller value)))=
  F.remote_next_epoch (Remote.registry value).
 Proof.
- intros. unfold Remote.revoke. destruct (negb (Remote.controller_valid controller)).
- - reflexivity.
- - cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
+ intros. unfold Remote.revoke.
+ cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
 Qed.
 
 Lemma recorded_remote_registry : forall request before candidate,
@@ -352,79 +344,71 @@ Proof.
  rewrite Authorized. reflexivity.
 Qed.
 
-Theorem revoked_remote_controller_cannot_replay : forall required request value,
+Theorem revoked_remote_controller_cannot_replay : forall required controller epoch id intent value,
+ let request := Remote.Request (ControllerId (proj1_sig controller)) epoch id intent in
  F.remote_enabled (Remote.registry value) = true ->
  Remote.request_valid request = true ->
  Remote.authorize required request
-   (Remote.registry (decision_world (Remote.revoke (Remote.controller request) value))) =
+   (Remote.registry (decision_world (Remote.revoke controller value))) =
  Remote.Denied "remote_controller_revoked" "This controller has no active local grant".
 Proof.
- intros required request value Enabled Valid.
+ intros required controller epoch id intent value request Enabled Valid.
  assert (Identity : Remote.controller_valid (Remote.controller request) &&
      Remote.epoch_valid (Remote.epoch request) = true).
  { unfold Remote.request_valid in Valid.
    apply andb_true_iff in Valid as [Valid _].
    now apply andb_true_iff in Valid as [Valid _]. }
- pose proof Identity as Identifier. apply andb_true_iff in Identifier as [Identifier _].
- set (after := decision_world (Remote.revoke (Remote.controller request) value)).
+ set (after := decision_world (Remote.revoke controller value)).
  assert (StillEnabled : F.remote_enabled (Remote.registry after) = true).
- { unfold after, Remote.revoke. rewrite Identifier. cbn.
+ { unfold after, Remote.revoke. cbn.
    rewrite remote_registry_store. exact Enabled. }
  assert (Removed : Remote.find_grant (Remote.controller request) (Remote.registry after) = None).
- { unfold after, Remote.revoke. rewrite Identifier. cbn.
+ { unfold after, Remote.revoke. cbn.
    rewrite remote_registry_store. unfold Remote.find_grant. cbn.
    unfold Remote.remove_grants; apply removing_a_key_clears_its_lookup. }
- unfold Remote.authorize. rewrite StillEnabled, Valid. cbn.
- unfold Remote.check. rewrite StillEnabled, Identity. cbn. now rewrite Removed.
+ unfold Remote.authorize. rewrite StillEnabled, Valid. cbn [negb].
+ unfold Remote.check. rewrite StillEnabled, Identity. cbn [negb]. now rewrite Removed.
 Qed.
 
 Theorem local_grant_replaces_authority_and_clears_old_receipts :
- forall controller permissions rights value,
- Remote.controller_valid controller = true -> Remote.parse_rights permissions = Some rights ->
+ forall controller rights value,
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch) = true ->
- (match Remote.find_grant controller (Remote.registry value) with
+ (match Remote.find_grant (proj1_sig controller) (Remote.registry value) with
  | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end) = true ->
  let previous := Remote.registry value in
- let issued := F.RemoteGrant (ControllerId controller) (GrantEpoch (F.remote_next_epoch previous)) rights in
- Remote.grant controller permissions value =
+ let issued := F.RemoteGrant (ControllerId (proj1_sig controller)) (GrantEpoch (F.remote_next_epoch previous)) rights in
+ Remote.grant controller rights value =
  accept (Remote.grant_json issued)
    (Remote.store (F.Remote (F.remote_enabled previous)
-     (issued :: Remote.remove_grants controller (F.remote_grants previous))
+     (issued :: Remote.remove_grants (proj1_sig controller) (F.remote_grants previous))
      (N.succ (F.remote_next_epoch previous))
-     (Remote.remove_receipts controller (F.remote_receipts previous))) value) [].
+     (Remote.remove_receipts (proj1_sig controller) (F.remote_receipts previous))) value) [].
 Proof.
- intros controller permissions rights value Identifier Permissions Epoch Capacity.
- unfold Remote.grant; rewrite Identifier, Permissions; cbn [negb].
- rewrite Epoch; cbn [negb]; now rewrite Capacity.
+ intros controller rights value Epoch Capacity.
+ unfold Remote.grant. rewrite Epoch; cbn [negb]; now rewrite Capacity.
 Qed.
 
-Theorem full_registry_rejects_a_new_controller : forall controller permissions rights value,
- Remote.controller_valid controller = true -> Remote.parse_rights permissions = Some rights ->
+Theorem full_registry_rejects_a_new_controller : forall controller rights value,
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch) = true ->
- Remote.find_grant controller (Remote.registry value) = None ->
+ Remote.find_grant (proj1_sig controller) (Remote.registry value) = None ->
  (N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64) = false ->
- Remote.grant controller permissions value =
+ Remote.grant controller rights value =
  reject "remote_grants_full" "At most 64 controllers can be granted; revoke an existing controller first" value.
 Proof.
- intros controller permissions rights value Identifier Permissions Epoch Absent Full.
- unfold Remote.grant; rewrite Identifier, Permissions; cbn [negb].
- rewrite Epoch; cbn [negb]; now rewrite Absent, Full.
+ intros controller rights value Epoch Absent Full.
+ unfold Remote.grant. rewrite Epoch; cbn [negb]; now rewrite Absent, Full.
 Qed.
 
-Lemma granting_never_reuses_a_generation : forall controller permissions value,
+Lemma granting_never_reuses_a_generation : forall controller rights value,
  F.remote_next_epoch (Remote.registry value) <=
- F.remote_next_epoch (Remote.registry (decision_world (Remote.grant controller permissions value))).
+ F.remote_next_epoch (Remote.registry (decision_world (Remote.grant controller rights value))).
 Proof.
- intros controller permissions value; unfold Remote.grant.
- destruct (Remote.controller_valid controller); cbn [negb].
- - destruct (Remote.parse_rights permissions) as [rights|].
-   + destruct (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch); cbn [negb]; try apply N.le_refl.
-     destruct (match Remote.find_grant controller (Remote.registry value) with
-       | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end);
-       cbn [accept reject decision_world]; rewrite ?remote_registry_store; cbn;
-       apply N.le_refl || apply N.le_succ_diag_r.
-   + apply N.le_refl.
- - apply N.le_refl.
+ intros controller rights value; unfold Remote.grant.
+ destruct (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch); cbn [negb]; try apply N.le_refl.
+ destruct (match Remote.find_grant (proj1_sig controller) (Remote.registry value) with
+   | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end);
+   cbn [accept reject decision_world]; rewrite ?remote_registry_store; cbn;
+   apply N.le_refl || apply N.le_succ_diag_r.
 Qed.
 
 Theorem local_administration_never_reuses_a_generation : forall caller value enable disable grant revoke,
@@ -438,18 +422,14 @@ Proof.
  intros caller value enable disable grant revoke; cbv zeta.
  destruct caller; repeat split;
  try (change (F.remote_next_epoch (Remote.registry value) <= F.remote_next_epoch (Remote.registry value)); apply N.le_refl).
- - apply granting_never_reuses_a_generation.
- - change (F.remote_next_epoch (Remote.registry value) <=
-     F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke (G.remote_revoke_controller_id revoke) value)))).
-   rewrite revocation_never_reuses_generation; apply N.le_refl.
+ apply granting_never_reuses_a_generation.
 Qed.
 
-Theorem exhausted_epoch_rejects_grant_without_changing_world : forall controller permissions rights value,
- Remote.controller_valid controller = true -> Remote.parse_rights permissions = Some rights ->
+Theorem exhausted_epoch_rejects_grant_without_changing_world : forall controller rights value,
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch) = false ->
- Remote.grant controller permissions value =
+ Remote.grant controller rights value =
  reject "remote_epochs_exhausted" "Remote grant epochs are exhausted" value.
 Proof.
- intros controller permissions rights value Controller Rights Exhausted.
- unfold Remote.grant. rewrite Controller, Rights, Exhausted; reflexivity.
+ intros controller rights value Exhausted.
+ unfold Remote.grant. rewrite Exhausted; reflexivity.
 Qed.
