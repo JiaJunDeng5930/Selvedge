@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Receiver.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace Tasks CommandExecution.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Selvedge.Generated Require Import Commands.
@@ -8,9 +9,11 @@ From Selvedge.Features Require Import Domain State Observation Work WorkspaceBin
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition lookup (id:N) (value:world) := find (fun tree=>N.eqb id (Selvedge.Features.Domain.worktree_task tree)) (Selvedge.Features.Domain.feature_worktrees (world_features value)).
-Definition store (tree:Selvedge.Features.Domain.worktree) (value:world) := Selvedge.Kernel.State.with_features
- (Selvedge.Features.State.with_worktrees (tree::filter (fun previous=>negb (N.eqb (Selvedge.Features.Domain.worktree_task tree) (Selvedge.Features.Domain.worktree_task previous))) (Selvedge.Features.Domain.feature_worktrees (world_features value))) (world_features value)) value.
+Definition receiver := Receiver.field world_features
+ (Receiver.field Selvedge.Features.Domain.feature_worktrees
+   (Receiver.keyed Selvedge.Features.Domain.worktree_task)).
+Definition lookup (id : N) (value : world) := Receiver.read_at receiver id value.
+Definition store := Receiver.install receiver.
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
 Definition archived (task:task) := match task_lifecycle task with Archived _=>true | _=>false end.
 Definition inside (root path:string) := String.eqb root path || String.prefix (String.append root "/") path.

@@ -57,20 +57,22 @@ Fixpoint positioned {state input} (selected : t state input) : state -> Prop :=
  | Focused _ _ _ focus child => fun before => positioned child (Focus.read focus before)
  | Inject _ _ _ _ _ child | InRecord _ _ _ _ child _ _ _ _ _ => positioned child
  end.
-Fixpoint lookup {state input} (selected : t state input) : input -> state -> option input :=
+Fixpoint read_at {state input} (selected : t state input) (identity : N) : state -> option input :=
  match selected with
- | Keyed _ key => fun request => find (fun item => N.eqb (key request) (key item))
- | Indexed _ position => fun _ => registry_at position
- | Ordered _ position => fun _ entries => registry_at position (fst entries)
- | Field _ _ _ get _ child => fun request before => lookup child request (get before)
- | Focused _ _ _ focus child => fun request before => lookup child request (Focus.read focus before)
- | Inject _ _ _ constructor view child => fun request before =>
-     match lookup child (constructor request) before with
+ | Keyed _ key => find (fun item => N.eqb identity (key item))
+ | Indexed _ _ => registry_at identity
+ | Ordered _ _ => fun entries => registry_at identity (fst entries)
+ | Field _ _ _ get _ child => fun before => read_at child identity (get before)
+ | Focused _ _ _ focus child => fun before => read_at child identity (Focus.read focus before)
+ | Inject _ _ _ constructor view child => fun before =>
+     match read_at child identity before with
      | Some stored => @Constructor.project _ _ constructor view stored | None => None end
- | InRecord _ _ _ _ child get law constructor view base => fun request before =>
-     match lookup child (@set _ _ get (@set_wf _ _ get law) (fun _ => constructor request) base) before with
+ | InRecord _ _ _ _ child get law constructor view _ => fun before =>
+     match read_at child identity before with
      | Some stored => @Constructor.project _ _ constructor view (get stored) | None => None end
  end.
+Definition lookup {state input} (selected : t state input) (request : input) :=
+ read_at selected (address selected request).
 Fixpoint install {state input} (selected : t state input) : input -> state -> state :=
  match selected with
  | Keyed _ key => fun request entries =>

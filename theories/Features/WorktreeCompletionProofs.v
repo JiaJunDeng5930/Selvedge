@@ -82,7 +82,6 @@ Proof.
    (if ok then "Worktree creation returned an invalid workspace or guidance"%string else message) task).
  split.
  - unfold Selvedge.Kernel.State.decision_world, Selvedge.Kernel.State.accept.
-   unfold find_task. rewrite WorktreeProofs.store_preserves_tasks. fold find_task.
    eapply LifecycleProofs.find_put_task. exact found.
  - split.
    + apply failed_task_stops_live_owner; exact live.
@@ -99,7 +98,7 @@ Proof.
                (if ok then "Worktree creation returned an invalid workspace or guidance"%string else message) task)
              value)) = Some (F.with_worktree_phase (F.TreeCreateFailed root
                (if ok then "Worktree creation returned an invalid workspace or guidance"%string else message)) tree)).
-       apply WorktreeProofs.stored_resource_is_the_lookup.
+       apply ReceiverProofs.installed; exact I.
      * reflexivity.
 Qed.
 
@@ -113,7 +112,6 @@ Lemma successful_creation_records_completed_task : forall tree value task root s
 Proof.
  intros tree value task root space guidance message found valid live.
  unfold Worktree.created. rewrite found. cbn. rewrite valid, live. cbn.
- unfold find_task. rewrite WorktreeProofs.store_preserves_tasks. fold find_task.
  eapply LifecycleProofs.find_put_task.
  eapply WorktreeProofs.completing_bindings_preserves_the_owner; exact found.
 Qed.

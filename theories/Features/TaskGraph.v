@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Receiver.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Tasks CommandExecution.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work Worktree TaskGraphDeclarations.
@@ -8,9 +9,12 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition registry (value:world) := Selvedge.Features.Domain.feature_graphs (world_features value).
-Definition lookup (id:N) (value:world) := match registry_at id (registry value) with Some graph=>graph | None=>None end.
-Definition store (id:N) (graph:Selvedge.Features.Domain.task_graph) (value:world) :=
- Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graphs (if N.eqb id (N.of_nat (List.length (registry value))) then registry value++[Some graph] else replace id (Some graph) (registry value)) (world_features value)) value.
+Definition slot (id : N) := Receiver.field world_features
+ (Receiver.field Selvedge.Features.Domain.feature_graphs (Receiver.indexed id)).
+Definition receiver (id : N) := Receiver.inject (@Some Selvedge.Features.Domain.task_graph) (slot id).
+Definition lookup (id : N) (value : world) := Receiver.read_at (receiver id) id value.
+Definition store (id : N) := Receiver.install (receiver id).
+Definition remove (id : N) := Receiver.install (slot id) None.
 Definition resolve (key:string) (nodes:list Selvedge.Features.Domain.resolved_node) := option_map Selvedge.Features.Domain.node_task (find (fun node=>String.eqb key (Selvedge.Features.Domain.node_key node)) nodes).
 Definition maximum_message_depth := TaskGraphDeclarations.maximum_message_depth.
 Definition maximum_message_nodes := TaskGraphDeclarations.maximum_message_nodes.
@@ -258,7 +262,10 @@ Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_
  let id:=Selvedge.Generated.Commands.update_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>declare false id (Selvedge.Features.Domain.association id (Selvedge.Features.Domain.feature_graph_owners (world_features value))) (update_declaration payload) caller value end.
 Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_task_graph_payload) (caller:option N) (value:world) :decision :=
  let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>
- let features:=world_features value in Selvedge.Kernel.State.accept (JObject [("graph_id",number id)]) (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) (Selvedge.Features.State.with_graphs (replace id None (registry value)) features)) value) [] end.
+ let removed:=remove id value in
+ let features:=world_features removed in Selvedge.Kernel.State.accept (JObject [("graph_id",number id)])
+ (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners
+   (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) features) removed) [] end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
 Definition same_origin (a b:output_origin) := N.eqb (origin_producer a) (origin_producer b) && N.eqb (origin_operation a) (origin_operation b) && N.eqb (origin_part a) (origin_part b) &&

@@ -1,5 +1,5 @@
 From Selvedge.Kernel Require CommandResult.
-From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
+From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs ReceiverProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json JsonProofs Schema SchemaProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -42,43 +42,12 @@ Theorem public_interrupt_uses_shared_resource_guard : forall payload caller valu
    (Selvedge.Generated.Commands.interrupt_task_id payload) value.
 Proof. reflexivity. Qed.
 
-(** A completion looked up by owner can only update that registry identity. *)
+(** The owner coordinate is the address selected by the common keyed receiver. *)
 Lemma lookup_has_owner : forall id value tree,
  Worktree.lookup id value = Some tree -> F.worktree_task tree = id.
 Proof.
- intros id value tree found. unfold Worktree.lookup in found.
- apply find_some in found as [_ matches]. apply N.eqb_eq in matches. symmetry; exact matches.
-Qed.
-(** The registry is replaced through the operation used by setup, archive and
-    callback admission. A write cannot retain another entry for that owner or
-    change an unrelated resource. *)
-Theorem stored_resource_is_the_lookup : forall tree value,
- Worktree.lookup (F.worktree_task tree) (Worktree.store tree value) = Some tree.
-Proof.
- intros; unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
-   Selvedge.Features.State.with_worktrees; cbv [set]; cbn.
- rewrite N.eqb_refl; reflexivity.
-Qed.
-Theorem stored_resource_removes_previous_entries : forall tree value previous,
- In previous (tl (F.feature_worktrees (world_features (Worktree.store tree value)))) ->
- F.worktree_task previous <> F.worktree_task tree.
-Proof.
- intros tree value previous member.
- unfold Worktree.store, Selvedge.Kernel.State.with_features,
-   Selvedge.Features.State.with_worktrees in member; cbv [set] in member; cbn in member.
- apply filter_In in member as [_ different].
- apply Bool.negb_true_iff in different; apply N.eqb_neq in different; congruence.
-Qed.
-Theorem store_preserves_other_resource_lookups : forall tree value id,
- id <> F.worktree_task tree ->
- Worktree.lookup id (Worktree.store tree value) = Worktree.lookup id value.
-Proof.
- intros tree value id different.
- unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
-   Selvedge.Features.State.with_worktrees; cbv [set]; cbn.
- assert (N.eqb id (F.worktree_task tree) = false) as other by (apply N.eqb_neq; exact different).
- rewrite other; eapply filtering_another_key_preserves_lookup;
-   [intros; now apply N.eqb_eq|exact different].
+ intros id value tree Found.
+ eapply ReceiverProofs.keyed_read_has_address; exact Found.
 Qed.
 (** Restoring just the registry restores the entire world, including all other
     feature components and the kernel. This subsumes the old per-field frames. *)
@@ -354,7 +323,7 @@ Proof.
  assert (owned:Worktree.lookup owner staged=Some tree).
  { unfold staged. change (Worktree.lookup (F.worktree_task tree)
      (Worktree.store tree (append_task prepared before))=Some tree).
-   apply stored_resource_is_the_lookup. }
+   apply ReceiverProofs.installed; exact I. }
  assert (selected:find_task owner staged=Some prepared).
  { unfold staged,find_task. rewrite store_preserves_tasks,task_creation_never_rewrites_existing_history.
    apply Selvedge.Foundation.RegistryProofs.registry_lookup_at_appended_index. }

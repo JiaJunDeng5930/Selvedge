@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import TaskChangesProofs.
-From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Foundation Require Import RegistryProofs ReceiverProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
@@ -10,63 +10,6 @@ From Selvedge.Features Require Import Domain State TaskGraph TaskGraphSemantics 
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
 Module K:=Selvedge.Kernel.State.
-Lemma graph_lookup_has_registry_entry : forall id value graph,
- TaskGraph.lookup id value = Some graph ->
- registry_at id (TaskGraph.registry value) = Some (Some graph).
-Proof.
- intros id value graph Found. unfold TaskGraph.lookup in Found.
- destruct (registry_at id (TaskGraph.registry value)) as [[present|]|] eqn:Entry;
-   try discriminate. inversion Found; reflexivity.
-Qed.
-
-Theorem replacing_a_graph_preserves_its_identity : forall id value previous graph,
- TaskGraph.lookup id value = Some previous ->
- TaskGraph.lookup id (TaskGraph.store id graph value) = Some graph.
-Proof.
- intros id value previous graph Found.
- apply graph_lookup_has_registry_entry in Found.
- unfold TaskGraph.lookup.
- change (match registry_at id
-   (if N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace id (Some graph) (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end = Some graph).
- destruct (N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))) eqn:Append.
- - apply N.eqb_eq in Append. rewrite Append, registry_lookup_at_appended_index. reflexivity.
- - rewrite (registry_replace_selected _ _ _ _ _ Found). reflexivity.
-Qed.
-
-Theorem appending_a_graph_establishes_its_identity : forall value graph,
- let id := N.of_nat (List.length (TaskGraph.registry value)) in
- TaskGraph.lookup id (TaskGraph.store id graph value) = Some graph.
-Proof.
- intros value graph; cbv zeta. unfold TaskGraph.lookup.
- change (match registry_at (N.of_nat (List.length (TaskGraph.registry value)))
-   (if N.eqb (N.of_nat (List.length (TaskGraph.registry value)))
-       (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace (N.of_nat (List.length (TaskGraph.registry value))) (Some graph)
-      (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end = Some graph).
- rewrite N.eqb_refl, registry_lookup_at_appended_index. reflexivity.
-Qed.
-
-Theorem graph_installation_preserves_other_identities : forall id other value graph,
- id <> other ->
- TaskGraph.lookup other (TaskGraph.store id graph value) = TaskGraph.lookup other value.
-Proof.
- intros id other value graph Different. unfold TaskGraph.lookup.
- change (match registry_at other
-   (if N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace id (Some graph) (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end =
-   match registry_at other (TaskGraph.registry value) with
-   | Some graph => graph | None => None end).
- destruct (N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))) eqn:Append.
- - apply N.eqb_eq in Append. rewrite registry_append_preserves_other_lookup; [reflexivity|lia].
- - rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
-Qed.
 (** Installing a graph never dispatches the pre-existing history again. *)
 Theorem unchanged_history_has_no_new_outputs : forall value id task,
  K.find_task id value = Some task -> TaskGraph.new_outputs value id task = [].
@@ -460,23 +403,26 @@ Proof.
  intros request caller value previous Found.
  unfold TaskGraph.handle_delete_task_graph. rewrite Found.
  eexists; split; [reflexivity|].
- pose proof (graph_lookup_has_registry_entry _ _ _ Found) as Entry.
+ pose proof (ReceiverProofs.lookup_has_position
+   (TaskGraph.receiver (Selvedge.Generated.Commands.delete_task_graph_graph_id request))
+   previous value previous Found) as Position.
  split.
- - change (match registry_at (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
-     (replace (Selvedge.Generated.Commands.delete_task_graph_graph_id request) None
-       (TaskGraph.registry value)) with Some graph => graph | None => None end = None).
-   rewrite (registry_replace_selected _ _ _ _ _ Entry). reflexivity.
+ - change (match Receiver.lookup (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) None
+     (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
+     with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end = None).
+   unfold TaskGraph.remove. rewrite ReceiverProofs.installed by exact Position. reflexivity.
  - split.
    + change (F.association (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
        (filter (fun entry => negb (N.eqb (Selvedge.Generated.Commands.delete_task_graph_graph_id request) (fst entry)))
          (F.feature_graph_owners (world_features value))) = None).
      unfold F.association; rewrite removing_a_key_clears_its_lookup; reflexivity.
-   + intros other Different. unfold TaskGraph.lookup.
-   change (match registry_at other
-     (replace (Selvedge.Generated.Commands.delete_task_graph_graph_id request) None
-       (TaskGraph.registry value)) with Some graph => graph | None => None end =
-     match registry_at other (TaskGraph.registry value) with Some graph => graph | None => None end).
-     rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
+   + intros other Different.
+     change (match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other
+       (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
+       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end =
+       match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other value
+       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end).
+     unfold TaskGraph.remove. rewrite ReceiverProofs.other_address; [reflexivity|exact (not_eq_sym Different)].
 Qed.
 
 Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value previous,
@@ -487,7 +433,8 @@ Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value
      (F.graph_receipts previous ++ [receipt]))).
 Proof.
  intros id receipt value previous Found. unfold TaskGraph.record_receipt. rewrite Found.
- now apply replacing_a_graph_preserves_its_identity with previous.
+ apply (ReceiverProofs.installed (TaskGraph.receiver id)).
+ exact (ReceiverProofs.lookup_has_position (TaskGraph.receiver id) previous value previous Found).
 Qed.
 
 Theorem recording_a_receipt_preserves_other_graphs : forall id other receipt value,
@@ -496,7 +443,7 @@ Theorem recording_a_receipt_preserves_other_graphs : forall id other receipt val
 Proof.
  intros id other receipt value Different. unfold TaskGraph.record_receipt.
  destruct (TaskGraph.lookup id value); [|reflexivity].
- now apply graph_installation_preserves_other_identities.
+ apply (ReceiverProofs.other_address (TaskGraph.receiver id)); exact (not_eq_sym Different).
 Qed.
 
 Theorem recording_a_receipt_bounds_the_retained_history : forall id receipt value previous current,
