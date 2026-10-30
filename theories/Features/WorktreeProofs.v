@@ -52,16 +52,17 @@ Proof.
 Qed.
 (** The callback language requires an explicit primary directory. Guidance
     must additionally refer to that selected directory. *)
-Theorem created_completion_rejects_other_directory_guidance : forall source value address fields guidance,
- string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
- CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source = Some (address,fields) ->
+Theorem created_completion_rejects_other_directory_guidance : forall address fields guidance,
  Guidance.of_values (fst (snd (snd fields))) = Some guidance ->
  Codec.guidance_member (Worktree.completed_workspace (fst (snd fields))) guidance = false ->
- Worktree.completion source value = None.
+ Worktree.decode_creation_completion (existT _ true (address,fields)) = None.
 Proof.
- intros source value address fields guidance Kind Succeeded Decoded Observed Mismatch.
- unfold Worktree.completion; rewrite Kind, Succeeded; cbn [String.eqb].
- unfold Worktree.decode_creation_completion; rewrite Decoded, Observed, Mismatch, andb_false_r; reflexivity.
+ intros address [root [space [instructions []]]] guidance Observed Mismatch.
+ cbn [fst snd] in Observed,Mismatch.
+ unfold Worktree.decode_creation_completion,Worktree.creation_from_values; cbn beta iota zeta delta [fst snd].
+ rewrite Observed.
+ rewrite Mismatch.
+ now rewrite andb_false_r.
 Qed.
 (** Completion selects the host-observed settings independently for the frozen
     contract and the task's current execution settings. *)

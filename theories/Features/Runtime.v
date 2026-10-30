@@ -1,15 +1,12 @@
+From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Scheduler TitleCommit DecisionComposition.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime.
-Definition or_else {A:Type} (first:option A) (next:unit->option A) := match first with Some value=>Some value | None=>next tt end.
-Definition completion (execute:Scheduler.executor) (source:json) (value:world) :option (bool*bool*decision) :=
- or_else (Remote.completion execute source value) (fun _=>
- or_else (Worktree.completion source value) (fun _=>
- or_else (Board.completion source value) (fun _=>
- or_else (Chatgpt.completion source value) (fun _=>
- or_else (Compaction.completion source value) (fun _=>TitleRuntime.completion source value))))).
+Definition completion_inputs (execute : Scheduler.executor) :=
+ (Remote.completion_inputs execute ++ Worktree.completion_inputs ++ Board.completion_inputs ++
+  Chatgpt.completion_inputs ++ Compaction.completion_inputs ++ TitleRuntime.completion_inputs)%list.
 Definition after_transition (before:world) (result:decision) :decision :=
  DecisionComposition.run
  (DecisionComposition.and_then (Worktree.after_transition before)

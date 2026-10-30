@@ -93,57 +93,16 @@ Proof.
  rewrite NotIdle; rewrite Measured in Stale; now rewrite Stale.
 Qed.
 
-Lemma printed_natural_is_admitted : forall value, natural (number value) = Some value.
-Proof. exact natural_print_parse. Qed.
-Definition owns_compactor_ticket (id ticket : N) (value : K.world) :=
- match entry_job (A.current_entry id (A.registry value)) with
- | Compacting (RequestEnvelope.Envelope expected _) => N.eqb ticket expected | _ => false end.
-Lemma stale_result_does_not_change_the_component : forall id ticket result error value,
- owns_compactor_ticket id ticket value = false -> A.resolve (Completed id ticket result error) value = None.
-Proof.
- intros id ticket result error value stale; unfold A.resolve,A.resolve_task_completion.
- destruct (K.find_task id value) as [current|]; [|reflexivity].
- cbv beta zeta; unfold A.compact_result.
- destruct (Completion.Row.consume (A.completion_path id value) entry_job Compacting Completion.Ticket ticket
-   (fun _ _ => Some A.compaction_finished) value) as [received|]; [|reflexivity].
- exfalso; pose proof (Completion.Row.observed received) as Found.
- cbn in Found.
- assert (Located : A.find_entry id (A.registry value)=Some (Completion.Row.previous received)).
- { unfold A.find_entry,A.registry.
-   destruct (find (fun pair => N.eqb id (fst pair))
-     (maintenance_entries (Selvedge.Features.Domain.feature_compaction (world_features value)))) as [[owner stored]|]; exact Found. }
- destruct (CompletionProofs.candidate_spec _ _ _ _ _ _ _ _ (Completion.Row.admitted received))
-   as [Pending Matches].
- pose proof (Constructor.project_case _ _ Pending) as Phase.
- unfold owns_compactor_ticket,A.current_entry in stale; rewrite Located,<-Phase in stale.
- destruct (Completion.Row.request received); cbn in Matches; rewrite stale in Matches; discriminate.
-Qed.
-(** A valid stale observation still participates in journal ordering and the
-    outer scheduler. Its own handler acquires no state or execution authority. *)
-Theorem stale_compactor_callback_has_no_effects : forall source id ticket result error value,
- string_field "kind" source = Some "compaction_completed" ->
- CC.decode_completion "compaction_completed" source = Some (Completed id ticket result error) ->
- owns_compactor_ticket id ticket value = false ->
- A.completion source value = Some (true,true,A.acknowledged false value []).
-Proof.
- intros source id ticket result error value Kind Decoded Stale.
- unfold A.completion; rewrite Kind.
- change (Some (match CC.decode_completion "compaction_completed" source with
- | Some event => match A.resolve event value with
-   | Some result => (true,true,result) | None => (true,true,A.acknowledged false value []) end
- | None => (false,false,K.reject "invalid_input" "Malformed compaction observation" value) end) =
- Some (true,true,A.acknowledged false value [])).
- rewrite Decoded, stale_result_does_not_change_the_component by assumption. reflexivity.
-Qed.
-Definition clock_input (now : N) := JObject [("kind",JString "compaction_clock");("now",number now)].
+(** Already decoded observations retain their journal and scheduler role even
+    when their owned request has expired. Receiver admission is shared. *)
+Theorem an_unresolved_observation_retains_journal_ordering : forall event value,
+ A.resolve event value = None ->
+ A.completion event value = (true,true,A.acknowledged false value []).
+Proof. intros; unfold A.completion; now rewrite H. Qed.
 Theorem clock_observation_uses_monotone_time : forall now value,
- A.completion (clock_input now) value = Some (true,true,
+ A.completion (Clock now) value = (true,true,
  A.acknowledged true (A.store (set maintenance_timer (fun _ => 0) (A.with_now now (A.registry value))) value) []).
-Proof.
- intros. unfold A.completion, clock_input, A.owns_kind, CC.decode_completion,
-   CC.completion_decoder, CC.completion_decoders.
- cbn -[natural number A.resolve]. rewrite printed_natural_is_admitted. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 Lemma storing_maintenance_preserves_tasks : forall id state value,
  K.find_task id (A.store state value) = K.find_task id value.
 Proof. reflexivity. Qed.
@@ -371,7 +330,7 @@ Theorem suspended_manual_context_completion_cancels_its_job :
  entry_job (A.clear_entry cancelled (A.current_entry id (A.registry (K.decision_world result)))) = NoJob.
 Proof.
  intros id ticket revision before result previous task operations Previous Phase Found Job CurrentJob NotCancelled NotSteered Paused cancelled.
- unfold DecisionComposition.run, A.observe_manual; rewrite Previous, Found, NotCancelled, Phase, Job, N.eqb_refl, NotSteered.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_manual; rewrite Previous, Found, NotCancelled, Phase, Job, N.eqb_refl, NotSteered.
  unfold A.awaiting_context_demand; rewrite CurrentJob, N.eqb_refl; cbn [A.same_context_purpose].
  destruct Paused as [FrozenTask|StoppedTask].
  - assert (Activity : task_activity task = WantsModel) by (unfold task_activity; rewrite FrozenTask; reflexivity).
@@ -406,7 +365,7 @@ Theorem a_replaced_context_never_consumes_the_new_task_demand :
  K.decision_effects (DecisionComposition.run (A.observe_manual before id) result) = K.decision_effects result.
 Proof.
  intros id ticket revision purpose resume_model before result previous current Previous Phase Current Job Cancelled.
- unfold DecisionComposition.run, A.observe_manual; rewrite Previous, Current.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_manual; rewrite Previous, Current.
  destruct (A.cancelled_task id (K.decision_effects result)).
  2: { rewrite Phase, Job, N.eqb_refl.
       destruct (A.awaiting_context_demand ticket purpose
@@ -448,7 +407,7 @@ Theorem a_retired_context_receiver_preserves_the_entire_decision :
  DecisionComposition.run (A.observe_manual before id) result = result.
 Proof.
  intros id ticket revision purpose resume_model before result previous current Previous Phase Job Current NotCancelled Retired.
- unfold DecisionComposition.run, A.observe_manual; now rewrite Previous, Current, NotCancelled, Phase, Job, N.eqb_refl, Retired; destruct result; cbn; now rewrite app_nil_r.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_manual; now rewrite Previous, Current, NotCancelled, Phase, Job, N.eqb_refl, Retired; destruct result; cbn; now rewrite app_nil_r.
 Qed.
 
 Theorem recovering_a_context_retires_its_receiver : forall entry ticket purpose demand,
@@ -806,7 +765,7 @@ Proof.
  destruct NextState as [NextJob [NextMeasurement NextDeadline]].
  assert (Fresh : A.fresh (entry_measurement next) stopped (K.decision_world result) = true).
  { rewrite NextMeasurement; apply a_failed_capture_is_fresh_for_its_unchanged_input. }
- unfold DecisionComposition.run, A.synchronize_task; rewrite Stored.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.synchronize_task; rewrite Stored.
  destruct (A.synchronize id stopped (K.decision_world result)) as [following|] eqn:Following;
    [|exact Effects].
  cbn [DecisionComposition.run DecisionComposition.follow DecisionComposition.from_decision DecisionComposition.unchanged DecisionComposition.updated_world DecisionComposition.appended_effects K.decision_effects]; rewrite Effects; cbn.

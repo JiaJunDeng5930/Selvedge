@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
 From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
@@ -6,17 +7,10 @@ From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition decoder := ModelDeclarations.decoder input.
+Definition decoder := InputRoute.t input.
 Definition Decoder (name : string) (description : schema) (construct : fields description -> option input)
  `{DistinctNames ("kind" :: map field_name description)} : decoder :=
- ModelDeclarations.Decoder (ModelDeclarations.declare_variant "kind" (JString name) description [] None) construct.
-Definition decoder_name (value : decoder) := match ModelDeclarations.tag_value (ModelDeclarations.decoder_declaration value) with
- | JString name => name | _ => "" end.
-Definition decoder_fields (value : decoder) := ModelDeclarations.payload_fields (ModelDeclarations.decoder_declaration value).
-Definition decoder_construct := @ModelDeclarations.decoder_construct input.
-Definition coordinates := ModelDeclarations.identity.
-Definition parse_hook := HookRules.parse_hook.
-Definition parse_after := HookRules.parse_after.
+ InputRoute.object name description construct.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
 Definition configure_decoder := Decoder "configure" Configuration.environment_schema
@@ -24,11 +18,11 @@ Definition configure_decoder := Decoder "configure" Configuration.environment_sc
 (** The callback language chooses its result branch before exposing values.
     Domain handlers receive exactly that branch's fields and never reconstruct
     a relationship between independent optional payloads and a status flag. *)
-Record callback_decoder := CallbackDecoder {
- callback_declaration : callback_kind;
- callback_construct : forall ok, fields (CallbackDeclarations.coordinates callback_declaration) ->
-   DeclarationFields.values (CallbackDeclarations.payload callback_declaration ok) -> option input
-}.
+Definition CallbackDecoder (description : callback_kind)
+ (construct : forall ok, fields (CallbackDeclarations.coordinates description) ->
+   DeclarationFields.values (CallbackDeclarations.payload description ok) -> option input) : decoder :=
+ InputRoute.callback description (fun received =>
+   let '(existT _ ok (address,values)) := received in construct ok address values).
 Definition callback_kinds := [
  CallbackDecoder Context (fun ok address =>
    let id := head address in let ticket := head (tail address) in
@@ -54,29 +48,9 @@ Definition callback_kinds := [
      (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values))));
  CallbackDecoder Approval (fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
      (ApprovalProtocol.from_callback (fst values))))].
-Definition callback_named (name : string) :=
- find (fun entry => String.eqb name (callback_text (callback_declaration entry))) callback_kinds.
-Definition decode_callback entry source :=
- match CallbackDeclarations.decode (callback_declaration entry) source with
- | Some (existT _ ok (address,values)) => callback_construct entry ok address values
- | None => None end.
 Definition decoders := [command_decoder;configure_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
-Definition decode (source : json) : option input :=
- match source with
- | JObject members => if Schema.unique_names (map fst members) then
-   match lookup "kind" members with
-   | Some (JString name) => match callback_named name with
-     | Some kind => decode_callback kind source
-     | None => ModelDeclarations.decode_cases decoders source end
-   | _ => None end
-   else None
- | _ => None end.
-Definition owns_kind (source : json) :=
- match string_field "kind" source with Some kind =>
-   match callback_named kind with Some _ => true
-   | None => existsb (fun decoder => String.eqb kind (decoder_name decoder)) decoders end
- | None => false end.
+Definition inputs := (callback_kinds ++ decoders)%list.
 
 Open Scope string_scope.
 Definition schema_diagnostic (label : string) (declaration : schema) (source : json) :=
@@ -106,21 +80,18 @@ Definition command_diagnostic (source : json) :=
    end
  | None => "Missing or invalid command 'op'; use describe for the executable vocabulary"
  end.
-Definition diagnostic (source : json) :=
- match string_field "kind" source with
- | Some kind => match callback_named kind with
-   | Some callback => match CallbackDeclarations.read_status (callback_declaration callback) source with
-     | Some ok => "Invalid callback '" ++ kind ++ "'; expected " ++ TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema (callback_declaration callback) ok))
-     | None => "Missing or invalid callback result marker" end
-   | None => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
-   | Some decoder =>
-     let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
-     match Schema.decode (decoder_fields decoder) payload with
-     | None => schema_diagnostic ("input '" ++ kind ++ "'") (decoder_fields decoder) payload
-     | Some _ => if String.eqb kind "command" then command_diagnostic (value_or_null "command" payload)
-       else "Invalid domain values in input '" ++ kind ++ "'"
-     end
-   | None => "Unknown protocol input '" ++ kind ++ "'"
-   end end
- | None => "Missing or invalid protocol 'kind'"
+Definition diagnostic {A} (entry : InputRoute.t A) (source : json) :=
+ match InputRoute.language entry with
+ | InputRoute.Callback callback =>
+   match CallbackDeclarations.read_status callback source with
+   | Some ok => "Invalid callback '" ++ callback_text callback ++ "'; expected " ++
+       TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema callback ok))
+   | None => "Missing or invalid callback result marker" end
+ | InputRoute.Object name declaration _ =>
+   let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
+   match Schema.decode declaration payload with
+   | None => schema_diagnostic ("input '" ++ name ++ "'") declaration payload
+   | Some _ => if String.eqb name "command" then command_diagnostic (value_or_null "command" payload)
+     else "Invalid domain values in input '" ++ name ++ "'"
+   end
  end.

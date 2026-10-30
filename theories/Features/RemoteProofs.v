@@ -308,11 +308,9 @@ Qed.
 (** The public service probes before observing files or preparing configuration.
     The decoded envelope and command therefore bind a replay to the retained
     intent, while the grant generation still supplies its current authority. *)
-Theorem remote_replay_has_no_effect : forall execute source command required request before candidate issued,
- string_field "kind" source = Some "remote_probe" ->
- Remote.parse_request false source = Some (request,Schema.FNil) ->
- G.decode (Remote.intent request) = Some command ->
- Remote.required_rights command = Some required ->
+Theorem remote_replay_has_no_effect : forall execute admitted required request before candidate issued,
+ G.admit (Remote.intent request) = Some admitted ->
+ Remote.required_rights (G.admitted_value admitted) = Some required ->
  F.may_read required = false ->
  F.remote_enabled (Remote.registry before) = true ->
  Remote.request_valid request = true ->
@@ -321,27 +319,19 @@ Theorem remote_replay_has_no_effect : forall execute source command required req
  granted_permissions required (F.grant_rights issued) ->
  Remote.payload_valid (decision_reply candidate) = true ->
  let after := decision_world (Remote.record_result request before candidate) in
- Remote.completion execute source after =
- Some (false,false,accept
-   (JObject [("replayed",JBool true);("reply",decision_reply candidate)]) after []).
+ Remote.complete_request execute false request Schema.FNil after =
+ (false,false,accept (JObject [("replayed",JBool true);("reply",decision_reply candidate)]) after []).
 Proof.
- intros execute source command required request before candidate issued
-   Kind Parsed Decoded Rights Mutation Enabled Valid Granted Epoch Allowed Bounded after.
+ intros execute admitted required request before candidate issued
+   Admitted Rights Mutation Enabled Valid Granted Epoch Allowed Bounded after.
  assert (Replay : Remote.authorize required request (Remote.registry after) =
      Remote.Replay (decision_reply candidate)).
  { unfold after. eapply retained_remote_result_is_replayable; eassumption. }
- assert (Authorized : Remote.authorize_command true command request (Remote.registry after) =
+ assert (Authorized : Remote.authorize_command true (G.admitted_value admitted) request (Remote.registry after) =
      Remote.Replay (decision_reply candidate)).
  { unfold Remote.authorize_command, Remote.observation_command.
    rewrite Rights. cbn. now rewrite Mutation. }
- rewrite <- G.admit_projects_decode in Decoded.
- destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
- change (Some (G.admitted_value admitted) = Some command) in Decoded.
- injection Decoded as Decoded; subst command.
- unfold Remote.completion. rewrite Kind.
- cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
- rewrite Parsed, Admitted.
- rewrite Authorized. reflexivity.
+ unfold Remote.complete_request. rewrite Admitted; cbn beta iota zeta. now rewrite Authorized.
 Qed.
 
 Theorem revoked_remote_controller_cannot_replay : forall required controller epoch id intent value,

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson Completion.
@@ -556,15 +557,10 @@ Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload
  (caller : option N) (value : Selvedge.Kernel.State.world) :=
  CommandResult.decide value (handle_compact_result payload caller value).
 
-Definition owns_kind (kind : string) := match Selvedge.Features.CompactionCodec.completion_decoder kind with Some _ => true | None => false end.
-Definition completion (source : json) (value : Selvedge.Kernel.State.world) : option (bool * bool * Selvedge.Kernel.State.decision) :=
- match string_field "kind" source with
- | Some kind => if owns_kind kind then Some (match Selvedge.Features.CompactionCodec.decode_completion kind source with
-   | None => (false,false,Selvedge.Kernel.State.reject "invalid_input" "Malformed compaction observation" value)
-   | Some completion => match resolve completion value with
-     | None => (true,true,acknowledged false value [])
-     | Some result => (true,true,result) end end) else None
- | None => None end.
+Definition completion (event : Selvedge.Features.CompactionTypes.completion) (value : Selvedge.Kernel.State.world) :=
+ (true,true,match resolve event value with
+ | None => acknowledged false value [] | Some result => result end).
+Definition completion_inputs := List.map (InputRoute.map completion) Selvedge.Features.CompactionCodec.completion_inputs.
 Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  map (fun effect => match effect with
  | Selvedge.Kernel.State.RequestModel request =>

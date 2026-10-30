@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8 RemoteIdentity.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler Commands.
@@ -185,30 +186,28 @@ Definition execute_remote (execute:Scheduler.executor) prepared configuration re
 Definition preparation_fields (prepared : bool) :=
  if prepared then [Field "command" KJson;Field "configuration" KJson] else [].
 Definition request_schema (prepared : bool) := List.app
- [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
+ [Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
  (preparation_fields prepared).
-Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source with
- | Some values => let values := Schema.tail values in let controller := Schema.head values in
-   let values := Schema.tail values in let epoch := Schema.head values in
-   let values := Schema.tail values in let id := Schema.head values in
-   let values := Schema.tail values in
-   Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head values),Schema.tail values)
- | None => None end.
-Definition completion (execute:Scheduler.executor) source value : option (bool*bool*decision) :=
- match string_field "kind" source with
- | Some kind=>if String.eqb kind "remote_check" then Some (false,false,match Schema.decode [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural] source with
-   | Some values => let values := Schema.tail values in
-     probe_reply (check read_rights (Schema.head values) (Schema.head (Schema.tail values)) (registry value)) value
-   | None=>reject "invalid_input" "Malformed remote identity check" value end)
- else if String.eqb kind "remote_probe" || String.eqb kind "remote_command" then
-   let prepared:=String.eqb kind "remote_command" in
-   Some (match parse_request prepared source with
-   | None=>(false,false,reject "invalid_input" "Malformed remote request" value)
-   | Some (request,observations)=>match Selvedge.Generated.Commands.admit (intent request) with
-     | None=>(false,false,reject "invalid_input" "Malformed original remote command" value)
-     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in
-       (if prepared as observed return Schema.fields (preparation_fields observed) -> bool*bool*decision
-        then fun values=>execute_remote execute (Schema.head values) (Schema.head (Schema.tail values)) request command value
-        else fun _=>(false,false,probe_reply (authorize_command true command request (registry value)) value)) observations
-     end end) else None
- | None=>None end.
+Definition request_from_values (prepared : bool) (values : Schema.fields (request_schema prepared)) :=
+ let controller := Schema.head values in let values := Schema.tail values in
+ let epoch := Schema.head values in let values := Schema.tail values in
+ let id := Schema.head values in let values := Schema.tail values in
+ (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head values),Schema.tail values).
+Definition complete_request (execute : Scheduler.executor) (prepared : bool) (request : request)
+ (observations : Schema.fields (preparation_fields prepared)) value : bool * bool * decision :=
+ match Selvedge.Generated.Commands.admit (intent request) with
+ | None => (false,false,reject "invalid_input" "Malformed original remote command" value)
+ | Some admitted => let command := Selvedge.Generated.Commands.admitted_value admitted in
+   (if prepared as observed return Schema.fields (preparation_fields observed) -> bool * bool * decision
+    then fun fields => execute_remote execute (Schema.head fields) (Schema.head (Schema.tail fields)) request command value
+    else fun _ => (false,false,probe_reply (authorize_command true command request (registry value)) value)) observations
+ end.
+Definition request_handler execute prepared fields :=
+ let '(request,observations) := request_from_values prepared fields in
+ Some (complete_request execute prepared request observations).
+Definition completion_inputs (execute : Scheduler.executor) := [
+ InputRoute.object "remote_check" [Field "controller_id" KText;Field "grant_epoch" KNatural]
+   (fun fields => Some (fun value => (false,false,
+     probe_reply (check read_rights (Schema.head fields) (Schema.head (Schema.tail fields)) (registry value)) value)));
+ InputRoute.object "remote_probe" (request_schema false) (request_handler execute false);
+ InputRoute.object "remote_command" (request_schema true) (request_handler execute true)].

@@ -138,7 +138,7 @@ Qed.
    continuation retains normal task and feature progress after that commit. *)
 Theorem an_archived_result_is_committed_by_the_exported_packet :
  forall raw before (accepted : TerminalSettlement.plan before),
- InputDecoder.decode raw = Some (TerminalSettlement.source accepted) ->
+ Packet.decode raw = Some (inl (TerminalSettlement.source accepted)) ->
  TerminalSettlement.resolve (TerminalSettlement.source accepted) before = Some accepted ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
  Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
@@ -150,7 +150,7 @@ Proof.
  intros raw before accepted Decoded Resolved InputBudget OutputBudget.
  unfold Packet.packet, Packet.select.
  rewrite InputBudget; cbv beta zeta; rewrite Decoded.
- cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
+ cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].
  rewrite Resolved.
@@ -163,7 +163,7 @@ Theorem every_owned_terminal_callback_commits_at_the_public_packet :
  forall raw before payload current,
  let input := AfterCompleted (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
    (TerminalSettlement.ticket payload) (TerminalSettlement.outcome payload) in
- InputDecoder.decode raw = Some input ->
+ Packet.decode raw = Some (inl input) ->
  find_task (TerminalSettlement.owner payload) before = Some current ->
  TerminalSettlement.eligible payload current = true ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->

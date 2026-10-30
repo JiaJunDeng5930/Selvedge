@@ -9,7 +9,7 @@ Open Scope list_scope.
 
 Theorem a_selected_native_fork_commits_within_its_delivery_budget :
  forall raw before (accepted : NativeForkCommit.plan before),
- InputDecoder.decode raw = Some Continue ->
+ Packet.decode raw = Some (inl Continue) ->
  Delivery.fits_json raw = true ->
  NativeForkCommit.resolve Continue before = Some accepted ->
  Delivery.fits true (NativeForkCommit.candidate accepted) = true ->
@@ -20,7 +20,7 @@ Proof.
  intros raw before accepted Decoded InputFits Selected OutputFits.
  unfold Packet.packet, Packet.select; fold (Delivery.fits_json raw).
  rewrite InputFits, Decoded.
- cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate
+ cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate
    BoardCommit.input ConnectionCommit.input Packet.native_fork_input].
  rewrite Selected.
  apply a_constructed_candidate_with_its_actual_budget_is_committed; [|exact OutputFits].
@@ -33,7 +33,7 @@ Qed.
     Its durable acknowledgement lets independent work continue after the error. *)
 Theorem a_refused_native_fork_keeps_its_error_in_the_committed_task :
  forall raw before (accepted : NativeForkCommit.plan before) code reason,
- InputDecoder.decode raw = Some Continue ->
+ Packet.decode raw = Some (inl Continue) ->
  Delivery.fits_json raw = true ->
  NativeForkCommit.resolve Continue before = Some accepted ->
  NativeForkCommit.business_result accepted = CommandResult.Rejected (CommandResult.Refusal code reason) ->

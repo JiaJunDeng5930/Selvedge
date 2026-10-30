@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8 Completion.
@@ -158,12 +159,11 @@ Definition settle id result error value :bool*bool*decision :=
  let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
    (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
  (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
-Definition completion source value :option (bool*bool*decision) := match string_field "kind" source with
- | Some kind => if String.eqb kind "chatgpt_result" then Some (
-   match CallbackDeclarations.decode ModelDeclarations.ChatgptExec source with
-   | Some (existT _ ok (address,values)) => settle (Schema.head address) (JObject (fst values)) (negb ok) value
-   | None => (false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value) end) else None
- | None => None end.
+Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.ChatgptExec) value :=
+ let '(existT _ ok (address,fields)) := received in
+ settle (Schema.head address) (JObject (fst fields)) (negb ok) value.
+Definition completion_inputs := [InputRoute.callback ModelDeclarations.ChatgptExec
+ (fun received => Some (completion received))].
 Definition recover_job job := match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning=>with_outcome (Selvedge.Features.Domain.JobInterrupted "Service restarted; execution may have happened and will not be replayed") job
  | _=>job end.

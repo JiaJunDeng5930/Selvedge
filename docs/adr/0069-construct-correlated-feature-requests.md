@@ -56,6 +56,13 @@ handlers register the same descriptor with their interpretation. A new
 callback adds a declaration and a handler, without extending a global callback
 enumeration or proving its framing again.
 
+`InputRoute` binds each public input grammar to a handler that consumes only
+its admitted values. Core and feature owners export these entries; `Packet`
+combines them in one `DeclarationRegistry` and performs the actual lookup there.
+A malformed input cannot fall through to a different owner, and a new feature
+cannot shadow an existing input name. This replaces owner-by-owner namespace
+exclusion proofs without collecting every domain event into a global sum type.
+
 Completion uses the same receiver path. `Completion.run` recognizes a complete
 pending constructor through `Constructor.Case`; its terminal constructor must
 be outside that pending case. `Completion.Row.consume` also retains the actual

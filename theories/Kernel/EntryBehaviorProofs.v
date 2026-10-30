@@ -37,7 +37,7 @@ Proof. vm_compute; repeat split; auto. Qed.
    delivery supplies only the real encoded frame and decision budgets. *)
 Theorem every_resolved_exported_creation_commits_its_planned_result :
  forall source request contents before start (plan : Worktree.planned_start before),
- InputDecoder.decode source = Some (UserCommand (Commands.Cmd_create request)) ->
+ Packet.decode source = Some (inl (UserCommand (Commands.Cmd_create request))) ->
  Delivery.fits_json source = true ->
  CommandExecution.user_content (Commands.create_message_admitted request) (Commands.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
@@ -50,13 +50,13 @@ Proof.
  intros source request contents before start plan Decoded InputFits Parsed Resolved Prepared OutputFits.
  unfold Packet.packet, Packet.select.
  fold (Delivery.fits_json source).
- rewrite InputFits,Decoded; cbn [Packet.manual_fork_input CreationCommit.input].
+ rewrite InputFits,Decoded; cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input].
  apply every_planned_creation_with_an_output_budget_is_delivered with contents start; assumption.
 Qed.
 
 Corollary every_resolved_exported_creation_returns_and_installs_its_fresh_reference :
  forall source request contents before start (plan : Worktree.planned_start before),
- InputDecoder.decode source = Some (UserCommand (Commands.Cmd_create request)) ->
+ Packet.decode source = Some (inl (UserCommand (Commands.Cmd_create request))) ->
  Delivery.fits_json source = true ->
  CommandExecution.user_content (Commands.create_message_admitted request) (Commands.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->

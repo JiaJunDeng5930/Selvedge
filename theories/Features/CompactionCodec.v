@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
@@ -98,32 +99,23 @@ Definition decode_inspection (error : bool) (value : json) : option inspection :
      | Some tokens, Some window, Some reserve => option_map (InputMeasured scope tokens) (decode_budget window reserve)
      | _, _, _ => None end
    | _, _, _ => None end end.
-Definition decode_configure (value : json) : option completion :=
- match field "policy" value, natural_field "now" value with
- | Some value, Some now => option_map (fun policy => Configure policy now) (decode_policy value) | _, _ => None end.
-Definition decode_activity (value : json) : option completion := match natural_field "task_id" value,
- natural_field "source_length" value, natural_field "now" value, string_field "scope" value with
- | Some id, Some source, Some now, Some scope => Some (Activity id source now scope) | _, _, _, _ => None end.
-Definition decode_outcome (completed : bool) (value : json) : option completion :=
- match CallbackDeclarations.decode (ModelDeclarations.Compaction completed) value with
- | Some (existT _ ok (address,values)) =>
-   let id := Schema.head address in let ticket := Schema.head (Schema.tail address) in
-   (if ok as ok return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Compaction completed) ok) -> option completion
-    then fun values => let result := JObject (fst values) in
-      if completed then Some (Completed id ticket result false)
-      else option_map (MeasuredInput id ticket) (decode_inspection false result)
-    else fun values => let message := proj1_sig (fst (proj1_sig (fst values))) in
-      if completed then Some (Completed id ticket (JObject [("message",JString message)]) true)
-      else Some (MeasuredInput id ticket (InspectionFailed message))) values
- | None => None end.
-Definition completion_decoders : list (string * (json -> option completion)) := [
- ("compaction_configure", decode_configure);
- ("compaction_clock", fun value => option_map Clock (natural_field "now" value));
- ("compaction_activity", decode_activity);
- (ModelDeclarations.callback_text (ModelDeclarations.Compaction false), decode_outcome false);
- (ModelDeclarations.callback_text (ModelDeclarations.Compaction true), decode_outcome true)].
-Definition completion_decoder (kind : string) :=
- option_map (@snd string (json -> option completion))
-  (find (fun pair => String.eqb kind (fst pair)) completion_decoders).
-Definition decode_completion (kind : string) (value : json) :=
- match completion_decoder kind with Some decode => decode value | None => None end.
+Definition outcome_from_values (completed : bool)
+ (received : CallbackDeclarations.decoded (ModelDeclarations.Compaction completed)) : option completion :=
+ let '(existT _ ok (address,values)) := received in
+ let id := Schema.head address in let ticket := Schema.head (Schema.tail address) in
+ (if ok as ok return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Compaction completed) ok) -> option completion
+  then fun values => let result := JObject (fst values) in
+    if completed then Some (Completed id ticket result false)
+    else option_map (MeasuredInput id ticket) (decode_inspection false result)
+  else fun values => let message := proj1_sig (fst (proj1_sig (fst values))) in
+    if completed then Some (Completed id ticket (JObject [("message",JString message)]) true)
+    else Some (MeasuredInput id ticket (InspectionFailed message))) values.
+Definition completion_inputs : list (InputRoute.t completion) := [
+ InputRoute.object "compaction_configure" [Field "policy" KJson;Field "now" KNatural]
+   (fun fields => option_map (fun policy => Configure policy (head (tail fields))) (decode_policy (head fields)));
+ InputRoute.object "compaction_clock" [Field "now" KNatural] (fun fields => Some (Clock (head fields)));
+ InputRoute.object "compaction_activity"
+   [Field "task_id" KNatural;Field "source_length" KNatural;Field "now" KNatural;Field "scope" KText]
+   (fun fields => Some (Activity (head fields) (head (tail fields)) (head (tail (tail fields))) (head (tail (tail (tail fields))))));
+ InputRoute.callback (ModelDeclarations.Compaction false) (outcome_from_values false);
+ InputRoute.callback (ModelDeclarations.Compaction true) (outcome_from_values true)].

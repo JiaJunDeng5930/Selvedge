@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Schema Completion.
@@ -70,11 +71,12 @@ Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
  let '(correlated,next) := Completion.run (reception (world_features value) id) Selvedge.Features.Domain.TitlePending
    Completion.Ticket ticket (fun _ => completed_name ok text) value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
-Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
- match CallbackDeclarations.decode ModelDeclarations.TaskTitle source with
- | Some (existT _ ok (address,values)) =>
-   Some (true,true,complete (head address) (head (tail address)) ok (proj1_sig (fst values)) value)
- | None => None end.
+Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.TaskTitle) (value : world)
+ : bool * bool * decision :=
+ let '(existT _ ok (address,fields)) := received in
+ (true,true,complete (head address) (head (tail address)) ok (proj1_sig (fst fields)) value).
+Definition completion_inputs := [InputRoute.callback ModelDeclarations.TaskTitle
+ (fun received => Some (completion received))].
 Definition recover (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_titles (map (fun item=>match Selvedge.Features.Domain.title_value item with
  | Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope _ (_, _))=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")

@@ -11,8 +11,8 @@ Theorem malformed_commands_are_not_durable : forall source before,
  let '(durable,_,_,_) := Packet.transition (command_input source) before in durable = false.
 Proof.
  intros source before Rejected.
- assert (Decoded : InputDecoder.decode (command_input source) = None).
- { change (option_map UserCommand (G.decode source) = None). rewrite Rejected; reflexivity. }
+ assert (Decoded : Packet.decode (command_input source) = None).
+ { change (option_map (@inl Inputs.input (State.world -> bool * bool * State.decision)) (option_map UserCommand (G.decode source)) = None). rewrite Rejected; reflexivity. }
  unfold Packet.transition; rewrite Decoded.
  reflexivity.
 Qed.

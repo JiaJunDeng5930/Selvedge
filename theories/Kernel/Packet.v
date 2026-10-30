@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
@@ -56,23 +57,31 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | Recover => Selvedge.Features.Runtime.after_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
  | Continue => Selvedge.Features.Runtime.after_transition value (accept JNull value [])
  end.
-Definition transition_decoded (decoded : option Inputs.input) (source : json) (value : world)
+Definition input_route := (Inputs.input + (world -> bool * bool * decision))%type.
+Definition input_routes := DeclarationRegistry.declare (@InputRoute.identity input_route)
+ (List.map (InputRoute.map (@inl Inputs.input (world -> bool * bool * decision))) InputDecoder.inputs ++
+  List.map (InputRoute.map (@inr Inputs.input (world -> bool * bool * decision)))
+    (Selvedge.Features.Runtime.completion_inputs execute_domain)).
+Definition decode := InputRoute.decode input_routes.
+Definition core_input (decoded : option input_route) := match decoded with
+ | Some (inl input) => Some input | _ => None end.
+Definition transition_decoded (decoded : option input_route) (source : json) (value : world)
  : bool * bool * option Inputs.input * decision :=
  match decoded with
- | Some (UserCommand command) => match query command None value with
+ | Some (inl (UserCommand command)) => match query command None value with
    | Some reply => (false,false,Some (UserCommand command),Decision value reply [])
    | None => let result := execute_command command None value in
      (true,command_schedules command result,Some (UserCommand command),result) end
- | Some input => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
- | None => if InputDecoder.owns_kind source then
-     (false,false,None,reject "invalid_input" (InputDecoder.diagnostic source) value)
-   else match Selvedge.Features.Runtime.completion execute_domain source value with
-     | Some (durable,schedules,result) => (durable,schedules,None,if schedules then Selvedge.Features.Runtime.after_transition value result else result)
-     | None => (false,false,None,reject "invalid_input" "Unknown input kind or malformed domain callback" value)
-     end
+ | Some (inl input) => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
+ | Some (inr complete) =>
+   let '(durable,schedules,result) := complete value in
+   (durable,schedules,None,if schedules then Selvedge.Features.Runtime.after_transition value result else result)
+ | None => (false,false,None,reject "invalid_input"
+     (match InputRoute.selected input_routes source with
+      | Some entry => InputDecoder.diagnostic entry source
+      | None => "Unknown input kind or malformed domain callback" end) value)
  end.
-Definition transition (source : json) (value : world) :=
- transition_decoded (InputDecoder.decode source) source value.
+Definition transition (source : json) (value : world) := transition_decoded (decode source) source value.
 Definition callback_input (source : option Inputs.input) :=
  match source with
  | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false
@@ -88,7 +97,7 @@ Definition manual_fork_input (decoded : option Inputs.input) : option Selvedge.G
  | Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request)) => Some request
  | _ => None
  end.
-Definition manual_fork (source : json) := manual_fork_input (InputDecoder.decode source).
+Definition manual_fork (source : json) := manual_fork_input (core_input (decode source)).
 Definition native_fork_input (decoded : option Inputs.input) (value : world) :=
  match decoded with Some input => NativeForkCommit.resolve input value | None => None end.
 Definition terminal_settlement_input (decoded : option Inputs.input) (value : world) :=
@@ -111,7 +120,8 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | None => None
  end end end end end end.
 Definition select (source : json) (value : world) : CommitPacket.selected :=
- let decoded := InputDecoder.decode source in
+ let received := decode source in
+ let decoded := core_input received in
  match manual_fork_input decoded with
  | Some request => ForkCommit.select request value
  | None => match CreationCommit.input decoded with
@@ -119,7 +129,7 @@ Definition select (source : json) (value : world) : CommitPacket.selected :=
  | None => match deferred_candidate decoded value with
  | Some (input,candidate) => DeferredCommit.select true (Some input) value candidate
  | None =>
- let '(durable,schedules,input,result) := transition_decoded decoded source value in
+ let '(durable,schedules,input,result) := transition_decoded received source value in
  let result := prepare schedules input result in
  DeferredCommit.select durable input value result
  end end end.

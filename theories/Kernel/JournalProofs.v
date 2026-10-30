@@ -51,7 +51,7 @@ Qed.
 (* This premise identifies a decoded public read-only command. It does not
    assume the unchanged-world conclusion or any fact about later inputs. *)
 Theorem an_actual_query_does_not_change_later_replay : forall first second state source command reply,
- InputDecoder.decode source = Some (UserCommand command) ->
+ Packet.decode source = Some (inl (UserCommand command)) ->
  Packet.query command None (replay first state) = Some reply ->
  replay (first ++ source :: second) state = replay (first ++ second) state.
 Proof.

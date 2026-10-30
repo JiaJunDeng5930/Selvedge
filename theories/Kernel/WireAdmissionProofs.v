@@ -6,37 +6,17 @@ From Selvedge.Features Require Import Remote.
 Open Scope string_scope.
 Module G := Selvedge.Generated.Commands.
 
-Theorem completion_rejects_unadmitted_remote_request : forall execute source value (prepared : bool),
- string_field "kind" source = Some (if prepared then "remote_command" else "remote_probe") ->
- Remote.parse_request prepared source = None ->
- Remote.completion execute source value =
- Some (false,false,reject "invalid_input" "Malformed remote request" value).
-Proof.
- intros execute source value prepared Kind Parsed.
- unfold Remote.completion.
- rewrite Kind.
- destruct prepared; simpl in *; rewrite Parsed; reflexivity.
-Qed.
-
-Theorem completion_rejects_non_root_configuration : forall execute source value request command prepared configuration,
- string_field "kind" source = Some "remote_command" ->
- Remote.parse_request true source = Some (request,Schema.of_tuple (Remote.preparation_fields true) (prepared,(configuration,tt))) ->
- G.decode (Remote.intent request) = Some command ->
+Theorem completion_rejects_non_root_configuration : forall execute value request admitted prepared configuration,
+ G.admit (Remote.intent request) = Some admitted ->
  configuration <> JNull ->
- Remote.root_task_command command = false ->
- Remote.completion execute source value =
- Some (negb (Remote.observation_command command),false,
+ Remote.root_task_command (G.admitted_value admitted) = false ->
+ Remote.complete_request execute true request
+   (Schema.of_tuple (Remote.preparation_fields true) (prepared,(configuration,tt))) value =
+ (negb (Remote.observation_command (G.admitted_value admitted)),false,
    reject "invalid_input" "Remote environment observations are limited to task creation" value).
 Proof.
- intros execute source value request command prepared configuration Kind Parsed Decoded NonNull Root.
- rewrite <- G.admit_projects_decode in Decoded.
- destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
- change (Some (G.admitted_value admitted) = Some command) in Decoded.
- injection Decoded as Decoded; subst command.
- unfold Remote.completion.
- rewrite Kind.
- cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
- rewrite Parsed, Admitted.
+ intros execute value request admitted prepared configuration Admitted NonNull Root.
+ unfold Remote.complete_request; rewrite Admitted; cbn beta iota zeta delta [Schema.head Schema.tail Schema.of_tuple].
  unfold Remote.execute_remote, Remote.configuration_allowed.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);
    rewrite Root; reflexivity.

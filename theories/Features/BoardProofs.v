@@ -30,24 +30,22 @@ Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
 
 (** A well-formed callback with no current card lease is acknowledged as
     ignored, without changing the board or dispatching another turn. *)
-Theorem board_text_without_current_lease_is_ignored : forall source value ok payload,
- string_field "kind" source=Some "board_text" ->
- bool_field "ok" source=Some ok ->
- Board.decode_completion_payload source ok=Some payload ->
- (forall card, Board.lookup (Board.completion_card payload) value=Some card ->
-   ~ current_board_lease (Board.completion_ticket payload) card) ->
+Theorem board_text_without_current_lease_is_ignored : forall ok
+ (address : Schema.fields (CallbackDeclarations.coordinates ModelDeclarations.BoardText))
+ (fields : DeclarationFields.values (CallbackDeclarations.payload ModelDeclarations.BoardText ok)) value,
+ (forall card, Board.lookup (head address) value=Some card ->
+   ~ current_board_lease (head (tail address)) card) ->
  exists result,
-   Board.completion source value=Some (false,false,result) /\
+   Board.completion (existT _ ok (address,fields)) value=(false,false,result) /\
    decision_reply result=success (JObject [("accepted"%string,JBool false)]) /\
    decision_world result=value /\ decision_effects result=[] /\
-   Board.lookup (Board.completion_card payload) (decision_world result)=Board.lookup (Board.completion_card payload) value.
+   Board.lookup (head address) (decision_world result)=Board.lookup (head address) value.
 Proof.
- intros source value ok payload kind outcome Parsed no_lease.
- set (id:=Board.completion_card payload) in *; set (ticket:=Board.completion_ticket payload) in *.
- unfold Board.completion; rewrite kind, outcome, Parsed; cbn zeta; fold id ticket.
+ intros ok address fields value no_lease.
+ set (id:=head address) in *; set (ticket:=head (tail address)) in *.
+ unfold Board.completion; cbn zeta; fold id ticket.
  destruct (Completion.Row.consume (Board.completion_path id) F.card_enrichment F.Enriching Completion.Ticket ticket
-   (Board.completion_choice ok (Board.completion_title payload) (Board.completion_description payload)
-     (Board.completion_message payload) value) value) as [received|].
+   (Board.completion_choice (existT _ ok fields) value) value) as [received|].
  - exfalso; pose proof (Completion.Row.observed received) as Found.
    cbn in Found.
    assert (Located : Board.lookup id value=Some (Completion.Row.previous received)).

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
@@ -558,9 +559,10 @@ Record creation_completion := CreationCompletion {
 Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
  let fields := proj1_sig values in
  Workspace (map (@proj1_sig _ _) (proj1_sig (fst fields))) (Some (proj1_sig (fst (snd fields)))).
-Definition decode_creation_completion (source : json) (ok : bool) : option creation_completion :=
- if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source with
- | Some (address,values) =>
+Definition creation_from_values (ok : bool) (address : Schema.fields (CallbackDeclarations.coordinates (ModelDeclarations.Worktree true)))
+ : DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree true) ok) -> option creation_completion :=
+ if ok as outcome return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree true) outcome) -> option creation_completion
+ then fun values =>
    let root := proj1_sig (fst values) in let space := completed_workspace (fst (snd values)) in
    match Guidance.of_values (fst (snd (snd values))) with
    | Some guidance =>
@@ -568,20 +570,19 @@ Definition decode_creation_completion (source : json) (ok : bool) : option creat
         Workspace.valid_selection space && Codec.guidance_member space guidance
      then Some (CreationCompletion (head address) (CreatedWorkspace root space guidance)) else None
    | None => None end
- | None => None end
- else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) false source with
- | Some (address,values) => let root := option_map (@proj1_sig _ _) (fst values) in
+ else fun values => let root := option_map (@proj1_sig _ _) (fst values) in
    if match root with Some root => Workspace.valid_path root | None => true end
-   then Some (CreationCompletion (head address) (CreationFailure root (proj1_sig (fst (snd values))))) else None
- | None => None end.
+   then Some (CreationCompletion (head address) (CreationFailure root (proj1_sig (fst (snd values))))) else None.
+Definition decode_creation_completion (received : CallbackDeclarations.decoded (ModelDeclarations.Worktree true)) :=
+ let '(existT _ ok (address,values)) := received in creation_from_values ok address values.
 Inductive archive_observation := ArchiveSucceeded (outcome:archive_outcome) | ArchiveFailure (message:string).
-Definition decode_archive_completion (source : json) (ok : bool) : option (N * archive_observation) :=
- if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) true source with
- | Some (address,values) => option_map (fun outcome => (head address,ArchiveSucceeded outcome)) (archive_outcome_of (fst values))
- | None => None end
- else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) false source with
- | Some (address,values) => Some (head address,ArchiveFailure (proj1_sig (fst values)))
- | None => None end.
+Definition archive_from_values (ok : bool) (address : Schema.fields (CallbackDeclarations.coordinates (ModelDeclarations.Worktree false)))
+ : DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree false) ok) -> option (N * archive_observation) :=
+ if ok as outcome return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree false) outcome) -> option (N * archive_observation)
+ then fun values => option_map (fun outcome => (head address,ArchiveSucceeded outcome)) (archive_outcome_of (fst values))
+ else fun values => Some (head address,ArchiveFailure (proj1_sig (fst values))).
+Definition decode_archive_completion (received : CallbackDeclarations.decoded (ModelDeclarations.Worktree false)) :=
+ let '(existT _ ok (address,values)) := received in archive_from_values ok address values.
 Definition archive_choice (observed:archive_observation) (contents:Selvedge.Features.Domain.worktree_contents)
  (request:RequestEnvelope.owned (string*string))
  : option (Completion.Row.amendment Selvedge.Features.Domain.worktree_contents Selvedge.Features.Domain.TreeArchiving) :=
@@ -599,18 +600,14 @@ Definition archived_result id observed value :=
    Selvedge.Features.Domain.TreeArchiving Completion.Owner tt (archive_choice observed) value with
  | Some received => Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (Completion.Row.after received) []
  | None => ignored value end.
-Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
- match string_field "kind" source,bool_field "ok" source with
- | Some kind,Some ok=>
- if String.eqb kind "worktree_created" then
- match decode_creation_completion source ok with
- | Some payload=>Some (true,true,created (creation_owner payload) (creation_observed payload) value)
- | None=>None end
- else if String.eqb kind "worktree_archived" then
- match decode_archive_completion source ok with
- | Some (id,observed)=>Some (true,true,archived_result id observed value)
- | None=>None end
- else None | _,_=>None end.
+Definition completion_inputs := [
+ InputRoute.callback (ModelDeclarations.Worktree true) (fun received =>
+   option_map (fun payload => fun value =>
+     (true,true,created (creation_owner payload) (creation_observed payload) value))
+     (decode_creation_completion received));
+ InputRoute.callback (ModelDeclarations.Worktree false) (fun received =>
+   option_map (fun '(id,observed) => fun value => (true,true,archived_result id observed value))
+     (decode_archive_completion received))].
 Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComposition.step := fun value _ =>
  match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with Some task=>if archived task then
  match Selvedge.Features.Domain.worktree_phase tree with
