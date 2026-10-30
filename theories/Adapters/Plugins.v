@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import CallWire Json Utf8 TextJson.
 From Selvedge.Kernel Require Import ChatgptProtocol ChatgptArguments.
+From Selvedge.Kernel Require CallbackDeclarations.
+Module CD := CallbackDeclarations.
 From Selvedge.Adapters Require Import Common Observation PluginConnections PluginCatalog Attachments.
 Import ListNotations.
 Open Scope string_scope.
@@ -27,19 +29,27 @@ Definition call_request source := let effect := get source "effect" in let tool_
   if matching (get tool_source "plugin") (get source "reference") then success (JObject [("name",get tool_source "name");
     ("arguments",get (CallWire.external (get effect "call")) "arguments");("context",JObject [("task_id",get effect "task_id");
       ("operation_id",get effect "ticket");("call_id",get (get effect "call") "id")])]) else err "Plugin tool revision is unavailable".
-Definition hook_valid outcome (after : bool) :=
-  if String.eqb (str outcome "decision") "allow" then exact_fields ["decision"] outcome
-  else if String.eqb (str outcome "decision") "rewrite" then
-    if after then exact_fields ["decision";"value"] outcome else exact_fields ["decision";"arguments"] outcome && is_object (get outcome "arguments")
-  else if String.eqb (str outcome "decision") "deny" then exact_fields ["decision";"reason"] outcome &&
-    Utf8.nonblank (str outcome "reason") && (N.of_nat (String.length (str outcome "reason")) <=? 4096)
-  else false.
-Definition hook_result source (after : bool) := let outcome := get source "outcome" in
-  if hook_valid outcome after then success outcome
-  else type_error (if after then "Plugin returned an invalid result decision" else "Plugin returned an invalid hook decision").
-Definition call_result source := let value := get source "result" in
-  if keys value ["value";"error"] && has value "value" && is_bool (get value "error") then success value
-  else type_error "Plugin returned an invalid tool result".
+(** Plugins choose allow, rewrite or deny; transport failures are emitted by the host. *)
+Definition external_hook_choice {Allow Rewrite Failure : Set}
+ (value : (Allow + (Rewrite + (D.denote (CD.reason "deny" (CD.diagnostic_text ModelDeclarations.Hook)) + Failure)))%type) :=
+ match value with
+ | inl _ | inr (inl _) => true
+ | inr (inr (inl reason)) => Utf8.nonblank (proj1_sig (fst (snd (proj1_sig reason))))
+ | inr (inr (inr _)) => false end.
+Definition hook_result source (after : bool) :=
+ let description := if after then CD.after_schema else CD.hook_schema in
+ let invalid := type_error (if after then "Plugin returned an invalid result decision" else "Plugin returned an invalid hook decision") in
+ match D.decode description (get source "outcome") with
+ | Some outcome =>
+   if (if after as mode return D.denote (if mode then CD.after_schema else CD.hook_schema) -> bool
+       then external_hook_choice else external_hook_choice) outcome
+   then success (D.encode description outcome)
+   else invalid
+ | None => invalid end.
+Definition call_result_declaration := D.Object [F.required "value" D.Any;F.required "error" (D.Value Schema.KBool)].
+Definition call_result source := match D.decode call_result_declaration (get source "result") with
+ | Some value => success (D.encode call_result_declaration value)
+ | None => type_error "Plugin returned an invalid tool result" end.
 Definition mcp_result source := let value := get source "result" in
   if is_object value then success (JObject [("value",value);("error",JBool (boolean_field value "isError"))])
   else err "MCP returned a malformed tool result".
