@@ -22,9 +22,7 @@ Definition binding_declaration := Codec.binding_declaration.
 Definition settings_declaration := Codec.settings_declaration.
 Definition content_declaration := ContentDeclarations.content_declaration.
 Definition images_declaration := ContentDeclarations.images_declaration.
-Definition attachments_declaration (observed : bool) := D.Array
- (from_fields (if observed then BoardParameters.attachment_schema
-               else BoardParameters.attachment_reference_schema)).
+Definition attachments_declaration := BoardParameters.attachments_declaration.
 Definition title_prompt_declaration := Titles.instruction_declaration.
 Definition controller_id_declaration := RemoteIdentity.controller_declaration.
 Definition permissions_declaration := D.of_schema Selvedge.Features.Domain.rights_fields.
@@ -35,15 +33,11 @@ Definition graph_node_declaration (observed : bool) :=
 Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
 Definition graph_nodes_declaration observed := D.BoundedArray 0 32 (graph_node_declaration observed).
 Definition graph_rules_declaration := D.BoundedArray 0 32 graph_rule_declaration.
-Definition board_status := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
- false false false (Some (map Selvedge.Features.Domain.stage_name Selvedge.Features.Domain.stages))).
-Definition board_assignee := D.Union [enum "none" ["self"];
- D.PrefixedText "profile/" (D.bounded_format 1016);
- D.PrefixedText "agent/" (D.NaturalSpelling 0 (Some 4294967295))].
-Definition board_project := D.Union [enum "" [];D.NaturalText 0 (Some 4294967295)].
-Definition board_clock := D.NaturalText 0 (Some 4294967295).
-Definition board_priority := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
- false false false (Some (map Selvedge.Features.Domain.priority_name Selvedge.Features.Domain.priorities))).
+Definition board_status := BoardParameters.stage_declaration.
+Definition board_assignee := BoardParameters.owner_declaration.
+Definition board_project := BoardParameters.project_declaration.
+Definition board_clock := BoardParameters.clock_declaration.
+Definition board_priority := BoardParameters.priority_declaration.
 
 
 (** A field declares its internal representation and its external admission in

@@ -12,11 +12,10 @@ Module F := Selvedge.Features.Domain.
 (* A pending resource prevents archive_card before any task or card mutation.
    The public packet retains the exact business refusal and commits its receipt. *)
 Theorem pending_worktree_card_archive_returns_its_exact_public_refusal :
- forall source request before card target task now tree,
+ forall source request before card target task tree,
  Delivery.fits_json source = true ->
  InputDecoder.decode source = Some (UserCommand (G.Cmd_archive_card request)) ->
  Board.lookup (G.archive_card_card_id request) before = Some card ->
- Board.clock (G.archive_card_observed_at request) = Some now ->
  G.archive_card_revision request = F.card_revision card ->
  Board.pending card = false ->
  F.card_task card = Some target ->
@@ -29,8 +28,8 @@ Theorem pending_worktree_card_archive_returns_its_exact_public_refusal :
   Observation.envelope true (reject "worktree_pending"
     "Wait for worktree creation or archive the task before changing its execution" before)).
 Proof.
- intros source request before card target task now tree InputFits Decoded
-   Found Clock Revision NotDrafting Linked Owned Busy NotArchived Executable Resource Pending.
+ intros source request before card target task tree InputFits Decoded
+   Found Revision NotDrafting Linked Owned Busy NotArchived Executable Resource Pending.
  assert (Refused : Board.handle_archive_card request None before =
    reject "worktree_pending"
      "Wait for worktree creation or archive the task before changing its execution" before).

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
-From Selvedge.Foundation Require Import Json Schema RequestEnvelope.
-From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants.
+From Selvedge.Foundation Require Import Json Schema RequestEnvelope FiniteChoice.
+From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
 From Selvedge.Foundation Require Export RemoteIdentity.
 Import ListNotations.
@@ -15,8 +15,10 @@ Record card_draft := CardDraft { draft_title : string; draft_description : strin
  draft_project : option N; draft_labels : list string; draft_attachments : list attachment }.
 Inductive enrichment := NoEnrichment | Enriching (request : RequestEnvelope.t (N * bool)) | EnrichmentFailed (reason : string).
 Record card := Card { card_revision : N; card_contents : card_draft;
- card_task : option N; card_archived : bool; card_created : N; card_updated : N;
+ card_task : option N; card_archived : bool; card_created_at : BoardClock.t; card_updated_at : BoardClock.t;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.
+Definition card_created card := BoardClock.value (card_created_at card).
+Definition card_updated card := BoardClock.value (card_updated_at card).
 Record board_agent := BoardAgent { agent_revision : N; agent_name : string;
  agent_profile : string; agent_reasoning : string; agent_instructions : string;
  agent_settings_request : Codec.settings_request; agent_concurrency : N }.
@@ -108,17 +110,20 @@ Definition reference_execution (owner : option N) (value : state) :=
    | Some tree => resource_json tree | None => JNull end
  | None => JNull end.
 
-Definition stages := [Backlog; Todo; InProgress; InReview; Completed; Blocked].
-Definition priorities := [NoPriority; Low; Medium; High; Urgent].
 Definition stage_name (value : board_stage) := match value with
  | Backlog => "backlog"%string | Todo => "todo"%string | InProgress => "in_progress"%string
  | InReview => "in_review"%string | Completed => "done"%string | Blocked => "blocked"%string end.
+Definition stage_choices := FiniteChoice.declare stage_name Backlog
+ [Todo; InProgress; InReview; Completed; Blocked].
+Definition stages := FiniteChoice.first stage_choices :: FiniteChoice.rest stage_choices.
 Definition stage_label (value : board_stage) := match value with
  | Backlog => "待规划"%string | Todo => "待办"%string | InProgress => "进行中"%string
  | InReview => "待审核"%string | Completed => "已完成"%string | Blocked => "已阻塞"%string end.
 Definition priority_name (value : priority) := match value with
  | NoPriority => "none"%string | Low => "low"%string | Medium => "medium"%string
  | High => "high"%string | Urgent => "urgent"%string end.
+Definition priority_choices := FiniteChoice.declare priority_name NoPriority [Low; Medium; High; Urgent].
+Definition priorities := FiniteChoice.first priority_choices :: FiniteChoice.rest priority_choices.
 Definition priority_label (value : priority) := match value with
  | NoPriority => "无"%string | Low => "低"%string | Medium => "中"%string
  | High => "高"%string | Urgent => "紧急"%string end.

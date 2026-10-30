@@ -52,15 +52,17 @@ Definition board_command (source : json) :=
   (* DEFENSE: Explicit malformed attachment input must not bypass reference admission. *)
   success (JObject [("observe",JBool observe);("attachments",JBool
     (observe && has command "attachments" && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
-Fixpoint reference_shapes (seen : list string) (references : list json) :=
-  match references with [] => true | reference::rest =>
-    plain_fields_only (map field_name BoardParameters.attachment_reference_schema) reference && is_text (get reference "id") &&
-    negb (existsb (String.eqb (str reference "id")) seen) && reference_shapes (str reference "id"::seen) rest end.
 Definition board_references (source : json) :=
   let references := get (get source "command") "attachments" in
-  if is_array references && (N.of_nat (List.length (items references)) <=? 4) then
-    if reference_shapes [] (items references) then success references else type_error "Attachments must be distinct uploaded file references"
-  else range_error "A card accepts at most four attachments".
+  match ArgumentDeclaration.decode (BoardParameters.attachments_declaration false) references with
+  | Some admitted =>
+    let identities := map (fun value => proj1_sig (fst (proj1_sig value))) (proj1_sig admitted) in
+    if Schema.unique_names identities
+    then success (ArgumentDeclaration.encode (BoardParameters.attachments_declaration false) admitted)
+    (* DEFENSE: A raw board command can repeat one uploaded file identity. *)
+    else type_error "Attachments must be distinct uploaded file references"
+  (* DEFENSE: Raw attachment references can exceed the four-file limit or contain malformed metadata. *)
+  | None => type_error "A card accepts at most four well-formed uploaded file references" end.
 Fixpoint reference_match (keys : list string) (value attachment : json) :=
   match keys with [] => success attachment | key::rest =>
     if negb (has value key) || equal (get value key) (get attachment key)

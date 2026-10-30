@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Receiver Registry.
 From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission TicketedRequest.
-From Selvedge.Features Require Import Domain BoardFacts Observation Titles.
+From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -31,25 +31,23 @@ Definition live_count before := List.length (filter (fun card => match card with
     Identity, revision, retitle mode and receiver position are interpretations
     of the same choice, so they cannot be supplied independently. *)
 Inductive drafting_target (before : world) :=
-| FreshTarget (draft : F.card_draft) (now : N)
-    (Clock : (now <=? 4294967295) = true)
+| FreshTarget (draft : F.card_draft) (now : BoardParameters.clock)
     (Draft : BoardFacts.valid_draft draft before = true)
     (Capacity : Nat.ltb (live_count before) 512 = true)
     (Identity : (fresh_id before <? 4294967295) = true)
-| RevisedTarget (id : N) (reference : card_reference before id) (now : N)
-    (Clock : (now <=? 4294967295) = true)
+| RevisedTarget (id : N) (reference : card_reference before id) (now : BoardParameters.clock)
     (Mutable : BoardFacts.mutable (selected_card reference) before = true).
 Definition fresh_target := FreshTarget.
 Definition revised_target := RevisedTarget.
 Definition target_id {before} (target : drafting_target before) := match target with
- | FreshTarget _ _ _ _ _ _ _ => fresh_id before
- | RevisedTarget _ id _ _ _ _ => id end.
+ | FreshTarget _ _ _ _ _ _ => fresh_id before
+ | RevisedTarget _ id _ _ _ => id end.
 Definition target_card {before} (target : drafting_target before) := match target with
- | FreshTarget _ draft now _ _ _ _ => fresh_card draft now
- | RevisedTarget _ _ reference now _ _ =>
+ | FreshTarget _ draft now _ _ _ => fresh_card draft now
+ | RevisedTarget _ _ reference now _ =>
      BoardFacts.revised (F.card_contents (selected_card reference)) now (selected_card reference) end.
 Definition target_retitle {before} (target : drafting_target before) := match target with
- | FreshTarget _ _ _ _ _ _ _ => false | RevisedTarget _ _ _ _ _ _ => true end.
+ | FreshTarget _ _ _ _ _ _ => false | RevisedTarget _ _ _ _ _ => true end.
 Definition target_location {before} (target : drafting_target before)
  : Receiver.located F.state F.card (world_features before) :=
  let features := world_features before in
@@ -59,8 +57,8 @@ Definition target_location {before} (target : drafting_target before)
    (Receiver.At.focused board S.board_contents
      (Receiver.At.inject (@Some F.card)
        (match target with
-        | FreshTarget _ _ _ _ _ _ _ => Receiver.At.ordered_append contents
-        | RevisedTarget _ id reference _ _ _ =>
+        | FreshTarget _ _ _ _ _ _ => Receiver.At.ordered_append contents
+        | RevisedTarget _ id reference _ _ =>
             Receiver.At.ordered_present contents id (selected_card reference) (selected_card_found reference)
         end))).
 

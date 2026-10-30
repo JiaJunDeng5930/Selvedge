@@ -90,7 +90,13 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand BoardChange TaskExcluded (WireCommand "regenerate_card_title" (card_identity ++ [opt "draft_profile" KText]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "pin_card" (card_identity ++ [required (opt "pinned" KBool)]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "board_settings" [req "automatic" KBool; req "draft_profile" KText]);
-  DeclareCommand BoardChange TaskExcluded (WireCommand "save_board_agent" [optional_identity_text (req "agent" KText); u32 (req "revision" KNatural); req "name" KText; req "profile" KText; req "reasoning" KText; req "instructions" KText; staged settings_declaration (opt "settings" KJson); u32 (req "concurrency" KNatural)]);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "save_board_agent" [optional_identity_text (req "agent" KText); u32 (req "revision" KNatural);
+   typed BoardParameters.agent_name_declaration (req "name" KText);
+   typed BoardParameters.agent_profile_declaration (req "profile" KText);
+   typed BoardParameters.agent_reasoning_declaration (req "reasoning" KText);
+   typed BoardParameters.agent_instructions_declaration (req "instructions" KText);
+   staged settings_declaration (opt "settings" KJson);
+   typed BoardParameters.agent_capacity_declaration (req "concurrency" KNatural)]);
   DeclareCommand BoardChange TaskExcluded (WireCommand "delete_board_agent" [u32 (req "agent_id" KNatural); u32 (req "revision" KNatural)]);
   DeclareCommand BoardQuery TaskExcluded (WireCommand "list_cards" []);
   DeclareCommand BoardQuery TaskExcluded (WireCommand "read_card" [u32 (req "card_id" KNatural)]);
