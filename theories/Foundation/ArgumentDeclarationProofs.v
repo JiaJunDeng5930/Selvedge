@@ -15,3 +15,11 @@ Lemma check_text_reflects : forall constraints source,
 Proof.
  intros; unfold D.check; cbn [D.Text D.decode D.decode_text]. apply admitted_value_retains_its_constraint.
 Qed.
+
+Lemma nonblank_text_has_content : forall value : D.denote D.nonblank_text,
+ Utf8.nonblank (proj1_sig value) = true.
+Proof.
+ intros [value Valid]; cbn. unfold D.nonblank_text, D.check_text in Valid; cbn in Valid.
+ destruct (Utf8.scalar_count value); try discriminate.
+ repeat rewrite Bool.andb_true_iff in Valid; cbn in Valid; tauto.
+Qed.

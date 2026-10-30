@@ -666,10 +666,10 @@ Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:
    (* An already committed delegation remains an idempotent read after setup
       failure; a new delegation must obey the same execution gate as send. *)
    let replay:=CommandExecution.speech_delegation id
-     (Selvedge.Generated.Commands.accept_speech_delegation_session_id p)
-     (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id p)
-     (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode p))
-     (Selvedge.Generated.Commands.accept_speech_delegation_message p) value in
+     (Selvedge.Generated.Commands.accept_speech_delegation_session_id_admitted p)
+     (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id_admitted p)
+     (Selvedge.Generated.Commands.accept_speech_delegation_mode p)
+     (Selvedge.Generated.Commands.accept_speech_delegation_message_admitted p) value in
    if bool_default "replayed" (value_or_null "result" (decision_reply replay)) false
      then Some replay else Some (failed_execution value)
  | Selvedge.Generated.Commands.Cmd_return_side_conversation p=>

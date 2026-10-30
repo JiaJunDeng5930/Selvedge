@@ -44,6 +44,7 @@ Definition NaturalText minimum maximum := Textual (NaturalSpelling minimum maxim
 Definition PrefixedText prefix suffix := Textual (PrefixedSpelling prefix suffix).
 Definition unconstrained_text := TextConstraints 0 maximum_natural maximum_natural false false false None.
 Definition text := Text unconstrained_text.
+Definition nonblank_text := Text (TextConstraints 0 maximum_natural maximum_natural false true false None).
 Definition bounded_format (bytes : N) := ConstrainedText (TextConstraints 0 maximum_natural bytes true true false None).
 Definition bounded_text (bytes : N) := Textual (bounded_format bytes).
 Definition exact_lower_hex (length : N) := Text (TextConstraints length length length false false true None).

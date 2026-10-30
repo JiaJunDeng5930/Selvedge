@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Arguments JsonSchema.
-From Selvedge.Kernel Require Import WorkspaceBackend Pagination TaskConstraints.
+From Selvedge.Kernel Require Import WorkspaceBackend Pagination TaskConstraints ApprovalProtocol.
 From Selvedge.Kernel Require Compaction.
 From Selvedge.Kernel Require Export CommandArguments.
 Import ListNotations.
@@ -77,9 +77,9 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "delete_project" [u32 (req "project_id" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list_projects" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "read_project" [u32 (req "project_id" KNatural)]);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "review_approval" (task_identity ++ [u32 (req "operation_id" KNatural); req "decision" (KEnum "allow" ["deny"]); opt "reason" KText]));
-  DeclareCommand KernelChange TaskExcluded (WireCommand "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]));
-  DeclareCommand KernelChange TaskExcluded (WireCommand "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "review_approval" (task_identity ++ [u32 (req "operation_id" KNatural); req "decision" (KEnum "allow" ["deny"]); typed ApprovalProtocol.reason_declaration (opt "reason" KText)]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "record_speech_transcript" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "item_id" KText); req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); typed D.nonblank_text (req "text" KText)]));
+  DeclareCommand KernelChange TaskExcluded (WireCommand "accept_speech_delegation" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "delegation_id" KText); typed D.nonblank_text (req "message" KText); req "mode" (KEnum "send" ["steer"])]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "update_card" (card_identity ++ card_metadata));
   DeclareCommand BoardChange TaskExcluded (WireCommand "move_card" (card_identity ++ [required (typed board_status (opt "status" KText)); optional_identity_text (opt "before_card" KText)]));

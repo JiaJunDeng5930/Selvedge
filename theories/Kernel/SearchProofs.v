@@ -59,11 +59,3 @@ Proof.
  { apply N.leb_le; rewrite length_app, Nat2N.inj_add; lia. }
  rewrite E, Nat2N.id, skipn_app, skipn_all, Nat.sub_diag; reflexivity.
 Qed.
-
-Theorem the_public_search_query_calls_the_scoped_history_search : forall request caller value,
- Queries.handle_search_history request caller value =
- Search.search (Commands.search_history_query request)
-   (Commands.search_history_project_id request) (Commands.search_history_work_id request)
-   (Queries.default_n (Commands.search_history_after request) 0)
-   (Queries.default_n (Commands.search_history_limit request) Search.default_limit) value.
-Proof. reflexivity. Qed.

@@ -132,11 +132,13 @@ Definition delete_project (id : N) (value : world) :=
    else accept (JObject [("project_id",number id)])
     (with_projects (replace id (Project "" (Workspace [] None) None false (project_order project) true None) (world_projects value)) value) []
  end.
-Definition speech_transcript (id : N) (session item : string) (speaker : Domain.speaker)
- (completion : speech_completion) (text : string) (value : world) :=
+Definition speech_transcript (id : N) (session_value item_value : D.denote D.nonblank_text) (speaker : Domain.speaker)
+ (completion : speech_completion) (text_value : D.denote D.nonblank_text) (value : world) :=
+ let session := proj1_sig session_value in let item := proj1_sig item_value in
+ let text := proj1_sig text_value in
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
- | Some task => if nonempty session && nonempty item && nonempty text && Utf8.well_formed text then
+ | Some task =>
    let result replayed := JObject [("task_id",number id);("session_id",JString session);("item_id",JString item);("recorded",JBool true);("replayed",JBool replayed)] in
    match find (fun message => match message with SpeechTranscript owner actual_session actual_item _ _ _ =>
      N.eqb owner id && String.eqb session actual_session && String.eqb item actual_item | _ => false end) (task_history task) with
@@ -146,12 +148,15 @@ Definition speech_transcript (id : N) (session item : string) (speaker : Domain.
      | Archived _ => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
      | _ => accept (result false) (put_task id (append_history [SpeechTranscript id session item speaker completion text] task) value) [] end
    end
-   else reject "invalid_arguments" "Final transcripts require stable identities and nonempty Unicode text" value
  end.
-Definition speech_delegation (id : N) (session identity mode text : string) (value : world) :=
+Definition speech_delegation (id : N) (session_value identity_value : D.denote D.nonblank_text)
+ (mode_value : Schema.denote (Schema.KEnum "send" ["steer"]))
+ (text_value : D.denote D.nonblank_text) (value : world) :=
+ let session := proj1_sig session_value in let identity := proj1_sig identity_value in
+ let mode := proj1_sig mode_value in let text := proj1_sig text_value in
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
- | Some task => if nonempty session && nonempty identity && content_nonempty [TextPart text] then
+ | Some task =>
    let result replayed := JObject [("task_id",number id);("session_id",JString session);("delegation_id",JString identity);("accepted",JBool true);("replayed",JBool replayed)] in
    match find (fun message => match message with SpeechDelegation owner actual_session actual_identity _ _ =>
      N.eqb owner id && String.eqb session actual_session && String.eqb identity actual_identity | _ => false end) (task_history task) with
@@ -167,7 +172,6 @@ Definition speech_delegation (id : N) (session identity mode text : string) (val
        (if String.eqb mode "steer" then Tasks.steer_result id [TextPart text] value
         else Tasks.send_result id [TextPart text] value)
    end
-   else reject "invalid_arguments" "Voice delegation requires stable identities and a nonempty instruction" value
  end.
 Definition return_side (id : N) (value : world) :=
  match find_task id value with
@@ -266,17 +270,17 @@ Definition handle_delete_project (request : Selvedge.Generated.Commands.delete_p
 Definition handle_review_approval (request : Selvedge.Generated.Commands.review_approval_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
  
-   let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in
+   let reason := match Selvedge.Generated.Commands.review_approval_reason_admitted request with Some reason => reason | None => ApprovalProtocol.empty_reason end in
    review_approval (Selvedge.Generated.Commands.review_approval_task_id request) (Selvedge.Generated.Commands.review_approval_operation_id request)
     (ApprovalProtocol.human_outcome (String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow") reason) value.
 
 Definition handle_record_speech_transcript (request : Selvedge.Generated.Commands.record_speech_transcript_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id request) (Selvedge.Generated.Commands.record_speech_transcript_item_id request)
+ speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id_admitted request) (Selvedge.Generated.Commands.record_speech_transcript_item_id_admitted request)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_speaker request)) "user" then UserSpeaker else AssistantSpeaker)
-   (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text request) value.
+   (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text_admitted request) value.
 
 Definition handle_accept_speech_delegation (request : Selvedge.Generated.Commands.accept_speech_delegation_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- speech_delegation (Selvedge.Generated.Commands.accept_speech_delegation_task_id request) (Selvedge.Generated.Commands.accept_speech_delegation_session_id request)
-   (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id request) (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode request)) (Selvedge.Generated.Commands.accept_speech_delegation_message request) value.
+ speech_delegation (Selvedge.Generated.Commands.accept_speech_delegation_task_id request) (Selvedge.Generated.Commands.accept_speech_delegation_session_id_admitted request)
+   (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id_admitted request) (Selvedge.Generated.Commands.accept_speech_delegation_mode request) (Selvedge.Generated.Commands.accept_speech_delegation_message_admitted request) value.
