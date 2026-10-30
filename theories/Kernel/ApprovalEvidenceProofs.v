@@ -69,8 +69,6 @@ Proof.
  intros owner pending actor outcome task.
  unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan.
  apply prefixed_results_retain_their_history_record.
- destruct (ApprovalProtocol.normalize_outcome outcome); [repeat constructor| |];
- unfold Callbacks.begin_result_plan; destruct (Callbacks.after_plugins _); repeat constructor.
 Qed.
 
 Theorem an_approval_denial_runs_the_frozen_result_chain :

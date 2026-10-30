@@ -60,7 +60,9 @@ Lemma settle_operation_expression : forall operation result error task,
  (append_history [History.operation_result operation result error] task)).
 Proof.
  intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes, Callbacks.settle_operation_plan, Tasks.result_changes.
- rewrite applying_change_lists. reflexivity.
+ rewrite applying_change_lists.
+ destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+   destruct lifecycle; reflexivity.
 Qed.
 
 Definition tool_completed_expression (id ticket : N) (result : json) (error : bool) (value : world) := ltac:(

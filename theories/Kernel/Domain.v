@@ -296,20 +296,24 @@ Definition with_execution (chosen : profile) (settings : task_settings) (value :
 Definition with_side_cursor (cursor : N) (value : task) := set task_side_cursor (fun _ => cursor) value.
 Definition append_history (messages : list message) (value : task) :=
   with_history (task_history value ++ messages) value.
+Definition change_activity (phase : activity) (state : lifecycle) :=
+  match state with
+  | Running _ ops => Running phase ops
+  | Frozen _ ops => Frozen phase ops
+  | Stopped _ ops => Stopped phase ops
+  | Archived ops => Archived ops
+  end.
+Definition change_operations (change : list operation -> list operation) (state : lifecycle) :=
+  match state with
+  | Running phase ops => Running phase (change ops)
+  | Frozen phase ops => Frozen phase (change ops)
+  | Stopped phase ops => Stopped phase (change ops)
+  | Archived ops => Archived (change ops)
+  end.
 Definition with_activity (phase : activity) (value : task) :=
-  match task_lifecycle value with
-  | Running _ ops => with_lifecycle (Running phase ops) value
-  | Frozen _ ops => with_lifecycle (Frozen phase ops) value
-  | Stopped _ ops => with_lifecycle (Stopped phase ops) value
-  | Archived _ => value
-  end.
+  with_lifecycle (change_activity phase (task_lifecycle value)) value.
 Definition with_operations (ops : list operation) (value : task) :=
-  match task_lifecycle value with
-  | Running phase _ => with_lifecycle (Running phase ops) value
-  | Frozen phase _ => with_lifecycle (Frozen phase ops) value
-  | Stopped phase _ => with_lifecycle (Stopped phase ops) value
-  | Archived _ => with_lifecycle (Archived ops) value
-  end.
+  with_lifecycle (change_operations (fun _ => ops) (task_lifecycle value)) value.
 Definition activity_busy (phase : activity) :=
   match phase with Idle => false | _ => true end.
 Definition task_busy (value : task) :=

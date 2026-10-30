@@ -24,41 +24,25 @@ Proof.
  rewrite IHPreserved; apply H.
 Qed.
 
-Definition appends_history (change : TaskChange.edit) : Prop :=
- match change with TaskChange.ReplaceHistory _ => False | _ => True end.
-
 Lemma one_append_only_edit_retains_history : forall change current,
- appends_history change ->
  exists suffix, task_history (TaskChange.apply_edit change current) = task_history current ++ suffix.
 Proof.
- intros change [contract profile settings lifecycle history queued lineage parent cursor consumed] Allowed.
- destruct change; cbn [appends_history] in Allowed; try contradiction;
- try (exists []; rewrite app_nil_r; destruct lifecycle; reflexivity).
- exists messages; reflexivity.
+ intros [update [messages|]] current.
+ - exists messages; reflexivity.
+ - exists []; rewrite app_nil_r; reflexivity.
 Qed.
 
 Theorem append_only_changes_retain_history : forall changes current,
- Forall appends_history changes ->
  exists suffix, task_history (TaskChange.apply changes current) = task_history current ++ suffix.
 Proof.
- intros changes current Allowed; revert current.
- induction Allowed; intro current.
+ induction changes as [|change rest IH]; intro current.
  - exists []; rewrite app_nil_r; reflexivity.
- - destruct (one_append_only_edit_retains_history x current H) as [first First].
-   destruct (IHAllowed (TaskChange.apply_edit x current)) as [rest Rest].
-   exists (first ++ rest).
-   change (task_history (TaskChange.apply l (TaskChange.apply_edit x current)) =
-     task_history current ++ (first ++ rest)).
+ - destruct (one_append_only_edit_retains_history change current) as [first First].
+   destruct (IH (TaskChange.apply_edit change current)) as [remaining Rest].
+   exists (first ++ remaining).
+   change (task_history (TaskChange.apply rest (TaskChange.apply_edit change current)) =
+     task_history current ++ (first ++ remaining)).
    rewrite Rest, First, <- app_assoc; reflexivity.
-Qed.
-
-Lemma one_edit_keeps_the_immutable_task_identity : forall change current,
- task_contract (TaskChange.apply_edit change current) = task_contract current /\
- task_lineage (TaskChange.apply_edit change current) = task_lineage current /\
- task_side_parent (TaskChange.apply_edit change current) = task_side_parent current.
-Proof.
- intros change [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct change; destruct lifecycle; repeat split; reflexivity.
 Qed.
 
 Theorem field_changes_keep_the_immutable_task_identity : forall changes current,
@@ -66,14 +50,30 @@ Theorem field_changes_keep_the_immutable_task_identity : forall changes current,
  task_lineage (TaskChange.apply changes current) = task_lineage current /\
  task_side_parent (TaskChange.apply changes current) = task_side_parent current.
 Proof.
- intros changes; induction changes as [|change rest IH]; intro current; [repeat split; reflexivity|].
- change (let after := TaskChange.apply_edit change current in
-  task_contract (TaskChange.apply rest after) = task_contract current /\
-  task_lineage (TaskChange.apply rest after) = task_lineage current /\
-  task_side_parent (TaskChange.apply rest after) = task_side_parent current).
- destruct (IH (TaskChange.apply_edit change current)) as [Contract [Lineage Parent]].
- destruct (one_edit_keeps_the_immutable_task_identity change current) as [OwnContract [OwnLineage OwnParent]].
- cbv zeta. now rewrite Contract, Lineage, Parent, OwnContract, OwnLineage, OwnParent.
+ intros changes current.
+ pose proof (Focus.modifications_keep_the_frame _ _ _ TaskChange.task_focus
+   TaskChange.edit_parts changes current) as Frame.
+ change ((task_contract (TaskChange.apply changes current),
+   task_current_profile (TaskChange.apply changes current), task_current_settings (TaskChange.apply changes current),
+   task_lineage (TaskChange.apply changes current), task_side_parent (TaskChange.apply changes current)) =
+   (task_contract current, task_current_profile current, task_current_settings current,
+    task_lineage current, task_side_parent current)) in Frame.
+ injection Frame; auto.
+Qed.
+
+Theorem field_changes_keep_execution_configuration : forall changes current,
+ task_current_profile (TaskChange.apply changes current) = task_current_profile current /\
+ task_current_settings (TaskChange.apply changes current) = task_current_settings current.
+Proof.
+ intros changes current.
+ pose proof (Focus.modifications_keep_the_frame _ _ _ TaskChange.task_focus
+   TaskChange.edit_parts changes current) as Frame.
+ change ((task_contract (TaskChange.apply changes current),
+   task_current_profile (TaskChange.apply changes current), task_current_settings (TaskChange.apply changes current),
+   task_lineage (TaskChange.apply changes current), task_side_parent (TaskChange.apply changes current)) =
+   (task_contract current, task_current_profile current, task_current_settings current,
+    task_lineage current, task_side_parent current)) in Frame.
+ injection Frame; auto.
 Qed.
 
 Theorem a_field_plan_installs_its_exact_interpretation : forall before (plan : TaskChange.plan before),

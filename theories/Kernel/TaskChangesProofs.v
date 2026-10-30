@@ -8,7 +8,7 @@ Open Scope list_scope.
 (* These views are derived from the interpreter. Their statements do not
    maintain another copy of each task command's control flow. *)
 Ltac reduce_task_plan expression :=
- eval cbv beta iota zeta delta [TaskChange.interpret TaskChange.target TaskChange.changes
+ eval cbv beta iota zeta delta [TaskChange.interpret TaskChange.configure TaskChange.target TaskChange.changes
    TaskScope.owner TaskScope.selected Tasks.interpret_result] in expression.
 
 Definition send_expression (id : N) (contents : content) (value : world) := ltac:(

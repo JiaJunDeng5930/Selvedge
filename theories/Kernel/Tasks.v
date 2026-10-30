@@ -624,10 +624,10 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
            let same := Domain.same_profile chosen (task_current_profile task) &&
              Json.equal (settings_json settings) (settings_json current) &&
              same_approval (settings_approval settings) (settings_approval current) in
-           let changes := [TaskChange.ChangeExecution chosen settings] ++
-             (if same then [] else [TaskChange.AppendHistory [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)]]) in
+           let receipt := if same then None else
+             Some [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] in
            accept (JObject [("task_id", number id)])
-            (TaskChange.interpret (TaskChange.Plan value target changes))
+            (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
            else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
          end
