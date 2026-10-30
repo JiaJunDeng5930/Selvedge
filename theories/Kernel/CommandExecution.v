@@ -112,6 +112,11 @@ Definition update_project (id : N) (name : option (D.denote Workspace.project_na
    end
  end.
 Definition delete_project (id : N) (value : world) :=
+ if Selvedge.Features.Domain.board_card_uses_project id
+      (Selvedge.Features.Domain.feature_board (world_features value)) ||
+    Selvedge.Features.Domain.sharing_retains_project id
+      (Selvedge.Features.Domain.feature_sharing (world_features value))
+ then reject "project_not_empty" "A project referenced by a board card or ChatGPT grant cannot be deleted" value else
  match registry_at id (world_projects value) with
  | None => reject "project_not_empty" "The project must exist and have no references before it can be deleted" value
  | Some project => if project_deleted project then reject "project_not_empty" "The project must exist and have no references before it can be deleted" value else

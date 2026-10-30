@@ -25,6 +25,11 @@ Record board_agent := BoardAgent { agent_revision : N; agent_name : string;
 Definition agent_settings (value : board_agent) := Codec.settings_request_json (agent_settings_request value).
 Record board := Board { board_cards : list (option card); board_order : list N;
  board_agents : list (option board_agent); board_agent_order : list N; board_automatic : bool; board_draft_profile : string }.
+Definition board_card_uses_project (id : N) (value : board) :=
+ existsb (fun item => match item with
+ | Some card => match draft_project (card_contents card) with
+   | Some project => N.eqb id project | None => false end
+ | None => false end) (board_cards value).
 Definition work_name_declaration := ArgumentDeclaration.Text
  (ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural 4096 false false false None).
 Definition work_creation_name_declaration := ArgumentDeclaration.Union
@@ -88,6 +93,9 @@ Definition job_arguments_json job := ChatgptArguments.encode (job_arguments job)
 Record connection_state := ConnectionState { sharing_authorities : ConnectionGrants.Grants.t;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
 Definition sharing_grants value := ConnectionGrants.Grants.values (sharing_authorities value).
+Definition sharing_retains_project (id : N) (value : connection_state) :=
+ existsb (ConnectionGrants.admits_project id) (sharing_grants value) ||
+ existsb (fun item => N.eqb id (job_project (snd item))) (sharing_jobs value).
 Record title_settings := TitleSettings { title_revision : N;
  title_task_instructions : Titles.instruction; title_agent_instructions : Titles.instruction }.
 Definition title_task_prompt value := Titles.instruction_text (title_task_instructions value).

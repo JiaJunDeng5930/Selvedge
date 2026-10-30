@@ -26,7 +26,6 @@ Proof.
  cbn [Packet.execute_domain Packet.query CommandHandlers.query option_map
    CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
    G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
- cbn [Selvedge.Features.Runtime.guard_command].
  cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
    Selvedge.Kernel.Commands.origin_allowed G.handle_stop
    Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].

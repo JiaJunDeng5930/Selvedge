@@ -354,7 +354,3 @@ Definition recover (value:world) := let b:=registry value in
  let cards:=map (option_map (fun card=>if pending card then
  (set Selvedge.Features.Domain.card_enrichment (fun _=>(Selvedge.Features.Domain.EnrichmentFailed "The service restarted during drafting. Review the saved request and explicitly retry; no paid drafting request was replayed.")) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))) else card)) (Selvedge.Features.Domain.board_cards b) in
  store ((set Selvedge.Features.Domain.board_cards (fun _=>cards) (b))) value.
-
-Definition project_used (id:N) (value:world) := existsb (fun item=>match item with
- | Some card=>match Selvedge.Features.Domain.draft_project (Selvedge.Features.Domain.card_contents card) with Some project=>N.eqb id project | None=>false end
- | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)).

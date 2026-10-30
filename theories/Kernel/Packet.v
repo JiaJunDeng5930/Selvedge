@@ -23,10 +23,7 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (conte
  let caller := option_map Tasks.native_owner context in
  match query command caller value with
  | Some reply => Decision value reply []
- | None => match Selvedge.Features.Runtime.guard_command command caller value with
-   | Some refused => refused
-   | None => CommandHandlers.execute command context value
-   end
+ | None => CommandHandlers.execute command context value
  end.
 (* Assess against the worker's authoritative immutable world. The hypothetical
    decision is discarded: no world, scheduler work or IO effect is committed. *)

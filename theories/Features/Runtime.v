@@ -27,9 +27,3 @@ Definition can_schedule_task (id:N) (value:world) :=
 Definition finalization := DecisionComposition.compose (DecisionComposition.maintain Board.finish)
  (DecisionComposition.compose Selvedge.Features.Compaction.attach_context TitleCommit.enqueue_title).
 Definition finish := DecisionComposition.transform finalization.
-
-Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :=
- match command with
- | Selvedge.Generated.Commands.Cmd_delete_project p=>if Board.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value || Chatgpt.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value
- then Some (reject "project_not_empty"%string "A project referenced by a board card or ChatGPT grant cannot be deleted"%string value) else None
- | _=>None end.

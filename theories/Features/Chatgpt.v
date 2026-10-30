@@ -16,7 +16,6 @@ Definition store replacement value := with_features (Selvedge.Features.State.wit
 Definition grant := FeatureRequestAdmission.connection_grant.
 Definition find_job id state := option_map snd (find (fun item=>N.eqb id (fst item)) (Selvedge.Features.Domain.sharing_jobs state)).
 Definition project := FeatureRequestAdmission.connection_project.
-Definition member id values := existsb (N.eqb id) values.
 Definition authority := FeatureRequestAdmission.connection_authority.
 Definition owned connection project job := N.eqb connection (Selvedge.Features.Domain.job_connection job) && N.eqb project (Selvedge.Features.Domain.job_project job).
 Definition pending job := match Selvedge.Features.Domain.job_state job with Selvedge.Features.Domain.JobRunning=>true | _=>false end.
@@ -169,6 +168,3 @@ Definition recover_job job := match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning=>with_outcome (Selvedge.Features.Domain.JobInterrupted "Service restarted; execution may have happened and will not be replayed") job
  | _=>job end.
 Definition recover value := store (set Selvedge.Features.Domain.sharing_jobs (map (fun item=>(fst item,recover_job (snd item)))) (registry value)) value.
-Definition project_used id value :=
- existsb (fun grant=>member id (Selvedge.Features.Domain.connection_projects grant)) (Selvedge.Features.Domain.sharing_grants (registry value)) ||
- existsb (fun item=>N.eqb id (Selvedge.Features.Domain.job_project (snd item))) (Selvedge.Features.Domain.sharing_jobs (registry value)).

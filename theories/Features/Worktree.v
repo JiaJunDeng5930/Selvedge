@@ -27,7 +27,6 @@ Definition job_uses_resource := WorkspaceBinding.job_uses_resource.
 Definition root_unused := WorkspaceBinding.root_unused.
 Definition bound_tasks_unused := WorkspaceBinding.bound_tasks_unused.
 Definition archive_allowed := WorkspaceBinding.archive_allowed.
-Definition pending (tree:Selvedge.Features.Domain.worktree) := match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _|Selvedge.Features.Domain.TreeArchiving _=>true | _=>false end.
 Definition execution_ready := WorkspaceBinding.execution_ready.
 Definition workspace_available := WorkspaceBinding.workspace_available.
 Definition primary_workspace (space : workspace) :=
