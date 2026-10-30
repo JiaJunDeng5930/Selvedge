@@ -130,10 +130,10 @@ Definition command (caller : N) (invocation : call) :=
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
 Definition arguments_valid (definition : tool) (invocation : call) :=
  match tool_origin definition with
- | NativeToolSource parameters _ => Arguments.valid parameters (call_arguments invocation) &&
-   match primitive (call_name invocation) with
-   | Some primitive => ToolArguments.tool_constraints primitive (call_arguments invocation)
-   | None => match find_binding (call_name invocation) with
+ | NativeToolSource parameters _ => match primitive (call_name invocation) with
+   | Some primitive => ToolArguments.valid_arguments primitive (call_arguments invocation)
+   | None => Arguments.valid parameters (call_arguments invocation) &&
+     match find_binding (call_name invocation) with
      | Some _ => true
      | None => String.eqb (call_name invocation) "discover_tools"
      end

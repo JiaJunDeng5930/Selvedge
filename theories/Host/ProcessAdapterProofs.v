@@ -24,8 +24,8 @@ Proof.
   reflexivity.
 Qed.
 
-Theorem public_exit_rejects_write current terminal eof cols rows :
+Theorem public_exit_rejects_write current terminal eof resize :
   process_phase current = Running ->
-  admit_write (state_of (state_json (observe current ShellExited))) terminal eof cols rows =
+  admit_write (state_of (state_json (observe current ShellExited))) terminal eof resize =
     Some (Failure "process_stdin_closed" "The process input is closed").
 Proof. rewrite process_state_roundtrip; apply exit_rejects_write. Qed.

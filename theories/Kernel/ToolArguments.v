@@ -2,9 +2,14 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema SchemaJson Utf8.
 From Selvedge.Foundation Require Export Arguments.
 From Selvedge.Kernel Require Import Images ApprovalProtocol.
+From Selvedge.Host Require Process.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module D := ArgumentDeclaration.
+
+Definition nonempty_text := D.Text (D.TextConstraints 1 D.maximum_natural
+ D.maximum_natural true false false None).
 
 Inductive native_tool := Bash | ReadProcess | WriteProcess | ReadImage.
 Definition required_text name description := Argument name (Scalar KText) true description.
@@ -17,7 +22,7 @@ Definition dimensions := [optional_natural "cols" "PTY columns; supply with rows
   optional_natural "rows" "PTY rows; supply with cols" 1 65535].
 Definition argument_specs (tool : native_tool) : list argument_spec :=
   match tool with
-  | Bash => [required_text "command" "Command to run";
+  | Bash => [Arguments.with_declaration nonempty_text (required_text "command" "Command to run");
       optional_natural "timeout_ms" "Optional deadline in milliseconds; omitted means no deadline" 100 1800000;
       Argument "mode" (Scalar (KEnum "pipe" ["pty"])) false "Process transport"] ++ dimensions ++
     [Argument "sandbox_permissions" (Scalar (KEnum "use_default" ["require_escalated"])) false "Sandbox permission request";
@@ -26,41 +31,79 @@ Definition argument_specs (tool : native_tool) : list argument_spec :=
   | ReadProcess => [operation_argument;optional_text "cursor" "Absolute Unicode code point cursor as a decimal string; default 0"]
   | WriteProcess => [operation_argument;optional_text "input" "Text to write; PTY accepts terminal control characters";
       Argument "eof" (Scalar KBool) false "Close pipe stdin after writing input; unavailable in PTY mode"] ++ dimensions
-  | ReadImage => [required_text "path" "Local image path, relative to the task workspace or absolute";
+  | ReadImage => [Arguments.with_declaration nonempty_text (required_text "path" "Local image path, relative to the task workspace or absolute");
       Argument "detail" (Scalar Images.detail_kind) false "Image detail"]
   end.
-Definition get_argument (source : json) (name : string) := match field name source with Some value => value | None => JNull end.
-Definition has_argument (source : json) (name : string) := has_field name source.
-Definition paired_dimensions (source : json) := Bool.eqb (has_argument source "cols") (has_argument source "rows").
-Definition defaulted_mode (source : json) := match string_field "mode" source with Some mode => mode | None => "pipe" end.
-Definition tool_constraints (tool : native_tool) (source : json) :=
-  match tool with
-  | Bash =>
-    match string_field "command" source with Some command =>
-      Utf8.well_formed command && Utf8.no_nul command && negb (String.eqb command "") &&
-      paired_dimensions source && (negb (has_argument source "cols") || String.eqb (defaulted_mode source) "pty") &&
-      (match string_field "sandbox_permissions" source with
-       | Some permissions => negb (String.eqb permissions "require_escalated") ||
-         match string_field "justification" source with
-         | Some text => ApprovalProtocol.valid_justification text | None => false end
-       | None => true end)
-    | None => false end
-  | ReadProcess =>
-    match string_field "cursor" source with None => true | Some cursor =>
-      match parse_natural cursor with Some n => n <=? 9007199254740991 | None => false end end
-  | WriteProcess => paired_dimensions source &&
-    match string_field "input" source with None => true | Some input => Utf8.well_formed input end
-  | ReadImage => match string_field "path" source with
-      Some path => negb (String.eqb path "") && Utf8.well_formed path && Utf8.no_nul path | None => false end
-  end.
-Definition valid_arguments (tool : native_tool) (source : json) :=
-  Arguments.valid (argument_specs tool) source && tool_constraints tool source.
-Definition arguments (tool : native_tool) := { source : json | valid_arguments tool source = true }.
+(** Primitive effects keep their admitted values. A terminal resize is one
+    optional pair, and only a PTY transport can carry it. *)
+Inductive permission_request := UseDefault
+ | RequireEscalated (justification : D.denote ApprovalProtocol.justification_declaration).
+Definition permission_of
+ (requested : option (Schema.denote (KEnum "use_default" ["require_escalated"])))
+ (justification : option (D.denote D.text)) : option permission_request :=
+ match requested with
+ | Some requested => if String.eqb (proj1_sig requested) "require_escalated" then
+   match justification with
+   | Some text => option_map RequireEscalated
+       (D.admit (D.check_text ApprovalProtocol.justification_constraints) (proj1_sig text))
+   | None => None end
+   else Some UseDefault
+ | None => Some UseDefault end.
+Definition mode_of (requested : option (Schema.denote (KEnum "pipe" ["pty"]))) :=
+ match requested with Some requested =>
+   if String.eqb (proj1_sig requested) "pty" then Process.Pty else Process.Pipe
+ | None => Process.Pipe end.
+Record bash_parameters := BashParameters {
+ bash_command : D.denote nonempty_text;
+ bash_timeout : option (D.denote (D.Natural 100 1800000));
+ bash_transport : Process.transport;
+ bash_permission : permission_request;
+ bash_maximum : option (D.denote (D.Natural 1 65536))
+}.
+Definition operation_identity := D.denote (D.Natural 0 4294967295).
+Definition cursor_declaration := D.Natural 0 9007199254740991.
+Definition process_cursor := D.denote cursor_declaration.
+Definition decode_cursor (source : option (D.denote D.text)) : option process_cursor :=
+ match source with
+ | None => Some (exist _ 0 eq_refl)
+ | Some source => match parse_natural (proj1_sig source) with
+   | Some cursor => D.admit (D.in_bounds 0 9007199254740991) cursor
+   | None => None end
+ end.
+Record read_parameters := ReadParameters { read_operation : operation_identity; read_cursor : process_cursor }.
+Record write_parameters := WriteParameters {
+ write_operation : operation_identity;
+ write_input : option (D.denote D.text);
+ write_eof : option bool;
+ write_size : option Process.terminal_size
+}.
+Record image_parameters := ImageParameters {
+ image_path : D.denote nonempty_text;
+ image_detail : option (Schema.denote Images.detail_kind)
+}.
+Definition arguments (tool : native_tool) : Set := match tool with
+ | Bash => bash_parameters | ReadProcess => read_parameters
+ | WriteProcess => write_parameters | ReadImage => image_parameters end.
+Definition construct (tool : native_tool) : Arguments.parsed_arguments (argument_specs tool) -> option (arguments tool) :=
+ match tool as tool return Arguments.parsed_arguments (argument_specs tool) -> option (arguments tool) with
+ | Bash => fun fields =>
+   let '(command,(timeout,(mode,(cols,(rows,(permissions,(justification,(maximum,_)))))))) := proj1_sig fields in
+   match Process.paired_size cols rows, permission_of permissions justification with
+   | Some size,Some permissions => option_map
+       (fun transport => BashParameters command timeout transport permissions maximum)
+       (Process.prepare_transport (mode_of mode) size)
+   | _,_ => None end
+ | ReadProcess => fun fields => let '(operation,(cursor,_)) := proj1_sig fields in
+   option_map (ReadParameters operation) (decode_cursor cursor)
+ | WriteProcess => fun fields => let '(operation,(input,(eof,(cols,(rows,_))))) := proj1_sig fields in
+   option_map (WriteParameters operation input eof) (Process.paired_size cols rows)
+ | ReadImage => fun fields => let '(path,(detail,_)) := proj1_sig fields in Some (ImageParameters path detail)
+ end.
 Definition decode_arguments (tool : native_tool) (source : json) : option (arguments tool) :=
-  match valid_arguments tool source as valid return valid_arguments tool source = valid -> option (arguments tool) with
-  | true => fun proof => Some (exist _ source proof)
-  | false => fun _ => None
-  end eq_refl.
+ match Arguments.decode_arguments (argument_specs tool) source with
+ | Some fields => construct tool fields | None => None end.
+Definition valid_arguments (tool : native_tool) (source : json) :=
+ D.present (decode_arguments tool source).
 
 Definition json_schema (tool : native_tool) := Arguments.json_schema (argument_specs tool).
 Definition tool_name (tool : native_tool) :=
