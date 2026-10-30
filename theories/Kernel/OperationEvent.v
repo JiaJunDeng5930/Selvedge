@@ -11,13 +11,11 @@ Open Scope list_scope.
     receipt, a hook action and an operation stage independently. This language
     describes the tool protocol, not the set of tools or API backends. *)
 Inductive event :=
-| Settled (operation : operation) (result : json) (error : bool)
 | Returned (operation : operation) (result : json) (error : bool)
 | Reviewed (operation : operation) (actor : reviewer) (outcome : approval_outcome)
 | BeforeChecked (plugin : json) (invocation : call) (pending : list json)
     (remaining : list call) (outcome : hook_outcome)
-| AfterChecked (operation : operation) (plugin : json) (pending : list json)
-    (result : json) (error : bool) (outcome : after_outcome)
+| BeforeInterrupted (plugin : json) (invocation : call) (remaining : list call)
 | AfterUnavailable (operation : operation) (plugin : json).
 
 Definition after_plugins (task : task) :=
@@ -50,8 +48,9 @@ Definition after_checked (owner : N) (operation : operation) (plugin : json)
  Tasks.prefix_result [TaskChange.AppendHistory
    [AfterReceipt owner (operation_id operation) plugin (Inputs.after_json outcome)]]
    (after_result operation pending error (HookRules.after_apply result outcome)).
+Definition before_interruption_reason :=
+ "Hook outcome unknown after restart; callback not repeated; tool not dispatched".
 Definition plan (owner : N) (observation : event) (task : task) := match observation with
- | Settled operation result error => settle operation result error
  | Returned operation result error => returned owner operation result error task
  | Reviewed operation actor outcome =>
    let outcome := ApprovalProtocol.normalize_outcome outcome in
@@ -68,8 +67,10 @@ Definition plan (owner : N) (observation : event) (task : task) := match observa
     match HookRules.before_apply invocation outcome with
     | HookRules.Proceed invocation => [TaskChange.ChangePhase (ReadyForHooks invocation pending remaining)]
     | HookRules.Refuse code reason => call_result invocation (State.failure code reason) true remaining end)
- | AfterChecked operation plugin pending result error outcome =>
-   after_checked owner operation plugin pending result error outcome
+ | BeforeInterrupted plugin invocation remaining =>
+   Tasks.KeepDemand (TaskChange.AppendHistory
+     [HookReceipt owner invocation plugin (Inputs.hook_json (HookFailure before_interruption_reason))] ::
+     call_result invocation (State.failure "hook_interrupted" before_interruption_reason) true remaining)
  | AfterUnavailable operation plugin =>
    Tasks.prefix_result [TaskChange.AppendHistory [AfterReceipt owner (operation_id operation) plugin
      (Inputs.after_json (AfterFailure "The frozen result-processing plugin revision is unavailable"))]]
