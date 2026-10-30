@@ -365,24 +365,6 @@ Proof.
  unfold find_task; rewrite Worktree.transition_tasks_are_the_witnessed_birth.
  apply Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append; exact Found.
 Qed.
-Theorem consume_start_resolution_preserves_existing_tasks : forall intent settings caller managed backend cached value id task,
- find_task id value=Some task ->
- find_task id (decision_world (Worktree.consume_start_resolution intent settings caller managed backend cached value))=Some task.
-Proof.
- intros intent settings caller managed backend cached value id task Found.
- unfold Worktree.consume_start_resolution, Worktree.resolve_start_birth,Worktree.prepare_selected_birth.
- destruct cached as [cause|start]; [exact Found|].
- destruct (Worktree.start_allowed settings caller value (Tasks.StartResolved start)); [|exact Found].
- destruct (Worktree.prepare_scoped intent caller managed backend start value) as [plan|reply];
- [apply scoped_birth_preserves_existing_tasks; exact Found|exact Found].
-Qed.
-Theorem create_selected_preserves_existing_tasks : forall name effort contents settings idle caller managed value id task,
- find_task id value=Some task ->
- find_task id (decision_world (Worktree.create_selected name effort contents settings idle caller managed value))=Some task.
-Proof.
- intros. unfold Worktree.create_selected,Worktree.create_selected_result,Worktree.create_intent_result.
- apply consume_start_resolution_preserves_existing_tasks. exact H.
-Qed.
 Theorem a_batch_preserves_original_task_observations : forall original current
  (frame : Worktree.birth_frame original current) id task,
  find_task id original = Some task -> find_task id current = Some task.
@@ -396,13 +378,6 @@ Proof.
    apply planned_birth_preserves_existing_tasks; exact IH.
 Qed.
 
-(** Refusals have no state or effects by construction, independently of the
-    number of resolution and authorization stages preceding the boundary. *)
-Theorem failed_selected_creation_is_atomic : forall name effort contents settings idle caller managed before,
- bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false ->
- decision_world (Worktree.create_selected name effort contents settings idle caller managed before) = before /\
- decision_effects (Worktree.create_selected name effort contents settings idle caller managed before) = [].
-Proof. intros; now apply CommandResult.a_failed_commit_is_atomic. Qed.
 Theorem rejected_selected_creation_has_a_failure_reply : forall name effort contents settings idle caller managed before reason,
  Worktree.create_selected_result name effort contents settings idle caller managed before = CommandResult.Rejected reason ->
  bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false.

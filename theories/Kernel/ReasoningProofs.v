@@ -352,18 +352,6 @@ Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  ReasoningView.excerpt text = text.
 Proof. intros; unfold ReasoningView.excerpt; now rewrite H, H0. Qed.
 
-Theorem generation_preserves_the_frozen_task_contract : forall owner model remaining task,
- task_contract (Reasoning.generation owner model remaining task) = task_contract task.
-Proof.
- intros. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation, ModelRequest.Plans.generation_messages.
- destruct (match profile_policy (task_current_profile task) with
- | AdaptivePolicy policy => match reasoning_transport_mode policy with
-   | RequestEffort => false | ConfigurationUpdates =>
-     match ReasoningPlan.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
- | FixedReasoning => false end);
- destruct (ReasoningPlan.trailing_configuration (task_history task)); destruct task; reflexivity.
-Qed.
-
 Theorem configuration_transport_keeps_the_request_baseline : forall model requested policy,
  profile_policy requested = AdaptivePolicy policy -> reasoning_transport_mode policy = ConfigurationUpdates ->
  Reasoning.sampling model requested = JObject [

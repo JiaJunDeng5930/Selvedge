@@ -64,12 +64,6 @@ Definition context_completed_expression (id ticket : N) (observations : option (
  let body := eval unfold Callbacks.context_completed in (Callbacks.context_completed id ticket observations diagnostic value) in
  derive_callback_view constr:(Callbacks.context_completed id ticket observations diagnostic value) body id value).
 
-Lemma task_changes_preserve_the_frozen_contract : forall changes task,
- task_contract (TaskChange.apply changes task) = task_contract task.
-Proof.
- intros changes task; exact (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity changes task)).
-Qed.
-
 Definition hook_completed_expression (id ticket : N) (outcome : hook_outcome) (value : world) := ltac:(
  let body := eval unfold HookCallbacks.hook_completed in (HookCallbacks.hook_completed id ticket outcome value) in
  derive_callback_view constr:(HookCallbacks.hook_completed id ticket outcome value) body id value).

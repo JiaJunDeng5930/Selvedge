@@ -168,7 +168,8 @@ Proof.
  unfold Tasks.resolve_settings; cbn zeta.
  rewrite NoProject, Parsed, NoObservation, Explicit.
  unfold WorkspaceBinding.select_bound_workspace; rewrite Reference, Owned, Intersects, Inside.
- unfold WorkspaceBinding.normalize_settings, WorkspaceBinding.resolve; cbn.
+ unfold WorkspaceBinding.normalize_settings, WorkspaceBinding.resolve;
+ cbn beta iota zeta delta [option_map settings_resource].
  rewrite Owned, Cloud; eexists; repeat split; reflexivity.
 Qed.
 

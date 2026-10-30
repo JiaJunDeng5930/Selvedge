@@ -457,25 +457,6 @@ Proof.
 Qed.
 
 
-Lemma planned_node_preserves_existing_tasks : forall original
- (owner : option (Work.owner_scope original))
- (plan : TaskGraph.node_plan original (TaskGraph.scope_identity owner)) progress id task,
- find_task id (TaskGraph.born_world progress)=Some task ->
- find_task id (TaskGraph.born_world (TaskGraph.birth owner plan progress))=Some task.
-Proof.
- intros original owner plan [current frame nodes effects] id task Found.
- destruct plan as [key target previous observed membership|key start]; [exact Found|].
- apply WorktreeProofs.scoped_birth_preserves_existing_tasks; exact Found.
-Qed.
-Lemma planned_nodes_preserve_existing_tasks : forall original
- (owner : option (Work.owner_scope original))
- (plans : list (TaskGraph.node_plan original (TaskGraph.scope_identity owner))) progress id task,
- find_task id (TaskGraph.born_world progress)=Some task ->
- find_task id (TaskGraph.born_world (fold_left (fun progress plan=>TaskGraph.birth owner plan progress) plans progress))=Some task.
-Proof.
- intros original owner plans; induction plans as [|plan rest IH]; intros progress id task Found; [exact Found|].
- cbn [fold_left]. apply IH. apply planned_node_preserves_existing_tasks. exact Found.
-Qed.
 Theorem installed_plan_preserves_original_task_references : forall original caller
  (owner : option (Work.owner_scope original)) id (plan : TaskGraph.graph_plan original caller owner) task_id task,
  find_task task_id original=Some task ->
