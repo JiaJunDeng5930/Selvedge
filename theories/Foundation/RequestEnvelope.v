@@ -12,6 +12,12 @@ Arguments Envelope {payload} _ _.
 Arguments identity {payload} _.
 Arguments input {payload} _.
 
+(** These operations use their fixed owner as correlation identity. Their
+    payload has no ticket; choosing this form is explicit at issuance. *)
+Record owned (payload : Type) := Owned { owned_input : payload }.
+Arguments Owned {payload} _.
+Arguments owned_input {payload} _.
+
 Definition as_pair {payload} (request : t payload) := (identity request,input request).
 #[global] Instance pair_view payload : Constructor.View (@as_pair payload) := {
  Constructor.project := fun pair => Some (Envelope (fst pair) (snd pair));

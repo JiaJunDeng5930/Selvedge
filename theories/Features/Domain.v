@@ -41,25 +41,31 @@ Record graph_receipt := GraphReceipt { receipt_source : N; receipt_rule : string
 Record task_graph := TaskGraph { graph_name : string; graph_nodes : list resolved_node;
  graph_rules : list graph_rule; graph_receipts : list graph_receipt }.
 Inductive worktree_status := Creating | CreatingArchived | Ready | CreationFailed | Archiving | ArchiveFailed | WorktreeArchived.
-Inductive tree_phase := TreeCreating (archived : bool)
+Inductive tree_phase := TreeCreating (request : RequestEnvelope.owned bool)
  | TreeReady (root primary : string)
  | TreeCreateFailed (root : option string) (reason : string)
- | TreeArchiving (root primary : string)
+ | TreeArchiving (request : RequestEnvelope.owned (string * string))
  | TreeArchiveFailed (root primary reason : string)
  | TreeArchived (root : option string) (primary : string).
-Record worktree := Worktree { worktree_task : N; worktree_source : string; worktree_phase : tree_phase;
- worktree_backend : WorkspaceBackend.backend }.
+Record worktree_contents := WorktreeContents {
+ contents_source : string; contents_phase : tree_phase; contents_backend : WorkspaceBackend.backend
+}.
+Record worktree := WorktreeEntry { worktree_task : N; worktree_contents_value : worktree_contents }.
+Definition Worktree owner source phase backend := WorktreeEntry owner (WorktreeContents source phase backend).
+Definition worktree_source value := contents_source (worktree_contents_value value).
+Definition worktree_phase value := contents_phase (worktree_contents_value value).
+Definition worktree_backend value := contents_backend (worktree_contents_value value).
 Definition with_worktree_phase (phase : tree_phase) (value : worktree) :=
  Worktree (worktree_task value) (worktree_source value) phase (worktree_backend value).
 Definition worktree_state (value:worktree) := match worktree_phase value with
- | TreeCreating false=>Creating | TreeCreating true=>CreatingArchived | TreeReady _ _=>Ready
- | TreeCreateFailed _ _=>CreationFailed | TreeArchiving _ _=>Archiving
+ | TreeCreating (RequestEnvelope.Owned false)=>Creating | TreeCreating (RequestEnvelope.Owned true)=>CreatingArchived | TreeReady _ _=>Ready
+ | TreeCreateFailed _ _=>CreationFailed | TreeArchiving _=>Archiving
  | TreeArchiveFailed _ _ _=>ArchiveFailed | TreeArchived _ _=>WorktreeArchived end.
 Definition worktree_root (value:worktree) := match worktree_phase value with
  | TreeCreating _=>None | TreeCreateFailed root _ | TreeArchived root _=>root
- | TreeReady root _ | TreeArchiving root _ | TreeArchiveFailed root _ _=>Some root end.
+ | TreeReady root _ | TreeArchiving (RequestEnvelope.Owned (root,_)) | TreeArchiveFailed root _ _=>Some root end.
 Definition worktree_target_primary (value:worktree) := match worktree_phase value with
- | TreeReady _ primary | TreeArchiving _ primary | TreeArchiveFailed _ primary _ | TreeArchived _ primary=>primary | _=>""%string end.
+ | TreeReady _ primary | TreeArchiving (RequestEnvelope.Owned (_,primary)) | TreeArchiveFailed _ primary _ | TreeArchived _ primary=>primary | _=>""%string end.
 Definition worktree_message (value:worktree) := match worktree_phase value with
  | TreeCreateFailed _ message | TreeArchiveFailed _ _ message=>message | _=>""%string end.
 Record rights := Rights { may_read : bool; may_control : bool; may_configure : bool; may_approve : bool }.

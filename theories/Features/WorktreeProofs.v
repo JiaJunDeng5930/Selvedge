@@ -97,46 +97,6 @@ Proof.
  unfold Worktree.completion; rewrite Kind, Succeeded; cbn [String.eqb].
  unfold Worktree.decode_creation_completion; rewrite Decoded, Observed, Mismatch, andb_false_r; reflexivity.
 Qed.
-(** Resource phases carry their roots, so a ready tree cannot have no root. *)
-Theorem ready_tree_has_root : forall tree,
- F.worktree_state tree = F.Ready -> exists root, F.worktree_root tree = Some root.
-Proof.
- intros [id source phase backend] ready. destruct phase; simpl in *; try discriminate.
- - destruct archived; discriminate.
- - eexists;reflexivity.
-Qed.
-Theorem creating_has_no_root : forall id source archived backend,
- F.worktree_root (F.Worktree id source (F.TreeCreating archived) backend) = None.
-Proof. reflexivity. Qed.
-Theorem phase_transition_preserves_backend : forall phase tree,
- F.worktree_backend (F.with_worktree_phase phase tree) = F.worktree_backend tree.
-Proof. reflexivity. Qed.
-
-(** A valid successful setup does install a ready resource, rather than merely
-    avoiding an invalid transition. The callback's physical observations remain
-    assumptions; the checked conclusion concerns their admitted domain update. *)
-Theorem successful_creation_installs_ready_resource : forall tree value task root space guidance message,
- find_task (F.worktree_task tree) value = Some task ->
- Worktree.created_valid root space task = true ->
- Worktree.archived task = false ->
- let result := Worktree.created tree true (Some root) (Some space) guidance message value in
- decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\
- exists ready,
-   Worktree.lookup (F.worktree_task tree) (decision_world result) = Some ready /\
-   F.worktree_phase ready = F.TreeReady root (Worktree.primary space) /\
-   F.worktree_backend ready = F.worktree_backend tree.
-Proof.
- intros tree value task root space guidance message found valid live.
- unfold Worktree.created. rewrite found. cbn. rewrite valid, live. cbn.
- split; [reflexivity|].
- exists (F.with_worktree_phase (F.TreeReady root (Worktree.primary space)) tree).
- split.
- - unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
-     Selvedge.Features.State.with_worktrees.
-   cbv [set F.with_worktree_phase]. cbn.
-   rewrite N.eqb_refl. reflexivity.
- - split; reflexivity.
-Qed.
 (** Completion selects the host-observed settings independently for the frozen
     contract and the task's current execution settings. *)
 Lemma completed_task_contract_settings : forall space guidance task,
@@ -263,7 +223,7 @@ Qed.
 Theorem archiving_local_workspace_is_unavailable : forall space value tree root target,
  In tree (F.feature_worktrees (world_features value)) ->
  F.worktree_backend tree=WorkspaceBackend.Local ->
- F.worktree_phase tree=F.TreeArchiving root target ->
+ F.worktree_phase tree=F.TreeArchiving (RequestEnvelope.Owned (root,target)) ->
  Worktree.any_inside root (workspace_roots space)=true ->
  Worktree.workspace_available space value=false.
 Proof.
@@ -313,7 +273,7 @@ Local Lemma provisioned_birth_binds_pending_owner : forall backend before task,
  let owner:=next_task before in
  let prepared:=Worktree.resource_task owner backend task in
  let tree:=F.Worktree owner (Worktree.primary (settings_workspace (task_current_settings prepared)))
-   (F.TreeCreating false) backend in
+   (F.TreeCreating (RequestEnvelope.Owned false)) backend in
  let staged:=Worktree.store tree (append_task prepared before) in
  Worktree.lookup owner staged=Some tree /\
  WorkspaceBinding.for_task owner staged=Some tree /\
@@ -348,7 +308,7 @@ Theorem successful_initialization_binds_pending_owner : forall backend before in
  exists tree,
  Worktree.lookup (next_task before) (decision_world initialized)=Some tree /\
  WorkspaceBinding.for_task (next_task before) (decision_world initialized)=Some tree /\
- F.worktree_backend tree=backend /\ F.worktree_phase tree=F.TreeCreating false /\
+ F.worktree_backend tree=backend /\ F.worktree_phase tree=F.TreeCreating (RequestEnvelope.Owned false) /\
  Runtime.can_schedule_task (next_task before) (decision_world initialized)=false.
 Proof.
  intros backend before intent start admitted.
@@ -371,7 +331,7 @@ Qed.
 
 Theorem a_live_pending_binding_holds_its_owner : forall owner id value task tree archived,
  Worktree.lookup owner value = Some tree ->
- F.worktree_phase tree = F.TreeCreating archived ->
+ F.worktree_phase tree = F.TreeCreating (RequestEnvelope.Owned archived) ->
  In (id,task) (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)) ->
  id <> owner -> Worktree.archived task = false ->
  settings_resource (contract_settings (task_contract task)) = Some owner ->

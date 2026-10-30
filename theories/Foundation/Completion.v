@@ -46,17 +46,20 @@ Definition read {state phase} (selected : slot state phase) before :=
  option_map fst (observe selected before).
 
 (** These are correlation mechanisms, not a list of feature names. An envelope
-    always requires its ticket; a unit pending constructor is addressed by the
-    receiver's own identity. *)
+    always requires its ticket. Owner reception explicitly stores an owned
+    payload; nullary phases need only the receiver's own identity. *)
 Inductive correlation : Type -> Type :=
 | Ticket : forall payload, correlation (RequestEnvelope.t payload)
+| Owner : forall payload, correlation (RequestEnvelope.owned payload)
 | AtAddress : correlation unit.
 Arguments Ticket {payload}.
+Arguments Owner {payload}.
 Definition coordinate {input} (mode : correlation input) : Type :=
- match mode with Ticket => N | AtAddress => unit end.
+ match mode with Ticket => N | Owner | AtAddress => unit end.
 Definition matches {input} (mode : correlation input) : coordinate mode -> input -> bool :=
  match mode with
  | Ticket => fun ticket request => N.eqb ticket (RequestEnvelope.identity request)
+ | Owner => fun _ _ => true
  | AtAddress => fun _ _ => true
  end.
 

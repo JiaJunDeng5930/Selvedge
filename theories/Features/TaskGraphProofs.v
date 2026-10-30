@@ -279,7 +279,7 @@ Theorem failed_workspace_delivery_records_rejection : forall source item result,
    (decision_reply result) (decision_effects result).
 Proof.
  intros source item result unavailable.
- unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite unavailable.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite unavailable.
  cbn [Worktree.failed_execution reject decision_world decision_reply decision_effects].
  now rewrite app_nil_r.
 Qed.
@@ -306,7 +306,7 @@ Theorem available_workspace_delivery_records_the_ordinary_send_result : forall s
    (decision_reply result) (decision_effects result ++ decision_effects sent).
 Proof.
  intros source item result available.
- unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. now rewrite available.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. now rewrite available.
 Qed.
 
 (** The actual dispatcher writes the delivered text through the ordinary Task
@@ -325,7 +325,7 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
  task_lifecycle received=Running WantsModel [].
 Proof.
  intros source item result task available found idle nonempty.
- unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite available.
+ rewrite available_workspace_delivery_records_the_ordinary_send_result by exact available.
  rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
@@ -343,7 +343,7 @@ Qed.
 Theorem actual_delivery_to_preparing_workspace_reaches_idle_task :
  forall source item result task tree retiring,
  WorkspaceBinding.for_task (TaskGraph.delivery_target item) (decision_world result)=Some tree ->
- F.worktree_phase tree=F.TreeCreating retiring ->
+ F.worktree_phase tree=F.TreeCreating (RequestEnvelope.Owned retiring) ->
  K.find_task (TaskGraph.delivery_target item) (decision_world result)=Some task ->
  task_lifecycle task=Running Idle [] ->
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->

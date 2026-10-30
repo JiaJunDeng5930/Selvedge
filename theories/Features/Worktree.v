@@ -1,9 +1,9 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
-From Selvedge.Foundation Require Receiver.
+From Selvedge.Foundation Require Receiver Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace Tasks CommandExecution.
-From Selvedge.Kernel Require CommandResult DecisionComposition.
+From Selvedge.Kernel Require CommandResult DecisionComposition TaskScope.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work WorkspaceBinding.
 Import ListNotations.
@@ -14,6 +14,11 @@ Definition receiver := Receiver.field world_features
    (Receiver.keyed Selvedge.Features.Domain.worktree_task)).
 Definition lookup (id : N) (value : world) := Receiver.read_at receiver id value.
 Definition store := Receiver.install receiver.
+Definition completion_path owner := Receiver.field world_features
+ (Receiver.field Selvedge.Features.Domain.feature_worktrees
+   (Receiver.inject (Selvedge.Features.Domain.WorktreeEntry owner)
+     (Receiver.keyed Selvedge.Features.Domain.worktree_task))).
+Definition ignored value := Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [].
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
 Definition archived (task:task) := match task_lifecycle task with Archived _=>true | _=>false end.
 Definition inside (root path:string) := String.eqb root path || String.prefix (String.append root "/") path.
@@ -57,7 +62,7 @@ Definition archive_allowed (id:N) (value:world) := match lookup id value with
      | Selvedge.Features.Domain.TreeCreating _=>bound_tasks_unused id value
      | _=>true end end
  | None=>true end.
-Definition pending (tree:Selvedge.Features.Domain.worktree) := match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _|Selvedge.Features.Domain.TreeArchiving _ _=>true | _=>false end.
+Definition pending (tree:Selvedge.Features.Domain.worktree) := match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _|Selvedge.Features.Domain.TreeArchiving _=>true | _=>false end.
 Definition execution_allowed (id:N) (value:world) := match WorkspaceBinding.for_task id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreateFailed _ _=>false | _=>true end | None=>true end.
 Definition execution_ready := WorkspaceBinding.execution_ready.
 Definition control_allowed (request:Tasks.control) (id:N) (value:world) := match request with
@@ -120,7 +125,7 @@ Definition archive_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :
  match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) value [] | Some root=>
  let target:=Selvedge.Features.Domain.worktree_target_primary tree in
  if root_unused id root value then
- Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving root target) tree) value) [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree)]
+ Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving (RequestEnvelope.Owned (root,target))) tree) value) [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree)]
  else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiveFailed root target "Worktree is still used by another task. Archive shared tasks before retrying.") tree) value) [] end.
 Definition retry (id:N) (value:world) :=
  if negb (archive_allowed id value) then Selvedge.Kernel.State.reject "worktree_in_use" "This worktree is shared by other tasks. Archive those tasks before archiving its owner." value else
@@ -223,7 +228,7 @@ Definition born_world {before} (birth : born_start before) :=
  | None => Tasks.birth_world core
  | Some backend => let space := settings_workspace (task_current_settings (Tasks.birth_task core)) in
    store (Selvedge.Features.Domain.Worktree (Tasks.birth_id core) (primary space)
-     (Selvedge.Features.Domain.TreeCreating false) backend) (Tasks.birth_world core)
+     (Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false)) backend) (Tasks.birth_world core)
  end.
 Definition born_effects {before} (birth : born_start before) :=
  match born_resource birth with
@@ -533,38 +538,63 @@ Definition failed_task (message:string) (task:task) := with_lifecycle (if archiv
 Definition created_valid (root:string) (space:workspace) (task:task) :=
  inside root (primary space) &&
  Json.equal (workspace_json space) (workspace_json (selected_workspace (primary space) (settings_workspace (task_current_settings task)))).
-Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:option string) (space:option workspace) (guidance:Guidance.t) (message:string) (value:world) :=
- let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
- match Selvedge.Kernel.State.find_task id value with None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] | Some task=>
- let success:=match root,space with Some root,Some space=>ok && created_valid root space task | _,_=>false end in
- if success then match root,space with Some root,Some space=>
- let ready:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeReady root (primary space)) tree in
- if archived task then archive_tree ready (store ready value)
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store ready (Selvedge.Kernel.State.put_task id (completed_task space guidance task)
-   (complete_bindings id space guidance value))) []
- | _,_=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
- else let reason:=if ok then "Worktree creation returned an invalid workspace or guidance" else message in
- let failed:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreateFailed root reason) tree in
- let updated:=store failed (Selvedge.Kernel.State.put_task id (failed_task reason task) value) in
- if archived task then archive_tree failed updated else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) updated [] end.
+Inductive creation_observation := CreatedWorkspace (root:string) (space:workspace) (guidance:Guidance.t)
+ | CreationFailure (root:option string) (message:string).
+Definition creation_contract (task:task) (observed:creation_observation) := match observed with
+ | CreatedWorkspace root space _ => created_valid root space task | CreationFailure _ _ => true end.
+Definition admit_creation (task:task) (observed:creation_observation)
+ : ArgumentDeclaration.checked (creation_contract task) := match observed with
+ | CreatedWorkspace root space guidance =>
+   match ArgumentDeclaration.admit (fun space=>created_valid root space task) space with
+   | Some accepted => exist _ (CreatedWorkspace root (proj1_sig accepted) guidance) (proj2_sig accepted)
+   | None => exist _ (CreationFailure (Some root) "Worktree creation returned an invalid workspace or guidance") eq_refl end
+ | CreationFailure root message => exist _ (CreationFailure root message) eq_refl end.
+Definition creation_finished (observed:creation_observation)
+ : Completion.Row.amendment Selvedge.Features.Domain.worktree_contents Selvedge.Features.Domain.TreeCreating :=
+ Completion.Row.Amend [] (match observed with
+ | CreatedWorkspace root space _ => Completion.done (Selvedge.Features.Domain.TreeReady root (primary space))
+ | CreationFailure root message => Completion.done (Selvedge.Features.Domain.TreeCreateFailed root message) end).
+Definition finish_creation {before} (reference:TaskScope.task_reference before)
+ (observed:ArgumentDeclaration.checked (creation_contract (TaskScope.selected reference)))
+ (received:Completion.Row.receipt (completion_path (TaskScope.owner reference))
+   Selvedge.Features.Domain.contents_phase Selvedge.Features.Domain.TreeCreating Completion.Owner tt
+   (fun _ _=>Some (creation_finished (proj1_sig observed))) before) : decision :=
+ let id:=TaskScope.owner reference in let task:=TaskScope.selected reference in
+ let ready:=Completion.Row.after received in
+ let updated:=match proj1_sig observed with
+ | CreatedWorkspace _ space guidance => if archived task then ready else
+   Selvedge.Kernel.State.put_task id (completed_task space guidance task) (complete_bindings id space guidance ready)
+ | CreationFailure _ message => Selvedge.Kernel.State.put_task id (failed_task message task) ready end in
+ if archived task then archive_tree (Selvedge.Features.Domain.WorktreeEntry id (Completion.Row.updated received)) updated
+ else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) updated [].
+Definition created (owner:N) (observed:creation_observation) (value:world) : decision :=
+ match TaskScope.select owner value with
+ | Some reference =>
+   let selected:=admit_creation (TaskScope.selected reference) observed in
+   match Completion.Row.consume (completion_path (TaskScope.owner reference)) Selvedge.Features.Domain.contents_phase
+     Selvedge.Features.Domain.TreeCreating Completion.Owner tt (fun _ _=>Some (creation_finished (proj1_sig selected))) value with
+   | Some received => finish_creation reference selected received
+   | None => ignored value end
+ | None => ignored value end.
 Inductive archive_outcome := ArchivedAt (root : string)
  | ReservationReleased (previous_root reservation_id : string).
-Definition archive_outcome_decoders : list (ModelDeclarations.decoder archive_outcome) := [
- ModelDeclarations.Decoder (ModelDeclarations.effect "archived_at" [Field "root" KText] None)
-   (fun values=>if Workspace.valid_path (head values) then Some (ArchivedAt (head values)) else None);
- ModelDeclarations.Decoder (ModelDeclarations.effect "reservation_released"
-   [Field "previous_root" KText;Field "reservation_id" KText] None)
-   (fun values=>if Workspace.valid_path (head values) && negb (String.eqb (head (tail values)) "")
-     then Some (ReservationReleased (head values) (head (tail values))) else None)].
-Definition archive_outcome_of := ModelDeclarations.decode_cases archive_outcome_decoders.
+Definition reservation_id_declaration := ArgumentDeclaration.Text
+ (ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural ArgumentDeclaration.maximum_natural false false false None).
+Definition archive_outcome_decoders : list (DeclarationFields.decoder archive_outcome) := [
+ DeclarationFields.Decoder (DeclarationFields.declare "kind" (JString "archived_at")
+   [DeclarationFields.required "root" Workspace.path_declaration])
+   (fun values=>let root:=proj1_sig (fst values) in
+     if Workspace.canonical_path root then Some (ArchivedAt root) else None);
+ DeclarationFields.Decoder (DeclarationFields.declare "kind" (JString "reservation_released")
+   [DeclarationFields.required "previous_root" Workspace.path_declaration;
+    DeclarationFields.required "reservation_id" reservation_id_declaration])
+   (fun values=>let root:=proj1_sig (fst values) in
+     if Workspace.canonical_path root then Some (ReservationReleased root (proj1_sig (fst (snd values)))) else None)].
+Definition archive_outcome_of := DeclarationFields.decode_cases archive_outcome_decoders.
 Definition archived_root (outcome : archive_outcome) : option string :=
  match outcome with ArchivedAt root => Some root | ReservationReleased _ _ => None end.
-Definition archive_outcome_matches (tree : Selvedge.Features.Domain.worktree) (root : string) (outcome : archive_outcome) :=
- match outcome with ArchivedAt _ => true | ReservationReleased previous _ =>
-   negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)) && String.eqb previous root end.
 Record creation_completion := CreationCompletion {
- creation_owner : N; creation_root : option string; creation_workspace : option workspace;
- creation_guidance : Guidance.t; creation_message : string
+ creation_owner : N; creation_observed : creation_observation
 }.
 Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
  let fields := proj1_sig values in
@@ -577,51 +607,55 @@ Definition decode_creation_completion (source : json) (ok : bool) : option creat
    | Some guidance =>
      if Workspace.canonical_path root && forallb Workspace.canonical_path (workspace_roots space) &&
         Workspace.valid_selection space && Codec.guidance_member space guidance
-     then Some (CreationCompletion (head address) (Some root) (Some space) guidance "") else None
+     then Some (CreationCompletion (head address) (CreatedWorkspace root space guidance)) else None
    | None => None end
  | None => None end
  else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) false source with
  | Some (address,values) => let root := option_map (@proj1_sig _ _) (fst values) in
    if match root with Some root => Workspace.valid_path root | None => true end
-   then Some (CreationCompletion (head address) root None None (proj1_sig (fst (snd values)))) else None
+   then Some (CreationCompletion (head address) (CreationFailure root (proj1_sig (fst (snd values))))) else None
  | None => None end.
-Definition decode_archive_completion (source : json) (ok : bool) : option (N * option archive_outcome * string) :=
+Inductive archive_observation := ArchiveSucceeded (outcome:archive_outcome) | ArchiveFailure (message:string).
+Definition decode_archive_completion (source : json) (ok : bool) : option (N * archive_observation) :=
  if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) true source with
- | Some (address,values) => option_map (fun outcome => (head address,Some outcome,"")) (archive_outcome_of (fst values))
+ | Some (address,values) => option_map (fun outcome => (head address,ArchiveSucceeded outcome)) (archive_outcome_of (fst values))
  | None => None end
  else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) false source with
- | Some (address,values) => Some (head address,None,proj1_sig (fst values))
+ | Some (address,values) => Some (head address,ArchiveFailure (proj1_sig (fst values)))
  | None => None end.
+Definition archive_choice (observed:archive_observation) (contents:Selvedge.Features.Domain.worktree_contents)
+ (request:RequestEnvelope.owned (string*string))
+ : option (Completion.Row.amendment Selvedge.Features.Domain.worktree_contents Selvedge.Features.Domain.TreeArchiving) :=
+ let '(root,target):=RequestEnvelope.owned_input request in
+ match observed with
+ | ArchiveSucceeded outcome =>
+   if match outcome with ArchivedAt _=>true | ReservationReleased previous _=>
+     negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.contents_backend contents)) && String.eqb previous root end
+   then Some (Completion.Row.Amend [] (Completion.done (Selvedge.Features.Domain.TreeArchived (archived_root outcome) target)))
+   else None
+ | ArchiveFailure message => Some (Completion.Row.Amend [] (Completion.done
+     (Selvedge.Features.Domain.TreeArchiveFailed root target message))) end.
+Definition archived_result id observed value :=
+ match Completion.Row.consume (completion_path id) Selvedge.Features.Domain.contents_phase
+   Selvedge.Features.Domain.TreeArchiving Completion.Owner tt (archive_choice observed) value with
+ | Some received => Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (Completion.Row.after received) []
+ | None => ignored value end.
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
  match string_field "kind" source,bool_field "ok" source with
  | Some kind,Some ok=>
  if String.eqb kind "worktree_created" then
  match decode_creation_completion source ok with
- | Some payload=>Some (true,true,match lookup (creation_owner payload) value with
-   | Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
-     | Selvedge.Features.Domain.TreeCreating _=>created tree ok (creation_root payload) (creation_workspace payload)
-         (creation_guidance payload) (creation_message payload) value
-     | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
-   | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ | Some payload=>Some (true,true,created (creation_owner payload) (creation_observed payload) value)
  | None=>None end
  else if String.eqb kind "worktree_archived" then
  match decode_archive_completion source ok with
- | Some (id,outcome,message)=>Some (true,true,match lookup id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
-   | Selvedge.Features.Domain.TreeArchiving root target=>
-     if match outcome with Some outcome => archive_outcome_matches tree root outcome | None => negb ok end then
-     Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)])
-     (store (Selvedge.Features.Domain.with_worktree_phase (if ok then
-        Selvedge.Features.Domain.TreeArchived (match outcome with Some outcome => archived_root outcome | None => None end) target
-        else Selvedge.Features.Domain.TreeArchiveFailed root target message) tree) value) []
-     else Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value []
-   | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
-   | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ | Some (id,observed)=>Some (true,true,archived_result id observed value)
  | None=>None end
  else None | _,_=>None end.
 Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComposition.step := fun value _ =>
  match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with Some task=>if archived task then
  match Selvedge.Features.Domain.worktree_phase tree with
- | Selvedge.Features.Domain.TreeCreating false=>DecisionComposition.unchanged (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating true) tree) value)
+ | Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false)=>DecisionComposition.unchanged (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned true)) tree) value)
  | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>DecisionComposition.from_decision (archive_tree tree value)
  | _=>DecisionComposition.unchanged value end else DecisionComposition.unchanged value | None=>DecisionComposition.unchanged value end.
 Definition after_transition (_before:world) : DecisionComposition.step := fun value effects =>
@@ -697,7 +731,7 @@ Definition binding_available (settings:task_settings) (value:world) :=
  | None=>true
  | Some owner=>match lookup owner value with
    | Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
-     | Selvedge.Features.Domain.TreeCreating false | Selvedge.Features.Domain.TreeReady _ _=>true
+     | Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false) | Selvedge.Features.Domain.TreeReady _ _=>true
      | _=>false end
    | None=>false end end.
 Definition guard_result (before:world) (result:decision) :=

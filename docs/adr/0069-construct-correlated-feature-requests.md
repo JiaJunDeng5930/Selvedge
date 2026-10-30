@@ -48,6 +48,23 @@ handlers register the same descriptor with their interpretation. A new
 callback adds a declaration and a handler, without extending a global callback
 enumeration or proving its framing again.
 
+Completion uses the same receiver path. `Completion.run` recognizes a complete
+pending constructor through `Constructor.Case`; its terminal constructor must
+be outside that pending case. `Completion.Row.consume` also retains the actual
+row and request as a receipt. Related record-field assignments and the terminal
+phase are interpreted from that receipt, with the terminal phase written last.
+A feature cannot independently substitute a different row or successor world.
+Follow-up work starts from the consumed state and uses the issuance constructor
+to allocate its new identity.
+
+Correlation belongs to the protocol. Ticketed envelopes require the matching
+ticket. An explicitly `RequestEnvelope.owned` request uses `Completion.Owner`
+when its physical protocol identifies only the owner, as worktree operations
+do. This consumes the current pending phase; it does not claim to distinguish
+attempts across a later explicit retry. Worktree's host awaits one operation and
+settles its completion once. Its unique workspace, resource and task-binding
+relations remain the feature's responsibility.
+
 Provider registration follows the same rule. A Responses-compatible backend
 uses `ProviderCatalog.responses_backend name endpoint credential`; common
 request construction supplies the authority, tool catalog and response
