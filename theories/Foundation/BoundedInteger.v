@@ -1,4 +1,4 @@
-From Stdlib Require Import String Ascii Bool NArith ZArith.
+From Stdlib Require Import String Ascii Bool NArith ZArith DecimalString.
 From Selvedge.Foundation Require Import Numbers.
 Open Scope string_scope.
 
@@ -31,29 +31,20 @@ Definition normalized_decimal (source : string) : bool * string :=
   | EmptyString => (false,"0")
   | _ => (negative,magnitude)
   end.
-Definition compare_magnitude (left right : string) : comparison :=
-  match Nat.compare (String.length left) (String.length right) with
-  | Eq => String.compare left right
-  | result => result
-  end.
-Definition compare_decimal (left right : bool * string) : comparison :=
-  let '(ln,lv) := left in let '(rn,rv) := right in
-  match ln,rn with
-  | true,false => Lt
-  | false,true => Gt
-  | false,false => compare_magnitude lv rv
-  | true,true => compare_magnitude rv lv
-  end.
-Definition decimal_in_interval (source : string) (lower upper : Z) : bool :=
-  let decimal := normalized_decimal source in
-  negb (match compare_decimal decimal (normalized_decimal (show_integer lower)) with Lt => true | _ => false end) &&
-  negb (match compare_decimal decimal (normalized_decimal (show_integer upper)) with Gt => true | _ => false end).
+Definition parse_signed_digits (negative : bool) (digits : string) : option Z :=
+  option_map (fun numeral => Z.of_int (if negative then Decimal.Neg numeral else Decimal.Pos numeral))
+    (NilZero.uint_of_string digits).
+Definition exponent_digit_limit (lower upper : Z) : nat :=
+  Nat.max (String.length (snd (normalized_decimal (show_integer lower))))
+          (String.length (snd (normalized_decimal (show_integer upper)))).
 Definition parse_bounded_exponent (source : string) (lower upper : Z) : option Z :=
-  (* Only an exponent between endpoints derived from input lengths reaches the
-     arbitrary-precision parser. Huge exponents never become powers or nats. *)
-  if decimal_in_interval source lower upper then
-    let '(negative,magnitude) := normalized_decimal source in
-    parse_integer (if negative then "-" ++ magnitude else magnitude)
+  let '(negative,magnitude) := normalized_decimal source in
+  (* DEFENSE: A wire exponent may contain arbitrarily many significant digits.
+     Endpoint widths bound parsing work before the standard integer conversion. *)
+  if Nat.leb (String.length magnitude) (exponent_digit_limit lower upper) then
+    match parse_signed_digits negative magnitude with
+    | Some value => if ((lower <=? value) && (value <=? upper))%Z then Some value else None
+    | None => None end
   else None.
 Fixpoint zeroes (count : nat) : string :=
   match count with O => EmptyString | S rest => String "0" (zeroes rest) end.
@@ -84,7 +75,7 @@ Definition decode_coefficient (negative : bool) (coefficient : string)
           match integral_digits significant (power - fractional) with
           | None => None
           | Some digits =>
-              match parse_integer (if negative then "-" ++ digits else digits) with
+              match parse_signed_digits negative digits with
               | Some value => if within_safe_integer value then Some value else None
               | None => None
               end

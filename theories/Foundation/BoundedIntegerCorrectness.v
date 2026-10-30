@@ -3,62 +3,11 @@ From Selvedge.Foundation Require Import Numbers BoundedInteger BoundedIntegerPro
 Open Scope Z_scope.
 Definition signed_magnitude (negative : bool) (magnitude : Z) :=
   if negative then -magnitude else magnitude.
-Lemma canonical_unsigned_normal_id numeral :
-  canonical_decimal numeral -> Decimal.unorm numeral = numeral.
-Proof.
- intro canonical. destruct canonical as [->|positive]; [reflexivity|].
- destruct numeral; cbn [DecimalPos.Unsigned.hd] in positive; try lia; reflexivity.
-Qed.
-Lemma canonical_signed_normal_id numeral :
-  signed_decimal_canonical numeral -> Decimal.norm numeral = numeral.
-Proof.
- destruct numeral as [magnitude|magnitude]; intro canonical.
- - unfold Decimal.norm. now rewrite canonical_unsigned_normal_id.
- - destruct magnitude; cbn [signed_decimal_canonical DecimalPos.Unsigned.hd] in canonical; try lia; reflexivity.
-Qed.
-Theorem parse_canonical_signed_integer numeral :
-  signed_decimal_canonical numeral ->
-  parse_integer (NilZero.string_of_int numeral) = Some (Z.of_int numeral).
-Proof.
- intro canonical. rewrite <- (canonical_signed_normal_id numeral canonical) at 1.
- apply parse_normal_form_integer.
-Qed.
-Theorem parse_signed_uint_sound negative digits numeral value :
+Lemma parse_signed_digits_value negative digits numeral :
   NilZero.uint_of_string digits = Some numeral ->
-  parse_integer (signed_pair_text (negative,digits)) = Some value ->
-  value = signed_magnitude negative (Z.of_uint numeral).
+  parse_signed_digits negative digits = Some (signed_magnitude negative (Z.of_uint numeral)).
 Proof.
- intros parsed decoded.
- assert (nonempty : numeral <> Decimal.Nil).
- { intro equal. subst numeral. exact (NilZero.uint_of_string_nonnil digits parsed). }
- apply NilZero.sus in parsed. subst digits.
- unfold parse_integer in decoded.
- destruct (number_lexeme _) eqn:valid; try discriminate.
- destruct negative.
- - change (match NilZero.int_of_string (NilZero.string_of_int (Decimal.Neg numeral)) with
-         | Some d => Some (Z.of_int d) | None => None end = Some value) in decoded.
-   rewrite NilZero.isi in decoded by congruence. inversion decoded; reflexivity.
- - change (match NilZero.int_of_string (NilZero.string_of_int (Decimal.Pos numeral)) with
-         | Some d => Some (Z.of_int d) | None => None end = Some value) in decoded.
-   rewrite NilZero.isi in decoded by congruence. inversion decoded; reflexivity.
-Qed.
-Lemma canonical_positive_head numeral :
-  canonical_decimal numeral -> 0 < Z.of_uint numeral ->
-  (0 < DecimalPos.Unsigned.hd numeral)%N.
-Proof. intros [->|positive]; [change (0 < 0 -> (0 < 0)%N); lia|intros; assumption]. Qed.
-Theorem parse_signed_uint_complete negative digits numeral :
-  NilZero.uint_of_string digits = Some numeral ->
-  canonical_decimal numeral -> 0 < Z.of_uint numeral ->
-  parse_integer (signed_pair_text (negative,digits)) =
-    Some (signed_magnitude negative (Z.of_uint numeral)).
-Proof.
- intros parsed canonical positive. apply NilZero.sus in parsed. subst digits.
- destruct negative.
- - change (parse_integer (NilZero.string_of_int (Decimal.Neg numeral)) = Some (Z.of_int (Decimal.Neg numeral))).
-   apply parse_canonical_signed_integer. cbn [signed_decimal_canonical].
-   now apply canonical_positive_head.
- - change (parse_integer (NilZero.string_of_int (Decimal.Pos numeral)) = Some (Z.of_int (Decimal.Pos numeral))).
-   apply parse_canonical_signed_integer. exact canonical.
+  intro parsed. unfold parse_signed_digits. rewrite parsed. destruct negative; reflexivity.
 Qed.
 
 Lemma decimal_signed_scaling negative coefficient fractional exponent value :
@@ -99,20 +48,6 @@ Lemma safe_integer_decimal_capacity value :
   0 < value -> value <= safe_integer_limit -> 1 <= value < 10 ^ 16.
 Proof. unfold safe_integer_limit. change (0 < value -> value <= 9007199254740991 -> 1 <= value < 10000000000000000). lia. Qed.
 
-Lemma bounded_exponent_outcome source value lower upper :
-  exponent_denotes source value ->
-  parse_bounded_exponent source lower upper =
-    if decimal_in_interval source lower upper then Some value else None.
-Proof.
- intro denotes. unfold parse_bounded_exponent.
- pose proof (parse_normalized_exponent_exact source value denotes) as parsing.
- unfold signed_pair_text in parsing.
- destruct (normalized_decimal source) as [negative magnitude]. cbn in parsing.
- change ((if decimal_in_interval source lower upper
-   then parse_integer (if negative then String "-"%char magnitude else magnitude) else None) =
-   if decimal_in_interval source lower upper then Some value else None).
- now rewrite parsing.
-Qed.
 Lemma decode_nonzero_coefficient_expand negative coefficient significant fraction exponent :
   significant <> EmptyString -> without_leading_zeroes coefficient = significant ->
   decode_coefficient negative coefficient fraction exponent =
@@ -122,7 +57,7 @@ Lemma decode_nonzero_coefficient_expand negative coefficient significant fractio
   | None => None
   | Some power => match integral_digits significant (power - Z.of_nat fraction) with
     | None => None
-    | Some digits => match parse_integer (signed_pair_text (negative,digits)) with
+    | Some digits => match parse_signed_digits negative digits with
       | Some value => if within_safe_integer value then Some value else None
       | None => None end end end.
 Proof.
@@ -174,19 +109,23 @@ Proof.
    reflexivity. }
  rewrite (decode_nonzero_coefficient_expand negative coefficient coefficient fraction exponent nonempty normalized).
  rewrite (bounded_exponent_outcome exponent power _ _ denotes).
- destruct (decimal_in_interval exponent _ _) eqn:accepted.
+ destruct ((Z.of_nat fraction + 1 - Z.of_nat (String.length coefficient) <=? power) &&
+     (power <=? Z.of_nat fraction + 16 - Z.of_nat (String.length coefficient)))%Z eqn:accepted.
  - assert (window : Z.of_nat fraction + 1 - Z.of_nat (String.length coefficient) <= power <=
        Z.of_nat fraction + 16 - Z.of_nat (String.length coefficient))
-     by (apply (proj1 (decimal_interval_exact exponent power _ _ denotes)); exact accepted).
+     by (apply Bool.andb_true_iff in accepted as [low high];
+         apply Z.leb_le in low,high; split; assumption).
    assert (lower_window : 1 - Z.of_nat (String.length coefficient) <= power - Z.of_nat fraction) by lia.
    split.
    + destruct (integral_digits coefficient (power - Z.of_nat fraction)) as [digits|] eqn:integral; [|discriminate].
-     destruct (parse_integer (signed_pair_text (negative,digits))) as [actual|] eqn:decoded; [|discriminate].
+     destruct (parse_signed_digits negative digits) as [actual|] eqn:decoded; [|discriminate].
      destruct (within_safe_integer actual) eqn:safe; [|discriminate].
      intro equality. inversion equality; subst actual.
      destruct (integral_digits_sound coefficient numeral _ digits parsed canonical positive lower_window integral)
        as [result [parsed_result [canonical_result [positive_result mathematical]]]].
-     pose proof (parse_signed_uint_sound negative digits result value parsed_result decoded) as signed_value.
+     assert (signed_value : value = signed_magnitude negative (Z.of_uint result)).
+     { rewrite (parse_signed_digits_value negative digits result parsed_result) in decoded.
+       now injection decoded. }
      split; [now apply within_safe_integer_spec|].
      apply decimal_signed_scaling. rewrite signed_value, signed_magnitude_involutive.
      now apply decimal_scaling_at_shift.
@@ -198,15 +137,15 @@ Proof.
        parsed canonical positive lower_window mathematical magnitude_positive)
        as [digits [result [integral [parsed_result [canonical_result result_value]]]]].
      rewrite integral.
-     rewrite (parse_signed_uint_complete negative digits result parsed_result canonical_result) by lia.
+     rewrite (parse_signed_digits_value negative digits result parsed_result).
      rewrite result_value, signed_magnitude_involutive.
      rewrite (proj2 (within_safe_integer_spec value) safe). reflexivity.
  - split; [discriminate|]. intros [safe mathematical].
    pose proof (safe_nonzero_exponent_window negative numeral fraction power value canonical positive safe mathematical)
      as window.
    rewrite <-render in window.
-   apply (proj2 (decimal_interval_exact exponent power _ _ denotes)) in window.
-   congruence.
+   apply Bool.andb_false_iff in accepted as [low|high];
+     apply Z.leb_gt in low || apply Z.leb_gt in high; lia.
 Qed.
 
 Lemma decode_coefficient_same_normalization negative left right fraction exponent :

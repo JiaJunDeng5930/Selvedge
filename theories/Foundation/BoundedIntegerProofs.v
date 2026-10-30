@@ -60,61 +60,14 @@ Proof.
       nia.
 Qed.
 
-Lemma compare_magnitude_shorter left right :
-  (String.length left < String.length right)%nat ->
-  compare_magnitude left right = Lt.
-Proof.
-  intros shorter. unfold compare_magnitude.
-  now rewrite (proj2 (Nat.compare_lt_iff _ _) shorter).
-Qed.
-
-Lemma compare_magnitude_longer left right :
-  (String.length right < String.length left)%nat ->
-  compare_magnitude left right = Gt.
-Proof.
-  intros longer. unfold compare_magnitude.
-  now rewrite (proj2 (Nat.compare_gt_iff _ _) longer).
-Qed.
-
-(* Even before establishing the numeric interpretation of text comparison,
-   the executable guard bounds the amount of text reaching the integer parser.
-   This covers huge signed exponents and arbitrary runs of leading zeroes. *)
-Theorem admitted_exponent_text_is_bounded source lower upper :
-  decimal_in_interval source lower upper = true ->
-  (String.length (snd (normalized_decimal source)) <=
-   Nat.max (String.length (snd (normalized_decimal (show_integer lower))))
-           (String.length (snd (normalized_decimal (show_integer upper)))))%nat.
-Proof.
-  unfold decimal_in_interval.
-  destruct (normalized_decimal source) as [negative digits].
-  destruct (normalized_decimal (show_integer lower)) as [lower_negative lower_digits].
-  destruct (normalized_decimal (show_integer upper)) as [upper_negative upper_digits].
-  cbn [snd].
-  intros admitted.
-  destruct (Nat.le_gt_cases (String.length digits)
-    (Nat.max (String.length lower_digits) (String.length upper_digits)))
-    as [bounded|too_long]; [assumption|].
-  assert (lower_shorter : (String.length lower_digits < String.length digits)%nat)
-    by lia.
-  assert (upper_shorter : (String.length upper_digits < String.length digits)%nat)
-    by lia.
-  destruct negative, lower_negative, upper_negative;
-    cbn [compare_decimal] in admitted;
-    try rewrite (compare_magnitude_shorter _ _ lower_shorter) in admitted;
-    try rewrite (compare_magnitude_longer _ _ upper_shorter) in admitted;
-    cbn in admitted; try rewrite Bool.andb_false_r in admitted;
-    discriminate.
-Qed.
-
-Corollary parsed_exponent_text_is_bounded source lower upper power :
+Theorem parsed_exponent_text_is_bounded source lower upper power :
   parse_bounded_exponent source lower upper = Some power ->
-  (String.length (snd (normalized_decimal source)) <=
-   Nat.max (String.length (snd (normalized_decimal (show_integer lower))))
-           (String.length (snd (normalized_decimal (show_integer upper)))))%nat.
+  (String.length (snd (normalized_decimal source)) <= exponent_digit_limit lower upper)%nat.
 Proof.
   unfold parse_bounded_exponent.
-  destruct (decimal_in_interval source lower upper) eqn:admitted; try discriminate.
-  intros _. now apply admitted_exponent_text_is_bounded.
+  destruct (normalized_decimal source) as [negative digits]; cbn [snd].
+  destruct (Nat.leb (String.length digits) (exponent_digit_limit lower upper)) eqn:bounded;
+    [intros _; now apply Nat.leb_le|discriminate].
 Qed.
 
 Theorem exponent_window_bounds_allocation width fractional exponent :
