@@ -43,8 +43,6 @@ Proof.
  induction source as [|head tail IH]; cbn; [lia|].
  destruct (is_digit head); cbn; lia.
 Qed.
-Lemma take_digits_empty : take_digits EmptyString = (EmptyString,EmptyString).
-Proof. reflexivity. Qed.
 Lemma take_digits_digit head tail :
   is_digit head = true ->
   take_digits (String head tail) =

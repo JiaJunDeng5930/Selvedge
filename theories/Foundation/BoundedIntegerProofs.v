@@ -9,46 +9,6 @@ Proof.
   unfold within_safe_integer. rewrite Bool.andb_true_iff, !Z.leb_le. tauto.
 Qed.
 
-Theorem decoded_coefficient_is_safe negative coefficient fraction exponent value :
-  decode_coefficient negative coefficient fraction exponent = Some value ->
-  - safe_integer_limit <= value <= safe_integer_limit.
-Proof.
-  unfold decode_coefficient.
-  destruct (without_leading_zeroes coefficient) as [|head tail].
-  - intros equality. inversion equality. unfold safe_integer_limit. lia.
-  - destruct (parse_bounded_exponent exponent _ _) as [power|]; try discriminate.
-    destruct (integral_digits _ _) as [digits|]; try discriminate.
-    destruct (parse_integer _) as [parsed|]; try discriminate.
-    destruct (within_safe_integer parsed) eqn:safe; try discriminate.
-    intros equality. inversion equality; subst. now apply within_safe_integer_spec.
-Qed.
-
-Theorem decoded_safe_integer_is_safe source value :
-  decode_safe_integer source = Some value ->
-  - safe_integer_limit <= value <= safe_integer_limit.
-Proof.
-  unfold decode_safe_integer.
-  destruct (number_lexeme source); try discriminate.
-  destruct (unsigned_text source) as [negative unsigned].
-  destruct (take_digits unsigned) as [whole rest].
-  destruct (match rest with
-            | String c digits => if Ascii.eqb c "."%char then take_digits digits else ("", rest)
-            | EmptyString => ("", rest)
-            end) as [fraction remaining].
-  apply decoded_coefficient_is_safe.
-Qed.
-
-Theorem decoded_safe_integer_has_valid_lexeme source value :
-  decode_safe_integer source = Some value -> number_lexeme source = true.
-Proof.
-  unfold decode_safe_integer. destruct (number_lexeme source); congruence.
-Qed.
-
-Theorem zero_coefficient_ignores_exponent negative coefficient fraction exponent :
-  without_leading_zeroes coefficient = EmptyString ->
-  decode_coefficient negative coefficient fraction exponent = Some 0.
-Proof. intros zero. unfold decode_coefficient. now rewrite zero. Qed.
-
 (* Cross multiplication gives the ordinary mathematical meaning of decimal
    scaling without rational arithmetic or a decoder-dependent interpretation.
    Both powers have nonnegative exponents, even for enormous negative shifts. *)
@@ -56,10 +16,6 @@ Definition decimal_integer_magnitude
     (coefficient fractional exponent magnitude : Z) : Prop :=
   coefficient * 10 ^ Z.max (exponent - fractional) 0 =
   magnitude * 10 ^ Z.max (fractional - exponent) 0.
-
-Theorem zero_decimal_magnitude fractional exponent :
-  decimal_integer_magnitude 0 fractional exponent 0.
-Proof. unfold decimal_integer_magnitude. ring. Qed.
 
 (* A nonzero coefficient with [width] decimal digits can denote a positive
    integer with at most [capacity] digits only inside this exponent window.
@@ -102,19 +58,6 @@ Proof.
         by (apply Z.pow_le_mono_r; lia).
       rewrite Z.pow_add_r in power_bound by lia.
       nia.
-Qed.
-
-Corollary safe_integer_exponent_window_complete coefficient width fractional exponent magnitude :
-  1 <= width ->
-  10 ^ (width - 1) <= coefficient < 10 ^ width ->
-  1 <= magnitude <= safe_integer_limit ->
-  decimal_integer_magnitude coefficient fractional exponent magnitude ->
-  fractional + 1 - width <= exponent <= fractional + 16 - width.
-Proof.
-  intros width_positive coefficient_digits magnitude_safe scaling.
-  apply (decimal_exponent_window_complete coefficient width fractional exponent magnitude 16);
-    try assumption; try lia.
-  unfold safe_integer_limit in magnitude_safe. cbn. lia.
 Qed.
 
 Lemma compare_magnitude_shorter left right :

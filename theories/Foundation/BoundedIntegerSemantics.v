@@ -2,11 +2,6 @@ From Stdlib Require Import String Ascii Bool ZArith NArith Lia DecimalString Dec
 From Selvedge.Foundation Require Import Numbers BoundedInteger.
 Open Scope Z_scope.
 
-(* Standard-library decimal syntax supplies an independent positional meaning;
-   this relation does not call the bounded decoder. *)
-Definition decimal_string_value (source : string) (value : Z) : Prop :=
-  exists numeral, NilZero.int_of_string source = Some numeral /\ value = Z.of_int numeral.
-
 Lemma decimal_unsigned_size numeral :
   DecimalPos.Unsigned.usize numeral = N.of_nat (Decimal.nb_digits numeral).
 Proof.
@@ -377,19 +372,4 @@ Proof.
    as [numeral [normal value_equality]].
  rewrite normal, normalized_pair_printing, parse_normal_form_integer.
  now rewrite value_equality.
-Qed.
-Theorem parse_bounded_exponent_exact source value lower upper :
-  exponent_denotes source value ->
-  (parse_bounded_exponent source lower upper = Some value <-> lower <= value <= upper).
-Proof.
- intro denotes. unfold parse_bounded_exponent.
- pose proof (decimal_interval_exact source value lower upper denotes) as interval.
- pose proof (parse_normalized_exponent_exact source value denotes) as parsing.
- unfold signed_pair_text in parsing.
- destruct (normalized_decimal source) as [negative magnitude]. cbn in parsing.
- change ((if decimal_in_interval source lower upper
-   then parse_integer (if negative then String "-"%char magnitude else magnitude) else None) = Some value <-> lower <= value <= upper).
- destruct (decimal_in_interval source lower upper) eqn:accepted.
- - rewrite parsing. intuition.
- - split; [discriminate|intro inside; apply interval in inside; discriminate].
 Qed.

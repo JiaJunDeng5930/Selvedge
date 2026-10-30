@@ -266,10 +266,3 @@ Proof.
    apply (proj2 (decode_coefficient_mathematical_iff _ _ numeral _ _ power value parsed denotes)).
    auto.
 Qed.
-
-Corollary decode_safe_integer_accepts_exactly_safe_mathematical_integers source :
-  (exists value, decode_safe_integer source = Some value) <->
-  exists value, json_integer_denotes source value /\ -safe_integer_limit <= value <= safe_integer_limit.
-Proof.
- split; intros [value fact]; exists value; now apply decode_safe_integer_mathematical_iff.
-Qed.

@@ -95,12 +95,6 @@ Proof.
  rewrite string_length_append. now apply validate_fuel_append.
 Qed.
 
-Lemma escaped_append : forall first second,
- escaped (first ++ second) = escaped first ++ escaped second.
-Proof.
- induction first as [|c rest IH]; intros second; cbn; [reflexivity|].
- rewrite IH, string_append_assoc. reflexivity.
-Qed.
 Lemma escaped_length : forall text, String.length text <= String.length (escaped text).
 Proof.
  induction text as [|c rest IH]; cbn; [lia|].

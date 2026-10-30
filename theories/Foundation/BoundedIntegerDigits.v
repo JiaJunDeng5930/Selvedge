@@ -309,22 +309,3 @@ Proof.
    apply (proj1 (integer_scale_nonnegative _ _ _ Nonnegative)) in Mathematical.
    exists digits, result. repeat split; try assumption. lia.
 Qed.
-
-Theorem integral_digits_exact coefficient numeral shift magnitude :
- NilZero.uint_of_string coefficient = Some numeral -> canonical_decimal numeral -> 0 < Z.of_uint numeral ->
- 1 - Z.of_nat (String.length coefficient) <= shift ->
- ((exists digits result, integral_digits coefficient shift = Some digits /\
-    NilZero.uint_of_string digits = Some result /\ Z.of_uint result = magnitude) <->
-  decimal_integer_magnitude (Z.of_uint numeral) 0 shift magnitude /\ 0 < magnitude).
-Proof.
- intros Parsed Canonical Positive Window. split.
- - intros [digits [result [Integral [ParsedResult Value]]]].
-   destruct (integral_digits_sound coefficient numeral shift digits Parsed Canonical Positive Window Integral)
-     as [actual [ParsedActual [CanonicalActual [PositiveActual Mathematical]]]].
-   rewrite ParsedResult in ParsedActual; inversion ParsedActual; subst actual.
-   now rewrite <-Value.
- - intros [Mathematical MagnitudePositive].
-   destruct (integral_digits_complete coefficient numeral shift magnitude Parsed Canonical Positive Window
-     Mathematical MagnitudePositive) as [digits [result [Integral [ParsedResult [CanonicalResult Value]]]]].
-   exists digits, result. auto.
-Qed.

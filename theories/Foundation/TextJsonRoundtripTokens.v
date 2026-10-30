@@ -46,10 +46,6 @@ Proof.
  destruct a,b,c,d,e,f,g,h; reflexivity.
 Qed.
 
-Lemma push_string_append : forall first second reversed,
- push_string (first ++ second) reversed = push_string second (push_string first reversed).
-Proof. induction first; cbn; intros; [reflexivity|apply IHfirst]. Qed.
-
 Lemma quoted_acc_escaped : forall text fuel suffix reversed,
  String.length text < fuel ->
  quoted_acc fuel (escaped text ++ """" ++ suffix) reversed =
