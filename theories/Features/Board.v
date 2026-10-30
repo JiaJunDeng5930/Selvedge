@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Schema.
+From Selvedge.Foundation Require Import Json Utf8 Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
@@ -290,21 +290,36 @@ Definition decode_completion_payload (source:json) (ok:bool) : option completion
  else match CallbackDeclarations.decode_branch ModelDeclarations.BoardText false source with
  | Some (address,values) => Some (CompletionPayload (head address) (head (tail address)) "" "" (proj1_sig (fst values)))
  | None => None end.
-Definition suggestion (ok retitle:bool) (title description message:string) (card:Selvedge.Features.Domain.card) (value:world) :=
+Definition suggestion (ok retitle:bool) (title description message:string)
+ (card:Selvedge.Features.Domain.card) (value:world)
+ : Completion.Row.amendment Selvedge.Features.Domain.card Selvedge.Features.Domain.Enriching :=
  let old:=Selvedge.Features.Domain.card_contents card in
- let draft:=(set Selvedge.Features.Domain.draft_description (fun _=>(if retitle then Selvedge.Features.Domain.draft_description old else description)) (set Selvedge.Features.Domain.draft_title (fun _=>(Titles.normalize title)) (old))) in
+ let draft:=set Selvedge.Features.Domain.draft_description
+   (fun _=>if retitle then Selvedge.Features.Domain.draft_description old else description)
+   (set Selvedge.Features.Domain.draft_title (fun _=>Titles.normalize title) old) in
  let valid:=ok && valid_draft draft value in
- (set Selvedge.Features.Domain.card_enrichment (fun _=>(if valid then Selvedge.Features.Domain.NoEnrichment else Selvedge.Features.Domain.EnrichmentFailed (failure_text (if ok then "The drafting endpoint returned an empty or oversized title/description. The original request is preserved." else message)))) (set Selvedge.Features.Domain.card_contents (fun _=>(if valid then draft else old)) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card)))).
+ Completion.Row.Amend
+   [Completion.Row.assign Selvedge.Features.Domain.card_revision (N.succ (Selvedge.Features.Domain.card_revision card));
+    Completion.Row.assign Selvedge.Features.Domain.card_contents (if valid then draft else old)]
+   (if valid then Completion.done Selvedge.Features.Domain.NoEnrichment
+    else Completion.done (Selvedge.Features.Domain.EnrichmentFailed (failure_text (if ok then
+      "The drafting endpoint returned an empty or oversized title/description. The original request is preserved." else message)))).
+Definition completion_choice ok title description message value (card:Selvedge.Features.Domain.card)
+ (request:RequestEnvelope.t (N * bool)) :=
+ let '(revision,retitle):=RequestEnvelope.input request in
+ if N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card)
+ then Some (suggestion ok retitle title description message card value) else None.
+Definition completion_path id := Receiver.field world_features (TicketedRequest.Scoped.card_slot id).
 Definition completion (source:json) (value:world) :option (bool*bool*decision) := match string_field "kind" source with Some "board_text"=>
  match bool_field "ok" source with Some ok=>
  match decode_completion_payload source ok with Some payload=>
  let id:=completion_card payload in let ticket:=completion_ticket payload in
  let ignored:=Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] in
- Some (match lookup id value with Some card=>match Selvedge.Features.Domain.card_enrichment card with
- | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope expected (revision, retitle))=>if N.eqb ticket expected && N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card) then
- (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (put id (suggestion ok retitle (completion_title payload) (completion_description payload) (completion_message payload) card value) value) [])
- else (false,false,ignored)
- | _=>(false,false,ignored) end | None=>(false,false,ignored) end)
+ Some (match Completion.Row.consume (completion_path id) Selvedge.Features.Domain.card_enrichment
+   Selvedge.Features.Domain.Enriching Completion.Ticket ticket
+   (completion_choice ok (completion_title payload) (completion_description payload) (completion_message payload) value) value with
+ | Some received=>(true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (Completion.Row.after received) [])
+ | None=>(false,false,ignored) end)
  | None=>None end | None=>None end | _=>None end.
 Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
  if Selvedge.Features.Domain.card_archived card || pending card then card else match linked_task card value with None=>card | Some task=>

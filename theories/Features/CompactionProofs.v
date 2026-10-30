@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs OptionListProofs.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs OptionListProofs CompletionProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs TaskScopeProofs.
@@ -103,12 +103,20 @@ Lemma stale_result_does_not_change_the_component : forall id ticket result error
 Proof.
  intros id ticket result error value stale; unfold A.resolve,A.resolve_task_completion.
  destruct (K.find_task id value) as [current|]; [|reflexivity].
- unfold owns_compactor_ticket in stale; cbv beta zeta.
- unfold A.running,A.alive,A.compact_result.
- destruct (task_lifecycle current);
- destruct (entry_job (A.current_entry id (A.registry value))) as
-   [|waiting|expected purpose demand|input resumed|[expected request]|[expected request]|[expected request]];
- try destruct request; cbn in *; try reflexivity; now rewrite stale.
+ cbv beta zeta; unfold A.compact_result.
+ destruct (Completion.Row.consume (A.completion_path id value) entry_job Compacting Completion.Ticket ticket
+   (fun _ _ => Some A.compaction_finished) value) as [received|]; [|reflexivity].
+ exfalso; pose proof (Completion.Row.observed received) as Found.
+ cbn in Found.
+ assert (Located : A.find_entry id (A.registry value)=Some (Completion.Row.previous received)).
+ { unfold A.find_entry,A.registry.
+   destruct (find (fun pair => N.eqb id (fst pair))
+     (maintenance_entries (Selvedge.Features.Domain.feature_compaction (world_features value)))) as [[owner stored]|]; exact Found. }
+ destruct (CompletionProofs.candidate_spec _ _ _ _ _ _ _ _ (Completion.Row.admitted received))
+   as [Pending Matches].
+ pose proof (Constructor.project_case _ _ Pending) as Phase.
+ unfold owns_compactor_ticket,A.current_entry in stale; rewrite Located,<-Phase in stale.
+ destruct (Completion.Row.request received); cbn in Matches; rewrite stale in Matches; discriminate.
 Qed.
 (** A valid stale observation still participates in journal ordering and the
     outer scheduler. Its own handler acquires no state or execution authority. *)
@@ -599,16 +607,15 @@ Qed.
     lease, including its target. The kernel planner
     separately proves that recovered progress retains native raw history. *)
 Theorem native_unavailable_callback_dispatches_portable_rebuild :
- forall id ticket task input purpose progress scope entry value target portable,
- C.entry_job entry = C.Compacting (RequestEnvelope.Envelope ticket (CompactInput input purpose target progress scope)) ->
+ forall id task input purpose progress scope entry value target portable,
  A.relevant input task value = true ->
  P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
- A.compact_result id ticket task (JObject [("action",JString "native_unavailable")]) false entry value =
- Some (A.dispatch_compact id task input purpose target portable scope entry value).
+ A.compacted_result id task (CompactInput input purpose target progress scope)
+   (JObject [("action",JString "native_unavailable")]) false entry value =
+ A.dispatch_compact id task input purpose target portable scope entry value.
 Proof.
- intros id ticket task input purpose progress scope entry value target portable Job Relevant Recovered.
- unfold A.compact_result. rewrite Job, N.eqb_refl, Relevant.
- rewrite Recovered. reflexivity.
+ intros id task input purpose progress scope entry value target portable Relevant Recovered.
+ unfold A.compacted_result. rewrite Relevant,Recovered. reflexivity.
 Qed.
 
 (** Candidate validation may change representation from native to portable,

@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8.
+From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8 CompletionProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs FeatureAdmissionProofs.
 From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree WorktreeProofs Titles TitleRuntime.
 Import ListNotations.
@@ -45,23 +45,29 @@ Proof.
  intros source value ok payload kind outcome Parsed no_lease.
  set (id:=Board.completion_card payload) in *; set (ticket:=Board.completion_ticket payload) in *.
  unfold Board.completion; rewrite kind, outcome, Parsed; cbn zeta; fold id ticket.
- destruct (Board.lookup id value) as [card|] eqn:found.
- - destruct (F.card_enrichment card) as [|[expected [revision retitle]]|reason] eqn:lease.
-   + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-     repeat split; try reflexivity. exact found.
-   + destruct (N.eqb ticket expected && N.eqb revision (F.card_revision card) && negb (F.card_archived card)) eqn:matches.
-     * exfalso. specialize (no_lease card eq_refl). apply no_lease.
-       unfold current_board_lease. rewrite lease. simpl.
-       apply Bool.andb_true_iff in matches as [ticket_revision not_archived].
-       apply Bool.andb_true_iff in ticket_revision as [ticket_matches version_matches].
-       apply N.eqb_eq in ticket_matches. apply N.eqb_eq in version_matches.
-       apply Bool.negb_true_iff in not_archived. repeat split; assumption.
-     * cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-       repeat split; try reflexivity. exact found.
-   + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-     repeat split; try reflexivity. exact found.
- - cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-   repeat split; try reflexivity. exact found.
+ destruct (Completion.Row.consume (Board.completion_path id) F.card_enrichment F.Enriching Completion.Ticket ticket
+   (Board.completion_choice ok (Board.completion_title payload) (Board.completion_description payload)
+     (Board.completion_message payload) value) value) as [received|].
+ - exfalso; pose proof (Completion.Row.observed received) as Found.
+   cbn in Found.
+   assert (Located : Board.lookup id value=Some (Completion.Row.previous received)).
+   { unfold Board.lookup,Board.registry.
+     destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[card|]|]; exact Found. }
+   apply (no_lease _ Located).
+   destruct (CompletionProofs.candidate_spec _ _ _ _ _ _ _ _ (Completion.Row.admitted received))
+     as [Pending Matches].
+   pose proof (Constructor.project_case _ _ Pending) as Phase.
+   pose proof (Completion.Row.selected received) as Relevant.
+   destruct (Completion.Row.request received) as [expected [revision retitle]] eqn:Request.
+   unfold Board.completion_choice in Relevant; cbn in Relevant.
+   lazymatch type of Relevant with (if ?condition then _ else _) = _ =>
+     destruct condition eqn:Current in Relevant end; [|discriminate].
+   apply andb_true_iff in Current as [Revision Archived].
+   apply N.eqb_eq in Revision; apply negb_true_iff in Archived.
+   unfold current_board_lease; rewrite <-Phase; cbn.
+   repeat split; try assumption. now apply N.eqb_eq in Matches.
+ - exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
+   repeat split; reflexivity.
 Qed.
 
 (** Launch writes the identifier allocated by the shared Task creator and
@@ -370,7 +376,8 @@ Qed.
 
 (** A title result retains the linked Task identifier in the saved card. *)
 Theorem card_title_result_preserves_conversation : forall value card ok title description reason,
- F.card_task (Board.suggestion ok true title description reason card value)=F.card_task card.
+ F.card_task (Completion.Row.finish F.card_enrichment
+   (Board.suggestion ok true title description reason card value) card)=F.card_task card.
 Proof. reflexivity. Qed.
 
 (** The same card store used by completion cannot overwrite conversations or

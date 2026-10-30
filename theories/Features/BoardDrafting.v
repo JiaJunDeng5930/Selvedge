@@ -49,18 +49,22 @@ Definition target_card {before} (target : drafting_target before) := match targe
 Definition target_retitle {before} (target : drafting_target before) := match target with
  | FreshTarget _ _ _ _ _ _ => false | RevisedTarget _ _ _ _ _ => true end.
 Definition target_location {before} (target : drafting_target before)
- : Receiver.located F.state F.card (world_features before) :=
- let features := world_features before in
- let board := F.feature_board features in
- let contents := Focus.read S.board_contents board in
- Receiver.At.field features F.feature_board
-   (Receiver.At.focused board S.board_contents
-     (Receiver.At.inject (@Some F.card)
-       (match target with
-        | FreshTarget _ _ _ _ _ _ => Receiver.At.ordered_append contents
-        | RevisedTarget _ id reference _ _ =>
-            Receiver.At.ordered_present contents id (selected_card reference) (selected_card_found reference)
-        end))).
+ : Receiver.located F.state F.card (world_features before).
+Proof.
+ refine (Receiver.Located (S.card_slot (target_id target)) _).
+ destruct target as [draft now Draft Capacity Identity|id reference now Mutable].
+ - exact (Receiver.position
+     (Receiver.At.field (world_features before) F.feature_board
+       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+         (Receiver.At.inject (@Some F.card)
+           (Receiver.At.ordered_append (Focus.read S.board_contents (F.feature_board (world_features before)))))))).
+ - exact (Receiver.position
+     (Receiver.At.field (world_features before) F.feature_board
+       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+         (Receiver.At.inject (@Some F.card)
+           (Receiver.At.ordered_present (Focus.read S.board_contents (F.feature_board (world_features before)))
+             id (selected_card reference) (selected_card_found reference)))))).
+Defined.
 
 Record drafting_request (before : world) := DraftingRequest {
  requested_target : drafting_target before;

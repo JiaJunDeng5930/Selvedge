@@ -33,3 +33,21 @@ Ltac derive_constructor_view inject :=
    lazymatch input with unit => destruct value | _ => idtac end; reflexivity ].
 
 #[global] Hint Extern 2 (View ?inject) => derive_constructor_view inject : typeclass_instances.
+
+(** Reception recognizes a whole constructor, unlike a storage view such as
+    [pair owner], whose fixed prefix is supplied by the receiver address. *)
+Class Case {input output} (inject : input -> output) := {
+ case_view : View inject;
+ project_case : forall stored value,
+   @project _ _ inject case_view stored = Some value -> inject value = stored
+}.
+Arguments project_case {input output inject} {_} _ _ _.
+Definition recognize {input output} (inject : input -> output) `{Case _ _ inject} stored :=
+ @project _ _ inject (@case_view _ _ inject H) stored.
+Ltac derive_constructor_case inject :=
+ let view := constr:(ltac:(derive_constructor_view inject) : View inject) in
+ refine {| case_view := view; project_case := _ |};
+ let stored := fresh "stored" in let value := fresh "value" in let Found := fresh "Found" in
+ intros stored value Found; destruct stored; cbn in Found; try discriminate;
+ inversion Found; subst; reflexivity.
+#[global] Hint Extern 2 (Case ?inject) => derive_constructor_case inject : typeclass_instances.

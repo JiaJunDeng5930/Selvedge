@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects TextJson.
+From Selvedge.Foundation Require Import Json JsonObjects TextJson Completion.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning TicketedRequest.
@@ -207,76 +207,93 @@ Definition finish_validation (id : N) (task : task) (input : capture) (purpose :
 
 Definition restart (id : N) (task : task) (purpose : reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  begin_scope id (capture_task task value) (Some purpose) (with_job NoJob entry) value.
-Definition ordinary_inspected (id : N) (task : task) (ticket : N) (input : capture) (stage : inspection_stage)
- (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+(** Scope discovery and token counting are one protocol shared by ordinary
+    measurement, preparation and candidate validation. A changed scope always
+    requests a new count before a token observation can be consumed. *)
+Definition inspected_outcome (stage : inspection_stage) (outcome : inspection) :=
  match outcome, stage with
- | InspectionFailed message, _ => failed id task entry message value
- | ScopeObserved scope, InspectScope => measured_call id task input scope R.MeterOnly entry value
+ | InspectionFailed message, _ => InspectionFailed message
+ | ScopeObserved scope, InspectScope => ScopeObserved scope
  | ScopeObserved scope, InspectCount expected =>
-   if String.eqb expected scope then failed id task entry "The input meter returned a scope without a token measurement" value
-   else measured_call id task input scope R.MeterOnly entry value
+   if String.eqb expected scope then InspectionFailed "The input meter returned a scope without a token measurement"
+   else ScopeObserved scope
  | InputMeasured scope tokens budget, InspectCount expected =>
-   if String.eqb expected scope then finish_measure id task input scope tokens budget entry value
-   else measured_call id task input scope R.MeterOnly entry value
- | InputMeasured _ _ _, InspectScope => failed id task entry "The scope observation returned an unexpected token measurement" value end.
-Definition preparing_inspected (id : N) (task : task) (input : capture) (purpose : reason) (stage : inspection_stage)
- (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- if relevant input task value then match outcome, stage with
- | InspectionFailed message, _ => failed id task entry message value
- | ScopeObserved scope, InspectScope => measured_call id task input scope (R.PrepareFor purpose) entry value
- | ScopeObserved scope, InspectCount expected =>
-   if String.eqb expected scope then failed id task entry "The input meter returned a scope without a token measurement" value
-   else measured_call id task input scope (R.PrepareFor purpose) entry value
- | InputMeasured scope tokens budget, InspectCount expected =>
-   if String.eqb expected scope then match configured_target task (registry value) with
-   | None => failed id task entry "The selected profile does not support compaction" value
-   | Some target => start id task input purpose target scope tokens
-     (with_measurement (if same_input input task value then Measured input scope tokens budget else Unmeasured) entry) value end
-   else measured_call id task input scope (R.PrepareFor purpose) entry value
- | InputMeasured _ _ _, InspectScope => failed id task entry "The scope observation returned an unexpected token measurement" value end
- else commit id (with_job NoJob entry) value [].
+   if String.eqb expected scope then InputMeasured scope tokens budget else ScopeObserved scope
+ | InputMeasured _ _ _, InspectScope => InspectionFailed "The scope observation returned an unexpected token measurement" end.
 Definition validation_input (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (preview : list message) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if ContextSelection.consumes candidate scope then
  measured_call id task input scope (R.ValidateCandidate (Candidate purpose candidate preview)) entry value
  else restart id task purpose entry value.
-Definition validation_inspected (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
- (preview : list message) (stage : inspection_stage) (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- if relevant input task value then match outcome, stage with
- | InspectionFailed message, _ => failed id task entry message value
- | ScopeObserved scope, InspectScope => validation_input id task input purpose candidate preview scope entry value
- | ScopeObserved scope, InspectCount expected =>
-   if String.eqb expected scope then failed id task entry "The input meter returned a scope without a token measurement" value
-   else validation_input id task input purpose candidate preview scope entry value
- | InputMeasured scope tokens budget, InspectCount expected =>
-   if String.eqb expected scope then finish_validation id task input purpose candidate preview scope tokens budget entry value
-   else validation_input id task input purpose candidate preview scope entry value
- | InputMeasured _ _ _, InspectScope => failed id task entry "The scope observation returned an unexpected token measurement" value end
+Definition inspected (id : N) (task : task) (input : capture) (purpose : R.inspection_purpose)
+ (stage : inspection_stage) (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+ if match purpose with R.MeterOnly => true | _ => relevant input task value end then
+ match inspected_outcome stage outcome with
+ | InspectionFailed message => failed id task entry message value
+ | ScopeObserved scope => match purpose with
+   | R.ValidateCandidate (Candidate purpose candidate preview) => validation_input id task input purpose candidate preview scope entry value
+   | _ => measured_call id task input scope purpose entry value end
+ | InputMeasured scope tokens budget => match purpose with
+   | R.MeterOnly => finish_measure id task input scope tokens budget entry value
+   | R.PrepareFor reason => match configured_target task (registry value) with
+     | None => failed id task entry "The selected profile does not support compaction" value
+     | Some target => start id task input reason target scope tokens
+       (with_measurement (if same_input input task value then Measured input scope tokens budget else Unmeasured) entry) value end
+   | R.ValidateCandidate (Candidate purpose candidate preview) =>
+     finish_validation id task input purpose candidate preview scope tokens budget entry value end
+ end else commit id (with_job NoJob entry) value [].
+Definition completion_path id value := Receiver.field world_features
+ (Receiver.path (R.compaction_slot id (world_features value))).
+Definition stopped_completion id task previous value :=
+ if alive task then Some (commit id (recover_entry previous) value (cancellations id previous)) else None.
+Definition receive_inspection {phase continuation} (get : entry -> phase) `{setter : SetterWf entry phase get}
+ (pending : RequestEnvelope.t (inspection_input continuation) -> phase)
+ `{view : Constructor.Case (RequestEnvelope.t (inspection_input continuation)) phase pending}
+ (finish : Completion.Row.amendment entry pending) (purpose : continuation -> R.inspection_purpose)
+ (id ticket : N) (task : task) (outcome : inspection) (value : Selvedge.Kernel.State.world) :=
+ match Completion.Row.consume (completion_path id value) get pending Completion.Ticket ticket
+   (fun _ _ => Some finish) value with
+ | Some received =>
+   let input:=RequestEnvelope.input (Completion.Row.request received) in
+   if running task then Some (inspected id task (inspection_capture input) (purpose (inspection_continuation input))
+     (inspection_step input) outcome (Completion.Row.updated received) (Completion.Row.after received))
+   else stopped_completion id task (Completion.Row.previous received) (Completion.Row.after received)
+ | None => None end.
+Definition measurement_finished : Completion.Row.amendment entry Measuring :=
+ Completion.Row.Amend [] (Completion.done Unmeasured).
+Definition job_finished {input} (pending : input -> job) `{view : Constructor.Case input job pending}
+ `{closed : @Completion.Retired input job pending view NoJob} : Completion.Row.amendment entry pending :=
+ Completion.Row.Amend [] (Completion.done NoJob).
+Definition preparation_finished : Completion.Row.amendment entry Preparing := job_finished Preparing.
+Definition validation_finished : Completion.Row.amendment entry Validating := job_finished Validating.
+Definition compaction_finished : Completion.Row.amendment entry Compacting := job_finished Compacting.
+Definition measurement_result (id ticket : N) (task : task) (outcome : inspection)
+ (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
+ match entry_job (current_entry id (registry value)) with
+ | Validating _ => receive_inspection entry_job Validating validation_finished R.ValidateCandidate id ticket task outcome value
+ | Preparing _ => receive_inspection entry_job Preparing preparation_finished R.PrepareFor id ticket task outcome value
+ | _ => receive_inspection entry_measurement Measuring measurement_finished (fun _ => R.MeterOnly) id ticket task outcome value end.
+Definition compacted_result (id : N) (task : task) (request : compaction_input)
+ (result : json) (error : bool) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+ let '(CompactInput input purpose target progress scope):=request in
+ if relevant input task value then
+ if error then failed id task entry (match string_field "message" result with Some message => message
+   | None => "The failed compaction outcome requires a message" end) value
+ else if bool_default "scope_changed" result false then restart id task purpose entry value
+ else match Selvedge.Kernel.CompactionPlan.receive progress result with
+ | Selvedge.Kernel.CompactionPlan.Failed message => failed id task entry message value
+ | Selvedge.Kernel.CompactionPlan.Compacted candidate => begin_validation id task input purpose candidate entry value
+ | Selvedge.Kernel.CompactionPlan.Next progress => dispatch_compact id task input purpose target progress scope entry value end
  else commit id (with_job NoJob entry) value [].
-Definition measurement_result (id ticket : N) (task : task) (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
- match entry_job entry with
- | Validating (RequestEnvelope.Envelope expected (InspectInput input (Candidate purpose candidate preview) stage)) =>
-   if N.eqb ticket expected then Some (validation_inspected id task input purpose candidate preview stage outcome entry value) else None
- | Preparing (RequestEnvelope.Envelope expected (InspectInput input purpose stage)) =>
-   if N.eqb ticket expected then Some (preparing_inspected id task input purpose stage outcome entry value) else None
- | _ => match entry_measurement entry with
-   | Measuring (RequestEnvelope.Envelope expected (InspectInput input _ stage)) => if N.eqb ticket expected then Some (ordinary_inspected id task ticket input stage outcome entry value) else None
-   | _ => None end end.
-Definition compact_result (id ticket : N) (task : task) (result : json) (error : bool) (entry : entry) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
- match entry_job entry with
- | Compacting (RequestEnvelope.Envelope expected (CompactInput input purpose target progress scope)) =>
-   if N.eqb ticket expected then Some (
-     if relevant input task value then
-     if error then failed id task entry (match string_field "message" result with Some message => message
-       | None => "The failed compaction outcome requires a message" end) value
-     else if bool_default "scope_changed" result false then restart id task purpose entry value
-     else match Selvedge.Kernel.CompactionPlan.receive progress result with
-     | Selvedge.Kernel.CompactionPlan.Failed message => failed id task entry message value
-     | Selvedge.Kernel.CompactionPlan.Compacted candidate => begin_validation id task input purpose candidate entry value
-     | Selvedge.Kernel.CompactionPlan.Next progress =>
-       dispatch_compact id task input purpose target progress scope entry value end
-     else commit id (with_job NoJob entry) value []) else None
- | _ => None end.
+Definition compact_result (id ticket : N) (task : task) (result : json) (error : bool)
+ (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
+ match Completion.Row.consume (completion_path id value) entry_job Compacting Completion.Ticket ticket
+   (fun _ _ => Some compaction_finished) value with
+ | Some received =>
+   if running task then Some (compacted_result id task (RequestEnvelope.input (Completion.Row.request received))
+     result error (Completion.Row.updated received) (Completion.Row.after received))
+   else stopped_completion id task (Completion.Row.previous received) (Completion.Row.after received)
+ | None => None end.
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
 Definition activity_result (id source now : N) (scope : string) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if source <=? N.of_nat (List.length (task_history task)) then
@@ -292,14 +309,8 @@ Definition resolve_task_completion (id : N) (completion : completion) (value : S
  | Some task => let entry := current_entry id (registry value) in
    match completion with
    | Activity _ source now scope => activity_result id source now scope task entry value
-   | MeasuredInput _ ticket outcome => if running task then measurement_result id ticket task outcome entry value else
-       if alive task && (match entry_job entry with
-       | Preparing (RequestEnvelope.Envelope expected _) | Validating (RequestEnvelope.Envelope expected _) => N.eqb ticket expected
-       | _ => match measurement_ticket (entry_measurement entry) with Some expected => N.eqb ticket expected | None => false end end)
-       then Some (commit id (recover_entry entry) value (cancellations id entry)) else None
-   | Completed _ ticket result error => if running task then compact_result id ticket task result error entry value else
-       if alive task && (match entry_job entry with Compacting (RequestEnvelope.Envelope expected _) => N.eqb ticket expected | _ => false end)
-       then Some (commit id (recover_entry entry) value (cancellations id entry)) else None
+   | MeasuredInput _ ticket outcome => measurement_result id ticket task outcome value
+   | Completed _ ticket result error => compact_result id ticket task result error value
    | _ => None end
  end.
 (* Summary-context reads are not inference demand. Restart retires their
