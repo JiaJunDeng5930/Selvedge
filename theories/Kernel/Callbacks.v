@@ -64,32 +64,30 @@ Definition model_completed (id ticket : N) (outcome : model_outcome) (value : wo
    (fun target payload => let '(allowed,mode) := payload in
     acknowledged (TaskChange.interpret (TaskChange.Plan value target
       (model_result_changes id ticket allowed mode outcome (TaskScope.selected target))))).
-Definition record_context_diagnostic_changes (message : string) (task : task) :=
+Definition context_diagnostic (diagnostic : string) (history : list message) :=
  (* DEFENSE: A persistently unreadable source is observed before every generation;
     repeat diagnostics must not keep changing history and invalidating leases. *)
  if existsb (fun entry => match entry with
-   | FailureMessage previous => String.eqb previous message | _ => false end) (task_history task)
- then [] else [TaskChange.AppendHistory [FailureMessage message]].
-Definition record_context_diagnostic (message : string) (task : task) :=
- TaskChange.apply (record_context_diagnostic_changes message task) task.
-Fixpoint context_diagnostic_changes (messages : list string) (task : task) :=
- match messages with
+   | FailureMessage previous => String.eqb previous diagnostic | _ => false end) history
+ then [] else [FailureMessage diagnostic].
+Fixpoint context_diagnostics (diagnostics : list string) (history : list message) :=
+ match diagnostics with
  | [] => []
- | message :: rest => let changes := record_context_diagnostic_changes message task in
-   changes ++ context_diagnostic_changes rest (TaskChange.apply changes task)
+ | diagnostic :: rest => let messages := context_diagnostic diagnostic history in
+   messages ++ context_diagnostics rest (history ++ messages)
  end.
-Definition observed_context_changes (observations : option (list context_observation)) (diagnostic : string) (task : task) :=
+(** Source observation owns only appended history. The callback interpreter
+    chooses the task phase after receiving this result. *)
+Definition observed_context_history (observations : option (list context_observation))
+ (diagnostic : string) (history : list message) :=
  match observations with
- | None => (false,record_context_diagnostic_changes diagnostic task)
+ | None => (false,context_diagnostic diagnostic history)
  | Some observations =>
-   let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings (task_history task)) in
+   let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings history) in
    let messages := map ContextObservation changes in
    (Nat.eqb (List.length diagnostics) 0,
-    TaskChange.AppendHistory messages :: context_diagnostic_changes diagnostics (append_history messages task))
+    messages ++ context_diagnostics diagnostics (history ++ messages))
  end.
-Definition observed_context (observations : option (list context_observation)) (diagnostic : string) (task : task) :=
- let '(accepted,changes) := observed_context_changes observations diagnostic task in
- (accepted,TaskChange.apply changes task).
 Definition context_phase (task : task) :=
  match task_lifecycle task with Running _ _ => ReadyForModel | _ => WantsModel end.
 Definition context_response (accepted : bool) (value : world) :=
@@ -106,9 +104,9 @@ Definition context_completed (id ticket : N) (observations : option (list contex
     (* DEFENSE: Source IO belongs to its captured history revision; concurrent
        tool or speech results require a new observation. *)
     if Nat.eqb revision (List.length (task_history task)) then
-      let '(accepted,changes) := observed_context_changes observations diagnostic task in
+      let '(accepted,messages) := observed_context_history observations diagnostic (task_history task) in
       context_response accepted (TaskChange.interpret (TaskChange.Plan value target
-        (changes ++ [TaskChange.ChangePhase (context_phase task)])))
+        [TaskChange.AppendHistory messages; TaskChange.ChangePhase (context_phase task)]))
     else match task_lifecycle task with
       | Running _ _ => Reasoning.context_retry id value
       | _ => context_ready false id task value end).

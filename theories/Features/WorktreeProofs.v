@@ -201,38 +201,6 @@ Proof.
    rewrite N.eqb_refl. reflexivity.
  - split; reflexivity.
 Qed.
-(** Promotion can record queued input, but it preserves the frozen execution
-    contract and current settings. *)
-Lemma promote_preserves_frozen_fields : forall task,
- Selvedge.Kernel.Domain.task_contract (Selvedge.Kernel.Tasks.promote task) =
-   Selvedge.Kernel.Domain.task_contract task /\
- Selvedge.Kernel.Domain.task_current_settings (Selvedge.Kernel.Tasks.promote task) =
-   Selvedge.Kernel.Domain.task_current_settings task.
-Proof.
- intros [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor].
- destruct lifecycle as [phase operations|phase operations|phase operations|];
-   try destruct phase; try destruct calls; destruct queued;
-   cbn [Selvedge.Kernel.Tasks.promote];
-   unfold Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.with_queued,
-     Selvedge.Kernel.Domain.append_history, Selvedge.Kernel.Domain.with_history;
-   cbv [set]; simpl; split; reflexivity.
-Qed.
-(** The contract and execution settings are frame fields of promotion. *)
-Lemma promote_preserves_contract_settings : forall task,
- Selvedge.Kernel.Domain.contract_settings
-   (Selvedge.Kernel.Domain.task_contract (Selvedge.Kernel.Tasks.promote task)) =
- Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task).
-Proof.
- intros task. destruct (promote_preserves_frozen_fields task) as [contract_field _].
- now rewrite contract_field.
-Qed.
-Lemma promote_preserves_current_settings : forall task,
- Selvedge.Kernel.Domain.task_current_settings (Selvedge.Kernel.Tasks.promote task) =
- Selvedge.Kernel.Domain.task_current_settings task.
-Proof.
- intros task. destruct (promote_preserves_frozen_fields task) as [_ settings_field].
- exact settings_field.
-Qed.
 (** Completion selects the host-observed settings independently for the frozen
     contract and the task's current execution settings. *)
 Lemma completed_task_contract_settings : forall space guidance task,
@@ -246,14 +214,14 @@ Lemma completed_task_contract_settings : forall space guidance task,
    (Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task)).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- rewrite promote_preserves_contract_settings. reflexivity.
+ unfold Tasks.promote. rewrite (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity _ _)); reflexivity.
 Qed.
 Lemma completed_task_current_settings : forall space guidance task,
  Selvedge.Kernel.Domain.task_current_settings (Worktree.completed_task space guidance task) =
  Worktree.selected_settings space guidance (Selvedge.Kernel.Domain.task_current_settings task).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- rewrite promote_preserves_current_settings. reflexivity.
+ unfold Tasks.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
 Qed.
 (** Result validation rolls back the complete decision when a workspace is held. *)
 Theorem unavailable_result_has_no_effects : forall before result,

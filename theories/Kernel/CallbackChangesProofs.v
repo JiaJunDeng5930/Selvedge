@@ -28,32 +28,6 @@ Lemma settle_model_expression : forall task,
  (if unseen_model_input task then WantsModel else Idle) task).
 Proof. reflexivity. Qed.
 
-Lemma context_diagnostics_preserve_an_observation : forall A (observe : task -> A),
- (forall messages current, observe (append_history messages current) = observe current) ->
- forall messages current,
- Forall (preserves_observation observe) (Callbacks.context_diagnostic_changes messages current).
-Proof.
- intros A observe Append messages; induction messages as [|message rest IH]; intro current; [constructor|].
- cbn [Callbacks.context_diagnostic_changes]. apply Forall_app; split; [|apply IH].
- unfold Callbacks.record_context_diagnostic_changes.
- destruct (existsb _ _); [constructor|]. constructor; [exact (Append _)|constructor].
-Qed.
-
-Theorem context_observations_preserve_an_observation : forall A (observe : task -> A),
- (forall messages current, observe (append_history messages current) = observe current) ->
- forall observations diagnostic current,
- observe (snd (Callbacks.observed_context observations diagnostic current)) = observe current.
-Proof.
- intros A observe Append [observations|] diagnostic current;
- unfold Callbacks.observed_context, Callbacks.observed_context_changes.
- - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history current))) as [changes diagnostics].
-   cbn [snd]. apply field_changes_preserve_an_observation.
-   constructor; [exact (Append _)|apply context_diagnostics_preserve_an_observation; exact Append].
- - cbn [snd]. apply field_changes_preserve_an_observation.
-   unfold Callbacks.record_context_diagnostic_changes.
-   destruct (existsb _ _); [constructor|]. constructor; [exact (Append _)|constructor].
-Qed.
-
 Lemma settle_operation_expression : forall operation result error task,
  Callbacks.settle_operation operation result error task =
  Tasks.wake_after_result (with_operations (Callbacks.remove_operation (operation_id operation) (task_operations task))

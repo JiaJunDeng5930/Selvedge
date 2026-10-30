@@ -244,10 +244,6 @@ Proof.
  unfold Reasoning.context_retry_wait; now rewrite Status.
 Qed.
 
-Local Lemma actual_context_observations_retain_lifecycle : forall observations diagnostic task,
- task_lifecycle (snd (Callbacks.observed_context observations diagnostic task)) = task_lifecycle task.
-Proof. apply context_observations_preserve_an_observation; reflexivity. Qed.
-
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
  forall id ticket revision observations diagnostic value task phase operations,
  find_task id value = Some task -> task_activity task = ObservingContext ticket revision ->
@@ -260,15 +256,13 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - pose proof (actual_context_observations_retain_lifecycle observations diagnostic task) as Lifecycle.
-   destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
-   unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
-   unfold Callbacks.context_phase; rewrite FrozenTask, applying_change_lists.
+ - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
+   unfold Callbacks.context_phase; rewrite FrozenTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   change (change_activity WantsModel (task_lifecycle (TaskChange.apply changes task)) =
+   change (change_activity WantsModel (task_lifecycle task) =
      Frozen WantsModel operations).
-   now rewrite Lifecycle, FrozenTask.
+   now rewrite FrozenTask.
  - rewrite FrozenTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite FrozenTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
@@ -288,15 +282,13 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - pose proof (actual_context_observations_retain_lifecycle observations diagnostic task) as Lifecycle.
-   destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
-   unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
-   unfold Callbacks.context_phase; rewrite StoppedTask, applying_change_lists.
+ - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
+   unfold Callbacks.context_phase; rewrite StoppedTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   change (change_activity WantsModel (task_lifecycle (TaskChange.apply changes task)) =
+   change (change_activity WantsModel (task_lifecycle task) =
      Stopped WantsModel operations).
-   now rewrite Lifecycle, StoppedTask.
+   now rewrite StoppedTask.
  - rewrite StoppedTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite StoppedTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].

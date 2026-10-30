@@ -259,58 +259,6 @@ Proof.
  exists value; repeat split; assumption.
 Qed.
 
-Local Lemma observing_context_preserves_the_task_contract : forall phase task,
- task_contract (with_activity phase task) = task_contract task.
-Proof. intros; unfold with_activity; destruct (task_lifecycle task); reflexivity. Qed.
-
-Local Lemma context_ready_preserves_the_frozen_contract : forall accepted id task value,
- find_task id value = Some task ->
- exists after,
- find_task id (decision_world (Callbacks.context_ready accepted id task value)) = Some after /\
- task_contract after = task_contract task.
-Proof.
- intros accepted id task value Found. rewrite context_ready_expression, Found.
- cbn [decision_world Callbacks.context_response accept]. eexists; split; [eapply find_put_task; exact Found|].
- apply task_changes_preserve_the_frozen_contract.
-Qed.
-
-Theorem actual_context_callbacks_preserve_the_frozen_contract :
- forall id ticket observations diagnostic value before,
- find_task id value = Some before ->
- exists after,
- find_task id (decision_world (Callbacks.context_completed id ticket observations diagnostic value)) = Some after /\
- task_contract after = task_contract before.
-Proof.
- intros id ticket observations diagnostic value before Found.
- rewrite context_completed_expression, Found.
- destruct (task_activity before) as
-   [ | | | expected revision | expected callable mode | expected source_length | calls |
-     invocation pending calls | expected plugin invocation remaining calls];
-   try (exists before; split; [exact Found|reflexivity]).
- destruct (N.eqb expected ticket); [|exists before; split; [exact Found|reflexivity]].
- destruct (Nat.eqb revision (List.length (task_history before))).
- - destruct (Callbacks.observed_context_changes observations diagnostic before) as [accepted changes].
-   cbn [decision_world Callbacks.context_response accept].
-   eexists; split; [eapply find_put_task; exact Found|].
-   apply task_changes_preserve_the_frozen_contract.
- - destruct (task_lifecycle before).
-   + rewrite (context_retry_uses_the_current_task id value before Found).
-     destruct (TicketedRequest.Scoped.can_observe false before value).
-     * cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
-       eexists; split; [eapply find_put_task; exact Found|].
-       unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
-     * unfold Reasoning.context_retry_wait.
-       destruct (task_lifecycle before) as [retry_phase retry_operations|retry_phase retry_operations|retry_phase retry_operations|retry_operations]; try destruct retry_phase;
-         try (exists before; split; [exact Found|reflexivity]).
-       cbn [decision_world accept].
-       eexists; split; [eapply find_put_task; exact Found|].
-       destruct before as [contract profile settings lifecycle history queued lineage parent cursor consumed];
-         destruct lifecycle; reflexivity.
-   + apply context_ready_preserves_the_frozen_contract; exact Found.
-   + apply context_ready_preserves_the_frozen_contract; exact Found.
-   + apply context_ready_preserves_the_frozen_contract; exact Found.
-Qed.
-
 Theorem omitted_project_selection_preserves_environment_binding : forall model settings value,
  exists selected, Tasks.resolve_settings model None settings value = Some selected /\
  settings_workspace selected = settings_workspace settings /\
