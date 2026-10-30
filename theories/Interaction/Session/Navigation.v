@@ -200,7 +200,7 @@ Definition select_work snapshot work state :=
  set result_effects(fun effects=>EnsureDraft(NewTask work)::List.app effects
    (if overview then work_focus work(result_state result)else []))result
  else refuse "The Work no longer exists."state.
-Definition generated command purpose state:=
+Definition generated (command : Commands.proposal) purpose state:=
  match Schema.decode_command command_specs(Commands.encode command)with
  |Some command=>changed state[Issue command purpose]
  |None=>refuse "The operation does not match the public command protocol."state end.

@@ -43,21 +43,17 @@ Proof.
  eapply observe_present; [exact Found|]; reflexivity.
 Qed.
 
-Theorem admitted_connection_resolves_without_rechecking : forall identity project request raw arguments grant target before,
- ids_valid [identity;project] = true -> bounded_text 128 request = true ->
- admit_args raw = Some arguments ->
+Theorem admitted_connection_resolves_without_rechecking : forall identity project request arguments grant target before,
  connection_authority identity project (sharing_registry before) = Some grant ->
  connection_project project before = Some target -> connection_has_primary target = true ->
- connection_retry identity request (sharing_registry before) = None ->
+ connection_retry identity (ChatgptArguments.request_text request) (sharing_registry before) = None ->
  connection_workspace target before = true -> connection_capacity before = true ->
  exists resolved,
- resolve_connection identity project request raw before = CommandResult.Accepted (NewConnection resolved) /\
- resolved_job resolved = connection_job identity project request arguments grant target.
+ resolve_connection identity project request arguments before = CommandResult.Accepted (NewConnection resolved) /\
+ resolved_job resolved = connection_job identity project (ChatgptArguments.request_text request) arguments grant target.
 Proof.
- intros identity project request raw arguments grant target before Ids Bounded Arguments Authority Project Primary Retry Workspace Capacity.
+ intros identity project request arguments grant target before Authority Project Primary Retry Workspace Capacity.
  unfold resolve_connection.
- apply require_satisfied; [now rewrite Ids,Bounded|]; intros Input.
- rewrite Arguments.
  eapply observe_present; [exact Authority|]; intros Granted.
  eapply observe_present; [exact Project|]; intros Existing.
  apply require_satisfied; [exact Primary|]; intros HasPrimary.

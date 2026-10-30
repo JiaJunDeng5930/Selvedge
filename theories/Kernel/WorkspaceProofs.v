@@ -13,8 +13,8 @@ Theorem creating_a_project_preserves_all_existing_tasks : forall name workspace 
   (CommandExecution.create_project name workspace guidance worktree resource value)) = world_tasks value.
 Proof.
  intros name workspace guidance worktree resource value; unfold CommandExecution.create_project.
- destruct (parse_workspace workspace) as [space|]; [|reflexivity].
- destruct (match resource with Some source => parse_workspace_binding source
+ destruct (workspace_of_values workspace) as [space|]; [|reflexivity].
+ destruct (match resource with Some source => Some (binding_of_values source)
   | None => WorkspaceBinding.select_resource space value end); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
@@ -29,10 +29,10 @@ Proof.
  destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (match workspace with
-  | Some source => parse_workspace source | None => Some (project_workspace previous) end)
+  | Some source => workspace_of_values source | None => Some (project_workspace previous) end)
   as [space|]; [|reflexivity].
  destruct (match resource, workspace with
-  | Some source,_ => parse_workspace_binding source
+  | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|reflexivity].
  repeat match goal with
@@ -55,26 +55,16 @@ Proof.
  unfold CommandExecution.update_project in Accepted |- *; rewrite Found in Accepted |- *.
  destruct (project_deleted previous); [discriminate|].
  destruct (match workspace with
-  | Some source => parse_workspace source | None => Some (project_workspace previous) end)
+  | Some source => workspace_of_values source | None => Some (project_workspace previous) end)
   as [space|]; [|discriminate].
  destruct (match resource, workspace with
-  | Some source,_ => parse_workspace_binding source
+  | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|discriminate].
- destruct ((match resource, workspace with None,None => true
-  | _,_ => WorkspaceBinding.resource_ready space owner value end) &&
-  Workspace.valid_project_name
-   (match name with Some name => name | None => project_name previous end) &&
-  valid_guidance (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end) &&
-  guidance_member space (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end));
- [|discriminate].
- pose (updated := Project (match name with Some name => name | None => project_name previous end) space
-  (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end)
-  (match requested with Some selected => selected | None => project_worktree previous end)
-  (Workspace.next_project_order (world_projects value)) false owner).
- exists updated; split.
- - change (registry_at id (replace id updated (world_projects value)) = Some updated).
-   eapply registry_replace_selected; exact Found.
+ match type of Accepted with context [if ?allowed then _ else _] =>
+   destruct allowed; [|discriminate] end.
+ eexists; split.
+ - eapply registry_replace_selected; exact Found.
  - reflexivity.
 Qed.
 
@@ -167,7 +157,7 @@ Proof. reflexivity. Qed.
 
 Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace owner,
  registry_at id (world_projects value) = Some project ->
- project_deleted project = false -> parse_workspace raw = Some workspace ->
+ project_deleted project = false -> workspace_of_values raw = Some workspace ->
  WorkspaceBinding.select_resource workspace value = Some owner ->
  WorkspaceBinding.resource_ready workspace owner value = true ->
  Workspace.valid_project_name (project_name project) = true ->
@@ -179,7 +169,7 @@ Proof.
  intros id value project raw workspace owner Found Live Parsed Selected Ready Name Unselected; cbn zeta.
  unfold CommandExecution.update_project; rewrite Found, Live, Parsed, Selected.
  unfold inherited_guidance; rewrite Unselected.
- cbn [valid_guidance guidance_member]; rewrite Ready, Name; split; reflexivity.
+ rewrite Ready, Name; split; reflexivity.
 Qed.
 
 Theorem project_query_reports_current_bindings : forall value id project,

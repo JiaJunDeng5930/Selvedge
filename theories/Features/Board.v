@@ -195,9 +195,8 @@ Board card SV-" (String.append (Selvedge.Features.Domain.decimal_text (N.succ id
 Attached files (read only when needed):" (attachment_prompt (Selvedge.Features.Domain.draft_attachments draft)))))))))) ::
  fold_right (fun file rest=>if String.prefix "image/" (Selvedge.Features.Domain.attachment_mime file) then ImagePart (ImageAsset (Selvedge.Features.Domain.attachment_id file) (Selvedge.Features.Domain.attachment_mime file) (Selvedge.Features.Domain.attachment_bytes file) ImageAuto)::rest else rest) [] (Selvedge.Features.Domain.draft_attachments draft).
 Definition launch_settings (agent:Selvedge.Features.Domain.board_agent) (draft:Selvedge.Features.Domain.card_draft) :=
- let fields:=match Selvedge.Features.Domain.agent_settings agent with JObject fields=>fields|_=>[] end in
- let fields:=remove_field "project_id" fields in
- JObject (match Selvedge.Features.Domain.draft_project draft with Some project=>Json.set_field "project_id" (number project) fields | None=>fields end).
+ Codec.with_requested_project (Selvedge.Features.Domain.draft_project draft)
+   (Selvedge.Features.Domain.agent_settings_request agent).
 Definition run_result (id revision:N) (supplied:option string) (caller:option N) (value:world) :=
  CommandResult.bind (select_clock supplied) (fun now=>CommandResult.bind (select_card id revision value) (fun card=>
  if negb (runnable card value) then CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit" else
@@ -221,13 +220,13 @@ Definition valid_agent (agent:Selvedge.Features.Domain.board_agent) (value:world
  agent_instructions_valid (Selvedge.Features.Domain.agent_instructions agent) &&
  agent_concurrency_valid (Selvedge.Features.Domain.agent_concurrency agent) &&
  match Tasks.find_profile (Selvedge.Features.Domain.agent_profile agent) (environment_profiles (world_environment value)) with None=>false | Some profile=>
- match Tasks.selected_reasoning (Some (Selvedge.Features.Domain.agent_reasoning agent)) profile,Tasks.resolve_settings profile (Some (Selvedge.Features.Domain.agent_settings agent)) (Tasks.creation_defaults (world_environment value)) value with Some _,Some _=>true | _,_=>false end end.
-Definition save_agent (supplied:string) (expected:N) (name profile reasoning instructions:string) (settings:option json) (capacity:N) (value:world) :=
+ match Tasks.selected_reasoning (Some (Selvedge.Features.Domain.agent_reasoning agent)) profile,Tasks.resolve_settings profile (Some (Selvedge.Features.Domain.agent_settings_request agent)) (Tasks.creation_defaults (world_environment value)) value with Some _,Some _=>true | _,_=>false end end.
+Definition save_agent (supplied:string) (expected:N) (name profile reasoning instructions:string) (settings:option Codec.settings_request) (capacity:N) (value:world) :=
  let id:=if String.eqb supplied "" then Some (N.of_nat (List.length (Selvedge.Features.Domain.board_agents (registry value)))) else text_id supplied in
  match id with None=>Selvedge.Kernel.State.reject "invalid_agent" "Invalid board agent identifier" value | Some id=>
  let creating:=String.eqb supplied "" in
  let revision:=if creating then 0 else N.succ expected in
- let agent:=Selvedge.Features.Domain.BoardAgent revision name profile reasoning instructions (retained settings (JObject [])) capacity in
+ let agent:=Selvedge.Features.Domain.BoardAgent revision name profile reasoning instructions (retained settings Codec.empty_settings_request) capacity in
  let failure:=if negb (valid_agent agent value) then
    Some ("invalid_agent","Provide a valid name, endpoint, reasoning, settings and concurrency from 1 to 64")
  else if creating then
@@ -286,7 +285,7 @@ Definition handle_delete_card (p:Selvedge.Generated.Commands.delete_card_payload
 Definition handle_board_settings (p:Selvedge.Generated.Commands.board_settings_payload) (caller:option N) (value:world) :decision :=
  settings (Selvedge.Generated.Commands.board_settings_automatic p) (Selvedge.Generated.Commands.board_settings_draft_profile p) value.
 Definition handle_save_board_agent (p:Selvedge.Generated.Commands.save_board_agent_payload) (caller:option N) (value:world) :decision :=
- save_agent (Selvedge.Generated.Commands.save_board_agent_agent p) (Selvedge.Generated.Commands.save_board_agent_revision p) (Selvedge.Generated.Commands.save_board_agent_name p) (Selvedge.Generated.Commands.save_board_agent_profile p) (Selvedge.Generated.Commands.save_board_agent_reasoning p) (Selvedge.Generated.Commands.save_board_agent_instructions p) (Selvedge.Generated.Commands.save_board_agent_settings p) (Selvedge.Generated.Commands.save_board_agent_concurrency p) value.
+ save_agent (Selvedge.Generated.Commands.save_board_agent_agent p) (Selvedge.Generated.Commands.save_board_agent_revision p) (Selvedge.Generated.Commands.save_board_agent_name p) (Selvedge.Generated.Commands.save_board_agent_profile p) (Selvedge.Generated.Commands.save_board_agent_reasoning p) (Selvedge.Generated.Commands.save_board_agent_instructions p) (option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.save_board_agent_settings_admitted p)) (Selvedge.Generated.Commands.save_board_agent_concurrency p) value.
 Definition handle_delete_board_agent (p:Selvedge.Generated.Commands.delete_board_agent_payload) (caller:option N) (value:world) :decision :=
  delete_agent (Selvedge.Generated.Commands.delete_board_agent_agent_id p) (Selvedge.Generated.Commands.delete_board_agent_revision p) value.
 Definition failure_text (source:string) := match Utf8.chunks source with Some chunks=>Utf8.render_chunks (firstn 1000 chunks) | None=>"Invalid UTF-8 drafting failure" end.

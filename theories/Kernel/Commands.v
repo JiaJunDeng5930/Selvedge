@@ -14,7 +14,7 @@ Definition card_metadata := [opt "title" KText; opt "description" KText;
   typed board_status (opt "status" KText); typed board_priority (opt "priority" KText); typed board_assignee (opt "assignee" KText);
   typed board_project (opt "project" KText); opt "labels" (KArray KText); staged attachments_declaration (opt "attachments" (KArray KJson))].
 Definition card_identity := [u32 (req "card_id" KNatural); u32 (req "revision" KNatural); typed board_clock (opt "observed_at" KText)].
-Definition graph_fields := [req "name" KText; staged (fun observed => D.BoundedArray 0 32 (graph_node_declaration observed)) (req "nodes" (KArray KJson)); typed (D.BoundedArray 0 32 graph_rule_declaration) (req "rules" (KArray KJson))].
+Definition graph_fields := [typed TaskGraphDeclarations.identifier (req "name" KText); staged graph_nodes_declaration (req "nodes" (KArray KJson)); typed graph_rules_declaration (req "rules" (KArray KJson))].
 Definition connection_project := [u32 (req "connection_id" KNatural); u32 (req "project_id" KNatural)].
 Definition connection_operation := connection_project ++ [u32 (req "operation_id" KNatural)].
 
@@ -71,8 +71,8 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "describe" []);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [req "name" KText; typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (opt "workspace_binding" KJson)]);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); opt "name" KText; typed workspace_declaration (opt "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (opt "workspace_binding" KJson)]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [req "name" KText; typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson))]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); opt "name" KText; typed workspace_declaration (opt "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson))]);
   DeclareCommand KernelChange TaskExcluded (WireCommand "delete_project" [u32 (req "project_id" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list_projects" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "read_project" [u32 (req "project_id" KNatural)]);
@@ -96,7 +96,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand BoardQuery TaskExcluded (WireCommand "read_card" [u32 (req "card_id" KNatural)]);
   DeclareCommand BoardQuery TaskExcluded (WireCommand "list_board_agents" []);
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "configure_chatgpt_connections" [typed grants_declaration (req "connections" (KArray KJson))]);
-  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_exec" (connection_project ++ [req "request_id" KText; typed ChatgptArguments.declaration (req "arguments" KJson)]));
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_exec" (connection_project ++ [typed ChatgptArguments.request_declaration (req "request_id" KText); typed ChatgptArguments.declaration (req "arguments" KJson)]));
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_cancel" connection_operation);
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_forget" connection_operation);
   DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_projects" [u32 (req "connection_id" KNatural)]);

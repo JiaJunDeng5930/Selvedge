@@ -26,76 +26,62 @@ Proof.
    (Some settings) false None before); reflexivity.
 Qed.
 
-Theorem public_missing_work_precedes_graph_capacity_and_semantics : forall request before owner nodes rules,
+Theorem public_missing_work_precedes_graph_capacity_and_semantics : forall request before owner,
  G.create_task_graph_work_id request = Some owner ->
- traverse TaskGraph.parse_node (G.create_task_graph_nodes request) = Some nodes ->
- traverse TaskGraph.parse_rule (G.create_task_graph_rules request) = Some rules ->
  Work.lookup owner before = None ->
  TaskGraph.handle_create_task_graph request None before =
  reject "work_not_found" "The Work does not exist." before.
 Proof.
- intros request before owner nodes rules Owner Nodes Rules Missing.
+ intros request before owner Owner Missing.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- rewrite Owner,Nodes,Rules.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
- destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
-   (map (TaskGraph.cache_node None before) nodes)) true) as [Authorized|Denied].
+ rewrite Owner.
+ cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
+ destruct (Bool.bool_dec _ true) as [Authorized|Denied].
  2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
  unfold TaskGraph.select_owner; rewrite Work.select_missing_owner by exact Missing.
  reflexivity.
 Qed.
-Theorem public_graph_capacity_precedes_declaration_semantics : forall request before nodes rules owner,
- traverse TaskGraph.parse_node (G.create_task_graph_nodes request) = Some nodes ->
- traverse TaskGraph.parse_rule (G.create_task_graph_rules request) = Some rules ->
+Theorem public_graph_capacity_precedes_declaration_semantics : forall request before owner,
  TaskGraph.select_owner (G.create_task_graph_work_id request) before = Some owner ->
  TaskGraph.graph_capacity before = false ->
  TaskGraph.handle_create_task_graph request None before =
  reject "invalid_task_graph" "At most 32 live Task graphs may be installed" before.
 Proof.
- intros request before nodes rules owner Nodes Rules Owner Full.
+ intros request before owner Owner Full.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- rewrite Nodes,Rules.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
- destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
-   (map (TaskGraph.cache_node None before) nodes)) true) as [Authorized|Denied].
+ cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
+ destruct (Bool.bool_dec _ true) as [Authorized|Denied].
  2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
  rewrite Owner,Full; reflexivity.
 Qed.
 
-(** This binds positive production behavior as well as refusal: an admitted
-    public command installs the exact source and plans, not merely an ok flag. *)
-Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request before nodes rules owner plans,
- traverse TaskGraph.parse_node (G.create_task_graph_nodes request) = Some nodes ->
- traverse TaskGraph.parse_rule (G.create_task_graph_rules request) = Some rules ->
+Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request before owner plans,
+ let source := TaskGraph.create_declaration request in
  TaskGraph.select_owner (G.create_task_graph_work_id request) before = Some owner ->
  TaskGraph.graph_capacity before = true ->
- TaskGraph.valid_declaration (G.create_task_graph_name request) nodes rules = true ->
+ TaskGraph.valid_declaration source = true ->
  TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) None before
-   (map (TaskGraph.cache_node None before) nodes) = CommandResult.Accepted plans ->
+   (map (TaskGraph.cache_node None before) (TaskGraph.declaration_nodes source)) = CommandResult.Accepted plans ->
  exists plan : TaskGraph.graph_plan before None owner,
- TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) =
-   TaskGraph.Declaration (G.create_task_graph_name request) nodes rules /\
+ TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) = source /\
  TaskGraph.graph_plans plan = plans /\
  TaskGraph.handle_create_task_graph request None before =
    TaskGraph.install_plan (N.of_nat (List.length (TaskGraph.registry before))) plan.
 Proof.
- intros request before nodes rules owner plans Nodes Rules Owner Capacity Valid Prepared.
+ intros request before owner plans source Owner Capacity Valid Prepared.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- rewrite Nodes,Rules.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
- destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
-   (map (TaskGraph.cache_node None before) nodes)) true) as [Authorized|Denied].
+ fold source.
+ cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
+ destruct (Bool.bool_dec _ true) as [Authorized|Denied].
  2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
  rewrite Owner,Capacity.
  cbn [negb orb].
  unfold TaskGraph.construct_cached.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_source TaskGraph.declaration_name TaskGraph.declaration_nodes TaskGraph.declaration_rules].
- destruct (Bool.bool_dec (TaskGraph.valid_declaration (G.create_task_graph_name request) nodes rules) true)
-   as [Admitted|Denied].
+ cbn [TaskGraph.cache_declaration TaskGraph.cached_source].
+ destruct (Bool.bool_dec (TaskGraph.valid_declaration source) true) as [Admitted|Denied].
  2: { contradiction. }
  exists (TaskGraph.GraphPlan
-   (TaskGraph.CheckedCached (TaskGraph.cache_declaration None before
-     (TaskGraph.Declaration (G.create_task_graph_name request) nodes rules)) Authorized Admitted)
+   (TaskGraph.CheckedCached (TaskGraph.cache_declaration None before source) Authorized Admitted)
    plans Prepared).
  split; [reflexivity|split; [reflexivity|]].
  apply TaskGraphProofs.resolved_installation_follows_the_typed_plan.
@@ -107,8 +93,8 @@ Lemma failed_installation_is_atomic : forall original caller
  decision_world (TaskGraph.install_cached id owner checked) = original /\
  decision_effects (TaskGraph.install_cached id owner checked) = [].
 Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
-Theorem every_failed_graph_declaration_is_atomic : forall creating id owner name nodes rules caller before,
- let result := TaskGraph.declare creating id owner name nodes rules caller before in
+Theorem every_failed_graph_declaration_is_atomic : forall creating id owner source caller before,
+ let result := TaskGraph.declare creating id owner source caller before in
  bool_default "ok" (decision_reply result) false = false ->
  decision_world result = before /\ decision_effects result = [].
 Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
@@ -167,7 +153,7 @@ Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
 Theorem public_idle_profile_failure_precedes_work_lookup : forall request before cause,
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
    (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (G.create_idle_settings request) true None before = Tasks.StartRefused cause ->
+   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartRefused cause ->
  Worktree.handle_create_idle request None before =
  Tasks.refuse_start (Worktree.creation_entry Worktree.IdleTaskCreation None) cause before.
 Proof. intros; unfold Worktree.handle_create_idle,Worktree.create_idle_owned; now rewrite H. Qed.
@@ -175,7 +161,7 @@ Theorem public_idle_missing_work_follows_successful_profile_resolution : forall 
  G.create_idle_work_id request = Some owner ->
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
    (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (G.create_idle_settings request) true None before = Tasks.StartResolved start ->
+   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartResolved start ->
  Work.lookup owner before = None ->
  Worktree.handle_create_idle request None before =
  reject "invalid_arguments" "The Work does not exist." before.

@@ -77,8 +77,10 @@ Proof.
  - repeat split; reflexivity.
 Qed.
 Definition describe_input := JObject [("kind",JString "command");("command",JObject [("op",JString "describe")])].
+Definition describe_payload : G.describe_payload := G.Admit_describe
+ (exist _ (exist _ "describe" (or_introl eq_refl), tt) eq_refl).
 Theorem describe_input_is_actually_accepted :
- InputDecoder.decode describe_input = Some (UserCommand (G.Cmd_describe tt)).
+ InputDecoder.decode describe_input = Some (UserCommand (G.Cmd_describe describe_payload)).
 Proof. vm_compute; reflexivity. Qed.
 Theorem describe_is_read_only_at_the_actual_entry : forall value,
  fst (Packet.packet describe_input value) = value /\

@@ -3,7 +3,7 @@ From Stdlib Require MSetWeakList.
 Import ListNotations.
 
 Module Type Entry.
- Parameter t key : Set.
+ Parameter t key : Type.
  Parameter key_of : t -> key.
  Parameter key_eq_dec : forall left right : key, {left = right} + {left <> right}.
 End Entry.

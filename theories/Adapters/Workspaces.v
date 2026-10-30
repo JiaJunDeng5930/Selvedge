@@ -11,14 +11,16 @@ Open Scope N_scope.
 Definition type_admit (accepted : bool) (value : json) (message : string) :=
   if accepted then success value else type_error message.
 Definition path_valid (value : json) := is_text value && Utf8.well_formed (text value) && Utf8.no_nul (text value).
-Definition workspace_valid (value : json) := plain_fields_only (map field_name Workspace.workspace_schema) value &&
-  is_array (get value "roots") && (N.of_nat (List.length (items (get value "roots"))) <=? 32).
-Definition workspace_admit (value : json) := type_admit (workspace_valid value) value
-  "A workspace requires at most 32 roots and an optional primary_root".
+Definition workspace_valid value := ArgumentDeclaration.present
+ (ArgumentDeclaration.decode Codec.workspace_declaration value).
+Definition workspace_admit value := match ArgumentDeclaration.decode Codec.workspace_declaration value with
+ | Some fields => success (ArgumentDeclaration.encode Codec.workspace_declaration fields)
+ | None => type_error "A workspace requires at most 32 roots and an optional primary_root" end.
 Definition root_admit (source : json) :=
-  let root := get source "root" in
-  type_admit (path_valid root && boolean_field source "absolute" && (N.of_nat (String.length (text root)) <=? 4096))
-    root "Workspace roots must be bounded absolute directory paths".
+ match ArgumentDeclaration.decode Workspace.path_declaration (get source "root") with
+ | Some root => type_admit (boolean_field source "absolute") (JString (proj1_sig root))
+     "Workspace roots must be bounded absolute directory paths"
+ | None => type_error "Workspace roots must be bounded absolute directory paths" end.
 Fixpoint distinct (seen roots : list json) :=
   match roots with [] => true | root::rest =>
     negb (existsb (equal root) seen) && distinct (root::seen) rest end.
@@ -158,7 +160,7 @@ Definition worktree_receipt (source : json) :=
     (unreserved || reservation_valid (get value "reservation") files) &&
     ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||
      (String.eqb (str value "status") "archived" && equal root (get files "archived"))) &&
-    workspace_valid workspace && forallb path_valid (items (get workspace "roots")) &&
+    workspace_valid workspace &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&
     contains_path (str workspace "primary_root") (text root)) value "Invalid managed worktree receipt".
 Definition relocated (value : json) (previous next : string) (descendants : bool) :=

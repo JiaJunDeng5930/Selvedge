@@ -238,17 +238,19 @@ Proof.
 Qed.
 
 (** Successful public grants consume a fresh generation, including re-grants. *)
-Theorem public_grant_issues_generation : forall controller permissions rights value,
+Theorem public_grant_issues_generation : forall payload rights value,
+ let controller := G.remote_grant_controller_id payload in
+ let permissions := G.remote_grant_permissions payload in
  Remote.controller_valid controller=true -> Remote.parse_rights permissions=Some rights ->
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch)=true ->
  (match Remote.find_grant controller (Remote.registry value) with
  | Some _=>true | None=>N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end)=true ->
  exists result,
- Remote.handle_remote_grant (G.Build_remote_grant controller permissions) None value=result /\
+ Remote.handle_remote_grant payload None value=result /\
  F.remote_next_epoch (Remote.registry (decision_world result))=N.succ (F.remote_next_epoch (Remote.registry value)).
 Proof.
- intros controller permissions rights value valid parsed Epoch capacity.
- change (Remote.handle_remote_grant (G.Build_remote_grant controller permissions) None value)
+ intros payload rights value controller permissions valid parsed Epoch capacity.
+ change (Remote.handle_remote_grant payload None value)
    with (Remote.grant controller permissions value).
  unfold Remote.grant. rewrite valid.
  cbn beta iota zeta delta [negb]. rewrite parsed,Epoch; cbn [negb]; rewrite capacity.
@@ -425,20 +427,20 @@ Proof.
  - apply N.le_refl.
 Qed.
 
-Theorem local_administration_never_reuses_a_generation : forall caller value controller permissions,
+Theorem local_administration_never_reuses_a_generation : forall caller value enable disable grant revoke,
  let advances := fun result => F.remote_next_epoch (Remote.registry value) <=
    F.remote_next_epoch (Remote.registry (decision_world result)) in
- advances (Remote.handle_remote_enable tt caller value) /\
- advances (Remote.handle_remote_disable tt caller value) /\
- advances (Remote.handle_remote_grant (G.Build_remote_grant controller permissions) caller value) /\
- advances (Remote.handle_remote_revoke (G.Build_remote_revoke controller) caller value).
+ advances (Remote.handle_remote_enable enable caller value) /\
+ advances (Remote.handle_remote_disable disable caller value) /\
+ advances (Remote.handle_remote_grant grant caller value) /\
+ advances (Remote.handle_remote_revoke revoke caller value).
 Proof.
- intros caller value controller permissions; cbv zeta.
+ intros caller value enable disable grant revoke; cbv zeta.
  destruct caller; repeat split;
  try (change (F.remote_next_epoch (Remote.registry value) <= F.remote_next_epoch (Remote.registry value)); apply N.le_refl).
  - apply granting_never_reuses_a_generation.
  - change (F.remote_next_epoch (Remote.registry value) <=
-     F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke controller value)))).
+     F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke (G.remote_revoke_controller_id revoke) value)))).
    rewrite revocation_never_reuses_generation; apply N.le_refl.
 Qed.
 

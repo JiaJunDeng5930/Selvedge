@@ -2,26 +2,49 @@
 
 Status: accepted.
 
-Title, card, context-maintenance and connection requests used to allocate an
-identity, install their receiver and emit their external effect independently.
-A matching effect coordinate alone did not establish that its receiver existed;
-in particular, replacing a card beyond its positional registry left no receiver.
+A feature request is one value: its admitted domain source, receiver location,
+identity and protocol body must stay connected through installation, dispatch
+and completion. Title, board, connection and context maintenance use the same
+construction mechanism.
 
-Extend `TicketedRequest.Scoped` with a finite family of feature requests and
-maintenance requests. The interpreter consumes each frozen domain input once,
-allocates from the declared identity space, installs its pending receiver and
-emits the corresponding effect together. Task tickets and connection operation
-identities retain their separate counters through the shared allocator. Owners
-retain their business admission and reply projection; transport fitting remains
-before request issuance so a rejected oversized request consumes no identity.
+`TicketedRequest.Scoped.feature_channel` is indexed by the owner's source type.
+The owner selects a real source and a `Receiver.located` path in the current
+feature state. Keyed locations derive their address from the input; positional
+locations come from an observed lookup or the current append position. The
+caller cannot independently supply a different address or an out-of-bounds
+position. Record views are derived from the owning constructor.
 
-The interpreter refuses card keys beyond the append position and connection
-requests whose job is already settled. These cases cannot emit an external
-request. Receiver correspondence is proved against actual domain registry
-lookups, and production entry theorems connect the owner functions to this
-interpreter. The frame theorem keeps task execution, projects, environment and
-sequence unchanged while feature requests are installed.
+`RequestTypes.Protocol` supplies a wire declaration and the protocol-specific
+body projection. `ModelDeclarations.declare_request` checks field-name
+uniqueness when that declaration is compiled. The shared interpreter allocates
+an identity, constructs one `RequestEnvelope`, installs it through the selected
+receiver and emits that same envelope. Task tickets and connection identities
+use their existing allocation spaces. A new feature adds its own source,
+receiver and body declaration; it does not add a case to a kernel enumeration
+of every feature or a new receiver-correspondence theorem.
 
-This avoids accepting an arbitrary state-transforming callback or separately
-supplied pending state and effect. It also leaves reply budgets and physical IO
-at their existing external assurance boundaries.
+The owner still decides the facts that depend on its operation: whether a
+project exists, whether an authority is current, whether a revision matches,
+and whether capacity or a resource permits the operation. These observations
+produce the source consumed by the channel. Generic allocation, receiver,
+address, frame and emission properties are established with the shared
+interpreter.
+
+Maintenance leases retain their selected target and typed input throughout
+measurement, preparation, validation and compaction. Follow-up phases consume
+that retained value. `RequestTypes.task_bound` declares that an outstanding
+request is cancelled with its task. Dispatch derives the task and ticket from
+the same receiver and envelope; adding another task-bound protocol does not
+add another cancellation case.
+
+Provider registration follows the same rule. A Responses-compatible backend
+uses `ProviderCatalog.responses_backend name endpoint credential`; common
+request construction supplies the authority, tool catalog and response
+protocol. Account and Web constructors fix the service identity associated
+with their authentication semantics. A new wire protocol may require its own
+interpreter and protocol-specific laws, but compatible registrations inherit
+the existing implementation.
+
+Serialized output budgets and physical IO remain boundaries of their own.
+Construction does not claim to establish facts that require observing those
+external systems.

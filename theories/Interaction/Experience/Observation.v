@@ -406,10 +406,8 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
    (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
      match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
-     |Some _=>match string_field "name" value,array_field "nodes" value,array_field "rules" value with
-       |Some name,Some nodes,Some rules=>match traverse TaskGraph.parse_node nodes,traverse TaskGraph.parse_rule rules with
-         |Some nodes,Some rules=>TaskGraph.valid_declaration name nodes rules|_,_=>false end
-       |_,_,_=>false end
+     |Some _=>match TaskGraph.parse_declaration false value with
+       |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
      |None=>false end|None=>false end end)
    (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
  |Draft.TitlePromptsBody _ task agent=>

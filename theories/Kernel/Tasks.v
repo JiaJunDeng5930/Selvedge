@@ -30,29 +30,26 @@ Definition creation_defaults (environment : environment) :=
  | value => match parse_workspace value with Some workspace => workspace | None => default_workspace end end in
  Settings workspace None (settings_sandbox default_settings)
   (settings_approval default_settings) project false None.
-Definition resolve_settings (model : profile) (source : option json) (fallback : task_settings) (value : world) :=
- let raw := match source with Some raw => raw | None => JNull end in
- let base := match field "project_id" raw with
+Definition resolve_settings (model : profile) (source : option settings_request) (fallback : task_settings) (value : world) :=
+ match source with
+ | None => Some (WorkspaceBinding.normalize_settings fallback value)
+ | Some request => let base := match project_override request with
  | None => Some fallback
- | Some JNull => None
- | Some source => match natural source with
-   | None => None
-   | Some id => match registry_at id (world_projects value) with
-     | Some project => if project_deleted project then None else
-       Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
-        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
-     | None => None end end
- end in
+ | Some id => match registry_at id (world_projects value) with
+   | Some project => if project_deleted project then None else
+     Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
+       (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
+   | None => None end end in
  match base with
- | Some base => match parse_settings model (environment_profiles (world_environment value)) raw base with
+ | Some base => match settings_of_request model (environment_profiles (world_environment value)) request base with
    | Some settings =>
-     let selected := match field "workspace_binding" raw, field "workspace" raw with
-       | None, Some (JObject _) => WorkspaceBinding.select_bound_workspace base settings value
+     let selected := match binding_observation request, workspace_override request with
+       | None, Some _ => WorkspaceBinding.select_bound_workspace base settings value
        | _, _ => Some settings end in
      option_map (fun settings => WorkspaceBinding.normalize_settings settings value) selected
    | None => None end
- | None => None end.
-Definition resolve_for_profile (name : string) (source : option json) (fallback : task_settings) (value : world) :=
+ | None => None end end.
+Definition resolve_for_profile (name : string) (source : option settings_request) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | Some model => resolve_settings model source fallback value | None => None end.
 
@@ -67,12 +64,12 @@ Definition observed_creation_roots (selected caller : task_settings) (value : wo
  roots_in (settings_resource defaults) (settings_workspace defaults) ++
  List.concat (map (fun project => if project_deleted project then []
    else roots_in (project_resource project) (project_workspace project)) (world_projects value)).
-Definition no_resource_observation (options : option json) :=
- match options with None => true | Some source => match field "workspace_binding" source with
- | None => true | Some _ => false end end.
-Definition native_creation_allowed (options : option json) (selected caller : task_settings) (value : world) :=
- let no_guidance := match options with None => true | Some options =>
-   match field "guidance" options with None => true | Some _ => false end end in
+Definition no_resource_observation (options : option settings_request) :=
+ match options with None => true | Some request =>
+   match binding_observation request with None => true | Some _ => false end end.
+Definition native_creation_allowed (options : option settings_request) (selected caller : task_settings) (value : world) :=
+ let no_guidance := match options with None => true | Some request =>
+   match guidance_observation request with None => true | Some _ => false end end in
  Workspace.may_delegate selected caller && no_guidance && no_resource_observation options &&
  forallb (fun root => existsb (String.eqb root) (observed_creation_roots selected caller value))
    (workspace_roots (settings_workspace selected)).
@@ -161,7 +158,7 @@ Record resolved_start := ResolvedStart {
 Inductive start_resolution := StartRefused (cause : failure_cause)
  | StartResolved (plan : resolved_start).
 Definition resolve_start (entry : creation_entry) (name : string) (reasoning : option string)
- (contents : content) (settings : option json) (idle : bool) (fallback : task_settings) (value : world) :=
+ (contents : content) (settings : option settings_request) (idle : bool) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | None => StartRefused UnknownProfile
  | Some profile => match resolve_settings profile settings fallback value with
@@ -201,14 +198,14 @@ Definition interpret_start (plan : resolved_start) (value : world) :=
  let born := birth_start plan value in
  accept (JObject [("task_id", number (birth_id born))]) (birth_world born) [].
 Definition create_with_defaults (name : string) (reasoning : option string) (contents : content)
- (settings : option json) (idle : bool) (fallback : task_settings) (value : world) : decision :=
+ (settings : option settings_request) (idle : bool) (fallback : task_settings) (value : world) : decision :=
  let entry := if idle then IdleCreation else OrdinaryCreation in
  match resolve_start entry name reasoning contents settings idle fallback value with
  | StartRefused cause => refuse_start entry cause value
  | StartResolved plan => interpret_start plan value
  end.
 Definition create (name : string) (reasoning : option string) (contents : content)
- (settings : option json) (idle : bool) (value : world) :=
+ (settings : option settings_request) (idle : bool) (value : world) :=
  create_with_defaults name reasoning contents settings idle (creation_defaults (world_environment value)) value.
 Definition queue (contents : content) (value : task) :=
  TaskChange.apply [TaskChange.AppendQueued contents] value.
@@ -530,7 +527,7 @@ Definition fork_refusal_reason (entry : fork_entry) (id count : N) (parent : tas
      (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity)
  end.
 Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
- (messages : list content) (settings : option json) (value : world) :=
+ (messages : list content) (settings : option settings_request) (value : world) :=
  match TaskScope.select id value with
  | None => CommandResult.refuse "task_not_found" "The parent task does not exist"
  | Some target => let task := TaskScope.selected target in
@@ -567,7 +564,7 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id co
 Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
  CommandResult.reject value (fork_refusal_reason entry id count parent value).
 Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
- (messages : list content) (settings : option json) (value : world) :=
+ (messages : list content) (settings : option settings_request) (value : world) :=
  CommandResult.decide value (fork_result entry origin id count messages settings value).
 Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
@@ -589,7 +586,9 @@ Definition execution_reasoning (effort : option string) (current : profile) :=
  | None => selected_reasoning effort current end.
 
 Definition configure_execution_with (normalize : task_settings -> task_settings) (id : N)
- (name reasoning : option string) (sandbox_source approval_source : option json) (value : world) :=
+ (name reasoning : option string)
+ (sandbox_source : option (D.denote sandbox_patch_declaration))
+ (approval_source : option (D.denote approval_declaration)) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some target => let task := TaskScope.selected target in
@@ -603,17 +602,16 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
      | None => task_current_profile task end in
    match match approval_source with
     | None => Some (settings_approval current)
-    | Some source => parse_approval reviewer_model (environment_profiles (world_environment value)) source end with
+    | Some source => approval_of_values reviewer_model (environment_profiles (world_environment value)) source end with
    | None => refuse_start Configuration InvalidPolicy value
    | Some approval => match model with
      | None => refuse_start Configuration UnknownProfile value
      | Some profile => match execution_reasoning reasoning profile with
        | None => refuse_start Configuration InvalidReasoning value
-       | Some chosen => match match sandbox_source with
-         | None => Some (settings_sandbox current)
-         | Some source => parse_sandbox_patch (settings_sandbox current) source end with
-         | None => reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value
-         | Some sandbox =>
+       | Some chosen =>
+           let sandbox := match sandbox_source with
+             | None => settings_sandbox current
+             | Some source => sandbox_patch_of_values (settings_sandbox current) source end in
            if quiescent task && negb (String.eqb (task_status task) "archived") &&
             (match History.history_lease id (task_history task) with History.NoLease => true | _ => false end) then
            let settings := normalize (Settings (settings_workspace current) (settings_project current)
@@ -627,7 +625,6 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
             (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
            else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
-         end
        end
      end
    end

@@ -57,7 +57,7 @@ Proof.
  split; reflexivity.
 Qed.
 Theorem native_creation_cannot_supply_guidance_observations : forall source selected caller value guidance,
- field "guidance" source = Some guidance ->
+ guidance_observation source = Some guidance ->
  Tasks.native_creation_allowed (Some source) selected caller value = false.
 Proof.
  intros; unfold Tasks.native_creation_allowed; rewrite H.

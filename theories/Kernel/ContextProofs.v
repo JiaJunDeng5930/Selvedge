@@ -147,10 +147,10 @@ Qed.
 
 Theorem an_explicit_directory_keeps_its_selected_cloud_environment :
  forall model source fields base selected value owner tree,
- field "project_id" source = None ->
- field "workspace_binding" source = None ->
- field "workspace" source = Some (JObject fields) ->
- Codec.parse_settings model (environment_profiles (world_environment value)) source base = Some selected ->
+ project_override source = None ->
+ binding_observation source = None ->
+ workspace_override source = Some fields ->
+ Codec.settings_of_request model (environment_profiles (world_environment value)) source base = Some selected ->
  settings_resource base = Some owner -> WorkspaceBinding.owned owner value = Some tree ->
  WorkspaceBinding.cloud_intersects (settings_workspace selected) tree = true ->
  WorkspaceBinding.within_resource (settings_workspace selected) tree = true ->
@@ -174,10 +174,10 @@ Qed.
 
 Theorem an_explicit_directory_cannot_mix_the_selected_cloud_with_another_environment :
  forall model source fields base selected value owner tree,
- field "project_id" source = None ->
- field "workspace_binding" source = None ->
- field "workspace" source = Some (JObject fields) ->
- Codec.parse_settings model (environment_profiles (world_environment value)) source base = Some selected ->
+ project_override source = None ->
+ binding_observation source = None ->
+ workspace_override source = Some fields ->
+ Codec.settings_of_request model (environment_profiles (world_environment value)) source base = Some selected ->
  settings_resource base = Some owner -> WorkspaceBinding.owned owner value = Some tree ->
  WorkspaceBinding.cloud_intersects (settings_workspace selected) tree = true ->
  WorkspaceBinding.within_resource (settings_workspace selected) tree = false ->

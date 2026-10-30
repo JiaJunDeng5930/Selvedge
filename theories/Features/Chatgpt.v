@@ -50,46 +50,31 @@ Definition jobs connection project value := match authority connection project (
  | None=>forbidden
  | Some _=>Selvedge.Kernel.State.success (JArray (fold_right (fun item rest=>let '(id,job):=item in
      if owned connection project job then summary id job::rest else rest) [] (Selvedge.Features.Domain.sharing_jobs (registry value)))) end.
-Definition ids_valid := FeatureRequestAdmission.ids_valid.
-Definition valid_query ids reply := if ids_valid ids then reply else Selvedge.Kernel.State.failure "invalid_input" "ChatGPT identities must be unsigned 32-bit integers".
 Definition handle_chatgpt_projects (p : Selvedge.Generated.Commands.chatgpt_projects_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_projects_connection_id p] (projects (Selvedge.Generated.Commands.chatgpt_projects_connection_id p) value).
+ projects (Selvedge.Generated.Commands.chatgpt_projects_connection_id p) value.
 
 Definition handle_chatgpt_project (p : Selvedge.Generated.Commands.chatgpt_project_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_project_connection_id p;Selvedge.Generated.Commands.chatgpt_project_project_id p]
-   (read_project (Selvedge.Generated.Commands.chatgpt_project_connection_id p) (Selvedge.Generated.Commands.chatgpt_project_project_id p) value).
+ read_project (Selvedge.Generated.Commands.chatgpt_project_connection_id p) (Selvedge.Generated.Commands.chatgpt_project_project_id p) value.
 
 Definition handle_chatgpt_operation (p : Selvedge.Generated.Commands.chatgpt_operation_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_operation_connection_id p;Selvedge.Generated.Commands.chatgpt_operation_project_id p;Selvedge.Generated.Commands.chatgpt_operation_operation_id p]
-   (read_job (Selvedge.Generated.Commands.chatgpt_operation_connection_id p) (Selvedge.Generated.Commands.chatgpt_operation_project_id p) (Selvedge.Generated.Commands.chatgpt_operation_operation_id p) value).
+ read_job (Selvedge.Generated.Commands.chatgpt_operation_connection_id p) (Selvedge.Generated.Commands.chatgpt_operation_project_id p) (Selvedge.Generated.Commands.chatgpt_operation_operation_id p) value.
 
 Definition handle_chatgpt_operations (p : Selvedge.Generated.Commands.chatgpt_operations_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_operations_connection_id p;Selvedge.Generated.Commands.chatgpt_operations_project_id p]
-   (jobs (Selvedge.Generated.Commands.chatgpt_operations_connection_id p) (Selvedge.Generated.Commands.chatgpt_operations_project_id p) value).
+ jobs (Selvedge.Generated.Commands.chatgpt_operations_connection_id p) (Selvedge.Generated.Commands.chatgpt_operations_project_id p) value.
 
-Definition grant_schema := ChatgptArguments.grant_declaration.
-Definition parse_grant source := match Schema.decode grant_schema source with
- | Some values => let id := Schema.head values in let values := Schema.tail values in
-   option_map (Selvedge.Features.Domain.ConnectionGrant id (Schema.head values))
-     (parse_sandbox (Schema.head (Schema.tail values)))
- | None => None end.
-Fixpoint distinct_ids ids := match ids with []=>true | id::rest=>negb (member id rest) && distinct_ids rest end.
-Definition valid_grant value grant := ids_valid [Selvedge.Features.Domain.connection_id grant] &&
- (N.of_nat (List.length (Selvedge.Features.Domain.connection_projects grant)) <=? 32) && ids_valid (Selvedge.Features.Domain.connection_projects grant) &&
- distinct_ids (Selvedge.Features.Domain.connection_projects grant) &&
+Definition grant_projects_exist value grant :=
  forallb (fun id=>match project id value with Some _=>true | None=>false end) (Selvedge.Features.Domain.connection_projects grant).
-Definition configure entries value := match Schema.decode_list parse_grant entries with
+Definition configure entries value := match ConnectionGrants.admit_grants entries with
  | None=>reject "invalid_connections" "Connections need distinct identities and existing project grants" value
- | Some entries=>if (N.of_nat (List.length entries) <=? 32) && distinct_ids (map Selvedge.Features.Domain.connection_id entries) && forallb (valid_grant value) entries then
-   accept (JObject []) (store (set Selvedge.Features.Domain.sharing_grants (fun _=>entries) (registry value)) value) []
+ | Some entries=>if forallb (grant_projects_exist value) (ConnectionGrants.Grants.values entries) then
+   accept (JObject []) (store (set Selvedge.Features.Domain.sharing_authorities (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
 Definition replace_job id job := Receiver.install TicketedRequest.Scoped.connection_jobs (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
-Definition bounded_text := FeatureRequestAdmission.bounded_text.
 Definition protocol (features : Selvedge.Features.Domain.state)
  : RequestTypes.located Selvedge.Features.Domain.connection_job features :=
  RequestTypes.Protocol
@@ -130,8 +115,7 @@ Definition run_result connection project_id request arguments value :=
 Definition run connection project_id request arguments value :=
  CommandResult.decide value (run_result connection project_id request arguments value).
 Definition edit (remove:bool) connection project id value :=
- if negb (ids_valid [connection;project;id]) then reject "invalid_input" "ChatGPT identities must be unsigned 32-bit integers" value
- else match authority connection project (registry value) with
+ match authority connection project (registry value) with
  | None=>reject "project_forbidden" "This connection has no grant for that project" value
  | Some _=>match find_job id (registry value) with
    | None=>Decision value missing_operation []
@@ -147,13 +131,13 @@ Definition edit (remove:bool) connection project id value :=
 Definition handle_configure_chatgpt_connections (p : Selvedge.Generated.Commands.configure_chatgpt_connections_payload)
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  match caller with
-   | None=>configure (Selvedge.Generated.Commands.configure_chatgpt_connections_connections p) value
+   | None=>configure (Selvedge.Generated.Commands.configure_chatgpt_connections_connections_admitted p) value
    | Some _=>reject "local_only" "Connection grants can only be configured by the local owner" value end.
 
 Definition handle_chatgpt_exec_result (p : Selvedge.Generated.Commands.chatgpt_exec_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) :=
  run_result (Selvedge.Generated.Commands.chatgpt_exec_connection_id p) (Selvedge.Generated.Commands.chatgpt_exec_project_id p)
-   (Selvedge.Generated.Commands.chatgpt_exec_request_id p) (Selvedge.Generated.Commands.chatgpt_exec_arguments p) value.
+   (Selvedge.Generated.Commands.chatgpt_exec_request_id_admitted p) (Selvedge.Generated.Commands.chatgpt_exec_arguments_admitted p) value.
 Definition handle_chatgpt_exec (p : Selvedge.Generated.Commands.chatgpt_exec_payload)
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  CommandResult.decide value (handle_chatgpt_exec_result p caller value).

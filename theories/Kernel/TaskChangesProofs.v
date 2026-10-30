@@ -32,13 +32,15 @@ Definition cancel_operation_expression (id identity : N) (value : world) := ltac
  derive_task_lookup_view constr:(Tasks.cancel_operation id identity value) body id value reduce_cancellation_plan).
 
 Definition configure_execution_with_expression (normalize : task_settings -> task_settings) (id : N)
- (name reasoning : option string) (sandbox_source approval_source : option json) (value : world) := ltac:(
+ (name reasoning : option string)
+ (sandbox_source : option (D.denote sandbox_patch_declaration))
+ (approval_source : option (D.denote approval_declaration)) (value : world) := ltac:(
  let body := eval unfold Tasks.configure_execution_with in
    (Tasks.configure_execution_with normalize id name reasoning sandbox_source approval_source value) in
  derive_task_lookup_view constr:(Tasks.configure_execution_with normalize id name reasoning sandbox_source approval_source value) body id value reduce_task_plan).
 
 Definition fork_with_caller_expression (entry : fork_entry) (origin : fork_settings_origin) (id count : N)
- (messages : list content) (settings : option json) (value : world) := ltac:(
+ (messages : list content) (settings : option settings_request) (value : world) := ltac:(
  let body := eval cbv beta iota zeta delta [Tasks.fork_with_caller Tasks.fork_result] in
    (Tasks.fork_with_caller entry origin id count messages settings value) in
  derive_task_lookup_view constr:(Tasks.fork_with_caller entry origin id count messages settings value) body id value reduce_task_plan).

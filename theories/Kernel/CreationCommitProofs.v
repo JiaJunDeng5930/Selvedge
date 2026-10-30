@@ -12,7 +12,7 @@ Module G := Selvedge.Generated.Commands.
 Definition requested_start (request : G.create_payload) contents before :=
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.ImplicitCreation None)
    (G.create_profile request) (G.create_reasoning request) contents
-   (G.create_settings request) false None before.
+   (option_map (settings_request_of_values true) (G.create_settings_admitted request)) false None before.
 Definition planned_decision {before : world} (plan : Worktree.planned_start before) :=
  let born := Worktree.consume_planned_start plan before in
  Decision (decision_world born) (success (JObject [("task_id",number (next_task before))]))
@@ -29,7 +29,7 @@ Qed.
 
 Theorem every_resolved_public_create_constructs_its_planned_result :
  forall request contents before start (plan : Worktree.planned_start before),
- CommandExecution.user_content (G.create_message request) (G.create_images request) = Some contents ->
+ CommandExecution.user_content (G.create_message_admitted request) (G.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  CreationCommit.candidate request before = planned_decision plan.
@@ -52,7 +52,7 @@ Qed.
 
 Theorem every_planned_creation_with_an_output_budget_is_delivered :
  forall request contents before start (plan : Worktree.planned_start before),
- CommandExecution.user_content (G.create_message request) (G.create_images request) = Some contents ->
+ CommandExecution.user_content (G.create_message_admitted request) (G.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->

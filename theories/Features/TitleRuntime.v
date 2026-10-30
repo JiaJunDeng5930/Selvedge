@@ -9,10 +9,8 @@ Open Scope string_scope.
 Open Scope list_scope.
 Definition entry := FeatureRequestAdmission.title_entry.
 Definition store := TicketedRequest.Scoped.put_title.
-Definition configure (revision:N) (task_prompt agent_prompt:string) (value:world) :=
- if negb (Titles.valid_instructions task_prompt && Titles.valid_instructions agent_prompt) then
- Selvedge.Kernel.State.reject "invalid_title_settings" "Title prompts must be nonempty UTF-8 text of at most 4096 bytes" value
- else let current:=Selvedge.Features.Domain.feature_title_settings (world_features value) in
+Definition configure (revision:N) (task_prompt agent_prompt : Titles.instruction) (value:world) :=
+ let current:=Selvedge.Features.Domain.feature_title_settings (world_features value) in
  if negb (N.eqb revision (Selvedge.Features.Domain.title_revision current)) then
  Selvedge.Kernel.State.reject "title_settings_conflict" "Title settings changed; reopen the settings before saving" value
  else let updated:=Selvedge.Features.Domain.TitleSettings (N.succ revision) task_prompt agent_prompt in
@@ -23,7 +21,9 @@ Definition handle_read_title_settings (_payload : Selvedge.Generated.Commands.re
 
 Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.configure_title_settings_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
- configure (Selvedge.Generated.Commands.configure_title_settings_revision p) (Selvedge.Generated.Commands.configure_title_settings_task_prompt p) (Selvedge.Generated.Commands.configure_title_settings_agent_prompt p) value.
+ configure (Selvedge.Generated.Commands.configure_title_settings_revision p)
+   (Selvedge.Generated.Commands.configure_title_settings_task_prompt_admitted p)
+   (Selvedge.Generated.Commands.configure_title_settings_agent_prompt_admitted p) value.
 
 Definition first_request := Observation.first_request.
 Definition split_slash := FeatureRequestAdmission.split_slash.

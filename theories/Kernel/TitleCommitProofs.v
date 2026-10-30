@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration ArgumentDeclarationProofs.
+From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration.
 From Selvedge.Features Require Import Titles.
 Open Scope string_scope.
 
@@ -17,20 +17,18 @@ Proof.
 Qed.
 
 Lemma a_title_prompt_obeys_the_declared_byte_bound : forall instruction request,
- Titles.valid_instructions instruction = true ->
  (N.of_nat (String.length (Titles.prompt_with instruction request)) <=
   Titles.maximum_instruction_bytes + N.of_nat (String.length Titles.title_format) +
   (Titles.prompt_bytes - N.of_nat (String.length (Titles.instructions ++ Titles.title_format))))%N.
 Proof.
- intros instruction request Valid.
- unfold Titles.valid_instructions, Titles.instruction_declaration,
-  ArgumentDeclaration.bounded_text, ArgumentDeclaration.bounded_format in Valid.
- rewrite check_text_reflects in Valid. unfold ArgumentDeclaration.check_text in Valid.
+ intros [instruction Valid] request.
+ unfold Titles.prompt_with, Titles.instruction_text; cbn [proj1_sig].
+ unfold ArgumentDeclaration.check_text in Valid.
  destruct (Utf8.scalar_count instruction) as [count|] eqn:Count; [|discriminate].
  cbn in Valid. repeat rewrite andb_true_iff in Valid.
  assert (Bytes : (N.of_nat (String.length instruction) <=? Titles.maximum_instruction_bytes)%N = true) by tauto.
  apply N.leb_le in Bytes.
- unfold Titles.prompt_with. rewrite !string_append_length, !Nat2N.inj_add.
+ rewrite !string_append_length, !Nat2N.inj_add.
  destruct (Utf8.chunks request) as [chunks|] eqn:Chunks.
  - pose proof (bounded_title_chunks_obey_the_byte_budget
      (Titles.trim_both Utf8.whitespace chunks)

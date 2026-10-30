@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Schema Utf8 Numbers.
+From Selvedge.Foundation Require Import Schema Utf8 Numbers ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -7,18 +7,24 @@ Definition valid_project_name (name : string) :=
  Utf8.nonblank name && Nat.leb (String.length name) 256.
 Fixpoint contains (needle text : string) :=
  if String.prefix needle text then true else match text with EmptyString => false | String _ rest => contains needle rest end.
-Definition valid_path (path : string) :=
- String.prefix "/" path && Nat.leb (String.length path) 4096 && Utf8.no_nul path &&
+Definition path_constraints := ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural
+ 4096 true false false None.
+Definition path_declaration := ArgumentDeclaration.Text path_constraints.
+Definition canonical_path (path : string) :=
+ String.prefix "/" path &&
  negb (contains "/../" (String.append path "/")) && negb (contains "/./" (String.append path "/")) &&
  (String.eqb path "/" || negb (contains "//" (String.append path "/"))).
-Definition workspace_schema := [Field "roots" (KArray KText); Field "primary_root" (KOptional KText)].
-Definition valid_workspace (value : workspace) :=
- Nat.leb (List.length (workspace_roots value)) 32 &&
- Schema.unique_names (workspace_roots value) && forallb valid_path (workspace_roots value) &&
+Definition valid_path (path : string) :=
+ ArgumentDeclaration.check_text path_constraints path && canonical_path path.
+Definition valid_selection (value : workspace) :=
+ Schema.unique_names (workspace_roots value) &&
  match workspace_primary value, workspace_roots value with
  | None, [] => true
  | Some primary, roots => existsb (String.eqb primary) roots
  | _,_ => false end.
+Definition valid_workspace (value : workspace) :=
+ Nat.leb (List.length (workspace_roots value)) 32 &&
+ forallb valid_path (workspace_roots value) && valid_selection value.
 Definition root_within (root bound : string) :=
  String.eqb bound "/" || String.eqb root bound || String.prefix (String.append bound "/") root.
 Definition workspace_bound (child parent : workspace) :=

@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson Arguments Numbers RemoteIdentity.
 From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Codec ContentDeclarations ChatgptArguments.
-From Selvedge.Features Require Import Titles BoardParameters TaskGraphDeclarations.
+From Selvedge.Features Require Import Titles BoardParameters TaskGraphDeclarations ConnectionGrants.
 From Selvedge.Features Require Domain.
 Import ListNotations.
 Open Scope string_scope.
@@ -13,23 +13,13 @@ Definition from_fields := D.of_schema.
 Definition natural := D.of_kind KNatural.
 Definition identity := D.Natural 0 4294967295.
 Definition enum (first : string) (rest : list string) := D.of_kind (KEnum first rest).
-Definition workspace_declaration := D.refine_object [
- ("roots",D.BoundedArray 0 32 D.text);("primary_root",D.nullable D.text)]
- (from_fields Workspace.workspace_schema).
-Definition sandbox_declaration := from_fields Codec.sandbox_schema.
-Definition sandbox_patch_declaration := D.Object (map (fun field =>
- (field_name field,false,D.of_kind (field_kind field))) Codec.sandbox_schema).
-Definition approval_declaration := from_fields Codec.approval_schema.
-Definition guidance_declaration := D.nullable (from_fields Codec.guidance_schema).
-(** Public requests cannot manufacture observations. The host admits their
-    syntax first, then supplies guidance and resource evidence separately. *)
-Definition settings_declaration (observed : bool) :=
- let admitted_fields := if observed then Codec.task_settings_schema else
-   filter (fun field => negb (String.eqb (field_name field) "guidance" ||
-     String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema in
- D.refine_object [("workspace",workspace_declaration);("sandbox",sandbox_patch_declaration);
-   ("approval",approval_declaration);("project_id",identity);("guidance",guidance_declaration)]
-   (from_fields admitted_fields).
+Definition workspace_declaration := Codec.workspace_declaration.
+Definition sandbox_declaration := Codec.sandbox_declaration.
+Definition sandbox_patch_declaration := Codec.sandbox_patch_declaration.
+Definition approval_declaration := Codec.approval_declaration.
+Definition guidance_declaration := Codec.guidance_declaration.
+Definition binding_declaration := Codec.binding_declaration.
+Definition settings_declaration := Codec.settings_declaration.
 Definition content_declaration := ContentDeclarations.content_declaration.
 Definition images_declaration := ContentDeclarations.images_declaration.
 Definition attachments_declaration (observed : bool) := D.Array
@@ -38,13 +28,13 @@ Definition attachments_declaration (observed : bool) := D.Array
 Definition title_prompt_declaration := Titles.instruction_declaration.
 Definition controller_id_declaration := RemoteIdentity.controller_declaration.
 Definition permissions_declaration := D.of_schema Selvedge.Features.Domain.rights_fields.
-Definition grants_declaration := D.Array (D.refine_object [
- ("connection_id",identity);("project_ids",D.Array identity);("sandbox",sandbox_declaration)]
- (from_fields ChatgptArguments.grant_declaration)).
+Definition grants_declaration := ConnectionGrants.declaration.
 
 Definition graph_node_declaration (observed : bool) :=
  TaskGraphDeclarations.node_declaration identity (settings_declaration observed).
 Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
+Definition graph_nodes_declaration observed := D.BoundedArray 0 32 (graph_node_declaration observed).
+Definition graph_rules_declaration := D.BoundedArray 0 32 graph_rule_declaration.
 Definition board_status := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
  false false false (Some (map Selvedge.Features.Domain.stage_name Selvedge.Features.Domain.stages))).
 Definition board_assignee := D.Union [enum "none" ["self"];

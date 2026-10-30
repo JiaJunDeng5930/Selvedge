@@ -48,103 +48,148 @@ Definition settings_json (value : task_settings) := JObject [
  ("approval", approval_json (settings_approval value));
  ("project_id", optional_number (settings_project value));
  ("workspace_resource", optional_number (settings_resource value))].
-Definition parse_workspace (value : json) : option workspace :=
- match Schema.decode Workspace.workspace_schema value with
- | None => None
- | Some values =>
-   let roots := head values in
-   let primary := match head (tail values) with Some root => Some root | None => hd_error roots end in
-   let workspace := Workspace roots primary in
-   if Workspace.valid_workspace workspace then Some workspace else None
- end.
-Definition sandbox_schema := [Field "mode" (KEnum "read-only" ["workspace-write"]); Field "network_access" KBool].
-Definition approval_schema := [Field "mode" (KEnum "full-access" ["ask-for-approval";"approval-for-me"]);
- Field "reviewer_profile" (KOptional KText)].
-Definition sandbox_of_fields (values : Schema.fields sandbox_schema) :=
- Sandbox (if String.eqb (proj1_sig (head values)) "read-only" then ReadOnly else WorkspaceWrite)
-   (head (tail values)).
-Definition parse_sandbox value := option_map sandbox_of_fields (Schema.decode sandbox_schema value).
-(* Creation settings are a partial override. The concrete sandbox DTO remains
-   complete; omitting a patch field inherits its committed fallback value. *)
-Definition sandbox_patch_arguments := map
- (fun field => Arguments.omittable (Arguments.from_field field)) sandbox_schema.
-Definition parse_sandbox_patch (fallback : sandbox) (value : json) : option sandbox :=
- if Arguments.valid sandbox_patch_arguments value then match value with
- | JObject updates => parse_sandbox (JObject
-   (fold_left (fun fields entry => Json.set_field (fst entry) (snd entry) fields)
-      updates (sandbox_fields fallback)))
- | _ => None end else None.
-Definition parse_approval (model : profile) (catalog : list profile) (value : json) : option approval_policy :=
- match Schema.decode approval_schema value with
- | None => None
- | Some values =>
-   let mode := proj1_sig (head values) in
-   if String.eqb mode "full-access" then Some FullAccess
-   else if String.eqb mode "ask-for-approval" then Some AskForApproval
-   else let reviewer := match head (tail values) with
-     | Some name => find (fun candidate => String.eqb name (profile_key candidate)) catalog
-     | None => Some (ModelCapabilities.default_reviewer model catalog) end in
-   match reviewer with Some reviewer => if ModelCapabilities.valid_reviewer_profile reviewer
-     then Some (ReviewWith reviewer) else None | None => None end
- end.
+Module D := ArgumentDeclaration.
+Definition workspace_declaration := D.Object
+ [("roots",true,D.BoundedArray 0 32 Workspace.path_declaration);("primary_root",false,D.nullable D.text)].
+Definition workspace_of_values (values : D.denote workspace_declaration) : option workspace :=
+ let '(roots,(primary,_)) := proj1_sig values in
+ let roots := map (@proj1_sig _ _) (proj1_sig roots) in
+ let primary := match primary with
+ | Some (inl root) => Some (proj1_sig root)
+ | None | Some (inr (inl _)) => hd_error roots
+ | Some (inr (inr impossible)) => match impossible with end end in
+ let space := Workspace roots primary in
+ if forallb Workspace.canonical_path roots && Workspace.valid_selection space then Some space else None.
+Definition parse_workspace value :=
+ match D.decode workspace_declaration value with Some fields => workspace_of_values fields | None => None end.
+Definition sandbox_properties (required : bool) :=
+ [("mode",required,D.Value (KEnum "read-only" ["workspace-write"]));("network_access",required,D.Boolean)].
+Definition sandbox_declaration := D.Object (sandbox_properties true).
+Definition sandbox_patch_declaration := D.Object (sandbox_properties false).
+Definition approval_declaration := D.Object
+ [("mode",true,D.Value (KEnum "full-access" ["ask-for-approval";"approval-for-me"]));("reviewer_profile",false,D.text)].
+Definition sandbox_mode (mode : Schema.denote (KEnum "read-only" ["workspace-write"])) :=
+ if String.eqb (proj1_sig mode) "read-only" then ReadOnly else WorkspaceWrite.
+Definition sandbox_of_values (values : D.denote sandbox_declaration) :=
+ let '(mode,(network,_)) := proj1_sig values in Sandbox (sandbox_mode mode) network.
+Definition parse_sandbox value := option_map sandbox_of_values (D.decode sandbox_declaration value).
+(** A patch has optional admitted fields. Applying it cannot fail or erase an
+    omitted part of the committed sandbox. *)
+Definition sandbox_patch_of_values (fallback : sandbox) (values : D.denote sandbox_patch_declaration) :=
+ let '(mode,(network,_)) := proj1_sig values in
+ Sandbox (match mode with Some mode => sandbox_mode mode | None => sandbox_access fallback end)
+   (match network with Some network => network | None => sandbox_network fallback end).
+Definition parse_sandbox_patch fallback source :=
+ option_map (sandbox_patch_of_values fallback) (D.decode sandbox_patch_declaration source).
+Definition approval_of_values (model : profile) (catalog : list profile)
+ (values : D.denote approval_declaration) : option approval_policy :=
+ let '(mode,(reviewer,_)) := proj1_sig values in
+ if String.eqb (proj1_sig mode) "full-access" then Some FullAccess
+ else if String.eqb (proj1_sig mode) "ask-for-approval" then Some AskForApproval
+ else let selected := match reviewer with
+   | Some name => find (fun candidate => String.eqb (proj1_sig name) (profile_key candidate)) catalog
+   | None => Some (ModelCapabilities.default_reviewer model catalog) end in
+ match selected with Some reviewer => if ModelCapabilities.valid_reviewer_profile reviewer
+   then Some (ReviewWith reviewer) else None | None => None end.
+Definition parse_approval model catalog source :=
+ match D.decode approval_declaration source with Some values => approval_of_values model catalog values | None => None end.
 Definition select_optional {A : Type} (parse : json -> option A)
  (key : string) (source : json) (fallback : A) :=
  match field key source with None | Some JNull => Some fallback | Some value => parse value end.
-(* Task settings distinguish an omitted override from an explicitly supplied
-   invalid value. Nullable command DTO fields use select_optional instead. *)
 Definition workspace_binding_json (owner : option N) :=
  JObject [("task_id",optional_number owner)].
-Definition parse_workspace_binding (source : json) : option (option N) :=
- match source with
- | JObject [("task_id",JNull)] => Some None
- | JObject [("task_id",owner)] => option_map (@Some N) (natural owner)
- | _ => None end.
-Definition task_settings_schema := [OmittableField "workspace" KJson; OmittableField "sandbox" KJson;
- OmittableField "approval" KJson; OmittableField "project_id" KNatural; OmittableField "guidance" KJson;
- OmittableField "workspace_binding" KJson].
-Definition guidance_schema := [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText].
-Definition valid_guidance (value : json) := match value with JNull => true | _ =>
- match Schema.decode guidance_schema value with
- | None => false | Some values =>
- let root := head values in let values := tail values in
- let path := head values in let values := tail values in
- let revision := head values in let instructions := head (tail values) in
- Workspace.valid_path root && Nat.leb (String.length instructions) 32768 &&
- ((String.eqb revision "absent" && String.eqb instructions "" && String.eqb path "") ||
-  (Context.policy_source_path Context.guidance_policy root path && Nat.eqb (String.length revision) 64)) end end.
+Definition binding_declaration := D.Object [("task_id",true,D.nullable (D.Natural 0 4294967295))].
+Definition binding_of_values (values : D.denote binding_declaration) : option N :=
+ match fst (proj1_sig values) with
+ | inl owner => Some (proj1_sig owner) | inr (inl _) => None
+ | inr (inr impossible) => match impossible with end end.
+Definition parse_workspace_binding source := option_map binding_of_values (D.decode binding_declaration source).
+Definition guidance_case (path revision instructions : D.t) := D.Object
+ [("workspace",true,Workspace.path_declaration);("path",true,path);("revision",true,revision);
+  ("instructions",true,instructions)].
+Definition guidance_body_declaration := D.Union
+ [guidance_case (D.Const (JString "")) (D.Const (JString "absent")) (D.Const (JString ""));
+  guidance_case D.text (D.exact_lower_hex 64)
+    (D.Text (D.TextConstraints 0 D.maximum_natural 32768 true false false None))].
+Definition guidance_declaration := D.nullable guidance_body_declaration.
+Definition guidance_root (value : D.denote guidance_body_declaration) : string :=
+ match value with inl fields | inr (inl fields) => proj1_sig (fst (proj1_sig fields))
+ | inr (inr impossible) => match impossible with end end.
+Definition guidance_valid_values (values : D.denote guidance_declaration) :=
+ match values with
+ | inl value => Workspace.canonical_path (guidance_root value) &&
+   match value with inl _ => true
+   | inr (inl fields) => Context.policy_source_path Context.guidance_policy
+       (guidance_root value) (proj1_sig (fst (snd (proj1_sig fields))))
+   | inr (inr impossible) => match impossible with end end
+ | inr (inl _) => true | inr (inr impossible) => match impossible with end end.
+Definition valid_guidance source := match D.decode guidance_declaration source with
+ | Some values => guidance_valid_values values | None => false end.
 Definition guidance_member (workspace : workspace) (guidance : json) := match guidance with
  | JNull => true | _ => match workspace_primary workspace, string_field "workspace" guidance with
  | Some root, Some observed => String.eqb root observed | _,_ => false end end.
 Definition inherited_guidance (workspace : workspace) (guidance : json) :=
  if guidance_member workspace guidance then guidance else JNull.
-Definition override_value {A} (parse : json -> option A) (source : option json) (fallback : A) :=
- match source with None => Some fallback | Some value => parse value end.
-Definition settings_of_fields (model : profile) (catalog : list profile)
- (values : Schema.fields task_settings_schema) (fallback : task_settings) : option task_settings :=
- let workspace_source := head values in let values := tail values in
- let sandbox_source := head values in let values := tail values in
- let approval_source := head values in let values := tail values in
- let project := match head values with Some id => Some id | None => settings_project fallback end in
- let values := tail values in let guidance_source := head values in let binding_source := head (tail values) in
- if valid_guidance (match guidance_source with Some value => value | None => JNull end) then
- match override_value parse_workspace workspace_source (settings_workspace fallback),
-       override_value (parse_sandbox_patch (settings_sandbox fallback)) sandbox_source (settings_sandbox fallback),
-       override_value (parse_approval model catalog) approval_source (settings_approval fallback) with
- | Some workspace, Some sandbox, Some approval =>
-   let guidance := match guidance_source with
-     | None | Some JNull => inherited_guidance workspace (settings_guidance fallback) | Some guidance => guidance end in
-   let resource := match binding_source with
-     | Some observation => parse_workspace_binding observation
-     | None => Some (match workspace_source with Some (JObject _) => None | _ => settings_resource fallback end) end in
-   match resource with
-   | Some owner => if guidance_member workspace guidance then
-     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback) owner) else None
-   | None => None end
- | _,_,_ => None end else None.
-Definition parse_settings (model : profile) (catalog : list profile) (value : json) (fallback : task_settings) : option task_settings :=
- match value with JNull => Some fallback | _ =>
- match Schema.decode task_settings_schema value with
- | Some values => settings_of_fields model catalog values fallback | None => None end end.
+Definition guidance_values_member (workspace : workspace) (value : D.denote guidance_declaration) :=
+ match value with
+ | inl fields => match workspace_primary workspace with
+   | Some root => String.eqb root (guidance_root fields) | None => false end
+ | inr (inl _) => true | inr (inr impossible) => match impossible with end end.
+Definition settings_declaration (observed : bool) := D.Object
+ ([("workspace",false,workspace_declaration);("sandbox",false,sandbox_patch_declaration);
+   ("approval",false,approval_declaration);("project_id",false,D.Natural 0 4294967295)] ++
+  if observed then [("guidance",false,guidance_declaration);("workspace_binding",false,binding_declaration)] else []).
+(** Settings requests keep syntax admission separate from resolution against
+    the current project registry and the selected profile. *)
+Record settings_request := SettingsRequest {
+ workspace_override : option (D.denote workspace_declaration);
+ sandbox_override : option (D.denote sandbox_patch_declaration);
+ approval_override : option (D.denote approval_declaration);
+ project_override : option N;
+ guidance_observation : option (D.denote guidance_declaration);
+ binding_observation : option (option N)
+}.
+Definition empty_settings_request := SettingsRequest None None None None None None.
+Definition settings_request_of_values (observed : bool) : D.denote (settings_declaration observed) -> settings_request :=
+ match observed as observed return D.denote (settings_declaration observed) -> settings_request with
+ | true => fun values => let '(space,(sandbox,(approval,(project,(guidance,(binding,_)))))) := proj1_sig values in
+   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) guidance (option_map binding_of_values binding)
+ | false => fun values => let '(space,(sandbox,(approval,(project,_)))) := proj1_sig values in
+   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) None None end.
+Definition settings_request_json (value : settings_request) := JObject
+ (flat_map (fun entry => match snd entry with Some value => [(fst entry,value)] | None => [] end)
+  [("workspace",option_map (D.encode workspace_declaration) (workspace_override value));
+   ("sandbox",option_map (D.encode sandbox_patch_declaration) (sandbox_override value));
+   ("approval",option_map (D.encode approval_declaration) (approval_override value));
+   ("project_id",option_map number (project_override value));
+   ("guidance",option_map (D.encode guidance_declaration) (guidance_observation value));
+   ("workspace_binding",option_map workspace_binding_json (binding_observation value))]).
+Definition with_requested_project (project : option N) (value : settings_request) :=
+ SettingsRequest (workspace_override value) (sandbox_override value) (approval_override value)
+   project (guidance_observation value) (binding_observation value).
+Definition settings_of_request (model : profile) (catalog : list profile)
+ (request : settings_request) (fallback : task_settings) : option task_settings :=
+ let guidance := guidance_observation request in
+ if match guidance with None => true | Some value => guidance_valid_values value end then
+ match (match workspace_override request with None => Some (settings_workspace fallback)
+        | Some values => workspace_of_values values end),
+       (match approval_override request with None => Some (settings_approval fallback)
+        | Some values => approval_of_values model catalog values end) with
+ | Some workspace, Some approval =>
+   let sandbox := match sandbox_override request with None => settings_sandbox fallback
+     | Some values => sandbox_patch_of_values (settings_sandbox fallback) values end in
+   let contents := match guidance with
+     | None | Some (inr (inl _)) => match workspace_override request with
+       | None => settings_guidance fallback
+       | Some _ => inherited_guidance workspace (settings_guidance fallback) end
+     | Some (inl fields) => D.encode guidance_body_declaration fields
+     | Some (inr (inr impossible)) => match impossible with end end in
+   let owner := match binding_observation request with Some owner => owner
+     | None => match workspace_override request with Some _ => None | None => settings_resource fallback end end in
+   if match guidance with None => true | Some values => guidance_values_member workspace values end then
+     Some (Settings workspace (match project_override request with Some id => Some id | None => settings_project fallback end)
+       sandbox approval contents (settings_worktree fallback) owner) else None
+ | _,_ => None end else None.
 Definition profile_json (value : profile) := profile_metadata value.
 Definition reviewer_json (value : reviewer) := match value with
  | HumanReviewer => JObject [("kind",JString "human")]

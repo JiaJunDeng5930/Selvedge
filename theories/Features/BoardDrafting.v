@@ -20,7 +20,7 @@ Arguments selected_card {before id}.
 Arguments selected_card_found {before id}.
 
 Definition prompt card retitle before := Titles.board_prompt
- (F.title_task_prompt (F.feature_title_settings (world_features before)))
+ (F.title_task_instructions (F.feature_title_settings (world_features before)))
  (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) retitle.
 Definition fresh_card draft now := F.Card 0 draft None false now now F.NoEnrichment "" false.
 Definition fresh_id before := N.of_nat (List.length (F.board_cards (F.feature_board (world_features before)))).

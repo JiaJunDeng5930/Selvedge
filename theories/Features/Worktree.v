@@ -88,24 +88,25 @@ Definition project_primary_matches (settings : task_settings) (value : world) :=
    | None=>false end
  end.
 Definition effective := WorkspaceBinding.for_task.
-Definition resolve_workspace (space : option json) (project_id : option N) (value : world) :=
+Definition resolve_workspace (space : option (D.denote (D.nullable Codec.workspace_declaration))) (project_id : option N) (value : world) :=
  let selected := match space with
- | Some source => match parse_workspace source with
+ | Some (inl source) => match Codec.workspace_of_values source with
    | Some space => WorkspaceBinding.select_resource space value | None => None end
- | None => match project_id with
+ | None | Some (inr (inl _)) => match project_id with
    | Some id => match registry_at id (world_projects value) with
      | Some project => if negb (project_deleted project) &&
          WorkspaceBinding.resource_ready (project_workspace project) (project_resource project) value
        then Some (project_resource project) else None
      | None => None end
-   | None => None end end in
+   | None => None end
+ | Some (inr (inr impossible)) => match impossible with end end in
  match selected with
  | Some owner => Selvedge.Kernel.State.success (JObject [("resource",WorkspaceBinding.reference_execution owner value);("workspace_binding",workspace_binding_json owner)])
  | None => Selvedge.Kernel.State.failure "workspace_unavailable" "The workspace does not select one available execution environment"
  end.
 Definition handle_resolve_workspace (payload:Selvedge.Generated.Commands.resolve_workspace_payload) (caller:option N) (value:world) :json :=
  resolve_workspace
-   (Selvedge.Generated.Commands.resolve_workspace_workspace payload)
+   (Selvedge.Generated.Commands.resolve_workspace_workspace_admitted payload)
    (Selvedge.Generated.Commands.resolve_workspace_project_id payload) value.
 Definition handle_list_worktrees (payload:Selvedge.Generated.Commands.list_worktrees_payload) (caller:option N) (value:world) :json :=
  Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map Observation.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))))]).
@@ -379,7 +380,7 @@ Qed.
 Theorem scoped_plan_bounds_final_authority : forall before (plan : scoped_start before),
  final_authority (scoped_caller plan) (scoped_plan plan) = true.
 Proof. intros before [caller plan Authorized]; exact Authorized. Qed.
-Definition start_allowed (settings:option json) (caller:option N) (before:world)
+Definition start_allowed (settings:option Codec.settings_request) (caller:option N) (before:world)
  (cached:Tasks.start_resolution) := match cached with
  | Tasks.StartRefused _=>true
  | Tasks.StartResolved start=>CommandExecution.creation_allowed settings (Tasks.start_settings start) caller before end.
@@ -391,7 +392,7 @@ Definition prepare_selected_birth {before:world} (owner:option (Work.owner_scope
  (start:Tasks.resolved_start) : creation_result before :=
  CommandResult.map (fun plan=>consume_scoped_start plan InitialFrame owner)
    (prepare_scoped intent caller managed backend start before).
-Definition resolve_start_birth (intent:creation_intent) (settings:option json)
+Definition resolve_start_birth (intent:creation_intent) (settings:option Codec.settings_request)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (before:world) : creation_result before :=
  let entry:=creation_entry intent caller in
@@ -401,28 +402,28 @@ Definition resolve_start_birth (intent:creation_intent) (settings:option json)
    prepare_selected_birth None intent caller managed backend start
    else CommandResult.refuse (Tasks.failure_code entry Tasks.AuthorityExpansion)
      (Tasks.failure_message Tasks.AuthorityExpansion) end.
-Definition consume_start_resolution (intent:creation_intent) (settings:option json)
+Definition consume_start_resolution (intent:creation_intent) (settings:option Codec.settings_request)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (before:world) :=
  creation_decision (resolve_start_birth intent settings caller managed backend cached before).
 Definition create_intent_result (intent:creation_intent) (name:string) (effort:option string)
- (contents:content) (settings:option json) (idle:bool) (caller:option N)
+ (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
  let entry:=creation_entry intent caller in
  resolve_start_birth intent settings caller managed backend
  (CommandExecution.resolve_context_start entry name effort contents settings idle caller value) value.
 Definition create_intent (intent:creation_intent) (name:string) (effort:option string)
- (contents:content) (settings:option json) (idle:bool) (caller:option N)
+ (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
  creation_decision (create_intent_result intent name effort contents settings idle caller managed backend value).
-Definition create_selected_result (name:string) (effort:option string) (contents:content) (settings:option json)
+Definition create_selected_result (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request)
  (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
  create_intent_result (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed None value.
-Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option json) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
+Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
  creation_decision (create_selected_result name effort contents settings idle caller managed value).
-Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
+Definition create (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request) (caller:option N) (managed:bool) (value:world) :=
  create_intent WorktreeTaskCreation name effort contents settings false caller (Some managed) None value.
-Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option json)
+Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option Codec.settings_request)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (value:world) :=
  match owner with
@@ -432,14 +433,14 @@ Definition consume_owned_start (owner:option N) (intent:creation_intent) (settin
      | Tasks.StartResolved start=>creation_decision
        (prepare_selected_birth (Some owner) intent caller managed backend start) end end
  | None=>consume_start_resolution intent settings caller managed backend cached value end.
-Definition create_owned_cached (owner:N) (intent:creation_intent) (settings:option json)
+Definition create_owned_cached (owner:N) (intent:creation_intent) (settings:option Codec.settings_request)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (value:world) :=
  if start_allowed settings caller value cached then
  consume_owned_start (Some owner) intent settings caller managed backend cached value
  else Tasks.refuse_start (creation_entry intent caller) Tasks.AuthorityExpansion value.
 Definition create_idle_owned (owner:option N) (name:string) (effort:option string)
- (settings:option json) (caller:option N) (managed:option bool) (value:world) :=
+ (settings:option Codec.settings_request) (caller:option N) (managed:option bool) (value:world) :=
  let entry:=creation_entry IdleTaskCreation caller in
  let cached:=CommandExecution.resolve_context_start entry name effort [] settings true caller value in
  match cached with
@@ -458,27 +459,27 @@ Definition configure_task_execution (payload : Selvedge.Generated.Commands.confi
    (Selvedge.Generated.Commands.configure_task_execution_task_id payload)
    (Selvedge.Generated.Commands.configure_task_execution_profile payload)
    (Selvedge.Generated.Commands.configure_task_execution_reasoning payload)
-   (Selvedge.Generated.Commands.configure_task_execution_sandbox payload)
-   (Selvedge.Generated.Commands.configure_task_execution_approval payload) value.
+   (Selvedge.Generated.Commands.configure_task_execution_sandbox_admitted payload)
+   (Selvedge.Generated.Commands.configure_task_execution_approval_admitted payload) value.
 Definition handle_configure_task_execution (payload:Selvedge.Generated.Commands.configure_task_execution_payload) (caller:option N) (value:world) :decision :=
  configure_task_execution payload value.
 Definition handle_create_result (payload:Selvedge.Generated.Commands.create_payload) (caller:option N) (value:world) :=
- CommandResult.bind (CommandExecution.content_result (Selvedge.Generated.Commands.create_message payload)
-   (Selvedge.Generated.Commands.create_images payload))
+ CommandResult.bind (CommandExecution.content_result (Selvedge.Generated.Commands.create_message_admitted payload)
+   (Selvedge.Generated.Commands.create_images_admitted payload))
    (fun contents=>create_selected_result (Selvedge.Generated.Commands.create_profile payload)
      (Selvedge.Generated.Commands.create_reasoning payload) contents
-     (Selvedge.Generated.Commands.create_settings payload) false caller None value).
+     (option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_settings_admitted payload)) false caller None value).
 Definition handle_create (payload:Selvedge.Generated.Commands.create_payload) (caller:option N) (value:world) :decision :=
  creation_decision (handle_create_result payload caller value).
 Definition handle_create_idle (payload:Selvedge.Generated.Commands.create_idle_payload) (caller:option N) (value:world) :decision :=
  create_idle_owned
    (Selvedge.Generated.Commands.create_idle_work_id payload) (Selvedge.Generated.Commands.create_idle_profile payload)
-   (Selvedge.Generated.Commands.create_idle_reasoning payload) (Selvedge.Generated.Commands.create_idle_settings payload)
+   (Selvedge.Generated.Commands.create_idle_reasoning payload) (option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_idle_settings_admitted payload))
    caller (Selvedge.Generated.Commands.create_idle_create_worktree payload) value.
 Definition handle_create_workspace_task (payload:Selvedge.Generated.Commands.create_workspace_task_payload) (caller:option N) (value:world) :decision :=
  CommandExecution.with_content
-   (Selvedge.Generated.Commands.create_workspace_task_message payload) (Selvedge.Generated.Commands.create_workspace_task_images payload)
-   (fun contents=>let settings:=Selvedge.Generated.Commands.create_workspace_task_settings payload in
+   (Selvedge.Generated.Commands.create_workspace_task_message_admitted payload) (Selvedge.Generated.Commands.create_workspace_task_images_admitted payload)
+   (fun contents=>let settings:=option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_workspace_task_settings_admitted payload) in
      let cached:=CommandExecution.resolve_context_start (creation_entry WorkspaceTaskCreation caller)
        (Selvedge.Generated.Commands.create_workspace_task_profile payload) (Selvedge.Generated.Commands.create_workspace_task_reasoning payload)
        contents settings false caller value in
@@ -487,12 +488,12 @@ Definition handle_create_workspace_task (payload:Selvedge.Generated.Commands.cre
          (Some (WorkspaceBackend.of_value (Selvedge.Generated.Commands.create_workspace_task_backend payload))) cached value
      else Tasks.refuse_start (creation_entry WorkspaceTaskCreation caller) Tasks.AuthorityExpansion value) value.
 Definition handle_create_worktree_task (payload:Selvedge.Generated.Commands.create_worktree_task_payload) (caller:option N) (value:world) :decision :=
- CommandExecution.with_content (Selvedge.Generated.Commands.create_worktree_task_message payload) (Selvedge.Generated.Commands.create_worktree_task_images payload)
-   (fun contents=>create (Selvedge.Generated.Commands.create_worktree_task_profile payload) (Selvedge.Generated.Commands.create_worktree_task_reasoning payload) contents (Selvedge.Generated.Commands.create_worktree_task_settings payload) caller true value) value.
+ CommandExecution.with_content (Selvedge.Generated.Commands.create_worktree_task_message_admitted payload) (Selvedge.Generated.Commands.create_worktree_task_images_admitted payload)
+   (fun contents=>create (Selvedge.Generated.Commands.create_worktree_task_profile payload) (Selvedge.Generated.Commands.create_worktree_task_reasoning payload) contents (option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_worktree_task_settings_admitted payload)) caller true value) value.
 Definition handle_create_work_task (payload:Selvedge.Generated.Commands.create_work_task_payload) (caller:option N) (value:world) :decision :=
  CommandExecution.with_content
-   (Selvedge.Generated.Commands.create_work_task_message payload) (Selvedge.Generated.Commands.create_work_task_images payload)
-   (fun contents=>let settings:=Selvedge.Generated.Commands.create_work_task_settings payload in
+   (Selvedge.Generated.Commands.create_work_task_message_admitted payload) (Selvedge.Generated.Commands.create_work_task_images_admitted payload)
+   (fun contents=>let settings:=option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_work_task_settings_admitted payload) in
    create_owned_cached (Selvedge.Generated.Commands.create_work_task_work_id payload) WorkTaskCreation settings caller
    (Selvedge.Generated.Commands.create_work_task_create_worktree payload) None
    (CommandExecution.resolve_context_start (creation_entry WorkTaskCreation caller)

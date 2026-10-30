@@ -10,6 +10,8 @@ Open Scope string_scope.
 Open Scope N_scope.
 Module G := Selvedge.Generated.Commands.
 Module F := Selvedge.Features.Domain.
+Definition stop_first_payload : G.stop_payload := G.Admit_stop
+ (exist _ (exist _ "stop" (or_introl eq_refl), (exist _ 0 eq_refl, tt)) eq_refl).
 
 (** A scoped real control transition: a running first task must become stopped,
     while the independently checked workspace guard remains satisfied. *)
@@ -17,7 +19,7 @@ Theorem actual_stop_preserves_workspace_and_stops_task : forall task phase opera
  world_tasks value = [task] ->
  task_lifecycle task = Running phase operations ->
  Worktree.control_allowed Tasks.Stop 0 value = true ->
- Packet.execute_domain (G.Cmd_stop (G.Build_stop 0)) None value =
+ Packet.execute_domain (G.Cmd_stop stop_first_payload) None value =
  accept (JObject [("task_id",number 0)])
    (put_task 0 (with_lifecycle (Stopped phase operations) task) value) [].
 Proof.
@@ -29,7 +31,7 @@ Proof.
    CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
    G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
- cbn [G.stop_task_id]. unfold Worktree.control_guard, Worktree.execution_guard.
+ change (G.stop_task_id stop_first_payload) with 0. unfold Worktree.control_guard, Worktree.execution_guard.
  rewrite Executable, Allowed. cbn [Selvedge.Features.Runtime.or_else].
  cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
    Selvedge.Kernel.Commands.origin_allowed G.handle_stop
@@ -69,7 +71,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
  find (Remote.key_matches request) (F.remote_receipts (Remote.registry value)) = None ->
  (N.of_nat (List.length (F.remote_receipts (Remote.registry value))) <? 1024) = true ->
  Remote.execute_remote Packet.execute_domain stop_first_wire JNull request
-   (G.Cmd_stop (G.Build_stop 0)) value =
+   (G.Cmd_stop stop_first_payload) value =
  (true,true,Decision
    (Remote.store
      (Remote.retain request (success (JObject [("task_id",number 0)])) (Remote.registry value))
@@ -84,17 +86,17 @@ Proof.
  pose proof (RemoteProofs.current_grant_admits_fresh_remote_request
    Remote.control_rights request (Remote.registry value) issued
    Enabled Valid Granted Epoch Permissions Fresh Space) as Admitted.
- assert (Authorize : Remote.authorize_command true (G.Cmd_stop (G.Build_stop 0))
+ assert (Authorize : Remote.authorize_command true (G.Cmd_stop stop_first_payload)
    request (Remote.registry value) = Remote.Admitted).
  { exact Admitted. }
  assert (Configuration : Remote.configuration_allowed
-   (G.Cmd_stop (G.Build_stop 0)) JNull = true) by reflexivity.
+   (G.Cmd_stop stop_first_payload) JNull = true) by reflexivity.
  unfold Remote.execute_remote. rewrite Configuration, Authorize.
  cbn [stop_first_wire Remote.observation_command Remote.required_rights].
- assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop (G.Build_stop 0))) by reflexivity.
+ assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop stop_first_payload)) by reflexivity.
  unfold G.decode in Decoded.
  destruct (G.admit stop_first_wire) as [admitted|] eqn:PreparedAdmitted; [|discriminate].
- change (Some (G.admitted_value admitted) = Some (G.Cmd_stop (G.Build_stop 0))) in Decoded.
+ change (Some (G.admitted_value admitted) = Some (G.Cmd_stop stop_first_payload)) in Decoded.
  injection Decoded as Projected. rewrite Projected.
  cbn [G.declared_command]. rewrite Configuration, Authorize.
  assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.

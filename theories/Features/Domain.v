@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json Schema RequestEnvelope.
-From Selvedge.Features Require Import Titles CompactionTypes.
-From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend.
+From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants.
+From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
 From Selvedge.Foundation Require Export RemoteIdentity.
 Import ListNotations.
 
@@ -19,7 +19,8 @@ Record card := Card { card_revision : N; card_contents : card_draft;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.
 Record board_agent := BoardAgent { agent_revision : N; agent_name : string;
  agent_profile : string; agent_reasoning : string; agent_instructions : string;
- agent_settings : json; agent_concurrency : N }.
+ agent_settings_request : Codec.settings_request; agent_concurrency : N }.
+Definition agent_settings (value : board_agent) := Codec.settings_request_json (agent_settings_request value).
 Record board := Board { board_cards : list (option card); board_order : list N;
  board_agents : list (option board_agent); board_agent_order : list N; board_automatic : bool; board_draft_profile : string }.
 Record work := Work { work_name : string; work_ui_source : string; work_ui_revision : N }.
@@ -27,7 +28,7 @@ Inductive graph_message := GraphOutput | GraphLiteral (text : string) | GraphCon
 Record graph_action := GraphAction { action_target : string; action_message : graph_message }.
 Record graph_rule := GraphRule { rule_key : string; rule_source : string; rule_actions : list graph_action }.
 Inductive graph_node := ExistingNode (key : string) (task : N)
- | SpawnNode (key profile reasoning : string) (message : content) (settings : json).
+ | SpawnNode (key profile reasoning : string) (message : content) (settings : Codec.settings_request).
 Record resolved_node := ResolvedNode { node_key : string; node_task : N }.
 Record graph_receipt := GraphReceipt { receipt_source : N; receipt_rule : string;
  receipt_target : N; receipt_reply : json }.
@@ -63,16 +64,22 @@ Record remote_receipt := RemoteReceipt { remote_controller : controller_id; remo
  remote_request : RemoteIdentity.request_id; remote_intent : json; remote_reply : json }.
 Record remote := Remote { remote_enabled : bool; remote_grants : list remote_grant;
  remote_next_epoch : N; remote_receipts : list remote_receipt }.
-Record connection_grant := ConnectionGrant { connection_id : N; connection_projects : list N;
- connection_sandbox : sandbox }.
+Definition connection_grant := ConnectionGrants.grant.
+Definition connection_id := ConnectionGrants.identity.
+Definition connection_projects := ConnectionGrants.projects.
+Definition connection_sandbox := ConnectionGrants.grant_sandbox.
 Inductive job_status := JobRunning | JobFinished (value : json) (error : bool) | JobInterrupted (reason : string).
 Record connection_job := ConnectionJob { job_connection : N; job_project : N;
  job_request : string; job_arguments : ChatgptArguments.arguments;
  job_workspace : workspace; job_resource : option N; job_sandbox : sandbox; job_state : job_status }.
 Definition job_arguments_json job := ChatgptArguments.encode (job_arguments job).
-Record connection_state := ConnectionState { sharing_grants : list connection_grant;
+Record connection_state := ConnectionState { sharing_authorities : ConnectionGrants.Grants.t;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
-Record title_settings := TitleSettings { title_revision : N; title_task_prompt : string; title_agent_prompt : string }.
+Definition sharing_grants value := ConnectionGrants.Grants.values (sharing_authorities value).
+Record title_settings := TitleSettings { title_revision : N;
+ title_task_instructions : Titles.instruction; title_agent_instructions : Titles.instruction }.
+Definition title_task_prompt value := Titles.instruction_text (title_task_instructions value).
+Definition title_agent_prompt value := Titles.instruction_text (title_agent_instructions value).
 Inductive title_state := TitlePending (request : RequestEnvelope.t (profile * string)) | Named (text : string) | TitleFailed (reason : string).
 Record title_entry := TitleEntry { title_task : N; title_value : title_state }.
 Record state := State {
@@ -89,7 +96,8 @@ Record state := State {
  feature_compaction : CompactionTypes.state
 }.
 Definition initial := State (Board [] [] [] [] false ""%string) [] [] [] [] []
- (Remote false [] 1 []) (ConnectionState [] [] 0) [] (TitleSettings 0 Titles.instructions Titles.instructions) CompactionTypes.initial.
+ (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
+ (TitleSettings 0 Titles.default_instructions Titles.default_instructions) CompactionTypes.initial.
 
 Definition resource_json (tree : worktree) := JObject [
  ("task_id"%string, JNumber (show_natural (worktree_task tree)));

@@ -37,7 +37,7 @@ Theorem title_start_with_observed_owner : forall id task result selected,
  Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task)) = true ->
  TitleRuntime.selected_profile task (decision_world result) = Some selected ->
  let before := decision_world result in
- let prompt := TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features before)))
+ let prompt := TitleRuntime.prompt (F.title_agent_instructions (F.feature_title_settings (world_features before)))
    (TitleRuntime.first_request (task_history task)) in
  decision_effects (TitleRuntime.start id result) =
    decision_effects result ++ [RequestFeature (RequestTypes.Packet
@@ -101,23 +101,20 @@ Theorem title_configuration_preserves_generation_entries : forall value revision
  F.feature_titles (world_features value).
 Proof.
  intros. unfold TitleRuntime.configure.
- destruct (negb (Titles.valid_instructions task_prompt && Titles.valid_instructions agent_prompt)); [reflexivity|].
  destruct (negb (N.eqb revision (F.title_revision (F.feature_title_settings (world_features value)))));
  reflexivity.
 Qed.
 
 Theorem current_title_configuration_writes_both_instructions :
  forall value revision task_prompt agent_prompt,
- Titles.valid_instructions task_prompt = true ->
- Titles.valid_instructions agent_prompt = true ->
  revision = F.title_revision (F.feature_title_settings (world_features value)) ->
  F.feature_title_settings (world_features
    (decision_world (TitleRuntime.configure revision task_prompt agent_prompt value))) =
  F.TitleSettings (N.succ revision) task_prompt agent_prompt /\
  decision_effects (TitleRuntime.configure revision task_prompt agent_prompt value) = [].
 Proof.
- intros value revision task_prompt agent_prompt Task Agent Revision.
- unfold TitleRuntime.configure. rewrite Task, Agent. cbn [andb negb].
+ intros value revision task_prompt agent_prompt Revision.
+ unfold TitleRuntime.configure.
  rewrite Revision, N.eqb_refl. split; reflexivity.
 Qed.
 
@@ -129,8 +126,6 @@ Theorem conflicting_title_configuration_keeps_the_complete_world :
 Proof.
  intros value revision task_prompt agent_prompt Different.
  unfold TitleRuntime.configure.
- destruct (negb (Titles.valid_instructions task_prompt && Titles.valid_instructions agent_prompt));
-   [split; reflexivity|].
  apply N.eqb_neq in Different. rewrite Different. split; reflexivity.
 Qed.
 
@@ -140,8 +135,6 @@ Theorem title_configuration_keeps_execution_state :
  execution_core value.
 Proof.
  intros. unfold TitleRuntime.configure.
- destruct (negb (Titles.valid_instructions task_prompt && Titles.valid_instructions agent_prompt));
-   [reflexivity|].
  destruct (negb (N.eqb revision (F.title_revision (F.feature_title_settings (world_features value)))));
    reflexivity.
 Qed.

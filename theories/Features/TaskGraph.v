@@ -31,69 +31,59 @@ Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := m
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition action_of_fields (values : ArgumentDeclaration.denote TaskGraphDeclarations.action_declaration) :=
  let '(target,(message,_)) := proj1_sig values in Selvedge.Features.Domain.GraphAction (proj1_sig target) (message_of_fields maximum_message_depth message).
-Definition parse_rule source := option_map
- (fun values => let '(key,(source,(actions,_))) := proj1_sig values in
-   Selvedge.Features.Domain.GraphRule (proj1_sig key) (proj1_sig source) (map action_of_fields (proj1_sig actions)))
- (ArgumentDeclaration.decode TaskGraphDeclarations.rule_declaration source).
-Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node :=
- match ArgumentDeclaration.decode
-   (TaskGraphDeclarations.node_declaration (ArgumentDeclaration.of_kind KNatural) ArgumentDeclaration.Any) source with
- | Some (inl fields)=>let '(key,(owner,_)) := proj1_sig fields in
-   Some (Selvedge.Features.Domain.ExistingNode (proj1_sig key) owner)
- | Some (inr (inl fields))=>let '(key,(profile,(reasoning,(message,(settings,_))))) := proj1_sig fields in
- (* A supplied JSON null must still reach ordinary Task settings admission;
-    only an omitted settings field supplies the empty settings object. *)
- Some (Selvedge.Features.Domain.SpawnNode (proj1_sig key)
-   (match profile with Some value=>proj1_sig value|None=>"" end)
-   (match reasoning with Some value=>proj1_sig value|None=>"default" end)
-   [TextPart (match message with Some value=>proj1_sig value|None=>"" end)]
-   (match settings with Some value=>value|None=>JObject [] end))
- | Some (inr (inr impossible))=>match impossible with end
- | None=>None end.
+Definition rule_of_fields (values : ArgumentDeclaration.denote TaskGraphDeclarations.rule_declaration) :=
+ let '(key,(source,(actions,_))) := proj1_sig values in
+ Selvedge.Features.Domain.GraphRule (proj1_sig key) (proj1_sig source) (map action_of_fields (proj1_sig actions)).
+Definition node_of_fields (observed : bool)
+ (value : ArgumentDeclaration.denote (CommandArguments.graph_node_declaration observed)) :=
+ match value with
+ | inl fields => let '(key,(owner,_)) := proj1_sig fields in
+   Selvedge.Features.Domain.ExistingNode (proj1_sig key) (proj1_sig owner)
+ | inr (inl fields) => let '(key,(profile,(reasoning,(message,(settings,_))))) := proj1_sig fields in
+   Selvedge.Features.Domain.SpawnNode (proj1_sig key)
+     (match profile with Some value=>proj1_sig value|None=>"" end)
+     (match reasoning with Some value=>proj1_sig value|None=>"default" end)
+     [TextPart (match message with Some value=>proj1_sig value|None=>"" end)]
+     (match settings with Some value=>Codec.settings_request_of_values observed value
+      |None=>Codec.empty_settings_request end)
+ | inr (inr impossible) => match impossible with end end.
 Definition node_key (node:Selvedge.Features.Domain.graph_node) := match node with Selvedge.Features.Domain.ExistingNode key _|Selvedge.Features.Domain.SpawnNode key _ _ _ _=>key end.
-Definition identifier_nonempty (key:string) := negb (String.eqb key "").
-Definition unique (keys:list string) := forallb identifier_nonempty keys && Schema.unique_names keys.
-Fixpoint message_depth (depth:nat) (message:Selvedge.Features.Domain.graph_message) :bool :=
- match depth with O=>false | S remaining=>match message with
- | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>true
- | Selvedge.Features.Domain.GraphConcat parts=>forallb (message_depth remaining) parts
- end end.
-Definition valid_message (message:Selvedge.Features.Domain.graph_message) :=
- message_depth maximum_message_depth message && Nat.leb (message_size message) maximum_message_nodes.
-Definition valid_declaration (name:string) (nodes:list Selvedge.Features.Domain.graph_node) (rules:list Selvedge.Features.Domain.graph_rule) :=
- let keys:=map node_key nodes in identifier_nonempty name && Utf8.well_formed name && Nat.leb (List.length nodes) 32 && Nat.leb (List.length rules) 32 && unique keys && unique (map Selvedge.Features.Domain.rule_key rules) &&
+Record declaration (observed : bool) := Declaration {
+ declaration_name_value : ArgumentDeclaration.denote TaskGraphDeclarations.identifier;
+ declaration_node_values : ArgumentDeclaration.denote (CommandArguments.graph_nodes_declaration observed);
+ declaration_rule_values : ArgumentDeclaration.denote CommandArguments.graph_rules_declaration
+}.
+Arguments Declaration {observed}.
+Arguments declaration_name_value {observed}.
+Arguments declaration_node_values {observed}.
+Arguments declaration_rule_values {observed}.
+Definition declaration_name {observed} (value : declaration observed) := proj1_sig (declaration_name_value value).
+Definition declaration_nodes {observed} (value : declaration observed) :=
+ map (node_of_fields observed) (proj1_sig (declaration_node_values value)).
+Definition declaration_rules {observed} (value : declaration observed) :=
+ map rule_of_fields (proj1_sig (declaration_rule_values value)).
+(** Syntax bounds are retained in the declaration. Admission only relates keys,
+    references and the combined size of each message expression. *)
+Definition valid_declaration {observed} (value : declaration observed) :=
+ let keys := map node_key (declaration_nodes value) in
+ let rules := declaration_rules value in
+ Schema.unique_names keys && Schema.unique_names (map Selvedge.Features.Domain.rule_key rules) &&
  forallb (fun rule=>existsb (String.eqb (Selvedge.Features.Domain.rule_source rule)) keys &&
- Nat.leb (List.length (Selvedge.Features.Domain.rule_actions rule)) maximum_rule_actions &&
  forallb (fun action=>existsb (String.eqb (Selvedge.Features.Domain.action_target action)) keys &&
-   valid_message (Selvedge.Features.Domain.action_message action)) (Selvedge.Features.Domain.rule_actions rule)) rules.
-Record declaration := Declaration { declaration_name:string;
- declaration_nodes:list Selvedge.Features.Domain.graph_node;
- declaration_rules:list Selvedge.Features.Domain.graph_rule }.
-Definition admissible (value:declaration) :=
- valid_declaration (declaration_name value) (declaration_nodes value) (declaration_rules value)=true.
-Definition checked_declaration := { value:declaration | admissible value }.
-Definition construct (value:declaration) :option checked_declaration.
-Proof.
- destruct (valid_declaration (declaration_name value) (declaration_nodes value)
-   (declaration_rules value)) eqn:checked.
- - exact (Some (exist _ value checked)).
- - exact None.
-Defined.
-(** Arrangements compose declarations; admission checks their combined keys,
-    references and bounds. No new execution case is required for a new graph. *)
-Definition compose (name:string) (left right:declaration) :=
- Declaration name (declaration_nodes left++declaration_nodes right)
-   (declaration_rules left++declaration_rules right).
-Definition paired (name:string) (tests implementation:Selvedge.Features.Domain.graph_node)
- (rule:string) (message:Selvedge.Features.Domain.graph_message) :=
- Declaration name [tests;implementation]
- [Selvedge.Features.Domain.GraphRule rule (node_key tests)
-   [Selvedge.Features.Domain.GraphAction (node_key implementation) message]].
+   Nat.leb (message_size (Selvedge.Features.Domain.action_message action)) maximum_message_nodes)
+   (Selvedge.Features.Domain.rule_actions rule)) rules.
+Definition admissible {observed} (value : declaration observed) := valid_declaration value = true.
+Definition parse_declaration observed source : option (declaration observed) :=
+ option_map (fun values => let '(name,(nodes,(rules,_))) := proj1_sig values in Declaration name nodes rules)
+ (ArgumentDeclaration.decode (ArgumentDeclaration.OpenObject
+   [("name",true,TaskGraphDeclarations.identifier);
+    ("nodes",true,CommandArguments.graph_nodes_declaration observed);
+    ("rules",true,CommandArguments.graph_rules_declaration)]) source).
 Definition task_in_work (owner:option N) (id:N) (value:world) := match owner with None=>true | Some expected=>match Work.task_owner id value with Some actual=>N.eqb expected actual | None=>false end end.
 (* Cache ordinary start outcomes against the original world. Native authority
    observes successful starts before domain failures are projected. *)
 Inductive cached_node := CachedExisting (key:string) (id:N)
- | CachedSpawn (key:string) (settings:json) (start:Tasks.start_resolution).
+ | CachedSpawn (key:string) (settings:Codec.settings_request) (start:Tasks.start_resolution).
 Definition cache_node (caller:option N) (original:world) (node:Selvedge.Features.Domain.graph_node) :=
  match node with
  | Selvedge.Features.Domain.ExistingNode key id=>CachedExisting key id
@@ -137,14 +127,14 @@ Definition prepare_nodes (owner:option N) (caller:option N) (original:world)
 (** The cache belongs to one exact declaration and one original world. It
     cannot be swapped for an unrelated list when installing that declaration. *)
 Record cached_declaration (caller : option N) (original : world) := CachedDeclaration {
- cached_source : declaration;
+ cached_source : declaration true;
  cached_nodes : list cached_node;
  cached_correspondence : cached_nodes = map (cache_node caller original) (declaration_nodes cached_source)
 }.
 Arguments CachedDeclaration {caller original}.
 Arguments cached_source {caller original}.
 Arguments cached_nodes {caller original}.
-Definition cache_declaration (caller : option N) (original : world) (source : declaration) :=
+Definition cache_declaration (caller : option N) (original : world) (source : declaration true) :=
  CachedDeclaration source (map (cache_node caller original) (declaration_nodes source)) eq_refl.
 Record checked_cached (caller : option N) (original : world) := CheckedCached {
  checked_cache : cached_declaration caller original;
@@ -156,8 +146,7 @@ Arguments checked_cache {caller original}.
 Definition construct_cached {caller original} (cache : cached_declaration caller original)
  (Authorized : forallb (cached_allowed caller original) (cached_nodes cache) = true)
  : option (checked_cached caller original) :=
- match Bool.bool_dec (valid_declaration (declaration_name (cached_source cache))
-   (declaration_nodes (cached_source cache)) (declaration_rules (cached_source cache))) true with
+ match Bool.bool_dec (valid_declaration (cached_source cache)) true with
  | left Admitted => Some (CheckedCached cache Authorized Admitted)
  | right _ => None end.
 Definition scope_identity {original} (owner : option (Work.owner_scope original)) :=
@@ -234,34 +223,39 @@ Definition install_cached (id : N) {caller original} (owner : option (Work.owner
  (checked : checked_cached caller original) := CommandResult.decide original (install_cached_result id owner checked).
 Definition graph_capacity (value:world) :=
  Nat.ltb (List.length (filter (fun graph=>match graph with Some _=>true | None=>false end) (registry value))) 32.
-Definition declare_result (creating:bool) (id:N) (owner:option N) (name:string)
- (node_sources rule_sources:list json) (caller:option N) (value:world) :=
- match traverse parse_node node_sources,traverse parse_rule rule_sources with
- | Some nodes,Some rules=>
-   let cached:=cache_declaration caller value (Declaration name nodes rules) in
-   match Bool.bool_dec (forallb (cached_allowed caller value) (cached_nodes cached)) true with
-   | left Authorized => match select_owner owner value with
-     | Some owner=>
-       if negb creating || graph_capacity value then
-         match construct_cached cached Authorized with
-         | Some checked=>install_cached_result id owner checked
-         | None=>CommandResult.refuse "invalid_task_graph" "Task graph names and keys must be nonempty and unique, every reference must resolve, and declaration bounds must hold" end
-       else CommandResult.refuse "invalid_task_graph" "At most 32 live Task graphs may be installed"
-     | None=>CommandResult.refuse "work_not_found" "The Work does not exist." end
-   | right _ => CommandResult.refuse (Tasks.failure_code Tasks.NativeFeatureCreation Tasks.AuthorityExpansion)
-       (Tasks.failure_message Tasks.AuthorityExpansion) end
- | _,_=>CommandResult.refuse "invalid_task_graph" "Invalid Task graph declaration fields" end.
-Definition declare (creating:bool) (id:N) (owner:option N) (name:string)
- (node_sources rule_sources:list json) (caller:option N) (value:world) :=
- CommandResult.decide value (declare_result creating id owner name node_sources rule_sources caller value).
+Definition declare_result (creating:bool) (id:N) (owner:option N)
+ (source : declaration true) (caller:option N) (value:world) :=
+ let cached:=cache_declaration caller value source in
+ match Bool.bool_dec (forallb (cached_allowed caller value) (cached_nodes cached)) true with
+ | left Authorized => match select_owner owner value with
+   | Some owner=>
+     if negb creating || graph_capacity value then
+       match construct_cached cached Authorized with
+       | Some checked=>install_cached_result id owner checked
+       | None=>CommandResult.refuse "invalid_task_graph" "Task graph keys must be unique, every reference must resolve, and message size must be bounded" end
+     else CommandResult.refuse "invalid_task_graph" "At most 32 live Task graphs may be installed"
+   | None=>CommandResult.refuse "work_not_found" "The Work does not exist." end
+ | right _ => CommandResult.refuse (Tasks.failure_code Tasks.NativeFeatureCreation Tasks.AuthorityExpansion)
+     (Tasks.failure_message Tasks.AuthorityExpansion) end.
+Definition declare (creating:bool) (id:N) (owner:option N)
+ (source : declaration true) (caller:option N) (value:world) :=
+ CommandResult.decide value (declare_result creating id owner source caller value).
+Definition create_declaration (payload : Selvedge.Generated.Commands.create_task_graph_payload) :=
+ @Declaration true (Selvedge.Generated.Commands.create_task_graph_name_admitted payload)
+   (Selvedge.Generated.Commands.create_task_graph_nodes_admitted payload)
+   (Selvedge.Generated.Commands.create_task_graph_rules_admitted payload).
+Definition update_declaration (payload : Selvedge.Generated.Commands.update_task_graph_payload) :=
+ @Declaration true (Selvedge.Generated.Commands.update_task_graph_name_admitted payload)
+   (Selvedge.Generated.Commands.update_task_graph_nodes_admitted payload)
+   (Selvedge.Generated.Commands.update_task_graph_rules_admitted payload).
 Definition handle_list_task_graphs (payload:Selvedge.Generated.Commands.list_task_graphs_payload) (caller:option N) (value:world) :json :=
  Selvedge.Kernel.State.success (JObject [("graphs",JArray (Observation.present_values Observation.graph_json (registry value)))]).
 Definition handle_read_task_graph (payload:Selvedge.Generated.Commands.read_task_graph_payload) (caller:option N) (value:world) :json :=
  match lookup (Selvedge.Generated.Commands.read_task_graph_graph_id payload) value with Some graph=>Selvedge.Kernel.State.success (Observation.graph_json (Selvedge.Generated.Commands.read_task_graph_graph_id payload) graph) | None=>Selvedge.Kernel.State.failure "task_graph_not_found" "The Task graph does not exist" end.
 Definition handle_create_task_graph (payload:Selvedge.Generated.Commands.create_task_graph_payload) (caller:option N) (value:world) :decision :=
- declare true (N.of_nat (List.length (registry value))) (Selvedge.Generated.Commands.create_task_graph_work_id payload) (Selvedge.Generated.Commands.create_task_graph_name payload) (Selvedge.Generated.Commands.create_task_graph_nodes payload) (Selvedge.Generated.Commands.create_task_graph_rules payload) caller value.
+ declare true (N.of_nat (List.length (registry value))) (Selvedge.Generated.Commands.create_task_graph_work_id payload) (create_declaration payload) caller value.
 Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_task_graph_payload) (caller:option N) (value:world) :decision :=
- let id:=Selvedge.Generated.Commands.update_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>declare false id (Selvedge.Features.Domain.association id (Selvedge.Features.Domain.feature_graph_owners (world_features value))) (Selvedge.Generated.Commands.update_task_graph_name payload) (Selvedge.Generated.Commands.update_task_graph_nodes payload) (Selvedge.Generated.Commands.update_task_graph_rules payload) caller value end.
+ let id:=Selvedge.Generated.Commands.update_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>declare false id (Selvedge.Features.Domain.association id (Selvedge.Features.Domain.feature_graph_owners (world_features value))) (update_declaration payload) caller value end.
 Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_task_graph_payload) (caller:option N) (value:world) :decision :=
  let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>
  let features:=world_features value in Selvedge.Kernel.State.accept (JObject [("graph_id",number id)]) (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) (Selvedge.Features.State.with_graphs (replace id None (registry value)) features)) value) [] end.

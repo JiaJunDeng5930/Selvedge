@@ -67,7 +67,7 @@ Qed.
 
 Lemma exhausted_descendant_capacity_refuses_the_actual_native_fork_handler :
  forall request invocation remaining messages before parent,
- Codec.traverse Images.parse_content (message_sources request) = Some messages ->
+ Codec.traverse Images.message_content (message_sources request) = Some messages ->
  find_task (G.fork_task_id request) before = Some parent ->
  Tasks.ancestors_fit (G.fork_task_id request :: task_lineage parent)
    (G.fork_child_count request) before = false ->

@@ -39,7 +39,7 @@ Theorem every_resolved_exported_creation_commits_its_planned_result :
  forall source request contents before start (plan : Worktree.planned_start before),
  InputDecoder.decode source = Some (UserCommand (Commands.Cmd_create request)) ->
  Delivery.fits_json source = true ->
- CommandExecution.user_content (Commands.create_message request) (Commands.create_images request) = Some contents ->
+ CommandExecution.user_content (Commands.create_message_admitted request) (Commands.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
@@ -58,7 +58,7 @@ Corollary every_resolved_exported_creation_returns_and_installs_its_fresh_refere
  forall source request contents before start (plan : Worktree.planned_start before),
  InputDecoder.decode source = Some (UserCommand (Commands.Cmd_create request)) ->
  Delivery.fits_json source = true ->
- CommandExecution.user_content (Commands.create_message request) (Commands.create_images request) = Some contents ->
+ CommandExecution.user_content (Commands.create_message_admitted request) (Commands.create_images_admitted request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->

@@ -11,6 +11,14 @@ its receipt and continuation together. `TicketedRequest` allocates a request's
 ticket and installs its receiver in the same operation. New operations should
 reuse these constructors before introducing a separate proof obligation.
 
+`CommandPayload` distinguishes an editor proposal from an admitted command.
+MetaRocq generates both from the owning declaration. Execution payloads retain
+`ArgumentDeclaration` values, including nested structure and bounds; their
+`*_admitted` projections feed content, settings, graph and authority
+interpreters directly. JSON encoding belongs at a transport or display
+boundary. A new command does not provide a second parser or remember a set of
+per-field proof obligations.
+
 `DecisionComposition` composes maintenance steps that own only their next world
 and new effects. Its interpreter retains the initiating reply and all earlier
 effects. Steps may inspect those effects to reconcile cancellations.

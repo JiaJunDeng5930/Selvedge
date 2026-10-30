@@ -21,7 +21,7 @@ Definition pending (card:Selvedge.Features.Domain.card) := match Selvedge.Featur
 Definition mutable (card:Selvedge.Features.Domain.card) (value:world) := negb (Selvedge.Features.Domain.card_archived card || pending card || busy card value).
 Definition unlinked (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_task card with None=>true | _=>false end.
 Definition owner_agent (owner:Selvedge.Features.Domain.owner) (value:world) := match owner with
- | Selvedge.Features.Domain.ProfileOwner key=>Some (Selvedge.Features.Domain.BoardAgent 0 key key "default" "" (JObject []) 1)
+ | Selvedge.Features.Domain.ProfileOwner key=>Some (Selvedge.Features.Domain.BoardAgent 0 key key "default" "" Codec.empty_settings_request 1)
  | Selvedge.Features.Domain.AgentOwner id=>lookup_agent id value | _=>None end.
 Definition active_for (owner:Selvedge.Features.Domain.owner) (value:world) := N.of_nat (List.length (filter
  (fun candidate=>match candidate with Some card=>String.eqb (Selvedge.Features.Domain.owner_name owner) (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) && busy card value | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)))).

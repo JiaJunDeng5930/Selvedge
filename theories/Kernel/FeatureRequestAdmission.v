@@ -19,15 +19,12 @@ Definition sharing_registry before := F.feature_sharing (world_features before).
 Definition connection_grant identity state :=
  find (fun grant => N.eqb identity (F.connection_id grant)) (F.sharing_grants state).
 Definition connection_authority identity project state := match connection_grant identity state with
- | Some grant => if existsb (N.eqb project) (F.connection_projects grant) then Some grant else None
+ | Some grant => if ConnectionGrants.admits_project project grant then Some grant else None
  | None => None end.
 Definition connection_project identity before := match registry_at identity (world_projects before) with
  | Some project => if project_deleted project then None else Some project | None => None end.
 Definition connection_retry identity request state := find (fun entry =>
  N.eqb identity (F.job_connection (snd entry)) && String.eqb request (F.job_request (snd entry))) (F.sharing_jobs state).
-Definition bounded_text maximum text := negb (String.eqb text "") && Utf8.well_formed text &&
- (N.of_nat (String.length text) <=? maximum).
-Definition ids_valid ids := forallb (fun id => id <=? ChatgptArguments.identity_maximum) ids.
 Definition connection_capacity before :=
  (N.of_nat (List.length (F.sharing_jobs (sharing_registry before))) <? 128) &&
  (F.sharing_next (sharing_registry before) <? ChatgptArguments.identity_maximum).
@@ -44,7 +41,6 @@ Record resolved_connection (before : world) (identity project : N) (request : st
  resolved_arguments : ChatgptArguments.arguments;
  resolved_grant : F.connection_grant;
  resolved_target : Selvedge.Kernel.Domain.project;
- resolved_input : ids_valid [identity;project] && bounded_text 128 request = true;
  resolved_authority : connection_authority identity project (sharing_registry before) = Some resolved_grant;
  resolved_target_found : connection_project project before = Some resolved_target;
  resolved_primary : connection_has_primary resolved_target = true;
@@ -55,7 +51,6 @@ Record resolved_connection (before : world) (identity project : N) (request : st
 Arguments resolved_arguments {before identity project request}.
 Arguments resolved_grant {before identity project request}.
 Arguments resolved_target {before identity project request}.
-Arguments resolved_input {before identity project request}.
 Arguments resolved_authority {before identity project request}.
 Arguments resolved_target_found {before identity project request}.
 Arguments resolved_primary {before identity project request}.
@@ -78,11 +73,10 @@ Inductive connection_resolution (before : world) (owner project : N) (request : 
  | NewConnection (resolved : resolved_connection before owner project request).
 Arguments ExistingConnection {before owner project request}.
 Arguments NewConnection {before owner project request}.
-Definition resolve_connection identity project request raw before : CommandResult.result (connection_resolution before identity project request) :=
- require (ids_valid [identity;project] && bounded_text 128 request) (fun Input =>
- match ChatgptArguments.admit_args raw with
- | None => CommandResult.refuse "invalid_command" "A bounded request_id and valid Bash arguments are required"
- | Some arguments =>
+Definition resolve_connection identity project (request : ChatgptArguments.request_identifier)
+ (arguments : ChatgptArguments.arguments) before
+ : CommandResult.result (connection_resolution before identity project (ChatgptArguments.request_text request)) :=
+ let request := ChatgptArguments.request_text request in
  observe (connection_authority identity project (sharing_registry before)) (fun grant Authority =>
  observe (connection_project project before) (fun target Project =>
  require (connection_has_primary target) (fun Primary =>
@@ -98,14 +92,12 @@ Definition resolve_connection identity project request raw before : CommandResul
    require (connection_workspace target before) (fun Workspace =>
    require (connection_capacity before) (fun Capacity =>
      CommandResult.Accepted (NewConnection (ResolvedConnection before identity project request
-       arguments grant target Input Authority Project Primary Retry Workspace Capacity)))
+       arguments grant target Authority Project Primary Retry Workspace Capacity)))
    "operation_capacity" "Forget a completed operation before starting more work")
    "worktree_unavailable" "The Project workspace belongs to an unavailable managed worktree"))
  "empty_workspace" "The project needs a primary Workspace root")
  (fun _ => CommandResult.refuse "project_not_found" "The project is unavailable"))
- (fun _ => CommandResult.refuse "project_forbidden" "This connection has no grant for that project")
- end)
- "invalid_command" "A bounded request_id and valid Bash arguments are required".
+ (fun _ => CommandResult.refuse "project_forbidden" "This connection has no grant for that project").
 
 Definition title_entry (owner : N) (before : world) :=
  find (fun entry => N.eqb owner (F.title_task entry)) (F.feature_titles (world_features before)).
@@ -129,7 +121,7 @@ Definition selected_title_profile (current : task) (before : world) :=
  | Some selected => Some selected | None => fallback end.
 Definition title_accepts (current : task) := negb (task_archived current).
 Definition title_prompt (current : task) (before : world) :=
- Titles.prompt_with (F.title_agent_prompt (F.feature_title_settings (world_features before)))
+ Titles.prompt_with (F.title_agent_instructions (F.feature_title_settings (world_features before)))
    (Observation.first_request (task_history current)).
 
 (** The plan keeps the observed task and profile. Eligibility proofs erase;

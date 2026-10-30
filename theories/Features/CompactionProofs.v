@@ -153,19 +153,20 @@ Proof.
 Qed.
 (** This positive contract constrains the actual typed command entry, excluding
     implementations that reject every checkpoint or discard its source history. *)
-Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary caller task value,
+Theorem a_valid_checkpoint_preserves_its_original_records : forall payload id summary caller task value,
+ G.compact_task_id payload = id -> G.compact_summary payload = Some summary ->
  K.find_task id value = Some task -> A.alive task = true -> A.idle task = true ->
  (negb (String.eqb summary "") && (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes) &&
  ContextSelection.closed_prefix (task_history task)) = true ->
- A.handle_compact_result (G.Build_compact id (Some summary)) caller value = CommandResult.Accepted (A.supplied_change id task summary value) /\
+ A.handle_compact_result payload caller value = CommandResult.Accepted (A.supplied_change id task summary value) /\
  exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
- intros. split.
+ intros payload id summary caller task value Id Summary H H0 H1 H2. split.
  - destruct (selecting_an_existing_task_retains_its_key id value task H)
      as [[owner current Observed] [Selected [Owner Current]]].
    cbn in Owner,Current; subst owner current.
-   unfold A.handle_compact_result; cbn [G.compact_task_id G.compact_summary].
+   unfold A.handle_compact_result; rewrite Id,Summary.
    rewrite Selected; cbn [TaskScope.selected]; rewrite H0,H1; cbn; now rewrite H2.
  - apply supplied_history_is_an_append. assumption.
 Qed.
@@ -211,16 +212,17 @@ Definition manual_waiting_decision (id : N) (current : task) (before : K.world) 
     helper result. The wait keeps the task, operation and queued demand intact;
     only obsolete maintenance requests are cancelled. *)
 Theorem manual_compaction_accepts_an_open_prefix_and_waits :
- forall id current operations caller before,
+ forall payload id current operations caller before,
+ G.compact_task_id payload = id -> G.compact_summary payload = None ->
  K.find_task id before = Some current ->
  task_lifecycle current = Running Idle operations ->
  TicketedRequest.Scoped.resources_available current before = true ->
  A.job_pending (entry_job (A.current_entry id (A.registry before))) = false ->
  ContextSelection.closed_prefix (task_history current) = false ->
- A.handle_compact (G.Build_compact id None) caller before =
+ A.handle_compact payload caller before =
  manual_waiting_decision id current before.
 Proof.
- intros id current operations caller before Found Lifecycle Available NoJob Open.
+ intros payload id current operations caller before Id Summary Found Lifecycle Available NoJob Open.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [[owner task Observed] [Selected [Owner Current]]].
  cbn in Owner,Current; subst owner task.
@@ -230,7 +232,7 @@ Proof.
  assert (Alive : A.alive current = true) by (unfold A.alive; now rewrite Lifecycle).
  assert (RunningTask : A.running current = true) by (unfold A.running; now rewrite Lifecycle).
  assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
- unfold A.handle_compact,A.handle_compact_result; cbn [G.compact_task_id G.compact_summary].
+ unfold A.handle_compact,A.handle_compact_result; rewrite Id,Summary.
  rewrite Selected; cbn [TaskScope.selected]; rewrite Alive,Phase,RunningTask; cbn.
  unfold A.manual_change,CommandResult.accept; cbn [TaskScope.owner]; rewrite NoJob.
  unfold A.wait_for_context_selected; rewrite NoPlan.
