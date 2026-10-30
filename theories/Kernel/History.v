@@ -48,7 +48,7 @@ Definition snapshot_history (parent : N) (value : task) :=
  snapshot_operations parent value ++
  map (inherited_call parent) (pending_invocations (task_activity value)).
 Definition parent_context (change : context_change) :=
- let key := match change with Introduce value => snapshot_key value | Amend key _ _ _ | Remove key _ => key end in
+ let key := match change with Introduce value | Amend value _ _ => snapshot_key value | Remove key _ => key end in
  String.eqb (definition_kind (key_definition key)) "task_lifecycle".
 Definition returned_content (value : message) :=
  match value with

@@ -147,7 +147,7 @@ Record environment := Environment {
   environment_project : json;
   environment_plugins : list json;
   environment_instructions : string;
-  environment_global_instructions : option json
+  environment_global_instructions : option ContextTypes.snapshot
 }.
 Record contract := Contract {
   contract_profile : profile;

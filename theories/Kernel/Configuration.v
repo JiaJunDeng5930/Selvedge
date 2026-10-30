@@ -14,20 +14,21 @@ Definition valid_plugin (source : json) :=
    let events := head (tail (tail (tail values))) in
    valid_reference (head values) && Schema.unique_names events &&
    forallb (fun event => existsb (String.eqb event) Limits.plugin_events) events end.
-Definition valid_global_instructions (source : json) := match source with JNull => true | _ =>
+Definition parse_global_instructions (source : json) : option ContextTypes.snapshot :=
  match Schema.decode ContextUpdates.global_guidance_fields source with
- | None => false | Some values => match ContextUpdates.global_guidance_from_fields values with
-   | None => false | Some _ => Workspace.valid_path (head values) &&
-     Utf8.no_nul (head (tail (tail values))) && Nat.leb (String.length (head (tail (tail values)))) 32768
-   end end end.
+ | Some values => if Workspace.valid_path (head values) &&
+   Utf8.no_nul (head (tail (tail values))) && Nat.leb (String.length (head (tail (tail values)))) 32768
+   then ContextUpdates.global_guidance_from_fields values else None
+ | None => None end.
 Definition parse_instructions source :=
- match Schema.decode [Field "configured" KText; Field "global" (KOptional KJson)] source with
- | None => None | Some values =>
-   let configured := head values in let global := head (tail values) in
-   if Utf8.no_nul configured && Nat.leb (String.length configured) 32768 &&
-      valid_global_instructions (match global with Some value => value | None => JNull end)
-   then Some (configured,global) else None end.
-Definition valid_instructions source := match parse_instructions source with Some _ => true | None => false end.
+ match Schema.decode [Field "configured" KText;Field "global" (KOptional KJson)] source with
+ | Some values => let configured := head values in
+   if Utf8.no_nul configured && Nat.leb (String.length configured) 32768 then
+   match head (tail values) with
+   | None => Some (configured,None)
+   | Some source => option_map (fun snapshot => (configured,Some snapshot)) (parse_global_instructions source) end
+   else None
+ | None => None end.
 Definition valid_route (plugins : list json) (source : json) :=
  let name := text_default "name" source "" in
  let remote := text_default "remote" source "" in

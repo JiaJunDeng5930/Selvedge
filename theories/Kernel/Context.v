@@ -168,6 +168,6 @@ Definition patch_json (patches : list field_patch) := JObject [
  ("field", JString (patch_field patch)); ("edits", JArray (map edit_json (patch_edits patch)))]) patches))].
 Definition change_json (value : context_change) := match value with
  | Introduce value => JObject [("type", JString "introduce"); ("snapshot", snapshot_json value)]
- | Amend key base revision patches => JObject [("type", JString "amend"); ("key", key_json key);
-   ("base_revision", JString base); ("revision", JString revision); ("patch", patch_json patches)]
+ | Amend target base patches => JObject [("type", JString "amend"); ("key", key_json (snapshot_key target));
+   ("base_revision", JString base); ("revision", JString (snapshot_revision target)); ("patch", patch_json patches)]
  | Remove key base => JObject [("type", JString "remove"); ("key", key_json key); ("base_revision", JString base)] end.

@@ -85,14 +85,12 @@ Definition initial_project_guidance (settings : task_settings) :=
      [("content",content);("path",path);("applies_to",workspace);("precedence",workspace)]
  | _,_,_,_ => None end.
 Definition initial_history (environment : environment) (chosen : profile) (settings : task_settings) :=
- let configured := Snapshot (ContextKey Context.configured [("origin","configured")]) "initial"
-   [("content",environment_instructions environment)] in
+ let configured := Snapshot (ContextKey Context.configured (exist _ (tt,tt) eq_refl)) initial_revision
+   (exist _ (environment_instructions environment,tt) eq_refl) in
  [ContextObservation (Introduce configured)] ++
  (match environment_global_instructions environment with
   | None => []
-  | Some source => match ContextUpdates.global_guidance_snapshot source with
-    | Some snapshot => [ContextObservation (Introduce snapshot)]
-    | None => [] end end) ++
+  | Some snapshot => [ContextObservation (Introduce snapshot)] end) ++
  (match initial_project_guidance settings with
   | Some snapshot => [ContextObservation (Introduce snapshot)] | None => [] end) ++
  [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)].
@@ -401,7 +399,7 @@ Definition fork_parent_ready (entry : fork_entry) (task : task) :=
 Definition context_selected (selected : workspace) (key : context_key) :=
  match definition_scope (key_definition key) with
  | Global => true
- | EveryWorkspace | PrimaryWorkspace => match ContextUpdates.scoped_root key with
+ | EveryWorkspace | PrimaryWorkspace => match ContextTypes.scoped_root key with
    | None => false
    | Some root => existsb (String.eqb root) (workspace_roots selected) &&
      match definition_scope (key_definition key) with
