@@ -38,7 +38,7 @@ Definition callback_kinds := [
  CallbackDecoder Model (fun ok address =>
    let id := head address in let ticket := head (tail address) in
    if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
-     fun values => Some (ModelCompleted id ticket (ModelSuccess (map Codec.model_item_of_fields (fst values))))
+     fun values => Some (ModelCompleted id ticket (model_outcome_from_items (fst values)))
    else fun values => Some (ModelCompleted id ticket
      (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end)));
  CallbackDecoder Reasoning (fun ok address =>

@@ -76,7 +76,7 @@ Definition task_events (before : world) (id : N) (value : task) (after : world) 
    let '(seen,added) := history_event id value index message seen in (seen,added ++ events)) records ([],[]) in
  lifecycle ++ notices.
 Definition model_outcome_json (outcome : model_outcome) := match outcome with
- | ModelSuccess items => JObject [("ok",JBool true);("items",number (N.of_nat (List.length items)))]
+ | ModelSuccess items => JObject [("ok",JBool true);("items",number (N.of_nat (List.length (ModelWire.batch_values items))))]
  | ModelFailure reason => JObject [("ok",JBool false);("error",JString reason)]
  | ModelContextLimit => JObject [("ok",JBool false);("error",JString "context_limit")] end.
 Definition input_events (source : option input) (before after : world) := match source with

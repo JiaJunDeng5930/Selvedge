@@ -203,24 +203,6 @@ Proof.
    + exact IH.
 Qed.
 
-Theorem accepted_model_success_uses_origin_scoped_messages : forall owner ticket allowed mode items task,
- Callbacks.permitted_items items allowed task [] [] = true ->
- Callbacks.model_result owner ticket allowed mode (ModelSuccess items) task =
-   match Callbacks.item_calls items with
-   | [] => Callbacks.settle_model
-       (Domain.append_history (Callbacks.item_messages owner ticket mode items) task)
-   | calls => Domain.with_activity (PendingCalls calls)
-       (Domain.append_history (Callbacks.item_messages owner ticket mode items) task)
-   end /\
- Forall (model_output_has_origin owner ticket mode)
-   (Callbacks.item_messages owner ticket mode items).
-Proof.
- intros owner ticket allowed mode items task Hpermitted. split.
- - unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
- - apply model_item_messages_preserve_output_origin.
-Qed.
-
-
 (** Presence is the public fork contract. Even an explicitly empty content is a
     child instruction; only an omitted list element is absent. *)
 Theorem supplied_fork_input_remains_after_its_receipt :

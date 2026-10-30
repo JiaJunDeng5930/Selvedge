@@ -157,7 +157,7 @@ Theorem an_unconsumed_result_survives_a_model_reply : forall id ticket allowed m
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
  unseen_model_input task = true ->
  exists updated,
- decision_world (Callbacks.model_completed id ticket (ModelSuccess []) value) = put_task id updated value /\
+ decision_world (Callbacks.model_completed id ticket (ModelSuccess ModelWire.empty) value) = put_task id updated value /\
  task_lifecycle updated = Running WantsModel operations.
 Proof.
  intros id ticket allowed mode task value operations Found Phase Unseen.

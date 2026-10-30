@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonSchema Utf8.
+From Selvedge.Foundation Require Import Json JsonSchema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope RequestReceiver TaskChange Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol OperationEvent.
 Import ListNotations.
 Open Scope string_scope.
@@ -15,20 +15,14 @@ Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   end.
 Definition call_known (id : string) (history : list message) :=
  existsb (fun message => match message with FunctionCall invocation => String.eqb id (call_id invocation) | _ => false end) history.
-Fixpoint permitted_items (items : list model_item) (allowed : list string) (task : task)
- (ids : list string) (parts : list N) :=
- match items with
- | [] => true
- | TextItem part text :: rest | ContextItem part (JString text) :: rest =>
-   negb (existsb (N.eqb part) parts) && Utf8.well_formed text && permitted_items rest allowed task ids (part :: parts)
- | ContextItem part _ :: rest => negb (existsb (N.eqb part) parts) && permitted_items rest allowed task ids (part :: parts)
- | CallItem invocation :: rest =>
-   negb (existsb (String.eqb (call_id invocation)) ids) && negb (call_known (call_id invocation) (task_history task)) &&
+Definition permitted_items (items : list model_item) (allowed : list string) (task : task) :=
+ forallb (fun item => match item with
+ | CallItem invocation =>
+   negb (call_known (call_id invocation) (task_history task)) &&
    existsb (String.eqb (call_name invocation)) allowed &&
    (match find_tool (call_name invocation) (contract_tools (task_contract task)) with
-   | None => false | Some _ => match call_arguments invocation with JObject _ => true | _ => false end end) &&
-   permitted_items rest allowed task (call_id invocation :: ids) parts
- end.
+   | None => false | Some _ => true end)
+ | _ => true end) items.
 Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=
  map (fun item => match item with
  | TextItem part text => AssistantMessage (OutputOrigin owner ticket part mode) text
@@ -47,14 +41,15 @@ Definition model_result_changes (owner ticket : N) (allowed : list string) (mode
  match outcome with
  | ModelFailure text => settle [FailureMessage text]
  | ModelContextLimit => settle [FailureMessage "Model context limit reached; full task history retained"]
- | ModelSuccess items =>
-   if permitted_items items allowed task [] [] then
+ | ModelSuccess batch =>
+   let items := Codec.model_items batch in
+   if permitted_items items allowed task then
    let messages := item_messages owner ticket mode items in
    TaskChange.AppendHistory messages ::
    match item_calls items with
    | [] => settle_model_changes (append_history messages task)
    | calls => [TaskChange.ChangePhase (PendingCalls calls)] end
-   else settle [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"]
+   else settle [FailureMessage "Invalid model reply: previously used call identity or unavailable tool"]
  end.
 Definition model_result (owner ticket : N) (allowed : list string) (mode : output_mode)
  (outcome : model_outcome) (task : task) :=

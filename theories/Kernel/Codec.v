@@ -232,6 +232,7 @@ Definition model_item_of_fields (value : ModelWire.value) : model_item :=
    CallItem (Call (CallWire.identity invocation) (CallWire.name invocation) (CallWire.arguments invocation) InitialAttempt)
  | inr (inr (inl context)) => let fields := proj1_sig context in ContextItem (fst (snd fields)) (JObject (fst (snd (snd fields))))
  | inr (inr (inr impossible)) => match impossible with end end.
+Definition model_items (batch : ModelWire.batch) := map model_item_of_fields (ModelWire.batch_values batch).
 Definition output_mode_value (mode : output_mode) : Schema.denote ModelDeclarations.output_mode_kind := match mode with
  | PlainOutput => exist _ ModelDeclarations.plain_output_name (or_introl eq_refl)
  | InteractiveOutput => exist _ ModelDeclarations.interactive_output_name (or_intror (or_introl eq_refl)) end.

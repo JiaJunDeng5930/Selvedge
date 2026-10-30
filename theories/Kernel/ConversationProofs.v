@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
 From Stdlib Require Import String List Bool Ascii NArith.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec Conversation OutputClassification Callbacks State Tasks Inputs.
 Import ListNotations.
 Open Scope string_scope.
@@ -36,234 +36,122 @@ Local Lemma changing_activity_preserves_history : forall phase task,
 Proof.
  intros phase task; unfold with_activity; destruct (task_lifecycle task); reflexivity.
 Qed.
-Fixpoint model_output_parts (items : list model_item) : list N :=
- match items with
- | [] => []
- | TextItem part _ :: rest | ContextItem part _ :: rest => part :: model_output_parts rest
- | CallItem _ :: rest => model_output_parts rest
- end.
-
-Local Lemma permitted_text_head : forall part text rest allowed task ids parts,
- Callbacks.permitted_items (TextItem part text :: rest) allowed task ids parts = true ->
- negb (existsb (N.eqb part) parts) = true /\
- Utf8.well_formed text = true /\
- Callbacks.permitted_items rest allowed task ids (part :: parts) = true.
-Proof.
- intros; cbn [Callbacks.permitted_items] in H.
- repeat rewrite andb_true_iff in H. tauto.
-Qed.
-
-Local Lemma permitted_context_head : forall part value rest allowed task ids parts,
- Callbacks.permitted_items (ContextItem part value :: rest) allowed task ids parts = true ->
- negb (existsb (N.eqb part) parts) = true /\
- Callbacks.permitted_items rest allowed task ids (part :: parts) = true.
-Proof.
- intros part value rest allowed task ids parts Permitted.
- destruct value; cbn [Callbacks.permitted_items] in Permitted;
-   repeat rewrite andb_true_iff in Permitted; tauto.
-Qed.
-
-Local Lemma permitted_call_head : forall invocation rest allowed task ids parts,
- Callbacks.permitted_items (CallItem invocation :: rest) allowed task ids parts = true ->
- Callbacks.permitted_items rest allowed task (call_id invocation :: ids) parts = true.
-Proof.
- intros; cbn [Callbacks.permitted_items] in H.
- repeat rewrite andb_true_iff in H. tauto.
-Qed.
-
-Local Lemma permitted_model_parts_avoid_prior_parts : forall items allowed task ids parts,
- Callbacks.permitted_items items allowed task ids parts = true ->
- forall part, In part (model_output_parts items) -> ~ In part parts.
-Proof.
- induction items as [|item rest IH]; intros allowed task ids parts Permitted part InPart.
- - simpl in InPart; contradiction.
- - destruct item as [head text|invocation|head value].
-   + destruct (permitted_text_head head text rest allowed task ids parts Permitted)
-       as [Fresh [_ Rest]].
-     cbn [model_output_parts] in InPart. destruct InPart as [Same|InRest].
-     * subst part. intro Prior.
-       assert (Already : existsb (N.eqb head) parts = true).
-       { apply existsb_exists. exists head. split; [exact Prior|apply N.eqb_refl]. }
-       rewrite Already in Fresh. discriminate.
-     * intro Prior. apply (IH allowed task ids (head :: parts) Rest part InRest).
-       now right.
-   + pose proof (permitted_call_head invocation rest allowed task ids parts Permitted) as Rest.
-     apply (IH allowed task (call_id invocation :: ids) parts Rest part).
-     exact InPart.
-   + destruct (permitted_context_head head value rest allowed task ids parts Permitted)
-       as [Fresh Rest].
-     cbn [model_output_parts] in InPart. destruct InPart as [Same|InRest].
-     * subst part. intro Prior.
-       assert (Already : existsb (N.eqb head) parts = true).
-       { apply existsb_exists. exists head. split; [exact Prior|apply N.eqb_refl]. }
-       rewrite Already in Fresh. discriminate.
-     * intro Prior. apply (IH allowed task ids (head :: parts) Rest part InRest).
-       now right.
-Qed.
-
-Local Lemma permitted_model_items_have_unique_parts : forall items allowed task,
- forall ids parts,
- Callbacks.permitted_items items allowed task ids parts = true -> NoDup (model_output_parts items).
-Proof.
- induction items as [|item rest IH]; intros allowed task ids parts Permitted.
- - constructor.
- - destruct item as [head text|invocation|head value].
-   + destruct (permitted_text_head head text rest allowed task ids parts Permitted)
-       as [Fresh [_ Rest]].
-     cbn [model_output_parts]. constructor.
-     * intro InRest.
-       pose proof (permitted_model_parts_avoid_prior_parts rest allowed task ids (head :: parts) Rest head InRest) as NotPrior.
-       apply NotPrior. now left.
-     * exact (IH allowed task ids (head :: parts) Rest).
-   + pose proof (permitted_call_head invocation rest allowed task ids parts Permitted) as Rest.
-     exact (IH allowed task (call_id invocation :: ids) parts Rest).
-   + destruct (permitted_context_head head value rest allowed task ids parts Permitted)
-       as [Fresh Rest].
-     cbn [model_output_parts]. constructor.
-     * intro InRest.
-       pose proof (permitted_model_parts_avoid_prior_parts rest allowed task ids (head :: parts) Rest head InRest) as NotPrior.
-       apply NotPrior. now left.
-     * exact (IH allowed task ids (head :: parts) Rest).
-Qed.
-
-Local Lemma duplicate_model_output_parts_are_not_permitted : forall items allowed task,
- ~ NoDup (model_output_parts items) -> Callbacks.permitted_items items allowed task [] [] = false.
-Proof.
- intros items allowed task Duplicated.
- destruct (Callbacks.permitted_items items allowed task [] []) eqn:Permitted; [|reflexivity].
- exfalso. apply Duplicated. eapply permitted_model_items_have_unique_parts; exact Permitted.
-Qed.
-
-Theorem duplicate_provider_output_parts_are_rejected_without_losing_history_or_effects :
+Theorem a_duplicate_model_batch_is_consumed_without_losing_history_or_effects :
  forall id ticket allowed mode items task value operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
- ~ NoDup (model_output_parts items) ->
+ ModelWire.admit_batch items = None ->
  exists updated,
- decision_world (Callbacks.model_completed id ticket (ModelSuccess items) value) = put_task id updated value /\
+ decision_world (Callbacks.model_completed id ticket (model_outcome_from_items items) value) = put_task id updated value /\
+ (task_activity updated = Idle \/ task_activity updated = WantsModel) /\
  exists suffix,
- task_history updated = task_history task ++
-   [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] ++ suffix /\
- decision_effects (Callbacks.model_completed id ticket (ModelSuccess items) value) = [].
+ task_history updated = task_history task ++ [FailureMessage duplicate_model_identity] ++ suffix /\
+ decision_effects (Callbacks.model_completed id ticket (model_outcome_from_items items) value) = [].
 Proof.
  intros id ticket allowed mode items task value operations Found Pending Duplicated.
- assert (Rejected : Callbacks.permitted_items items allowed task [] [] = false).
- { now apply duplicate_model_output_parts_are_not_permitted. }
+ unfold model_outcome_from_items; rewrite Duplicated.
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess items) task).
- unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Rejected.
- cbn [TaskChange.apply TaskChange.apply_edit fold_left].
- exists (Callbacks.settle_model
-   (append_history
-     [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)).
- split.
- - cbn [decision_world acknowledged accept]. reflexivity.
- -
- assert (History : exists suffix,
-   task_history (Callbacks.settle_model
-     (append_history
-       [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)) =
-     task_history task ++
-       [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] ++ suffix).
- { rewrite !settle_model_expression.
+ cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelFailure duplicate_model_identity) task).
+ unfold Callbacks.model_result, Callbacks.model_result_changes.
+ exists (Callbacks.settle_model (append_history [FailureMessage duplicate_model_identity] task)).
+ split; [reflexivity|]. split.
+ - rewrite settle_model_expression.
+   destruct (unseen_model_input (append_history [FailureMessage duplicate_model_identity] task));
+     destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed];
+     cbn in Pending; subst lifecycle; destruct queued;
+     first [left; reflexivity | right; reflexivity].
+ - rewrite settle_model_expression.
    destruct (promotion_retains_history
      (with_activity
-       (if unseen_model_input
-          (append_history
-            [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)
+       (if unseen_model_input (append_history [FailureMessage duplicate_model_identity] task)
         then WantsModel else Idle)
-       (append_history
-         [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)))
-     as [suffix Promoted].
-   exists suffix. rewrite Promoted, changing_activity_preserves_history.
-   change ((task_history task ++
-       [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"]) ++ suffix =
-     task_history task ++
-       [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] ++ suffix).
-   symmetry; apply app_assoc. }
- destruct History as [suffix History]. exists suffix. split; [exact History|reflexivity].
+       (append_history [FailureMessage duplicate_model_identity] task))) as [suffix Promoted].
+   exists suffix; split; [|reflexivity].
+   rewrite Promoted, changing_activity_preserves_history.
+   change ((task_history task ++ [FailureMessage duplicate_model_identity]) ++ suffix =
+     task_history task ++ [FailureMessage duplicate_model_identity] ++ suffix).
+   symmetry; apply app_assoc.
 Qed.
 
 (** Acceptance fixes provenance from the pending request, before queued input is
     promoted. The suffix is only subsequent input; the accepted output remains
     an ordered part of the actual committed task history. *)
 Theorem accepted_model_completion_appends_each_accepted_item :
- forall id ticket allowed mode items task value operations,
+ forall id ticket allowed mode batch task value operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
- Callbacks.permitted_items items allowed task [] [] = true ->
+ Callbacks.permitted_items (Codec.model_items batch) allowed task = true ->
  exists updated,
- decision_world (Callbacks.model_completed id ticket (ModelSuccess items) value) = put_task id updated value /\
+ decision_world (Callbacks.model_completed id ticket (ModelSuccess batch) value) = put_task id updated value /\
  exists suffix,
- task_history updated = task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix.
+ task_history updated = task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix.
 Proof.
- intros id ticket allowed mode items task value operations Found Pending Admitted.
+ intros id ticket allowed mode batch task value operations Found Pending Admitted.
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess items) task).
+ cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess batch) task).
  eexists; split; [reflexivity|].
  unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Admitted.
- destruct (Callbacks.item_calls items) as [|invocation remaining].
+ destruct (Callbacks.item_calls (Codec.model_items batch)) as [|invocation remaining].
  - change (exists suffix, task_history (Callbacks.settle_model
-     (append_history (Callbacks.item_messages id ticket mode items) task)) =
-     task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix).
+     (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task)) =
+     task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix).
    rewrite !settle_model_expression.
    destruct (promotion_retains_history
      (with_activity
-       (if unseen_model_input (append_history (Callbacks.item_messages id ticket mode items) task)
+       (if unseen_model_input (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task)
         then WantsModel else Idle)
-       (append_history (Callbacks.item_messages id ticket mode items) task))) as [suffix Promoted].
+       (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task))) as [suffix Promoted].
    exists suffix; rewrite Promoted, changing_activity_preserves_history.
-   change ((task_history task ++ Callbacks.item_messages id ticket mode items) ++ suffix =
-     task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix).
+   change ((task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch)) ++ suffix =
+     task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix).
    symmetry; apply app_assoc.
  - cbn [TaskChange.apply TaskChange.apply_edit fold_left].
    exists []; rewrite app_nil_r; reflexivity.
 Qed.
 
 Theorem actual_text_completion_retains_its_content_and_request_identity :
- forall id ticket allowed mode part text task value operations,
+ forall id ticket allowed mode part (text : ModelWire.D.denote ModelWire.D.text) task value operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
- Utf8.well_formed text = true ->
  exists updated,
- decision_world (Callbacks.model_completed id ticket (ModelSuccess [TextItem part text]) value) = put_task id updated value /\
+ decision_world (Callbacks.model_completed id ticket
+   (ModelSuccess (ModelWire.singleton (ModelWire.text part text))) value) = put_task id updated value /\
  exists suffix,
  task_history updated = task_history task ++
-   AssistantMessage (OutputOrigin id ticket part mode) text :: suffix.
+   AssistantMessage (OutputOrigin id ticket part mode) (proj1_sig text) :: suffix.
 Proof.
- intros id ticket allowed mode part text task value operations Found Pending Unicode.
- assert (Admitted : Callbacks.permitted_items [TextItem part text] allowed task [] [] = true).
- { cbn [Callbacks.permitted_items]; rewrite Unicode; reflexivity. }
+ intros id ticket allowed mode part text task value operations Found Pending.
  destruct (accepted_model_completion_appends_each_accepted_item
-   id ticket allowed mode [TextItem part text] task value operations Found Pending Admitted)
+   id ticket allowed mode (ModelWire.singleton (ModelWire.text part text)) task value operations Found Pending eq_refl)
    as [updated [Committed [suffix History]]].
  exists updated; split; [exact Committed|]. exists suffix; rewrite History; reflexivity.
 Qed.
 
 Theorem actual_assistant_context_retains_its_native_data_and_frozen_mode :
- forall id ticket allowed mode part content task value operations,
+ forall id ticket allowed mode part members task value operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
- string_field "role" (Conversation.provider_value content) = Some "assistant" ->
- text_default "type" (Conversation.provider_value content) "" = "message" ->
+ string_field "role" (Conversation.provider_value (JObject members)) = Some "assistant" ->
+ text_default "type" (Conversation.provider_value (JObject members)) "" = "message" ->
  exists updated,
- decision_world (Callbacks.model_completed id ticket (ModelSuccess [ContextItem part content]) value) = put_task id updated value /\
+ decision_world (Callbacks.model_completed id ticket
+   (ModelSuccess (ModelWire.singleton (ModelWire.context part members))) value) = put_task id updated value /\
  exists suffix,
  task_history updated = task_history task ++
-   ModelContext (OutputOrigin id ticket part mode) content :: suffix.
+   ModelContext (OutputOrigin id ticket part mode) (JObject members) :: suffix.
 Proof.
- intros id ticket allowed mode part content task value operations Found Pending Assistant Message.
- assert (Admitted : Callbacks.permitted_items [ContextItem part content] allowed task [] [] = true).
- { destruct content; cbn [provider_value value_or_null string_field field text_default] in Assistant, Message;
-     try discriminate; reflexivity. }
+ intros id ticket allowed mode part members task value operations Found Pending Assistant Message.
  destruct (accepted_model_completion_appends_each_accepted_item
-   id ticket allowed mode [ContextItem part content] task value operations Found Pending Admitted)
+   id ticket allowed mode (ModelWire.singleton (ModelWire.context part members)) task value operations Found Pending eq_refl)
    as [updated [Committed [suffix History]]].
  exists updated; split; [exact Committed|]. exists suffix.
- rewrite History, (assistant_messages_inherit_the_frozen_output_mode
-   id ticket part mode content Assistant Message); reflexivity.
+ rewrite History. change (task_history task ++
+   Callbacks.item_messages id ticket mode [ContextItem part (JObject members)] ++ suffix =
+   task_history task ++ ModelContext (OutputOrigin id ticket part mode) (JObject members) :: suffix).
+ rewrite (assistant_messages_inherit_the_frozen_output_mode
+   id ticket part mode (JObject members) Assistant Message); reflexivity.
 Qed.
 
 (** Role metadata on provider reasoning or compaction does not turn diagnostic
