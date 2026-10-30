@@ -1,9 +1,11 @@
 From Stdlib Require Import String Bool NArith ZArith DecimalString.
-From Selvedge.Foundation Require Import Numbers.
+From Selvedge.Foundation Require Import Numbers Refinement.
 
 Definition safe_integer_limit : Z := 9007199254740991%Z.
 Definition within_safe_integer (value : Z) : bool :=
   ((- safe_integer_limit <=? value) && (value <=? safe_integer_limit))%Z.
+Definition safe_integer := Refinement.checked within_safe_integer.
+Definition integer_value (value : safe_integer) : Z := proj1_sig value.
 Definition signed_magnitude (negative : bool) (magnitude : Z) :=
   if negative then (- magnitude)%Z else magnitude.
 Definition exponent_digit_limit (lower upper : Z) : nat :=
@@ -26,10 +28,10 @@ Definition integral_magnitude (coefficient : Decimal.uint) (shift : Z) : option 
     then Some (Z.of_uint (Decimal.del_tail remove coefficient)) else None
   else Some (Z.of_uint (Decimal.app coefficient (Nat.iter (Z.to_nat shift) Decimal.D0 Decimal.Nil))).
 Definition decode_coefficient (negative : bool) (coefficient : Decimal.uint)
-    (fraction_digits : nat) (exponent : Decimal.int) : option Z :=
+    (fraction_digits : nat) (exponent : Decimal.int) : option safe_integer :=
   let significant := Decimal.nzhead coefficient in
   match significant with
-  | Decimal.Nil => Some 0%Z
+  | Decimal.Nil => Some (exist _ 0%Z eq_refl)
   | _ =>
       let fractional := Z.of_nat fraction_digits in
       let width := Z.of_nat (decimal_width significant) in
@@ -38,7 +40,7 @@ Definition decode_coefficient (negative : bool) (coefficient : Decimal.uint)
       | Some power => match integral_magnitude significant (power - fractional) with
         | None => None
         | Some magnitude => let value := signed_magnitude negative magnitude in
-          if within_safe_integer value then Some value else None end
+          Refinement.admit within_safe_integer value end
       end
   end.
 Definition decimal_components (value : Decimal.decimal) :=
@@ -47,7 +49,7 @@ Definition decimal_components (value : Decimal.decimal) :=
     | Decimal.DecimalExp whole fraction exponent => (whole,fraction,exponent) end in
   ((match whole with Decimal.Neg _ => true | _ => false end),
    Decimal.app (Decimal.abs whole) fraction, decimal_width fraction, exponent).
-Definition decode_safe_integer (source : string) : option Z :=
+Definition decode_safe_integer (source : string) : option safe_integer :=
   match parse_decimal source with
   | Some decimal => let '(negative,coefficient,fraction,exponent) := decimal_components decimal in
     decode_coefficient negative coefficient fraction exponent

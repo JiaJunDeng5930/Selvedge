@@ -37,14 +37,14 @@ Definition decimal_fraction source := match source with
     else Some (Decimal.Nil,source)
   | _ => Some (Decimal.Nil,source) end.
 Definition decimal_exponent source := match source with
-  | EmptyString => Some (Decimal.Pos Decimal.Nil)
+  | EmptyString => Some None
   | String head rest => if Ascii.eqb head "e" || Ascii.eqb head "E" then
     let '(negative,digits) := match rest with
       | String sign tail => if Ascii.eqb sign "-" then (true,tail)
         else if Ascii.eqb sign "+" then (false,tail) else (false,rest)
       | _ => (false,rest) end in
     match required_decimal_digits digits with
-    | Some (value,EmptyString) => Some (if negative then Decimal.Neg value else Decimal.Pos value)
+    | Some (value,EmptyString) => Some (Some (if negative then Decimal.Neg value else Decimal.Pos value))
     | _ => None end
     else None
   end.
@@ -55,8 +55,9 @@ Definition parse_decimal source : option Decimal.decimal :=
   match decimal_integer unsigned with
   | Some (whole,rest) => match decimal_fraction rest with
     | Some (fraction,rest) => match decimal_exponent rest with
-      | Some exponent => Some (Decimal.DecimalExp
-          (if negative then Decimal.Neg whole else Decimal.Pos whole) fraction exponent)
+      | Some exponent => let whole := if negative then Decimal.Neg whole else Decimal.Pos whole in
+        Some (match exponent with None => Decimal.Decimal whole fraction
+          | Some exponent => Decimal.DecimalExp whole fraction exponent end)
       | None => None end
     | None => None end
   | None => None end.
@@ -74,12 +75,9 @@ Definition parse_natural (text : string) : option N :=
 Definition show_natural (value : N) : string :=
   NilZero.string_of_uint (N.to_uint value).
 Definition parse_integer (text : string) : option Z :=
-  if number_lexeme text then
-    match NilZero.int_of_string text with
-    | Some decimal => Some (Z.of_int decimal)
-    | None => None
-    end
-  else None.
+  match parse_decimal text with
+  | Some (Decimal.Decimal whole Decimal.Nil) => Some (Z.of_int whole)
+  | _ => None end.
 Definition show_integer (value : Z) : string :=
   NilZero.string_of_int (Z.to_int value).
 Definition parse_nat (text : string) : option nat := option_map N.to_nat (parse_natural text).

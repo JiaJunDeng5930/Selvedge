@@ -12,7 +12,7 @@ Definition session_result value := match value with
 Definition session_verdict value := session_result (option_map JBool value).
 Definition call operation source :=
  if String.eqb operation "control.remote.safe_integer" then success (match source with
- | JString lexeme => match BoundedInteger.decode_safe_integer lexeme with Some value => JString (show_integer value) | None => JNull end
+ | JString lexeme => match BoundedInteger.decode_safe_integer lexeme with Some value => JString (show_integer (BoundedInteger.integer_value value)) | None => JNull end
  | _ => JNull end)
  else if existsb (String.eqb operation) ["control.remote.transport_initial";"control.remote.transport";"control.remote.transport_current";"control.remote.transport_running";"control.remote.authorization_initial";"control.remote.authorization"] then HostRemoteTransport.call operation source
  else if existsb (String.eqb operation) ["control.remote.enrollment_credential";"control.remote.relay_route";"control.remote.relay_body";"control.remote.relay_credential";"control.remote.relay_content"] then success (RelayAdmission.call operation source)

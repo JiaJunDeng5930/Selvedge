@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith ZArith Ascii.
-From Selvedge.Foundation Require OptionList EncodedObject BoundedInteger.
+From Selvedge.Foundation Require OptionList EncodedObject BoundedInteger Refinement.
 From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 Import ListNotations.
 Open Scope string_scope.
@@ -79,11 +79,8 @@ Definition signed_bounds minimum maximum value :=
  BoundedInteger.within_safe_integer value && ((minimum <=? value) && (value <=? maximum))%Z.
 (** Admission retains the declared constraint. Downstream constructors receive
     its value and evidence together, rather than repeating a Boolean check. *)
-Polymorphic Definition checked {A : Type} (admissible : A -> bool) :=
- { value : A | admissible value = true }.
-Polymorphic Definition admit {A : Type} (admissible : A -> bool) (value : A) : option (checked admissible) :=
- match Bool.bool_dec (admissible value) true with
- | left proof => Some (exist _ value proof) | right _ => None end.
+Polymorphic Definition checked {A : Type} := @Refinement.checked A.
+Polymorphic Definition admit {A : Type} := @Refinement.admit A.
 Definition natural_range minimum maximum value := (minimum <=? value) &&
  match maximum with None => true | Some maximum => value <=? maximum end.
 Fixpoint text_value (format : text_format) : Set := match format with
@@ -147,7 +144,9 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
    Some number => admit (in_bounds minimum maximum) number | None => None end | None => None end
  | SafeInteger minimum maximum => match as_number value with Some source =>
    match BoundedInteger.decode_safe_integer source with
-   | Some number => admit (signed_bounds minimum maximum) number | None => None end | None => None end
+   | Some number => Refinement.strengthen BoundedInteger.within_safe_integer
+       (fun value => ((minimum <=? value) && (value <=? maximum))%Z) number
+   | None => None end | None => None end
  | Array element => match value with JArray values => OptionList.traverse (decode element) values | _ => None end
  | BoundedArray minimum maximum element => match value with JArray values =>
    match OptionList.traverse (decode element) values with

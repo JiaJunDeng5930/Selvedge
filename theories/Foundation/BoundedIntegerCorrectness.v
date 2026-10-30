@@ -1,5 +1,5 @@
 From Stdlib Require Import String Bool ZArith NArith Lia DecimalZ DecimalPos DecimalFacts.
-From Selvedge.Foundation Require Import Numbers NumbersProofs BoundedInteger BoundedIntegerProofs BoundedIntegerSemantics BoundedIntegerDigits.
+From Selvedge.Foundation Require Import Numbers NumbersProofs Refinement BoundedInteger BoundedIntegerProofs BoundedIntegerSemantics BoundedIntegerDigits.
 Open Scope Z_scope.
 
 Lemma decimal_signed_scaling negative coefficient fractional exponent value :
@@ -50,7 +50,7 @@ Lemma decode_nonzero_coefficient_expand negative coefficient significant fractio
   | Some power => match integral_magnitude significant (power - Z.of_nat fraction) with
     | None => None
     | Some magnitude => let value := signed_magnitude negative magnitude in
-        if within_safe_integer value then Some value else None end end.
+        Refinement.admit within_safe_integer value end end.
 Proof. intros nonempty normalized. unfold decode_coefficient. rewrite !decimal_width_count, normalized.
  destruct significant; contradiction || reflexivity. Qed.
 Lemma safe_nonzero_exponent_window negative numeral fraction exponent value :
@@ -72,7 +72,7 @@ Proof.
  - split; [now apply decimal_nonzero_head_lower|apply decimal_value_below_power].
 Qed.
 Theorem decode_coefficient_mathematical_iff negative coefficient fraction exponent value :
-  (decode_coefficient negative coefficient fraction exponent = Some value <->
+  (option_map integer_value (decode_coefficient negative coefficient fraction exponent) = Some value <->
     (-safe_integer_limit <= value <= safe_integer_limit) /\
     decimal_integer_magnitude (signed_magnitude negative (Z.of_uint coefficient))
       (Z.of_nat fraction) (Z.of_int exponent) value).
@@ -83,7 +83,7 @@ Proof.
   destruct (Decimal.uint_eq_dec normal Decimal.Nil) as [empty|nonempty].
   - rewrite empty in normalized,magnitude. cbn in magnitude. unfold decode_coefficient. rewrite <-normalized.
     rewrite <-magnitude. assert (signed_zero : signed_magnitude negative 0 = 0) by (destruct negative; reflexivity).
-    rewrite signed_zero, zero_decimal_scaling_iff. split.
+    rewrite signed_zero, zero_decimal_scaling_iff. cbn [option_map integer_value proj1_sig]. split.
     + intros [= <-]. unfold safe_integer_limit. split; lia.
     + intros [_ ->]. reflexivity.
   - assert (head : (0 < DecimalPos.Unsigned.hd normal)%N).
@@ -98,15 +98,18 @@ Proof.
       assert (window : 1 - Z.of_nat (Decimal.nb_digits normal) <= Z.of_int exponent - Z.of_nat fraction) by lia.
       split.
       * destruct (integral_magnitude normal (Z.of_int exponent - Z.of_nat fraction)) as [result|] eqn:integral; [|discriminate].
-        cbn beta iota zeta.
-        destruct (within_safe_integer (signed_magnitude negative result)) eqn:safe; [|discriminate].
+        cbn beta iota zeta. unfold Refinement.admit.
+        destruct (Bool.bool_dec (within_safe_integer (signed_magnitude negative result)) true) as [safe|unsafe]; [|discriminate].
+        cbn [option_map integer_value proj1_sig].
         intros [= <-]. split; [now apply within_safe_integer_spec|].
         apply decimal_signed_scaling. rewrite signed_magnitude_involutive.
         apply decimal_scaling_at_shift. now apply (proj1 (integral_magnitude_exact _ _ _ window)).
       * intros [safe mathematical]. apply decimal_signed_scaling, decimal_scaling_at_shift in mathematical.
         apply (proj2 (integral_magnitude_exact _ _ _ window)) in mathematical.
         rewrite mathematical, signed_magnitude_involutive. cbn beta iota zeta.
-        rewrite (proj2 (within_safe_integer_spec value) safe). reflexivity.
+        unfold Refinement.admit.
+        destruct (Bool.bool_dec (within_safe_integer value) true) as [bounded|unbounded]; [reflexivity|].
+        exfalso. apply unbounded. now apply within_safe_integer_spec.
     + split; [discriminate|]. intros [safe mathematical].
       pose proof (safe_nonzero_exponent_window negative normal fraction (Z.of_int exponent) value head safe mathematical).
       apply Bool.andb_false_iff in accepted as [low|high];
@@ -121,7 +124,7 @@ Definition json_integer_denotes (source : string) (value : Z) : Prop :=
   decimal_integer_magnitude (signed_magnitude negative (Z.of_uint coefficient))
     (Z.of_nat fraction) (Z.of_int exponent) value.
 Theorem decode_safe_integer_mathematical_iff source value :
-  decode_safe_integer source = Some value <->
+  option_map integer_value (decode_safe_integer source) = Some value <->
   json_integer_denotes source value /\ -safe_integer_limit <= value <= safe_integer_limit.
 Proof.
   unfold decode_safe_integer, json_integer_denotes.
