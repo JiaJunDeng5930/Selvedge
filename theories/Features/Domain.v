@@ -67,9 +67,9 @@ Record connection_grant := ConnectionGrant { connection_id : N; connection_proje
  connection_sandbox : sandbox }.
 Inductive job_status := JobRunning | JobFinished (value : json) (error : bool) | JobInterrupted (reason : string).
 Record connection_job := ConnectionJob { job_connection : N; job_project : N;
- job_request : string; job_arguments : Schema.fields ChatgptArguments.argument_declaration;
+ job_request : string; job_arguments : ChatgptArguments.arguments;
  job_workspace : workspace; job_resource : option N; job_sandbox : sandbox; job_state : job_status }.
-Definition job_arguments_json job := Schema.encode ChatgptArguments.argument_declaration (job_arguments job).
+Definition job_arguments_json job := ChatgptArguments.encode (job_arguments job).
 Record connection_state := ConnectionState { sharing_grants : list connection_grant;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
 Record title_settings := TitleSettings { title_revision : N; title_task_prompt : string; title_agent_prompt : string }.

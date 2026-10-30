@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Schema.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest DecisionComposition.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest DecisionComposition FeatureRequestAdmission.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.
@@ -33,8 +33,26 @@ Definition ordinary := FeatureRequestAdmission.ordinary_profile.
 Definition selected_profile := FeatureRequestAdmission.selected_title_profile.
 Definition prompt := Titles.prompt_with.
 Definition accepts := FeatureRequestAdmission.title_accepts.
+Definition protocol (features : Selvedge.Features.Domain.state) owner
+ : RequestTypes.located (profile * string) features :=
+ RequestTypes.Protocol
+   (Receiver.At.inject Selvedge.Features.Domain.TitlePending
+     (Receiver.At.field features Selvedge.Features.Domain.feature_titles
+       (Receiver.At.inject (Selvedge.Features.Domain.TitleEntry owner)
+         (Receiver.At.keyed (Selvedge.Features.Domain.feature_titles features) Selvedge.Features.Domain.title_task))))
+   ModelDeclarations.task_title_request
+   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.task_title_request)
+     [!Codec.task_text_model_json (fst input);snd input!]).
+Definition channel : TicketedRequest.Scoped.feature_channel FeatureRequestAdmission.resolved_title (profile * string) :=
+ TicketedRequest.Scoped.FeatureChannel TicketedRequest.TaskTicket
+   (fun before request => (FeatureRequestAdmission.title_profile request,
+     FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before))
+   (fun before request => protocol (world_features before)
+     (TaskScope.owner (FeatureRequestAdmission.title_reference request))).
+Definition plan {before} (request : FeatureRequestAdmission.resolved_title before) :=
+ TicketedRequest.Scoped.FeaturePlan channel request.
 Definition issue {before} (request : FeatureRequestAdmission.resolved_title before) : CommandResult.change :=
- let issued := TicketedRequest.Scoped.feature_issue_change (TicketedRequest.Scoped.title_plan request) in
+ let issued := TicketedRequest.Scoped.feature_issue_change (plan request) in
  CommandResult.Change JNull (CommandResult.change_world issued) (CommandResult.change_effects issued).
 Definition start (id:N) (result:decision) :decision :=
  match FeatureRequestAdmission.resolve_title id (decision_world result) with

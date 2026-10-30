@@ -18,13 +18,17 @@ Qed.
 (** Every composition retrieves the exact input that was installed. New domain
     protocols compose paths and constructors; they add no law or proof case. *)
 Theorem installed : forall state input (selected : t state input) request before,
- available selected request before = true ->
- lookup selected (install selected request before) = Some request.
+ positioned selected before ->
+ lookup selected request (install selected request before) = Some request.
 Proof.
- intros state input selected; induction selected; intros request before Available; cbn in *.
- - now rewrite Available.
- - now apply at_put_at.
- - now apply at_put_at.
+ intros state input selected; induction selected; intros request before Position; cbn in *.
+ - now rewrite N.eqb_refl.
+ - apply at_put_at; apply N.leb_le. destruct Position as [Append|[value Found]].
+   + rewrite Append; apply N.le_refl.
+   + pose proof (registry_lookup_implies_position_bound _ _ _ _ Found); lia.
+ - apply at_put_at; apply N.leb_le. destruct Position as [Append|[value Found]].
+   + rewrite Append; apply N.le_refl.
+   + pose proof (registry_lookup_implies_position_bound _ _ _ _ Found); lia.
  - rewrite set_get; now apply IHselected.
  - rewrite Focus.modification_has_its_selected_value; now apply IHselected.
  - rewrite IHselected by assumption; apply Constructor.project_inject.

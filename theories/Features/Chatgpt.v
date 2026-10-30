@@ -87,16 +87,40 @@ Definition configure entries value := match Schema.decode_list parse_grant entri
  | Some entries=>if (N.of_nat (List.length entries) <=? 32) && distinct_ids (map Selvedge.Features.Domain.connection_id entries) && forallb (valid_grant value) entries then
    accept (JObject []) (store (set Selvedge.Features.Domain.sharing_grants (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
-Definition replace_job id job := Receiver.install (TicketedRequest.Scoped.connection_jobs id) (id,job).
+Definition replace_job id job := Receiver.install TicketedRequest.Scoped.connection_jobs (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
 Definition bounded_text := FeatureRequestAdmission.bounded_text.
+Definition protocol (features : Selvedge.Features.Domain.state)
+ : RequestTypes.located Selvedge.Features.Domain.connection_job features :=
+ RequestTypes.Protocol
+   (Receiver.At.inject RequestEnvelope.as_pair
+     (Receiver.At.field features Selvedge.Features.Domain.feature_sharing
+       (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_jobs
+         (Receiver.At.keyed (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing features))
+           (@fst N Selvedge.Features.Domain.connection_job)))))
+   ModelDeclarations.chatgpt_exec_request
+   (fun job features => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.chatgpt_exec_request)
+     [!Selvedge.Features.Domain.job_arguments_json job;JObject [
+       ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));
+       ("resource",Selvedge.Features.Domain.reference_execution (Selvedge.Features.Domain.job_resource job) features);
+       ("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]).
+Definition channel identity project request
+ : TicketedRequest.Scoped.feature_channel
+     (fun before => FeatureRequestAdmission.resolved_connection before identity project request)
+     Selvedge.Features.Domain.connection_job :=
+ TicketedRequest.Scoped.FeatureChannel TicketedRequest.ConnectionIdentity
+   (fun _ source => FeatureRequestAdmission.resolved_job source)
+   (fun before _ => protocol (world_features (snd (TicketedRequest.allocate_identity TicketedRequest.ConnectionIdentity before)))).
+Definition plan {before identity project request}
+ (source : FeatureRequestAdmission.resolved_connection before identity project request) :=
+ TicketedRequest.Scoped.FeaturePlan (channel identity project request) source.
 Definition resolved_connection_change {value identity project request_id}
  (resolved : FeatureRequestAdmission.connection_resolution value identity project request_id) :=
  match resolved with
  | FeatureRequestAdmission.ExistingConnection id job => CommandResult.Change (receipt id job) value []
  | FeatureRequestAdmission.NewConnection request =>
    let job := FeatureRequestAdmission.resolved_job request in
-   let issued := TicketedRequest.Scoped.feature_issue_change (TicketedRequest.Scoped.connection_plan request) in
+   let issued := TicketedRequest.Scoped.feature_issue_change (plan request) in
    CommandResult.Change (receipt (TicketedRequest.next_identity TicketedRequest.ConnectionIdentity value) job)
      (CommandResult.change_world issued) (CommandResult.change_effects issued)
  end.

@@ -39,25 +39,25 @@ Theorem title_start_with_observed_owner : forall id task result selected,
  let before := decision_world result in
  let prompt := TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features before)))
    (TitleRuntime.first_request (task_history task)) in
- TitleRuntime.start id result =
- Decision (TitleRuntime.store id (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))
-   (with_ticket (N.succ (world_next_ticket before)) before))
-   (decision_reply result) (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol id) (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))]).
+ decision_effects (TitleRuntime.start id result) =
+   decision_effects result ++ [RequestFeature (RequestTypes.Packet
+     (RequestTypes.release (TitleRuntime.protocol (world_features before) id))
+     (RequestEnvelope.Envelope (world_next_ticket before) (selected,prompt)))].
 Proof.
  intros id task result selected Found Absent Accepts Nonblank Chosen.
  destruct (admitted_title_resolves_without_rechecking id task (decision_world result) selected
    Found Absent Accepts Nonblank Chosen) as [request [Resolved [Owner [Current Selected]]]].
  cbv zeta; unfold TitleRuntime.start; rewrite Resolved.
- change (Decision
-   (TitleRuntime.store (TaskScope.owner (FeatureRequestAdmission.title_reference request))
-     (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) ((FeatureRequestAdmission.title_profile request), (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result)))))
-     (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
-   (decision_reply result)
-   (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol (TaskScope.owner (FeatureRequestAdmission.title_reference request))) (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) ((FeatureRequestAdmission.title_profile request), (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result)))))]) =
-   Decision (TitleRuntime.store id
-     (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (FeatureRequestAdmission.title_prompt task (decision_world result)))))
-     (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
-   (decision_reply result) (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol id) (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (FeatureRequestAdmission.title_prompt task (decision_world result)))))])).
+ change (decision_effects result ++ [RequestFeature (RequestTypes.Packet
+   (RequestTypes.release (TitleRuntime.protocol (world_features (decision_world result))
+     (TaskScope.owner (FeatureRequestAdmission.title_reference request))))
+   (RequestEnvelope.Envelope (world_next_ticket (decision_world result))
+     (FeatureRequestAdmission.title_profile request,
+      FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result))))] =
+   decision_effects result ++ [RequestFeature (RequestTypes.Packet
+     (RequestTypes.release (TitleRuntime.protocol (world_features (decision_world result)) id))
+     (RequestEnvelope.Envelope (world_next_ticket (decision_world result))
+       (selected,FeatureRequestAdmission.title_prompt task (decision_world result))))]).
  rewrite Owner,Current,Selected; reflexivity.
 Qed.
 

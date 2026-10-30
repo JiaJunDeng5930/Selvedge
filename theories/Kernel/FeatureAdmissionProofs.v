@@ -57,52 +57,12 @@ Proof.
  intros identity project request raw arguments grant target before Ids Bounded Arguments Authority Project Primary Retry Workspace Capacity.
  unfold resolve_connection.
  apply require_satisfied; [now rewrite Ids,Bounded|]; intros Input.
- rewrite <- admit_arguments_erases in Arguments.
- destruct (admit_arguments raw) as [[decoded Valid]|] eqn:Decoded; cbn in Arguments.
- - inversion Arguments; subst decoded.
-   eapply observe_present; [exact Authority|]; intros Granted.
-   eapply observe_present; [exact Project|]; intros Existing.
-   apply require_satisfied; [exact Primary|]; intros HasPrimary.
-   eapply observe_absent; [exact Retry|]; intros Fresh.
-   apply require_satisfied; [exact Workspace|]; intros Ready.
-   apply require_satisfied; [exact Capacity|]; intros Room.
-   eexists; split; reflexivity.
- - discriminate.
-Qed.
-
-Theorem resolved_connection_has_authority : forall before identity project request (resolved : resolved_connection before identity project request),
- exists grant, connection_authority (Selvedge.Features.Domain.job_connection (resolved_job resolved))
-   (Selvedge.Features.Domain.job_project (resolved_job resolved)) (sharing_registry before) = Some grant.
-Proof.
- intros before identity project request [job Owner Project Request Running Admitted]; cbn in *.
- unfold connection in Admitted. fold (sharing_registry before) in Admitted.
- destruct (find _ _) as [grant|] eqn:Grant; [|discriminate].
- destruct (registry_at _ _) as [target|]; [|discriminate].
- repeat rewrite andb_true_iff in Admitted.
- exists grant; unfold connection_authority,connection_grant; rewrite Grant.
- destruct (existsb _ _) eqn:Member; [reflexivity|]. intuition discriminate.
-Qed.
-
-Theorem resolved_connection_has_fresh_request : forall before identity project request (resolved : resolved_connection before identity project request),
- connection_retry (Selvedge.Features.Domain.job_connection (resolved_job resolved))
-   (Selvedge.Features.Domain.job_request (resolved_job resolved)) (sharing_registry before) = None.
-Proof.
- intros before identity project request [job Owner Project Request Running Admitted]; cbn in *.
- unfold connection in Admitted. fold (sharing_registry before) in Admitted.
- destruct (find _ _); [|discriminate]. destruct (registry_at _ _); [|discriminate].
- repeat rewrite andb_true_iff in Admitted.
- assert (NoMatch : existsb (fun entry => N.eqb (Selvedge.Features.Domain.job_connection job)
-   (Selvedge.Features.Domain.job_connection (snd entry)) &&
-   String.eqb (Selvedge.Features.Domain.job_request job) (Selvedge.Features.Domain.job_request (snd entry)))
-   (Selvedge.Features.Domain.sharing_jobs (sharing_registry before)) = false).
- { apply negb_true_iff; tauto. }
- unfold connection_retry.
- destruct (find _ _) as [existing|] eqn:Found; [|reflexivity].
- apply find_some in Found as [Member Matches].
- assert (HasMatch : existsb (fun entry => N.eqb (Selvedge.Features.Domain.job_connection job)
-   (Selvedge.Features.Domain.job_connection (snd entry)) &&
-   String.eqb (Selvedge.Features.Domain.job_request job) (Selvedge.Features.Domain.job_request (snd entry)))
-   (Selvedge.Features.Domain.sharing_jobs (sharing_registry before)) = true).
- { apply existsb_exists; exists existing; auto. }
- rewrite NoMatch in HasMatch; discriminate.
+ rewrite Arguments.
+ eapply observe_present; [exact Authority|]; intros Granted.
+ eapply observe_present; [exact Project|]; intros Existing.
+ apply require_satisfied; [exact Primary|]; intros HasPrimary.
+ eapply observe_absent; [exact Retry|]; intros Fresh.
+ apply require_satisfied; [exact Workspace|]; intros Ready.
+ apply require_satisfied; [exact Capacity|]; intros Room.
+ eexists; split; reflexivity.
 Qed.

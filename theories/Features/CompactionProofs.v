@@ -114,22 +114,13 @@ Qed.
 
 Lemma printed_natural_is_admitted : forall value, natural (number value) = Some value.
 Proof. exact natural_print_parse. Qed.
-Definition completed_input (id ticket : N) (fields : list (string * json)) := JObject [
- ("kind", JString "compaction_completed"); ("task_id", number id); ("ticket", number ticket);
- ("error", JBool false); ("result", JObject fields)].
-Lemma completion_wire_is_admitted : forall id ticket fields,
- CC.decode_completion "compaction_completed" (completed_input id ticket fields) = Some (Completed id ticket (JObject fields) false).
-Proof.
- intros. unfold CC.decode_completion, CC.completion_decoder, CC.completion_decoders, CC.decode_outcome, completed_input.
- cbv beta iota zeta delta -[parse_natural show_natural]. now rewrite !natural_print_parse.
-Qed.
 Definition owns_compactor_ticket (id ticket : N) (value : K.world) :=
  match entry_job (A.current_entry id (A.registry value)) with
  | Compacting expected _ _ _ _ => N.eqb ticket expected | _ => false end.
-Lemma stale_result_does_not_change_the_component : forall id ticket result value,
- owns_compactor_ticket id ticket value = false -> A.resolve (Completed id ticket result false) value = None.
+Lemma stale_result_does_not_change_the_component : forall id ticket result error value,
+ owns_compactor_ticket id ticket value = false -> A.resolve (Completed id ticket result error) value = None.
 Proof.
- intros id ticket result value stale; unfold A.resolve,A.resolve_task_completion.
+ intros id ticket result error value stale; unfold A.resolve,A.resolve_task_completion.
  destruct (K.find_task id value) as [current|]; [|reflexivity].
  unfold owns_compactor_ticket in stale; cbv beta zeta.
  unfold A.running,A.alive,A.compact_result.
@@ -139,19 +130,20 @@ Proof.
 Qed.
 (** A valid stale observation still participates in journal ordering and the
     outer scheduler. Its own handler acquires no state or execution authority. *)
-Theorem stale_compactor_callback_has_no_effects : forall id ticket fields value,
+Theorem stale_compactor_callback_has_no_effects : forall source id ticket result error value,
+ string_field "kind" source = Some "compaction_completed" ->
+ CC.decode_completion "compaction_completed" source = Some (Completed id ticket result error) ->
  owns_compactor_ticket id ticket value = false ->
- A.completion (completed_input id ticket fields) value =
- Some (true,true,A.acknowledged false value []).
+ A.completion source value = Some (true,true,A.acknowledged false value []).
 Proof.
- intros. unfold A.completion, completed_input at 1.
- cbn -[A.owns_kind CC.decode_completion].
- change (Some (match CC.decode_completion "compaction_completed" (completed_input id ticket fields) with
+ intros source id ticket result error value Kind Decoded Stale.
+ unfold A.completion; rewrite Kind.
+ change (Some (match CC.decode_completion "compaction_completed" source with
  | Some event => match A.resolve event value with
    | Some result => (true,true,result) | None => (true,true,A.acknowledged false value []) end
  | None => (false,false,K.reject "invalid_input" "Malformed compaction observation" value) end) =
  Some (true,true,A.acknowledged false value [])).
- rewrite completion_wire_is_admitted, stale_result_does_not_change_the_component by assumption. reflexivity.
+ rewrite Decoded, stale_result_does_not_change_the_component by assumption. reflexivity.
 Qed.
 Definition clock_input (now : N) := JObject [("kind",JString "compaction_clock");("now",number now)].
 Theorem clock_observation_uses_monotone_time : forall now value,

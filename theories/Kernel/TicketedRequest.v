@@ -1,6 +1,5 @@
 From Selvedge.Kernel Require Import TaskScope RequestReceiver.
 From Selvedge.Kernel Require CommandResult.
-From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects OptionList Receiver Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
@@ -354,7 +353,7 @@ Definition maintenance_selected owner request before current
    (fun entry Stored => maintenance_observed owner request before current Found entry Stored) (fun _ => None).
 Definition title_slot owner :=
  Receiver.field F.feature_titles
-   (Receiver.inject (F.TitleEntry owner) (Receiver.keyed owner F.title_task)).
+   (Receiver.inject (F.TitleEntry owner) (Receiver.keyed F.title_task)).
 Definition board_contents : Focus.t F.board (list (option F.card) * list N).
 Proof.
  refine (Focus.Focus _ _ _
@@ -367,17 +366,17 @@ Proof.
 Defined.
 Definition card_slot owner := Receiver.field F.feature_board
  (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).
-Definition connection_jobs identity := Receiver.field F.sharing_jobs
- (Receiver.keyed identity (@fst N F.connection_job)).
-Definition connection_slot identity := Receiver.field F.feature_sharing (connection_jobs identity).
+Definition connection_jobs := Receiver.field F.sharing_jobs
+ (Receiver.keyed (@fst N F.connection_job)).
+Definition connection_slot := Receiver.field F.feature_sharing connection_jobs.
 Definition compaction_entries owner := Receiver.field C.maintenance_entries
- (Receiver.inject (@pair N C.entry owner) (Receiver.keyed owner (@fst N C.entry))).
+ (Receiver.inject (@pair N C.entry owner) (Receiver.keyed (@fst N C.entry))).
 Definition compaction_slot owner := Receiver.field F.feature_compaction (compaction_entries owner).
 Definition install_feature {input} (receiver : Receiver.t F.state input) request value :=
  with_features (Receiver.install receiver request (world_features value)) value.
 Definition put_title owner := install_feature (title_slot owner).
 Definition put_card owner := install_feature (card_slot owner).
-Definition put_connection identity job := install_feature (connection_slot identity) (identity,job).
+Definition put_connection identity job := install_feature connection_slot (identity,job).
 Definition put_compaction owner := install_feature (compaction_slot owner).
 Definition can_observe_maintenance (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
@@ -437,40 +436,37 @@ Definition maintenance_build owner identity source : C.entry * C.effect :=
  | CompactRequest input purpose target progress scope entry =>
    (set C.entry_job (fun _ => C.Compacting identity input purpose progress scope) entry,
     C.Compact owner identity input target progress scope) end.
-(** A protocol declares its receiver and external operation together. Extending
-    the request language adds a declaration; no global feature enumeration or
-    preservation-case table is involved. The interpreter owns allocation and
-    the single envelope supplied to both projections. *)
-Record feature_channel (payload : Type) := FeatureChannel {
+(** A channel consumes a domain selection. Its payload and located protocol
+    are projections of that one selection; only domain-specific eligibility is
+    part of the source. Allocation and receiver installation belong here. *)
+Record feature_channel (source : world -> Type) (payload : Type) := FeatureChannel {
  channel_space : identity_space;
- channel_protocol : N -> RequestTypes.protocol payload;
- channel_admission : world -> payload -> Type
+ channel_input : forall before, source before -> payload;
+ channel_protocol : forall before, source before ->
+   RequestTypes.located payload (world_features (snd (allocate_identity channel_space before)))
 }.
-Arguments FeatureChannel {payload}.
-Arguments channel_space {payload}.
-Arguments channel_protocol {payload}.
-Arguments channel_admission {payload}.
+Arguments FeatureChannel {source payload}.
+Arguments channel_space {source payload}.
+Arguments channel_input {source payload} _ {before}.
+Arguments channel_protocol {source payload} _ {before}.
 Record feature_plan (before : world) := FeaturePlan {
+ feature_source : world -> Type;
  feature_payload : Type;
- feature_protocol : feature_channel feature_payload;
- feature_input : feature_payload;
- feature_admitted : channel_admission feature_protocol before feature_input;
- feature_available : Receiver.available
-   (RequestTypes.receiver (channel_protocol feature_protocol (next_identity (channel_space feature_protocol) before)))
-   (RequestEnvelope.Envelope (next_identity (channel_space feature_protocol) before) feature_input)
-   (world_features (snd (allocate_identity (channel_space feature_protocol) before))) = true
+ feature_protocol : feature_channel feature_source feature_payload;
+ feature_selected : feature_source before
 }.
-Arguments FeaturePlan {before feature_payload}.
+Arguments FeaturePlan {before feature_source feature_payload}.
+Arguments feature_source {before}.
 Arguments feature_payload {before}.
 Arguments feature_protocol {before}.
-Arguments feature_input {before}.
-Arguments feature_admitted {before}.
-Arguments feature_available {before}.
+Arguments feature_selected {before}.
+Definition feature_input {before} (request : feature_plan before) :=
+ channel_input (feature_protocol request) (feature_selected request).
 Definition feature_envelope {before} (request : feature_plan before) :=
  RequestEnvelope.Envelope (next_identity (channel_space (feature_protocol request)) before) (feature_input request).
 Definition feature_request {before} (request : feature_plan before) :=
  RequestTypes.Packet
-   (channel_protocol (feature_protocol request) (RequestEnvelope.identity (feature_envelope request)))
+   (RequestTypes.release (channel_protocol (feature_protocol request) (feature_selected request)))
    (feature_envelope request).
 Definition feature_issue_change {before} (request : feature_plan before) : CommandResult.change :=
  let '(_,allocated) := allocate_identity (channel_space (feature_protocol request)) before in
@@ -481,35 +477,6 @@ Definition feature_issue_change {before} (request : feature_plan before) : Comma
 Definition feature_issue {before} (request : feature_plan before) : decision :=
  CommandResult.accept (feature_issue_change request).
 
-Definition title_protocol owner : RequestTypes.protocol (profile * string) :=
- RequestTypes.Protocol (Receiver.inject F.TitlePending (title_slot owner))
-   ModelDeclarations.task_title_request
-   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.task_title_request)
-     [!Codec.task_text_model_json (fst input);snd input!]).
-Definition title_channel owner : feature_channel (profile * string) :=
- FeatureChannel TaskTicket (fun _ => title_protocol owner)
-   (fun before input => FeatureRequestAdmission.title owner (fst input) (snd input) before = true).
-Definition card_protocol owner card selected prompt : RequestTypes.protocol (N * bool) :=
- RequestTypes.Protocol
-   (Receiver.in_record (card_slot owner) F.card_enrichment F.Enriching card)
-   ModelDeclarations.board_text_request
-   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.board_text_request)
-     [!Codec.task_text_model_json selected;prompt;snd input!]).
-Definition card_channel owner card selected prompt : feature_channel (N * bool) :=
- FeatureChannel TaskTicket (fun _ => card_protocol owner card selected prompt)
-   (fun before input => fst input = F.card_revision card /\
-     FeatureRequestAdmission.card owner card selected prompt (snd input) before = true).
-Definition connection_protocol identity : RequestTypes.protocol F.connection_job :=
- RequestTypes.Protocol (Receiver.inject RequestEnvelope.as_pair (connection_slot identity))
-   ModelDeclarations.chatgpt_exec_request
-   (fun job features => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.chatgpt_exec_request)
-     [!F.job_arguments_json job;JObject [
-       ("workspace",workspace_json (F.job_workspace job));
-       ("resource",F.reference_execution (F.job_resource job) features);
-       ("sandbox",sandbox_json (F.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]).
-Definition connection_channel : feature_channel F.connection_job :=
- FeatureChannel ConnectionIdentity connection_protocol
-   (fun before job => F.job_state job = F.JobRunning /\ FeatureRequestAdmission.connection job before = true).
 Definition maintenance_issue {before owner request}
  (reference : maintenance_reference before owner request) : decision :=
  let '(identity,allocated) := allocate_identity TaskTicket before in
@@ -517,28 +484,4 @@ Definition maintenance_issue {before owner request}
  accept (JObject [("accepted",JBool true)])
    (put_compaction owner (set C.entry_observation (fun _ => C.entry_observation (maintenance_previous reference)) pending) allocated)
    [MaintainContext request_effect].
-Definition card_plan {before} owner card selected prompt retitle
- (Bound : N.leb owner (N.of_nat (List.length (F.board_cards (F.feature_board (world_features before))))) = true)
- (Admitted : FeatureRequestAdmission.card owner card selected prompt retitle before = true)
- : feature_plan before :=
- FeaturePlan (card_channel owner card selected prompt) (F.card_revision card,retitle)
-   (conj eq_refl Admitted) Bound.
-Definition connection_plan {before identity project request_id}
- (request : FeatureRequestAdmission.resolved_connection before identity project request_id)
- : feature_plan before :=
- FeaturePlan connection_channel (FeatureRequestAdmission.resolved_job request)
-   (conj (FeatureRequestAdmission.resolved_running request) (FeatureRequestAdmission.resolved_admitted request))
-   (N.eqb_refl _).
-Definition title_plan {before} (request : FeatureRequestAdmission.resolved_title before) : feature_plan before.
-Proof.
- refine (FeaturePlan (title_channel (TaskScope.owner (FeatureRequestAdmission.title_reference request)))
-   (FeatureRequestAdmission.title_profile request,
-    FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before) _ (N.eqb_refl _)).
- cbn [channel_admission title_channel fst snd]. apply FeatureRequestAdmission.title_from_observations.
- - apply TaskScope.observed.
- - apply FeatureRequestAdmission.title_absent.
- - exact (proj1 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
- - exact (proj2 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
- - apply FeatureRequestAdmission.title_chosen.
-Defined.
 End Scoped.

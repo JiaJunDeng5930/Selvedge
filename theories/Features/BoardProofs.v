@@ -357,19 +357,22 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
    (if String.eqb profile_name "" then F.board_draft_profile (Board.registry value) else profile_name)
    (environment_profiles (world_environment value))=Some selected ->
  TitleRuntime.ordinary selected=true ->
- decision_effects (Board.regenerate id revision observed profile_name value)=
- [RequestFeature (RequestTypes.Packet
-   (TicketedRequest.Scoped.card_protocol id (BoardFacts.revised (F.card_contents card) now card) selected
-     (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
-       (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true))
-   (RequestEnvelope.Envelope (world_next_ticket value) (N.succ (F.card_revision card),true)))].
+ exists request : BoardDrafting.drafting_request value,
+ decision_effects (Board.regenerate id revision observed profile_name value) =
+   [RequestFeature (TicketedRequest.Scoped.feature_request
+     (TicketedRequest.Scoped.FeaturePlan BoardDrafting.channel request))] /\
+ BoardDrafting.target_id (BoardDrafting.requested_target request) = id /\
+ BoardDrafting.target_card (BoardDrafting.requested_target request) =
+   BoardFacts.revised (F.card_contents card) now card /\
+ BoardDrafting.target_retitle (BoardDrafting.requested_target request) = true /\
+ BoardDrafting.requested_profile request = selected.
 Proof.
  intros id revision value card profile_name selected now observed Found Current Clock Mutable Available Ordinary.
  subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name now observed Found Clock Mutable).
  unfold Board.request_text,Board.request_text_result.
  eapply observe_present; [exact Available|]; intros Selected.
  eapply require_satisfied; [exact Ordinary|]; intros Capable.
- reflexivity.
+ eexists; repeat split; reflexivity.
 Qed.
 
 (** A title result retains the linked Task identifier in the saved card. *)

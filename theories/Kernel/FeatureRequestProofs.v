@@ -12,14 +12,15 @@ Module C := Selvedge.Features.CompactionTypes.
 Theorem every_feature_request_has_its_installed_receiver : forall before (request : S.feature_plan before),
  match decision_effects (S.feature_issue request) with
  | [RequestFeature sent] =>
-   Receiver.lookup (RequestTypes.receiver (RequestTypes.definition sent))
+   Receiver.lookup (RequestTypes.receiver (RequestTypes.definition sent)) (RequestTypes.request sent)
      (world_features (decision_world (S.feature_issue request))) = Some (RequestTypes.request sent)
  | _ => False end.
 Proof.
  intros before request.
  unfold S.feature_issue,S.feature_issue_change,CommandResult.accept,allocate_identity,
    S.feature_request,RequestTypes.install; cbn -[Receiver.lookup Receiver.install S.feature_envelope].
- apply ReceiverProofs.installed; exact (S.feature_available request).
+ apply ReceiverProofs.installed; exact (Receiver.position
+   (RequestTypes.receiver (S.channel_protocol (S.feature_protocol request) (S.feature_selected request)))).
 Qed.
 
 Theorem feature_requests_preserve_execution_frame : forall before (request : S.feature_plan before),

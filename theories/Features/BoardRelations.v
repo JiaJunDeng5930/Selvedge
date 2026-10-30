@@ -15,12 +15,8 @@ Proof.
  destruct (registry_at id (Selvedge.Features.Domain.board_cards (Board.registry value)))
    as [stored|] eqn:slot; cbn in found; try discriminate.
  inversion found; subst stored.
- assert ((id < N.of_nat (List.length
-   (Selvedge.Features.Domain.board_cards (Board.registry value))))%N) as bounded.
- { eapply Selvedge.Foundation.RegistryProofs.registry_lookup_implies_position_bound; exact slot. }
- unfold Board.registry in bounded.
  pose proof (ReceiverProofs.installed (TicketedRequest.Scoped.card_slot id) replacement
-   (world_features value) ltac:(cbn; apply N.leb_le; lia)) as Installed.
+   (world_features value) (or_intror (ex_intro _ (Some before) slot))) as Installed.
  change (match registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))) with
    | Some stored => Constructor.project (@Some card) stored | None => None end = Some replacement) in Installed.
  unfold Board.lookup,Board.registry.

@@ -41,9 +41,7 @@ Proof.
    cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
      Chatgpt.resolved_connection_change CommandResult.accept CommandResult.reject];
    try (split; reflexivity).
- destruct (resolved_connection_has_authority _ _ _ _ resolved) as [grant Authority].
- rewrite (FeatureRequestAdmission.resolved_identity resolved),
-   (FeatureRequestAdmission.resolved_project resolved) in Authority.
+ pose proof (FeatureRequestAdmission.resolved_authority resolved) as Authority.
  unfold Chatgpt.authority,Chatgpt.registry in Missing. rewrite Missing in Authority; discriminate.
 Qed.
 
@@ -153,7 +151,7 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
    (F.sharing_next (Chatgpt.registry value) <? ChatgptArguments.identity_maximum))=true ->
  exists decision job,
  Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value=decision /\
- decision_effects decision=[RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.connection_protocol (F.sharing_next (Chatgpt.registry value)))
+ decision_effects decision=[RequestFeature (RequestTypes.Packet (RequestTypes.release (Chatgpt.protocol (world_features value)))
    (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry value)) job))] /\
  F.job_connection job=connection /\ F.job_project job=project /\ F.job_arguments job=decoded /\
  F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
@@ -170,13 +168,14 @@ Proof.
  cbn [G.chatgpt_exec_connection_id G.chatgpt_exec_project_id G.chatgpt_exec_request_id G.chatgpt_exec_arguments].
  rewrite Resolved.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
-   Chatgpt.resolved_connection_change TicketedRequest.Scoped.connection_plan
-   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_input
-   TicketedRequest.Scoped.feature_request TicketedRequest.Scoped.feature_protocol
+   Chatgpt.resolved_connection_change Chatgpt.plan
+   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_input TicketedRequest.Scoped.feature_selected
+   TicketedRequest.Scoped.feature_request TicketedRequest.Scoped.feature_envelope TicketedRequest.Scoped.feature_protocol
    TicketedRequest.Scoped.channel_protocol TicketedRequest.Scoped.channel_space
-   TicketedRequest.Scoped.connection_channel TicketedRequest.allocate_identity TicketedRequest.next_identity].
- rewrite Job. eexists; eexists; repeat split; try reflexivity;
-   cbn [TicketedRequest.Scoped.feature_input TicketedRequest.Scoped.connection_plan]; now rewrite Job.
+   Chatgpt.channel TicketedRequest.Scoped.channel_input TicketedRequest.allocate_identity TicketedRequest.next_identity].
+ assert (Input : TicketedRequest.Scoped.feature_input (Chatgpt.plan resolved) =
+   FeatureRequestAdmission.connection_job connection project request decoded granted target) by exact Job.
+ rewrite Job. eexists; eexists; repeat split; try reflexivity; rewrite Input; reflexivity.
 Qed.
 
 (** A retry remains a receipt lookup, but a new physical job cannot enter
@@ -194,13 +193,11 @@ Proof.
    cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
      Chatgpt.resolved_connection_change CommandResult.accept CommandResult.reject];
    try (split; reflexivity).
- pose proof (FeatureRequestAdmission.resolved_admitted resolved) as Valid.
- unfold FeatureRequestAdmission.connection in Valid.
- rewrite (FeatureRequestAdmission.resolved_project resolved) in Valid.
- unfold Chatgpt.project,FeatureRequestAdmission.connection_project in Project.
- destruct (registry_at project (world_projects value)) as [current|] eqn:Found; [|discriminate].
- destruct (project_deleted current) eqn:Deleted; [discriminate|]. inversion Project; subst current.
- destruct (find _ _) in Valid; [|discriminate].
+ pose proof (FeatureRequestAdmission.resolved_target_found resolved) as Found.
+ change (FeatureRequestAdmission.connection_project project value = Some target) in Project.
+ rewrite Project in Found; injection Found as Target.
+ pose proof (FeatureRequestAdmission.resolved_workspace resolved) as Ready.
+ unfold FeatureRequestAdmission.connection_workspace in Ready; rewrite <- Target in Ready.
  change (WorkspaceBinding.workspace_available (project_workspace target) value = false) in Unavailable.
- rewrite Unavailable in Valid. repeat rewrite andb_false_r in Valid; discriminate.
+ rewrite Unavailable in Ready; discriminate.
 Qed.

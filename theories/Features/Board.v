@@ -35,24 +35,6 @@ Definition parse_patch (input:patch) (old:Selvedge.Features.Domain.card_draft) :
  | Some stage,Some priority,Some owner,Some project,Some files=>Some (Selvedge.Features.Domain.CardDraft
  (retained (patch_title input) (Selvedge.Features.Domain.draft_title old)) (retained (patch_description input) (Selvedge.Features.Domain.draft_description old)) stage priority owner project
  (retained (patch_labels input) (Selvedge.Features.Domain.draft_labels old)) files) | _,_,_,_,_=>None end.
-Lemma parsed_patch_keeps_serializable_files : forall input old draft,
- forallb (fun file => match attachment (Observation.attachment_json file) with
-   Some _ => true | None => false end) (Selvedge.Features.Domain.draft_attachments old) = true ->
- parse_patch input old = Some draft ->
- forallb (fun file => match attachment (Observation.attachment_json file) with
-   Some _ => true | None => false end) (Selvedge.Features.Domain.draft_attachments draft) = true.
-Proof.
- intros input old draft Previous Parsed; unfold parse_patch in Parsed.
- destruct (match patch_stage input with Some name => stage name | None => Some (Selvedge.Features.Domain.draft_stage old) end); [|discriminate].
- destruct (match patch_priority input with Some name => priority name | None => Some (Selvedge.Features.Domain.draft_priority old) end); [|discriminate].
- destruct (match patch_owner input with Some name => owner name | None => Some (Selvedge.Features.Domain.draft_owner old) end); [|discriminate].
- destruct (match patch_project input with Some name => optional_project name | None => Some (Selvedge.Features.Domain.draft_project old) end); [|discriminate].
- destruct (match patch_attachments input with Some raw => traverse attachment raw | None => Some (Selvedge.Features.Domain.draft_attachments old) end) as [files|] eqn:Files; [|discriminate].
- inversion Parsed; subst draft; cbn.
- destruct (patch_attachments input) as [raw|].
- - eapply BD.parsed_attachments_are_serializable; exact Files.
- - inversion Files; subst files; exact Previous.
-Qed.
 Lemma observed_clock_is_bounded : forall supplied now,
  clock supplied = Some now -> N.leb now 4294967295 = true.
 Proof.
@@ -105,8 +87,7 @@ Definition request_text_result {value} (target:BD.drafting_target value) (profil
  FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
  (fun profile Selected =>
    FRA.require (TitleRuntime.ordinary profile) (fun Ordinary =>
-     let request:=BD.plan target profile
-       (BD.selected_profile_is_registered name value profile Selected) Ordinary in
+     let request:=BD.plan target name profile Selected Ordinary in
      let issued:=TicketedRequest.Scoped.feature_issue_change request in
      CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
        (CommandResult.change_world issued) (CommandResult.change_effects issued)))
@@ -126,15 +107,7 @@ Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card
        | _=>Utf8.render_chunks trimmed end in
      set Selvedge.Features.Domain.draft_title (fun _=>title) draft
    end else draft.
-Lemma normalizing_retains_files : forall assisted draft,
- Selvedge.Features.Domain.draft_attachments (normalized_draft assisted draft) =
- Selvedge.Features.Domain.draft_attachments draft.
-Proof.
- intros [] draft; [|reflexivity]. unfold normalized_draft.
- destruct (Utf8.chunks (Selvedge.Features.Domain.draft_title draft)); reflexivity.
-Qed.
-Definition parsed_drafting_target input parsed assisted value now
- (Parsed : parse_patch input empty_draft = Some parsed)
+Definition parsed_drafting_target parsed assisted value now
  (Clock : N.leb now 4294967295 = true)
  (Valid : valid_draft (normalized_draft assisted parsed) value &&
    Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295 = true)
@@ -142,9 +115,7 @@ Definition parsed_drafting_target input parsed assisted value now
 Proof.
  apply andb_true_iff in Valid as [DraftCapacity Identity].
  apply andb_true_iff in DraftCapacity as [Draft Capacity].
- refine (BD.fresh_target value (normalized_draft assisted parsed) now Clock Draft _ Capacity Identity).
- rewrite normalizing_retains_files.
- exact (parsed_patch_keeps_serializable_files input empty_draft parsed eq_refl Parsed).
+ exact (BD.fresh_target value (normalized_draft assisted parsed) now Clock Draft Capacity Identity).
 Defined.
 Definition create_card_result (input:patch) (supplied:option string) (assisted:bool) (profile:string) (value:world) :=
  FRA.observe (clock supplied) (fun now Clock =>
@@ -152,7 +123,7 @@ Definition create_card_result (input:patch) (supplied:option string) (assisted:b
  let draft:=normalized_draft assisted parsed in
  FRA.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
  (fun Valid => if assisted then request_text_result
-   (parsed_drafting_target input parsed assisted value now Parsed
+   (parsed_drafting_target parsed assisted value now
      (observed_clock_is_bounded supplied now Clock) Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft now) value))
  "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.")

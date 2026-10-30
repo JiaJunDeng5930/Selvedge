@@ -22,9 +22,6 @@ Definition destructive route := negb (readonly route).
 Definition idempotent route := match route with Cancel => true | _ => readonly route end.
 Definition open_world route := match route with Execute => true | _ => false end.
 Definition identity_maximum := ChatgptArguments.identity_maximum.
-Definition argument_declaration := ChatgptArguments.argument_declaration.
-Definition bounds := ChatgptArguments.bounds.
-Definition bounded_property := ChatgptArguments.bounded_property.
 Definition args_schema := ChatgptArguments.args_schema.
 Definition admit_args := ChatgptArguments.admit_args.
 Definition valid_args := ChatgptArguments.valid_args.
@@ -36,14 +33,19 @@ Definition id_property field :=
   let properties := kind_schema field.(field_kind) in
   JObject (if String.eqb field.(field_name) "request_id" then properties else
     set_field "maximum" (JNumber (show_natural identity_maximum)) properties).
+Definition client_argument (property : string * bool * ArgumentDeclaration.t) :=
+ let '(name,_,description) := property in
+ let schema := ArgumentDeclaration.schema description in
+ let annotation := if String.eqb name "timeout_ms" then Some ChatgptArguments.default_timeout_ms
+   else if String.eqb name "max_output_length" then Some ChatgptArguments.default_max_output_length else None in
+ (name,match annotation with
+ | None => schema
+ | Some value => JObject [("allOf",JArray [schema]);("default",JNumber (show_natural value))] end).
 Definition client_schema route :=
   let base := map (fun f => (f.(field_name),id_property f)) (client_fields route) in
   let required := map field_name (client_fields route) in
-  match route with Execute => object_schema (base ++ map (fun f => (f.(field_name),JObject (
-      match bounded_property f with JObject fs => fs | _ => [] end ++
-      if String.eqb f.(field_name) "timeout_ms" then [("default",JNumber (show_natural ChatgptArguments.default_timeout_ms))]
-      else if String.eqb f.(field_name) "max_output_length" then [("default",JNumber (show_natural ChatgptArguments.default_max_output_length))] else []))) argument_declaration)
+  match route with Execute => object_schema (base ++ map client_argument ChatgptArguments.properties)
       (required ++ ["command"])
   | _ => object_schema base required end.
 Definition client_keys route := map field_name (client_fields route) ++
-  match route with Execute => map field_name argument_declaration | _ => [] end.
+  match route with Execute => map (fun property => fst (fst property)) ChatgptArguments.properties | _ => [] end.
