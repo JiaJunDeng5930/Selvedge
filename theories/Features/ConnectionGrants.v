@@ -7,12 +7,14 @@ Open Scope string_scope.
 Module D := ArgumentDeclaration.
 
 Definition identity_declaration := ChatgptArguments.identity_declaration.
-Definition project_ids_declaration := D.BoundedArray 0 32 identity_declaration.
+Definition maximum_connections : N := 32.
+Definition maximum_projects : N := 32.
+Definition project_ids_declaration := D.BoundedArray 0 maximum_projects identity_declaration.
 Definition grant_declaration := D.Object [
  ("connection_id",true,identity_declaration);
  ("project_ids",true,project_ids_declaration);
  ("sandbox",true,Codec.sandbox_declaration)].
-Definition declaration := D.BoundedArray 0 32 grant_declaration.
+Definition declaration := D.BoundedArray 0 maximum_connections grant_declaration.
 
 Module ProjectEntries.
  Definition t := D.denote identity_declaration.
