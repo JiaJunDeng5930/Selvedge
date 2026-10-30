@@ -87,8 +87,7 @@ Definition configure entries value := match Schema.decode_list parse_grant entri
  | Some entries=>if (N.of_nat (List.length entries) <=? 32) && distinct_ids (map Selvedge.Features.Domain.connection_id entries) && forallb (valid_grant value) entries then
    accept (JObject []) (store (set Selvedge.Features.Domain.sharing_grants (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
-Definition replace_job id job state := set Selvedge.Features.Domain.sharing_jobs
- (fun previous=>(id,job)::filter (fun item=>negb (N.eqb id (fst item))) previous) state.
+Definition replace_job id job := Receiver.install (TicketedRequest.Scoped.connection_jobs id) (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
 Definition bounded_text := FeatureRequestAdmission.bounded_text.
 Definition resolved_connection_change {value identity project request_id}

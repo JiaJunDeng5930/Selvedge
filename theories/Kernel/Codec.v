@@ -163,6 +163,10 @@ Definition model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString (profile_reasoning value));
  ("adaptive_reasoning", reasoning_policy_json (profile_policy value))].
+(* Auxiliary generation uses the connection's ordinary default effort. *)
+Definition task_text_model_json (value : profile) := JObject [
+ ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
+ ("name", JString (profile_model value)); ("reasoning", JString "default")].
 Definition with_reasoning := Domain.with_reasoning.
 Definition parse_reasoning_policy := Domain.parse_reasoning_policy.
 Definition profile_options := Domain.profile_options.

@@ -16,8 +16,7 @@ Definition registry (value:world) := Selvedge.Features.Domain.feature_board (wor
 Definition store (board:Selvedge.Features.Domain.board) (value:world) := Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_board board (world_features value)) value.
 Definition lookup (id:N) (value:world) := match registry_at id (Selvedge.Features.Domain.board_cards (registry value)) with Some card=>card | None=>None end.
 Definition lookup_agent (id:N) (value:world) := match registry_at id (Selvedge.Features.Domain.board_agents (registry value)) with Some agent=>agent | None=>None end.
-Definition put (id:N) (card:Selvedge.Features.Domain.card) (value:world) := let b:=registry value in
- store ((set Selvedge.Features.Domain.board_order (fun _=>(if existsb (N.eqb id) (Selvedge.Features.Domain.board_order b) then Selvedge.Features.Domain.board_order b else Selvedge.Features.Domain.board_order b++[id])) (set Selvedge.Features.Domain.board_cards (fun _=>(if N.eqb id (N.of_nat (List.length (Selvedge.Features.Domain.board_cards b))) then Selvedge.Features.Domain.board_cards b++[Some card] else replace id (Some card) (Selvedge.Features.Domain.board_cards b))) (b)))) value.
+Definition put := TicketedRequest.Scoped.put_card.
 Definition result (id:N) (card:Selvedge.Features.Domain.card) := JObject [("card_id",number id);("revision",number (Selvedge.Features.Domain.card_revision card))].
 Definition save_change (id:N) (card:Selvedge.Features.Domain.card) (value:world) :=
  CommandResult.Change (result id card) (put id card value) [].

@@ -78,7 +78,7 @@ Theorem completion_preserves_execution_context : forall id job result error valu
  F.job_workspace finished=F.job_workspace job /\ F.job_resource finished=F.job_resource job /\ F.job_sandbox finished=F.job_sandbox job /\
  F.job_state finished=F.JobFinished result error.
 Proof.
- intros. unfold Chatgpt.settle. rewrite H,H0. cbn.
+ intros. unfold Chatgpt.settle. rewrite H,H0. cbn -[Chatgpt.replace_job].
  exists (Chatgpt.with_outcome (F.JobFinished result error) job).
  rewrite sharing_registry_store,lookup_replaced_job.
  destruct job; repeat split;reflexivity.
@@ -153,7 +153,8 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
    (F.sharing_next (Chatgpt.registry value) <? ChatgptArguments.identity_maximum))=true ->
  exists decision job,
  Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value=decision /\
- decision_effects decision=[RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry value)) job)] /\
+ decision_effects decision=[RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.connection_protocol (F.sharing_next (Chatgpt.registry value)))
+   (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry value)) job))] /\
  F.job_connection job=connection /\ F.job_project job=project /\ F.job_arguments job=decoded /\
  F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
 Proof.
@@ -170,8 +171,12 @@ Proof.
  rewrite Resolved.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
    Chatgpt.resolved_connection_change TicketedRequest.Scoped.connection_plan
-   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_intent].
- rewrite Job. eexists; eexists; repeat split; try reflexivity; now rewrite Job.
+   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_input
+   TicketedRequest.Scoped.feature_request TicketedRequest.Scoped.feature_protocol
+   TicketedRequest.Scoped.channel_protocol TicketedRequest.Scoped.channel_space
+   TicketedRequest.Scoped.connection_channel TicketedRequest.allocate_identity TicketedRequest.next_identity].
+ rewrite Job. eexists; eexists; repeat split; try reflexivity;
+   cbn [TicketedRequest.Scoped.feature_input TicketedRequest.Scoped.connection_plan]; now rewrite Job.
 Qed.
 
 (** A retry remains a receipt lookup, but a new physical job cannot enter

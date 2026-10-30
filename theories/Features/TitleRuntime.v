@@ -8,8 +8,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition entry := FeatureRequestAdmission.title_entry.
-Definition store (id:N) (state:Selvedge.Features.Domain.title_state) (value:world) :=
- Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_titles (Selvedge.Features.Domain.TitleEntry id state :: filter (fun item=>negb (N.eqb id (Selvedge.Features.Domain.title_task item))) (Selvedge.Features.Domain.feature_titles (world_features value))) (world_features value)) value.
+Definition store := TicketedRequest.Scoped.put_title.
 Definition configure (revision:N) (task_prompt agent_prompt:string) (value:world) :=
  if negb (Titles.valid_instructions task_prompt && Titles.valid_instructions agent_prompt) then
  Selvedge.Kernel.State.reject "invalid_title_settings" "Title prompts must be nonempty UTF-8 text of at most 4096 bytes" value

@@ -1,4 +1,4 @@
-From Stdlib Require Import String List.
+From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json Schema.
 Import ListNotations.
 Open Scope string_scope.
@@ -20,6 +20,35 @@ Record variant := Variant {
  safe_fields : list string; callback_name : option callback_kind
 }.
 Definition effect name fields callback := Variant "kind" (JString name) fields [] callback.
+(** Correlation coordinates are language-owned fields. Protocol declarations
+    supply only their body; encoding always takes the coordinates from the
+    installed request instance. *)
+Inductive correlation := OwnedTicket (owner_field : string) | StandaloneIdentity (identity_field : string).
+Definition correlation_fields (shape : correlation) := match shape with
+ | OwnedTicket owner => [Field owner KNatural; Field "ticket" KNatural]
+ | StandaloneIdentity identity => [Field identity KNatural] end.
+Record request_variant := RequestVariant {
+ request_name : string;
+ request_correlation : correlation;
+ request_body : schema;
+ request_callback : callback_kind
+}.
+Definition request_body_fields (request : request_variant) :=
+ let reserved := "kind" :: map field_name (correlation_fields (request_correlation request)) in
+ filter (fun field => negb (existsb (String.eqb (field_name field)) reserved)) (request_body request).
+Definition request_variant_view (request : request_variant) :=
+ effect (request_name request)
+   (correlation_fields (request_correlation request) ++ request_body_fields request)
+   (Some (request_callback request)).
+Definition request_fields (request : request_variant) (owner identity : N)
+ (body : fields (request_body_fields request))
+ : fields (payload_fields (request_variant_view request)) :=
+ match request_correlation request as shape
+   return fields (correlation_fields shape ++ request_body_fields request) with
+ | OwnedTicket name => @FCons (Field name KNatural)
+     (Field "ticket" KNatural :: request_body_fields request) owner
+     (@FCons (Field "ticket" KNatural) (request_body_fields request) identity body)
+ | StandaloneIdentity name => @FCons (Field name KNatural) (request_body_fields request) identity body end.
 Definition identity := [Field "task_id" KNatural; Field "ticket" KNatural].
 Definition task_only := [Field "task_id" KNatural].
 Definition model := Field "model" KJson.
@@ -58,10 +87,14 @@ Definition worktree_create := effect "worktree_create" ([Field "backend" (KEnum 
  [Field "source_root" KText;Field "workspace" KJson]) (Some (Worktree true)).
 Definition worktree_archive := effect "worktree_archive" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
  [Field "root" KText;Field "source_root" KText]) (Some (Worktree false)).
-Definition task_title := effect "task_title" (identity ++ [model;Field "prompt" KText]) (Some TaskTitle).
-Definition board_text := effect "board_text" [Field "card_id" KNatural;Field "ticket" KNatural;model;
- Field "prompt" KText;Field "retitle" KBool] (Some BoardText).
-Definition chatgpt_exec := effect "chatgpt_exec" [Field "operation_id" KNatural;Field "arguments" KJson;execution] (Some ChatgptExec).
+Definition task_title_request := RequestVariant "task_title" (OwnedTicket "task_id") [model;Field "prompt" KText] TaskTitle.
+Definition task_title := request_variant_view task_title_request.
+Definition board_text_request := RequestVariant "board_text" (OwnedTicket "card_id")
+ [model;Field "prompt" KText;Field "retitle" KBool] BoardText.
+Definition board_text := request_variant_view board_text_request.
+Definition chatgpt_exec_request := RequestVariant "chatgpt_exec" (StandaloneIdentity "operation_id")
+ [Field "arguments" KJson;execution] ChatgptExec.
+Definition chatgpt_exec := request_variant_view chatgpt_exec_request.
 Definition chatgpt_cancel := effect "chatgpt_cancel" [Field "operation_id" KNatural] None.
 Definition context_scope := effect "context_scope" (identity ++ [model]) (Some (Compaction false)).
 Definition context_measure := effect "context_measure" (identity ++ [model;history] ++ output ++

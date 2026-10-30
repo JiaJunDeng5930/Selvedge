@@ -1,4 +1,4 @@
-From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Foundation Require Import RegistryProofs ReceiverProofs.
 From Stdlib Require Import String List NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks CommandExecution.
@@ -18,20 +18,14 @@ Proof.
  assert ((id < N.of_nat (List.length
    (Selvedge.Features.Domain.board_cards (Board.registry value))))%N) as bounded.
  { eapply Selvedge.Foundation.RegistryProofs.registry_lookup_implies_position_bound; exact slot. }
- assert (N.eqb id (N.of_nat (List.length
-   (Selvedge.Features.Domain.board_cards (Board.registry value)))) = false) as not_append.
- { apply N.eqb_neq. lia. }
- unfold Board.registry in not_append.
- unfold Board.lookup, Board.put, Board.store, Board.registry,
-   Selvedge.Kernel.State.with_features, Selvedge.Features.State.with_board.
- rewrite not_append. cbv [set]. cbn.
- assert (selected : registry_at id
-   (replace id (Some replacement)
-     (Selvedge.Features.Domain.board_cards
-       (Selvedge.Features.Domain.feature_board (Selvedge.Kernel.State.world_features value)))) =
-   Some (Some replacement)).
- { eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected; exact slot. }
- rewrite selected. reflexivity.
+ unfold Board.registry in bounded.
+ pose proof (ReceiverProofs.installed (TicketedRequest.Scoped.card_slot id) replacement
+   (world_features value) ltac:(cbn; apply N.leb_le; lia)) as Installed.
+ change (match registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))) with
+   | Some stored => Constructor.project (@Some card) stored | None => None end = Some replacement) in Installed.
+ unfold Board.lookup,Board.registry.
+ destruct (registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))))
+   as [[stored|]|]; exact Installed.
 Qed.
 
 Lemma board_lookup_after_task_put : forall card_id task_id task value,

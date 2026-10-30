@@ -1,4 +1,5 @@
 From Stdlib Require Import NArith.
+From Selvedge.Foundation Require Import Constructor.
 
 (** A pending receiver and its external request share this value.  The
     correlation identity and frozen input cannot be selected independently
@@ -10,3 +11,9 @@ Record t (payload : Type) := Envelope {
 Arguments Envelope {payload} _ _.
 Arguments identity {payload} _.
 Arguments input {payload} _.
+
+Definition as_pair {payload} (request : t payload) := (identity request,input request).
+#[global] Instance pair_view payload : Constructor.View (@as_pair payload) := {
+ Constructor.project := fun pair => Some (Envelope (fst pair) (snd pair));
+ Constructor.project_inject := fun request => match request with Envelope _ _ => eq_refl end
+}.

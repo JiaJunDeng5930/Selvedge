@@ -358,8 +358,11 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
    (environment_profiles (world_environment value))=Some selected ->
  TitleRuntime.ordinary selected=true ->
  decision_effects (Board.regenerate id revision observed profile_name value)=
- [SuggestCard id (RequestEnvelope.Envelope (world_next_ticket value) ((N.succ (F.card_revision card)), true)) selected (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
-     (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true) (F.card_contents card)].
+ [RequestFeature (RequestTypes.Packet
+   (TicketedRequest.Scoped.card_protocol id (BoardFacts.revised (F.card_contents card) now card) selected
+     (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
+       (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true))
+   (RequestEnvelope.Envelope (world_next_ticket value) (N.succ (F.card_revision card),true)))].
 Proof.
  intros id revision value card profile_name selected now observed Found Current Clock Mutable Available Ordinary.
  subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name now observed Found Clock Mutable).

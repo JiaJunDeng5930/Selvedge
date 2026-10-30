@@ -42,7 +42,7 @@ Theorem title_start_with_observed_owner : forall id task result selected,
  TitleRuntime.start id result =
  Decision (TitleRuntime.store id (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))
    (with_ticket (N.succ (world_next_ticket before)) before))
-   (decision_reply result) (decision_effects result ++ [SuggestTitle id (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt))]).
+   (decision_reply result) (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol id) (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))]).
 Proof.
  intros id task result selected Found Absent Accepts Nonblank Chosen.
  destruct (admitted_title_resolves_without_rechecking id task (decision_world result) selected
@@ -53,26 +53,13 @@ Proof.
      (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) ((FeatureRequestAdmission.title_profile request), (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result)))))
      (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
    (decision_reply result)
-   (decision_effects result ++ [SuggestTitle (TaskScope.owner (FeatureRequestAdmission.title_reference request)) (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) ((FeatureRequestAdmission.title_profile request), (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result))))]) =
+   (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol (TaskScope.owner (FeatureRequestAdmission.title_reference request))) (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) ((FeatureRequestAdmission.title_profile request), (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result)))))]) =
    Decision (TitleRuntime.store id
      (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (FeatureRequestAdmission.title_prompt task (decision_world result)))))
      (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
-   (decision_reply result) (decision_effects result ++ [SuggestTitle id (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (FeatureRequestAdmission.title_prompt task (decision_world result))))])).
+   (decision_reply result) (decision_effects result ++ [RequestFeature (RequestTypes.Packet (TicketedRequest.Scoped.title_protocol id) (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (FeatureRequestAdmission.title_prompt task (decision_world result)))))])).
  rewrite Owner,Current,Selected; reflexivity.
 Qed.
-
-(** This is the actual emitted request. The selected profile and the single
-    computed prompt are frozen in the pending entry by the same transition. *)
-Theorem admitted_title_emits_frozen_request : forall id task result selected,
- find_task id (decision_world result)=Some task ->
- TitleRuntime.entry id (decision_world result)=None ->
- TitleRuntime.accepts task=true ->
- Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task))=true ->
- TitleRuntime.selected_profile task (decision_world result)=Some selected ->
- decision_effects (TitleRuntime.start id result)=decision_effects result ++
- [SuggestTitle id (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features (decision_world result))))
-     (TitleRuntime.first_request (task_history task)))))].
-Proof. intros. rewrite title_start_with_observed_owner with (task:=task) (selected:=selected) by assumption. reflexivity. Qed.
 
 Lemma stored_title_is_observed : forall id state value,
  TitleRuntime.entry id (TitleRuntime.store id state value)=Some (F.TitleEntry id state).
@@ -93,28 +80,6 @@ Proof.
  apply filtering_another_key_preserves_lookup.
  - intros; now apply N.eqb_eq.
  - now apply N.eqb_neq.
-Qed.
-
-(** Admission freezes the same prompt/profile as the external request. Neither
-    settings changes nor a later model completion may select a new request. *)
-Theorem admitted_title_stores_frozen_request : forall id task result selected,
- find_task id (decision_world result)=Some task ->
- TitleRuntime.entry id (decision_world result)=None ->
- TitleRuntime.accepts task=true ->
- Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task))=true ->
- TitleRuntime.selected_profile task (decision_world result)=Some selected ->
- let original:=decision_world result in
- let updated:=decision_world (TitleRuntime.start id result) in
- TitleRuntime.entry id updated=Some (F.TitleEntry id
-   (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket original) (selected, (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features original)))
-       (TitleRuntime.first_request (task_history task))))))) /\
- world_next_ticket updated=N.succ (world_next_ticket original) /\
- world_tasks updated=world_tasks original.
-Proof.
- intros id task result selected Found absent eligible nonblank chosen.
- cbv zeta. rewrite title_start_with_observed_owner with (task:=task) (selected:=selected) by assumption.
- cbn [decision_world].
- split; [apply stored_title_is_observed|]. split; reflexivity.
 Qed.
 
 Theorem current_title_completion_commits_normalized_name : forall value id ticket selected prompt text,

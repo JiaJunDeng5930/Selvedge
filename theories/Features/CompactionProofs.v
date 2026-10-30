@@ -15,25 +15,21 @@ Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
 Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
- TicketedRequest.Scoped.feature_valid before (TicketedRequest.Scoped.MaintainRequest id request) = true ->
- exists plan : TicketedRequest.Scoped.feature_plan before,
-   A.run_request id request before = TicketedRequest.Scoped.feature_issue plan /\
-   TicketedRequest.Scoped.feature_intent plan = TicketedRequest.Scoped.MaintainRequest id request.
+ TicketedRequest.Scoped.maintenance_admission id request before = true ->
+ exists reference : TicketedRequest.Scoped.maintenance_reference before id request,
+   A.run_request id request before = TicketedRequest.Scoped.maintenance_issue reference.
 Proof.
  intros id request before Ready; pose proof Ready as HasOwner.
- cbn [TicketedRequest.Scoped.feature_valid] in HasOwner.
- unfold TicketedRequest.Scoped.maintenance_ready in HasOwner.
+ unfold TicketedRequest.Scoped.maintenance_admission,TicketedRequest.Scoped.maintenance_ready in HasOwner.
  destruct (K.find_task id before) as [current|] eqn:Found; [|discriminate].
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
-   as [reference [Selected [Owner Current]]].
- assert (Eligible : TicketedRequest.Scoped.feature_valid before
-   (TicketedRequest.Scoped.MaintainRequest (TaskScope.owner reference) request) = true) by now rewrite Owner.
- destruct (admitted_maintenance_has_a_selected_plan before (TaskScope.owner reference) request
-   (TaskScope.selected reference) (TaskScope.observed reference) Eligible) as [admitted Resolved].
- exists (TicketedRequest.Scoped.FeaturePlan
-   (TicketedRequest.Scoped.MaintainRequest (TaskScope.owner reference) request) admitted).
- split; [unfold A.run_request; rewrite Selected; unfold A.run_request_selected; now rewrite Resolved|].
- cbn [TicketedRequest.Scoped.feature_intent]; now rewrite Owner.
+   as [[owner selected Observed] [Selected [Owner Current]]].
+ cbn in Owner,Current; subst owner.
+ destruct (admitted_maintenance_has_a_selected_plan before id request selected Observed Ready)
+   as [admitted Resolved].
+ exists admitted.
+ unfold A.run_request; rewrite Selected; unfold A.run_request_selected.
+ cbn [TaskScope.owner TaskScope.selected TaskScope.observed]; now rewrite Resolved.
 Qed.
 
 Lemma a_blocked_model_waits_with_live_operations : forall id value task operations,
@@ -105,13 +101,13 @@ Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
    Measuring (K.world_next_ticket value) input InspectScope.
 Proof.
  intros id input entry value Ready; cbn zeta; unfold A.begin_scope.
- assert (Admitted : TicketedRequest.Scoped.feature_valid value
-   (TicketedRequest.Scoped.MaintainRequest id (TicketedRequest.Scoped.ScopeRequest input None entry)) = true).
- { cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_input
-     TicketedRequest.Scoped.maintenance_replacement_ready]; now rewrite Ready. }
- destruct (admitted_maintenance_runs_its_resolved_plan id _ value Admitted) as [plan [Issued Intent]].
+ assert (Admitted : TicketedRequest.Scoped.maintenance_admission id
+   (TicketedRequest.Scoped.ScopeRequest input None entry) value = true).
+ { change (TicketedRequest.Scoped.maintenance_ready id input value && true = true).
+   now rewrite Ready. }
+ destruct (admitted_maintenance_runs_its_resolved_plan id _ value Admitted) as [reference Issued].
  rewrite Issued.
- destruct (resolved_maintenance_installs_its_exact_receiver value plan id _ Intent) as [Installed Effects].
+ destruct (resolved_maintenance_installs_its_exact_receiver value id _ reference) as [Installed Effects].
  split; [exact Effects|].
  unfold A.current_entry,A.find_entry,A.registry; rewrite Installed; reflexivity.
 Qed.
@@ -279,7 +275,7 @@ Theorem an_open_manual_wait_preserves_all_task_state : forall id current before,
 Proof.
  intros; split; [reflexivity|].
  unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry,
-   A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, A.with_observation,
+   A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, A.with_observation,
    A.with_measurement, A.with_job, K.with_features, Selvedge.Features.State.with_compaction, set;
  cbn. now rewrite N.eqb_refl.
 Qed.
@@ -618,7 +614,7 @@ Proof.
  split.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world].
-   unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry,A.with_observation,
+   unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed,A.with_observation,
      A.with_measurement,A.with_job,K.with_features,Selvedge.Features.State.with_compaction,set;
    cbn; now rewrite N.eqb_refl.
 Qed.
@@ -725,7 +721,7 @@ Lemma the_committed_compaction_entry_is_current : forall id entry value effects,
  A.current_entry id (A.registry (K.decision_world (A.commit id entry value effects))) = entry.
 Proof.
  intros. unfold A.commit, A.commit_change, CommandResult.accept, A.acknowledged, A.current_entry, A.find_entry,
-   A.registry, A.store, A.with_entry, K.accept, K.with_features,
+   A.registry, A.store, A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, K.accept, K.with_features,
    Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
 Qed.
 

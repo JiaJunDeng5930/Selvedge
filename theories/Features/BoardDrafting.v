@@ -148,6 +148,6 @@ Qed.
 Definition plan {before} (target : drafting_target before) selected
  (Registered : FeatureRequestAdmission.registered_profile selected before = true)
  (Ordinary : FeatureRequestAdmission.ordinary_profile selected = true) : S.feature_plan before :=
- S.FeaturePlan (S.CardRequest (target_id target) (target_card target) selected
-   (prompt (target_card target) (target_retitle target) before) (target_retitle target))
-   (proj2 (andb_true_iff _ _) (conj (target_position target) (target_scope target selected Registered Ordinary))).
+ S.card_plan (target_id target) (target_card target) selected
+   (prompt (target_card target) (target_retitle target) before) (target_retitle target)
+   (target_position target) (target_scope target selected Registered Ordinary).

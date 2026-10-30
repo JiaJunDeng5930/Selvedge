@@ -13,10 +13,10 @@ Definition registry (value : Selvedge.Kernel.State.world) := Selvedge.Features.D
 Definition store (replacement : Selvedge.Features.CompactionTypes.state) (value : Selvedge.Kernel.State.world) :=
  Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_compaction replacement (Selvedge.Kernel.State.world_features value)) value.
 Definition find_entry (id : N) (value : Selvedge.Features.CompactionTypes.state) :=
- option_map (@snd N entry) (find (fun pair => N.eqb (fst pair) id) (maintenance_entries value)).
+ option_map (@snd N entry) (find (fun pair => N.eqb id (fst pair)) (maintenance_entries value)).
 Definition current_entry (id : N) (value : Selvedge.Features.CompactionTypes.state) := match find_entry id value with Some entry => entry | None => empty_entry end.
 Definition with_entry (id : N) (entry : entry) (value : Selvedge.Features.CompactionTypes.state) :=
- set maintenance_entries (fun entries => (id, entry) :: filter (fun pair => negb (N.eqb (fst pair) id)) entries) value.
+ Receiver.install (TicketedRequest.Scoped.compaction_entries id) entry value.
 Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
 Definition commit_change (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
@@ -94,8 +94,7 @@ Definition run_request_selected {value} (target : TaskScope.task_reference value
  (request : TicketedRequest.Scoped.maintenance_action) :=
  match TicketedRequest.Scoped.maintenance_selected (TaskScope.owner target)
    request value (TaskScope.selected target) (TaskScope.observed target) with
- | Some admitted => TicketedRequest.Scoped.feature_issue
-     (TicketedRequest.Scoped.FeaturePlan (TicketedRequest.Scoped.MaintainRequest (TaskScope.owner target) request) admitted)
+ | Some admitted => TicketedRequest.Scoped.maintenance_issue admitted
  | None => let '(purpose,entry) := TicketedRequest.Scoped.maintenance_waiting_entry request in
    wait_for_context_selected target purpose entry end.
 Definition run_request (id : N) (request : TicketedRequest.Scoped.maintenance_action) (value : Selvedge.Kernel.State.world) :=

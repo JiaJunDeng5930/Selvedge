@@ -79,18 +79,13 @@ Definition cloud_task (id : N) (value : world) :=
   | None => false
   end.
 
-Definition resource_json (tree : Selvedge.Features.Domain.worktree) := JObject [
-  ("task_id", number (Selvedge.Features.Domain.worktree_task tree));
-  ("backend", JString (WorkspaceBackend.name (Selvedge.Features.Domain.worktree_backend tree)))].
+Definition resource_json := Selvedge.Features.Domain.resource_json.
 
 Definition execution (settings : task_settings) (value : world) :=
   match resolve settings value with Some tree => resource_json tree | None => JNull end.
 
 Definition reference_execution (owner : option N) (value : world) :=
-  match owner with
-  | Some id => match owned id value with Some tree => resource_json tree | None => JNull end
-  | None => JNull
-  end.
+ Selvedge.Features.Domain.reference_execution owner (world_features value).
 Definition within_resource (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=
   match Selvedge.Features.Domain.worktree_root tree with
   | Some root => forallb (inside root) (workspace_roots space)

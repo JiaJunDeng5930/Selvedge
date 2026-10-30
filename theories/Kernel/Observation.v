@@ -11,9 +11,7 @@ Definition indexed {A B : Type} := @Selvedge.Foundation.Registry.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
 (* Auxiliary text generation reuses the connection, without the Task's effort
    or adaptive evaluator. The provider resolves its ordinary default effort. *)
-Definition task_text_model_json (value : profile) := JObject [
- ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
- ("name", JString (profile_model value)); ("reasoning", JString "default")].
+Definition task_text_model_json := Codec.task_text_model_json.
 Definition task_owner (id : N) (value : task) (features : Selvedge.Features.Domain.state) := Selvedge.Features.Domain.owner_id id (task_lineage value) features.
 Definition operation_status (value : operation) := match operation_stage value with
  | Executing _ | Elevated _ _ => "running"
@@ -189,12 +187,7 @@ Definition effect_packet (state : world) (value : effect) := match value with
  | CancelTicket id ticket => ModelDeclarations.pack ModelDeclarations.cancel_ticket [!id;ticket!] | ContinueScheduling => ModelDeclarations.pack ModelDeclarations.continue [!!]
  | CreateWorktree id root workspace backend => ModelDeclarations.pack ModelDeclarations.worktree_create [!WorkspaceBackend.to_value backend;id;root;workspace_json workspace!]
  | ArchiveWorktree id source root backend => ModelDeclarations.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source!]
- | SuggestTitle id (RequestEnvelope.Envelope ticket (profile, prompt)) => ModelDeclarations.pack ModelDeclarations.task_title [!id;ticket;task_text_model_json profile;prompt!]
- | SuggestCard id (RequestEnvelope.Envelope ticket (revision, retitle)) profile prompt draft => ModelDeclarations.pack ModelDeclarations.board_text [!id;ticket;task_text_model_json profile;prompt;retitle!]
- | RunConnectionJob (RequestEnvelope.Envelope id job) => ModelDeclarations.pack ModelDeclarations.chatgpt_exec [!id;Selvedge.Features.Domain.job_arguments_json job;JObject [
-    ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));
-    ("resource",WorkspaceBinding.reference_execution (Selvedge.Features.Domain.job_resource job) state);
-    ("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]
+ | RequestFeature sent => RequestTypes.encode_packet sent (world_features state)
  | CancelConnectionJob id => ModelDeclarations.pack ModelDeclarations.chatgpt_cancel [!id!]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_packet request
  end.

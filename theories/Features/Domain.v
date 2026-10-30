@@ -91,6 +91,15 @@ Record state := State {
 Definition initial := State (Board [] [] [] [] false ""%string) [] [] [] [] []
  (Remote false [] 1 []) (ConnectionState [] [] 0) [] (TitleSettings 0 Titles.instructions Titles.instructions) CompactionTypes.initial.
 
+Definition resource_json (tree : worktree) := JObject [
+ ("task_id"%string, JNumber (show_natural (worktree_task tree)));
+ ("backend"%string, JString (WorkspaceBackend.name (worktree_backend tree)))].
+Definition reference_execution (owner : option N) (value : state) :=
+ match owner with
+ | Some id => match find (fun tree => N.eqb id (worktree_task tree)) (feature_worktrees value) with
+   | Some tree => resource_json tree | None => JNull end
+ | None => JNull end.
+
 Definition stages := [Backlog; Todo; InProgress; InReview; Completed; Blocked].
 Definition priorities := [NoPriority; Low; Medium; High; Urgent].
 Definition stage_name (value : board_stage) := match value with
