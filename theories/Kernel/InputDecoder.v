@@ -7,8 +7,9 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition decoder := ModelDeclarations.decoder input.
-Definition Decoder (name : string) (description : schema) (construct : fields description -> option input) : decoder :=
- ModelDeclarations.Decoder (ModelDeclarations.Variant "kind" (JString name) description [] None) construct.
+Definition Decoder (name : string) (description : schema) (construct : fields description -> option input)
+ `{DistinctNames ("kind" :: map field_name description)} : decoder :=
+ ModelDeclarations.Decoder (ModelDeclarations.declare_variant "kind" (JString name) description [] None) construct.
 Definition decoder_name (value : decoder) := match ModelDeclarations.tag_value (ModelDeclarations.decoder_declaration value) with
  | JString name => name | _ => "" end.
 Definition decoder_fields (value : decoder) := ModelDeclarations.payload_fields (ModelDeclarations.decoder_declaration value).

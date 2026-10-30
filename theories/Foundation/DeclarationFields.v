@@ -81,3 +81,5 @@ Fixpoint shape_kind (description : D.t) : Schema.kind := match description with
  | _ => Schema.KJson end.
 Definition shape properties := map (fun property => let '(name,required,description) := property in
  Schema.FieldSpec name (shape_kind description) (negb required)) properties.
+Lemma shape_names properties : map Schema.field_name (shape properties) = names properties.
+Proof. unfold shape,names; rewrite map_map; apply map_ext; intros [[name required] description]; reflexivity. Qed.

@@ -1,4 +1,6 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
+From Selvedge.Foundation Require Import Schema.
+From Selvedge.Kernel Require ModelDeclarations.
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
@@ -11,8 +13,6 @@ Definition field_count_is (count : nat) (source : json) : bool :=
   end.
 Definition request_count_is (count : nat) (request : json) :=
   field_count_is (count + if has request "task_id" then 1 else 0) request.
-Definition task_id_field (request : json) :=
-  optional (has request "task_id") "task_id" (get request "task_id").
 Definition observation_kind (request : json) := str request "kind".
 Definition empty_requested_path (request : json) :=
   match field "path" request with Some (JString "") => true | _ => false end.
@@ -21,21 +21,24 @@ Definition request_plan (source : json) : json :=
   let request := get source "observation" in
   if negb (is_object request) then type_error "Expected an observation request"
   else if String.eqb (observation_kind request) "streams" && field_count_is 1 request then
-    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_streams])
+    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_streams [!!]))
   else if String.eqb (observation_kind request) "workspace-git" &&
-      request_count_is 2 request && is_text (get request "primary") then
-    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;
-      ("primary",if String.eqb (str request "primary") "" then get source "cwd" else get request "primary") ] ++
-      task_id_field request))
+      request_count_is 2 request then
+    match (match string_field "primary" request with Some "" => string_field "cwd" source | selected => selected end) with
+    | Some primary => success (ModelDeclarations.encode_packet
+        (ModelDeclarations.pack ModelResultDeclarations.browser_workspace_git [!primary;field "task_id" request!]))
+    (* DEFENSE: A non-text primary, or an empty primary without a text cwd,
+       cannot supply the declared workspace root. *)
+    | None => type_error "Expected a workspace root" end
   else if String.eqb (observation_kind request) "browse-directories" && request_count_is 2 request then
-    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;
-      ("path",get request "path");
-      ("default_path",JBool (empty_requested_path request));
-      ("project_root",get source "project_root") ] ++ task_id_field request))
+    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_browse_directories
+      [!get request "path";empty_requested_path request;get source "project_root";field "task_id" request!]))
   else if String.eqb (observation_kind request) "directories" && request_count_is 2 request && truthy (get request "workspace") then
-    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_directories;("workspace",get request "workspace") ] ++ task_id_field request))
+    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_directories
+      [!get request "workspace";field "task_id" request!]))
   else if String.eqb (observation_kind request) "skill-catalog" && request_count_is 2 request && truthy (get request "workspace") then
-    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("workspace",get request "workspace") ] ++ task_id_field request))
+    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_skill_catalog
+      [!get request "workspace";field "task_id" request!]))
   else type_error "Unknown browser observation".
 
 Definition resolve_browse_path (source : json) : json :=
@@ -70,10 +73,10 @@ Definition call (operation : string) (source : json) : json :=
     else type_error "Unknown browser observation phase"
   else err ("Unknown browser observation operation: " ++ operation).
 
-Theorem workspace_git_plan_defaults_to_cwd : forall observation cwd,
+Theorem workspace_git_plan_defaults_to_cwd : forall observation (cwd : string),
   observation = JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("primary",JString "")] ->
-  request_plan (JObject [("observation",observation);("cwd",cwd)]) =
-    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("primary",cwd)]).
+  request_plan (JObject [("observation",observation);("cwd",JString cwd)]) =
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("primary",JString cwd)]).
 Proof. intros observation cwd equal;subst observation;reflexivity. Qed.
 
 Theorem browse_empty_path_selects_default : forall observation,

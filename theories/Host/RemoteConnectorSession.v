@@ -219,8 +219,7 @@ Definition action_declarations := map (fun action => F.packet_branch (action_pac
  [Ignore;Installed;Retired;PublishPairing;PendingPairing;PairingExpired;GrantsUpdated;Enqueued;Dequeued;Disconnect;
   BecameReady;ReceivedPong;RecordedNotice;CapturedSnapshot;Unsubscribed;DeliverNotice] ++
  [opened_action;closed_action;request_action;pair_request_action].
-Definition abi_variant declaration := MD.Variant (F.tag_field declaration) (F.tag_value declaration)
- (F.shape (F.payload_fields declaration)) (F.names (F.payload_fields declaration)) None.
+Definition abi_variant declaration := MD.from_branch declaration (F.names (F.payload_fields declaration)) None.
 Definition connector_step source observed := match state_of source,event_of observed with
  | Some state,Some event => let '(next,action) := step state event in
    let state := state_packet next in let action := action_packet action in

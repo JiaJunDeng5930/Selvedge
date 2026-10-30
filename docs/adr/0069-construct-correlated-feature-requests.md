@@ -37,6 +37,14 @@ request is cancelled with its task. Dispatch derives the task and ticket from
 the same receiver and envelope; adding another task-bound protocol does not
 add another cancellation case.
 
+Output variants retain their tag and declaration-indexed payload together.
+`ModelDeclarations.declare_variant` rules out collisions between tag and payload
+field names; `pack` derives the wire object from that same declaration. HTTP and
+browser observation plans, notifications and remote authorization outputs use
+these constructors. Public effect and result unions compose through
+`DeclarationRegistry`, so their actual lookup and generated schemas consume the
+same unambiguous declarations.
+
 Callback declarations are open values as well. A declaration selects either a
 marked result, whose `ok` or `error` field chooses its typed branch, or an
 unmarked result whose single payload carries the outcome itself. Those forms

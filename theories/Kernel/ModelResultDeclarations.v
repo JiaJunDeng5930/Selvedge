@@ -9,10 +9,9 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition variant (field name : string) (fields : schema) (safe : list string) :=
- ModelDeclarations.Variant field (JString name) fields safe None.
-Definition name (declaration : ModelDeclarations.variant) :=
- match declaration.(ModelDeclarations.tag_value) with JString value => value | _ => "" end.
+Definition variant (field name : string) (fields : schema) (safe : list string)
+ `{DistinctNames (field :: map field_name fields)} :=
+ ModelDeclarations.declare_variant field (JString name) fields safe None.
 Definition tag (declaration : ModelDeclarations.variant) :=
  (declaration.(ModelDeclarations.tag_field),declaration.(ModelDeclarations.tag_value)).
 Definition http_respond := variant "action" "respond" [Field "status" KNatural;Field "value" KJson] ["status"].
@@ -62,11 +61,18 @@ Definition http_action_spec (value : http_action) := match value with
 Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_account_refresh;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
 Definition http_action_name value := fst (http_action_spec value).
 Definition http_action_has_body value := snd (http_action_spec value).
-Definition http_action_declaration value := variant "action" (http_action_name value)
- (if http_action_has_body value then [OmittableField "body" KJson] else []) [].
-Definition http_body_actions := map http_action_declaration (filter http_action_has_body all_http_actions).
-Definition body_actions := map name http_body_actions.
-Definition http_observe_content_type := variant "action" "observe_content_type" [Field "target" (KEnum "account_refresh" (tl body_actions))] [].
+Definition http_body_declaration name := variant "action" name [OmittableField "body" KJson] [].
+Definition http_action_packet value :=
+ if http_action_has_body value then ModelDeclarations.pack (http_body_declaration (http_action_name value)) [!None!]
+ else ModelDeclarations.pack (variant "action" (http_action_name value) [] []) [!!].
+Definition http_action_declaration value := ModelDeclarations.packet_declaration (http_action_packet value).
+Definition body_actions := map http_action_name (filter http_action_has_body all_http_actions).
+Definition http_body_target_kind := KEnum "account_refresh" (tl body_actions).
+Definition http_body_target := denote http_body_target_kind.
+Definition http_body_target_named name : option http_body_target :=
+ match in_dec string_dec name ("account_refresh" :: tl body_actions) with
+ | left member => Some (exist _ name member) | right _ => None end.
+Definition http_observe_content_type := variant "action" "observe_content_type" [Field "target" http_body_target_kind] [].
 Definition http_action_of_name value := find (fun action => String.eqb value (http_action_name action)) all_http_actions.
 Definition http_plans := [http_respond;http_throw;http_observe_content_type] ++ map http_action_declaration all_http_actions.
 Definition task := [OmittableField "task_id" KJson].
@@ -110,7 +116,8 @@ Definition audio_transport_actions := [audio_transport_connect;audio_transport_r
 Definition audio_actions := [audio_emit;audio_journal;audio_context;audio_contexts;audio_read;audio_stop;audio_release;audio_timer;audio_connect_timer;audio_reject].
 (** Remote transport state and observations are closed over their phase. *)
 Definition remote_generation := Field "generation" KNatural.
-Definition remote_state tag fields := variant "phase" tag (remote_generation::fields)
+Definition remote_state tag fields `{DistinctNames ("phase" :: "generation" :: map field_name fields)} :=
+ variant "phase" tag (remote_generation::fields)
  ("generation"::map field_name fields).
 Definition remote_stopped := remote_state "stopped" [].
 Definition remote_connecting := remote_state "connecting" [Field "attempt" KNatural].
@@ -126,7 +133,8 @@ Definition remote_state_decoders : list (ModelDeclarations.decoder RT.state) := 
  ModelDeclarations.Decoder remote_retrying (fun values => Some (RT.Retrying (head values) (head (tail values)) (head (tail (tail values)))));
  ModelDeclarations.Decoder remote_auth_failed (fun values => Some (RT.AuthenticationFailed (head values)))].
 Definition remote_transport_states := map ModelDeclarations.decoder_declaration remote_state_decoders.
-Definition remote_action tag fields := variant "kind" tag fields (map field_name fields).
+Definition remote_action tag fields `{DistinctNames ("kind" :: map field_name fields)} :=
+ variant "kind" tag fields (map field_name fields).
 Definition remote_connect := remote_action "connect" [remote_generation].
 Definition remote_open := remote_action "open" [remote_generation].
 Definition remote_retry := remote_action "retry" [remote_generation;Field "deadline" KNatural].
@@ -138,41 +146,45 @@ Definition remote_mark_stopped := remote_action "stopped" [].
 Definition remote_mark_auth_failed := remote_action "auth_failed" [].
 Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;remote_mark_online;
  remote_ping;remote_retire;remote_mark_stopped;remote_mark_auth_failed].
-Definition remote_observation tag fields := variant "kind" tag fields (map field_name fields).
 Definition remote_timed := [remote_generation;Field "now" KNatural].
 Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
 Definition remote_observation_decoders : list (ModelDeclarations.decoder RT.observation) := [
- ModelDeclarations.Decoder (remote_observation "enable" []) (fun _ => Some RT.Enable);
- ModelDeclarations.Decoder (remote_observation "stop" []) (fun _ => Some RT.Stop);
- ModelDeclarations.Decoder (remote_observation "probe" (remote_sampled ++ [Field "status" KNatural]))
+ ModelDeclarations.Decoder (remote_action "enable" []) (fun _ => Some RT.Enable);
+ ModelDeclarations.Decoder (remote_action "stop" []) (fun _ => Some RT.Stop);
+ ModelDeclarations.Decoder (remote_action "probe" (remote_sampled ++ [Field "status" KNatural]))
    (fun v => Some (RT.Probe (head v) (head (tail (tail (tail v)))) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_observation "lost" remote_sampled)
+ ModelDeclarations.Decoder (remote_action "lost" remote_sampled)
    (fun v => Some (RT.Lost (head v) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_observation "rejected" [remote_generation]) (fun v => Some (RT.Rejected (head v)));
- ModelDeclarations.Decoder (remote_observation "negotiated" remote_timed) (fun v => Some (RT.Negotiated (head v) (head (tail v))));
- ModelDeclarations.Decoder (remote_observation "pong" remote_timed) (fun v => Some (RT.Pong (head v) (head (tail v))));
- ModelDeclarations.Decoder (remote_observation "heartbeat" remote_sampled)
+ ModelDeclarations.Decoder (remote_action "rejected" [remote_generation]) (fun v => Some (RT.Rejected (head v)));
+ ModelDeclarations.Decoder (remote_action "negotiated" remote_timed) (fun v => Some (RT.Negotiated (head v) (head (tail v))));
+ ModelDeclarations.Decoder (remote_action "pong" remote_timed) (fun v => Some (RT.Pong (head v) (head (tail v))));
+ ModelDeclarations.Decoder (remote_action "heartbeat" remote_sampled)
    (fun v => Some (RT.Heartbeat (head v) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_observation "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
+ ModelDeclarations.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
 Definition remote_transport_observations := map ModelDeclarations.decoder_declaration remote_observation_decoders.
 Definition authorization_name state := match state with
  | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last"
  | RT.Authorized => "authorized" | RT.Denied => "denied" | RT.RevisionChanged => "revision_changed" end.
+Definition remote_authorization_declaration state := variant "phase" (authorization_name state) [] [].
 Definition remote_authorization_decoders := map (fun state =>
- ModelDeclarations.Decoder (variant "phase" (authorization_name state) [] []) (fun _ => Some state))
+ ModelDeclarations.Decoder (remote_authorization_declaration state) (fun _ => Some state))
  [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck;RT.Authorized;RT.Denied;RT.RevisionChanged].
 Definition remote_authorization_states := map ModelDeclarations.decoder_declaration remote_authorization_decoders.
 Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
-Definition remote_authorization_actions := map (fun action => variant "kind" (grant_action_name action) [] [])
+Definition remote_authorization_action_declaration action := variant "kind" (grant_action_name action) [] [].
+Definition remote_authorization_actions := map remote_authorization_action_declaration
  [RT.CheckAgain;RT.Capture;RT.Deny;RT.Disconnect].
 Definition remote_connector_actions := map RC.abi_variant RC.action_declarations.
 Definition remote_connector_states := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.state_decoders.
 Definition remote_connector_observations := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.event_decoders.
-Definition unions := [("RemoteConnectorSessionAction",remote_connector_actions);("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
- ("RemoteTransportObservation",remote_transport_observations);("RemoteAuthorizationState",remote_authorization_states);
- ("RemoteAuthorizationAction",remote_authorization_actions);("HttpPlan",http_plans);("BrowserObservationPlan",browser_plans);
- ("DispatchAction",dispatch_actions);("AudioAction",audio_actions);("AudioTransportAction",audio_transport_actions)].
+Definition declare_union (label : string) (entries : list ModelDeclarations.variant)
+ `{DistinctNames (map ModelDeclarations.variant_key entries)} :=
+ (label,DeclarationRegistry.declare ModelDeclarations.variant_key entries).
+Definition unions := [declare_union "RemoteConnectorSessionAction" remote_connector_actions;declare_union "RemoteConnectorSessionState" remote_connector_states;declare_union "RemoteConnectorSessionObservation" remote_connector_observations;declare_union "CloudReadinessAction" cloud_readiness_actions;declare_union "RemoteTransportState" remote_transport_states;declare_union "RemoteTransportAction" remote_transport_actions;
+ declare_union "RemoteTransportObservation" remote_transport_observations;declare_union "RemoteAuthorizationState" remote_authorization_states;
+ declare_union "RemoteAuthorizationAction" remote_authorization_actions;declare_union "HttpPlan" http_plans;declare_union "BrowserObservationPlan" browser_plans;
+ declare_union "DispatchAction" dispatch_actions;declare_union "AudioAction" audio_actions;declare_union "AudioTransportAction" audio_transport_actions].
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
@@ -203,6 +215,6 @@ Definition records : list (string * schema) := [
 Definition schema_json := JObject [
  ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",ModelDeclarations.kind_json KNatural);("safe",JBool true)]]);
  ("unions",JArray (map (fun entry => JObject [("name",JString (fst entry));
- ("variants",JArray (map ModelDeclarations.variant_json (snd entry)))]) unions));
+ ("variants",JArray (map ModelDeclarations.variant_json (DeclarationRegistry.values (snd entry))))]) unions));
  ("records",JArray (map (fun entry => JObject [("name",JString (fst entry));
  ("fields",ModelDeclarations.fields_json (snd entry))]) records))].

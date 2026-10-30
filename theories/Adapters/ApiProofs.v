@@ -27,19 +27,19 @@ Proof.
  { unfold audio_target,audio_kind;rewrite pathname,method;reflexivity. }
  assert (route : selected_route source = Some (Route "POST" "/api/commands" ModelResultDeclarations.Http_command)).
  { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
- assert (target : body_target source = "command").
+ assert (target : body_target source = ModelResultDeclarations.http_body_target_named "command").
  { unfold body_target;rewrite audio,route;reflexivity. }
  change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
  unfold Http.call;cbn;unfold request_guard,open_host_guard.
  rewrite opened,host,authorization,local,origin;cbn.
- unfold body_stage;rewrite target,selected;cbn.
+ unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
  rewrite mime;cbn;rewrite text,parsed;reflexivity.
 Qed.
 
-Theorem public_browser_git_observation_uses_cwd_default : forall cwd,
+Theorem public_browser_git_observation_uses_cwd_default : forall (cwd : string),
   Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",cwd)]) =
-    success (JObject [("kind",JString "workspace-git");("primary",cwd)]).
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]) =
+    success (JObject [("kind",JString "workspace-git");("primary",JString cwd)]).
 Proof. reflexivity. Qed.
 Theorem public_browser_directory_observation_marks_empty_path_default :
   Api.call "browser.observation" (JObject [("phase",JString "plan");

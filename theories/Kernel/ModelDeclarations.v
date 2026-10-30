@@ -1,5 +1,6 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require DeclarationFields DeclarationRegistry TextJson.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -21,11 +22,24 @@ Definition Model := CallbackDeclarations.Model.
 Definition Tool := CallbackDeclarations.Tool.
 
 (** The public discriminant, payload and callback ownership are one declaration. *)
-Record variant := Variant {
+Record variant := BuildVariant {
  tag_field : string; tag_value : json; payload_fields : schema;
- safe_fields : list string; callback_name : option callback_kind
+ safe_fields : list string; callback_name : option callback_kind;
+ variant_unique : unique_names (tag_field :: map field_name payload_fields) = true
 }.
-Definition effect name fields callback := Variant "kind" (JString name) fields [] callback.
+Definition declare_variant tag value body safe callback
+ `{DistinctNames (tag :: map field_name body)} :=
+ BuildVariant tag value body safe callback names_distinct.
+Definition effect name body callback `{DistinctNames ("kind" :: map field_name body)} :=
+ declare_variant "kind" (JString name) body [] callback.
+Definition from_branch (branch : DeclarationFields.branch) (safe : list string)
+ (callback : option callback_kind) : variant.
+Proof.
+ refine (BuildVariant (DeclarationFields.tag_field branch) (DeclarationFields.tag_value branch)
+   (DeclarationFields.shape (DeclarationFields.payload_fields branch)) safe callback _).
+ rewrite DeclarationFields.shape_names; exact (DeclarationFields.branch_distinct branch).
+Defined.
+Definition variant_key (declaration : variant) := TextJson.render_json (tag_value declaration).
 (** Correlation coordinates are language-owned fields. Protocol declarations
     supply only their body; encoding always takes the coordinates from the
     installed request instance. *)
@@ -45,9 +59,9 @@ Definition declare_request name shape body callback
  BuildRequestVariant name shape body callback names_distinct.
 Definition request_body_fields (request : request_variant) := request_body request.
 Definition request_variant_view (request : request_variant) :=
- effect (request_name request)
+ BuildVariant "kind" (JString (request_name request))
    (correlation_fields (request_correlation request) ++ request_body_fields request)
-   (Some (request_callback request)).
+   [] (Some (request_callback request)) (request_unique request).
 Definition request_fields (request : request_variant) (owner identity : N)
  (body : fields (request_body_fields request))
  : fields (payload_fields (request_variant_view request)) :=
@@ -116,21 +130,24 @@ Definition context_compaction_metadata := identity ++ context_compaction_body.
 Definition context_compaction_request := declare_request "context_compaction" (OwnedTicket "task_id")
  (context_compaction_body ++ [Field "plan" KJson]) (Compaction true).
 Definition context_compaction := request_variant_view context_compaction_request.
-Definition compaction_clock := Variant "kind" (JString "compaction_clock") [Field "deadline" KNatural] [] None.
+Definition compaction_clock := effect "compaction_clock" [Field "deadline" KNatural] None.
 Definition compaction_cancel := effect "compaction_cancel" identity None.
-Definition effects := [observe_context;request_model;reasoning;tool;approval;hook;after_hook;plugin_events;
+Definition registered_effects := DeclarationRegistry.declare variant_key
+ [observe_context;request_model;reasoning;tool;approval;hook;after_hook;plugin_events;
  reset_model_session;cancel;cancel_ticket;continue;worktree_create;worktree_archive;task_title;board_text;
  chatgpt_exec;chatgpt_cancel;context_scope;context_measure;context_compaction;compaction_clock;compaction_cancel].
+Definition effects := DeclarationRegistry.values registered_effects.
 Definition audio_max_bytes := Field "max_bytes" KNatural.
 Definition audio_timeout_ms := Field "timeout_ms" KNatural.
 Definition audio_connect_timeout_ms := Field "connect_timeout_ms" KNatural.
 Definition audio_session_max_ms := Field "session_max_ms" KNatural.
 Definition audio_message := Field "message" KText.
-Definition audio_allowed := Variant "allowed" (JBool true)
+Definition audio_allowed := declare_variant "allowed" (JBool true)
  [audio_max_bytes;audio_timeout_ms;audio_connect_timeout_ms;audio_session_max_ms]
  ["max_bytes";"timeout_ms";"connect_timeout_ms";"session_max_ms"] None.
-Definition audio_rejected := Variant "allowed" (JBool false) [audio_message] [] None.
-Definition audio_admission := [audio_allowed;audio_rejected].
+Definition audio_rejected := declare_variant "allowed" (JBool false) [audio_message] [] None.
+Definition registered_audio := DeclarationRegistry.declare variant_key [audio_allowed;audio_rejected].
+Definition audio_admission := DeclarationRegistry.values registered_audio.
 Definition encode (declaration : variant) (values : fields declaration.(payload_fields)) :=
  JObject ((declaration.(tag_field),declaration.(tag_value)) :: encode_fields values).
 Record packet := Packet { packet_declaration : variant; packet_fields : fields (payload_fields packet_declaration) }.

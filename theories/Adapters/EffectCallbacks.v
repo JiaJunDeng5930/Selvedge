@@ -10,7 +10,7 @@ Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
 
 Definition callback_kind_of (kind : string) :=
- match find (fun declaration => Json.equal declaration.(ModelDeclarations.tag_value) (JString kind)) ModelDeclarations.effects with
+ match DeclarationRegistry.lookup (TextJson.render_json (JString kind)) ModelDeclarations.registered_effects with
  | Some declaration => declaration.(ModelDeclarations.callback_name)
  | None => None end.
 Definition completed (effect result : json) : option json :=

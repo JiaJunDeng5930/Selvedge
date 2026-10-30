@@ -57,7 +57,9 @@ Theorem notification_envelopes_preserve_all_business_effects : forall durable ad
 Proof.
  intros. unfold Notifications.envelope; destruct (durable && admitted); [|left; reflexivity].
  destruct (Notifications.batch source before result) eqn:Batch; [left; reflexivity|].
- destruct (Delivery.fits_json _); [right|left]; reflexivity.
+ destruct (Delivery.fits_json _); [right|left; reflexivity].
+ cbn; unfold ModelDeclarations.encode_packet,ModelDeclarations.pack,ModelDeclarations.encode; cbn.
+ now rewrite map_id.
 Qed.
 Theorem oversized_notification_batch_leaves_the_complete_base_envelope : forall source before result,
  Delivery.fits_json (Notifications.enriched_envelope true result (Notifications.batch source before result)) = false ->

@@ -7,7 +7,6 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition tagged field tag values := JObject ((field,JString tag)::values).
 Definition state_packet s := match s with
  | Stopped g => ModelDeclarations.pack remote_stopped [!g!]
  | Connecting g tries => ModelDeclarations.pack remote_connecting [!g;tries!]
@@ -31,9 +30,11 @@ Definition action_json action := ModelDeclarations.encode_packet (action_packet 
 Definition observation_of := ModelDeclarations.decode_cases remote_observation_decoders.
 Definition settings_of source := Settings (num source "retry_base") (num source "retry_max")
  (num source "heartbeat") (num source "heartbeat_timeout").
-Definition authorization_json s := tagged "phase" (authorization_name s) [].
+Definition authorization_json s := ModelDeclarations.encode_packet
+ (ModelDeclarations.pack (remote_authorization_declaration s) [!!]).
 Definition authorization_of := ModelDeclarations.decode_cases remote_authorization_decoders.
-Definition grant_action_json action := tagged "kind" (grant_action_name action) [].
+Definition grant_action_json action := ModelDeclarations.encode_packet
+ (ModelDeclarations.pack (remote_authorization_action_declaration action) [!!]).
 Definition call operation source :=
  if String.eqb operation "control.remote.transport_initial" then success (state_json initial)
  else if String.eqb operation "control.remote.authorization_initial" then success (authorization_json FirstCheck)
