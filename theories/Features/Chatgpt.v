@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json Schema Utf8 Completion.
 From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments TicketedRequest.
 From Selvedge.Generated Require Import Commands.
@@ -75,14 +75,15 @@ Definition configure entries value := match ConnectionGrants.admit_grants entrie
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
 Definition replace_job id job := Receiver.install TicketedRequest.Scoped.connection_jobs (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
+Definition storage (features : Selvedge.Features.Domain.state) :=
+ Receiver.At.field features Selvedge.Features.Domain.feature_sharing
+   (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_jobs
+     (Receiver.At.keyed (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing features))
+       (@fst N Selvedge.Features.Domain.connection_job))).
 Definition protocol (features : Selvedge.Features.Domain.state)
  : RequestTypes.located Selvedge.Features.Domain.connection_job features :=
  RequestTypes.Protocol
-   (Receiver.At.inject RequestEnvelope.as_pair
-     (Receiver.At.field features Selvedge.Features.Domain.feature_sharing
-       (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_jobs
-         (Receiver.At.keyed (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing features))
-           (@fst N Selvedge.Features.Domain.connection_job)))))
+   (Receiver.At.inject RequestEnvelope.as_pair (storage features))
    ModelDeclarations.chatgpt_exec_request
    (fun job features => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.chatgpt_exec_request)
      [!Selvedge.Features.Domain.job_arguments_json job;JObject [
@@ -150,12 +151,14 @@ Definition handle_chatgpt_forget (p : Selvedge.Generated.Commands.chatgpt_forget
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  edit true (Selvedge.Generated.Commands.chatgpt_forget_connection_id p) (Selvedge.Generated.Commands.chatgpt_forget_project_id p) (Selvedge.Generated.Commands.chatgpt_forget_operation_id p) value.
 
-Definition settle id result error value :bool*bool*decision := match find_job id (registry value) with
- | Some job=>if pending job then
-   let finished:=with_outcome (Selvedge.Features.Domain.JobFinished result error) job in
-   (true,true,accept (JObject [("accepted",JBool true)]) (store (replace_job id finished (registry value)) value) [])
-   else (false,false,accept (JObject [("accepted",JBool false)]) value [])
- | None=>(false,false,accept (JObject [("accepted",JBool false)]) value []) end.
+Definition reception features id := Completion.field
+ (Receiver.inject (@pair N Selvedge.Features.Domain.connection_job id)
+   (Receiver.field world_features (Receiver.path (storage features)))) Selvedge.Features.Domain.job_state.
+Definition running (_ : unit) := Selvedge.Features.Domain.JobRunning.
+Definition settle id result error value :bool*bool*decision :=
+ let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
+   (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
+ (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
 Definition completion source value :option (bool*bool*decision) := match string_field "kind" source with
  | Some kind => if String.eqb kind "chatgpt_result" then Some (
    match CallbackDeclarations.decode ModelDeclarations.ChatgptExec source with

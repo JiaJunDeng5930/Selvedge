@@ -1,4 +1,4 @@
-From Selvedge.Foundation Require Import KeyedListProofs.
+From Selvedge.Foundation Require Import CompletionProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Kernel Require Import Domain State FeatureAdmissionProofs.
 From Selvedge.Features Require Import Domain State TitleRuntime.
@@ -9,17 +9,6 @@ Module F:=Selvedge.Features.Domain.
 Definition execution_core (value : world) :=
  (world_sequence value, world_tasks value, world_next_ticket value,
   world_environment value, world_projects value).
-(** A delayed completion does not rename the current request. *)
-Theorem stale_title_is_ignored : forall value id ticket expected selected prompt ok text,
- TitleRuntime.entry id value = Some (F.TitleEntry id (F.TitlePending (RequestEnvelope.Envelope expected (selected, prompt)))) ->
- ticket <> expected ->
- decision_world (TitleRuntime.complete id ticket ok text value) = value /\
- decision_effects (TitleRuntime.complete id ticket ok text value) = [].
-Proof.
- intros value id ticket expected selected prompt ok text found different.
- unfold TitleRuntime.complete. rewrite found. simpl.
- apply N.eqb_neq in different. rewrite different. split;reflexivity.
-Qed.
 Theorem pending_request_is_frozen : forall value id result item,
  decision_world result = value -> TitleRuntime.entry id value = Some item ->
  TitleRuntime.start id result = result.
@@ -61,36 +50,15 @@ Proof.
  rewrite Owner,Current,Selected; reflexivity.
 Qed.
 
-Lemma stored_title_is_observed : forall id state value,
- TitleRuntime.entry id (TitleRuntime.store id state value)=Some (F.TitleEntry id state).
-Proof.
- intros id state [seq tasks ticket env projects features]. destruct features.
- unfold TitleRuntime.entry,FeatureRequestAdmission.title_entry,TitleRuntime.store. cbn. now rewrite N.eqb_refl.
-Qed.
-
-
-
-Theorem storing_title_keeps_other_generations : forall owner id state value,
- owner <> id ->
- TitleRuntime.entry owner (TitleRuntime.store id state value) = TitleRuntime.entry owner value.
-Proof.
- intros owner id state [seq tasks ticket env projects features] Different. destruct features.
- unfold TitleRuntime.entry, FeatureRequestAdmission.title_entry, TitleRuntime.store. cbn.
- apply N.eqb_neq in Different. rewrite Different.
- apply filtering_another_key_preserves_lookup.
- - intros; now apply N.eqb_eq.
- - now apply N.eqb_neq.
-Qed.
-
-Theorem current_title_completion_commits_normalized_name : forall value id ticket selected prompt text,
- TitleRuntime.entry id value=Some (F.TitleEntry id (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt)))) ->
+(** Normalization is title-specific; correlation and once-only settlement are
+    properties of the shared completion interpreter. *)
+Theorem completed_title_is_normalized : forall text,
  Selvedge.Features.Titles.normalize text<>""%string ->
- TitleRuntime.entry id (decision_world (TitleRuntime.complete id ticket true text value))=
-   Some (F.TitleEntry id (F.Named (Selvedge.Features.Titles.normalize text))).
+ Completion.outcome (TitleRuntime.completed_name true text) =
+ F.Named (Selvedge.Features.Titles.normalize text).
 Proof.
- intros value id ticket selected prompt text pending nonempty.
- unfold TitleRuntime.complete. rewrite pending. cbn. rewrite N.eqb_refl.
- apply String.eqb_neq in nonempty. rewrite nonempty. apply stored_title_is_observed.
+ intros text Nonempty. unfold TitleRuntime.completed_name.
+ apply String.eqb_neq in Nonempty. rewrite Nonempty. reflexivity.
 Qed.
 
 (** Editing policy affects future generations; already frozen requests and
@@ -139,55 +107,9 @@ Proof.
    reflexivity.
 Qed.
 
-Theorem terminal_title_completion_is_ignored : forall value id status ticket ok text,
- TitleRuntime.entry id value = Some (F.TitleEntry id status) ->
- (match status with F.TitlePending (RequestEnvelope.Envelope _ (_, _)) => False | _ => True end) ->
- decision_world (TitleRuntime.complete id ticket ok text value) = value /\
- decision_effects (TitleRuntime.complete id ticket ok text value) = [].
-Proof.
- intros value id status ticket ok text Found Terminal.
- unfold TitleRuntime.complete. rewrite Found.
- destruct status as [[expected [selected prompt]]|title|reason];
-   cbn in Terminal |- *; [contradiction|split; reflexivity|split; reflexivity].
-Qed.
-
-Theorem title_completion_keeps_other_generations : forall value owner id ticket ok text,
- owner <> id ->
- TitleRuntime.entry owner (decision_world (TitleRuntime.complete id ticket ok text value)) =
- TitleRuntime.entry owner value.
-Proof.
- intros value owner id ticket ok text Different. unfold TitleRuntime.complete.
- destruct (TitleRuntime.entry id value) as [[stored status]|]; [|reflexivity].
- destruct status as [[expected [selected prompt]]|title|reason]; [|reflexivity|reflexivity].
- cbn [F.title_value]. destruct (N.eqb ticket expected); [|reflexivity].
- destruct (ok && negb (String.eqb (Titles.normalize text) ""));
-   apply storing_title_keeps_other_generations; exact Different.
-Qed.
-
-Theorem title_completion_keeps_execution_state : forall value id ticket ok text,
- execution_core (decision_world (TitleRuntime.complete id ticket ok text value)) = execution_core value.
-Proof.
- intros value id ticket ok text. unfold TitleRuntime.complete.
- destruct (TitleRuntime.entry id value) as [[owner status]|]; [|reflexivity].
- destruct status as [[expected [selected prompt]]|title|reason]; [|reflexivity|reflexivity].
- cbn [F.title_value]. destruct (N.eqb ticket expected); [|reflexivity].
- destruct (ok && negb (String.eqb (Titles.normalize text) "")); reflexivity.
-Qed.
-
 Theorem title_recovery_keeps_execution_state : forall value,
  execution_core (TitleRuntime.recover value) = execution_core value.
 Proof. intros; reflexivity. Qed.
-
-Theorem title_completion_keeps_saved_instructions : forall value id ticket ok text,
- F.feature_title_settings (world_features (decision_world (TitleRuntime.complete id ticket ok text value))) =
- F.feature_title_settings (world_features value).
-Proof.
- intros value id ticket ok text. unfold TitleRuntime.complete.
- destruct (TitleRuntime.entry id value) as [[owner status]|]; [|reflexivity].
- destruct status as [[expected [selected prompt]]|title|reason]; [|reflexivity|reflexivity].
- cbn [F.title_value]. destruct (N.eqb ticket expected); [|reflexivity].
- destruct (ok && negb (String.eqb (Titles.normalize text) "")); reflexivity.
-Qed.
 
 Theorem title_recovery_keeps_saved_instructions : forall value,
  F.feature_title_settings (world_features (TitleRuntime.recover value)) =

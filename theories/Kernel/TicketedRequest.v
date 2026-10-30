@@ -275,9 +275,6 @@ Definition run {before} (candidate : option (plan before)) :=
    effect independently of the receiver installed by the interpreter. *)
 Module F := Selvedge.Features.Domain.
 Module FS := Selvedge.Features.State.
-Definition title_slot owner :=
- Receiver.field F.feature_titles
-   (Receiver.inject (F.TitleEntry owner) (Receiver.keyed F.title_task)).
 Definition board_contents : Focus.t F.board (list (option F.card) * list N).
 Proof.
  refine (Focus.Focus _ _ _
@@ -295,7 +292,6 @@ Definition connection_jobs := Receiver.field F.sharing_jobs
 Definition connection_slot := Receiver.field F.feature_sharing connection_jobs.
 Definition install_feature {input} (receiver : Receiver.t F.state input) request value :=
  with_features (Receiver.install receiver request (world_features value)) value.
-Definition put_title owner := install_feature (title_slot owner).
 Definition put_card owner := install_feature (card_slot owner).
 Definition put_connection identity job := install_feature connection_slot (identity,job).
 (** A channel consumes a domain selection. Its payload and located protocol

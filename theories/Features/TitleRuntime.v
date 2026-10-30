@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Schema.
+From Selvedge.Foundation Require Import Json Utf8 Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest DecisionComposition FeatureRequestAdmission.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
@@ -8,7 +8,6 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition entry := FeatureRequestAdmission.title_entry.
-Definition store := TicketedRequest.Scoped.put_title.
 Definition configure (revision:N) (task_prompt agent_prompt : Titles.instruction) (value:world) :=
  let current:=Selvedge.Features.Domain.feature_title_settings (world_features value) in
  if negb (N.eqb revision (Selvedge.Features.Domain.title_revision current)) then
@@ -33,13 +32,14 @@ Definition ordinary := FeatureRequestAdmission.ordinary_profile.
 Definition selected_profile := FeatureRequestAdmission.selected_title_profile.
 Definition prompt := Titles.prompt_with.
 Definition accepts := FeatureRequestAdmission.title_accepts.
+Definition storage (features : Selvedge.Features.Domain.state) owner :=
+ Receiver.At.field features Selvedge.Features.Domain.feature_titles
+   (Receiver.At.inject (Selvedge.Features.Domain.TitleEntry owner)
+     (Receiver.At.keyed (Selvedge.Features.Domain.feature_titles features) Selvedge.Features.Domain.title_task)).
 Definition protocol (features : Selvedge.Features.Domain.state) owner
  : RequestTypes.located (profile * string) features :=
  RequestTypes.Protocol
-   (Receiver.At.inject Selvedge.Features.Domain.TitlePending
-     (Receiver.At.field features Selvedge.Features.Domain.feature_titles
-       (Receiver.At.inject (Selvedge.Features.Domain.TitleEntry owner)
-         (Receiver.At.keyed (Selvedge.Features.Domain.feature_titles features) Selvedge.Features.Domain.title_task))))
+   (Receiver.At.inject Selvedge.Features.Domain.TitlePending (storage features owner))
    ModelDeclarations.task_title_request
    (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.task_title_request)
      [!Codec.task_text_model_json (fst input);snd input!]).
@@ -59,10 +59,16 @@ Definition start (id:N) (result:decision) :decision :=
  | None => result
  | Some request => DecisionComposition.follow result (CommandResult.accept (issue request))
  end.
-Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
- let correlated:=match entry id value with Some item=>match Selvedge.Features.Domain.title_value item with Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope expected (_, _))=>N.eqb ticket expected | _=>false end | None=>false end in
+Definition reception features id := Completion.direct
+ (Receiver.field world_features (Receiver.path (storage features id))).
+Definition completed_name (ok : bool) (text : string)
+ : Completion.terminal Selvedge.Features.Domain.TitlePending :=
  let normalized:=Titles.normalize text in
- let next:=if correlated then store id (if ok && negb (String.eqb normalized "") then Selvedge.Features.Domain.Named normalized else Selvedge.Features.Domain.TitleFailed text) value else value in
+ if ok && negb (String.eqb normalized "") then Completion.done (Selvedge.Features.Domain.Named normalized)
+ else Completion.done (Selvedge.Features.Domain.TitleFailed text).
+Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
+ let '(correlated,next) := Completion.run (reception (world_features value) id) Selvedge.Features.Domain.TitlePending
+   Completion.Ticket ticket (fun _ => completed_name ok text) value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
  match CallbackDeclarations.decode ModelDeclarations.TaskTitle source with

@@ -54,40 +54,10 @@ Proof.
  now rewrite Missing.
 Qed.
 
-Theorem finished_callback_is_ignored : forall id job result error value,
- Chatgpt.find_job id (Chatgpt.registry value) = Some job ->
- Chatgpt.pending job = false ->
- let '(_,_,decision):=Chatgpt.settle id result error value in
- decision_world decision=value /\ decision_effects decision=[].
-Proof. intros. unfold Chatgpt.settle. rewrite H,H0. split;reflexivity. Qed.
-
-Theorem missing_callback_is_ignored : forall id result error value,
- Chatgpt.find_job id (Chatgpt.registry value) = None ->
- let '(_,_,decision):=Chatgpt.settle id result error value in
- decision_world decision=value /\ decision_effects decision=[].
-Proof. intros. unfold Chatgpt.settle. rewrite H. split;reflexivity. Qed.
-
-Theorem completion_preserves_execution_context : forall id job result error value,
- Chatgpt.find_job id (Chatgpt.registry value) = Some job -> Chatgpt.pending job=true ->
- let '(_,_,decision):=Chatgpt.settle id result error value in
- exists finished,Chatgpt.find_job id (Chatgpt.registry (decision_world decision))=Some finished /\
- F.job_connection finished=F.job_connection job /\ F.job_project finished=F.job_project job /\
- F.job_request finished=F.job_request job /\ F.job_arguments finished=F.job_arguments job /\
- F.job_workspace finished=F.job_workspace job /\ F.job_resource finished=F.job_resource job /\ F.job_sandbox finished=F.job_sandbox job /\
- F.job_state finished=F.JobFinished result error.
-Proof.
- intros. unfold Chatgpt.settle. rewrite H,H0. cbn -[Chatgpt.replace_job].
- exists (Chatgpt.with_outcome (F.JobFinished result error) job).
- rewrite sharing_registry_store,lookup_replaced_job.
- destruct job; repeat split;reflexivity.
-Qed.
-
 Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,
  F.job_state (Chatgpt.recover_job (F.ConnectionJob connection project request arguments workspace resource sandbox F.JobRunning)) =
  F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
 Proof. reflexivity. Qed.
-
-
 
 (** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forget_payload) value job granted caller,
