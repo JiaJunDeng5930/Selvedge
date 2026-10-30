@@ -9,51 +9,58 @@ Number Notation nat Init.Nat.of_num_uint Init.Nat.to_num_uint (abstract after 32
 Definition is_digit (c : ascii) : bool :=
   let n := nat_of_ascii c in (48 <=? n)%nat && (n <=? 57)%nat.
 
-Fixpoint skip_digits (text : string) : string :=
-  match text with
-  | EmptyString => EmptyString
-  | String c rest => if is_digit c then skip_digits rest else text
+(** The JSON number language retains decimal digits until a consumer chooses a
+    bounded numerical interpretation. Opaque JSON continues to keep its token. *)
+Fixpoint decimal_digits_acc (source : string) (reversed : Decimal.uint) : Decimal.uint * string :=
+  match source with
+  | EmptyString => (Decimal.rev reversed, EmptyString)
+  | String head rest => match uint_of_char head (Some reversed) with
+    | Some next => decimal_digits_acc rest next
+    | None => (Decimal.rev reversed, source) end
   end.
-Definition after_digits (text : string) : option string :=
-  match text with
-  | EmptyString => None
-  | String c rest => if is_digit c then Some (skip_digits rest) else None
+Fixpoint decimal_width_acc (digits : Decimal.uint) (count : nat) : nat :=
+  match digits with
+  | Decimal.Nil => count
+  | Decimal.D0 rest | Decimal.D1 rest | Decimal.D2 rest | Decimal.D3 rest | Decimal.D4 rest
+  | Decimal.D5 rest | Decimal.D6 rest | Decimal.D7 rest | Decimal.D8 rest | Decimal.D9 rest =>
+    decimal_width_acc rest (S count) end.
+Definition decimal_width digits := decimal_width_acc digits O.
+Definition decimal_digits source := decimal_digits_acc source Decimal.Nil.
+Definition required_decimal_digits source :=
+  match decimal_digits source with (Decimal.Nil, _) => None | parsed => Some parsed end.
+Definition decimal_integer source := match source with
+  | String head rest => if Ascii.eqb head "0" then Some (Decimal.D0 Decimal.Nil,rest)
+    else required_decimal_digits source
+  | _ => None end.
+Definition decimal_fraction source := match source with
+  | String head rest => if Ascii.eqb head "." then required_decimal_digits rest
+    else Some (Decimal.Nil,source)
+  | _ => Some (Decimal.Nil,source) end.
+Definition decimal_exponent source := match source with
+  | EmptyString => Some (Decimal.Pos Decimal.Nil)
+  | String head rest => if Ascii.eqb head "e" || Ascii.eqb head "E" then
+    let '(negative,digits) := match rest with
+      | String sign tail => if Ascii.eqb sign "-" then (true,tail)
+        else if Ascii.eqb sign "+" then (false,tail) else (false,rest)
+      | _ => (false,rest) end in
+    match required_decimal_digits digits with
+    | Some (value,EmptyString) => Some (if negative then Decimal.Neg value else Decimal.Pos value)
+    | _ => None end
+    else None
   end.
-Definition after_integer (text : string) : option string :=
-  match text with
-  | String c rest =>
-      if Ascii.eqb c "0" then Some rest
-      else if is_digit c then Some (skip_digits rest) else None
-  | _ => None
-  end.
-Definition after_fraction (text : string) : option string :=
-  match text with
-  | String c rest => if Ascii.eqb c "." then after_digits rest else Some text
-  | _ => Some text
-  end.
-Definition after_exponent (text : string) : option string :=
-  match text with
-  | String c rest =>
-      if Ascii.eqb c "e" || Ascii.eqb c "E" then
-        match rest with
-        | String sign digits =>
-            after_digits (if Ascii.eqb sign "+" || Ascii.eqb sign "-" then digits else rest)
-        | _ => None
-        end
-      else Some text
-  | _ => Some text
-  end.
-Definition number_lexeme (text : string) : bool :=
-  let unsigned := match text with
-                  | String c rest => if Ascii.eqb c "-" then rest else text
-                  | _ => text end in
-  match after_integer unsigned with
-  | Some rest => match after_fraction rest with
-    | Some rest => match after_exponent rest with
-      | Some EmptyString => true
-      | _ => false end
-    | None => false end
-  | None => false end.
+Definition parse_decimal source : option Decimal.decimal :=
+  let '(negative,unsigned) := match source with
+    | String sign rest => if Ascii.eqb sign "-" then (true,rest) else (false,source)
+    | _ => (false,source) end in
+  match decimal_integer unsigned with
+  | Some (whole,rest) => match decimal_fraction rest with
+    | Some (fraction,rest) => match decimal_exponent rest with
+      | Some exponent => Some (Decimal.DecimalExp
+          (if negative then Decimal.Neg whole else Decimal.Pos whole) fraction exponent)
+      | None => None end
+    | None => None end
+  | None => None end.
+Definition number_lexeme text := match parse_decimal text with Some _ => true | None => false end.
 
 Definition parse_natural (text : string) : option N :=
   match text with

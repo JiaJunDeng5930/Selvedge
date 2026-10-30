@@ -1,4 +1,4 @@
-From Stdlib Require Import String Ascii List Bool Arith Lia.
+From Stdlib Require Import String Ascii List Bool Arith Lia DecimalString.
 From Selvedge.Foundation Require Import Json Numbers Utf8 TextJson.
 Import ListNotations.
 Open Scope string_scope.
@@ -87,70 +87,85 @@ Fixpoint number_bytes (text : string) : bool :=
  match text with EmptyString => true | String c rest => number_char c && number_bytes rest end.
 Lemma digit_number_char : forall c, is_digit c = true -> number_char c = true.
 Proof. intros c Digit. unfold number_char. now rewrite Digit. Qed.
-Lemma skip_digits_number_bytes : forall text,
- number_bytes (skip_digits text) = true -> number_bytes text = true.
+Lemma uint_character_digit character reversed next :
+  uint_of_char character (Some reversed) = Some next -> is_digit character = true.
 Proof.
- induction text as [|c rest IH]; cbn; [reflexivity|].
- destruct (is_digit c) eqn:Digit; [|exact (fun H => H)].
- intro Rest. rewrite (digit_number_char _ Digit). cbn. now apply IH.
+  intro parsed. apply uint_of_char_spec in parsed.
+  repeat (destruct parsed as [parsed|parsed]); destruct parsed as [-> _]; reflexivity.
 Qed.
-Lemma after_digits_number_bytes : forall text rest,
- after_digits text = Some rest -> number_bytes rest = true -> number_bytes text = true.
+Lemma decimal_digits_bytes text reversed digits rest :
+  decimal_digits_acc text reversed = (digits,rest) ->
+  number_bytes rest = true -> number_bytes text = true.
 Proof.
- intros [|c text] rest Parsed Bytes; cbn in Parsed; try discriminate.
- destruct (is_digit c) eqn:Digit; inversion Parsed; subst.
- cbn. rewrite (digit_number_char _ Digit). cbn. now apply skip_digits_number_bytes.
+  revert reversed digits rest. induction text as [|head text IH]; intros reversed digits rest parsed bytes; [reflexivity|].
+  cbn [decimal_digits_acc] in parsed.
+  destruct (uint_of_char head (Some reversed)) as [next|] eqn:digit.
+  - cbn [number_bytes]. rewrite (digit_number_char _ (uint_character_digit _ _ _ digit)).
+    cbn. eapply IH; eauto.
+  - inversion parsed; subst. exact bytes.
 Qed.
-Lemma after_integer_number_bytes : forall text rest,
- after_integer text = Some rest -> number_bytes rest = true -> number_bytes text = true.
+Lemma required_decimal_bytes text digits rest :
+  required_decimal_digits text = Some (digits,rest) ->
+  number_bytes rest = true -> number_bytes text = true.
 Proof.
- intros [|c text] rest Parsed Bytes; cbn in Parsed; try discriminate.
- destruct (Ascii.eqb c "0") eqn:Zero.
- - apply Ascii.eqb_eq in Zero. subst c. inversion Parsed; subst. exact Bytes.
- - destruct (is_digit c) eqn:Digit; inversion Parsed; subst.
-   cbn. rewrite (digit_number_char _ Digit). cbn. now apply skip_digits_number_bytes.
+  unfold required_decimal_digits, decimal_digits.
+  destruct (decimal_digits_acc text Decimal.Nil) as [value remaining] eqn:scanned.
+  destruct value; try discriminate; intros [= <- <-] bytes;
+    eapply decimal_digits_bytes; eauto.
 Qed.
-Lemma after_fraction_number_bytes : forall text rest,
- after_fraction text = Some rest -> number_bytes rest = true -> number_bytes text = true.
+Lemma decimal_integer_bytes text digits rest :
+  decimal_integer text = Some (digits,rest) ->
+  number_bytes rest = true -> number_bytes text = true.
 Proof.
- intros [|c text] rest Parsed Bytes; cbn in Parsed; [reflexivity|].
- destruct (Ascii.eqb c ".") eqn:Dot.
- - apply Ascii.eqb_eq in Dot. subst c. cbn. eapply after_digits_number_bytes; eauto.
- - inversion Parsed; subst. exact Bytes.
+  destruct text as [|head text]; [discriminate|]. unfold decimal_integer.
+  destruct (Ascii.eqb head "0") eqn:zero.
+  - apply Ascii.eqb_eq in zero. subst. intros [= <- <-] bytes. exact bytes.
+  - apply required_decimal_bytes.
 Qed.
-Lemma after_exponent_number_bytes : forall text rest,
- after_exponent text = Some rest -> number_bytes rest = true -> number_bytes text = true.
+Lemma decimal_fraction_bytes text digits rest :
+  decimal_fraction text = Some (digits,rest) ->
+  number_bytes rest = true -> number_bytes text = true.
 Proof.
- intros [|c text] rest Parsed Bytes; cbn in Parsed; [reflexivity|].
- destruct (Ascii.eqb c "e" || Ascii.eqb c "E") eqn:Exponent.
- - assert (Head : number_char c = true).
-   { apply orb_true_iff in Exponent. destruct Exponent as [H|H]; apply Ascii.eqb_eq in H; subst; reflexivity. }
-   cbn. rewrite Head. cbn.
-   destruct text as [|sign digits]; [discriminate|].
-   destruct (Ascii.eqb sign "+" || Ascii.eqb sign "-") eqn:Sign.
-   + cbn. assert (SignByte : number_char sign = true).
-     { apply orb_true_iff in Sign. destruct Sign as [H|H]; apply Ascii.eqb_eq in H; subst; reflexivity. }
-     rewrite SignByte. cbn. eapply after_digits_number_bytes; eauto.
-   + eapply after_digits_number_bytes; eauto.
- - inversion Parsed; subst. exact Bytes.
+  destruct text as [|head text]; [reflexivity|]. unfold decimal_fraction.
+  destruct (Ascii.eqb head ".") eqn:dot.
+  - apply Ascii.eqb_eq in dot. subst. cbn [number_bytes]. apply required_decimal_bytes.
+  - intros [= <- <-] bytes. exact bytes.
+Qed.
+Lemma decimal_exponent_bytes text exponent :
+  decimal_exponent text = Some exponent -> number_bytes text = true.
+Proof.
+  destruct text as [|head text]; [reflexivity|]. unfold decimal_exponent.
+  destruct (Ascii.eqb head "e" || Ascii.eqb head "E") eqn:mark; [|discriminate].
+  assert (character : number_char head = true).
+  { apply orb_true_iff in mark as [mark|mark]; apply Ascii.eqb_eq in mark; subst; reflexivity. }
+  cbn [number_bytes]. rewrite character. cbn.
+  destruct text as [|sign digits]; [discriminate|].
+  destruct (Ascii.eqb sign "-") eqn:negative.
+  - apply Ascii.eqb_eq in negative. subst sign. cbn [number_bytes].
+    destruct (required_decimal_digits digits) as [[value remaining]|] eqn:parsed; [|discriminate].
+    destruct remaining; [|discriminate]. intros _. eapply required_decimal_bytes; eauto.
+  - destruct (Ascii.eqb sign "+") eqn:positive.
+    + apply Ascii.eqb_eq in positive. subst sign. cbn [number_bytes].
+      destruct (required_decimal_digits digits) as [[value remaining]|] eqn:parsed; [|discriminate].
+      destruct remaining; [|discriminate]. intros _. eapply required_decimal_bytes; eauto.
+    + destruct (required_decimal_digits (String sign digits)) as [[value remaining]|] eqn:parsed; [|discriminate].
+      destruct remaining; [|discriminate]. intros _. eapply required_decimal_bytes; eauto.
 Qed.
 Theorem number_lexeme_bytes : forall text,
- number_lexeme text = true -> number_bytes text = true.
+  number_lexeme text = true -> number_bytes text = true.
 Proof.
- intros text Valid. unfold number_lexeme in Valid.
- destruct text as [|c text]; [discriminate|].
- destruct (Ascii.eqb c "-") eqn:Negative;
- destruct (after_integer _) eqn:Integer; try discriminate;
- destruct (after_fraction _) eqn:Fraction; try discriminate;
- destruct (after_exponent _) eqn:Exponent; try discriminate;
- destruct s1; try discriminate.
- - apply Ascii.eqb_eq in Negative. subst c. cbn.
-   eapply after_integer_number_bytes; [exact Integer|].
-   eapply after_fraction_number_bytes; [exact Fraction|].
-   eapply after_exponent_number_bytes; [exact Exponent|reflexivity].
- - eapply after_integer_number_bytes; [exact Integer|].
-   eapply after_fraction_number_bytes; [exact Fraction|].
-   eapply after_exponent_number_bytes; [exact Exponent|reflexivity].
+  intros [|head text] valid; [discriminate|]. unfold number_lexeme, parse_decimal in valid.
+  destruct (Ascii.eqb head "-") eqn:negative;
+    destruct (decimal_integer _) as [[whole rest]|] eqn:integer; try discriminate;
+    destruct (decimal_fraction _) as [[fraction tail]|] eqn:fractional; try discriminate;
+    destruct (decimal_exponent _) as [exponent|] eqn:power; try discriminate.
+  - apply Ascii.eqb_eq in negative. subst head. cbn [number_bytes].
+    eapply decimal_integer_bytes; [exact integer|].
+    eapply decimal_fraction_bytes; [exact fractional|].
+    eapply decimal_exponent_bytes; exact power.
+  - eapply decimal_integer_bytes; [exact integer|].
+    eapply decimal_fraction_bytes; [exact fractional|].
+    eapply decimal_exponent_bytes; exact power.
 Qed.
 
 Lemma take_while_number : forall text suffix reversed,
@@ -179,11 +194,14 @@ Lemma number_lexeme_initial : forall text,
  number_lexeme text = true -> exists c rest,
  text = String c rest /\ (Ascii.eqb c "-" || is_digit c) = true.
 Proof.
- intros [|c rest] Valid; [discriminate|]. exists c,rest. split; [reflexivity|].
- unfold number_lexeme in Valid. destruct (Ascii.eqb c "-") eqn:Negative; [reflexivity|].
- cbn [after_integer] in Valid. destruct (Ascii.eqb c "0") eqn:Zero.
- - apply Ascii.eqb_eq in Zero. subst. reflexivity.
- - destruct (is_digit c) eqn:Digit; [reflexivity|discriminate].
+ intros [|c rest] valid; [discriminate|]. exists c,rest. split; [reflexivity|].
+ unfold number_lexeme, parse_decimal in valid.
+ destruct (Ascii.eqb c "-") eqn:negative; [reflexivity|].
+ cbn [decimal_integer] in valid. destruct (Ascii.eqb c "0") eqn:zero.
+ - apply Ascii.eqb_eq in zero. subst. reflexivity.
+ - unfold required_decimal_digits, decimal_digits in valid. cbn [decimal_digits_acc] in valid.
+   destruct (uint_of_char c (Some Decimal.Nil)) as [next|] eqn:digit; [|discriminate].
+   apply uint_character_digit in digit. now rewrite digit.
 Qed.
 Lemma number_initial_delimiters : forall c,
  (Ascii.eqb c "-" || is_digit c) = true ->

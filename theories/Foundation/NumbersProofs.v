@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith Numbers.DecimalString Numbers.DecimalN.
+From Stdlib Require Import String List Bool NArith Numbers.DecimalString Numbers.DecimalN Lia.
 From Selvedge.Foundation Require Import Numbers.
 
 Lemma natural_print_parse : forall value,
@@ -14,3 +14,11 @@ Proof.
  destruct (show_natural value) eqn:Text; [cbn in Printed; discriminate|].
  rewrite Printed, DecimalN.Unsigned.of_to; reflexivity.
 Qed.
+
+Lemma decimal_width_acc_count : forall digits count,
+ decimal_width_acc digits count = (count + Decimal.nb_digits digits)%nat.
+Proof.
+ induction digits; cbn; intros; rewrite ?IHdigits; lia.
+Qed.
+Lemma decimal_width_count : forall digits, decimal_width digits = Decimal.nb_digits digits.
+Proof. intro digits; unfold decimal_width. rewrite decimal_width_acc_count. reflexivity. Qed.
