@@ -4,15 +4,21 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Inductive callback_kind :=
- | TaskTitle | ChatgptExec | BoardText | Approval | Hook | AfterHook
- | Context | Compaction (completed : bool) | Worktree (created : bool) | Reasoning | Model | Tool.
-Definition callback_text (value : callback_kind) := match value with
- | TaskTitle => "task_title" | ChatgptExec => "chatgpt_result" | BoardText => "board_text"
- | Approval => "approval" | Hook => "hook" | AfterHook => "after_hook" | Context => "context_observed"
- | Compaction done => if done then "compaction_completed" else "compaction_measured"
- | Worktree created => if created then "worktree_created" else "worktree_archived"
- | Reasoning => "reasoning" | Model => "model" | Tool => "tool" end.
+From Selvedge.Kernel Require CallbackDeclarations.
+Definition callback_kind := CallbackDeclarations.callback_kind.
+Definition callback_text := CallbackDeclarations.callback_text.
+Definition TaskTitle := CallbackDeclarations.TaskTitle.
+Definition ChatgptExec := CallbackDeclarations.ChatgptExec.
+Definition BoardText := CallbackDeclarations.BoardText.
+Definition Approval := CallbackDeclarations.Approval.
+Definition Hook := CallbackDeclarations.Hook.
+Definition AfterHook := CallbackDeclarations.AfterHook.
+Definition Context := CallbackDeclarations.Context.
+Definition Compaction := CallbackDeclarations.Compaction.
+Definition Worktree := CallbackDeclarations.Worktree.
+Definition Reasoning := CallbackDeclarations.Reasoning.
+Definition Model := CallbackDeclarations.Model.
+Definition Tool := CallbackDeclarations.Tool.
 
 (** The public discriminant, payload and callback ownership are one declaration. *)
 Record variant := Variant {

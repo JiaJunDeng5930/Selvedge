@@ -37,6 +37,17 @@ request is cancelled with its task. Dispatch derives the task and ticket from
 the same receiver and envelope; adding another task-bound protocol does not
 add another cancellation case.
 
+Callback declarations are open values as well. A declaration selects either a
+marked result, whose `ok` or `error` field chooses its typed branch, or an
+unmarked result whose single payload carries the outcome itself. Those forms
+cannot be combined inconsistently. The declaration owns its coordinates,
+admitted payloads, diagnostic format and physical result observation.
+`CallbackDeclarations.declare` derives field-name obligations at construction;
+the shared encoder supplies the discriminant and result marker. Domain input
+handlers register the same descriptor with their interpretation. A new
+callback adds a declaration and a handler, without extending a global callback
+enumeration or proving its framing again.
+
 Provider registration follows the same rule. A Responses-compatible backend
 uses `ProviderCatalog.responses_backend name endpoint credential`; common
 request construction supplies the authority, tool catalog and response

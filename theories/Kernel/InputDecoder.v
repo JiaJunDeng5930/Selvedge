@@ -23,41 +23,41 @@ Definition configure_decoder := Decoder "configure" Configuration.environment_sc
 (** The callback language chooses its result branch before exposing values.
     Domain handlers receive exactly that branch's fields and never reconstruct
     a relationship between independent optional payloads and a status flag. *)
-Definition callback_kinds := [Context;Model;Reasoning;Tool;Hook;AfterHook;Approval].
-Definition callback_named (name : string) :=
- find (fun kind => String.eqb name (callback_text kind)) callback_kinds.
-Definition callback_input (kind : callback_kind) : forall ok,
- fields (CallbackDeclarations.coordinates kind) -> DeclarationFields.values (CallbackDeclarations.payload kind ok) -> option input :=
- match kind as kind return forall ok, fields (CallbackDeclarations.coordinates kind) ->
-   DeclarationFields.values (CallbackDeclarations.payload kind ok) -> option input with
- | Context => fun ok address =>
+Record callback_decoder := CallbackDecoder {
+ callback_declaration : callback_kind;
+ callback_construct : forall ok, fields (CallbackDeclarations.coordinates callback_declaration) ->
+   DeclarationFields.values (CallbackDeclarations.payload callback_declaration ok) -> option input
+}.
+Definition callback_kinds := [
+ CallbackDecoder Context (fun ok address =>
    let id := head address in let ticket := head (tail address) in
    if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Context ok) -> option input then
      fun values => option_map (fun observations => ContextCompleted id ticket (Some observations) "")
        (Codec.traverse parse_observation (fst values))
-   else fun values => Some (ContextCompleted id ticket None (proj1_sig (fst values)))
- | Model => fun ok address =>
+   else fun values => Some (ContextCompleted id ticket None (proj1_sig (fst values))));
+ CallbackDecoder Model (fun ok address =>
    let id := head address in let ticket := head (tail address) in
    if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
      fun values => Some (ModelCompleted id ticket (ModelSuccess (map Codec.model_item_of_fields (fst values))))
    else fun values => Some (ModelCompleted id ticket
-     (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end))
- | Reasoning => fun ok address =>
+     (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end)));
+ CallbackDecoder Reasoning (fun ok address =>
    let id := head address in let ticket := head (tail address) in
    if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Reasoning ok) -> option input then
      fun values => Some (ReasoningCompleted id ticket (Reasoning.Chosen (proj1_sig (fst values)) (fst (snd values))))
-   else fun values => Some (ReasoningCompleted id ticket (EvaluationFailed (proj1_sig (fst values))))
- | Tool => fun ok address values => Some (ToolCompleted (head address) (head (tail address))
-     (match fst values with Some value => value | None => JNull end) (negb ok))
- | Hook => fun _ address values => Some (HookCompleted (head address) (head (tail address)) (HookRules.hook_from_fields (fst values)))
- | AfterHook => fun _ address values => Some
-     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values)))
- | Approval => fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
-     (ApprovalProtocol.from_callback (fst values)))
- | _ => fun _ _ _ => None end.
-Definition decode_callback kind source :=
- match CallbackDeclarations.decode kind source with
- | Some (existT _ ok (address,values)) => callback_input kind ok address values
+   else fun values => Some (ReasoningCompleted id ticket (EvaluationFailed (proj1_sig (fst values)))));
+ CallbackDecoder Tool (fun ok address values => Some (ToolCompleted (head address) (head (tail address))
+     (match fst values with Some value => value | None => JNull end) (negb ok)));
+ CallbackDecoder Hook (fun _ address values => Some (HookCompleted (head address) (head (tail address)) (HookRules.hook_from_fields (fst values))));
+ CallbackDecoder AfterHook (fun _ address values => Some
+     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values))));
+ CallbackDecoder Approval (fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
+     (ApprovalProtocol.from_callback (fst values))))].
+Definition callback_named (name : string) :=
+ find (fun entry => String.eqb name (callback_text (callback_declaration entry))) callback_kinds.
+Definition decode_callback entry source :=
+ match CallbackDeclarations.decode (callback_declaration entry) source with
+ | Some (existT _ ok (address,values)) => callback_construct entry ok address values
  | None => None end.
 Definition decoders := [command_decoder;configure_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
@@ -108,8 +108,8 @@ Definition command_diagnostic (source : json) :=
 Definition diagnostic (source : json) :=
  match string_field "kind" source with
  | Some kind => match callback_named kind with
-   | Some callback => match CallbackDeclarations.read_status callback source with
-     | Some ok => "Invalid callback '" ++ kind ++ "'; expected " ++ TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema callback ok))
+   | Some callback => match CallbackDeclarations.read_status (callback_declaration callback) source with
+     | Some ok => "Invalid callback '" ++ kind ++ "'; expected " ++ TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema (callback_declaration callback) ok))
      | None => "Missing or invalid callback result marker" end
    | None => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
    | Some decoder =>
