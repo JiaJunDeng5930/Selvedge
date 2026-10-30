@@ -14,16 +14,13 @@ Record after_request := AfterRequest {
 
 (* Only a matching final callback is a transaction of its own. Intermediate
    hooks still need their pending receiver and run through ordinary scheduling. *)
-Definition final_action (action : HookRules.after_action) (remaining : list json) :=
- match action,remaining with HookRules.RefuseResult _ _,_ | _,[] => true | _,_ => false end.
-Definition resolved_update (request : after_request) (current : task) : option Tasks.result_update :=
+Definition resolved_update (request : after_request) (current : task) : option (list TaskChange.edit) :=
  match task_lifecycle current with
  | Archived _ => match RequestReceiver.pending_after (operation request) (ticket request) current with
    | Some (pending,plugin,remaining,previous,failed) =>
-     let action := HookRules.after_apply previous (outcome request) in
-     if final_action action remaining then
-       Some (HookCallbacks.after_result_plan (owner request) pending plugin remaining previous failed (outcome request))
-     else None
+     match HookCallbacks.after_result_plan (owner request) pending plugin remaining previous failed (outcome request) with
+     | Tasks.WakeDemand changes => Some changes
+     | Tasks.KeepDemand _ => None end
    | None => None end
  | _ => None end.
 Definition eligible request current := match resolved_update request current with Some _ => true | None => false end.
@@ -31,7 +28,7 @@ Record plan (before : world) := Plan {
  target : TaskScope.task_reference before;
  request : after_request;
  owns_request : TaskScope.owner target = owner request;
- update : Tasks.result_update;
+ update : list TaskChange.edit;
  observed_update : resolved_update request (TaskScope.selected target) = Some update
 }.
 Arguments target {before}.
@@ -55,7 +52,7 @@ Definition resolve (input : input) (before : world) := match input with
 
 Definition interpret_change {before : world} (accepted : plan before) :=
  CommandResult.Change (JObject [("accepted"%string,JBool true)])
-   (Tasks.interpret_result (target accepted) (update accepted)) [].
+   (Tasks.interpret_result (target accepted) (Tasks.WakeDemand (update accepted))) [].
 (* The settled callback commits before independent runtime maintenance. The
    selected plan is an accepted settlement even when its hook result failed. *)
 Definition candidate {before : world} (accepted : plan before) :=

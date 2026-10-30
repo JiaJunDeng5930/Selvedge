@@ -10,7 +10,8 @@ Open Scope list_scope.
 Theorem final_after_completion_retires_its_archived_operation :
  forall owner current operations original plugin pending previous failed outcome,
  task_lifecycle current = Archived operations ->
- TerminalSettlement.final_action (HookRules.after_apply previous outcome) pending = true ->
+ (match HookCallbacks.after_result_plan owner original plugin pending previous failed outcome with
+  | Tasks.WakeDemand _ => True | Tasks.KeepDemand _ => False end) ->
  let next := TaskChange.apply (Tasks.result_changes
    (HookCallbacks.after_result_plan owner original plugin pending previous failed outcome) current) current in
  let '(result,error) := match HookRules.after_apply previous outcome with
@@ -23,9 +24,10 @@ Theorem final_after_completion_retires_its_archived_operation :
     History.operation_result original result error].
 Proof.
  intros owner current operations original plugin pending previous failed outcome ArchivedTask Terminal.
- unfold TerminalSettlement.final_action in Terminal.
- destruct outcome; cbn [HookRules.after_apply] in Terminal |- *;
- try (destruct pending; try discriminate).
+ destruct outcome;
+ cbn [HookCallbacks.after_result_plan OperationEvent.after_checked OperationEvent.after_result
+   OperationEvent.settle Tasks.prefix_result HookRules.after_apply] in Terminal |- *;
+ try (destruct pending; try contradiction).
  all: destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
    cbn in ArchivedTask; subst lifecycle;
    cbn [HookCallbacks.after_result_plan OperationEvent.after_checked OperationEvent.after_result
