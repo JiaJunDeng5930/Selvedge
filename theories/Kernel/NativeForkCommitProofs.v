@@ -19,16 +19,7 @@ Proof.
  assert (Empty : match NativeForkCommit.business_result accepted with
    | CommandResult.Accepted change => CommandResult.change_effects change = []
    | CommandResult.Rejected _ => True end).
- { unfold NativeForkCommit.business_result, ForkCommit.admit_workspace.
-   pose proof (fork_command_has_no_external_effects
-     (Scheduler.native_fork_request (NativeForkCommit.planned_step accepted))
-     (Some (Tasks.NativeCall (Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted))
-       (Scheduler.native_fork_invocation (NativeForkCommit.planned_step accepted))
-       (Scheduler.native_fork_remaining (NativeForkCommit.planned_step accepted))))
-     (NativeForkCommit.started_world accepted)) as NoEffects.
-   destruct (CommandExecution.handle_fork_result _ _ _) as [change|reason]; [|exact I].
-   cbn [CommandResult.bind].
-   destruct (ForkCommit.workspace_error _ _); [exact I|exact NoEffects]. }
+ { unfold NativeForkCommit.business_result; apply fork_command_has_no_external_effects. }
  unfold NativeForkCommit.candidate, NativeForkCommit.interpret, NativeForkCommit.settle_result.
  destruct (NativeForkCommit.business_result accepted) as [[value next effects]|reason];
    cbn in Empty; try subst effects;

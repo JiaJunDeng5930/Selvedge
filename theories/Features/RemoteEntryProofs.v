@@ -14,25 +14,19 @@ Definition stop_first_payload : G.stop_payload := G.Admit_stop
  (exist _ (exist _ "stop" (or_introl eq_refl), (exist _ 0 eq_refl, tt)) eq_refl).
 
 (** A scoped real control transition: a running first task must become stopped,
-    while the independently checked workspace guard remains satisfied. *)
+    without requiring a ready execution environment for this control. *)
 Theorem actual_stop_preserves_workspace_and_stops_task : forall task phase operations value,
  world_tasks value = [task] ->
  task_lifecycle task = Running phase operations ->
- Worktree.control_allowed Tasks.Stop 0 value = true ->
  Packet.execute_domain (G.Cmd_stop stop_first_payload) None value =
  accept (JObject [("task_id",number 0)])
    (put_task 0 (with_lifecycle (Stopped phase operations) task) value) [].
 Proof.
- intros task phase operations value Tasks Running Allowed.
- assert (Executable : Worktree.execution_allowed 0 value = true).
- { unfold Worktree.control_allowed in Allowed.
-   apply andb_true_iff in Allowed; exact (proj1 Allowed). }
+ intros task phase operations value Tasks Running.
  cbn [Packet.execute_domain Packet.query CommandHandlers.query option_map
    CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
    G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
- unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
- change (G.stop_task_id stop_first_payload) with 0. unfold Worktree.control_guard, Worktree.execution_guard.
- rewrite Executable, Allowed. cbn [Selvedge.Features.Runtime.or_else].
+ cbn [Selvedge.Features.Runtime.guard_command].
  cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
    Selvedge.Kernel.Commands.origin_allowed G.handle_stop
    Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
@@ -44,14 +38,7 @@ Proof.
    Tasks.control_target Tasks.control_transition Tasks.control_changes
    TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
    TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
- unfold Selvedge.Features.Runtime.guard_result, Worktree.guard_result, accept, put_task.
- cbn -[Json.equal].
- rewrite !JsonProofs.equal_is_reflexive.
- match goal with
- | |- context [Selvedge.Kernel.Workspace.same_resource ?reference ?reference] =>
-   destruct reference; cbn [Selvedge.Kernel.Workspace.same_resource];
-   rewrite ?N.eqb_refl; reflexivity
- end.
+ reflexivity.
 Qed.
 
 Definition stop_first_wire := JObject [("op",JString "stop");("task_id",number 0)].
@@ -62,7 +49,6 @@ Definition stop_first_wire := JObject [("op",JString "stop");("task_id",number 0
 Theorem current_control_grant_executes_actual_remote_stop : forall task phase operations value request issued,
  world_tasks value = [task] ->
  task_lifecycle task = Running phase operations ->
- Worktree.control_allowed Tasks.Stop 0 value = true ->
  F.remote_enabled (Remote.registry value) = true ->
  Remote.request_valid request = true ->
  Remote.find_grant (Remote.controller request) (Remote.registry value) = Some issued ->
@@ -78,7 +64,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
      (put_task 0 (with_lifecycle (Stopped phase operations) task) value))
    (success (JObject [("task_id",number 0)])) []).
 Proof.
- intros task phase operations value request issued Tasks Running Workspace
+ intros task phase operations value request issued Tasks Running
    Enabled Valid Granted Epoch Control Fresh Space.
  assert (Permissions : RemoteProofs.granted_permissions Remote.control_rights (F.grant_rights issued)).
  { unfold RemoteProofs.granted_permissions, Remote.control_rights; cbn.
@@ -101,6 +87,6 @@ Proof.
  cbn [G.declared_command]. rewrite Configuration, Authorize.
  assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.
  rewrite Prepared.
- rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running Workspace).
+ rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running).
  reflexivity.
 Qed.

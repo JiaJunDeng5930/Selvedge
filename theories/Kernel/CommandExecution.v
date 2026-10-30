@@ -53,17 +53,6 @@ Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
    | None => defaults
    | Some task => creation_base settings (task_current_settings task) value end end in
  Tasks.resolve_start entry name effort contents settings idle base value.
-Definition create_in_context (name : string) (effort : option string) (contents : content)
- (settings : option settings_request) (idle : bool) (caller : option N) (value : world) :=
- let entry := match caller with Some _ => Tasks.NativeCreation
-   | None => if idle then Tasks.IdleCreation else Tasks.OrdinaryCreation end in
- match resolve_context_start entry name effort contents settings idle caller value with
- | Tasks.StartRefused cause => Tasks.refuse_start entry cause value
- | Tasks.StartResolved plan =>
-   if creation_allowed settings (Tasks.start_settings plan) caller value
-   then Tasks.interpret_start plan value
-   else Tasks.refuse_start entry Tasks.AuthorityExpansion value
- end.
 Definition create_project (name : D.denote Workspace.project_name_declaration) (source : D.denote workspace_declaration)
  (guidance : option (D.denote guidance_declaration)) (worktree : option bool)
  (resource : option (D.denote binding_declaration)) (value : world) :=

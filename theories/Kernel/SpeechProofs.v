@@ -101,6 +101,7 @@ Theorem a_fresh_voice_delegation_records_ordinary_input_and_its_receipt :
  let session := proj1_sig session_value in let identity := proj1_sig identity_value in
  let mode := proj1_sig mode_value in let text := proj1_sig text_value in
  find_task id value = Some task ->
+ WorkspaceBinding.input_available task value = true ->
  task_lifecycle task = Running Idle [] -> task_queued task = [] ->
  find (fun message => match message with
    | SpeechDelegation owner actual_session actual_identity _ _ =>
@@ -113,7 +114,7 @@ Theorem a_fresh_voice_delegation_records_ordinary_input_and_its_receipt :
  task_lifecycle updated = Running WantsModel [] /\
  decision_effects (CommandExecution.speech_delegation id session_value identity_value mode_value text_value value) = [].
 Proof.
- intros id session_value identity_value [mode Member] text_value value task session identity mode_text text Found IdleTask NoQueued Fresh.
+ intros id session_value identity_value [mode Member] text_value value task session identity mode_text text Found Available IdleTask NoQueued Fresh.
  cbn in mode_text; subst mode_text.
  assert (Text : Tasks.content_nonempty [TextPart text] = true).
  { change (Utf8.nonblank (proj1_sig text_value) || false = true).
@@ -125,7 +126,7 @@ Proof.
    { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
      change (Tasks.send id [TextPart text] value =
        accept (JObject [("task_id",Numbers.number id)]) (put_task id (Tasks.receive [TextPart text] task) value) []).
-     rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text; reflexivity. }
+     rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text,Available; reflexivity. }
    unfold CommandExecution.speech_delegation; cbn zeta; fold session identity text; rewrite Found, Fresh.
    cbn [proj1_sig].
    change (String.eqb "send" "steer") with false; cbn [andb]; rewrite Delivered.
@@ -149,7 +150,7 @@ Proof.
      change (Tasks.steer id [TextPart text] value =
        accept (JObject [("task_id",Numbers.number id)])
          (put_task id (with_lifecycle (Running WantsModel []) (append_history [UserMessage [TextPart text]] task)) value) []).
-     rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text.
+     rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text, Available.
      unfold task_activity, task_operations; rewrite !IdleTask.
      cbn [History.interrupted_phase].
      unfold Tasks.inference_effects, task_activity; rewrite IdleTask.

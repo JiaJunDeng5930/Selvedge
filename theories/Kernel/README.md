@@ -19,6 +19,15 @@ interpreters directly. JSON encoding belongs at a transport or display
 boundary. A new command does not provide a second parser or remember a set of
 per-field proof obligations.
 
+Task input selects a `Tasks.input_target` from the actual task reference and
+resource observation. Preparing resources can retain queued input; failed
+creation cannot admit new input, a side or a fork. Creation and fork plans own
+workspace selection before constructing tasks. Archiving consumes the current
+resource-borrowing relation. Stop, interrupt, unfreeze and execution settings
+retain their own lifecycle and authority rules; only actual execution requires
+the resource to be ready. Callers reuse these operations without a second
+command-enumeration gate or a scan of the resulting world.
+
 `DecisionComposition` gives scheduling and delivery transformations read-only
 access to the initiating reply. The shared interpreter retains that reply;
 transformations return only their next world and effects. Its narrower

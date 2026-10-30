@@ -6,7 +6,7 @@ Module D := ArgumentDeclaration.
 Lemma admitted_value_retains_its_constraint : forall (A : Set) (condition : A -> bool) value,
  D.present (D.admit condition value) = condition value.
 Proof.
- intros. unfold D.admit. destruct (Bool.bool_dec (condition value) true) as [Valid|Invalid].
+ intros. unfold D.admit, Refinement.admit. destruct (Bool.bool_dec (condition value) true) as [Valid|Invalid].
  - cbn [D.present]. symmetry; exact Valid.
  - cbn [D.present]. destruct (condition value); [contradict Invalid; reflexivity|reflexivity].
 Qed.

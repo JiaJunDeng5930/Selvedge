@@ -25,9 +25,7 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (conte
  | Some reply => Decision value reply []
  | None => match Selvedge.Features.Runtime.guard_command command caller value with
    | Some refused => refused
-   | None =>
-     let result := CommandHandlers.execute command context value in
-     Selvedge.Features.Runtime.guard_result value result
+   | None => CommandHandlers.execute command context value
    end
  end.
 (* Assess against the worker's authoritative immutable world. The hypothetical

@@ -8,40 +8,6 @@ From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
 
-(** The public Interrupt and composed feature controls share this resource gate.
-    Preparing an owner's workspace is a business refusal, with no tentative
-    task or feature update for a later invariant gate to undo. *)
-Theorem interrupt_pending_resource_is_rejected : forall id value tree,
- Worktree.execution_allowed id value = true ->
- Worktree.lookup id value = Some tree ->
- Worktree.pending tree = true ->
- Worktree.control_guard Tasks.Interrupt id value = Some
-   (reject "worktree_pending"%string
-     "Wait for worktree creation or archive the task before changing its execution"%string value).
-Proof.
- intros id value tree executable found pending.
- unfold Worktree.control_guard, Worktree.execution_guard, Worktree.control_allowed.
- rewrite executable, found, pending. reflexivity.
-Qed.
-
-Theorem interrupt_admitted_resource_passes_shared_guard : forall id value,
- Worktree.control_allowed Tasks.Interrupt id value = true ->
- Worktree.control_guard Tasks.Interrupt id value = None.
-Proof.
- intros id value admitted.
- pose proof admitted as executable.
- unfold Worktree.control_allowed in executable.
- apply Bool.andb_true_iff in executable as [executable _].
- unfold Worktree.control_guard, Worktree.execution_guard.
- rewrite executable, admitted. reflexivity.
-Qed.
-
-Theorem public_interrupt_uses_shared_resource_guard : forall payload caller value,
- Worktree.guard_command (Selvedge.Generated.Commands.Cmd_interrupt payload) caller value =
- Worktree.control_guard Tasks.Interrupt
-   (Selvedge.Generated.Commands.interrupt_task_id payload) value.
-Proof. reflexivity. Qed.
-
 (** The owner coordinate is the address selected by the common keyed receiver. *)
 Lemma lookup_has_owner : forall id value tree,
  Worktree.lookup id value = Some tree -> F.worktree_task tree = id.
@@ -119,31 +85,6 @@ Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
  unfold Tasks.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
 Qed.
-(** Result validation rolls back the complete decision when a workspace is held. *)
-Theorem unavailable_result_has_no_effects : forall before result,
- Worktree.guard_result before result <> result ->
- decision_world (Worktree.guard_result before result) = before /\
- decision_effects (Worktree.guard_result before result) = nil.
-Proof.
- intros before result changed. unfold Worktree.guard_result in *.
- destruct (List.forallb _ _); [contradiction|split;reflexivity].
-Qed.
-
-Theorem an_unavailable_resource_cannot_be_selected_by_a_new_task : forall before result id task,
- In (id,task) (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) ->
- Selvedge.Kernel.State.find_task id before=None ->
- Worktree.binding_available (task_current_settings task) (decision_world result)=false ->
- decision_world (Worktree.guard_result before result)=before /\
- decision_effects (Worktree.guard_result before result)=nil.
-Proof.
- intros before result id task Member Missing Unavailable.
- unfold Worktree.guard_result.
- destruct (List.forallb _ _) eqn:Available; [|split;reflexivity].
- apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
- cbn beta iota zeta delta [fst snd] in Available.
- rewrite Missing, Unavailable, andb_false_r in Available. discriminate.
-Qed.
-
 (** Host jobs hold local roots. A frozen cloud selection is a different resource
     even when its path text is identical. *)
 Theorem running_connection_job_blocks_local_archive : forall owner root value tree id job,
@@ -154,11 +95,12 @@ Theorem running_connection_job_blocks_local_archive : forall owner root value tr
  Worktree.root_unused owner root value=false.
 Proof.
  intros owner root value tree id job found backend member running resource uses.
+ unfold Worktree.any_inside in uses.
  apply Bool.not_true_is_false. intro available.
- unfold Worktree.root_unused in available. rewrite found,backend in available.
+ unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [_ jobs].
  apply forallb_forall with (x:=(id,job)) in jobs; [|exact member].
- cbn in jobs. unfold Worktree.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
+ cbn in jobs. unfold Worktree.job_uses_root, WorkspaceBinding.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
 Qed.
 (** A frozen borrower holds the owner's cloud resource regardless of path text
     or whether the owner later changes its current task settings. *)
@@ -170,8 +112,9 @@ Theorem frozen_cloud_borrower_blocks_archive : forall owner root value tree id t
  Worktree.root_unused owner root value=false.
 Proof.
  intros owner root value tree id task found backend member other live reference.
+ unfold Worktree.archived in live.
  apply Bool.not_true_is_false. intro available.
- unfold Worktree.root_unused in available. rewrite found,backend in available.
+ unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [tasks _].
  apply forallb_forall with (x:=(id,task)) in tasks; [|exact member].
  cbn in tasks. assert (different:N.eqb owner id=false) by (apply N.eqb_neq;congruence).
@@ -232,7 +175,7 @@ Proof.
  unfold Worktree.workspace_available in available.
  apply forallb_forall with (x:=tree) in available; [|exact member].
  rewrite backend,phase in available. cbn [WorkspaceBackend.cloud] in available.
- unfold F.worktree_root in available. unfold Worktree.any_inside,Worktree.inside in uses.
+ unfold F.worktree_root in available. unfold Worktree.any_inside, WorkspaceBinding.any_inside,Worktree.inside, WorkspaceBinding.inside in uses.
  rewrite phase,uses in available. discriminate.
 Qed.
 
@@ -338,10 +281,11 @@ Theorem a_live_pending_binding_holds_its_owner : forall owner id value task tree
  Worktree.archive_allowed owner value = false.
 Proof.
  intros owner id value task tree archived Found Pending Member Other Live Bound.
- unfold Worktree.archive_allowed; rewrite Found.
+ unfold Worktree.archived in Live.
+ unfold Worktree.archive_allowed, WorkspaceBinding.archive_allowed; unfold Worktree.lookup in Found; rewrite Found.
  unfold F.worktree_root; rewrite Pending.
  apply Bool.not_true_is_false; intro Available.
- unfold Worktree.bound_tasks_unused in Available.
+ unfold Worktree.bound_tasks_unused, WorkspaceBinding.bound_tasks_unused in Available.
  apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
  cbn in Available.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
@@ -357,10 +301,10 @@ Theorem running_connection_job_blocks_its_cloud_archive : forall owner root valu
 Proof.
  intros owner root value tree id job Found Backend Member Running Resource.
  apply Bool.not_true_is_false. intro Available.
- unfold Worktree.root_unused in Available. rewrite Found,Backend in Available.
+ unfold Worktree.root_unused, WorkspaceBinding.root_unused in Available; unfold Worktree.lookup in Found. rewrite Found,Backend in Available.
  apply Bool.andb_true_iff in Available as [_ Jobs].
  apply forallb_forall with (x:=(id,job)) in Jobs; [|exact Member].
- cbn in Jobs. unfold Worktree.job_uses_resource in Jobs.
+ cbn in Jobs. unfold Worktree.job_uses_resource, WorkspaceBinding.job_uses_resource in Jobs.
  rewrite Running,Resource in Jobs. unfold Workspace.same_resource in Jobs.
  rewrite N.eqb_refl in Jobs. discriminate.
 Qed.
@@ -463,20 +407,4 @@ Theorem rejected_selected_creation_has_a_failure_reply : forall name effort cont
  bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false.
 Proof.
  intros; unfold Worktree.create_selected, Worktree.creation_decision; rewrite H; reflexivity.
-Qed.
-
-(** A refusal has no candidate workspace change to re-admit. *)
-Lemma unchanged_worlds_keep_their_workspace_admission : forall before reply effects,
- Worktree.guard_result before (Decision before reply effects) = Decision before reply effects.
-Proof.
- intros before reply effects; unfold Worktree.guard_result; cbn [decision_world].
- match goal with |- (if ?checked then _ else _) = _ => assert (Checked : checked = true) end.
- { apply forallb_forall; intros [owner current] Member.
-   destruct (indexed_members_have_actual_positions _ _ _ _ _ _ Member) as [position [selected [Found Same]]].
-   rewrite N.add_0_l in Same; inversion Same; subst owner selected.
-   change (find_task position before = Some current) in Found.
-   cbn beta iota zeta delta [fst snd]; rewrite Found,JsonProofs.equal_is_reflexive.
-   unfold Workspace.same_resource; destruct (settings_resource (task_current_settings current));
-     cbn; rewrite ?N.eqb_refl; reflexivity. }
- now rewrite Checked.
 Qed.

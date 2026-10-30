@@ -43,20 +43,6 @@ Proof.
  apply existsb_exists in Roots as [known [Known Equal]].
  apply String.eqb_eq in Equal; subst known; contradiction.
 Qed.
-Theorem actual_native_creation_rejects_unobserved_roots : forall name effort contents options caller_id value caller plan root,
- find_task caller_id value = Some caller ->
- CommandExecution.resolve_context_start NativeCreation name effort contents options false (Some caller_id) value = StartResolved plan ->
- In root (workspace_roots (settings_workspace (start_settings plan))) ->
- ~ In root (Tasks.observed_creation_roots (start_settings plan) (task_current_settings caller) value) ->
- decision_world (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = value /\
- decision_effects (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = [].
-Proof.
- intros name effort contents options caller_id value caller plan root Found Resolved Member Unknown.
- unfold CommandExecution.create_in_context; rewrite Resolved.
- unfold CommandExecution.creation_allowed; rewrite Found.
- rewrite (unobserved_roots_fail_native_admission options (start_settings plan) (task_current_settings caller) value root Member Unknown).
- split; reflexivity.
-Qed.
 Theorem native_creation_cannot_supply_guidance_observations : forall source selected caller value guidance,
  guidance_observation source = Some guidance ->
  Tasks.native_creation_allowed (Some source) selected caller value = false.
@@ -70,6 +56,7 @@ Qed.
 Theorem a_full_access_native_fork_accepts_a_fixed_selection :
  forall invocation origin id count messages options value task selected selection remaining operations,
  find_task id value = Some task ->
+ WorkspaceBinding.input_available task value = true ->
  task_lifecycle task = Running (PendingCalls remaining) operations ->
  TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
@@ -83,8 +70,8 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
      (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value.
 Proof.
  intros invocation origin id count messages options value task selected selection remaining operations
-   Found Pending Count Messages Capacity Resolved Fixed Observed Full.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending.
+   Found Available Pending Count Messages Capacity Resolved Fixed Observed Full.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending, Available.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
@@ -196,6 +183,7 @@ Qed.
 Theorem an_eligible_native_fork_accepts_its_observed_selection :
  forall invocation remaining origin id count messages options value task selected selection,
  find_task id value = Some task ->
+ WorkspaceBinding.input_available task value = true ->
  Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) task = true ->
  TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
@@ -211,8 +199,8 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
      (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value) [].
 Proof.
  intros invocation remaining origin id count messages options value task selected selection
-   Found Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Eligible, Count, Messages, Capacity, Resolved, Fixed.
+   Found Available Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Available, Eligible, Count, Messages, Capacity, Resolved, Fixed.
  cbn [andb]. rewrite Delegated, Observed. cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
 Qed.

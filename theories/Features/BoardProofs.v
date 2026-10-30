@@ -144,8 +144,8 @@ Proof.
 Qed.
 
 (** Archiving a busy linked card keeps the association and the Task's frozen
-    authority while the real Interrupt transition emits its cancellation. The
-    resource admission premise is the same one required by public Interrupt. *)
+    authority while the real Interrupt transition emits its cancellation. Its
+    resource preparation does not prevent cancelling the linked task. *)
 Theorem archive_busy_card_retains_task_authority : forall id revision observed value card target task,
  Board.lookup id value=Some card ->
  revision=F.card_revision card ->
@@ -154,7 +154,6 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
  Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.control_guard Tasks.Interrupt target value=None ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\
@@ -170,13 +169,13 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
      Selvedge.Kernel.Domain.task_current_settings task /\
    decision_effects archived=[Selvedge.Kernel.State.CancelTask target].
 Proof.
- intros id revision observed value card target task found current pending linked task_found busy not_archived admitted archived.
+ intros id revision observed value card target task found current pending linked task_found busy not_archived archived.
  subst revision.
  unfold archived, Board.archive_card, CommandResult.resolve.
  unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
  unfold Board.archive_interrupt_target.
- rewrite linked, task_found, busy, not_archived. cbn [andb negb]. rewrite admitted. cbn zeta.
+ rewrite linked, task_found, busy, not_archived. cbn [andb negb]. cbn zeta.
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
@@ -201,48 +200,6 @@ Proof.
  - exact (proj1 (interrupt_preserves_task_authority task)).
  - exact (proj1 (proj2 (interrupt_preserves_task_authority task))).
  - exact (proj2 (proj2 (interrupt_preserves_task_authority task))).
-Qed.
-
-(** Every resource refusal is returned before saving the card, rather than
-    converting an invalid Interrupt into a saved card with a success reply. *)
-Theorem archive_card_control_refusal_is_atomic : forall id revision observed value card target task refused,
- Board.lookup id value=Some card ->
- revision=F.card_revision card ->
- Board.pending card=false ->
- F.card_task card=Some target ->
- Selvedge.Kernel.State.find_task target value=Some task ->
- Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.control_guard Tasks.Interrupt target value=Some refused ->
- Board.archive_card id revision observed true value=refused.
-Proof.
- intros id revision observed value card target task refused found current pending linked task_found busy not_archived rejected.
- subst revision.
- unfold Board.archive_card, CommandResult.resolve.
- unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found, N.eqb_refl, pending.
- unfold Board.archive_interrupt_target.
- rewrite linked, task_found, busy, not_archived. cbn [andb negb].
- rewrite rejected. reflexivity.
-Qed.
-
-Theorem archive_card_pending_owner_rejected : forall id revision observed value card target task tree,
- Board.lookup id value=Some card ->
- revision=F.card_revision card ->
- Board.pending card=false ->
- F.card_task card=Some target ->
- Selvedge.Kernel.State.find_task target value=Some task ->
- Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.execution_allowed target value=true ->
- Worktree.lookup target value=Some tree ->
- Worktree.pending tree=true ->
- Board.archive_card id revision observed true value=
-   reject "worktree_pending"%string
-     "Wait for worktree creation or archive the task before changing its execution"%string value.
-Proof.
- intros id revision observed value card target task tree found current pending linked task_found busy not_archived executable owned preparing.
- eapply archive_card_control_refusal_is_atomic; try eassumption.
- eapply interrupt_pending_resource_is_rejected; eassumption.
 Qed.
 
 (** An already archived linked Task can retain pending operation records. The
@@ -418,7 +375,7 @@ Theorem finish_schedules_remaining_work : forall result id,
  Board.next (Board.synchronize (decision_world result))=Some id ->
  In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).
 Proof.
- intros result id remaining. unfold DecisionComposition.run, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite remaining. cbn.
+ intros result id remaining. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite remaining. cbn.
  destruct (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)) eqn:continuing; cbn.
  - apply existsb_exists in continuing. destruct continuing as [effect [present is_continue]].
@@ -430,7 +387,7 @@ Theorem finish_retains_existing_continuation : forall result,
  In ContinueScheduling (decision_effects result) ->
  decision_effects (DecisionComposition.run Board.finish result)=decision_effects result.
 Proof.
- intros result continuing. unfold DecisionComposition.run, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
+ intros result continuing. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
  assert (present:existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)=true).
  { apply existsb_exists. exists ContinueScheduling. now split. }
@@ -474,7 +431,7 @@ Theorem pump_one_resolves_selected_card : forall result id card,
  Board.lookup id (decision_world (DecisionComposition.run (Board.pump 1) result))=Some updated /\
  Board.ready updated (decision_world (DecisionComposition.run (Board.pump 1) result))=false.
 Proof.
- intros result id card selected found. unfold DecisionComposition.run; cbn [decision_world Board.pump]. rewrite selected,found.
+ intros result id card selected found. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain; cbn [decision_world Board.pump]. rewrite selected,found.
  destruct (Board.run_result id (F.card_revision card)
    (F.card_updated_at card) None (decision_world result))
    as [advanced|reason] eqn:Outcome; cbn [DecisionComposition.and_then DecisionComposition.unchanged DecisionComposition.from_decision DecisionComposition.updated_world DecisionComposition.appended_effects decision_world].

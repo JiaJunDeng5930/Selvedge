@@ -50,9 +50,11 @@ Proof.
    Tasks.ancestors_fit (id :: task_lineage parent) count before).
  2: { unfold Tasks.fork_refusal; destruct entry;
       try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Found. }
+ destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
+ cbn.
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)
    as [selected|]; [|exact Found].
- destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|exact Found].
+ destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); exact Found].
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
      Tasks.no_resource_observation settings) end); [exact Found|].
@@ -75,9 +77,11 @@ Proof.
    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before); [|exact Found].
+ destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
+ cbn.
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)
    as [selected|]; [|exact Found].
- destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|exact Found].
+ destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); exact Found].
  cbn. destruct (negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
    Tasks.no_resource_observation settings)); [exact Found|].
  destruct (allocate_ticket before). cbn [decision_world accept].

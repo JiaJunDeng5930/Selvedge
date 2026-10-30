@@ -11,6 +11,7 @@ Open Scope string_scope.
 Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
  forall origin owner count messages options before parent operations selected selection,
  find_task owner before = Some parent ->
+ WorkspaceBinding.input_available parent before = true ->
  task_lifecycle parent = Running Idle operations ->
  TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
@@ -28,8 +29,8 @@ Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
    task_operations retained = operations.
 Proof.
  intros origin owner count messages options before parent operations selected selection
-   Found Running Count Messages Capacity Resolved Fixed.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
+   Found Available Running Count Messages Capacity Resolved Fixed.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Available.
  unfold Tasks.fork_parent_ready; rewrite Running.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold allocate_ticket. cbn [andb CommandResult.decide CommandResult.resolve CommandResult.accept

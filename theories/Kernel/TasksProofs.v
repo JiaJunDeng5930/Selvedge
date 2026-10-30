@@ -162,6 +162,7 @@ Qed.
 
 Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining origin id count messages requested value parent selected selection,
  find_task id value = Some parent ->
+ WorkspaceBinding.input_available parent value = true ->
  (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
@@ -173,8 +174,8 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining 
  Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value =
    Tasks.refuse_start Tasks.NativeForkEntry Tasks.AuthorityExpansion value.
 Proof.
- intros invocation remaining origin id count messages requested value parent selected selection Hfind Heligible Hresolved Hselection Hdelegate.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection.
+ intros invocation remaining origin id count messages requested value parent selected selection Hfind Available Heligible Hresolved Hselection Hdelegate.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection, Available.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 

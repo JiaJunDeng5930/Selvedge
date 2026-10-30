@@ -27,8 +27,10 @@ Proof.
  destruct (_ && _) eqn:Eligible.
  2: { unfold Tasks.fork_refusal,Tasks.fork_refusal_reason; destruct entry;
       try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity. }
+ destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|reflexivity].
+ cbn.
  destruct (Tasks.resolve_settings _ _ _ _) as [selected|]; [|reflexivity].
- destruct (Tasks.admit_fork_selection _ _ _) as [selection|]; [|reflexivity].
+ destruct (Tasks.admit_fork_selection _ _ _) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); reflexivity].
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) && Tasks.no_resource_observation raw) end);
  reflexivity.
@@ -95,27 +97,8 @@ Lemma the_fork_transaction_emits_only_its_durable_continuation : forall request 
  Forall (fun effect => effect = ContinueScheduling) (decision_effects (ForkCommit.candidate request before)).
 Proof.
  intros request before; unfold ForkCommit.candidate.
- destruct (ForkCommit.admit_workspace before (ForkCommit.propose_result request before)); repeat constructor.
+ destruct (CommandExecution.handle_fork_result request None before); repeat constructor.
 Qed.
-Lemma workspace_admission_keeps_the_constructor_or_the_before_world : forall before proposed,
- decision_world (CommandResult.decide before (ForkCommit.admit_workspace before proposed)) =
-   decision_world (CommandResult.decide before proposed) \/
- decision_world (CommandResult.decide before (ForkCommit.admit_workspace before proposed)) = before.
-Proof.
- intros before [proposed|reason]; [|left; reflexivity].
- unfold ForkCommit.admit_workspace,ForkCommit.workspace_error; cbn [CommandResult.bind].
- destruct (skipn _ _) as [|child rest]; [left; reflexivity|].
- destruct (_ && _); [left|right]; reflexivity.
-Qed.
-Lemma the_fork_transaction_keeps_the_admitted_world : forall request before,
- decision_world (ForkCommit.candidate request before) =
- decision_world (CommandResult.decide before (ForkCommit.admit_workspace before
-   (ForkCommit.propose_result request before))).
-Proof.
- intros; unfold ForkCommit.candidate.
- destruct (ForkCommit.admit_workspace before (ForkCommit.propose_result request before)); reflexivity.
-Qed.
-
 Lemma delivered_fork_effects_are_only_continuations : forall request before,
  let delivered := snd (Delivery.deliver_with_status true (ForkCommit.candidate request before) before) in
  Forall (fun effect => effect = ContinueScheduling) (decision_effects delivered).
@@ -135,28 +118,11 @@ Proof.
  rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed; reflexivity.
 Qed.
 
-Lemma a_constructed_fork_admits_its_workspace_once : forall request before after reply child rest,
- Worktree.execution_guard (G.fork_task_id request) before = None ->
- CommandHandlers.execute (G.Cmd_fork request) None before = accept reply after [] ->
- skipn (List.length (world_tasks before)) (world_tasks after) = child :: rest ->
- Worktree.workspace_available (settings_workspace (task_current_settings child)) before &&
- Worktree.binding_available (task_current_settings child) after = true ->
+Lemma a_constructed_fork_commits_its_typed_result : forall request before after reply,
+ CommandExecution.handle_fork_result request None before =
+   CommandResult.Accepted (CommandResult.Change reply after []) ->
  ForkCommit.candidate request before = Decision after (success reply) [ContinueScheduling].
-Proof.
- intros request before after reply child rest ParentAvailable Constructed Births Available.
- unfold Worktree.execution_guard in ParentAvailable.
- destruct (Worktree.execution_allowed (G.fork_task_id request) before) eqn:Parent; [|discriminate].
- change (CommandResult.decide before (CommandExecution.handle_fork_result request None before) =
-   accept reply after []) in Constructed.
- unfold ForkCommit.candidate,ForkCommit.propose_result; rewrite Parent.
- destruct (CommandExecution.handle_fork_result request None before)
-   as [[result next effects]|reason]; [|discriminate].
- cbn [CommandResult.decide CommandResult.resolve CommandResult.accept accept] in Constructed.
- injection Constructed as World Reply Effects.
- subst next result effects.
- unfold ForkCommit.admit_workspace,ForkCommit.workspace_error; cbn [CommandResult.bind CommandResult.change_world].
- rewrite Births,Available; reflexivity.
-Qed.
+Proof. intros; unfold ForkCommit.candidate; now rewrite H. Qed.
 
 Lemma a_fork_with_an_admitted_output_budget_is_delivered : forall request before candidate,
  ForkCommit.candidate request before = candidate ->
