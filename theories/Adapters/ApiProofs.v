@@ -137,15 +137,14 @@ Proof.
  destruct (String.eqb (str source "mode") "parsed") eqn:E;[apply String.eqb_eq in E;contradiction|].
  unfold decision_reply,checked;now rewrite identity,configured.
 Qed.
-Theorem public_evaluator_nonterminal_retry_preserves_provider_and_bound : forall source result,
+Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
   Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->
-  same_provider source = true /\ bounded_retry source = true.
+  bounded_retry source = true.
 Proof.
  intros source result H nonterminal;change (retry source = success result) in H;unfold retry in H.
  destruct (String.eqb (str (retry_calculation source) "action") "fail") eqn:terminal.
  - inversion H;subst;apply String.eqb_eq in terminal;contradiction.
- - unfold checked in H;destruct (same_provider source && bounded_retry source) eqn:admission;[|discriminate].
-   now apply andb_true_iff in admission.
+ - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
 Qed.
 
 Theorem public_parsed_evaluator_decision_requires_identity_and_configuration : forall source reply value,

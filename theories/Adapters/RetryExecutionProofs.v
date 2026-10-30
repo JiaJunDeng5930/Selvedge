@@ -28,7 +28,7 @@ Proof.
   destruct (String.eqb (str (retry_calculation source) "action") "fail").
   - now inversion accepted.
   - unfold checked in accepted.
-    destruct (same_provider source && bounded_retry source); [now inversion accepted|discriminate].
+    destruct (bounded_retry source); [now inversion accepted|discriminate].
 Qed.
 
 Theorem public_evaluator_timer_respects_header_and_fixed_budget : forall source exact result,
@@ -44,8 +44,7 @@ Proof.
   change (EvaluatorPolicy.retry source = success result) in accepted.
   apply successful_evaluator_retry_is_its_calculated_plan in accepted.
   unfold retry_calculation in accepted. rewrite phase in accepted. cbn in accepted.
-  destruct (JsonObjects.equivalent (retry_response source) (get source "plan") &&
-    String.eqb (str (get source "plan") "after_cancel") "retry") eqn:plan.
+  destruct (retry_eligible source) eqn:plan.
   - unfold retry_header in accepted. unfold str in parsed.
     destruct (get source "retry_after") eqn:header; try discriminate parsed.
     cbn [text] in parsed, accepted. rewrite parsed in accepted.
