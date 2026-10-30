@@ -1,5 +1,5 @@
-From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require OptionList EncodedObject.
+From Stdlib Require Import String List Bool NArith ZArith Ascii.
+From Selvedge.Foundation Require OptionList EncodedObject BoundedInteger.
 From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 Import ListNotations.
 Open Scope string_scope.
@@ -20,6 +20,7 @@ Record text_constraints := TextConstraints {
 }.
 Inductive text_format :=
 | ConstrainedText (constraints : text_constraints)
+| PrintableUtf16 (minimum maximum : N)
 | NaturalSpelling (minimum : N) (maximum : option N)
 | PrefixedSpelling (prefix : string) (suffix : text_format).
 Inductive t :=
@@ -30,6 +31,7 @@ Inductive t :=
 | Textual (format : text_format)
 | UnboundedNatural (minimum : N)
 | Natural (minimum maximum : N)
+| SafeInteger (minimum maximum : Z)
 | Array (element : t)
 | BoundedArray (minimum maximum : N) (element : t)
 | Object (properties : list (string * bool * t))
@@ -63,6 +65,18 @@ Definition check_text (constraints : text_constraints) (source : string) :=
  (negb (text_lower_hex constraints) || lower_hex source) &&
  match text_choices constraints with None => true | Some names => existsb (String.eqb source) names end
  end.
+Fixpoint printable (source : string) := match source with
+ | EmptyString => true
+ | String character rest => let code := Utf8.byte character in
+   (32 <=? code) && negb (N.eqb code 127) && printable rest end.
+Definition utf16_length (source : string) := match Utf8.decode source with
+ | Some scalars => fold_left (fun total scalar => total + if scalar <=? 65535 then 1 else 2) scalars 0
+ | None => 0 end.
+Definition printable_utf16 minimum maximum source :=
+ (N.of_nat (String.length source) <=? 4 * maximum) && Utf8.well_formed source &&
+ in_bounds minimum maximum (utf16_length source) && printable source.
+Definition signed_bounds minimum maximum value :=
+ BoundedInteger.within_safe_integer value && ((minimum <=? value) && (value <=? maximum))%Z.
 (** Admission retains the declared constraint. Downstream constructors receive
     its value and evidence together, rather than repeating a Boolean check. *)
 Polymorphic Definition checked {A : Type} (admissible : A -> bool) :=
@@ -74,11 +88,13 @@ Definition natural_range minimum maximum value := (minimum <=? value) &&
  match maximum with None => true | Some maximum => value <=? maximum end.
 Fixpoint text_value (format : text_format) : Set := match format with
  | ConstrainedText constraints => checked (check_text constraints)
+ | PrintableUtf16 minimum maximum => checked (printable_utf16 minimum maximum)
  | NaturalSpelling minimum maximum => checked (natural_range minimum maximum)
  | PrefixedSpelling _ suffix => text_value suffix end.
 Fixpoint decode_text (format : text_format) (source : string) : option (text_value format) :=
  match format as format return option (text_value format) with
  | ConstrainedText constraints => admit (check_text constraints) source
+ | PrintableUtf16 minimum maximum => admit (printable_utf16 minimum maximum) source
  | NaturalSpelling minimum maximum => match parse_natural source with
    | Some number => if String.eqb source (show_natural number)
        then admit (natural_range minimum maximum) number else None
@@ -88,7 +104,7 @@ Fixpoint decode_text (format : text_format) (source : string) : option (text_val
    else None end.
 Fixpoint encode_text (format : text_format) : text_value format -> string :=
  match format as format return text_value format -> string with
- | ConstrainedText _ => fun value => proj1_sig value
+ | ConstrainedText _ | PrintableUtf16 _ _ => fun value => proj1_sig value
  | NaturalSpelling _ _ => fun value => show_natural (proj1_sig value)
  | PrefixedSpelling prefix suffix => fun value => (prefix ++ encode_text suffix value)%string end.
 (** Object fields retain presence separately from nullability. Their field
@@ -101,6 +117,7 @@ Fixpoint denote (declaration : t) : Set :=
  | Textual format => text_value format
  | UnboundedNatural minimum => checked (fun value => minimum <=? value)
  | Natural minimum maximum => checked (in_bounds minimum maximum)
+ | SafeInteger minimum maximum => checked (signed_bounds minimum maximum)
  | Array element => list (denote element)
  | BoundedArray minimum maximum element => checked
      (fun values : list (denote element) => in_bounds minimum maximum (N.of_nat (List.length values)))
@@ -128,6 +145,9 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
    Some number => admit (fun value => minimum <=? value) number | None => None end | None => None end
  | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
    Some number => admit (in_bounds minimum maximum) number | None => None end | None => None end
+ | SafeInteger minimum maximum => match as_number value with Some source =>
+   match BoundedInteger.decode_safe_integer source with
+   | Some number => admit (signed_bounds minimum maximum) number | None => None end | None => None end
  | Array element => match value with JArray values => OptionList.traverse (decode element) values | _ => None end
  | BoundedArray minimum maximum element => match value with JArray values =>
    match OptionList.traverse (decode element) values with
@@ -165,6 +185,7 @@ Fixpoint encode (declaration : t) : denote declaration -> json :=
  | EncodedObject _ => fun value => JString (EncodedObject.spelling value)
  | Textual format => fun value => JString (encode_text format value)
  | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
+ | SafeInteger _ _ => fun value => JNumber (show_integer (proj1_sig value))
  | Array element => fun values => JArray (map (encode element) values)
  | BoundedArray _ _ element => fun values => JArray (map (encode element) (proj1_sig values))
  | Object properties | OpenObject properties => fun values => JObject
@@ -188,6 +209,7 @@ Fixpoint encode (declaration : t) : denote declaration -> json :=
      end) alternatives
  end.
 Definition check (declaration : t) (value : json) := present (decode declaration value).
+
 Definition bound_fields minimum maximum := [("minimum",JNumber (show_natural minimum));("maximum",JNumber (show_natural maximum))].
 Definition text_fields (constraints : text_constraints) :=
  [("type",JString "string");("minLength",JNumber (show_natural (minimum_characters constraints)));
@@ -199,6 +221,9 @@ Definition text_fields (constraints : text_constraints) :=
  match text_choices constraints with None => [] | Some names => [("enum",JArray (map JString names))] end.
 Fixpoint text_schema (format : text_format) : json := match format with
  | ConstrainedText constraints => JObject (text_fields constraints)
+ | PrintableUtf16 minimum maximum => JObject [("type",JString "string");
+     ("x-minUtf16Units",JNumber (show_natural minimum));("x-maxUtf16Units",JNumber (show_natural maximum));
+     ("x-printable",JBool true)]
  | NaturalSpelling minimum maximum => JObject ([("type",JString "string");("x-naturalTextMinimum",JNumber (show_natural minimum))] ++
     match maximum with None => [] | Some maximum => [("x-naturalTextMaximum",JNumber (show_natural maximum))] end)
  | PrefixedSpelling prefix suffix => JObject [("type",JString "string");("x-prefix",JString prefix);("x-suffix",text_schema suffix)] end.
@@ -213,6 +238,9 @@ Fixpoint schema (declaration : t) : json :=
  | Textual format => text_schema format
  | UnboundedNatural minimum => JObject [("type",JString "integer");("minimum",JNumber (show_natural minimum))]
  | Natural minimum maximum => JObject ([("type",JString "integer")] ++ bound_fields minimum maximum)
+ | SafeInteger minimum maximum => JObject [("type",JString "integer");
+     ("minimum",JNumber (show_integer (Z.max minimum (- BoundedInteger.safe_integer_limit))));
+     ("maximum",JNumber (show_integer (Z.min maximum BoundedInteger.safe_integer_limit)))]
  | Array element => JObject [("type",JString "array");("items",schema element)]
  | BoundedArray minimum maximum element => JObject [("type",JString "array");("items",schema element);
      ("minItems",JNumber (show_natural minimum));("maxItems",JNumber (show_natural maximum))]

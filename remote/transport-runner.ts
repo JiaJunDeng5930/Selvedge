@@ -2,9 +2,9 @@ import { remoteControl } from './control-model.mjs';
 import {
   decodeRemoteTransportState, decodeRemoteTransportTransition, decodeRemoteTransportAction,
   decodeRemoteAuthorizationState, decodeRemoteAuthorizationTransition, decodeRemoteAuthorizationAction,
-  decodeRemoteConnectorSessionState, decodeRemoteConnectorSessionTransition,
+  decodeRemoteConnectorSessionState, decodeRemoteConnectorSessionTransition, decodeRemoteConnectorSessionAction,
   type RemoteTransportState, type RemoteTransportObservation, type RemoteAuthorizationState, type DomainNatural,
-  type RemoteConnectorSessionState, type RemoteConnectorSessionObservation, type RemoteConnectorSessionTransition,
+  type RemoteConnectorSessionState, type RemoteConnectorSessionObservation, type RemoteConnectorSessionAction, type JsonValue,
 } from '../host/generated/model-schema.ts';
 
 export interface TransportSettings {
@@ -62,27 +62,30 @@ export function observeAuthorization(state: RemoteAuthorizationState, active: bo
   throw new TypeError(`Unknown remote authorization action: ${String(exhaustive)}`);
 }
 
-type SessionAction = RemoteConnectorSessionTransition['action'];
+type SessionAction = RemoteConnectorSessionAction;
 export const initialConnectorSession = (): RemoteConnectorSessionState => decodeRemoteConnectorSessionState(remoteControl('connector_initial', {}));
 export function observeConnectorSession(state: RemoteConnectorSessionState, event: RemoteConnectorSessionObservation):
   {state: RemoteConnectorSessionState; action: SessionAction} {
   const result = decodeRemoteConnectorSessionTransition(remoteControl('connector', { state, event }));
-  return { state: decodeRemoteConnectorSessionState(result.state), action: result.action };
+  return { state: decodeRemoteConnectorSessionState(result.state), action: decodeRemoteConnectorSessionAction(result.action) };
 }
 export interface ConnectorFrameIO {
-  disconnect(): void; ready(): void; opened(): void; closed(): void;
-  request(): void; pairRequest(): void; pong(): void;
+  disconnect(): void; ready(): void;
+  opened(value: Extract<SessionAction, {kind: 'controller_open'}>): void;
+  closed(connectionId: string): void;
+  request(value: Extract<SessionAction, {kind: 'request'}>): void;
+  pairRequest(value: JsonValue): void; pong(): void;
 }
 /** A relay-frame observation is interpreted once, after its session state is installed. */
 export function interpretConnectorFrame(action: SessionAction, io: ConnectorFrameIO): void {
-  switch (action) {
+  switch (action.kind) {
     case 'ignore': return;
     case 'disconnect': io.disconnect(); return;
     case 'ready': io.ready(); return;
-    case 'controller_open': io.opened(); return;
-    case 'controller_close': io.closed(); return;
-    case 'request': io.request(); return;
-    case 'pair_request': io.pairRequest(); return;
+    case 'controller_open': io.opened(action); return;
+    case 'controller_close': io.closed(action.connection_id); return;
+    case 'request': io.request(action); return;
+    case 'pair_request': io.pairRequest(action.request); return;
     case 'pong': io.pong(); return;
     // DEFENSE: The session ABI only emits frame actions for a relay-frame observation.
     case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired':
@@ -93,7 +96,7 @@ export function interpretConnectorFrame(action: SessionAction, io: ConnectorFram
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
 }
 export function interpretConnectorCapture(action: SessionAction, io: {snapshot(): void; unsubscribed(): void}): void {
-  switch (action) {
+  switch (action.kind) {
     case 'ignore': return;
     case 'snapshot': io.snapshot(); return;
     case 'unsubscribed': io.unsubscribed(); return;
@@ -107,7 +110,7 @@ export function interpretConnectorCapture(action: SessionAction, io: {snapshot()
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
 }
 export function interpretConnectorDelivery(action: SessionAction, deliver: () => void): void {
-  switch (action) {
+  switch (action.kind) {
     case 'ignore': return;
     case 'deliver': deliver(); return;
     // DEFENSE: Only the model's queued, fresh cursor decision authorizes delivery.
@@ -133,7 +136,7 @@ export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: 
   // DEFENSE: A controller can close while an earlier request or notice is still queued.
   if (!connection.active || !io.current()) return;
   const action = io.observe('enqueue', bytes);
-  switch (action) {
+  switch (action.kind) {
     case 'ignore': return;
     case 'disconnect': io.disconnect('request_queue_full'); return;
     case 'enqueue': break;

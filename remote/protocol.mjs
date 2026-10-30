@@ -1,4 +1,4 @@
-import { parseJson, stringifyJson, safeInteger } from '../host/public/json-tokens.mjs';
+import { parseJson, stringifyJson } from '../host/public/json-tokens.mjs';
 import { boundary } from '../host/public/model-boundary.mjs';
 
 export const REMOTE_PROTOCOL_VERSION = 1;
@@ -28,38 +28,12 @@ export class RemoteProtocolError extends Error {
 
 export function protocolError(message, code) { return new RemoteProtocolError(message, code); }
 
-// These conversions are confined to declared envelope integers. Opaque command,
-// result and observation JSON retains the exact original number tokens.
-function integer(object, name) {
-  if (!object || !Object.hasOwn(object, name)) return;
-  const value = safeInteger(object[name]);
-  // DEFENSE: An external envelope may contain a fractional or out-of-range integer.
-  if (value === undefined) throw protocolError(`Invalid integer ${name}`);
-  object[name] = value;
-}
-function responseIntegers(value) {
-  if (value && typeof value.id !== 'string') integer(value, 'id');
-}
-function normalize(value, kind) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-  if (kind === 'controller_request' || kind === 'response') responseIntegers(value);
-  if (kind === 'controller_frame' && value.type !== 'ready' && value.type !== 'event') responseIntegers(value);
-  if (['host_frame', 'relay_frame', 'controller_frame'].includes(kind)) {
-    integer(value, 'version');
-    integer(value, 'grant_epoch');
-    integer(value, 'expires_at');
-    if (kind === 'host_frame' && value.type === 'grants' && Array.isArray(value.grants)) {
-      for (const grant of value.grants) integer(grant, 'grant_epoch');
-    }
-    if (kind === 'host_frame' && value.type === 'response') responseIntegers(value.response);
-    if (kind === 'relay_frame' && value.type === 'request') responseIntegers(value.request);
-  }
-}
+// The native constructor canonicalizes envelope integers while preserving opaque payloads.
 function validate(kind, value) {
-  normalize(value, kind);
+  const admitted = boundary(`control.remote.${kind}`, value);
   // DEFENSE: Untrusted peers may violate the schema shared by the host, relay and controller.
-  if (!boundary(`control.remote.${kind}`, value)) throw protocolError('Frame violates remote wire schema');
-  return value;
+  if (admitted === null) throw protocolError('Frame violates remote wire schema');
+  return admitted;
 }
 export const validateControllerRequest = value => validate('controller_request', value);
 export const validateRemoteResponse = value => validate('response', value);

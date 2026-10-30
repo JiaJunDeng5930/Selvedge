@@ -95,7 +95,7 @@ export class RemoteConnector {
   pair(code, expiresAt) {
     const frame = { type: 'pairing', code, expires_at: expiresAt };
     const action = this.#step('pair', { generation: this.#generation, now: Date.now(), frame });
-    if (action === 'pairing') this.#send(this.#session, frame);
+    if (action.kind === 'pairing') this.#send(this.#session, frame);
   }
 
   syncGrants() {
@@ -246,16 +246,16 @@ export class RemoteConnector {
       disconnect: () => this.#disconnect(session, 'relay_session_rejected'),
       ready: () => this.#ready(session),
       pong: () => this.#observe('pong', { generation: session.generation, now: Date.now() }),
-      pairRequest: () => this.#onPairRequest(frame),
-      closed: () => this.#forgetConnection(session, frame.connection_id),
-      opened: () => {
-        session.connections.set(frame.connection_id, { id: frame.connection_id, controllerId: frame.controller_id, grantEpoch: frame.grant_epoch,
+      pairRequest: request => this.#onPairRequest(request),
+      closed: connectionId => this.#forgetConnection(session, connectionId),
+      opened: connection => {
+        session.connections.set(connection.connection_id, { id: connection.connection_id, controllerId: connection.controller_id, grantEpoch: connection.grant_epoch,
           active: true, tail: Promise.resolve() });
         this.#setStatus('online');
       },
-      request: () => {
-        const connection = session.connections.get(frame.connection_id);
-        this.#enqueue(session, connection, Buffer.byteLength(data), () => this.#request(session, frame.connection_id, connection, frame.request));
+      request: accepted => {
+        const connection = session.connections.get(accepted.connection_id);
+        this.#enqueue(session, connection, Buffer.byteLength(data), () => this.#request(session, accepted.connection_id, connection, accepted.request));
       },
     });
   }
@@ -265,7 +265,7 @@ export class RemoteConnector {
     this.syncGrants().then(() => {
       // DEFENSE: Grant synchronization can finish after disconnection or replacement.
       if (!this.#current(session)) return;
-      if (this.#step('pairing_current', { generation: session.generation, now: Date.now() }) === 'pairing') {
+      if (this.#step('pairing_current', { generation: session.generation, now: Date.now() }).kind === 'pairing') {
         if (!this.#send(session, this.#control.pairing)) return;
       }
       clearTimeout(session.timeout);

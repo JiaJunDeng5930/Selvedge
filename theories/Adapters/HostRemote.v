@@ -5,6 +5,8 @@ From Selvedge.Host Require Import RemoteProtocol RemoteControl RelayAdmission.
 From Selvedge.Foundation Require Import BoundedInteger.
 From Selvedge.Adapters Require Import HostRemoteTransport.
 Open Scope string_scope.
+Definition admit_wire {A : Type} (decode : json -> option A) (project : A -> json) source :=
+ success (match decode source with Some value => project value | None => JNull end).
 Definition call operation source :=
  if String.eqb operation "control.remote.safe_integer" then success (match source with
  | JString lexeme => match BoundedInteger.decode_safe_integer lexeme with Some value => JString (show_integer value) | None => JNull end
@@ -22,11 +24,10 @@ Definition call operation source :=
  else if String.eqb operation "control.remote.pairing" then
    match RemoteControl.pairing_step (get source "state") (get source "event") with Some value => success value
    | None => type_error "Invalid local remote pairing observation" end
- else let accepted:=
- if String.eqb operation "control.remote.host_frame" then RemoteProtocol.host_frame source
- else if String.eqb operation "control.remote.relay_frame" then RemoteProtocol.relay_frame source
- else if String.eqb operation "control.remote.controller_frame" then RemoteProtocol.controller_frame source
- else if String.eqb operation "control.remote.controller_request" then RemoteProtocol.controller_request source
- else if String.eqb operation "control.remote.response" then RemoteProtocol.response source
- else if String.eqb operation "control.remote.controller_id" then RemoteProtocol.controller source
- else false in success (JBool accepted).
+ else if String.eqb operation "control.remote.host_frame" then admit_wire RemoteProtocol.decode_host_frame RemoteProtocol.encode_host_frame source
+ else if String.eqb operation "control.remote.relay_frame" then admit_wire RemoteProtocol.decode_relay_frame RemoteProtocol.encode_relay_frame source
+ else if String.eqb operation "control.remote.controller_frame" then admit_wire RemoteProtocol.decode_controller_frame RemoteProtocol.encode_controller_frame source
+ else if String.eqb operation "control.remote.controller_request" then admit_wire RemoteProtocol.decode_controller_request RemoteProtocol.encode_controller_request source
+ else if String.eqb operation "control.remote.response" then admit_wire RemoteProtocol.decode_response RemoteProtocol.encode_response source
+ else if String.eqb operation "control.remote.controller_id" then success (JBool (RemoteProtocol.controller source))
+ else success (JBool false).

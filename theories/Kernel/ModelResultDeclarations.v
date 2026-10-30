@@ -166,10 +166,10 @@ Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
 Definition remote_authorization_actions := map (fun action => variant "kind" (grant_action_name action) [] [])
  [RT.CheckAgain;RT.Capture;RT.Deny;RT.Disconnect].
-Definition remote_connector_actions := RC.action_kind.
-Definition remote_connector_states := map ModelDeclarations.decoder_declaration RC.state_decoders.
-Definition remote_connector_observations := map ModelDeclarations.decoder_declaration RC.event_decoders.
-Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
+Definition remote_connector_actions := map RC.abi_variant RC.action_declarations.
+Definition remote_connector_states := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.state_decoders.
+Definition remote_connector_observations := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.event_decoders.
+Definition unions := [("RemoteConnectorSessionAction",remote_connector_actions);("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
  ("RemoteTransportObservation",remote_transport_observations);("RemoteAuthorizationState",remote_authorization_states);
  ("RemoteAuthorizationAction",remote_authorization_actions);("HttpPlan",http_plans);("BrowserObservationPlan",browser_plans);
  ("DispatchAction",dispatch_actions);("AudioAction",audio_actions);("AudioTransportAction",audio_transport_actions)].
@@ -185,7 +185,7 @@ Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"creden
  "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].
 Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
- ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" remote_connector_actions]);("CloudReadinessTransition",cloud_readiness_transition);
+ ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);("CloudReadinessTransition",cloud_readiness_transition);
  ("ResourceTransition",resource_transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);

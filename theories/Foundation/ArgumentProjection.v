@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Schema Arguments.
 From Selvedge.Foundation Require ArgumentDeclaration.
 Import ListNotations.
@@ -48,7 +48,11 @@ Fixpoint compile (target : kind) (declaration : D.t)
        option (D.denote declaration -> N) with
      | D.Natural _ _ | D.UnboundedNatural _ => Some (fun value => proj1_sig value)
      | _ => None end
-   | KBool | KInteger | KDecimal | KEnum _ _ => fun _ => None
+   | KInteger => fun declaration => match declaration as declaration return
+       option (D.denote declaration -> Z) with
+     | D.SafeInteger _ _ => Some (fun value => proj1_sig value)
+     | _ => None end
+   | KBool | KDecimal | KEnum _ _ => fun _ => None
    | KArray element => fun declaration => match declaration as declaration return
        option (D.denote declaration -> list (Schema.denote element)) with
      | D.Array source => option_map (fun project => map project) (compile element source)
