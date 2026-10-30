@@ -150,7 +150,7 @@ Proof.
  intros raw before accepted Decoded Resolved InputBudget OutputBudget.
  unfold Packet.packet, Packet.select.
  rewrite InputBudget; cbv beta zeta; rewrite Decoded.
- cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
+ cbn [Packet.select_change Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].
  rewrite Resolved.

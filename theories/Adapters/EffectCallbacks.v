@@ -9,21 +9,26 @@ Open Scope N_scope.
 Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
 
-Definition callback_kind_of (kind : string) :=
- match DeclarationRegistry.lookup (TextJson.render_json (JString kind)) ModelDeclarations.registered_effects with
- | Some declaration => declaration.(ModelDeclarations.callback_name)
+Definition addressed (effect : json) : option { kind : ModelDeclarations.callback_kind & fields (CallbackDeclarations.coordinates kind) } :=
+ match DeclarationRegistry.lookup (TextJson.render_json (JString (str effect "kind"))) ModelDeclarations.registered_effects with
+ | Some declaration =>
+   match ModelDeclarations.callback_name declaration as callback return
+     SchemaProjection.program (ModelDeclarations.payload_fields declaration) (ModelDeclarations.callback_coordinates callback) ->
+     option { kind : ModelDeclarations.callback_kind & fields (CallbackDeclarations.coordinates kind) } with
+   | Some kind => fun projection => option_map (fun address => existT _ kind address)
+       (SchemaProjection.read projection (object_fields effect))
+   | None => fun _ => None end (ModelDeclarations.callback_projection declaration)
  | None => None end.
 Definition completed (effect result : json) : option json :=
- match callback_kind_of (str effect "kind") with
- | Some kind => match decode_fields (CallbackDeclarations.coordinates kind) (object_fields effect), CallbackDeclarations.observed_result kind result with
-   | Some address,Some (existT _ ok values) => Some (CallbackDeclarations.encode kind ok address values)
-   | _,_ => None end
+ match addressed effect with
+ | Some (existT _ kind address) => match CallbackDeclarations.observed_result kind result with
+   | Some (existT _ ok values) => Some (CallbackDeclarations.encode kind ok address values)
+   | None => None end
  | None => None end.
 Definition failed (effect : json) (original : string) (context_limit : bool) : option json :=
- match callback_kind_of (str effect "kind") with
- | Some kind => option_map (fun address => CallbackDeclarations.encode kind false address
+ match addressed effect with
+ | Some (existT _ kind address) => Some (CallbackDeclarations.encode kind false address
      (CallbackDeclarations.failure_payload kind (CallbackDeclarations.diagnostic kind original) context_limit))
-     (decode_fields (CallbackDeclarations.coordinates kind) (object_fields effect))
  | None => None end.
 Definition completion (source : json) :=
  match completed (get source "effect") (get source "result") with

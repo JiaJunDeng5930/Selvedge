@@ -45,6 +45,13 @@ these constructors. Public effect and result unions compose through
 `DeclarationRegistry`, so their actual lookup and generated schemas consume the
 same unambiguous declarations.
 
+Callback coordinates are declaration-indexed field positions. `SchemaProjection`
+compiles them from the source schema and interprets that same selection during
+host completion. Request declarations restrict the source to their correlation
+header, so a payload field cannot substitute for the request owner or ticket.
+A compatible effect declaration inherits this correspondence without a separate
+coordinate proof; absent or differently typed coordinates fail elaboration.
+
 Callback declarations are open values as well. A declaration selects either a
 marked result, whose `ok` or `error` field chooses its typed branch, or an
 unmarked result whose single payload carries the outcome itself. Those forms

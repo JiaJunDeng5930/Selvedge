@@ -20,7 +20,7 @@ Proof.
  intros raw before accepted Decoded InputFits Selected OutputFits.
  unfold Packet.packet, Packet.select; fold (Delivery.fits_json raw).
  rewrite InputFits, Decoded.
- cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate
+ cbn [Packet.select_change Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate
    BoardCommit.input ConnectionCommit.input Packet.native_fork_input].
  rewrite Selected.
  apply a_constructed_candidate_with_its_actual_budget_is_committed; [|exact OutputFits].

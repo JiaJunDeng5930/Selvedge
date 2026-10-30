@@ -1,6 +1,6 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Foundation Require DeclarationFields DeclarationRegistry TextJson.
+From Selvedge.Foundation Require DeclarationFields DeclarationRegistry SchemaProjection TextJson.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -20,23 +20,29 @@ Definition Worktree := CallbackDeclarations.Worktree.
 Definition Reasoning := CallbackDeclarations.Reasoning.
 Definition Model := CallbackDeclarations.Model.
 Definition Tool := CallbackDeclarations.Tool.
+Definition callback_coordinates (callback : option callback_kind) :=
+ match callback with Some kind => CallbackDeclarations.coordinates kind | None => [] end.
 
 (** The public discriminant, payload and callback ownership are one declaration. *)
 Record variant := BuildVariant {
  tag_field : string; tag_value : json; payload_fields : schema;
  safe_fields : list string; callback_name : option callback_kind;
- variant_unique : unique_names (tag_field :: map field_name payload_fields) = true
+ variant_unique : unique_names (tag_field :: map field_name payload_fields) = true;
+ callback_projection : SchemaProjection.program payload_fields (callback_coordinates callback_name)
 }.
 Definition declare_variant tag value body safe callback
- `{DistinctNames (tag :: map field_name body)} :=
- BuildVariant tag value body safe callback names_distinct.
-Definition effect name body callback `{DistinctNames ("kind" :: map field_name body)} :=
+ `{DistinctNames (tag :: map field_name body)}
+ `{SchemaProjection.Available body (callback_coordinates callback)} :=
+ BuildVariant tag value body safe callback names_distinct (SchemaProjection.declare body (callback_coordinates callback)).
+Definition effect name body callback `{DistinctNames ("kind" :: map field_name body)}
+ `{SchemaProjection.Available body (callback_coordinates callback)} :=
  declare_variant "kind" (JString name) body [] callback.
 Definition from_branch (branch : DeclarationFields.branch) (safe : list string)
- (callback : option callback_kind) : variant.
+ (callback : option callback_kind)
+ `{SchemaProjection.Available (DeclarationFields.shape (DeclarationFields.payload_fields branch)) (callback_coordinates callback)} : variant.
 Proof.
  refine (BuildVariant (DeclarationFields.tag_field branch) (DeclarationFields.tag_value branch)
-   (DeclarationFields.shape (DeclarationFields.payload_fields branch)) safe callback _).
+   (DeclarationFields.shape (DeclarationFields.payload_fields branch)) safe callback _ (SchemaProjection.declare _ _)).
  rewrite DeclarationFields.shape_names; exact (DeclarationFields.branch_distinct branch).
 Defined.
 Definition variant_key (declaration : variant) := TextJson.render_json (tag_value declaration).
@@ -52,16 +58,21 @@ Record request_variant := BuildRequestVariant {
  request_correlation : correlation;
  request_body : schema;
  request_callback : callback_kind;
- request_unique : unique_names ("kind" :: map field_name (correlation_fields request_correlation ++ request_body)) = true
+ request_unique : unique_names ("kind" :: map field_name (correlation_fields request_correlation ++ request_body)) = true;
+ request_projection : SchemaProjection.program (correlation_fields request_correlation)
+   (CallbackDeclarations.coordinates request_callback)
 }.
 Definition declare_request name shape body callback
- `{DistinctNames ("kind" :: map field_name (correlation_fields shape ++ body))} :=
- BuildRequestVariant name shape body callback names_distinct.
+ `{DistinctNames ("kind" :: map field_name (correlation_fields shape ++ body))}
+ `{SchemaProjection.Available (correlation_fields shape) (CallbackDeclarations.coordinates callback)} :=
+ BuildRequestVariant name shape body callback names_distinct
+   (SchemaProjection.declare (correlation_fields shape) (CallbackDeclarations.coordinates callback)).
 Definition request_body_fields (request : request_variant) := request_body request.
 Definition request_variant_view (request : request_variant) :=
  BuildVariant "kind" (JString (request_name request))
    (correlation_fields (request_correlation request) ++ request_body_fields request)
-   [] (Some (request_callback request)) (request_unique request).
+   [] (Some (request_callback request)) (request_unique request)
+   (SchemaProjection.prefix (request_body request) (request_projection request)).
 Definition request_fields (request : request_variant) (owner identity : N)
  (body : fields (request_body_fields request))
  : fields (payload_fields (request_variant_view request)) :=

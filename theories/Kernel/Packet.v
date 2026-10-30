@@ -37,9 +37,14 @@ Definition assess (source : json) (value : world) : json :=
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
    ("sequence",number (world_sequence value));("admitted",JBool admitted);
    ("refusal",if admitted then JNull else value_or_null "error" candidate)].
-Definition execute_command (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) :=
- let result := execute_domain command context value in
+Definition schedule_command (command : Selvedge.Generated.Commands.command) (value : world) (result : decision) :=
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.
+Definition execute_command (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) :=
+ schedule_command command value (execute_domain command context value).
+Definition mutation_transition (command : Selvedge.Generated.Commands.command)
+ (run : option Tasks.native_call -> world -> decision) (value : world) :=
+ let result := schedule_command command value (run None value) in
+ (true,command_schedules command result,Some (UserCommand command),result).
 Definition core_transition (source : Inputs.input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
@@ -68,10 +73,9 @@ Definition core_input (decoded : option input_route) := match decoded with
 Definition transition_decoded (decoded : option input_route) (source : json) (value : world)
  : bool * bool * option Inputs.input * decision :=
  match decoded with
- | Some (inl (UserCommand command)) => match query command None value with
-   | Some reply => (false,false,Some (UserCommand command),Decision value reply [])
-   | None => let result := execute_command command None value in
-     (true,command_schedules command result,Some (UserCommand command),result) end
+ | Some (inl (UserCommand command)) => match CommandHandlers.interpret command false with
+   | CommandHandlers.Observation run => (false,false,Some (UserCommand command),Decision value (run None value) [])
+   | CommandHandlers.Mutation run => mutation_transition command run value end
  | Some (inl input) => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
  | Some (inr complete) =>
    let '(durable,schedules,result) := complete value in
@@ -119,9 +123,8 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | Some accepted => Some (TerminalSettlement.source accepted, TerminalSettlement.candidate accepted)
  | None => None
  end end end end end end.
-Definition select (source : json) (value : world) : CommitPacket.selected :=
- let received := decode source in
- let decoded := core_input received in
+Definition select_change (decoded : option Inputs.input) (value : world)
+ (ordinary : unit -> bool * bool * option Inputs.input * decision) : CommitPacket.selected :=
  match manual_fork_input decoded with
  | Some request => ForkCommit.select request value
  | None => match CreationCommit.input decoded with
@@ -129,10 +132,23 @@ Definition select (source : json) (value : world) : CommitPacket.selected :=
  | None => match deferred_candidate decoded value with
  | Some (input,candidate) => DeferredCommit.select true (Some input) value candidate
  | None =>
- let '(durable,schedules,input,result) := transition_decoded received source value in
- let result := prepare schedules input result in
- DeferredCommit.select durable input value result
+ let '(durable,schedules,input,result) := ordinary tt in
+ DeferredCommit.select durable input value (prepare schedules input result)
  end end end.
+(** The actual interpretation separates observation from mutation before any
+    transaction selector can run. An observation supplies only its reply;
+    world, effects and durability are fixed by this shared construction. *)
+Definition select (source : json) (value : world) : CommitPacket.selected :=
+ let received := decode source in
+ match received with
+ | Some (inl (UserCommand command)) => match CommandHandlers.interpret command false with
+   | CommandHandlers.Observation run =>
+     DeferredCommit.select false (Some (UserCommand command)) value (Decision value (run None value) [])
+   | CommandHandlers.Mutation run =>
+     select_change (Some (UserCommand command)) value (fun _ => mutation_transition command run value)
+   end
+ | _ => select_change (core_input received) value (fun _ => transition_decoded received source value)
+ end.
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
  CommitPacket.finalize value (select source value)

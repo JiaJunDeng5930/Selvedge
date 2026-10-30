@@ -48,6 +48,8 @@ Record field_spec := FieldSpec {
 Definition Field name description := FieldSpec name description false.
 (** An omitted field and a present nullable value are separate inputs. *)
 Definition OmittableField name description := FieldSpec name description true.
+Definition field_eq_dec (left right : field_spec) : {left = right} + {left <> right}.
+Proof. decide equality; first [apply string_dec | apply kind_eq_dec | apply Bool.bool_dec]. Defined.
 Definition field_representation (field : field_spec) :=
   if field_omittable field then KOptional (field_kind field) else field_kind field.
 Definition field_value (field : field_spec) := denote (field_representation field).
@@ -241,15 +243,29 @@ Definition tail {field rest} (values : fields (field :: rest)) : fields rest :=
   | FNil => tt
   | FCons _ values => values
   end.
-Definition projection (description : schema) :=
-  { description_kind : kind & (string * (fields description -> denote description_kind))%type }.
+(** A field projection is a position in the source record. Its name and type
+    come from that position; a declaration cannot supply an unrelated getter. *)
+Inductive field_at : schema -> field_spec -> Set :=
+| AtHead : forall field rest, field_at (field :: rest) field
+| AtTail : forall first rest field, field_at rest field -> field_at (first :: rest) field.
+Arguments AtHead {field rest}.
+Arguments AtTail {first rest field} _.
+Fixpoint project {description field} (position : field_at description field)
+ : fields description -> field_value field :=
+ match position in field_at description field return fields description -> field_value field with
+ | AtHead => fun values => head values
+ | AtTail prior => fun values => project prior (tail values) end.
+Fixpoint extend_projection {description field} (position : field_at description field) (suffix : schema)
+ : field_at (description ++ suffix)%list field :=
+ match position in field_at description field return field_at (description ++ suffix)%list field with
+ | AtHead => AtHead | AtTail prior => AtTail (extend_projection prior suffix) end.
+Definition projection (description : schema) := { selected : field_spec & field_at description selected }.
 Fixpoint projections (description : schema) : list (projection description) :=
   match description as description return list (projection description) with
   | [] => []
   | field :: rest =>
-      existT _ (field_representation field) (field_name field, @head field rest) ::
+      existT _ field AtHead ::
       map (fun entry => match entry with
-        existT _ kind entry =>
-          existT _ kind (fst entry, fun values => snd entry (tail values))
+        existT _ selected position => existT _ selected (AtTail position)
       end) (projections rest)
   end.
