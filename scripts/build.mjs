@@ -226,10 +226,11 @@ export async function build(options = {}) {
       requested.push(...(graph.get(filename) ?? []));
     }
     if (allModules || reachable.has('theories/Generated/Commands.v')) {
-      await compile('theories/Kernel/Commands.v');
+      const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Foundation/ArgumentProjection.v'];
+      await settleIndependent(generatorDependencies.map(compile), 'Command generator dependencies failed');
       const generator = 'theories/Derive/Commands.v';
       const generatorSource = (await readInput(generator)).toString('utf8');
-      const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), generatorSource, next['theories/Kernel/Commands.v']]));
+      const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), generatorSource, generatorDependencies.map(filename => next[filename])]));
       const generatedPath = 'theories/Generated/Commands.v';
       const generatedCurrent = await fingerprint(generatedPath);
       if (check || state.generator !== generatorKey || generatedCurrent !== state.generatedSource) {

@@ -31,10 +31,11 @@ Proof.
  intros execute source value request command prepared configuration Kind Parsed Decoded NonNull Root.
  rewrite <- G.admit_projects_decode in Decoded.
  destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
- cbn in Decoded; inversion Decoded; subst command.
+ change (Some (G.admitted_value admitted) = Some command) in Decoded.
+ injection Decoded as Decoded; subst command.
  unfold Remote.completion.
  rewrite Kind.
- cbn.
+ cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
  rewrite Parsed, Admitted.
  unfold Remote.execute_remote, Remote.configuration_allowed.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);

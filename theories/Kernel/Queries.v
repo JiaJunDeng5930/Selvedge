@@ -17,10 +17,11 @@ Definition read_task (id after limit : N) (value : world) :=
    else State.failure "invalid_page" "History requires a valid cursor and a page size of 1..100"
  end.
 Definition describe := JObject [
- ("commands", JArray (map (fun command => JObject [("name", JString (command_name command));
- ("description", JString (match Selvedge.Kernel.Commands.command_description (command_name command) with
+ ("commands", JArray (map (fun command => let name := wire_name (Selvedge.Kernel.Commands.declared_wire command) in
+ JObject [("name", JString name);
+ ("description", JString (match Selvedge.Kernel.Commands.command_description name with
    | Some description => description | None => "" end));
- ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_specs));
+ ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_declarations));
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [

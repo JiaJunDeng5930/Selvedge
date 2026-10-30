@@ -101,8 +101,6 @@ Proof.
  cbn. rewrite Decoded, Wire. split; reflexivity.
 Qed.
 
-From Selvedge.Generated Require Import Commands.
-Module G := Selvedge.Generated.Commands.
 Open Scope string_scope.
 Fixpoint rebuild_fields (description : schema) : fields description -> fields description :=
  match description as description return fields description -> fields description with
@@ -111,31 +109,3 @@ Fixpoint rebuild_fields (description : schema) : fields description -> fields de
 Lemma rebuild_fields_identity : forall description (values : fields description),
  rebuild_fields description values = values.
 Proof. intros description values; induction values; cbn; [reflexivity|rewrite IHvalues; reflexivity]. Qed.
-Lemma encoded_fields_have_no_undeclared_tag : forall description (values : fields description),
- existsb (String.eqb "op") (declared_names description) = false ->
- Json.remove_field "op" (encode_fields values) = encode_fields values.
-Proof.
- intros description values; induction values as [|field rest value values IH]; intros Absent; [reflexivity|].
- cbn in Absent; apply orb_false_iff in Absent as [Different Absent].
- cbn [encode_fields]. destruct (encode_field field value); cbn;
- rewrite ?Different, IH by exact Absent; reflexivity.
-Qed.
-Lemma declared_command_reaches_its_named_decoder : forall specification (values : fields (command_fields specification)),
- unique_names ("op" :: declared_names (command_fields specification)) = true ->
- G.decode_admitted (Schema.encode_declared specification values) =
- G.decode_named (command_name specification) (Schema.encode _ values).
-Proof.
- intros specification values Unique.
- assert (NoTag : existsb (String.eqb "op") (declared_names (command_fields specification)) = false).
- { cbn in Unique. apply andb_true_iff in Unique as [H _]. now apply negb_true_iff in H. }
- change ((if unique_names ("op" :: map fst (encode_fields values)) then
-   G.decode_named (command_name specification) (JObject (remove_field "op" (encode_fields values)))
-   else None) = G.decode_named (command_name specification) (Schema.encode _ values)).
- assert (Valid : schema_valid (command_fields specification) = true).
- { cbn in Unique. now apply andb_true_iff in Unique as [_ Unique]. }
- cbn [unique_names].
- rewrite (Selvedge.Foundation.SchemaProofs.encoded_name_is_absent _ values "op" NoTag).
- rewrite (Selvedge.Foundation.SchemaProofs.encoded_names_are_unique _ values Valid). cbn.
- rewrite encoded_fields_have_no_undeclared_tag by exact NoTag. reflexivity.
-
-Qed.

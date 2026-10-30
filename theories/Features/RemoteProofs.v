@@ -185,7 +185,7 @@ Proof.
  unfold Remote.authorize_command.
  destruct (Remote.required_rights command) as [rights|] eqn:required; [|split;reflexivity].
  unfold Remote.observation_command. rewrite required.
- destruct (F.may_read rights); cbn.
+ destruct (F.may_read rights); cbn beta iota zeta delta [andb negb].
  - unfold Remote.check. rewrite disabled. split;reflexivity.
  - unfold Remote.authorize. rewrite disabled. split;reflexivity.
 Qed.
@@ -228,8 +228,9 @@ Proof.
  destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
  destruct (Remote.authorize_command true command request (Remote.registry value)) as [code reason| |reply];
    try (split;reflexivity).
- destruct (G.admit prepared) as [[prepared_source prepared_command Admitted]|]; [|split;reflexivity].
- cbn [G.admitted_value].
+ destruct (G.admit prepared) as [admitted|]; [|split;reflexivity].
+ set (prepared_command := G.admitted_value admitted).
+ cbn beta iota zeta.
  destruct (Remote.configuration_allowed prepared_command configuration); [|split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
    [|split;reflexivity].
@@ -341,7 +342,8 @@ Proof.
    rewrite Rights. cbn. now rewrite Mutation. }
  rewrite <- G.admit_projects_decode in Decoded.
  destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
- cbn in Decoded; inversion Decoded; subst command.
+ change (Some (G.admitted_value admitted) = Some command) in Decoded.
+ injection Decoded as Decoded; subst command.
  unfold Remote.completion. rewrite Kind.
  cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
  rewrite Parsed, Admitted.

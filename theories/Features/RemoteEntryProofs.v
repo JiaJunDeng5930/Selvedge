@@ -91,9 +91,12 @@ Proof.
    (G.Cmd_stop (G.Build_stop 0)) JNull = true) by reflexivity.
  unfold Remote.execute_remote. rewrite Configuration, Authorize.
  cbn [stop_first_wire Remote.observation_command Remote.required_rights].
- assert (Decoded : G.admit stop_first_wire =
-   Some (G.AdmittedCommand stop_first_wire (G.Cmd_stop (G.Build_stop 0)) eq_refl)) by reflexivity.
- rewrite Decoded. cbn [G.admitted_value G.declared_command]. rewrite Configuration, Authorize.
+ assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop (G.Build_stop 0))) by reflexivity.
+ unfold G.decode in Decoded.
+ destruct (G.admit stop_first_wire) as [admitted|] eqn:PreparedAdmitted; [|discriminate].
+ change (Some (G.admitted_value admitted) = Some (G.Cmd_stop (G.Build_stop 0))) in Decoded.
+ injection Decoded as Projected. rewrite Projected.
+ cbn [G.declared_command]. rewrite Configuration, Authorize.
  assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.
  rewrite Prepared.
  rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running Workspace).

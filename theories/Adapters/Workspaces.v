@@ -110,24 +110,12 @@ Definition workspace_command_observed (source : json) :=
   let command := get source "command" in
   success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
 
-(* Raw command admission precedes every observation, including cloud and unknown-task paths. *)
-(* DEFENSE: Non-null guidance or workspace bindings supplied by a client must not acquire service authority. *)
-Definition raw_settings_valid (selection : selection) :=
-  is_null (get selection.(selected_value) "guidance") &&
-  is_null (get selection.(selected_value) "workspace_binding").
-Definition clear_observed_fields (value : json) := match value with
-  | JObject fields => JObject (remove_field "workspace_binding" (remove_field "guidance" fields))
-  | _ => value end.
+(* Raw command admission precedes every observation, including cloud and unknown-task paths.
+   Service-owned observations have no constructors in this public declaration. *)
 Definition workspace_command_raw (source : json) :=
  match CommandDeclarations.admit_public (get source "command") with
  | None => type_error "Command fields do not match their declared presence, shape or bounds"
- | Some admitted =>
-  let command := CommandDeclarations.public_raw_source admitted in
-  let selections := (plan command).(selections) in
-  type_admit (forallb raw_settings_valid selections)
-    (fold_left (fun current selection => apply_observation current
-      (Selection selection.(selected_path) (clear_observed_fields selection.(selected_value)) selection.(resolve_project), JObject [])) selections command)
-    "Root guidance and workspace resources are observed by the service, not supplied by a client"
+ | Some admitted => success (CommandDeclarations.public_json admitted)
  end.
 
 Definition child (parent leaf : string) :=

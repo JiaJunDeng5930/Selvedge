@@ -13,10 +13,25 @@ Inductive kind : Type :=
 | KOptional (element : kind)
 | KEnum (first : string) (rest : list string).
 
+Fixpoint kind_schema (kind : kind) : list (string * json) :=
+  match kind with
+  | KText => [("type",JString "string")]
+  | KBool => [("type",JString "boolean")]
+  | KNatural => [("type",JString "integer");("minimum",JNumber "0")]
+  | KInteger => [("type",JString "integer")]
+  | KDecimal => [("type",JString "number")]
+  | KJson => []
+  | KArray element => [("type",JString "array");("items",JObject (kind_schema element))]
+  | KOptional element => [("anyOf",JArray [JObject (kind_schema element);JObject [("type",JString "null")]])]
+  | KEnum first rest => [("type",JString "string");("enum",JArray (map JString (first::rest)))]
+  end.
+Definition kind_eq_dec (left right : kind) : { left = right } + { left <> right }.
+Proof. decide equality; try apply string_dec; apply list_eq_dec; apply string_dec. Defined.
+
 Definition optional_kind description := match description with KOptional _ => true | _ => false end.
 Definition present_kind description := match description with KOptional value => value | _ => description end.
 
-Fixpoint denote (description : kind) : Type :=
+Fixpoint denote (description : kind) : Set :=
   match description with
   | KText => string | KBool => bool | KNatural => N | KInteger => Z
   | KDecimal => decimal | KJson => json

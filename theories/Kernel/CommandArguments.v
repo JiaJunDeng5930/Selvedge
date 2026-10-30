@@ -59,23 +59,26 @@ Definition board_priority := D.Text (D.TextConstraints 0 D.maximum_natural D.max
 (** A field declares its internal representation and its external admission in
     one place. The observed interpretation differs only for host-owned evidence.
     Generated internal messages retain ordinary naturals; admitted messages
-    carry the complete external judgment instead of pretending every internal
-    identifier or counter belongs to the public U32 wire protocol. *)
+    retain the values admitted by the external declaration. Internal identifiers
+    and counters need not belong to the public U32 wire protocol. *)
 Record field_declaration := DeclareField {
  field_shape : field_spec;
  field_wire_type : bool -> option D.t;
- field_force_required : bool
+ field_force_required : bool;
+ field_host_observed : bool
 }.
-Definition plain (field : field_spec) := DeclareField field (fun _ => None) false.
+Definition plain (field : field_spec) := DeclareField field (fun _ => None) false false.
 Definition req (name : string) (kind : kind) := plain (Field name kind).
 Definition opt (name : string) (kind : kind) := plain (OmittableField name kind).
 Definition nullable (name : string) (kind : kind) := plain (Field name (KOptional kind)).
 Definition typed (description : D.t) (field : field_declaration) := DeclareField
- (field_shape field) (fun _ => Some description) (field_force_required field).
+ (field_shape field) (fun _ => Some description) (field_force_required field) (field_host_observed field).
 Definition staged (description : bool -> D.t) (field : field_declaration) := DeclareField
- (field_shape field) (fun observed => Some (description observed)) (field_force_required field).
+ (field_shape field) (fun observed => Some (description observed)) (field_force_required field) (field_host_observed field).
 Definition required (field : field_declaration) := DeclareField
- (field_shape field) (field_wire_type field) true.
+ (field_shape field) (field_wire_type field) true (field_host_observed field).
+Definition host_observed (field : field_declaration) := DeclareField
+ (field_shape field) (field_wire_type field) (field_force_required field) true.
 Definition u32 (field : field_declaration) := typed identity field.
 Definition optional_identity_text (field : field_declaration) := typed board_project field.
 Definition bounded (minimum maximum : N) (field : field_declaration) := typed (D.Natural minimum maximum) field.

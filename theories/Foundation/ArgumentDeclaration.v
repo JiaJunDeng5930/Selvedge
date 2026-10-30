@@ -23,17 +23,21 @@ Inductive text_format :=
 | NaturalSpelling (minimum : N) (maximum : option N)
 | PrefixedSpelling (prefix : string) (suffix : text_format).
 Inductive t :=
-| Any | Reject | Null | Boolean
+| Reject | Null
+| Value (kind : Schema.kind)
 | Const (value : json)
 | Textual (format : text_format)
 | UnboundedNatural (minimum : N)
 | Natural (minimum maximum : N)
-| Integer | Decimal
 | Array (element : t)
 | BoundedArray (minimum maximum : N) (element : t)
 | Object (properties : list (string * bool * t))
 | OpenObject (properties : list (string * bool * t))
 | Union (alternatives : list t).
+Definition Any := Value KJson.
+Definition Boolean := Value KBool.
+Definition Integer := Value KInteger.
+Definition Decimal := Value KDecimal.
 Definition Text constraints := Textual (ConstrainedText constraints).
 Definition NaturalText minimum maximum := Textual (NaturalSpelling minimum maximum).
 Definition PrefixedText prefix suffix := Textual (PrefixedSpelling prefix suffix).
@@ -89,11 +93,10 @@ Fixpoint encode_text (format : text_format) : text_value format -> string :=
     names are unique by type; unions retain the selected alternative. *)
 Fixpoint denote (declaration : t) : Set :=
  match declaration with
- | Any => json | Reject => Empty_set | Null | Const _ => unit | Boolean => bool
+ | Reject => Empty_set | Null | Const _ => unit | Value kind => Schema.denote kind
  | Textual format => text_value format
  | UnboundedNatural minimum => checked (fun value => minimum <=? value)
  | Natural minimum maximum => checked (in_bounds minimum maximum)
- | Integer => Z | Decimal => Schema.decimal
  | Array element => list (denote element)
  | BoundedArray minimum maximum element => checked
      (fun values : list (denote element) => in_bounds minimum maximum (N.of_nat (List.length values)))
@@ -111,17 +114,14 @@ Fixpoint object_values (properties : list (string * bool * t)) : Set :=
 Definition present {A} (value : option A) := match value with Some _ => true | None => false end.
 Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :=
  match declaration as description return option (denote description) with
- | Any => Some value | Reject => None
+ | Reject => None | Value kind => Schema.decode_value kind value
  | Null => match value with JNull => Some tt | _ => None end
  | Const expected => if Json.equal value expected then Some tt else None
- | Boolean => as_bool value
  | Textual format => match value with JString source => decode_text format source | _ => None end
  | UnboundedNatural minimum => match as_number value with Some source => match parse_natural source with
    Some number => admit (fun value => minimum <=? value) number | None => None end | None => None end
  | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
    Some number => admit (in_bounds minimum maximum) number | None => None end | None => None end
- | Integer => Schema.decode_value KInteger value
- | Decimal => Schema.decode_value KDecimal value
  | Array element => match value with JArray values => OptionList.traverse (decode element) values | _ => None end
  | BoundedArray minimum maximum element => match value with JArray values =>
    match OptionList.traverse (decode element) values with
@@ -153,11 +153,11 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
  end.
 Fixpoint encode (declaration : t) : denote declaration -> json :=
  match declaration as description return denote description -> json with
- | Any => fun value => value | Reject => fun impossible => match impossible with end
- | Null => fun _ => JNull | Boolean => JBool | Const value => fun _ => value
+ | Reject => fun impossible => match impossible with end
+ | Null => fun _ => JNull | Const value => fun _ => value
+ | Value kind => Schema.encode_value kind
  | Textual format => fun value => JString (encode_text format value)
  | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
- | Integer => Schema.encode_value KInteger | Decimal => Schema.encode_value KDecimal
  | Array element => fun values => JArray (map (encode element) values)
  | BoundedArray _ _ element => fun values => JArray (map (encode element) (proj1_sig values))
  | Object properties | OpenObject properties => fun values => JObject
@@ -197,15 +197,12 @@ Fixpoint text_schema (format : text_format) : json := match format with
  | PrefixedSpelling prefix suffix => JObject [("type",JString "string");("x-prefix",JString prefix);("x-suffix",text_schema suffix)] end.
 Fixpoint schema (declaration : t) : json :=
  match declaration with
- | Any => JObject [] | Reject => JBool false
+ | Reject => JBool false | Value kind => JObject (Schema.kind_schema kind)
  | Const value => JObject [("const",value)]
  | Null => JObject [("type",JString "null")]
- | Boolean => JObject [("type",JString "boolean")]
  | Textual format => text_schema format
  | UnboundedNatural minimum => JObject [("type",JString "integer");("minimum",JNumber (show_natural minimum))]
  | Natural minimum maximum => JObject ([("type",JString "integer")] ++ bound_fields minimum maximum)
- | Integer => JObject [("type",JString "integer");("x-signedInteger",JBool true)]
- | Decimal => JObject [("type",JString "number")]
  | Array element => JObject [("type",JString "array");("items",schema element)]
  | BoundedArray minimum maximum element => JObject [("type",JString "array");("items",schema element);
      ("minItems",JNumber (show_natural minimum));("maxItems",JNumber (show_natural maximum))]
@@ -217,11 +214,10 @@ Fixpoint schema (declaration : t) : json :=
  | Union alternatives => JObject [("anyOf",JArray (map schema alternatives))]
  end.
 Fixpoint of_kind (description : kind) : t := match description with
- | KText => text | KBool => Boolean | KNatural => UnboundedNatural 0
- | KInteger => Integer | KDecimal => Decimal | KJson => Any
+ | KText => text
  | KArray element => Array (of_kind element)
  | KOptional element => nullable (of_kind element)
- | KEnum first rest => Text (TextConstraints 0 maximum_natural maximum_natural false false false (Some (first::rest)))
+ | atom => Value atom
  end.
 
 Definition of_schema (declaration : Schema.schema) := Object (map (fun field =>

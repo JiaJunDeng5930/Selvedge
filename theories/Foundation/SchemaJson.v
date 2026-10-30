@@ -3,18 +3,7 @@ From Selvedge.Foundation Require Import Json Schema JsonSchema Numbers.
 Import ListNotations.
 Open Scope string_scope.
 
-Fixpoint kind_schema (kind : kind) : list (string * json) :=
-  match kind with
-  | KText => [("type",JString "string")]
-  | KBool => [("type",JString "boolean")]
-  | KNatural => [("type",JString "integer");("minimum",JNumber "0")]
-  | KInteger => [("type",JString "integer")]
-  | KDecimal => [("type",JString "number")]
-  | KJson => []
-  | KArray element => [("type",JString "array");("items",JObject (kind_schema element))]
-  | KOptional element => [("anyOf",JArray [JObject (kind_schema element);JObject [("type",JString "null")]])]
-  | KEnum first rest => [("type",JString "string");("enum",JArray (map JString (first::rest)))]
-  end.
+Definition kind_schema := Schema.kind_schema.
 Definition optional_kind := Schema.optional_kind.
 Definition object_fields (properties : list (string * json)) (required : list string) :=
   [("type",JString "object");("additionalProperties",JBool false);

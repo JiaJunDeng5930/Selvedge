@@ -71,8 +71,8 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "describe" []);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [req "name" KText; typed workspace_declaration (req "workspace" KJson); staged (fun observed => if observed then guidance_declaration else from_fields Codec.guidance_schema) (opt "guidance" KJson); opt "create_worktree" KBool; opt "workspace_binding" KJson]);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); opt "name" KText; typed workspace_declaration (opt "workspace" KJson); staged (fun observed => if observed then guidance_declaration else from_fields Codec.guidance_schema) (opt "guidance" KJson); opt "create_worktree" KBool; opt "workspace_binding" KJson]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [req "name" KText; typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (opt "workspace_binding" KJson)]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); opt "name" KText; typed workspace_declaration (opt "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (opt "workspace_binding" KJson)]);
   DeclareCommand KernelChange TaskExcluded (WireCommand "delete_project" [u32 (req "project_id" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list_projects" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "read_project" [u32 (req "project_id" KNatural)]);
@@ -189,10 +189,6 @@ Definition command_field_description (command field : string) :=
 Definition command_argument (command : string) (field : field_spec) :=
  Arguments.with_description (command_field_description command (field_name field))
    (Arguments.from_field field).
-
-Definition command_arguments (specification : command_spec) :=
-  map (command_argument (command_name specification))
-    (Field "op" KText :: filter (fun field => negb (String.eqb (field_name field) "workspace_binding")) (command_fields specification)).
 
 (* Host workspace observation and native remote admission share this schema-level judgment. *)
 Definition graph_node_creates_root_task (node : json) :=

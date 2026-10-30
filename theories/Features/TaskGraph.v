@@ -39,7 +39,7 @@ Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node 
  match ArgumentDeclaration.decode
    (TaskGraphDeclarations.node_declaration (ArgumentDeclaration.of_kind KNatural) ArgumentDeclaration.Any) source with
  | Some (inl fields)=>let '(key,(owner,_)) := proj1_sig fields in
-   Some (Selvedge.Features.Domain.ExistingNode (proj1_sig key) (proj1_sig owner))
+   Some (Selvedge.Features.Domain.ExistingNode (proj1_sig key) owner)
  | Some (inr (inl fields))=>let '(key,(profile,(reasoning,(message,(settings,_))))) := proj1_sig fields in
  (* A supplied JSON null must still reach ordinary Task settings admission;
     only an omitted settings field supplies the empty settings object. *)

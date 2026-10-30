@@ -4,22 +4,6 @@ From Selvedge.Adapters Require Import Common Observation Workspaces.
 Import ListNotations.
 Open Scope string_scope.
 
-Theorem clients_cannot_supply_service_observations : forall source accepted selected,
- workspace_command_raw source = success accepted ->
- In selected (selections (plan (get source "command"))) ->
- is_null (get (selected_value selected) "guidance") = true /\
- is_null (get (selected_value selected) "workspace_binding") = true.
-Proof.
- intros source accepted selected Accepted Member.
- unfold workspace_command_raw, CommandDeclarations.admit_public in Accepted.
- destruct (Bool.bool_dec (CommandDeclarations.valid false (get source "command")) true);
-   cbn [CommandDeclarations.public_raw_source] in Accepted; [|discriminate].
- unfold type_admit in Accepted.
- destruct (forallb raw_settings_valid (selections (plan (get source "command")))) eqn:Trusted; [|discriminate].
- apply forallb_forall with (x:=selected) in Trusted; [|exact Member].
- now apply andb_true_iff in Trusted.
-Qed.
-
 Theorem supplied_workspace_prevents_project_resolution : forall source,
   has (get source "value") "workspace" = true ->
   workspace_selection_plan source = success (JObject [
