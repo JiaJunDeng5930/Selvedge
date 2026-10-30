@@ -51,10 +51,12 @@ enumeration or proving its framing again.
 Provider registration follows the same rule. A Responses-compatible backend
 uses `ProviderCatalog.responses_backend name endpoint credential`; common
 request construction supplies the authority, tool catalog and response
-protocol. Account and Web constructors fix the service identity associated
-with their authentication semantics. A new wire protocol may require its own
-interpreter and protocol-specific laws, but compatible registrations inherit
-the existing implementation.
+protocol. `declare_providers` checks name uniqueness during elaboration, so a
+new registration cannot silently shadow another backend. Account and Web
+constructors fix the service identity associated with their authentication
+semantics. A new wire protocol may require its own interpreter and
+protocol-specific laws, but compatible registrations inherit the existing
+implementation.
 
 Serialized output budgets and physical IO remain boundaries of their own.
 Construction does not claim to establish facts that require observing those

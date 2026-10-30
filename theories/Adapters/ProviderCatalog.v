@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Json Utf8 JsonObjects.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjects Schema.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -37,10 +37,19 @@ Definition provider_name (value : provider) := match value with
 Definition responses_backend := EnvironmentSSE.
 Definition account_backend := AccountSSE.
 Definition web_backend := WebConnection.
-Definition providers := [Offline;
+(** A profile selects a backend by name. Registration establishes that this
+    lookup is unambiguous, including names fixed by a service constructor. *)
+Record provider_registry := RegisteredProviders {
+  registered_providers : list provider;
+  registered_provider_names : unique_names (map provider_name registered_providers) = true
+}.
+Definition declare_providers entries `{DistinctNames (map provider_name entries)} :=
+  RegisteredProviders entries names_distinct.
+Definition registered := declare_providers [Offline;
   responses_backend "responses" "https://api.openai.com/v1/responses" "OPENAI_API_KEY";
   account_backend;
   web_backend "http://127.0.0.1:8787/v1/responses" "CHATGPT_WEB_TOKEN"].
+Definition providers := registered_providers registered.
 Definition descriptor provider := JObject [
   ("provider",JString (provider_name provider));
   ("protocol",JString (if connection_live provider then "responses" else "echo"));
