@@ -5,19 +5,27 @@ From Selvedge.Features Require Import Domain.
 (** An external request retains its typed input. The effect carries this same
     instance; protocol declarations cannot manufacture another effect or choose
     its correlation identity. Only protocol-specific wire data is supplied. *)
-Record declaration (payload location : Type) := Protocol {
+Inductive lifetime := Independent | TaskBound.
+Record declaration (payload location : Type) := Declare {
  receiver : location;
  wire : ModelDeclarations.request_variant;
- body : payload -> state -> Schema.fields (ModelDeclarations.request_body_fields wire)
+ body : payload -> state -> Schema.fields (ModelDeclarations.request_body_fields wire);
+ request_lifetime : lifetime
 }.
-Arguments Protocol {payload location}.
+Arguments Declare {payload location}.
 Arguments receiver {payload location}.
 Arguments wire {payload location}.
 Arguments body {payload location}.
+Arguments request_lifetime {payload location}.
+Definition Protocol {payload location} selected operation
+ (fields : payload -> state -> Schema.fields (ModelDeclarations.request_body_fields operation))
+ : declaration payload location := Declare selected operation fields Independent.
+Definition task_bound {payload location} (protocol : declaration payload location) :=
+ Declare (receiver protocol) (wire protocol) (body protocol) TaskBound.
 Definition protocol payload := declaration payload (Receiver.t state (RequestEnvelope.t payload)).
 Definition located payload before := declaration payload (Receiver.located state (RequestEnvelope.t payload) before).
 Definition release {payload before} (selected : located payload before) : protocol payload :=
- Protocol (Receiver.path (receiver selected)) (wire selected) (body selected).
+ Declare (Receiver.path (receiver selected)) (wire selected) (body selected) (request_lifetime selected).
 Record packet := Packet {
  payload : Type;
  definition : protocol payload;

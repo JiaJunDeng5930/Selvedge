@@ -3,7 +3,8 @@ From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry Registry
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs TaskScopeProofs.
-From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
+From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction CompactionRequestProofs.
+Module R := CompactionRequest.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -15,12 +16,12 @@ Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
 Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
- TicketedRequest.Scoped.maintenance_admission id request before = true ->
- exists reference : TicketedRequest.Scoped.maintenance_reference before id request,
-   A.run_request id request before = TicketedRequest.Scoped.maintenance_issue reference.
+ R.maintenance_admission id request before = true ->
+ exists reference : R.maintenance_reference before id request,
+   A.run_request id request before = R.maintenance_issue reference.
 Proof.
  intros id request before Ready; pose proof Ready as HasOwner.
- unfold TicketedRequest.Scoped.maintenance_admission,TicketedRequest.Scoped.maintenance_ready in HasOwner.
+ unfold R.maintenance_admission,R.maintenance_ready in HasOwner.
  destruct (K.find_task id before) as [current|] eqn:Found; [|discriminate].
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [[owner selected Observed] [Selected [Owner Current]]].
@@ -48,7 +49,7 @@ Theorem measuring_model_waits_with_live_operations : forall id value task operat
  task_lifecycle task = Running ReadyForModel operations ->
  Scheduler.ready_operation operations = None ->
  A.enabled_target task (A.registry value) = Some target ->
- C.entry_measurement (A.current_entry id (A.registry value)) = C.Measuring ticket input stage ->
+ C.entry_measurement (A.current_entry id (A.registry value)) = C.Measuring (RequestEnvelope.Envelope ticket (InspectInput input tt stage)) ->
  A.can_schedule_task id value = false.
 Proof.
  intros id value task operations target ticket input stage found running pending enabled measuring.
@@ -92,31 +93,11 @@ Proof.
  rewrite NotIdle; rewrite Measured in Stale; now rewrite Stale.
 Qed.
 
-Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
- forall id input entry value,
- TicketedRequest.Scoped.maintenance_ready id input value = true ->
- let result := A.begin_scope id input None entry value in
- K.decision_effects result = [K.MaintainContext (Scope id (K.world_next_ticket value) input)] /\
- entry_measurement (A.current_entry id (A.registry (K.decision_world result))) =
-   Measuring (K.world_next_ticket value) input InspectScope.
-Proof.
- intros id input entry value Ready; cbn zeta; unfold A.begin_scope.
- assert (Admitted : TicketedRequest.Scoped.maintenance_admission id
-   (TicketedRequest.Scoped.ScopeRequest input None entry) value = true).
- { change (TicketedRequest.Scoped.maintenance_ready id input value && true = true).
-   now rewrite Ready. }
- destruct (admitted_maintenance_runs_its_resolved_plan id _ value Admitted) as [reference Issued].
- rewrite Issued.
- destruct (resolved_maintenance_installs_its_exact_receiver value id _ reference) as [Installed Effects].
- split; [exact Effects|].
- unfold A.current_entry,A.find_entry,A.registry; rewrite Installed; reflexivity.
-Qed.
-
 Lemma printed_natural_is_admitted : forall value, natural (number value) = Some value.
 Proof. exact natural_print_parse. Qed.
 Definition owns_compactor_ticket (id ticket : N) (value : K.world) :=
  match entry_job (A.current_entry id (A.registry value)) with
- | Compacting expected _ _ _ _ => N.eqb ticket expected | _ => false end.
+ | Compacting (RequestEnvelope.Envelope expected _) => N.eqb ticket expected | _ => false end.
 Lemma stale_result_does_not_change_the_component : forall id ticket result error value,
  owns_compactor_ticket id ticket value = false -> A.resolve (Completed id ticket result error) value = None.
 Proof.
@@ -125,8 +106,9 @@ Proof.
  unfold owns_compactor_ticket in stale; cbv beta zeta.
  unfold A.running,A.alive,A.compact_result.
  destruct (task_lifecycle current);
- destruct (entry_job (A.current_entry id (A.registry value))); cbn in *;
- try reflexivity; now rewrite stale.
+ destruct (entry_job (A.current_entry id (A.registry value))) as
+   [|waiting|expected purpose demand|input resumed|[expected request]|[expected request]|[expected request]];
+ try destruct request; cbn in *; try reflexivity; now rewrite stale.
 Qed.
 (** A valid stale observation still participates in journal ordering and the
     outer scheduler. Its own handler acquires no state or execution authority. *)
@@ -197,7 +179,7 @@ Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
 Theorem manual_compaction_captures_context_before_any_summary_request :
  forall value (target : TaskScope.task_reference value) entry,
  let id := TaskScope.owner target in let current := TaskScope.selected target in
- TicketedRequest.Scoped.can_observe_maintenance current value = true ->
+ R.can_observe_maintenance current value = true ->
  ContextSelection.closed_prefix (task_history current) = true ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
@@ -267,7 +249,7 @@ Theorem an_open_manual_wait_preserves_all_task_state : forall id current before,
 Proof.
  intros; split; [reflexivity|].
  unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry,
-   A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, A.with_observation,
+   A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, A.with_observation,
    A.with_measurement, A.with_job, K.with_features, Selvedge.Features.State.with_compaction, set;
  cbn. now rewrite N.eqb_refl.
 Qed.
@@ -332,8 +314,8 @@ Proof.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [[owner selected Observed] [Selected [Owner Current]]].
  cbn in Owner,Current; subst owner selected.
- assert (CanObserve : TicketedRequest.Scoped.can_observe_maintenance current before = true).
- { unfold TicketedRequest.Scoped.can_observe_maintenance; rewrite Available,Lifecycle;
+ assert (CanObserve : R.can_observe_maintenance current before = true).
+ { unfold R.can_observe_maintenance; rewrite Available,Lifecycle;
    destruct Phase as [Phase|Phase]; subst phase; reflexivity. }
  destruct (maintenance_observation_uses_the_current_task before
    (TaskScope.TaskReference before id current Observed) (Some Manual) (A.with_job NoJob entry) CanObserve Closed)
@@ -343,7 +325,7 @@ Proof.
  - eapply a_closed_manual_wait_recaptures_its_current_prefix; eauto;
      destruct Phase as [Phase|Phase]; subst phase; discriminate.
  - unfold A.begin_scope,A.run_request; rewrite Selected.
-   unfold A.run_request_selected,TicketedRequest.Scoped.maintenance_selected;
+   unfold A.run_request_selected,R.maintenance_selected;
      cbn [TaskScope.owner TaskScope.selected TaskScope.observed].
    apply observe_cases.
    + intros stored Stored.
@@ -351,13 +333,13 @@ Proof.
      { unfold A.current_entry in Unobserved.
        change (A.find_entry id (A.registry before) = Some stored) in Stored.
        now rewrite Stored in Unobserved. }
-     unfold TicketedRequest.Scoped.maintenance_observed,TicketedRequest.Scoped.boolean_admission.
+     unfold R.maintenance_observed,R.boolean_admission.
      destruct (Bool.bool_dec _ true) as [Eligible|Unavailable].
-     { exfalso; unfold TicketedRequest.Scoped.maintenance_ready_from in Eligible.
+     { exfalso; unfold R.maintenance_ready_from in Eligible.
        rewrite Missing,!andb_false_r in Eligible; discriminate. }
-     cbn [option_map TicketedRequest.Scoped.maintenance_waiting_entry].
+     cbn [option_map R.maintenance_waiting_entry R.ScopeRequest R.initial_purpose R.request_entry R.purpose_reason].
      unfold A.wait_for_context_selected; rewrite Planned; exact Effects.
-   + intros Absent; cbn [TicketedRequest.Scoped.maintenance_waiting_entry].
+   + intros Absent; cbn [R.maintenance_waiting_entry R.ScopeRequest R.initial_purpose R.request_entry R.purpose_reason].
      unfold A.wait_for_context_selected; rewrite Planned; exact Effects.
 Qed.
 
@@ -438,7 +420,7 @@ Theorem a_current_context_demand_names_its_exact_receiver : forall ticket purpos
 Proof.
  intros ticket purpose entry demand Present; unfold A.awaiting_context_demand in Present.
  destruct (entry_job entry) as [|waiting|actual current demanded|input resumed|
-   actual input resumed stage|actual input resumed progress scope|actual input resumed candidate preview stage]
+   request|request|request]
    eqn:Job; try discriminate.
  destruct (N.eqb actual ticket && A.same_context_purpose current purpose) eqn:Matches; [|discriminate].
  inversion Present; subst demand. apply andb_true_iff in Matches as [Ticket Purpose].
@@ -540,7 +522,9 @@ Lemma recovered_entries_retain_no_pending_ticket : forall entry,
 Proof.
  intros; unfold A.recover_entry, A.with_observation, A.with_measurement, A.with_job, set; cbn.
  split; [reflexivity|]. unfold A.resume, A.job_ticket.
- destruct (entry_job entry); reflexivity.
+ destruct (entry_job entry) as [|purpose|ticket purpose demand|input purpose|
+   [ticket [input purpose stage]]|[ticket [input purpose target progress scope]]|
+   [ticket [input [purpose candidate preview] stage]]]; reflexivity.
 Qed.
 
 Lemma live_reconfiguration_recovers_the_selected_task : forall value id task,
@@ -579,8 +563,7 @@ Proof.
  rewrite (live_reconfiguration_recovers_the_selected_task value id task Found).
  unfold A.recover_context_task; rewrite Phase.
  destruct (entry_job (A.current_entry id (A.registry value))) as
-   [|waiting|expected purpose demand|input resumed|expected input resumed stage|
-    expected input resumed progress scope|expected input resumed candidate preview stage] eqn:Job;
+   [|waiting|expected purpose demand|input resumed|request|request|request] eqn:Job;
    try reflexivity.
  destruct (N.eqb expected ticket) eqn:Same; [|reflexivity].
  apply N.eqb_eq in Same; subst expected; exfalso; apply (Unrelated purpose demand); reflexivity.
@@ -597,8 +580,8 @@ Theorem manual_compaction_waits_without_resource_io : forall value
    WaitingForResource (Some Manual).
 Proof.
  intros value target entry; cbn zeta; intros Unavailable Entry Ready.
- assert (NoObservation : TicketedRequest.Scoped.can_observe_maintenance (TaskScope.selected target) value = false).
- { unfold TicketedRequest.Scoped.can_observe_maintenance; now rewrite Unavailable. }
+ assert (NoObservation : R.can_observe_maintenance (TaskScope.selected target) value = false).
+ { unfold R.can_observe_maintenance; now rewrite Unavailable. }
  pose proof (unavailable_maintenance_observation_has_no_plan value target (Some Manual) entry NoObservation) as NoPlan.
  unfold A.manual_change; rewrite <- Entry,Ready.
  unfold A.wait_for_context_selected; rewrite NoPlan.
@@ -606,26 +589,25 @@ Proof.
  split.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
  - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world].
-   unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed,A.with_observation,
+   unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed,A.with_observation,
      A.with_measurement,A.with_job,K.with_features,Selvedge.Features.State.with_compaction,set;
    cbn; now rewrite N.eqb_refl.
 Qed.
 
-(** The feature callback forwards recovered progress with its captured input,
-    purpose and scope to the currently configured target. The kernel planner
+(** The feature callback forwards recovered progress with the complete retained
+    lease, including its target. The kernel planner
     separately proves that recovered progress retains native raw history. *)
 Theorem native_unavailable_callback_dispatches_portable_rebuild :
  forall id ticket task input purpose progress scope entry value target portable,
- C.entry_job entry = C.Compacting ticket input purpose progress scope ->
+ C.entry_job entry = C.Compacting (RequestEnvelope.Envelope ticket (CompactInput input purpose target progress scope)) ->
  A.relevant input task value = true ->
  P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
- A.configured_target task (A.registry value) = Some target ->
  A.compact_result id ticket task (JObject [("action",JString "native_unavailable")]) false entry value =
  Some (A.dispatch_compact id task input purpose target portable scope entry value).
 Proof.
- intros id ticket task input purpose progress scope entry value target portable Job Relevant Recovered Target.
+ intros id ticket task input purpose progress scope entry value target portable Job Relevant Recovered.
  unfold A.compact_result. rewrite Job, N.eqb_refl, Relevant.
- rewrite Recovered, Target. reflexivity.
+ rewrite Recovered. reflexivity.
 Qed.
 
 (** Candidate validation may change representation from native to portable,
@@ -666,12 +648,11 @@ Qed.
 
 Theorem an_oversized_portable_validation_frame_stops :
  forall id task input scope purpose first rest usage preview entry value,
- let candidate := Some (PortableArtifact first rest usage, preview) in
- let request := TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
- (N.of_nat (String.length (TextJson.render_json (CC.effect_json
-   (snd (TicketedRequest.Scoped.maintenance_build id (K.world_next_ticket value) request)))))
+ let candidate := R.ValidateCandidate (Candidate purpose (PortableArtifact first rest usage) preview) in
+ let request := R.MeasureRequest input candidate scope entry in
+ (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
- A.measured_call id task input scope purpose candidate entry value =
+ A.measured_call id task input scope candidate entry value =
  A.failed id task entry
    "The portable summary and retained context exceed the validation transport budget; original history retained" value.
 Proof.
@@ -680,19 +661,18 @@ Proof.
 Qed.
 
 Theorem an_oversized_measurement_without_a_portable_candidate_can_rebuild :
- forall id task input scope purpose candidate entry value,
- (forall first rest usage preview, candidate <> Some (PortableArtifact first rest usage, preview)) ->
- let request := TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
- (N.of_nat (String.length (TextJson.render_json (CC.effect_json
-   (snd (TicketedRequest.Scoped.maintenance_build id (K.world_next_ticket value) request)))))
+ forall id task input scope purpose entry value,
+ (forall first rest usage, R.purpose_candidate purpose <> Some (PortableArtifact first rest usage)) ->
+ let request := R.MeasureRequest input purpose scope entry in
+ (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
- A.measured_call id task input scope purpose candidate entry value =
+ A.measured_call id task input scope purpose entry value =
  A.force_portable id task scope entry value.
 Proof.
- intros id task input scope purpose candidate entry value NotPortable request Oversized.
+ intros id task input scope purpose entry value NotPortable request Oversized.
  unfold A.measured_call. fold request. rewrite Oversized.
- destruct candidate as [[candidate preview]|]; [destruct candidate|]; try reflexivity.
- exfalso; eapply NotPortable; reflexivity.
+ destruct purpose as [|purpose|[purpose candidate preview]]; [reflexivity|reflexivity|].
+ destruct candidate; try reflexivity. exfalso; eapply NotPortable; reflexivity.
 Qed.
 
 Theorem a_portable_source_can_only_finish_with_a_portable_candidate :
@@ -713,7 +693,7 @@ Lemma the_committed_compaction_entry_is_current : forall id entry value effects,
  A.current_entry id (A.registry (K.decision_world (A.commit id entry value effects))) = entry.
 Proof.
  intros. unfold A.commit, A.commit_change, CommandResult.accept, A.acknowledged, A.current_entry, A.find_entry,
-   A.registry, A.store, A.with_entry, TicketedRequest.Scoped.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, K.accept, K.with_features,
+   A.registry, A.store, A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, K.accept, K.with_features,
    Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
 Qed.
 
@@ -756,8 +736,8 @@ Lemma a_failed_capture_is_fresh_for_its_unchanged_input : forall current value,
  A.fresh (MeasurementFailed (A.capture_task current value)) current value = true.
 Proof.
  intros. unfold A.fresh, A.same_input, A.same_description,
-   TicketedRequest.Scoped.same_description, A.same_history.
- cbn [A.capture_task TicketedRequest.Scoped.capture_task captured_history].
+   R.same_description, A.same_history.
+ cbn [A.capture_task R.capture_task captured_history].
  now rewrite !JsonObjectsProofs.equivalent_is_reflexive.
 Qed.
 

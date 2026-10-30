@@ -9,10 +9,23 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition compact_values (id ticket : N) (input : capture) (target : target) (scope : string) plan :=
- ModelDeclarations.pack ModelDeclarations.context_compaction
- [!id;ticket;Codec.model_json (captured_profile input);true;scope;method_name (target_method target);
+Definition scope_fields (input : capture) :=
+ Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_scope_request)
+ [!Codec.model_json (captured_profile input)!].
+Definition measure_fields owner (input : capture) scope validating :=
+ Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_measure_request)
+ [!Codec.model_json (captured_profile input);
+  ContextSelection.target_messages (ContextSelection.history_json owner (captured_history input)) scope;
+  true;scope;map Codec.tool_json (captured_tools input);Codec.settings_json (captured_settings input);
+  captured_callable input;validating!].
+Definition compact_fields (input : capture) (target : target) (scope : string) plan :=
+ Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_compaction_request)
+ [!Codec.model_json (captured_profile input);true;scope;method_name (target_method target);
   window_tokens (target_budget target);reserve_tokens (target_budget target);plan!].
+Definition compact_values (id ticket : N) (input : capture) (target : target) (scope : string) plan :=
+ ModelDeclarations.Packet ModelDeclarations.context_compaction
+   (ModelDeclarations.request_fields ModelDeclarations.context_compaction_request id ticket
+     (compact_fields input target scope plan)).
 Definition compact_metadata id ticket input target scope :=
  match ModelDeclarations.encode_packet (compact_values id ticket input target scope JNull) with
  | JObject fields => Json.remove_field "plan" fields | _ => [] end.
@@ -21,13 +34,6 @@ Definition compact_json id ticket input target progress scope :=
 Definition compact_metadata_bytes (id ticket : N) (input : capture) (target : target) (scope : string) :=
  N.of_nat (String.length (TextJson.render_json (JObject (compact_metadata id ticket input target scope)))) + 8.
 Definition effect_packet (value : effect) := match value with
- | Scope id ticket input => ModelDeclarations.pack ModelDeclarations.context_scope [!id;ticket;Codec.model_json (captured_profile input)!]
- | Measure id ticket input scope validating => ModelDeclarations.pack ModelDeclarations.context_measure
-   [!id;ticket;Codec.model_json (captured_profile input);
-    ContextSelection.target_messages (ContextSelection.history_json id (captured_history input)) scope;
-    true;scope;map Codec.tool_json (captured_tools input);Codec.settings_json (captured_settings input);
-    captured_callable input;validating!]
- | Compact id ticket input target progress scope => compact_values id ticket input target scope (CompactionPlan.plan_json progress)
  | ArmClock deadline => ModelDeclarations.pack ModelDeclarations.compaction_clock [!deadline!]
  | Cancel id ticket => ModelDeclarations.pack ModelDeclarations.compaction_cancel [!id;ticket!] end.
 Definition effect_fields value := Schema.encode_fields (ModelDeclarations.packet_fields (effect_packet value)).
@@ -44,7 +50,7 @@ Definition policy_json (value : policy) := JObject [
  ("targets", JArray (map target_json (policy_targets value)))].
 Definition job_name (value : job) := match value with NoJob => "idle"
  | WaitingForResource _ => "waiting_for_resource" | AwaitingContext _ _ _ => "observing_context" | Resuming _ _ => "waiting"
- | Preparing _ _ _ _ => "preparing" | Compacting _ _ _ _ _ => "compacting" | Validating _ _ _ _ _ _ => "validating" end.
+ | Preparing _ => "preparing" | Compacting _ => "compacting" | Validating _ => "validating" end.
 Definition entry_json (id : N) (value : entry) := JObject [
  ("task_id", number id); ("state", JString (job_name (entry_job value)));
  ("useful_revision", number (entry_useful value)); ("maintained_revision", number (entry_maintained value));

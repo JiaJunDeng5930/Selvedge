@@ -55,23 +55,17 @@ Proof.
  now apply task_cancellation_matches_every_owned_ticket.
 Qed.
 
-(* These are the actual maintenance effect constructors. In particular, an
-   unfreeze-created Scope is withdrawn if a later native archive clears its
-   receiver, before the final output is delivered. *)
-Theorem task_cancellation_withdraws_scope_measurement_and_compaction :
- forall value reply effects owner ticket input scope validating target progress,
- In (CancelTask owner) effects ->
- let retained := decision_effects (Dispatch.retain_live_effects (Decision value reply effects)) in
- ~ In (MaintainContext (C.Scope owner ticket input)) retained /\
- ~ In (MaintainContext (C.Measure owner ticket input scope validating)) retained /\
- ~ In (MaintainContext (C.Compact owner ticket input target progress scope)) retained.
+(** Every task-bound declaration uses its installed receiver address and
+    envelope ticket for cancellation; extending the protocol set adds no case. *)
+Theorem a_task_bound_request_is_withdrawn_on_owner_cancellation :
+ forall value reply effects sent,
+ RequestTypes.request_lifetime (RequestTypes.definition sent) = RequestTypes.TaskBound ->
+ In (CancelTask (Receiver.address (RequestTypes.receiver (RequestTypes.definition sent)) (RequestTypes.request sent))) effects ->
+ ~ In (RequestFeature sent) (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
 Proof.
- intros value reply effects owner ticket input scope validating target progress Cancelled.
- cbn zeta; split.
- - eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
- - split.
-   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
-   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
+ intros value reply effects sent Bound Cancelled.
+ eapply a_task_cancellation_withdraws_every_owned_request; [|exact Cancelled].
+ cbn [Dispatch.request_coordinate]; now rewrite Bound.
 Qed.
 
 (* A precise maintenance cancellation uses the same globally allocated task

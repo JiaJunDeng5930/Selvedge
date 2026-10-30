@@ -9,9 +9,11 @@ Definition request_coordinate (request : effect) := match request with
  | ObserveContext id ticket _
  | RequestReasoning id ticket _ | ExecuteTool id ticket _ _ _ _ _
  | RequestApproval id ticket _ _ _ | CheckTool id ticket _ _ _ => Some (id,ticket)
- | MaintainContext (C.Scope id ticket _)
- | MaintainContext (C.Measure id ticket _ _ _)
- | MaintainContext (C.Compact id ticket _ _ _ _) => Some (id,ticket)
+ | RequestFeature sent => match RequestTypes.request_lifetime (RequestTypes.definition sent) with
+   | RequestTypes.Independent => None
+   | RequestTypes.TaskBound => Some
+       (Receiver.address (RequestTypes.receiver (RequestTypes.definition sent)) (RequestTypes.request sent),
+        RequestEnvelope.identity (RequestTypes.request sent)) end
  | _ => None end.
 Definition cancelled (effects : list effect) (id ticket : N) :=
  existsb (fun request => match request with

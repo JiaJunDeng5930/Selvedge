@@ -4,7 +4,8 @@ From Selvedge.Foundation Require Import Json JsonObjects TextJson.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning TicketedRequest.
-From Selvedge.Features Require Import Domain State CompactionTypes CompactionCodec.
+From Selvedge.Features Require Import Domain State CompactionTypes CompactionCodec CompactionRequest.
+Module R := CompactionRequest.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -16,7 +17,7 @@ Definition find_entry (id : N) (value : Selvedge.Features.CompactionTypes.state)
  option_map (@snd N entry) (find (fun pair => N.eqb id (fst pair)) (maintenance_entries value)).
 Definition current_entry (id : N) (value : Selvedge.Features.CompactionTypes.state) := match find_entry id value with Some entry => entry | None => empty_entry end.
 Definition with_entry (id : N) (entry : entry) (value : Selvedge.Features.CompactionTypes.state) :=
- Receiver.install (TicketedRequest.Scoped.compaction_entries id) entry value.
+ Receiver.install (Receiver.path (R.compaction_entries id value)) entry value.
 Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
 Definition commit_change (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
@@ -32,9 +33,9 @@ Definition enabled_target (task : task) (value : Selvedge.Features.CompactionTyp
 Definition running (task : task) := match task_lifecycle task with Running _ _ => true | _ => false end.
 Definition alive (task : task) := match task_lifecycle task with Archived _ => false | _ => true end.
 Definition idle (task : task) := match task_activity task, task_operations task with Idle, [] => true | _, _ => false end.
-Definition capture_task := TicketedRequest.Scoped.capture_task.
-Definition input_description := TicketedRequest.Scoped.input_description.
-Definition same_description := TicketedRequest.Scoped.same_description.
+Definition capture_task := R.capture_task.
+Definition input_description := R.input_description.
+Definition same_description := R.same_description.
 Definition same_history (before after : list message) :=
  JsonObjects.equivalent (JArray (ContextSelection.history_json 0 before)) (JArray (ContextSelection.history_json 0 after)).
 Definition same_input (input : capture) (task : task) (value : Selvedge.Kernel.State.world) :=
@@ -45,8 +46,8 @@ Definition useful (history : list message) := N.of_nat (List.length (filter (fun
  | ContextReplacement _ | ReasoningRecord _ _ _ _ | FailureMessage _ => false | _ => true end) history)).
 Definition job_pending (value : job) := match value with NoJob => false | _ => true end.
 Definition job_ticket (value : job) := match value with
- | AwaitingContext ticket _ _ | Preparing ticket _ _ _ | Compacting ticket _ _ _ _ | Validating ticket _ _ _ _ _ => Some ticket | _ => None end.
-Definition measurement_ticket (value : measurement) := match value with Measuring ticket _ _ => Some ticket | _ => None end.
+ | AwaitingContext ticket _ _ | Preparing (RequestEnvelope.Envelope ticket _) | Compacting (RequestEnvelope.Envelope ticket _) | Validating (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
+Definition measurement_ticket (value : measurement) := match value with Measuring (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
 Definition cancellations (id : N) (entry : entry) :=
  ((match measurement_ticket (entry_measurement entry) with Some ticket => [Cancel id ticket] | None => [] end) ++
  (match job_ticket (entry_job entry) with Some ticket => [Cancel id ticket] | None => [] end))%list.
@@ -83,29 +84,29 @@ Definition retain_context_wait (id : N) (task : task) (purpose : option reason) 
  commit id (with_observation None (with_measurement Unmeasured (with_job waiting entry))) value [].
 Definition wait_for_context_selected {value} (target : TaskScope.task_reference value)
  (purpose : option reason) (entry : entry) :=
- match TicketedRequest.Scoped.maintenance_context_selected target purpose entry with
- | Some request => TicketedRequest.Scoped.maintenance_observe request
+ match R.maintenance_context_selected target purpose entry with
+ | Some request => R.maintenance_observe request
  | None => retain_context_wait (TaskScope.owner target) (TaskScope.selected target) purpose entry value end.
 Definition wait_for_context (id : N) (purpose : option reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  match TaskScope.select id value with
  | Some target => wait_for_context_selected target purpose entry
  | None => Selvedge.Kernel.State.ignored value end.
 Definition run_request_selected {value} (target : TaskScope.task_reference value)
- (request : TicketedRequest.Scoped.maintenance_action) :=
- match TicketedRequest.Scoped.maintenance_selected (TaskScope.owner target)
+ (request : R.maintenance_action) :=
+ match R.maintenance_selected (TaskScope.owner target)
    request value (TaskScope.selected target) (TaskScope.observed target) with
- | Some admitted => TicketedRequest.Scoped.maintenance_issue admitted
- | None => let '(purpose,entry) := TicketedRequest.Scoped.maintenance_waiting_entry request in
+ | Some admitted => R.maintenance_issue admitted
+ | None => let '(purpose,entry) := R.maintenance_waiting_entry request in
    wait_for_context_selected target purpose entry end.
-Definition run_request (id : N) (request : TicketedRequest.Scoped.maintenance_action) (value : Selvedge.Kernel.State.world) :=
+Definition run_request (id : N) (request : R.maintenance_action) (value : Selvedge.Kernel.State.world) :=
  match TaskScope.select id value with
  | Some target => run_request_selected target request
  | None => Selvedge.Kernel.State.ignored value end.
 Definition resume (job : job) := match job with
  | NoJob | AwaitingContext _ _ _ => NoJob
  | WaitingForResource purpose => WaitingForResource purpose
- | Resuming input purpose | Preparing _ input purpose _
- | Compacting _ input purpose _ _ | Validating _ input purpose _ _ _ => Resuming input purpose end.
+ | Resuming input purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput input purpose _))
+ | Compacting (RequestEnvelope.Envelope _ (CompactInput input purpose _ _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput input (Candidate purpose _ _) _)) => Resuming input purpose end.
 Definition recover_entry (entry : entry) := with_observation None
  (with_measurement Unmeasured (with_job (resume (entry_job entry)) entry)).
 Definition clear_entry (task : task) (entry : entry) :=
@@ -114,7 +115,7 @@ Definition clear_entry (task : task) (entry : entry) :=
 Definition cancel (id : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  commit id (clear_entry task entry) value (cancellations id entry).
 Definition begin_scope (id : N) (input : capture) (purpose : option reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- run_request id (TicketedRequest.Scoped.ScopeRequest input purpose entry) value.
+ run_request id (R.ScopeRequest input purpose entry) value.
 Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
  (progress : compaction_state) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let ticket := world_next_ticket value in
@@ -124,7 +125,7 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
  | Some fitted =>
    if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
      (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input target fitted scope))) <=? limit)
-   then run_request id (TicketedRequest.Scoped.CompactRequest input purpose target fitted scope entry) value
+   then run_request id (R.CompactRequest (CompactInput input purpose target fitted scope) entry) value
    else failed id task entry "The configured compaction request exceeds the transport budget" value
  | None => failed id task entry "Compaction history is not valid UTF-8" value end.
 Definition start (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
@@ -150,7 +151,7 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
    let input := capture_task task value in
    let entry := with_measurement (Oversized input scope (target_budget target)) entry in
    match entry_job entry with
-   | Compacting _ _ _ _ _ => commit id entry value []
+   | Compacting _ => commit id entry value []
    | _ => if ContextSelection.closed_prefix (task_history task) then
        start id task input Blocking (set target_method (fun _ => Summary) target) scope (window_tokens (target_budget target)) entry value
      else commit id (with_job (Resuming input Blocking) entry) value [] end end.
@@ -162,19 +163,18 @@ Definition oversized_candidate (id : N) (task : task) (scope : string)
  match candidate with
  | Some (PortableArtifact _ _ _) => failed id task entry message value
  | _ => force_portable id task scope entry value end.
-Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : option reason)
- (candidate : option (artifact * list message)) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- let request:=TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
- let effect:=snd (TicketedRequest.Scoped.maintenance_build id (world_next_ticket value) request) in
- if N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.effect_json effect))) <=? Limits.frame_bytes / 4
+Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : R.inspection_purpose)
+ (entry : entry) (value : Selvedge.Kernel.State.world) :=
+ let request:=R.MeasureRequest input purpose scope entry in
+ if N.of_nat (String.length (TextJson.render_json (R.preview_json id (world_next_ticket value) request value))) <=? Limits.frame_bytes / 4
  then run_request id request value
- else oversized_candidate id task scope (option_map (@fst artifact (list message)) candidate) entry
+ else oversized_candidate id task scope (R.purpose_candidate purpose) entry
    "The portable summary and retained context exceed the validation transport budget; original history retained" value.
 Definition begin_validation (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value then
  let preview := ContextSelection.adopt (captured_history input) candidate (task_history task) in
- run_request id (TicketedRequest.Scoped.ValidationScopeRequest input purpose candidate preview entry) value
+ run_request id (R.ValidationScopeRequest input purpose candidate preview entry) value
  else commit id (with_job NoJob entry) value [].
 Definition finish_measure (id : N) (task : task) (input : capture) (scope : string) (tokens : N) (budget : token_budget)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -211,34 +211,34 @@ Definition ordinary_inspected (id : N) (task : task) (ticket : N) (input : captu
  (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  match outcome, stage with
  | InspectionFailed message, _ => failed id task entry message value
- | ScopeObserved scope, InspectScope => measured_call id task input scope None None entry value
+ | ScopeObserved scope, InspectScope => measured_call id task input scope R.MeterOnly entry value
  | ScopeObserved scope, InspectCount expected =>
    if String.eqb expected scope then failed id task entry "The input meter returned a scope without a token measurement" value
-   else measured_call id task input scope None None entry value
+   else measured_call id task input scope R.MeterOnly entry value
  | InputMeasured scope tokens budget, InspectCount expected =>
    if String.eqb expected scope then finish_measure id task input scope tokens budget entry value
-   else measured_call id task input scope None None entry value
+   else measured_call id task input scope R.MeterOnly entry value
  | InputMeasured _ _ _, InspectScope => failed id task entry "The scope observation returned an unexpected token measurement" value end.
 Definition preparing_inspected (id : N) (task : task) (input : capture) (purpose : reason) (stage : inspection_stage)
  (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value then match outcome, stage with
  | InspectionFailed message, _ => failed id task entry message value
- | ScopeObserved scope, InspectScope => measured_call id task input scope (Some purpose) None entry value
+ | ScopeObserved scope, InspectScope => measured_call id task input scope (R.PrepareFor purpose) entry value
  | ScopeObserved scope, InspectCount expected =>
    if String.eqb expected scope then failed id task entry "The input meter returned a scope without a token measurement" value
-   else measured_call id task input scope (Some purpose) None entry value
+   else measured_call id task input scope (R.PrepareFor purpose) entry value
  | InputMeasured scope tokens budget, InspectCount expected =>
    if String.eqb expected scope then match configured_target task (registry value) with
    | None => failed id task entry "The selected profile does not support compaction" value
    | Some target => start id task input purpose target scope tokens
      (with_measurement (if same_input input task value then Measured input scope tokens budget else Unmeasured) entry) value end
-   else measured_call id task input scope (Some purpose) None entry value
+   else measured_call id task input scope (R.PrepareFor purpose) entry value
  | InputMeasured _ _ _, InspectScope => failed id task entry "The scope observation returned an unexpected token measurement" value end
  else commit id (with_job NoJob entry) value [].
 Definition validation_input (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (preview : list message) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if ContextSelection.consumes candidate scope then
- measured_call id task input scope (Some purpose) (Some (candidate,preview)) entry value
+ measured_call id task input scope (R.ValidateCandidate (Candidate purpose candidate preview)) entry value
  else restart id task purpose entry value.
 Definition validation_inspected (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (preview : list message) (stage : inspection_stage) (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -255,16 +255,16 @@ Definition validation_inspected (id : N) (task : task) (input : capture) (purpos
  else commit id (with_job NoJob entry) value [].
 Definition measurement_result (id ticket : N) (task : task) (outcome : inspection) (entry : entry) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  match entry_job entry with
- | Validating expected input purpose candidate preview stage =>
+ | Validating (RequestEnvelope.Envelope expected (InspectInput input (Candidate purpose candidate preview) stage)) =>
    if N.eqb ticket expected then Some (validation_inspected id task input purpose candidate preview stage outcome entry value) else None
- | Preparing expected input purpose stage =>
+ | Preparing (RequestEnvelope.Envelope expected (InspectInput input purpose stage)) =>
    if N.eqb ticket expected then Some (preparing_inspected id task input purpose stage outcome entry value) else None
  | _ => match entry_measurement entry with
-   | Measuring expected input stage => if N.eqb ticket expected then Some (ordinary_inspected id task ticket input stage outcome entry value) else None
+   | Measuring (RequestEnvelope.Envelope expected (InspectInput input _ stage)) => if N.eqb ticket expected then Some (ordinary_inspected id task ticket input stage outcome entry value) else None
    | _ => None end end.
 Definition compact_result (id ticket : N) (task : task) (result : json) (error : bool) (entry : entry) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  match entry_job entry with
- | Compacting expected input purpose progress scope =>
+ | Compacting (RequestEnvelope.Envelope expected (CompactInput input purpose target progress scope)) =>
    if N.eqb ticket expected then Some (
      if relevant input task value then
      if error then failed id task entry (match string_field "message" result with Some message => message
@@ -273,9 +273,8 @@ Definition compact_result (id ticket : N) (task : task) (result : json) (error :
      else match Selvedge.Kernel.CompactionPlan.receive progress result with
      | Selvedge.Kernel.CompactionPlan.Failed message => failed id task entry message value
      | Selvedge.Kernel.CompactionPlan.Compacted candidate => begin_validation id task input purpose candidate entry value
-     | Selvedge.Kernel.CompactionPlan.Next progress => match configured_target task (registry value) with
-       | Some target => dispatch_compact id task input purpose target progress scope entry value
-       | None => commit id (with_job NoJob entry) value [] end end
+     | Selvedge.Kernel.CompactionPlan.Next progress =>
+       dispatch_compact id task input purpose target progress scope entry value end
      else commit id (with_job NoJob entry) value []) else None
  | _ => None end.
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
@@ -295,11 +294,11 @@ Definition resolve_task_completion (id : N) (completion : completion) (value : S
    | Activity _ source now scope => activity_result id source now scope task entry value
    | MeasuredInput _ ticket outcome => if running task then measurement_result id ticket task outcome entry value else
        if alive task && (match entry_job entry with
-       | Preparing expected _ _ _ | Validating expected _ _ _ _ _ => N.eqb ticket expected
+       | Preparing (RequestEnvelope.Envelope expected _) | Validating (RequestEnvelope.Envelope expected _) => N.eqb ticket expected
        | _ => match measurement_ticket (entry_measurement entry) with Some expected => N.eqb ticket expected | None => false end end)
        then Some (commit id (recover_entry entry) value (cancellations id entry)) else None
    | Completed _ ticket result error => if running task then compact_result id ticket task result error entry value else
-       if alive task && (match entry_job entry with Compacting expected _ _ _ _ => N.eqb ticket expected | _ => false end)
+       if alive task && (match entry_job entry with Compacting (RequestEnvelope.Envelope expected _) => N.eqb ticket expected | _ => false end)
        then Some (commit id (recover_entry entry) value (cancellations id entry)) else None
    | _ => None end
  end.
@@ -324,9 +323,9 @@ Definition resolve (completion : completion) (value : Selvedge.Kernel.State.worl
  | Activity id _ _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
 
 Definition validating (job : job) := match job with
- | WaitingForResource _ | AwaitingContext _ _ _ | Preparing _ _ _ _ | Validating _ _ _ _ _ _ | Resuming _ Manual | Compacting _ _ Manual _ _ => true
+ | WaitingForResource _ | AwaitingContext _ _ _ | Preparing _ | Validating _ | Resuming _ Manual | Compacting (RequestEnvelope.Envelope _ (CompactInput _ Manual _ _ _)) => true
  | _ => false end.
-Definition pending_measurement (measurement : measurement) := match measurement with Measuring _ _ _ => true | _ => false end.
+Definition pending_measurement (measurement : measurement) := match measurement with Measuring _ => true | _ => false end.
 Definition blocked (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  validating (entry_job entry) || match enabled_target task (registry value) with
  | None => false
@@ -359,7 +358,7 @@ Definition synchronized_entry (task : task) (entry : entry) (state : Selvedge.Fe
  else entry.
 Definition resource_wait_purpose (value : job) := match value with
  | WaitingForResource purpose | AwaitingContext _ purpose _ => purpose
- | Resuming _ purpose | Preparing _ _ purpose _ | Compacting _ _ purpose _ _ | Validating _ _ purpose _ _ _ => Some purpose
+ | Resuming _ purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput _ purpose _)) | Compacting (RequestEnvelope.Envelope _ (CompactInput _ purpose _ _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput _ (Candidate purpose _ _) _)) => Some purpose
  | NoJob => None end.
 Definition release_context_receiver (entry : entry) (task : task) :=
  match entry_job entry, task_activity task with

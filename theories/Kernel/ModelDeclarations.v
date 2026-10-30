@@ -98,12 +98,18 @@ Definition chatgpt_exec_request := declare_request "chatgpt_exec" (StandaloneIde
  [Field "arguments" KJson;execution] ChatgptExec.
 Definition chatgpt_exec := request_variant_view chatgpt_exec_request.
 Definition chatgpt_cancel := effect "chatgpt_cancel" [Field "operation_id" KNatural] None.
-Definition context_scope := effect "context_scope" (identity ++ [model]) (Some (Compaction false)).
-Definition context_measure := effect "context_measure" (identity ++ [model;history] ++ output ++
- [tools;settings;callable;Field "validating" KBool]) (Some (Compaction false)).
-Definition context_compaction_metadata := identity ++ [model] ++ output ++
+Definition context_scope_request := declare_request "context_scope" (OwnedTicket "task_id")
+ [model] (Compaction false).
+Definition context_scope := request_variant_view context_scope_request.
+Definition context_measure_request := declare_request "context_measure" (OwnedTicket "task_id")
+ ([model;history] ++ output ++ [tools;settings;callable;Field "validating" KBool]) (Compaction false).
+Definition context_measure := request_variant_view context_measure_request.
+Definition context_compaction_body := [model] ++ output ++
  [Field "method" KText;Field "window_tokens" KNatural;Field "output_reserve_tokens" KNatural].
-Definition context_compaction := effect "context_compaction" (context_compaction_metadata ++ [Field "plan" KJson]) (Some (Compaction true)).
+Definition context_compaction_metadata := identity ++ context_compaction_body.
+Definition context_compaction_request := declare_request "context_compaction" (OwnedTicket "task_id")
+ (context_compaction_body ++ [Field "plan" KJson]) (Compaction true).
+Definition context_compaction := request_variant_view context_compaction_request.
 Definition compaction_clock := Variant "kind" (JString "compaction_clock") [Field "deadline" KNatural] [] None.
 Definition compaction_cancel := effect "compaction_cancel" identity None.
 Definition effects := [observe_context;request_model;reasoning;tool;approval;hook;after_hook;plugin_events;

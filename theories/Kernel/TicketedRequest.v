@@ -275,82 +275,6 @@ Definition run {before} (candidate : option (plan before)) :=
    effect independently of the receiver installed by the interpreter. *)
 Module F := Selvedge.Features.Domain.
 Module FS := Selvedge.Features.State.
-Module C := Selvedge.Features.CompactionTypes.
-Definition capture_task (current : task) (before : world) :=
- C.Capture (task_history current) (task_current_profile current) (task_current_settings current)
-   (Capabilities.task_tools current) (Capabilities.callable current (world_environment before)).
-Definition input_description (input : C.capture) := JObject [
- ("model", Codec.model_json (C.captured_profile input)); ("profile", profile_metadata (C.captured_profile input));
- ("settings", Codec.settings_json (C.captured_settings input)); ("guidance", settings_guidance (C.captured_settings input));
- ("worktree", JBool (settings_worktree (C.captured_settings input)));
- ("tools", JArray (map Codec.tool_json (C.captured_tools input))); ("callable", JArray (map JString (C.captured_callable input)))].
-Definition same_description (input : C.capture) (current : task) (before : world) :=
- JsonObjects.equivalent (input_description input) (input_description (capture_task current before)).
-Definition capture_compatible (input : C.capture) (current : task) (before : world) :=
- same_description input current before && ContextSelection.history_extends (C.captured_history input) (task_history current).
-Definition compaction_entry (owner : N) (before : world) :=
- option_map (@snd N C.entry) (find (fun pair => N.eqb owner (fst pair))
-   (C.maintenance_entries (F.feature_compaction (world_features before)))).
-(* A provider request consumes an observation from the actual registry. A
-   caller's proposed entry or captured history cannot create that capability. *)
-Definition maintenance_ready_from (input : C.capture) (current : task) (entry : C.entry) (before : world) :=
- (match task_lifecycle current with Running _ _ => true | _ => false end) &&
- resources_available current before && capture_compatible input current before &&
- match C.entry_observation entry with
- | Some observed => capture_compatible observed current before &&
-     ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
- | None => false end.
-Definition maintenance_ready (owner : N) (input : C.capture) (before : world) :=
- match find_task owner before, compaction_entry owner before with
- | Some current, Some entry => maintenance_ready_from input current entry before
- | _, _ => false end.
-Inductive maintenance_action :=
-| ScopeRequest (input : C.capture) (purpose : option C.reason) (entry : C.entry)
-| ValidationScopeRequest (input : C.capture) (purpose : C.reason)
-    (candidate : ContextSelection.artifact) (preview : list message) (entry : C.entry)
-| MeasureRequest (input : C.capture) (purpose : option C.reason)
-    (candidate : option (ContextSelection.artifact * list message)) (scope : string) (entry : C.entry)
-| CompactRequest (input : C.capture) (purpose : C.reason)
-    (target : C.target) (progress : Compaction.compaction_state) (scope : string) (entry : C.entry).
-Definition maintenance_input (request : maintenance_action) := match request with
- | ScopeRequest input _ _ | ValidationScopeRequest input _ _ _ _ |
-   MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end.
-Definition maintenance_waiting_entry (request : maintenance_action) := match request with
- | ScopeRequest _ purpose entry | MeasureRequest _ purpose _ _ entry => (purpose,entry)
- | ValidationScopeRequest _ purpose _ _ entry | CompactRequest _ purpose _ _ _ entry => (Some purpose,entry) end.
-Definition maintenance_replacement_ready (request : maintenance_action) :=
- match request with
- | ScopeRequest _ _ _ | MeasureRequest _ _ None _ _ => true
- | ValidationScopeRequest input _ _ _ _ | MeasureRequest input _ (Some _) _ _
- | CompactRequest input _ _ _ _ _ => ContextSelection.closed_prefix (C.captured_history input)
- end.
-Definition maintenance_admission owner request before :=
- maintenance_ready owner (maintenance_input request) before && maintenance_replacement_ready request.
-Record maintenance_reference (before : world) (owner : N) (request : maintenance_action) := MaintenanceReference {
- maintenance_current : task;
- maintenance_current_found : find_task owner before = Some maintenance_current;
- maintenance_previous : C.entry;
- maintenance_previous_found : compaction_entry owner before = Some maintenance_previous;
- maintenance_eligible : maintenance_ready_from (maintenance_input request) maintenance_current maintenance_previous before &&
-   maintenance_replacement_ready request = true
-}.
-Arguments maintenance_current {before owner request}.
-Arguments maintenance_current_found {before owner request}.
-Arguments maintenance_previous {before owner request}.
-Arguments maintenance_previous_found {before owner request}.
-Arguments maintenance_eligible {before owner request}.
-Definition boolean_admission (condition : bool) : option (condition = true) :=
- match Bool.bool_dec condition true with left evidence => Some evidence | right _ => None end.
-Definition maintenance_observed owner request before current
- (Found : find_task owner before = Some current) entry
- (Stored : compaction_entry owner before = Some entry) : option (maintenance_reference before owner request) :=
- option_map (fun Eligible => MaintenanceReference before owner request current Found entry Stored Eligible)
-   (boolean_admission (maintenance_ready_from (maintenance_input request) current entry before &&
-     maintenance_replacement_ready request)).
-Definition maintenance_selected owner request before current
- (Found : find_task owner before = Some current) : option (maintenance_reference before owner request) :=
- OptionList.observe (compaction_entry owner before)
-   (fun entry Stored => maintenance_observed owner request before current Found entry Stored) (fun _ => None).
 Definition title_slot owner :=
  Receiver.field F.feature_titles
    (Receiver.inject (F.TitleEntry owner) (Receiver.keyed F.title_task)).
@@ -369,73 +293,11 @@ Definition card_slot owner := Receiver.field F.feature_board
 Definition connection_jobs := Receiver.field F.sharing_jobs
  (Receiver.keyed (@fst N F.connection_job)).
 Definition connection_slot := Receiver.field F.feature_sharing connection_jobs.
-Definition compaction_entries owner := Receiver.field C.maintenance_entries
- (Receiver.inject (@pair N C.entry owner) (Receiver.keyed (@fst N C.entry))).
-Definition compaction_slot owner := Receiver.field F.feature_compaction (compaction_entries owner).
 Definition install_feature {input} (receiver : Receiver.t F.state input) request value :=
  with_features (Receiver.install receiver request (world_features value)) value.
 Definition put_title owner := install_feature (title_slot owner).
 Definition put_card owner := install_feature (card_slot owner).
 Definition put_connection identity job := install_feature connection_slot (identity,job).
-Definition put_compaction owner := install_feature (compaction_slot owner).
-Definition can_observe_maintenance (current : task) (before : world) :=
- resources_available current before && match task_lifecycle current with
- | Running Idle _ | Running ReadyForModel _ => true | _ => false end.
-Definition maintenance_prefix_ready (purpose : option C.reason) (history : list message) :=
- match purpose with None => true | Some _ => ContextSelection.closed_prefix history end.
-Definition maintenance_context_ready (purpose : option C.reason) (current : task) (before : world) :=
- can_observe_maintenance current before && maintenance_prefix_ready purpose (task_history current).
-Record maintenance_context_plan (before : world) := MaintenanceContextPlan {
- maintenance_context_target : task_reference before;
- maintenance_context_purpose : option C.reason;
- maintenance_context_entry : C.entry;
- maintenance_context_admitted : maintenance_context_ready maintenance_context_purpose
-   (selected maintenance_context_target) before = true
-}.
-Arguments MaintenanceContextPlan {before}.
-Arguments maintenance_context_target {before}.
-Arguments maintenance_context_purpose {before}.
-Arguments maintenance_context_entry {before}.
-Definition maintenance_context_selected {before} (target : task_reference before) purpose entry
- : option (maintenance_context_plan before) :=
- option_map (fun admitted => MaintenanceContextPlan target purpose entry admitted)
-   (boolean_admission (maintenance_context_ready purpose (selected target) before)).
-Definition maintenance_observe {before} (request : maintenance_context_plan before) :=
- let target := maintenance_context_target request in
- let current := selected target in
- let '(ticket,allocated) := allocate_identity TaskTicket before in
- let resume_model := match task_activity current with ReadyForModel => true | _ => false end in
- let entry := set C.entry_observation (fun _ => None)
-   (set C.entry_measurement (fun _ => C.Unmeasured)
-    (set C.entry_job (fun _ => C.AwaitingContext ticket (maintenance_context_purpose request) resume_model)
-      (maintenance_context_entry request))) in
- accept (JObject [("accepted",JBool true)])
-  (put_compaction (owner target) entry
-    (put_task (owner target) (with_activity (ObservingContext ticket (List.length (task_history current))) current) allocated))
-  [ObserveContext (owner target) ticket current].
-Definition maintenance_build owner identity source : C.entry * C.effect :=
- match source with
- | ScopeRequest input purpose entry =>
-   let pending := match purpose with
-   | None => set C.entry_measurement (fun _ => C.Measuring identity input C.InspectScope) entry
-   | Some purpose => set C.entry_measurement (fun _ => C.Unmeasured)
-       (set C.entry_job (fun _ => C.Preparing identity input purpose C.InspectScope) entry) end in
-   (pending, C.Scope owner identity input)
- | ValidationScopeRequest input purpose candidate preview entry =>
-   (set C.entry_measurement (fun _ => C.Unmeasured)
-     (set C.entry_job (fun _ => C.Validating identity input purpose candidate preview C.InspectScope) entry),
-    C.Scope owner identity input)
- | MeasureRequest input purpose candidate scope entry =>
-   let pending := match purpose,candidate with
-   | Some purpose,Some (candidate,preview) => set C.entry_job
-       (fun _ => C.Validating identity input purpose candidate preview (C.InspectCount scope)) entry
-   | Some purpose,None => set C.entry_job (fun _ => C.Preparing identity input purpose (C.InspectCount scope)) entry
-   | None,_ => set C.entry_measurement (fun _ => C.Measuring identity input (C.InspectCount scope)) entry end in
-   let measured_input := match candidate with Some (_,preview) => set C.captured_history (fun _ => preview) input | None => input end in
-   (pending, C.Measure owner identity measured_input scope (match candidate with Some _ => true | None => false end))
- | CompactRequest input purpose target progress scope entry =>
-   (set C.entry_job (fun _ => C.Compacting identity input purpose progress scope) entry,
-    C.Compact owner identity input target progress scope) end.
 (** A channel consumes a domain selection. Its payload and located protocol
     are projections of that one selection; only domain-specific eligibility is
     part of the source. Allocation and receiver installation belong here. *)
@@ -477,11 +339,4 @@ Definition feature_issue_change {before} (request : feature_plan before) : Comma
 Definition feature_issue {before} (request : feature_plan before) : decision :=
  CommandResult.accept (feature_issue_change request).
 
-Definition maintenance_issue {before owner request}
- (reference : maintenance_reference before owner request) : decision :=
- let '(identity,allocated) := allocate_identity TaskTicket before in
- let '(pending,request_effect) := maintenance_build owner identity request in
- accept (JObject [("accepted",JBool true)])
-   (put_compaction owner (set C.entry_observation (fun _ => C.entry_observation (maintenance_previous reference)) pending) allocated)
-   [MaintainContext request_effect].
 End Scoped.

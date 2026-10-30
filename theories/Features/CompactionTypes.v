@@ -1,5 +1,5 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json RequestEnvelope.
 From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Import Domain Compaction ContextSelection.
 Import ListNotations.
@@ -47,9 +47,30 @@ Record capture := Capture {
  captured_callable : list string
 }.
 Inductive inspection_stage := InspectScope | InspectCount (scope : string).
+Record inspection_input (continuation : Type) := InspectInput {
+ inspection_capture : capture;
+ inspection_continuation : continuation;
+ inspection_step : inspection_stage
+}.
+Arguments InspectInput {continuation}.
+Arguments inspection_capture {continuation}.
+Arguments inspection_continuation {continuation}.
+Arguments inspection_step {continuation}.
+Record validation := Candidate {
+ candidate_reason : reason;
+ candidate_artifact : artifact;
+ candidate_preview : list message
+}.
+Record compaction_input := CompactInput {
+ compact_capture : capture;
+ compact_reason : reason;
+ compact_target : target;
+ compact_progress : compaction_state;
+ compact_scope : string
+}.
 Inductive measurement :=
 | Unmeasured
-| Measuring (ticket : N) (input : capture) (stage : inspection_stage)
+| Measuring (request : RequestEnvelope.t (inspection_input unit))
 | Measured (input : capture) (scope : string) (tokens : N) (budget : token_budget)
 | Oversized (input : capture) (scope : string) (budget : token_budget)
 | MeasurementFailed (input : capture).
@@ -58,10 +79,9 @@ Inductive job :=
 | WaitingForResource (purpose : option reason)
 | AwaitingContext (ticket : N) (purpose : option reason) (resume_model : bool)
 | Resuming (input : capture) (purpose : reason)
-| Preparing (ticket : N) (input : capture) (purpose : reason) (stage : inspection_stage)
-| Compacting (ticket : N) (input : capture) (purpose : reason) (progress : compaction_state) (scope : string)
-| Validating (ticket : N) (input : capture) (purpose : reason) (candidate : artifact)
-    (preview : list message) (stage : inspection_stage).
+| Preparing (request : RequestEnvelope.t (inspection_input reason))
+| Compacting (request : RequestEnvelope.t compaction_input)
+| Validating (request : RequestEnvelope.t (inspection_input validation)).
 Record entry := Entry {
  (* This is the actual completed workspace observation. It is not reconstructed
     from the existence of a compaction job or a current task snapshot. *)
@@ -86,9 +106,6 @@ Record state := MaintenanceState {
 Definition initial := MaintenanceState initial_policy [] 0 0.
 
 Inductive effect :=
-| Scope (task_id ticket : N) (input : capture)
-| Measure (task_id ticket : N) (input : capture) (scope : string) (validating : bool)
-| Compact (task_id ticket : N) (input : capture) (target : target) (progress : compaction_state) (scope : string)
 | ArmClock (deadline : N)
 | Cancel (task_id ticket : N).
 Inductive inspection :=
