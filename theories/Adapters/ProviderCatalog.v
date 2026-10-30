@@ -8,54 +8,56 @@ Open Scope N_scope.
 Definition local_tool_namespace := "selvedge".
 Definition connection_keys := ["provider"; "endpoint"; "auth_file"; "issuer"; "timeout_ms"].
 Definition nonempty value := is_text value && Utf8.nonblank (text value).
-Inductive connection :=
+Inductive provider :=
   | Offline
-  | EnvironmentSSE (endpoint credential : string)
+  | EnvironmentSSE (name endpoint credential : string)
   | AccountSSE
   | WebConnection (endpoint credential : string).
 Definition authentication connection := match connection with
-  | Offline => "none" | EnvironmentSSE _ _ => "environment" | AccountSSE => "account" | WebConnection _ _ => "web" end.
+  | Offline => "none" | EnvironmentSSE _ _ _ => "environment" | AccountSSE => "account" | WebConnection _ _ => "web" end.
 Definition connection_transport connection := match connection with
   | Offline => "echo" | WebConnection _ _ => "web" | _ => "sse" end.
 Definition connection_endpoint connection := match connection with
-  | EnvironmentSSE endpoint _ | WebConnection endpoint _ => endpoint | _ => "" end.
+  | EnvironmentSSE _ endpoint _ | WebConnection endpoint _ => endpoint | _ => "" end.
 Definition connection_credential connection := match connection with
-  | EnvironmentSSE _ credential | WebConnection _ credential => credential | _ => "" end.
+  | EnvironmentSSE _ _ credential | WebConnection _ credential => credential | _ => "" end.
 Definition connection_stream connection := match connection with AccountSSE => "chatgpt" | _ => "responses" end.
 Definition connection_account connection := match connection with AccountSSE => true | _ => false end.
 Definition connection_web connection := match connection with WebConnection _ _ => true | _ => false end.
 Definition connection_live connection := match connection with Offline => false | _ => true end.
 Definition connection_uses_endpoint connection := match connection with
-  | EnvironmentSSE _ _ | WebConnection _ _ => true | _ => false end.
+  | EnvironmentSSE _ _ _ | WebConnection _ _ => true | _ => false end.
 
-(** Provider names are registrations, not constructors in a closed provider
-    enumeration. The connection constructor owns the shared transport policy. *)
-Record provider := Provider { provider_name : string; provider_connection : connection }.
-Definition responses_backend name endpoint credential := Provider name (EnvironmentSSE endpoint credential).
-Definition account_backend name := Provider name AccountSSE.
-Definition web_backend name endpoint credential := Provider name (WebConnection endpoint credential).
-Definition providers := [Provider "echo" Offline;
+(** Responses-compatible registrations supply their own names. Account and Web
+    connections are the concrete ChatGPT services, so their identities cannot
+    disagree with their authentication and capability semantics. *)
+Definition provider_name (value : provider) := match value with
+ | Offline => "echo" | EnvironmentSSE name _ _ => name
+ | AccountSSE => "chatgpt" | WebConnection _ _ => "chatgpt-web" end.
+Definition responses_backend := EnvironmentSSE.
+Definition account_backend := AccountSSE.
+Definition web_backend := WebConnection.
+Definition providers := [Offline;
   responses_backend "responses" "https://api.openai.com/v1/responses" "OPENAI_API_KEY";
-  account_backend "chatgpt";
-  web_backend "chatgpt-web" "http://127.0.0.1:8787/v1/responses" "CHATGPT_WEB_TOKEN"].
-Definition descriptor provider :=
- let connection := provider_connection provider in JObject [
+  account_backend;
+  web_backend "http://127.0.0.1:8787/v1/responses" "CHATGPT_WEB_TOKEN"].
+Definition descriptor provider := JObject [
   ("provider",JString (provider_name provider));
-  ("protocol",JString (if connection_live connection then "responses" else "echo"));
-  ("stream_kind",JString (connection_stream connection)); ("conversation",JBool true);
-  ("tools",JBool (connection_live connection)); ("independent_text",JBool (connection_live connection));
-  ("auth",JString (authentication connection)); ("transport",JString (connection_transport connection));
-  ("endpoint",JString (connection_endpoint connection)); ("api_key_env",JString (connection_credential connection))].
+  ("protocol",JString (if connection_live provider then "responses" else "echo"));
+  ("stream_kind",JString (connection_stream provider)); ("conversation",JBool true);
+  ("tools",JBool (connection_live provider)); ("independent_text",JBool (connection_live provider));
+  ("auth",JString (authentication provider)); ("transport",JString (connection_transport provider));
+  ("endpoint",JString (connection_endpoint provider)); ("api_key_env",JString (connection_credential provider))].
 Definition catalog := map descriptor providers.
 Definition backend profile := match as_string (get profile "provider") with
   | Some name => find (fun entry => String.eqb (provider_name entry) name) providers
   | None => None end.
-Definition connection_of profile := option_map provider_connection (backend profile).
+Definition connection_of := backend.
 Definition account profile := match connection_of profile with Some connection => connection_account connection | None => false end.
 Definition web profile := match connection_of profile with Some connection => connection_web connection | None => false end.
 Definition uses_endpoint profile := match connection_of profile with Some connection => connection_uses_endpoint connection | None => false end.
 Definition supports_compaction profile := match connection_of profile with
- | Some (EnvironmentSSE _ _) | Some AccountSSE => true | _ => false end.
+ | Some (EnvironmentSSE _ _ _) | Some AccountSSE => true | _ => false end.
 Definition default value fallback := if is_null value then fallback else value.
 Definition endpoint profile := default (get profile "endpoint") (match connection_of profile with
   | Some connection => JString (connection_endpoint connection) | None => JNull end).

@@ -87,7 +87,7 @@ Definition support source :=
   else match backend profile with
   | None => err "The frozen model provider is no longer configured"
   | Some backend =>
-    if connection_live (provider_connection backend) then success (descriptor backend)
+    if connection_live backend then success (descriptor backend)
     else let kind := str effect "kind" in
       if String.eqb kind "board_text" then err "The offline echo profile cannot generate board descriptions; configure a model provider"
       else if String.eqb kind "approval" then err "The offline echo profile cannot review an approval; configure a model provider"
