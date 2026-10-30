@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Json Utf8 JsonObjects Schema.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjects DeclarationRegistry.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -39,17 +39,13 @@ Definition account_backend := AccountSSE.
 Definition web_backend := WebConnection.
 (** A profile selects a backend by name. Registration establishes that this
     lookup is unambiguous, including names fixed by a service constructor. *)
-Record provider_registry := RegisteredProviders {
-  registered_providers : list provider;
-  registered_provider_names : unique_names (map provider_name registered_providers) = true
-}.
-Definition declare_providers entries `{DistinctNames (map provider_name entries)} :=
-  RegisteredProviders entries names_distinct.
+Definition declare_providers entries `{Schema.DistinctNames (map provider_name entries)} :=
+ DeclarationRegistry.declare provider_name entries.
 Definition registered := declare_providers [Offline;
   responses_backend "responses" "https://api.openai.com/v1/responses" "OPENAI_API_KEY";
   account_backend;
   web_backend "http://127.0.0.1:8787/v1/responses" "CHATGPT_WEB_TOKEN"].
-Definition providers := registered_providers registered.
+Definition providers := DeclarationRegistry.values registered.
 Definition descriptor provider := JObject [
   ("provider",JString (provider_name provider));
   ("protocol",JString (if connection_live provider then "responses" else "echo"));
@@ -59,7 +55,7 @@ Definition descriptor provider := JObject [
   ("endpoint",JString (connection_endpoint provider)); ("api_key_env",JString (connection_credential provider))].
 Definition catalog := map descriptor providers.
 Definition backend profile := match as_string (get profile "provider") with
-  | Some name => find (fun entry => String.eqb (provider_name entry) name) providers
+  | Some name => DeclarationRegistry.lookup name registered
   | None => None end.
 Definition connection_of := backend.
 Definition account profile := match connection_of profile with Some connection => connection_account connection | None => false end.
