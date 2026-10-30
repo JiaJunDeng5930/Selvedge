@@ -1,3 +1,4 @@
+From Selvedge.Foundation Require Import CallWire ModelWire.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import WebCommon WebResources WebHistory ProviderCatalog.
 Import ListNotations.
@@ -102,11 +103,11 @@ Definition receipt source := let effect := get source "effect" in let resource :
     ("calls",JArray (if eq resource "status" "requires_action" then
       map (fun call => JObject (subset call ["call_id";"name"])) (items (get resource "output")) else []));("deferred",get source "deferred")]).
 Definition emitted_call call : outcome json :=
-  match CallWire.parse_arguments CallWire.callback_argument_nesting
-    (str call "arguments_json") with
-  | Some arguments => Accepted (CallWire.encode_item (str call "call_id") (str call "name") arguments)
-  (* DEFENSE: web.settle can be called directly with an unadmitted resource. *)
-  | None => reject "ChatGPT Web returned invalid function arguments" end.
+ match CallWire.from_text CallWire.callback_argument_nesting
+   (str call "call_id") (str call "name") (str call "arguments_json") with
+ | Some invocation => Accepted (ModelWire.encode (ModelWire.call invocation))
+ (* DEFENSE: web.settle is a public boundary and can receive an invalid call. *)
+ | None => reject "ChatGPT Web returned an invalid function call" end.
 Definition settle source := let index := get source "index" in let resource := get source "resource" in
   if negb (natural index && (same index (number 0) || same index (number 1)))
   then err "Unsupported ChatGPT Web output stage; only parts 0 and 1 are defined"

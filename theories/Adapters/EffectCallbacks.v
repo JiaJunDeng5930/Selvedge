@@ -37,7 +37,7 @@ Definition observed_result (kind : callback_kind) (result : json) : option (repl
  | Hook => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode hook_schema result)
  | AfterHook => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode after_schema result)
  | Compaction done => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode D.RawObject result)
- | Model => option_map (fun items => existT _ true (items,tt)) (as_array result)
+ | Model => option_map (fun items => existT _ true (items,tt)) (ModelWire.decode_items result)
  | Worktree created =>
    match bool_field "ok" result with
    | None => None

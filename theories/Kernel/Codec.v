@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require OptionList.
-From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8 CallWire.
+From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8 CallWire ModelWire.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.
@@ -199,24 +199,14 @@ Definition call_json (value : call) := JObject [
  ("id", JString (call_id value)); ("name", JString (call_name value)); ("arguments", call_arguments value);
  ("arguments_json", JString (TextJson.render_json (call_arguments value)))].
 Definition wire_call_json (value : call) := CallWire.encode (call_id value) (call_name value) (call_arguments value).
-Definition parse_call_at nesting value := option_map
- (fun parsed => let '(id,name,arguments) := parsed in Call id name arguments InitialAttempt)
- (CallWire.decode_at nesting value).
-Definition parse_call := parse_call_at CallWire.callback_argument_nesting.
 Definition content_json (value : content) := JArray (map Images.content_part_json value).
-Definition parse_model_item (value : json) : option model_item :=
- match string_field "type" value with
- | Some "text" => match Schema.decode [Field "type" (KEnum "text" []);Field "part" KNatural;Field "text" KText] value with
-   | Some values => let part := head (tail values) in let text := head (tail (tail values)) in
-      if Utf8.well_formed text then Some (TextItem part text) else None
-   | None => None end
- | Some "call" => option_map
-   (fun parsed => let '(id,name,arguments) := parsed in CallItem (Call id name arguments InitialAttempt))
-   (CallWire.decode_item_at CallWire.callback_argument_nesting value)
- | Some "context" => match Schema.decode [Field "type" (KEnum "context" []);Field "part" KNatural;Field "value" KJson] value with
-   | Some values => match head (tail (tail values)) with JObject fields => Some (ContextItem (head (tail values)) (JObject fields)) | _ => None end
-   | None => None end
- | _ => None end.
+Definition model_item_of_fields (value : ModelWire.value) : model_item :=
+ match value with
+ | inl text => let fields := proj1_sig text in TextItem (fst (snd fields)) (proj1_sig (fst (snd (snd fields))))
+ | inr (inl call) => let invocation := CallWire.of_item call in
+   CallItem (Call (CallWire.identity invocation) (CallWire.name invocation) (CallWire.arguments invocation) InitialAttempt)
+ | inr (inr (inl context)) => let fields := proj1_sig context in ContextItem (fst (snd fields)) (JObject (fst (snd (snd fields))))
+ | inr (inr (inr impossible)) => match impossible with end end.
 Definition output_mode_value (mode : output_mode) : Schema.denote ModelDeclarations.output_mode_kind := match mode with
  | PlainOutput => exist _ ModelDeclarations.plain_output_name (or_introl eq_refl)
  | InteractiveOutput => exist _ ModelDeclarations.interactive_output_name (or_intror (or_introl eq_refl)) end.

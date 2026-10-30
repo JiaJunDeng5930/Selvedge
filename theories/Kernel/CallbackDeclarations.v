@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema DeclarationFields.
+From Selvedge.Foundation Require Import Json Schema DeclarationFields ModelWire.
 From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import ModelDeclarations ApprovalProtocol.
 Import ListNotations.
@@ -57,7 +57,7 @@ Definition payload (kind : callback_kind) (ok : bool) := match kind with
  | Context => if ok then [F.required "observations" (D.Array D.Any)] else [F.required "message" (diagnostic_text Context)]
  | Reasoning => if ok then [F.required "effort" (text 64 false);F.required "generations" (D.Value KNatural)]
    else [F.required "message" (diagnostic_text Reasoning)]
- | Model => if ok then [F.required "items" (D.Array D.Any)]
+ | Model => if ok then [F.required "items" ModelWire.items]
    else [F.required "message" (diagnostic_text Model);F.optional "failure_kind" (D.Const (JString "context_limit"))]
  | Tool => [F.optional "value" D.Any]
  | ChatgptExec => [F.required "value" D.RawObject]

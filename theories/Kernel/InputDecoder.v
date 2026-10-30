@@ -47,8 +47,7 @@ Definition callback_input (kind : callback_kind) : forall ok,
  | Model => fun ok address =>
    let id := head address in let ticket := head (tail address) in
    if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
-     fun values => option_map (fun items => ModelCompleted id ticket (ModelSuccess items))
-       (Codec.traverse Codec.parse_model_item (fst values))
+     fun values => Some (ModelCompleted id ticket (ModelSuccess (map Codec.model_item_of_fields (fst values))))
    else fun values => Some (ModelCompleted id ticket
      (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end))
  | Reasoning => fun ok address =>

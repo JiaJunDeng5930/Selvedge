@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require OptionList.
+From Selvedge.Foundation Require OptionList EncodedObject.
 From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 Import ListNotations.
 Open Scope string_scope.
@@ -24,6 +24,7 @@ Inductive text_format :=
 | PrefixedSpelling (prefix : string) (suffix : text_format).
 Inductive t :=
 | Reject | RawObject | Null
+| EncodedObject (nesting : nat)
 | Value (kind : Schema.kind)
 | Const (value : json)
 | Textual (format : text_format)
@@ -94,6 +95,7 @@ Fixpoint encode_text (format : text_format) : text_value format -> string :=
 Fixpoint denote (declaration : t) : Set :=
  match declaration with
  | Reject => Empty_set | RawObject => list (string * json)
+ | EncodedObject nesting => EncodedObject.Admitted.t nesting
  | Null | Const _ => unit | Value kind => Schema.denote kind
  | Textual format => text_value format
  | UnboundedNatural minimum => checked (fun value => minimum <=? value)
@@ -117,6 +119,7 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
  match declaration as description return option (denote description) with
  | Reject => None | Value kind => Schema.decode_value kind value
  | RawObject => match value with JObject members => Some members | _ => None end
+ | EncodedObject nesting => match value with JString source => EncodedObject.Admitted.parse nesting source | _ => None end
  | Null => match value with JNull => Some tt | _ => None end
  | Const expected => if Json.equal value expected then Some tt else None
  | Textual format => match value with JString source => decode_text format source | _ => None end
@@ -158,6 +161,7 @@ Fixpoint encode (declaration : t) : denote declaration -> json :=
  | Reject => fun impossible => match impossible with end
  | Null => fun _ => JNull | Const value => fun _ => value
  | Value kind => Schema.encode_value kind | RawObject => JObject
+ | EncodedObject _ => fun value => JString (EncodedObject.spelling value)
  | Textual format => fun value => JString (encode_text format value)
  | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
  | Array element => fun values => JArray (map (encode element) values)
@@ -201,6 +205,8 @@ Fixpoint schema (declaration : t) : json :=
  match declaration with
  | Reject => JBool false | Value kind => JObject (Schema.kind_schema kind)
  | RawObject => JObject [("type",JString "object")]
+ | EncodedObject _ => JObject [("type",JString "string");("contentMediaType",JString "application/json");
+     ("contentSchema",JObject [("type",JString "object")])]
  | Const value => JObject [("const",value)]
  | Null => JObject [("type",JString "null")]
  | Textual format => text_schema format

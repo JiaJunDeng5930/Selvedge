@@ -1,45 +1,39 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson JsonObjects CallWire.
-From Selvedge.Adapters Require Import Common ProviderCatalog.
+From Selvedge.Foundation Require Import Json Numbers TextJson JsonObjects CallWire ModelWire.
+From Selvedge.Adapters Require Import Common ProviderCatalog OutputObservations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Inductive provider_output := ToolCall (id name : string) (arguments : json)
-  | ContextItem (value markdown_fences : json).
+Inductive provider_output := ToolCall (invocation : CallWire.admitted CallWire.callback_argument_nesting)
+  | ContextItem (members : list (string * json)) (markdown_fences : OutputObservations.fences).
 Definition encode_output index value := match value with
-  | ToolCall id name arguments => CallWire.encode_item id name arguments
-  | ContextItem item markdown_fences => JObject [("part",number index); ("type",JString "context");
-      ("value",item);("markdown_fences",markdown_fences)] end.
+  | ToolCall invocation => ModelWire.encode (ModelWire.call invocation)
+  | ContextItem members markdown_fences => OutputObservations.provider_observation index members markdown_fences end.
 Definition message_part part := is_object part &&
   ((String.eqb (str part "type") "output_text" && is_text (get part "text")) ||
    (String.eqb (str part "type") "refusal" && is_text (get part "refusal"))).
-Definition fence_observation_valid observation := is_object observation &&
- is_text (get observation "raw_info") && is_text (get observation "fence_kind") &&
- Json.is_bool (get observation "info_complete").
-Definition empty_observations observations := is_array observations && Nat.eqb (List.length (items observations)) 0.
 Definition parse_output (profile item markdown_fences : json) : outcome provider_output :=
+ match ArgumentDeclaration.decode OutputObservations.fences_declaration markdown_fences with
+ | None => reject "Markdown fence observations are malformed"
+ | Some observations =>
   if negb (is_object item) then reject "Provider returned an invalid output item"
   else if String.eqb (str item "type") "function_call" then
-    if negb (empty_observations markdown_fences) then reject "Tool output cannot carry Markdown fence observations"
+    if negb (Nat.eqb (List.length observations) 0) then reject "Tool output cannot carry Markdown fence observations"
     else if account profile && negb (JsonObjects.equivalent (get item "namespace") (JString local_tool_namespace))
       then reject "ChatGPT returned a function call outside the local tool namespace"
-    else if nonempty (get item "call_id") && nonempty (get item "name") && is_text (get item "arguments") then
-      (* DEFENSE: Provider function arguments are external JSON text, including
-         duplicate object members; they must be parsed before tool dispatch. *)
-      match CallWire.parse_arguments CallWire.callback_argument_nesting (str item "arguments") with
-      | Some arguments => Accepted (ToolCall (str item "call_id") (str item "name") arguments)
-      | None => reject "Invalid JSON function arguments" end
-    else reject "Provider returned a malformed function call"
+    else match CallWire.from_text CallWire.callback_argument_nesting
+      (str item "call_id") (str item "name") (str item "arguments") with
+    | Some invocation => Accepted (ToolCall invocation)
+    | None => reject "Provider returned a malformed function call" end
   else if String.eqb (str item "type") "message" then
     if String.eqb (str item "role") "assistant" && is_array (get item "content") &&
-       forallb message_part (items (get item "content")) && is_array markdown_fences &&
-       forallb fence_observation_valid (items markdown_fences) then Accepted (ContextItem item markdown_fences)
+       forallb message_part (items (get item "content")) then Accepted (ContextItem (object_fields item) observations)
     else reject "Provider returned an unsupported assistant message"
   else if existsb (String.eqb (str item "type")) ["reasoning";"compaction"] then
-    if empty_observations markdown_fences then Accepted (ContextItem item markdown_fences)
+    if Nat.eqb (List.length observations) 0 then Accepted (ContextItem (object_fields item) observations)
     else reject "Non-message provider output cannot carry Markdown fence observations"
-  else reject ("Unsupported provider output type: " ++ display_field item "type").
+  else reject ("Unsupported provider output type: " ++ display_field item "type") end.
 Fixpoint valid_coordinates (previous : option N) values := match values with
   | [] => true | value :: rest => match natural value with None => false | Some index =>
     canonical_natural value && match previous with None => true | Some old => old <? index end &&
