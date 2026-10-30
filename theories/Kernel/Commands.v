@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Arguments JsonSchema.
 From Selvedge.Kernel Require Import WorkspaceBackend Pagination TaskConstraints.
+From Selvedge.Kernel Require Compaction.
 From Selvedge.Kernel Require Export CommandArguments.
 Import ListNotations.
 Open Scope string_scope.
@@ -66,7 +67,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [typed TaskConstraints.fork_count_declaration (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"])]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "open_side_conversation" (task_identity ++ content_fields));
   DeclareCommand KernelChange TaskExcluded (WireCommand "return_side_conversation" task_identity);
-  DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [opt "summary" KText]));
+  DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [typed Compaction.summary_declaration (opt "summary" KText)]));
   DeclareCommand KernelQuery TaskAllowed (WireCommand "read" (task_identity ++ [u32 (opt "after" KNatural); bounded 1 Pagination.history_limit (opt "limit" KNatural)]));
   DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);

@@ -505,11 +505,11 @@ Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
   (set entry_attempted (N.max (useful history)) (set entry_cache_deadline (fun _ => 0)
   (with_measurement Unmeasured (with_job NoJob entry))))).
-Definition supplied_change (id : N) (task : task) (summary : string) (value : Selvedge.Kernel.State.world) :=
+Definition supplied_change (id : N) (task : task) (summary : Compaction.summary) (value : Selvedge.Kernel.State.world) :=
  let history := task_history task in
  let previous := current_entry id (registry value) in
  let entry := checkpoint_entry history previous in
- let task := set task_history (fun _ => ContextSelection.adopt history (ContextSelection.portable summary) history) task in
+ let task := set task_history (fun _ => ContextSelection.adopt history (ContextSelection.portable (Compaction.summary_text summary)) history) task in
  commit_change id entry (Selvedge.Kernel.State.put_task id task value) (cancellations id previous).
 Definition manual_change {value} (target : TaskScope.task_reference value) :=
  let id := TaskScope.owner target in
@@ -527,16 +527,14 @@ Definition handle_compact_result (payload : Selvedge.Generated.Commands.compact_
    | None => CommandResult.refuse "task_not_found" "The task does not exist"
    | Some target => let task := TaskScope.selected target in
      if negb (alive task) then CommandResult.refuse "task_archived" "An archived task cannot be changed"
-     else match Selvedge.Generated.Commands.compact_summary payload with
+     else match Selvedge.Generated.Commands.compact_summary_admitted payload with
        | None => match task_activity task with
          | Idle => if running task then CommandResult.Accepted (manual_change target) else CommandResult.refuse "task_busy" "Model compaction requires an active idle task"
          | _ => CommandResult.refuse "task_busy" "Model compaction requires an active idle task" end
        | Some summary =>
          let invalid := CommandResult.refuse "invalid_summary"
-           "A checkpoint requires a nonempty bounded summary and settled tool calls" in
-         if idle task then if negb (String.eqb summary "") &&
-         (N.of_nat (String.length summary) <=? Compaction.summary_limit_bytes) &&
-         ContextSelection.closed_prefix (task_history task)
+           "A checkpoint requires settled tool calls" in
+         if idle task then if ContextSelection.closed_prefix (task_history task)
          then CommandResult.Accepted (supplied_change id task summary value)
          else invalid
          else match task_activity task with

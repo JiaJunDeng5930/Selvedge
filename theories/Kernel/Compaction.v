@@ -1,10 +1,15 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Numbers.
 Open Scope N_scope.
 Definition minimum_window : N := 4096.
 Definition minimum_reserve : N := 256.
 Definition summary_limit_bytes : N := 16384.
+Definition summary_declaration := ArgumentDeclaration.Text
+ (ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural summary_limit_bytes false false false None).
+Definition summary := ArgumentDeclaration.denote summary_declaration.
+Definition summary_text (value : summary) := proj1_sig value.
 Definition legal_budget (window reserve : N) : bool :=
  (minimum_window <=? window) && (minimum_reserve <=? reserve) && (4 * reserve <=? window).
 Definition summary_prompt : string :=

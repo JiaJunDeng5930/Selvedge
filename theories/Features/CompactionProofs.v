@@ -142,25 +142,24 @@ Proof. reflexivity. Qed.
 Lemma supplied_history_is_an_append : forall id task summary value,
  K.find_task id value = Some task ->
  exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
- task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
+ task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
 Proof.
  intros. unfold A.supplied_change,A.commit_change.
  cbn -[A.store K.put_task ContextSelection.adopt]. rewrite storing_maintenance_preserves_tasks.
  eexists. split; [eapply find_put_task;exact H|].
- change (ContextSelection.adopt (task_history task) (ContextSelection.portable summary) (task_history task) =
- (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list).
+ change (ContextSelection.adopt (task_history task) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary)) (task_history task) =
+ (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list).
  apply a_current_snapshot_can_be_adopted.
 Qed.
 (** This positive contract constrains the actual typed command entry, excluding
     implementations that reject every checkpoint or discard its source history. *)
 Theorem a_valid_checkpoint_preserves_its_original_records : forall payload id summary caller task value,
- G.compact_task_id payload = id -> G.compact_summary payload = Some summary ->
+ G.compact_task_id payload = id -> G.compact_summary_admitted payload = Some summary ->
  K.find_task id value = Some task -> A.alive task = true -> A.idle task = true ->
- (negb (String.eqb summary "") && (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes) &&
- ContextSelection.closed_prefix (task_history task)) = true ->
+ ContextSelection.closed_prefix (task_history task) = true ->
  A.handle_compact_result payload caller value = CommandResult.Accepted (A.supplied_change id task summary value) /\
  exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
- task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
+ task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
 Proof.
  intros payload id summary caller task value Id Summary H H0 H1 H2. split.
  - destruct (selecting_an_existing_task_retains_its_key id value task H)
@@ -213,7 +212,7 @@ Definition manual_waiting_decision (id : N) (current : task) (before : K.world) 
     only obsolete maintenance requests are cancelled. *)
 Theorem manual_compaction_accepts_an_open_prefix_and_waits :
  forall payload id current operations caller before,
- G.compact_task_id payload = id -> G.compact_summary payload = None ->
+ G.compact_task_id payload = id -> G.compact_summary_admitted payload = None ->
  K.find_task id before = Some current ->
  task_lifecycle current = Running Idle operations ->
  TicketedRequest.Scoped.resources_available current before = true ->
