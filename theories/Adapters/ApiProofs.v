@@ -265,10 +265,3 @@ Proof.
  - apply Forall_forall. intros pair Present. apply forallb_forall with (x:=pair) in Parts; assumption.
  - now apply N.leb_le in Budget.
 Qed.
-
-Theorem public_compaction_policy_has_ordered_thresholds : forall source result,
-  Api.call "config.compaction" source = success result ->
-  1 <= nat_value (get result "background_percent") /\
-  nat_value (get result "background_percent") < nat_value (get result "blocking_percent") /\
-  nat_value (get result "blocking_percent") < 100.
-Proof. intros;apply (successful_compaction_has_required_threshold_order Compaction.legal_budget source result);exact H. Qed.

@@ -64,9 +64,9 @@ Definition check_text (constraints : text_constraints) (source : string) :=
  end.
 (** Admission retains the declared constraint. Downstream constructors receive
     its value and evidence together, rather than repeating a Boolean check. *)
-Definition checked {A : Set} (admissible : A -> bool) :=
+Polymorphic Definition checked {A : Type} (admissible : A -> bool) :=
  { value : A | admissible value = true }.
-Definition admit {A : Set} (admissible : A -> bool) (value : A) : option (checked admissible) :=
+Polymorphic Definition admit {A : Type} (admissible : A -> bool) (value : A) : option (checked admissible) :=
  match Bool.bool_dec (admissible value) true with
  | left proof => Some (exist _ value proof) | right _ => None end.
 Definition natural_range minimum maximum value := (minimum <=? value) &&

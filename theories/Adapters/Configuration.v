@@ -2,90 +2,94 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
 From Selvedge.Adapters Require ProviderCatalog.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Foundation Require Schema.
+From Selvedge.Foundation Require Schema ArgumentDeclaration DeclarationFields OptionList KeyedCollection.
+From Selvedge.Features Require CompactionTypes CompactionCodec.
 From Selvedge.Kernel Require Import Context.
 From Selvedge.Kernel Require Domain.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition compaction_defaults := JObject [("enabled",JBool true);
-  ("background_percent",number 65);("blocking_percent",number 90);
-  ("idle_lead_ms",number 60000);("targets",JArray [])].
+Module D := ArgumentDeclaration.
+Module F := DeclarationFields.
+Module C := CompactionTypes.
+Module CC := CompactionCodec.
+Definition default_policy := C.Policy true 65 90 60000 C.Targets.empty eq_refl.
+Definition compaction_defaults := CC.policy_json default_policy.
 Definition defaulted (source : json) (key : string) (fallback : json) :=
   match field key source with Some value => value | None => fallback end.
-Definition compaction_value (source : json) :=
-  defaulted (get source "config") "compaction" compaction_defaults.
-Definition policy_field (source : json) (key : string) :=
-  defaulted (compaction_value source) key (get compaction_defaults key).
-Definition target_reserve (target : json) := defaulted target "output_reserve_tokens"
-  (number (N.min 8192 (num target "window_tokens" / 8))).
-Definition target_method (target : json) := defaulted target "method" (JString "auto").
 Definition supported_provider := ProviderCatalog.supports_compaction.
-Definition target_budget (legal_budget : N -> N -> bool) (target : json) :=
-  bound (get target "window_tokens") 0 4294967295 && bound (target_reserve target) 0 4294967295 &&
-  legal_budget (num target "window_tokens") (nat_value (target_reserve target)).
-Definition target_value (target : json) := JObject [("profile",get target "profile");
-  ("window_tokens",get target "window_tokens");("output_reserve_tokens",target_reserve target);
-  ("cache_ttl_ms",get target "cache_ttl_ms");("method",target_method target)].
-Definition target_valid (legal_budget : N -> N -> bool) (profiles : json) (lead : N)
-  (seen : list string) (target : json) :=
-  let profile := str target "profile" in let cache := get target "cache_ttl_ms" in
-  plain_fields_only ["profile";"window_tokens";"output_reserve_tokens";"cache_ttl_ms";"method"] target &&
-  negb (String.eqb profile "") && negb (existsb (String.eqb profile) seen) &&
-  (negb (has profiles profile) || supported_provider (get profiles profile)) &&
-  target_budget legal_budget target &&
-  existsb (String.eqb (text (target_method target))) ["auto";"summary"] &&
-  (is_null cache || (bound cache 1 9007199254740991 && (lead <? nat_value cache))).
-Fixpoint targets_valid (legal_budget : N -> N -> bool) (profiles : json) (lead : N)
-  (seen : list string) (targets : list json) :=
-  match targets with [] => true | target::rest =>
-    target_valid legal_budget profiles lead seen target &&
-    targets_valid legal_budget profiles lead (str target "profile"::seen) rest end.
-Definition thresholds_valid (source : json) :=
-  plain_fields_only ["enabled";"background_percent";"blocking_percent";"idle_lead_ms";"targets"] (compaction_value source) &&
-  is_bool (policy_field source "enabled") &&
-  bound (policy_field source "background_percent") 1 98 &&
-  bound (policy_field source "blocking_percent") 2 99 &&
-  (nat_value (policy_field source "background_percent") <? nat_value (policy_field source "blocking_percent")) &&
-  bound (policy_field source "idle_lead_ms") 0 9007199254740991.
-Definition compaction_policy (source : json) (targets : list json) :=
-  JObject [("enabled",policy_field source "enabled");
-    ("background_percent",policy_field source "background_percent");
-    ("blocking_percent",policy_field source "blocking_percent");
-    ("idle_lead_ms",policy_field source "idle_lead_ms");("targets",JArray targets)].
-Definition compaction (legal_budget : N -> N -> bool) (source : json) :=
-  let targets := policy_field source "targets" in
-  (* DEFENSE: User compaction settings can reverse thresholds or duplicate model targets. *)
-  if thresholds_valid source && is_array targets &&
-     targets_valid legal_budget (get source "profiles")
-       (nat_value (policy_field source "idle_lead_ms")) [] (items targets)
-  then success (compaction_policy source (map target_value (items targets)))
-  else err "Invalid compaction settings: require 1 <= background < blocking < 100, unique Responses-model targets, valid window/reserve headroom and cache TTL greater than idle lead".
-Fixpoint find_target (targets : list json) (key : string) :=
-  match targets with [] => JNull | target::rest =>
-    if String.eqb (str target "profile") key then target else find_target rest key end.
+Definition target_fields := [F.required "profile" (D.Value Schema.KText);F.required "window_tokens" (D.Natural 0 D.maximum_natural);
+ F.optional "output_reserve_tokens" (D.Natural 0 D.maximum_natural);
+ F.optional "cache_ttl_ms" (D.nullable (D.Natural 1 9007199254740991));
+ F.optional "method" (D.Value (Schema.KEnum "auto" ["summary"]))].
+Definition policy_fields := [F.optional "enabled" D.Boolean;F.optional "background_percent" (D.Value Schema.KNatural);
+ F.optional "blocking_percent" (D.Value Schema.KNatural);F.optional "idle_lead_ms" (D.Natural 0 9007199254740991);
+ F.optional "targets" (D.Array (D.Object target_fields))].
+Definition supplied_value {A : Set} (value : option A) (fallback : A) := match value with Some value => value | None => fallback end.
+Definition ttl_value (value : option (D.denote (D.nullable (D.Natural 1 9007199254740991)))) := match value with
+ | Some (inl ttl) => proj1_sig ttl | None | Some (inr (inl _)) => 0
+ | Some (inr (inr impossible)) => match impossible with end end.
+Definition method_value (value : option (D.denote (D.Value (Schema.KEnum "auto" ["summary"])))) := match value with
+ | Some value => if String.eqb (proj1_sig value) "auto" then Kernel.Compaction.Automatic else Kernel.Compaction.Summary
+ | None => Kernel.Compaction.Automatic end.
+Definition default_reserve window := N.min 8192 (window / 8).
+Definition admit_target profiles lead (source : D.denote (D.Object target_fields)) : option C.target :=
+ let '(profile,(window,(reserve,(ttl,(method,_))))) := proj1_sig source in
+ let window := proj1_sig window in
+ let reserve := match reserve with Some reserve => proj1_sig reserve | None => default_reserve window end in
+ let ttl := ttl_value ttl in
+ match profile,CC.decode_budget window reserve with
+ | String head tail,Some budget =>
+   if (negb (has profiles profile) || supported_provider (get profiles profile)) && (N.eqb ttl 0 || (lead <? ttl))
+   then Some (C.Target (head,tail) budget ttl (method_value method)) else None
+ | _,_ => None end.
+Definition admit_policy config profiles := match field "compaction" config with
+ | None => Some default_policy
+ | Some source => match D.decode (D.Object policy_fields) source with
+ | None => None
+ | Some fields => let '(enabled,(background,(blocking,(lead,(targets,_))))) := proj1_sig fields in
+   let background := supplied_value background (C.policy_background default_policy) in
+   let blocking := supplied_value blocking (C.policy_blocking default_policy) in
+   let lead := match lead with Some value => proj1_sig value | None => C.policy_idle_lead default_policy end in
+   if blocking <? 100 then
+     match OptionList.traverse (admit_target profiles lead) (supplied_value targets []) with
+     | Some values => match C.Targets.admit values with
+       | Some values => CC.make_policy (supplied_value enabled (C.policy_enabled default_policy)) background blocking lead values
+       | None => None end
+     | None => None end
+   else None end end.
+Definition compaction source := match admit_policy (get source "config") (get source "profiles") with
+ | Some value => success (CC.policy_json value)
+ (* DEFENSE: User settings can reverse thresholds, repeat a target key or select
+    a budget/cache lease that cannot support the maintenance protocol. *)
+ | None => err "Invalid compaction settings: require 1 <= background < blocking < 100, unique Responses-model targets, valid window/reserve headroom and cache TTL greater than idle lead" end.
+Definition model_budget_fields := [F.required "context_window" (D.Natural 1 D.maximum_natural);
+ F.optional "effective_context_window_percent" (D.Natural 1 100)].
 Definition discovered_target (key : string) (profile : json) :=
-  let model := get profile "model_info" in
-  let percent := defaulted model "effective_context_window_percent" (number 100) in
-  target_value (JObject [("profile",JString key);
-    ("window_tokens",number (num model "context_window" * nat_value percent / 100))]).
-Definition runtime_target (targets : list json) (entry : string * json) :=
-  let explicit := find_target targets (fst entry) in
-  if is_null explicit then discovered_target (fst entry) (snd entry) else explicit.
-Definition compaction_runtime (legal_budget : N -> N -> bool) (source : json) :=
-  let config := get source "config" in let profiles := get config "profiles" in
-  let targets := items (get (get config "compaction") "targets") in
-  let settings := JObject [("config",config);("profiles",profiles)] in
-  if thresholds_valid settings && is_array (policy_field settings "targets") &&
-    targets_valid legal_budget profiles (nat_value (policy_field settings "idle_lead_ms")) [] targets &&
-    forallb (fun target => has profiles (str target "profile") &&
-    supported_provider (get profiles (str target "profile"))) targets then
-    let resolved := map (runtime_target targets) (object_fields profiles) in
-    let admitted := filter (fun target => supported_provider (get profiles (str target "profile")) &&
-      target_budget legal_budget target) resolved in
-    success (compaction_policy (JObject [("config",config);("profiles",profiles)]) admitted)
-  else err "Compaction target must resolve to an available responses or chatgpt model profile".
+ match key,D.decode (D.OpenObject model_budget_fields) (get profile "model_info") with
+ | String head tail,Some fields => let '(window,(percent,_)) := proj1_sig fields in
+   let percent := match percent with Some value => proj1_sig value | None => 100 end in
+   let window := proj1_sig window * percent / 100 in
+   option_map (fun budget => C.Target (head,tail) budget 0 Kernel.Compaction.Automatic)
+     (CC.decode_budget window (default_reserve window))
+ | _,_ => None end.
+Definition runtime_target (targets : C.Targets.t) (entry : string * json) :=
+ if supported_provider (snd entry) then
+ match find (fun target => String.eqb (C.target_key target) (fst entry)) (C.Targets.values targets) with
+ | Some target => Some target | None => discovered_target (fst entry) (snd entry) end
+ else None.
+Definition runtime_targets targets profiles := C.Targets.distinct
+ (flat_map (fun entry => match runtime_target targets entry with Some value => [value] | None => [] end) profiles).
+Definition compaction_runtime source :=
+ let config := get source "config" in let profiles := get config "profiles" in
+ match admit_policy config profiles with
+ | Some policy => if forallb (fun target => has profiles (C.target_key target) && supported_provider (get profiles (C.target_key target)))
+     (C.policy_targets policy)
+   then success (CC.policy_json (C.with_targets
+     (runtime_targets (C.policy_target_collection policy) (object_fields profiles)) policy))
+   else err "Compaction target must resolve to an available responses or chatgpt model profile"
+ | None => err "Compaction target must resolve to an available responses or chatgpt model profile" end.
 
 Definition context_configured (definition : json) :=
   existsb (String.eqb (str (get definition "observer") "type")) ["config_text";"config_files"].
@@ -243,47 +247,48 @@ Definition evaluator_entry (source : json) :=
   else if optional_bound (observed_field entry "timeout_ms") 100 120000 &&
           optional_bound (observed_field entry "max_attempts") 1 3
   then literal JNull else invalid "Invalid evaluator deadline or same-provider retry bound".
-Fixpoint effort_entries (efforts bytes seen : list json) :=
-  match efforts,bytes with
-  | [],[] => true
-  | effort::rest,bytes::tail => identifier effort && negb (equal_text effort "auto") && bound bytes 0 64 &&
-      negb (member_text seen effort) && effort_entries rest tail (effort::seen)
-  | _,_ => false
-  end.
+(** Identifiers contain only ASCII code units. Their byte length is that same
+    unit count, so a second host-supplied length cannot disagree with the name. *)
+Definition effort_admissible value := identifier value && negb (equal_text value "auto") &&
+ Nat.leb (List.length (items (get value "units"))) 64.
+Definition effort := D.checked effort_admissible.
+Module EffortEntries.
+ Definition t := effort.
+ Definition key := list N.
+ Definition key_of (value : t) := map nat_value (items (get (proj1_sig value) "units")).
+ Definition key_eq_dec := list_eq_dec N.eq_dec.
+End EffortEntries.
+Module Efforts := KeyedCollection.Make EffortEntries.
+Definition effort_choices := D.checked (fun values : Efforts.t =>
+ Nat.leb 1 (Efforts.size values) && Nat.leb (Efforts.size values) 16).
+Definition effort_array := D.OpenObject [F.required "kind" (D.Const (JString "array"));F.required "items" (D.Array D.Any)].
+Definition admit_efforts value : option effort_choices := match D.decode effort_array value with
+ | Some fields => match OptionList.traverse (D.admit effort_admissible) (fst (snd (proj1_sig fields))) with
+   | Some values => match Efforts.admit values with
+     | Some values => D.admit (fun values => Nat.leb 1 (Efforts.size values) && Nat.leb (Efforts.size values) 16) values
+     | None => None end
+   | None => None end
+ | None => None end.
+Definition adaptive_failure := invalid "Adaptive reasoning requires an evaluator, bounded distinct efforts, an included baseline, a supported transport and a lease bound of 1..10".
 Definition adaptive_policy (source : json) :=
-  let value := get source "value" in let efforts := observed_field value "efforts" in
-  let choices := items (get efforts "items") in
+  let value := get source "value" in
   if kind value "undefined" || kind value "null" || (kind value "boolean" && negb (boolean_field value "boolean"))
   then literal JNull
   else if negb (fields_only (map Schema.field_name Domain.reasoning_policy_schema) value)
   then invalid "Invalid adaptive reasoning configuration fields"
-  else if identifier (observed_field value "evaluator") && kind efforts "array" &&
-    (1 <=? N.of_nat (List.length choices)) && (N.of_nat (List.length choices) <=? 16) &&
-    effort_entries choices (items (get source "bytes")) [] &&
-    member_text choices (observed_field value "baseline") &&
-    (equal_text (observed_field value "transport") "configuration_update" || equal_text (observed_field value "transport") "request_effort") &&
-    optional_bound (observed_field value "max_lease") 1 10
-  then plan_object (Some (get value "ref")) [
-    plan_field "max_lease" (selected (observed_field value "max_lease") (number 10));
-    plan_field "efforts" (JObject [("array",JArray (map reference choices))])]
-  else invalid "Adaptive reasoning requires an evaluator, bounded distinct efforts, an included baseline, a supported transport and a lease bound of 1..10".
-Fixpoint unique_efforts (values seen : list json) :=
-  match values with [] => [] | value::rest =>
-    let effort := observed_field value "effort" in
-    if member_text seen effort then unique_efforts rest seen
-    else effort::unique_efforts rest (effort::seen) end.
-Definition auto_preset (source : json) :=
-  let descriptor := get source "descriptor" in
-  let efforts := unique_efforts (items (get (observed_field descriptor "supported_reasoning_levels") "items")) [] in
-  let baseline := observed_field descriptor "default_reasoning_level" in
-  if equal_text (observed_field descriptor "slug") "gpt-6-astra" &&
-    negb (Nat.eqb (List.length efforts) 0%nat) && negb (existsb (fun x => equal_text x "auto") efforts)
-  then plan_object None [plan_field "evaluator" (literal (JString "jev"));
-    plan_field "efforts" (JObject [("array",JArray (map reference efforts))]);
-    plan_field "baseline" (reference (if member_text efforts baseline then baseline else hd JNull efforts));
-    plan_field "transport" (literal (JString "configuration_update"));
-    plan_field "max_lease" (literal (number 10))]
-  else JObject [("undefined",JBool true)].
+  else match admit_efforts (observed_field value "efforts") with
+  | None => adaptive_failure
+  | Some choices => let choices := Efforts.values (proj1_sig choices) in
+    match find (fun choice => same_units (proj1_sig choice) (observed_field value "baseline")) choices with
+    | None => adaptive_failure
+    | Some baseline => if identifier (observed_field value "evaluator") &&
+        (equal_text (observed_field value "transport") "configuration_update" || equal_text (observed_field value "transport") "request_effort") &&
+        optional_bound (observed_field value "max_lease") 1 10
+      then plan_object (Some (get value "ref")) [
+        plan_field "max_lease" (selected (observed_field value "max_lease") (number 10));
+        plan_field "efforts" (JObject [("array",JArray (map (fun choice => reference (proj1_sig choice)) choices))]);
+        plan_field "baseline" (reference (proj1_sig baseline))]
+      else adaptive_failure end end.
 Definition remote (source : json) :=
   let value := get source "remote" in let url := get source "endpoint_observation" in
   match value with
@@ -298,7 +303,7 @@ Definition remote (source : json) :=
     else type_error "remote requires only relay_url: an HTTPS origin on TCP 443 without credentials, path, query or fragment"
   end.
 
-Definition call (definitions : json) (instructions : string) (legal_budget : N -> N -> bool)
+Definition call (definitions : json) (instructions : string)
   (operation : string) (source : json) : json :=
   if String.eqb operation "config.defaults" then success (defaults definitions instructions)
   else if String.eqb operation "config.configuration_head" then success (configuration_head definitions instructions source)
@@ -307,15 +312,14 @@ Definition call (definitions : json) (instructions : string) (legal_budget : N -
   else if String.eqb operation "config.context_definitions" then success definitions
   else if String.eqb operation "config.context_transport" then success (context_transport definitions source)
   else if String.eqb operation "config.context_field" then context_field definitions source
-  else if String.eqb operation "config.compaction" then compaction legal_budget source
-  else if String.eqb operation "config.compaction_runtime" then compaction_runtime legal_budget source
+  else if String.eqb operation "config.compaction" then compaction source
+  else if String.eqb operation "config.compaction_runtime" then compaction_runtime source
   else if String.eqb operation "config.evaluators" then success
     (if String.eqb (str source "kind") "object" && bound (get source "count") 0 32
      then get source "positions" else invalid "reasoning_evaluators must be a bounded object")
   else if String.eqb operation "config.evaluator_plan" then success (evaluator_plan source)
   else if String.eqb operation "config.evaluator_entry" then success (evaluator_entry source)
   else if String.eqb operation "config.adaptive_policy" then success (adaptive_policy source)
-  else if String.eqb operation "config.auto_preset" then success (auto_preset source)
   else if String.eqb operation "config.cloud" then CloudConfiguration.call source
   else if String.eqb operation "config.remote" then remote source
   else err ("Unknown host model operation: " ++ operation).

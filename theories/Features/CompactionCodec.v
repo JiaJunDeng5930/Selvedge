@@ -2,6 +2,7 @@ From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson Schema.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Kernel Require Import Numbers Codec Compaction CompactionPlan ContextSelection.
 From Selvedge.Features Require Import CompactionTypes.
 Import ListNotations.
@@ -35,7 +36,8 @@ Definition effect_json value := ModelDeclarations.encode_packet (effect_packet v
 Definition target_json (value : target) := JObject [
  ("profile", JString (target_key value)); ("window_tokens", number (window_tokens (target_budget value)));
  ("output_reserve_tokens", number (reserve_tokens (target_budget value)));
- ("cache_ttl_ms", number (target_cache_ttl value)); ("method", JString (method_name (target_method value)))].
+ ("cache_ttl_ms", if N.eqb (target_cache_ttl value) 0 then JNull else number (target_cache_ttl value));
+ ("method", JString (method_name (target_method value)))].
 Definition policy_json (value : policy) := JObject [
  ("enabled", JBool (policy_enabled value)); ("background_percent", number (policy_background value));
  ("blocking_percent", number (policy_blocking value)); ("idle_lead_ms", number (policy_idle_lead value));
@@ -66,10 +68,9 @@ Definition decode_target (value : json) :=
    | Some budget, "summary" => Some (Target (head, tail) budget ttl Summary)
    | _, _ => None end
  | _, _, _, _, _ => None end.
-Fixpoint decode_targets (values : list json) : option (list target) := match values with
- | [] => Some [] | value :: rest => match decode_target value, decode_targets rest with
-   Some target, Some targets => Some (target :: targets) | _, _ => None end end.
-Definition make_policy (enabled : bool) (background blocking lead : N) (targets : list target) : option policy.
+Definition decode_targets values := match OptionList.traverse decode_target values with
+ | Some values => Targets.admit values | None => None end.
+Definition make_policy (enabled : bool) (background blocking lead : N) (targets : Targets.t) : option policy.
 Proof.
  destruct ((0 <? background) && (background <? blocking) && (blocking <=? 100)) eqn:valid.
  - exact (Some (Policy enabled background blocking lead targets valid)).

@@ -19,7 +19,7 @@ Definition call (operation : string) (source : json) : json :=
   else if starts operation "rpc." then Rpc.call operation source
   else if starts operation "config." then Configuration.call
     Context.definitions_json (Domain.environment_instructions Domain.empty_environment)
-    Compaction.legal_budget operation source
+    operation source
   else if starts operation "http." then Http.call operation source
   else if starts operation "effect." then Effects.call operation source
   else if String.eqb operation "browser.observation" then BrowserObservations.call operation source

@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Import Domain Compaction ContextSelection.
 Import ListNotations.
 Open Scope N_scope.
@@ -16,15 +17,25 @@ Record target := Target {
  target_method : method
 }.
 Definition target_key (value : target) := let '(head, tail) := target_profile value in String head tail.
+Module TargetEntries.
+ Definition t := target.
+ Definition key := string.
+ Definition key_of := target_key.
+ Definition key_eq_dec := String.string_dec.
+End TargetEntries.
+Module Targets := KeyedCollection.Make TargetEntries.
 Record policy := Policy {
  policy_enabled : bool;
  policy_background : N;
  policy_blocking : N;
  policy_idle_lead : N;
- policy_targets : list target;
+ policy_target_collection : Targets.t;
  policy_thresholds : ((0 <? policy_background) && (policy_background <? policy_blocking) && (policy_blocking <=? 100)) = true
 }.
-Definition initial_policy := Policy false 65 90 60000 [] eq_refl.
+Definition policy_targets value := Targets.values (policy_target_collection value).
+Definition with_targets targets value := Policy (policy_enabled value) (policy_background value)
+ (policy_blocking value) (policy_idle_lead value) targets (policy_thresholds value).
+Definition initial_policy := Policy false 65 90 60000 Targets.empty eq_refl.
 
 (* A lease owns the complete pure request input, including the catalog-dependent
    callable names. A later catalog change must not validate an earlier count. *)
