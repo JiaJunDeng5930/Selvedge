@@ -9,7 +9,7 @@ Theorem accepted_evaluator_plan_uses_a_declared_provider : forall definitions in
   Configuration.call definitions instructions budget "config.evaluator_plan" source = success result ->
   has_error result = false ->
   exists provider,
-    In provider (map fst evaluator_providers) /\
+    In provider (map evaluator_name evaluator_providers) /\
     get (get (hd JNull (items (get result "fields"))) "value") "literal" = JString provider /\
     Forall (fun assignment => get assignment "key" = JString "provider" ->
       get (get assignment "value") "literal" = JString provider) (items (get result "fields")).
@@ -22,18 +22,16 @@ Proof.
   destruct (negb (fields_only ["provider";"model";"endpoint";"api_key_env";"timeout_ms";"max_attempts"]
     (get source "entry"))); [discriminate|].
   remember (find _ evaluator_providers) as choice eqn:selected.
-  destruct choice as [[provider values]|]; [|discriminate].
+  destruct choice as [[provider model endpoint]|]; [|discriminate].
   destruct ((negb (present (observed_field (get source "entry") "model")) ||
     identifier (observed_field (get source "entry") "model")) &&
     (negb (present (observed_field (get source "entry") "api_key_env")) ||
     variable (observed_field (get source "entry") "api_key_env"))); [|discriminate].
   symmetry in selected. apply find_some in selected as [member _].
   exists provider. split.
-  - now apply in_map with (f := @fst string (list (string * json))) in member.
-  - cbn in member.
-    destruct member as [member|[member|[member|member]]]; [| | |contradiction].
-    all: (inversion member; subst provider values; split; [reflexivity|
-      cbn; repeat constructor; intro same; try discriminate; reflexivity]).
+  - now apply in_map with (f := evaluator_name) in member.
+  - split; [reflexivity|].
+    cbn; repeat constructor; intro same; try discriminate; reflexivity.
 Qed.
 
 Theorem accepted_context_request_uses_declared_sources : forall definitions instructions budget source requested,

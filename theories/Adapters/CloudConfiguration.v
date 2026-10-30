@@ -24,17 +24,21 @@ Definition settings_declaration := D.Object
   map (fun entry => (fst entry,false,D.Natural (fst (snd entry)) (snd (snd entry)))) optional_bounds ++
   [("address_type",false,D.of_kind (KEnum "public" ["private"]))])%list.
 Definition declaration := D.Object
-  [("backend",true,D.of_kind (KEnum (WorkspaceBackend.name WorkspaceBackend.TencentCvm) []));
+  [("backend",true,D.Const (JString (WorkspaceBackend.name WorkspaceBackend.TencentCvm)));
    (WorkspaceBackend.name WorkspaceBackend.TencentCvm,true,settings_declaration)].
-Definition valid := D.check declaration.
+Definition configured := D.denote declaration.
+Definition admit := D.decode declaration.
+Definition encode := D.encode declaration.
+Definition valid value := D.present (admit value).
 Definition disabled (value : json) := is_null value || equal value (JBool false).
 Definition call (source : json) :=
   let value := get source "cloud" in
   if disabled value then success (JBool false)
-  else if valid value then success value
-  else type_error "cloud requires backend tencent_cvm and complete CVM, network, SSH key and spot_max_price settings; credentials belong in the service environment".
+  else match admit value with
+  | Some configured => success (encode configured)
+  | None => type_error "cloud requires backend tencent_cvm and complete CVM, network, SSH key and spot_max_price settings; credentials belong in the service environment" end.
 
 Definition require_cloud (source : json) :=
   let value := get source "cloud" in
-  if valid value then success value
-  else type_error "Cloud workspace backend is not configured".
+  match admit value with Some configured => success (encode configured)
+  | None => type_error "Cloud workspace backend is not configured" end.

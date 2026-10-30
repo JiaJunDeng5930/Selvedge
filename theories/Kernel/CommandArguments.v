@@ -48,8 +48,8 @@ Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
 Definition board_status := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
  false false false (Some (map Selvedge.Features.Domain.stage_name Selvedge.Features.Domain.stages))).
 Definition board_assignee := D.Union [enum "none" ["self"];
- D.PrefixedText "profile/" (D.bounded_text 1016);
- D.PrefixedText "agent/" (D.NaturalText 0 (Some 4294967295))].
+ D.PrefixedText "profile/" (D.bounded_format 1016);
+ D.PrefixedText "agent/" (D.NaturalSpelling 0 (Some 4294967295))].
 Definition board_project := D.Union [enum "" [];D.NaturalText 0 (Some 4294967295)].
 Definition board_clock := D.NaturalText 0 (Some 4294967295).
 Definition board_priority := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
@@ -88,7 +88,7 @@ Definition command_shape (declaration : wire_command) :=
 Definition field_argument (observed : bool) (declaration : field_declaration)
  (base : argument_spec) :=
  let argument := Argument (argument_name base) (argument_type_of base)
-   (field_force_required declaration || argument_required base) (argument_description base) (argument_bounds base) in
+   (field_force_required declaration || argument_required base) (argument_description base) in
  match field_wire_type declaration observed with
  | Some description => Arguments.with_declaration description argument
  | None => argument end.

@@ -42,7 +42,7 @@ Lemma a_title_prompt_obeys_the_declared_byte_bound : forall instruction request,
 Proof.
  intros instruction request Valid.
  unfold Titles.valid_instructions, Titles.instruction_declaration,
-  ArgumentDeclaration.bounded_text in Valid.
+  ArgumentDeclaration.bounded_text, ArgumentDeclaration.bounded_format in Valid.
  rewrite check_text_reflects in Valid. unfold ArgumentDeclaration.check_text in Valid.
  destruct (Utf8.scalar_count instruction) as [count|] eqn:Count; [|discriminate].
  cbn in Valid. repeat rewrite andb_true_iff in Valid.

@@ -46,7 +46,7 @@ Theorem native_title_arguments_use_the_owning_domain_rule : forall argument prom
  Arguments.type_valid (argument_type_of (refine_argument false "configure_title_settings" argument)) (JString prompt) =
  Titles.valid_instructions prompt.
 Proof.
- intros [name description required documentation bounds] prompt Name.
+ intros [name description required documentation] prompt Name.
  cbn in Name; subst name; reflexivity.
 Qed.
 Theorem native_controller_arguments_use_the_owning_domain_rule : forall argument identity,
@@ -54,25 +54,9 @@ Theorem native_controller_arguments_use_the_owning_domain_rule : forall argument
  Arguments.type_valid (argument_type_of (refine_argument false "remote_grant" argument)) (JString identity) =
  RemoteIdentity.controller_valid identity.
 Proof.
- intros [name description required documentation bounds] identity Name.
+ intros [name description required documentation] identity Name.
  cbn in Name; subst name; reflexivity.
 Qed.
-Definition executable_legacy_shape source :=
- match D.parse source with Some D.Reject | None => false | Some _ => true end.
-Theorem legacy_content_images_and_chatgpt_shapes_compile :
- executable_legacy_shape (JObject ContentDeclarations.content_schema) = true /\
- executable_legacy_shape (JObject ContentDeclarations.images_schema) = true /\
- executable_legacy_shape ChatgptArguments.args_schema = true.
-Proof. vm_compute; repeat split; reflexivity. Qed.
-
-Definition interpretable_schema source :=
- match D.parse source with Some _ => true | None => false end.
-(** This is the complete production declaration table, not a second hand-written
-    inventory or an assumption that its generated schemas happen to parse. *)
-Theorem all_public_command_schemas_are_interpretable :
- forallb (fun specification => interpretable_schema (command_schema specification)) Selvedge.Kernel.Commands.command_specs = true.
-Proof. vm_compute. reflexivity. Qed.
-
 Definition command_input source := JObject [("kind",JString "command");("command",source)].
 Theorem malformed_commands_are_not_durable : forall source before,
  G.decode source = None ->

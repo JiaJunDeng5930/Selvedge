@@ -202,27 +202,34 @@ Definition extensions (source : json) :=
       if negb (kind (get source "plugins") "object") then invalid "plugins must be an object"
       else extension_entries true (items (get (get source "plugins") "fields")).
 
-(** Defaults are data, so provider admission and reconstruction consume one table. *)
+Record evaluator_provider := EvaluatorProvider {
+  evaluator_name : string;
+  evaluator_model : string;
+  evaluator_endpoint : string
+}.
 Definition evaluator_providers := [
-  ("vercel",[("model",JString "typesafe-ai/jev");("endpoint",JString "https://ai-gateway.vercel.sh/v1/evaluate")]);
-  ("typesafe",[("model",JString "jev-latest");("endpoint",JString "https://api.typesafe.ai/v1/systemone")]);
-  ("openrouter",[("model",JString "typesafe/jev-1.13");("endpoint",JString "https://openrouter.ai/api/alpha/decisions")])].
+  EvaluatorProvider "vercel" "typesafe-ai/jev" "https://ai-gateway.vercel.sh/v1/evaluate";
+  EvaluatorProvider "typesafe" "jev-latest" "https://api.typesafe.ai/v1/systemone";
+  EvaluatorProvider "openrouter" "typesafe/jev-1.13" "https://openrouter.ai/api/alpha/decisions"].
+Definition evaluator_defaults (provider : evaluator_provider) :=
+  [("model",JString (evaluator_model provider));("endpoint",JString (evaluator_endpoint provider));
+   ("api_key_env",JString "JEV_API_KEY");("timeout_ms",number 30000);("max_attempts",number 3)].
 Definition evaluator_plan (source : json) :=
   let entry := get source "entry" in let provider := observed_field entry "provider" in
-  let selected_provider := find (fun p => if nullish provider then String.eqb (fst p) "vercel"
-    else equal_text provider (fst p)) evaluator_providers in
+  let selected_provider := find (fun p => if nullish provider then String.eqb (evaluator_name p) "vercel"
+    else equal_text provider (evaluator_name p)) evaluator_providers in
   if negb (identifier (get source "name")) then invalid "Invalid reasoning evaluator name"
   else if negb (fields_only ["provider";"model";"endpoint";"api_key_env";"timeout_ms";"max_attempts"] entry)
     then invalid "Invalid reasoning evaluator configuration fields"
   else match selected_provider with
   | None => invalid "Unknown Jev API provider"
-  | Some (name,values) =>
+  | Some provider =>
     if (negb (present (observed_field entry "model")) || identifier (observed_field entry "model")) &&
        (negb (present (observed_field entry "api_key_env")) || variable (observed_field entry "api_key_env"))
     then plan_object (Some (get entry "ref"))
-      (plan_field "provider" (literal (JString name)) ::
+      (plan_field "provider" (literal (JString (evaluator_name provider))) ::
         map (fun pair => plan_field (fst pair) (selected (observed_field entry (fst pair)) (snd pair)))
-          (values ++ [("api_key_env",JString "JEV_API_KEY");("timeout_ms",number 30000);("max_attempts",number 3)]))
+          (evaluator_defaults provider))
     else invalid "Invalid evaluator model or API-key environment variable"
   end.
 Definition evaluator_endpoint_valid (url : json) :=

@@ -21,30 +21,32 @@ Fixpoint message_of_fields (depth : nat) :
  | O => fun impossible => match impossible with end
  | S remaining => fun values => match values with
    | inl _ => Selvedge.Features.Domain.GraphOutput
-   | inr (inl (_, (text, _))) => Selvedge.Features.Domain.GraphLiteral text
-   | inr (inr (inl (_, (parts, _)))) =>
+   | inr (inl fields) => let '(_, (text, _)) := proj1_sig fields in
+     Selvedge.Features.Domain.GraphLiteral (proj1_sig text)
+   | inr (inr (inl fields)) => let '(_, (parts, _)) := proj1_sig fields in
      Selvedge.Features.Domain.GraphConcat (map (message_of_fields remaining) parts)
    | inr (inr (inr impossible)) => match impossible with end
    end end.
 Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition action_of_fields (values : ArgumentDeclaration.denote TaskGraphDeclarations.action_declaration) :=
- let '(target,(message,_)) := values in Selvedge.Features.Domain.GraphAction target (message_of_fields maximum_message_depth message).
+ let '(target,(message,_)) := proj1_sig values in Selvedge.Features.Domain.GraphAction (proj1_sig target) (message_of_fields maximum_message_depth message).
 Definition parse_rule source := option_map
- (fun values => let '(key,(source,(actions,_))) := values in
-   Selvedge.Features.Domain.GraphRule key source (map action_of_fields actions))
+ (fun values => let '(key,(source,(actions,_))) := proj1_sig values in
+   Selvedge.Features.Domain.GraphRule (proj1_sig key) (proj1_sig source) (map action_of_fields (proj1_sig actions)))
  (ArgumentDeclaration.decode TaskGraphDeclarations.rule_declaration source).
 Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node :=
  match ArgumentDeclaration.decode
    (TaskGraphDeclarations.node_declaration (ArgumentDeclaration.of_kind KNatural) ArgumentDeclaration.Any) source with
- | Some (inl (key,(owner,_)))=>Some (Selvedge.Features.Domain.ExistingNode key owner)
- | Some (inr (inl (key,(profile,(reasoning,(message,(settings,_)))))))=>
+ | Some (inl fields)=>let '(key,(owner,_)) := proj1_sig fields in
+   Some (Selvedge.Features.Domain.ExistingNode (proj1_sig key) (proj1_sig owner))
+ | Some (inr (inl fields))=>let '(key,(profile,(reasoning,(message,(settings,_))))) := proj1_sig fields in
  (* A supplied JSON null must still reach ordinary Task settings admission;
     only an omitted settings field supplies the empty settings object. *)
- Some (Selvedge.Features.Domain.SpawnNode key
-   (match profile with Some value=>value|None=>"" end)
-   (match reasoning with Some value=>value|None=>"default" end)
-   [TextPart (match message with Some value=>value|None=>"" end)]
+ Some (Selvedge.Features.Domain.SpawnNode (proj1_sig key)
+   (match profile with Some value=>proj1_sig value|None=>"" end)
+   (match reasoning with Some value=>proj1_sig value|None=>"default" end)
+   [TextPart (match message with Some value=>proj1_sig value|None=>"" end)]
    (match settings with Some value=>value|None=>JObject [] end))
  | Some (inr (inr impossible))=>match impossible with end
  | None=>None end.

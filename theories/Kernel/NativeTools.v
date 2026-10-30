@@ -58,8 +58,7 @@ Definition model_field (binding : command_binding) (argument : argument_spec) :=
  then Arguments.with_scalar (KArray KText) false argument else argument.
 Definition natural_bounds (argument : argument_spec) :=
  match argument_type_of argument with
- | Scalar KNatural => match argument_bounds argument with
-   | Some _ => argument | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument end
+ | Scalar KNatural => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
  | _ => argument end.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
  map (fun field =>

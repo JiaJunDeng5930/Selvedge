@@ -18,11 +18,14 @@ Record text_constraints := TextConstraints {
  text_lower_hex : bool;
  text_choices : option (list string)
 }.
+Inductive text_format :=
+| ConstrainedText (constraints : text_constraints)
+| NaturalSpelling (minimum : N) (maximum : option N)
+| PrefixedSpelling (prefix : string) (suffix : text_format).
 Inductive t :=
 | Any | Reject | Null | Boolean
-| Text (constraints : text_constraints)
-| NaturalText (minimum : N) (maximum : option N)
-| PrefixedText (prefix : string) (suffix : t)
+| Const (value : json)
+| Textual (format : text_format)
 | UnboundedNatural (minimum : N)
 | Natural (minimum maximum : N)
 | Integer | Decimal
@@ -31,9 +34,13 @@ Inductive t :=
 | Object (properties : list (string * bool * t))
 | OpenObject (properties : list (string * bool * t))
 | Union (alternatives : list t).
+Definition Text constraints := Textual (ConstrainedText constraints).
+Definition NaturalText minimum maximum := Textual (NaturalSpelling minimum maximum).
+Definition PrefixedText prefix suffix := Textual (PrefixedSpelling prefix suffix).
 Definition unconstrained_text := TextConstraints 0 maximum_natural maximum_natural false false false None.
 Definition text := Text unconstrained_text.
-Definition bounded_text (bytes : N) := Text (TextConstraints 0 maximum_natural bytes true true false None).
+Definition bounded_format (bytes : N) := ConstrainedText (TextConstraints 0 maximum_natural bytes true true false None).
+Definition bounded_text (bytes : N) := Textual (bounded_format bytes).
 Definition exact_lower_hex (length : N) := Text (TextConstraints length length length false false true None).
 Definition nullable declaration := Union [declaration; Null].
 Definition in_bounds (minimum maximum value : N) := (minimum <=? value) && (value <=? maximum).
@@ -50,55 +57,82 @@ Definition check_text (constraints : text_constraints) (source : string) :=
  (negb (text_lower_hex constraints) || lower_hex source) &&
  match text_choices constraints with None => true | Some names => existsb (String.eqb source) names end
  end.
-(** The declaration also owns the internal value. Object fields retain presence
-    separately from nullability; unions retain the selected alternative. *)
-Fixpoint denote (declaration : t) : Type :=
+(** Admission retains the declared constraint. Downstream constructors receive
+    its value and evidence together, rather than repeating a Boolean check. *)
+Definition checked {A : Set} (admissible : A -> bool) :=
+ { value : A | admissible value = true }.
+Definition admit {A : Set} (admissible : A -> bool) (value : A) : option (checked admissible) :=
+ match Bool.bool_dec (admissible value) true with
+ | left proof => Some (exist _ value proof) | right _ => None end.
+Definition natural_range minimum maximum value := (minimum <=? value) &&
+ match maximum with None => true | Some maximum => value <=? maximum end.
+Fixpoint text_value (format : text_format) : Set := match format with
+ | ConstrainedText constraints => checked (check_text constraints)
+ | NaturalSpelling minimum maximum => checked (natural_range minimum maximum)
+ | PrefixedSpelling _ suffix => text_value suffix end.
+Fixpoint decode_text (format : text_format) (source : string) : option (text_value format) :=
+ match format as format return option (text_value format) with
+ | ConstrainedText constraints => admit (check_text constraints) source
+ | NaturalSpelling minimum maximum => match parse_natural source with
+   | Some number => if String.eqb source (show_natural number)
+       then admit (natural_range minimum maximum) number else None
+   | None => None end
+ | PrefixedSpelling prefix suffix => if String.prefix prefix source
+   then decode_text suffix (String.substring (String.length prefix) (String.length source) source)
+   else None end.
+Fixpoint encode_text (format : text_format) : text_value format -> string :=
+ match format as format return text_value format -> string with
+ | ConstrainedText _ => fun value => proj1_sig value
+ | NaturalSpelling _ _ => fun value => show_natural (proj1_sig value)
+ | PrefixedSpelling prefix suffix => fun value => (prefix ++ encode_text suffix value)%string end.
+(** Object fields retain presence separately from nullability. Their field
+    names are unique by type; unions retain the selected alternative. *)
+Fixpoint denote (declaration : t) : Set :=
  match declaration with
- | Any => json | Reject => Empty_set | Null => unit | Boolean => bool
- | Text _ | PrefixedText _ _ => string
- | NaturalText _ _ | UnboundedNatural _ | Natural _ _ => N
+ | Any => json | Reject => Empty_set | Null | Const _ => unit | Boolean => bool
+ | Textual format => text_value format
+ | UnboundedNatural minimum => checked (fun value => minimum <=? value)
+ | Natural minimum maximum => checked (in_bounds minimum maximum)
  | Integer => Z | Decimal => Schema.decimal
- | Array element | BoundedArray _ _ element => list (denote element)
- | Object properties | OpenObject properties =>
-   (fix members (properties : list (string * bool * t)) : Type :=
+ | Array element => list (denote element)
+ | BoundedArray minimum maximum element => checked
+     (fun values : list (denote element) => in_bounds minimum maximum (N.of_nat (List.length values)))
+ | Object properties | OpenObject properties => checked
+   (fun _ : (fix members (properties : list (string * bool * t)) : Set :=
       match properties with [] => unit | (_,required,description) :: rest =>
-        ((if required then denote description else option (denote description)) * members rest)%type end) properties
- | Union alternatives => (fix choices (alternatives : list t) : Type :=
+        ((if required then denote description else option (denote description)) * members rest)%type end) properties =>
+      unique_names (map (fun property => fst (fst property)) properties))
+ | Union alternatives => (fix choices (alternatives : list t) : Set :=
      match alternatives with [] => Empty_set | first :: rest => (denote first + choices rest)%type end) alternatives
  end.
+Fixpoint object_values (properties : list (string * bool * t)) : Set :=
+ match properties with [] => unit | (_,required,description) :: rest =>
+   ((if required then denote description else option (denote description)) * object_values rest)%type end.
 Definition present {A} (value : option A) := match value with Some _ => true | None => false end.
 Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :=
  match declaration as description return option (denote description) with
  | Any => Some value | Reject => None
  | Null => match value with JNull => Some tt | _ => None end
+ | Const expected => if Json.equal value expected then Some tt else None
  | Boolean => as_bool value
- | Text constraints => match value with JString source =>
-     if check_text constraints source then Some source else None | _ => None end
+ | Textual format => match value with JString source => decode_text format source | _ => None end
  | UnboundedNatural minimum => match as_number value with Some source => match parse_natural source with
-   Some number => if minimum <=? number then Some number else None | None => None end | None => None end
- | NaturalText minimum maximum => match value with JString source => match parse_natural source with
-   | Some number => if String.eqb source (show_natural number) && (minimum <=? number) &&
-       match maximum with None => true | Some maximum => number <=? maximum end
-       then Some number else None
-   | None => None end | _ => None end
- | PrefixedText prefix suffix => match value with JString source =>
-   if String.prefix prefix source &&
-      present (decode suffix (JString (String.substring (String.length prefix) (String.length source) source)))
-   then Some source else None | _ => None end
+   Some number => admit (fun value => minimum <=? value) number | None => None end | None => None end
  | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
-   Some number => if in_bounds minimum maximum number then Some number else None | None => None end | None => None end
+   Some number => admit (in_bounds minimum maximum) number | None => None end | None => None end
  | Integer => Schema.decode_value KInteger value
  | Decimal => Schema.decode_value KDecimal value
  | Array element => match value with JArray values => OptionList.traverse (decode element) values | _ => None end
  | BoundedArray minimum maximum element => match value with JArray values =>
-   if in_bounds minimum maximum (N.of_nat (List.length values))
-   then OptionList.traverse (decode element) values else None | _ => None end
+   match OptionList.traverse (decode element) values with
+   | Some values => admit (fun values => in_bounds minimum maximum (N.of_nat (List.length values))) values
+   | None => None end | _ => None end
  | Object properties | OpenObject properties => match value with JObject values =>
-   if unique_names (map fst values) && unique_names (map (fun property => fst (fst property)) properties) &&
+   if unique_names (map fst values) &&
      (match declaration with OpenObject _ => true | _ =>
        forallb (fun value => existsb (fun property => String.eqb (fst value) (fst (fst property))) properties) values end)
-   then (fix members (properties : list (string * bool * t)) : option (denote (Object properties)) :=
-     match properties as properties return option (denote (Object properties)) with
+   then match (fix members (properties : list (string * bool * t)) : option (object_values properties) :=
+     match properties as properties return option (object_values properties) with
      | [] => Some tt
      | (name,required,description) :: rest =>
        let current : option (if required then denote description else option (denote description)) :=
@@ -107,12 +141,43 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
          | false => match lookup name values with Some source => option_map Some (decode description source) | None => Some None end
          end in
        match current,members rest with Some current,Some tail => Some (current,tail) | _,_ => None end
-     end) properties else None
+     end) properties with
+   | Some fields => admit (fun _ => unique_names (map (fun property => fst (fst property)) properties)) fields
+   | None => None end else None
    | _ => None end
  | Union alternatives => (fix choices (alternatives : list t) : option (denote (Union alternatives)) :=
      match alternatives as alternatives return option (denote (Union alternatives)) with
      | [] => None | first :: rest => match decode first value with
        | Some decoded => Some (inl decoded) | None => option_map inr (choices rest) end
+     end) alternatives
+ end.
+Fixpoint encode (declaration : t) : denote declaration -> json :=
+ match declaration as description return denote description -> json with
+ | Any => fun value => value | Reject => fun impossible => match impossible with end
+ | Null => fun _ => JNull | Boolean => JBool | Const value => fun _ => value
+ | Textual format => fun value => JString (encode_text format value)
+ | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
+ | Integer => Schema.encode_value KInteger | Decimal => Schema.encode_value KDecimal
+ | Array element => fun values => JArray (map (encode element) values)
+ | BoundedArray _ _ element => fun values => JArray (map (encode element) (proj1_sig values))
+ | Object properties | OpenObject properties => fun values => JObject
+   ((fix members (properties : list (string * bool * t)) : object_values properties -> list (string * json) :=
+      match properties as properties return object_values properties -> list (string * json) with
+      | [] => fun _ => []
+      | (name,required,description) :: rest => fun values =>
+        let encoded := match required as required return
+          (if required then denote description else option (denote description)) -> option json with
+          | true => fun value => Some (encode description value)
+          | false => option_map (encode description) end (fst values) in
+        match encoded with Some value => (name,value) :: members rest (snd values)
+        | None => members rest (snd values) end
+      end) properties (proj1_sig values))
+ | Union alternatives =>
+   (fix choices (alternatives : list t) : denote (Union alternatives) -> json :=
+     match alternatives as alternatives return denote (Union alternatives) -> json with
+     | [] => fun impossible => match impossible with end
+     | first :: rest => fun value => match value with
+       | inl value => encode first value | inr value => choices rest value end
      end) alternatives
  end.
 Definition check (declaration : t) (value : json) := present (decode declaration value).
@@ -125,16 +190,19 @@ Definition text_fields (constraints : text_constraints) :=
  (if text_nonblank constraints then [("x-nonblank",JBool true)] else []) ++
  (if text_lower_hex constraints then [("pattern",JString "^[0-9a-f]*$")] else []) ++
  match text_choices constraints with None => [] | Some names => [("enum",JArray (map JString names))] end.
+Fixpoint text_schema (format : text_format) : json := match format with
+ | ConstrainedText constraints => JObject (text_fields constraints)
+ | NaturalSpelling minimum maximum => JObject ([("type",JString "string");("x-naturalTextMinimum",JNumber (show_natural minimum))] ++
+    match maximum with None => [] | Some maximum => [("x-naturalTextMaximum",JNumber (show_natural maximum))] end)
+ | PrefixedSpelling prefix suffix => JObject [("type",JString "string");("x-prefix",JString prefix);("x-suffix",text_schema suffix)] end.
 Fixpoint schema (declaration : t) : json :=
  match declaration with
  | Any => JObject [] | Reject => JBool false
+ | Const value => JObject [("const",value)]
  | Null => JObject [("type",JString "null")]
  | Boolean => JObject [("type",JString "boolean")]
- | Text constraints => JObject (text_fields constraints)
+ | Textual format => text_schema format
  | UnboundedNatural minimum => JObject [("type",JString "integer");("minimum",JNumber (show_natural minimum))]
- | NaturalText minimum maximum => JObject ([("type",JString "string");("x-naturalTextMinimum",JNumber (show_natural minimum))] ++
-    match maximum with None => [] | Some maximum => [("x-naturalTextMaximum",JNumber (show_natural maximum))] end)
- | PrefixedText prefix suffix => JObject [("type",JString "string");("x-prefix",JString prefix);("x-suffix",schema suffix)]
  | Natural minimum maximum => JObject ([("type",JString "integer")] ++ bound_fields minimum maximum)
  | Integer => JObject [("type",JString "integer");("x-signedInteger",JBool true)]
  | Decimal => JObject [("type",JString "number")]
@@ -148,7 +216,7 @@ Fixpoint schema (declaration : t) : json :=
      (filter (fun property => snd (fst property)) properties)))]
  | Union alternatives => JObject [("anyOf",JArray (map schema alternatives))]
  end.
-Fixpoint of_kind (description : kind) := match description with
+Fixpoint of_kind (description : kind) : t := match description with
  | KText => text | KBool => Boolean | KNatural => UnboundedNatural 0
  | KInteger => Integer | KDecimal => Decimal | KJson => Any
  | KArray element => Array (of_kind element)
@@ -166,21 +234,17 @@ Definition refine_object (overrides : list (string * t)) (declaration : t) :=
    | Some (_,replacement) => (fst property,replacement) | None => property end) properties)
  | _ => declaration end.
 
-(** Extension registration uses a closed parser. Unrecognized assertions fail
-    registration, rather than silently acquiring a weaker interpretation. *)
+(** External extension registration shares these JSON Schema observations;
+    internal declarations execute directly and never reparse their projection. *)
 Definition member (name : string) (names : list string) := existsb (String.eqb name) names.
 Definition object_keys (source : json) (names : list string) := match source with
  | JObject fields => unique_names (map fst fields) && forallb (fun entry => member (fst entry) names) fields
  | _ => false end.
 Definition natural (value : json) := match value with
  | JNumber source => parse_natural source | _ => None end.
-Definition optional_bound (value : option json) := match value with
- | None => true | Some value => match natural value with Some _ => true | None => false end end.
 Definition bound_or (value : option json) (fallback : N) :=
  match value with Some value => match natural value with Some number => number | None => fallback end | None => fallback end.
 Definition optional_text (value : option json) := match value with None | Some (JString _) => true | _ => false end.
-Definition optional_flag (value : option json) := match value with None | Some (JBool _) => true | _ => false end.
-Definition flag (value : option json) := match value with Some (JBool true) => true | _ => false end.
 Fixpoint strings (values : list json) : option (list string) := match values with
  | [] => Some [] | JString text :: rest => option_map (cons text) (strings rest) | _ => None end.
 Definition enum_choices (value : option json) : option (option (list string)) := match value with
@@ -190,105 +254,7 @@ Definition enum_choices (value : option json) : option (option (list string)) :=
  | _ => None end.
 Definition traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
  OptionList.traverse f values.
-Definition parse_text (source : json) :=
- let lower := bound_or (field "minLength" source) 0 in
- let upper := bound_or (field "maxLength" source) maximum_natural in
- let bytes := bound_or (field "x-maxUtf8Bytes" source) maximum_natural in
- if object_keys source ["type";"description";"title";"minLength";"maxLength";"x-maxUtf8Bytes";"x-noNul";"x-nonblank";"pattern";"enum"] &&
-    optional_bound (field "minLength" source) && optional_bound (field "maxLength" source) &&
-    optional_bound (field "x-maxUtf8Bytes" source) && (lower <=? upper) &&
-    optional_flag (field "x-noNul" source) && optional_flag (field "x-nonblank" source)
- then match field "pattern" source, enum_choices (field "enum" source) with
- | None,Some choices => Some (Text (TextConstraints lower upper bytes
-    (flag (field "x-noNul" source)) (flag (field "x-nonblank" source)) false choices))
- | Some (JString "^[0-9a-f]*$"),Some choices => Some (Text (TextConstraints lower upper bytes
-    (flag (field "x-noNul" source)) (flag (field "x-nonblank" source)) true choices))
- | _,_ => None end else None.
 Definition required_names (properties : list (string * json)) (source : option json) :=
  match source with None => Some [] | Some (JArray values) => match strings values with
  | Some names => if unique_names names && forallb (fun name => member name (map fst properties)) names
    then Some names else None | None => None end | _ => None end.
-Fixpoint parse_fuel (fuel : nat) (source : json) : option t :=
- match fuel with O => None | S fuel =>
- if optional_text (field "description" source) && optional_text (field "title" source) then
- match source with
- | JBool false => Some Reject
- | JObject [] => Some Any
- | JObject fields => match lookup "anyOf" fields with
-   | Some (JArray ((_ :: _) as alternatives)) =>
-     if object_keys source ["anyOf";"description";"title"] then option_map Union (traverse (parse_fuel fuel) alternatives) else None
-   | Some _ => None
-   | None => if object_keys source ["description";"title"] then Some Any else match string_field "type" source with
-     | Some "string" => match field "x-prefix" source, field "x-naturalTextMinimum" source with
-       | Some (JString prefix),None =>
-         if object_keys source ["type";"description";"title";"x-prefix";"x-suffix"] then
-           match field "x-suffix" source with Some suffix => option_map (PrefixedText prefix) (parse_fuel fuel suffix) | None => None end
-         else None
-       | None,Some minimum =>
-         if object_keys source ["type";"description";"title";"x-naturalTextMinimum";"x-naturalTextMaximum"] &&
-            optional_bound (field "x-naturalTextMaximum" source) then
-           match natural minimum with Some minimum =>
-             match field "x-naturalTextMaximum" source with None => Some (NaturalText minimum None)
-             | Some value => match natural value with Some maximum =>
-                 if minimum <=? maximum then Some (NaturalText minimum (Some maximum)) else None
-               | None => None end end | None => None end
-         else None
-       | None,None => parse_text source
-       | _,_ => None end
-     | Some "null" => if object_keys source ["type";"description";"title"] then Some Null else None
-     | Some "boolean" => if object_keys source ["type";"description";"title"] then Some Boolean else None
-     | Some "number" => if object_keys source ["type";"description";"title"] then Some Decimal else None
-     | Some "integer" =>
-       if object_keys source ["type";"description";"title";"minimum";"maximum";"x-signedInteger"] &&
-          optional_bound (field "minimum" source) && optional_bound (field "maximum" source) &&
-          optional_flag (field "x-signedInteger" source)
-       then if flag (field "x-signedInteger" source) then
-         match field "minimum" source, field "maximum" source with None,None => Some Integer | _,_ => None end
-       else match field "minimum" source, field "maximum" source with
-       | None,None => Some Integer
-       | None,Some _ => None
-       | Some _,maximum => let lower := bound_or (field "minimum" source) 0 in
-           let upper := bound_or maximum maximum_natural in
-           match maximum with None => Some (UnboundedNatural lower)
-           | Some _ => if lower <=? upper then Some (Natural lower upper) else None end
-       end
-       else None
-     | Some "array" =>
-       if object_keys source ["type";"description";"title";"items";"minItems";"maxItems"] &&
-          optional_bound (field "minItems" source) && optional_bound (field "maxItems" source)
-       then match field "items" source with Some item =>
-         match parse_fuel fuel item with Some declaration =>
-           match field "minItems" source, field "maxItems" source with
-           | None,None => Some (Array declaration)
-           | _,_ => let lower := bound_or (field "minItems" source) 0 in
-               let upper := bound_or (field "maxItems" source) maximum_natural in
-               if lower <=? upper then Some (BoundedArray lower upper declaration) else None
-           end | None => None end | None => None end else None
-     | Some "object" =>
-       if object_keys source ["type";"description";"title";"properties";"required";"additionalProperties"] &&
-          optional_flag (field "additionalProperties" source)
-       then match field "properties" source with Some (JObject properties) =>
-         if unique_names (map fst properties) then match required_names properties (field "required" source) with
-         | Some required => option_map
-           (match field "additionalProperties" source with Some (JBool false) => Object | _ => OpenObject end)
-           (traverse (fun property =>
-             option_map (fun declaration => (fst property, member (fst property) required, declaration))
-                (parse_fuel fuel (snd property))) properties)
-         | None => None end else None | _ => None end else None
-     | _ => None end
-   end
- | _ => None end else None end.
-Definition parse := parse_fuel 256.
-
-
-(** Internal declarations execute directly. Their schema is a projection of
-    that program; compiling cannot reject or alter an internal declaration. *)
-Record executable := Executable { program : t }.
-Definition emitted_schema (declaration : executable) := schema (program declaration).
-Definition compile (declaration : t) := Executable declaration.
-Theorem compile_preserves_language : forall declaration value,
- check (program (compile declaration)) value = check declaration value.
-Proof. reflexivity. Qed.
-Theorem compile_preserves_schema : forall declaration,
- emitted_schema (compile declaration) = schema declaration.
-Proof. reflexivity. Qed.
