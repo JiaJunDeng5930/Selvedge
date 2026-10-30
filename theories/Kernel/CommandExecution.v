@@ -259,7 +259,7 @@ Definition handle_review_approval (request : Selvedge.Generated.Commands.review_
  
    let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in
    review_approval (Selvedge.Generated.Commands.review_approval_task_id request) (Selvedge.Generated.Commands.review_approval_operation_id request)
-    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value.
+    (ApprovalProtocol.human_outcome (String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow") reason) value.
 
 Definition handle_record_speech_transcript (request : Selvedge.Generated.Commands.record_speech_transcript_payload)
  (context : option Tasks.native_call) (value : world) : decision :=

@@ -53,15 +53,13 @@ Definition before_interruption_reason :=
 Definition plan (owner : N) (observation : event) (task : task) := match observation with
  | Returned operation result error => returned owner operation result error task
  | Reviewed operation actor outcome =>
-   let outcome := ApprovalProtocol.normalize_outcome outcome in
    let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
-     actor (Inputs.approval_json outcome)] in
-   Tasks.prefix_result [TaskChange.AppendHistory receipt] (match outcome with
-   | Approved _ => Tasks.KeepDemand
+     actor (ApprovalProtocol.encode_outcome outcome)] in
+   Tasks.prefix_result [TaskChange.AppendHistory receipt] (if ApprovalProtocol.allows outcome then Tasks.KeepDemand
      [TaskChange.ChangeOperationStage (operation_id operation) (Granted actor)]
-   | Denied reason | ApprovalFailed reason => returned owner operation
-     (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true
-     (append_history receipt task) end)
+   else returned owner operation
+     (State.failure "approval_denied" ("Bash was not started. " ++ ApprovalProtocol.outcome_reason outcome)) true
+     (append_history receipt task))
  | BeforeChecked plugin invocation pending remaining outcome =>
    Tasks.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin (Inputs.hook_json outcome)] ::
     match HookRules.before_apply invocation outcome with

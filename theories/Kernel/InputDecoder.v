@@ -16,14 +16,6 @@ Definition decoder_construct := @ModelDeclarations.decoder_construct input.
 Definition coordinates := ModelDeclarations.identity.
 Definition parse_hook := HookRules.parse_hook.
 Definition parse_after := HookRules.parse_after.
-Definition approval_from_fields (value : ArgumentDeclaration.denote CallbackDeclarations.approval_schema) : approval_outcome :=
- match value with
- | inl reason => Approved (proj1_sig (fst (snd (proj1_sig reason))))
- | inr (inl reason) => Denied (proj1_sig (fst (snd (proj1_sig reason))))
- | inr (inr (inl reason)) => ApprovalFailed (proj1_sig (fst (snd (proj1_sig reason))))
- | inr (inr (inr impossible)) => match impossible with end end.
-Definition parse_approval_outcome source := option_map approval_from_fields
- (ArgumentDeclaration.decode CallbackDeclarations.approval_schema source).
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
 Definition configure_decoder := Decoder "configure" Configuration.environment_schema
@@ -61,7 +53,7 @@ Definition callback_input (kind : callback_kind) : forall ok,
  | AfterHook => fun _ address values => Some
      (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values)))
  | Approval => fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
-     (approval_from_fields (fst values)))
+     (ApprovalProtocol.from_callback (fst values)))
  | _ => fun _ _ _ => None end.
 Definition decode_callback kind source :=
  match CallbackDeclarations.decode kind source with

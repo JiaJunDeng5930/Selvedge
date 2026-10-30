@@ -35,10 +35,7 @@ Definition after_schema := D.Union
   reason "deny" (diagnostic_text AfterHook);reason "failed" (diagnostic_text AfterHook)].
 Definition created_workspace := D.Object
  [F.required "roots" (D.Array D.text);F.required "primary_root" D.text].
-Definition approval_schema := D.Union
- [reason "allow" ApprovalProtocol.justification_declaration;
-  reason "deny" ApprovalProtocol.justification_declaration;
-  reason "failed" ApprovalProtocol.justification_declaration].
+Definition approval_schema := ApprovalProtocol.callback_declaration.
 
 (** The branch carries the constraints used by the public decoder. Its fixed
     marker and field names are supplied by the declaration. *)

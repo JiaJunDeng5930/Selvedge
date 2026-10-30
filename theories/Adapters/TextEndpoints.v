@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson.
-From Selvedge.Kernel Require Import Conversation.
+From Selvedge.Kernel Require Import Conversation ApprovalProtocol.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
@@ -49,17 +49,11 @@ Definition response_text (approval : bool) (source : json) :=
                            else "The drafting endpoint must return one bounded JSON response")
     end.
 Definition approval_outcome (source : json) :=
-  match TextJson.parse_json (str source "text") with
-  | Some (JObject [(_,JString _);(_,JString _)] as value) =>
-    if exact_fields ["decision";"reason"] value &&
-      existsb (String.eqb (str value "decision")) ["allow";"deny"] &&
-      is_text (get value "reason") && Utf8.nonblank (str value "reason") &&
-      Utf8.well_formed (str value "reason") && Utf8.no_nul (str value "reason") &&
-      bound (get source "limit") (N.of_nat (String.length (str value "reason"))) 9007199254740991
-    then success value
-    else type_error "The approval reviewer returned a malformed decision"
-  | _ => type_error "The approval reviewer must return exactly two string fields"
-  end.
+ match TextJson.parse_json (str source "text") with
+ | Some value => match ArgumentDeclaration.decode ApprovalProtocol.model_decision_declaration value with
+   | Some decision => success (ArgumentDeclaration.encode ApprovalProtocol.model_decision_declaration decision)
+   | None => type_error "The approval reviewer returned a malformed decision" end
+ | None => type_error "The approval reviewer must return one JSON decision" end.
 Definition task_text_outcome (source : json) :=
   match TextJson.parse_json (str source "text") with
   | None => type_error "The task text endpoint must return one JSON object"

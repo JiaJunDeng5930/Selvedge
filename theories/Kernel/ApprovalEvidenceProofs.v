@@ -69,7 +69,7 @@ Local Lemma a_decision_keeps_its_reviewer_record : forall owner pending actor ou
  exists suffix,
  task_history (Callbacks.approval_decision owner pending actor outcome task) = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) actor
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
  intros owner pending actor outcome task.
  unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
@@ -78,18 +78,17 @@ Qed.
 
 Theorem an_approval_denial_runs_the_frozen_result_chain :
  forall owner pending actor reason task plugin rest,
- ApprovalProtocol.normalize_outcome (Denied reason) = Denied reason ->
  Callbacks.after_plugins task = plugin :: rest ->
  task_operations (Callbacks.approval_decision owner pending actor (Denied reason) task) =
  map (fun current => if N.eqb (operation_id pending) (operation_id current)
    then Operation (operation_id current) (operation_call current) (operation_announced current)
      (AfterHooksReady (plugin :: rest)
-       (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true)
+       (State.failure "approval_denied" ("Bash was not started. " ++ proj1_sig reason)) true)
    else current) (task_operations task).
 Proof.
- intros owner pending actor reason task plugin rest Normal Hooks.
+ intros owner pending actor reason task plugin rest Hooks.
  unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
- rewrite Normal, prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
+ rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
  unfold OperationEvent.returned, OperationEvent.settle, Tasks.result_changes.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  destruct lifecycle; unfold Callbacks.after_plugins, OperationEvent.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
@@ -109,7 +108,7 @@ Theorem model_approval_completion_records_its_captured_reviewer :
  find_task owner (decision_world (Callbacks.approval_completed owner ticket outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
  intros owner ticket pending profile outcome task value Found Selected.
  rewrite !approval_completed_expression; rewrite Found, Selected.
@@ -139,7 +138,7 @@ Theorem human_approval_command_records_its_actual_reviewer :
  find_task owner (decision_world (Callbacks.review_approval owner operation outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
  intros owner operation pending outcome task value Found Selected.
  rewrite !review_approval_expression; rewrite Found, Selected.

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Kernel Require Export ApprovalProtocol.
 From Selvedge.Kernel Require Import Numbers Domain ContextTypes Reasoning.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
@@ -10,7 +11,6 @@ Inductive hook_outcome := HookAllow | HookRewrite (arguments : list (string * js
  | HookDeny (reason : string) | HookFailure (reason : string).
 Inductive after_outcome := KeepResult | RewriteResult (value : json)
  | DenyResult (reason : string) | AfterFailure (reason : string).
-Inductive approval_outcome := Approved (reason : string) | Denied (reason : string) | ApprovalFailed (reason : string).
 Definition hook_json (value : hook_outcome) := match value with
  | HookAllow => JObject [("decision",JString "allow")]
  | HookRewrite arguments => JObject [("decision",JString "rewrite");("arguments",JObject arguments)]
@@ -21,10 +21,6 @@ Definition after_json (value : after_outcome) := match value with
  | RewriteResult result => JObject [("decision",JString "rewrite");("value",result)]
  | DenyResult reason => JObject [("decision",JString "deny");("reason",JString reason)]
  | AfterFailure reason => JObject [("decision",JString "failed");("reason",JString reason)] end.
-Definition approval_json (value : approval_outcome) := match value with
- | Approved reason => JObject [("decision",JString "allow");("reason",JString reason)]
- | Denied reason => JObject [("decision",JString "deny");("reason",JString reason)]
- | ApprovalFailed reason => JObject [("decision",JString "failed");("reason",JString reason)] end.
 Inductive input :=
 | UserCommand (command : Selvedge.Generated.Commands.command)
 | Configure (environment : environment)
