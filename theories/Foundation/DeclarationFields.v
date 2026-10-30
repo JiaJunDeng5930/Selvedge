@@ -62,12 +62,12 @@ Record decoder (A : Type) := Decoder {
 Arguments Decoder {A} _ _.
 Arguments decoder_branch {A} _.
 Arguments decoder_construct {A} _ _.
-Definition decode_cases {A} (cases : list (decoder A)) source :=
- match find (fun entry => match Json.field (tag_field (decoder_branch entry)) source with
-   | Some value => Json.equal value (tag_value (decoder_branch entry)) | None => false end) cases with
- | Some entry => match branch_decode (decoder_branch entry) source with
-   | Some values => decoder_construct entry values | None => None end
- | None => None end.
+Fixpoint decode_cases {A} (cases : list (decoder A)) source := match cases with
+ | [] => None
+ | entry :: rest => match branch_decode (decoder_branch entry) source with
+   | Some fields => match decoder_construct entry fields with
+     | Some value => Some value | None => decode_cases rest source end
+   | None => decode_cases rest source end end.
 
 (** ABI shape is a projection of the admitted language. Opaque values remain
     opaque; runtime peers never own a second field-shape specification. *)

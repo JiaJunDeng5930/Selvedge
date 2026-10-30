@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
-  validateRelayFrame,
 } from '../remote/protocol.mjs';
 
 const MAX_BUFFERED_BYTES = MAX_REMOTE_FRAME_BYTES * 2;
@@ -237,11 +236,10 @@ export class RemoteConnector {
   #receive(session, data) {
     // DEFENSE: Socket events queued before reconnect can arrive for a retired session.
     if (!this.#current(session)) return;
-    let frame;
-    try { frame = parseRemoteFrame(data, validateRelayFrame); }
+    let action;
+    try { action = parseRemoteFrame(data, frame => this.#step('frame', { generation: session.generation, frame })); }
     // DEFENSE: Relay frames can contain malformed JSON, unsupported types, or invalid fields.
     catch { this.#disconnect(session, 'relay_frame_rejected'); return; }
-    const action = this.#step('frame', { generation: session.generation, frame });
     interpretConnectorFrame(action, {
       disconnect: () => this.#disconnect(session, 'relay_session_rejected'),
       ready: () => this.#ready(session),

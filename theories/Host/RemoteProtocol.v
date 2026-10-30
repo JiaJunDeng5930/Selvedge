@@ -41,21 +41,16 @@ Definition positive value := D.check epoch_declaration value.
 Definition authority_fields := [F.required "controller_id" RemoteIdentity.controller_declaration;
  F.required "grant_epoch" epoch_declaration].
 Definition authority_declaration := D.Object authority_fields.
-Record wire_authority : Set := WireAuthority {
- admitted_controller : D.denote RemoteIdentity.controller_declaration;
- admitted_epoch : D.denote epoch_declaration
-}.
-Definition authority_controller value := proj1_sig (admitted_controller value).
-Definition authority_epoch value := epoch_value (admitted_epoch value).
-Definition authority_value value := RemoteIdentity.Authorization
- (ControllerId (authority_controller value)) (GrantEpoch (authority_epoch value)).
+Definition wire_authority := D.denote authority_declaration.
+Definition authority_to_fields (value : wire_authority) := proj1_sig value.
+Definition authority_from_fields := F.construct authority_fields.
+Definition authority_controller value := proj1_sig (fst (authority_to_fields value)).
+Definition authority_epoch value := epoch_value (fst (snd (authority_to_fields value))).
 Definition same_authority first second := String.eqb (authority_controller first) (authority_controller second) &&
  N.eqb (authority_epoch first) (authority_epoch second).
-Definition authority_from_fields (values : F.values authority_fields) := WireAuthority (fst values) (fst (snd values)).
-Definition authority_to_fields value : F.values authority_fields := [!admitted_controller value;admitted_epoch value!].
-Definition authority_arguments value : D.denote authority_declaration := F.construct authority_fields (authority_to_fields value).
-Definition decode_authority source := option_map authority_from_fields (F.decode authority_fields source).
-Definition encode_authority value := D.encode authority_declaration (authority_arguments value).
+Definition authority_arguments (value : wire_authority) := value.
+Definition decode_authority := D.decode authority_declaration.
+Definition encode_authority := D.encode authority_declaration.
 
 Module AuthorityEntry <: KeyedCollection.Entry.
  Definition t := wire_authority.
@@ -81,20 +76,6 @@ Definition encode_grants value := D.encode grants_declaration (grants_arguments 
 (** Commands remain opaque to the relay. The operation is admitted while every
     member and every number spelling remains owned by the command boundary. *)
 Definition operation_declaration := label_declaration.
-Record opaque_command : Set := OpaqueCommand {
- command_members : list (string * json);
- command_operation : D.denote operation_declaration;
- command_operation_field : lookup "op" command_members = Some (JString (proj1_sig command_operation))
-}.
-Definition admit_command members : option opaque_command :=
- match lookup "op" members as found return lookup "op" members = found -> option opaque_command with
- | Some (JString operation) => fun located =>
-   match Bool.bool_dec (D.printable_utf16 1 80 operation) true with
-   | left valid => Some (OpaqueCommand members (exist _ operation valid) located)
-   | right _ => None end
- | _ => fun _ => None
- end eq_refl.
-Definition command_json value := JObject (command_members value).
 Definition command_params_fields := [F.required "request_id" receipt_id_declaration;F.required "command" D.RawObject].
 Definition request_fields method params := [F.required "id" rpc_id_declaration;
  F.required "method" (D.Const (JString method));F.required "params" params].
@@ -104,27 +85,14 @@ Definition subscribe_request_fields := request_fields "subscribe" (D.Object []).
 Definition unsubscribe_request_fields := request_fields "unsubscribe" (D.Object []).
 Definition controller_request_declaration := D.Union (map D.Object
  [command_request_fields;snapshot_request_fields;subscribe_request_fields;unsubscribe_request_fields]).
-Inductive rpc_request : Set :=
- | CommandRequest (id : rpc_id) (receipt : receipt_id) (command : opaque_command)
- | SnapshotRequest (id : rpc_id) | SubscribeRequest (id : rpc_id) | UnsubscribeRequest (id : rpc_id).
-Definition request_id value := match value with
- | CommandRequest id _ _ | SnapshotRequest id | SubscribeRequest id | UnsubscribeRequest id => id end.
-Definition request_method value := match value with
- | CommandRequest _ _ _ => "command" | SnapshotRequest _ => "snapshot"
- | SubscribeRequest _ => "subscribe" | UnsubscribeRequest _ => "unsubscribe" end.
-Definition controller_request_arguments value : D.denote controller_request_declaration := match value with
- | CommandRequest id receipt command => inl (F.construct command_request_fields
-   [!id;tt;F.construct command_params_fields [!receipt;command_members command!]!])
- | SnapshotRequest id => inr (inl (F.construct snapshot_request_fields [!id;tt;F.construct [] tt!]))
- | SubscribeRequest id => inr (inr (inl (F.construct subscribe_request_fields [!id;tt;F.construct [] tt!])))
- | UnsubscribeRequest id => inr (inr (inr (inl (F.construct unsubscribe_request_fields [!id;tt;F.construct [] tt!])))) end.
-Definition controller_request_from_arguments (value : D.denote controller_request_declaration) : option rpc_request := match value with
- | inl values => let values := proj1_sig values in let params := proj1_sig (fst (snd (snd values))) in
-   option_map (CommandRequest (fst values) (fst params)) (admit_command (fst (snd params)))
- | inr (inl values) => Some (SnapshotRequest (fst (proj1_sig values)))
- | inr (inr (inl values)) => Some (SubscribeRequest (fst (proj1_sig values)))
- | inr (inr (inr (inl values))) => Some (UnsubscribeRequest (fst (proj1_sig values)))
- | inr (inr (inr (inr impossible))) => match impossible with end end.
+Definition request_command_admitted (value : D.denote controller_request_declaration) := match value with
+ | inl values => let params := proj1_sig (fst (snd (snd (proj1_sig values)))) in
+     match lookup "op" (fst (snd params)) with
+     | Some operation => D.check operation_declaration operation | None => false end
+ | _ => true end.
+Definition rpc_request := D.checked request_command_admitted.
+Definition controller_request_arguments (value : rpc_request) := proj1_sig value.
+Definition controller_request_from_arguments := D.admit request_command_admitted.
 Definition decode_controller_request source := match D.decode controller_request_declaration source with
  | Some values => controller_request_from_arguments values | None => None end.
 Definition encode_controller_request value := D.encode controller_request_declaration (controller_request_arguments value).
@@ -134,54 +102,37 @@ Definition error_fields := [F.required "code" label_declaration;F.required "mess
 Definition result_fields := [F.required "id" rpc_id_declaration;F.required "result" D.Any].
 Definition failure_fields := [F.required "id" rpc_id_declaration;F.required "error" (D.Object error_fields)].
 Definition response_declaration := D.Union [D.Object result_fields;D.Object failure_fields].
-Inductive rpc_response : Set := RpcResult (id : rpc_id) (result : json)
- | RpcError (id : rpc_id) (code : D.denote label_declaration) (message : D.denote diagnostic_declaration).
-Definition response_arguments value : D.denote response_declaration := match value with
- | RpcResult id result => inl (F.construct result_fields [!id;result!])
- | RpcError id code message => inr (inl (F.construct failure_fields [!id;F.construct error_fields [!code;message!]!])) end.
-Definition response_from_arguments (value : D.denote response_declaration) := match value with
- | inl values => let values := proj1_sig values in RpcResult (fst values) (fst (snd values))
- | inr (inl values) => let values := proj1_sig values in let error := proj1_sig (fst (snd values)) in
-   RpcError (fst values) (fst error) (fst (snd error))
- | inr (inr impossible) => match impossible with end end.
-Definition decode_response source := option_map response_from_arguments (D.decode response_declaration source).
-Definition encode_response value := D.encode response_declaration (response_arguments value).
+Definition rpc_response := D.denote response_declaration.
+Definition response_arguments (value : rpc_response) := value.
+Definition response_from_arguments (value : D.denote response_declaration) := value.
+Definition decode_response := D.decode response_declaration.
+Definition encode_response := D.encode response_declaration.
 
 Definition pairing_code_declaration := D.Textual (D.PrintableUtf16 20 128).
 Definition pairing_fields := [F.required "code" pairing_code_declaration;F.required "expires_at" epoch_declaration].
 Definition pairing_branch := F.declare "type" (JString "pairing") pairing_fields.
 Definition pairing_declaration := F.branch_declaration pairing_branch.
-Record pairing_announcement : Set := PairingAnnouncement {
- admitted_pairing_code : D.denote pairing_code_declaration;
- admitted_pairing_expiry : D.denote epoch_declaration
-}.
-Definition pairing_code value := proj1_sig (admitted_pairing_code value).
-Definition pairing_expiry value := epoch_value (admitted_pairing_expiry value).
-Definition pairing_from_fields (values : F.values pairing_fields) := PairingAnnouncement (fst values) (fst (snd values)).
-Definition pairing_to_fields value : F.values pairing_fields := [!admitted_pairing_code value;admitted_pairing_expiry value!].
-Definition pairing_arguments value : D.denote pairing_declaration := F.branch_arguments pairing_branch (pairing_to_fields value).
-Definition decode_pairing source := option_map pairing_from_fields (F.branch_decode pairing_branch source).
-Definition encode_pairing value := D.encode pairing_declaration (pairing_arguments value).
+Definition pairing_announcement := D.denote pairing_declaration.
+Definition pairing_to_fields (value : pairing_announcement) := snd (proj1_sig value).
+Definition pairing_from_fields := F.branch_arguments pairing_branch.
+Definition pairing_code value := proj1_sig (fst (pairing_to_fields value)).
+Definition pairing_expiry value := epoch_value (fst (snd (pairing_to_fields value))).
+Definition pairing_arguments (value : pairing_announcement) := value.
+Definition decode_pairing := D.decode pairing_declaration.
+Definition encode_pairing := D.encode pairing_declaration.
 
 Definition pairing_request_fields := [F.required "request_id" identifier_declaration;
  F.required "controller_id" RemoteIdentity.controller_declaration;F.required "label" label_declaration].
 Definition pairing_request_declaration := D.Object pairing_request_fields.
-Record pairing_request : Set := PairingRequest {
- admitted_pairing_request_id : identifier;
- admitted_pairing_controller : D.denote RemoteIdentity.controller_declaration;
- admitted_pairing_label : D.denote label_declaration
-}.
-Definition pairing_request_id value := identifier_text (admitted_pairing_request_id value).
-Definition pairing_request_controller value := proj1_sig (admitted_pairing_controller value).
-Definition pairing_request_label value := proj1_sig (admitted_pairing_label value).
-Definition pairing_request_from_fields (values : F.values pairing_request_fields) :=
- PairingRequest (fst values) (fst (snd values)) (fst (snd (snd values))).
-Definition pairing_request_to_fields value : F.values pairing_request_fields :=
- [!admitted_pairing_request_id value;admitted_pairing_controller value;admitted_pairing_label value!].
-Definition pairing_request_arguments value : D.denote pairing_request_declaration :=
- F.construct pairing_request_fields (pairing_request_to_fields value).
-Definition decode_pairing_request source := option_map pairing_request_from_fields (F.decode pairing_request_fields source).
-Definition encode_pairing_request value := D.encode pairing_request_declaration (pairing_request_arguments value).
+Definition pairing_request := D.denote pairing_request_declaration.
+Definition pairing_request_to_fields (value : pairing_request) := proj1_sig value.
+Definition pairing_request_from_fields := F.construct pairing_request_fields.
+Definition pairing_request_id value := identifier_text (fst (pairing_request_to_fields value)).
+Definition pairing_request_controller value := proj1_sig (fst (snd (pairing_request_to_fields value))).
+Definition pairing_request_label value := proj1_sig (fst (snd (snd (pairing_request_to_fields value)))).
+Definition pairing_request_arguments (value : pairing_request) := value.
+Definition decode_pairing_request := D.decode pairing_request_declaration.
+Definition encode_pairing_request := D.encode pairing_request_declaration.
 
 Definition version_fields := [F.required "version" version_declaration].
 Definition routed_fields payload := F.required "connection_id" identifier_declaration :: payload.
@@ -264,17 +215,6 @@ Definition controller_ready_branch := F.declare "type" (JString "ready") control
 Definition controller_event_branch := F.declare "type" (JString "event") controller_event_fields.
 Definition controller_frame_declaration := D.Union [F.branch_declaration controller_ready_branch;
  F.branch_declaration controller_event_branch;response_declaration].
-Inductive controller_frame : Set := ControllerReady (authority : wire_authority)
- | ControllerEvent (value : list (string * json)) | ControllerResponse (value : rpc_response).
-Definition controller_frame_arguments value : D.denote controller_frame_declaration := match value with
- | ControllerReady authority => inl (F.branch_arguments controller_ready_branch
-   (version_value,authority_to_fields authority))
- | ControllerEvent value => inr (inl (F.branch_arguments controller_event_branch [!value!]))
- | ControllerResponse value => inr (inr (inl (response_arguments value))) end.
-Definition controller_frame_from_arguments (value : D.denote controller_frame_declaration) := match value with
- | inl values => ControllerReady (authority_from_fields (snd (snd (proj1_sig values))))
- | inr (inl values) => ControllerEvent (fst (snd (proj1_sig values)))
- | inr (inr (inl value)) => ControllerResponse (response_from_arguments value)
- | inr (inr (inr impossible)) => match impossible with end end.
-Definition decode_controller_frame source := option_map controller_frame_from_arguments (D.decode controller_frame_declaration source).
-Definition encode_controller_frame value := D.encode controller_frame_declaration (controller_frame_arguments value).
+Definition controller_frame := D.denote controller_frame_declaration.
+Definition decode_controller_frame := D.decode controller_frame_declaration.
+Definition encode_controller_frame := D.encode controller_frame_declaration.
