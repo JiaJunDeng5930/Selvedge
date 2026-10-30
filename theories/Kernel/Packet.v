@@ -3,8 +3,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
- Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
-From Selvedge.Kernel Require Import CommitAdmission CommandHandlers ForkCommit.
+ Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
+From Selvedge.Kernel Require Import CommandHandlers ForkCommit.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement DeferredCommit
  BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
@@ -87,9 +87,6 @@ Definition prepare (schedules : bool) (source : option Inputs.input) (result : d
    if callback_input source then RequestDelivery.defer result
    else RequestDelivery.run execute_command Selvedge.Features.Runtime.can_schedule_task result
  else result.
-Definition admit_with_status := DeferredCommit.admit_with_status.
-Definition admit (durable : bool) (source : option Inputs.input) (raw_source : json)
- (before : world) (result : decision) := snd (admit_with_status durable source raw_source before result).
 Definition manual_fork_input (decoded : option Inputs.input) : option Selvedge.Generated.Commands.fork_payload :=
  match decoded with
  | Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request)) => Some request
@@ -117,31 +114,20 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | Some accepted => Some (TerminalSettlement.source accepted, TerminalSettlement.candidate accepted)
  | None => None
  end end end end end end.
-Definition select_admitted (source : json) (admission : InputDecoder.admitted_input source)
- (value : world) : CommitPacket.selected :=
- let decoded := InputDecoder.admitted_value admission in
+Definition select (source : json) (value : world) : CommitPacket.selected :=
+ let decoded := InputDecoder.decode source in
  match manual_fork_input decoded with
  | Some request => ForkCommit.select request value
  | None => match CreationCommit.input decoded with
  | Some request => CreationCommit.select request value
  | None => match deferred_candidate decoded value with
- | Some (input,candidate) => DeferredCommit.select true (Some input) source value candidate
+ | Some (input,candidate) => DeferredCommit.select true (Some input) value candidate
  | None =>
  let '(durable,schedules,input,result) := transition_decoded decoded source value in
  let result := prepare schedules input result in
- DeferredCommit.select durable input source value result
+ DeferredCommit.select durable input value result
  end end end.
-Definition packet_admitted (source : json) (admission : InputDecoder.admitted_input source)
- (value : world) : world * json :=
- CommitPacket.finalize value (select_admitted source admission value).
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
- packet_admitted source (InputDecoder.admit source) value
+ CommitPacket.finalize value (select source value)
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
-Theorem actual_packet_uses_complete_input_admission : forall source admission value,
- packet_admitted source admission value =
- packet_admitted source (InputDecoder.admit source) value.
-Proof.
- intros source admission value; unfold packet_admitted, select_admitted.
- rewrite InputDecoder.admitted_input_is_its_decoder_result; reflexivity.
-Qed.

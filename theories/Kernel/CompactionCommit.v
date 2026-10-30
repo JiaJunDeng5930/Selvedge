@@ -10,5 +10,5 @@ Definition candidate (request : Commands.compact_payload) (before : world) :=
  DeferredCommit.continue_result before (Compaction.handle_compact_result request None before).
 
 Definition packet (raw : json) (request : Commands.compact_payload) (before : world) :=
- DeferredCommit.packet (Some (UserCommand (Commands.Cmd_compact request))) raw before
+ DeferredCommit.packet (Some (UserCommand (Commands.Cmd_compact request))) before
    (candidate request before).

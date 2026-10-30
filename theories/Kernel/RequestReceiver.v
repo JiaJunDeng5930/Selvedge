@@ -38,6 +38,12 @@ Definition operation_receiver (kind : operation_kind) (pending : operation)
 Definition operation_executing (ticket : N) (pending : operation) :=
  match operation_receiver ExecutionReceiver pending with
  | Some (expected,_) => N.eqb expected ticket | None => false end.
+Definition operation_tickets (pending : operation) :=
+ operation_id pending :: match operation_stage pending with
+ | Executing ticket | AwaitingApproval ticket _ | Elevated ticket _
+ | AwaitingAfterHook ticket _ _ _ _ =>
+   if N.eqb ticket (operation_id pending) then nil else ticket :: nil
+ | Granted _ | AfterHooksReady _ _ _ => nil end.
 Definition pending_tool (ticket : N) (current : task) := find (operation_executing ticket) (task_operations current).
 Definition find_approval (selected : N -> N -> reviewer -> bool) (operations : list operation)
  : option (operation * reviewer) :=

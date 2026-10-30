@@ -44,25 +44,26 @@ Local Lemma rejected_command_preserves_tasks_at_packet : forall source command v
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source command value code reason decoded Manual Creation Deferred refused.
- unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted;
- rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ unfold Packet.packet, Packet.select;
  cbv beta zeta; fold (Packet.manual_fork source) (Packet.transition source value).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes);
    [|reflexivity].
  rewrite Manual, Creation, Deferred. unfold Packet.transition, Packet.transition_decoded. rewrite decoded.
  destruct (Packet.query command None value) as [reply|] eqn:queried.
  - cbn [Packet.prepare].
-   change (world_tasks (WorldInvariant.world_structure (fst (CommitPacket.finalize value
-     (DeferredCommit.select false (Some (UserCommand command)) source value (Decision value reply []))))) =
-     world_tasks (WorldInvariant.world_structure value)).
-   rewrite DeferredCommitProofs.an_unchanged_candidate_retains_its_domain by reflexivity; reflexivity.
+   apply CommitPacket.finalize_preserves.
+   + intros next sequence Kept; exact Kept.
+   + change (world_tasks (decision_world (DeferredCommitProofs.admitted_decision false value
+       (Decision value reply []))) = world_tasks value).
+     rewrite DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world by reflexivity; reflexivity.
  - unfold Packet.execute_command. rewrite refused.
    assert (NoSchedule : Packet.command_schedules command (reject code reason value) = false) by reflexivity.
    rewrite NoSchedule; cbn beta iota zeta; rewrite NoSchedule; cbn [Packet.prepare].
-   change (world_tasks (WorldInvariant.world_structure (fst (CommitPacket.finalize value
-     (DeferredCommit.select true (Some (UserCommand command)) source value (reject code reason value))))) =
-     world_tasks (WorldInvariant.world_structure value)).
-   rewrite DeferredCommitProofs.an_unchanged_candidate_retains_its_domain by reflexivity; reflexivity.
+   apply CommitPacket.finalize_preserves.
+   + intros next sequence Kept; exact Kept.
+   + change (world_tasks (decision_world (DeferredCommitProofs.admitted_decision true value
+       (reject code reason value))) = world_tasks value).
+     rewrite DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world by reflexivity; reflexivity.
 Qed.
 
 (** The exported packet entry preserves every task, including the side's history
@@ -108,8 +109,7 @@ Proof.
  intros source payload value Decoded Failed.
  assert (Refused : ForkCommit.candidate payload value = Worktree.failed_execution value).
  { unfold ForkCommit.candidate,ForkCommit.propose_result; rewrite Failed; reflexivity. }
- unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted;
- rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ unfold Packet.packet, Packet.select;
  destruct (N.leb _ _); [|reflexivity].
  cbv beta zeta; rewrite Decoded; cbn [Packet.manual_fork_input].
  unfold ForkCommit.packet, ForkCommit.select, CommitPacket.choose; rewrite Refused; unfold Delivery.deliver_with_status.

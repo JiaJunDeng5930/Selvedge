@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonSchema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope RequestReceiver TaskChange Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope RequestReceiver TaskChange Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol OperationEvent.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -116,22 +116,14 @@ Definition operation_executing := RequestReceiver.operation_executing.
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
 Definition replace_operation := TicketedRequest.replace_operation.
 
-Definition settle_operation_plan (operation : operation) (result : json) (error : bool) :=
- Tasks.WakeDemand [TaskChange.AppendHistory [History.operation_result operation result error];
-   TaskChange.RemoveOperation (operation_id operation)].
+Definition settle_operation_plan := OperationEvent.settle.
 Definition settle_operation_changes (operation : operation) (result : json) (error : bool) (task : task) :=
  Tasks.result_changes (settle_operation_plan operation result error) task.
 Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
  TaskChange.apply (settle_operation_changes operation result error task) task.
-Definition after_plugins (task : task) :=
- Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
+Definition after_plugins := OperationEvent.after_plugins.
 Definition begin_result_plan (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- match after_plugins task with
- | [] => settle_operation_plan operation result error
- | pending =>
-   Tasks.KeepDemand [TaskChange.AppendHistory [ToolReceipt owner (operation_id operation) (operation_call operation) result error];
-    TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
- end.
+ OperationEvent.plan owner (OperationEvent.Returned operation result error) task.
 Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  Tasks.result_changes (begin_result_plan owner operation result error task) task.
 Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
@@ -143,15 +135,7 @@ Definition tool_completed (id ticket : N) (result : json) (error : bool) (value 
 Definition find_pending_approval := RequestReceiver.find_approval.
 Definition approval_decision_plan (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
- let outcome := ApprovalProtocol.normalize_outcome outcome in
- let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
-   reviewed_by (Inputs.approval_json outcome)] in
- Tasks.prefix_result [TaskChange.AppendHistory receipt]
- match outcome with
- | Approved _ => Tasks.KeepDemand [TaskChange.ChangeOperationStage (operation_id operation) (Granted reviewed_by)]
- | Denied reason | ApprovalFailed reason => begin_result_plan owner operation
-   (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true (append_history receipt task)
- end.
+ OperationEvent.plan owner (OperationEvent.Reviewed operation reviewed_by outcome) task.
 Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  Tasks.result_changes (approval_decision_plan owner operation reviewed_by outcome task) task.

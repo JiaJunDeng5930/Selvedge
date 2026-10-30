@@ -2,10 +2,9 @@ From Stdlib Require Import NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State Inputs Notifications.
 
-(** Admission selects a complete outcome before journal finalization. Birth
-    transactions use their construction proofs and output budget; other
-    transactions use the world and authority admission pipeline. Neither
-    route runs scheduling while advancing the journal or rendering a receipt. *)
+(** A complete domain outcome is selected before journal finalization. The
+    transport budget applies once; advancing the cursor and rendering a receipt
+    cannot schedule another operation. *)
 Record selected := Selected {
  selected_durable : bool;
  selected_admitted : bool;

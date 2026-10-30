@@ -89,15 +89,6 @@ Definition decode (source : json) : option input :=
    | _ => None end
    else None
  | _ => None end.
-(** A decoded input remains tied to the exact source that admitted it. Internal
-    Inputs.input values are still available for notification and commit algebra;
-    the production packet accepts this indexed admission, not a free input. *)
-Definition admitted_input (source : json) := { value : option input | decode source = value }.
-Definition admit (source : json) : admitted_input source := exist _ (decode source) eq_refl.
-Definition admitted_value {source : json} (value : admitted_input source) := proj1_sig value.
-Theorem admitted_input_is_its_decoder_result : forall source (value : admitted_input source),
- admitted_value value = decode source.
-Proof. intros source [value Decoded]; cbn; symmetry; exact Decoded. Qed.
 Theorem admitted_public_command_retains_complete_declaration : forall values command,
  decoder_construct command_decoder values = Some (UserCommand command) ->
  exists admitted : Selvedge.Generated.Commands.admitted_command,

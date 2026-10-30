@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch WorldInvariant LifecycleProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
 From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope list_scope.
@@ -264,13 +264,16 @@ Proof.
    destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
    unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
    unfold Callbacks.context_phase; rewrite FrozenTask, applying_change_lists.
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. split; [reflexivity|].
+   split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   unfold with_activity; rewrite Lifecycle, FrozenTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle (TaskChange.apply changes task)) =
+     Frozen WantsModel operations).
+   now rewrite Lifecycle, FrozenTask.
  - rewrite FrozenTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite FrozenTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. unfold with_activity; rewrite FrozenTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) = Frozen WantsModel operations).
+   now rewrite FrozenTask.
 Qed.
 
 Theorem a_stopped_context_completion_waits_for_a_new_observation :
@@ -289,13 +292,16 @@ Proof.
    destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
    unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
    unfold Callbacks.context_phase; rewrite StoppedTask, applying_change_lists.
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. split; [reflexivity|].
+   split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   unfold with_activity; rewrite Lifecycle, StoppedTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle (TaskChange.apply changes task)) =
+     Stopped WantsModel operations).
+   now rewrite Lifecycle, StoppedTask.
  - rewrite StoppedTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite StoppedTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. unfold with_activity; rewrite StoppedTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) = Stopped WantsModel operations).
+   now rewrite StoppedTask.
 Qed.
 
 Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall owner task,
@@ -371,14 +377,6 @@ Proof.
  unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite Found, Phase, N.eqb_refl.
 Qed.
 
-
-Theorem captured_context_revisions_satisfy_the_actual_phase_contract : forall ticket task,
- WorldInvariant.phase_valid (Reasoning.capture ticket task) = true.
-Proof.
- intros ticket [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; unfold Reasoning.capture, WorldInvariant.phase_valid, WorldInvariant.calls_valid, WorldInvariant.phase_calls;
- cbn; try reflexivity; apply Nat.leb_refl.
-Qed.
 
 Theorem public_evaluator_assistant_content_remains_text : forall origin text,
  option_map ReasoningView.preview_message (ReasoningView.public_message (AssistantMessage origin text)) =

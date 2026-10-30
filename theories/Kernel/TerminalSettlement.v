@@ -22,7 +22,7 @@ Definition resolved_update (request : after_request) (current : task) : option T
    | Some (pending,plugin,remaining,previous,failed) =>
      let action := HookRules.after_apply previous (outcome request) in
      if final_action action remaining then
-       Some (HookCallbacks.after_result_plan_for (owner request) pending plugin remaining failed (outcome request) action)
+       Some (HookCallbacks.after_result_plan (owner request) pending plugin remaining previous failed (outcome request))
      else None
    | None => None end
  | _ => None end.
@@ -64,4 +64,4 @@ Definition source {before : world} (accepted : plan before) :=
  let payload := request accepted in
  AfterCompleted (owner payload) (operation payload) (ticket payload) (outcome payload).
 Definition packet {before : world} (accepted : plan before) (raw : Json.json) :=
- DeferredCommit.packet (Some (source accepted)) raw before (candidate accepted).
+ DeferredCommit.packet (Some (source accepted)) before (candidate accepted).

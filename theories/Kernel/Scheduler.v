@@ -15,9 +15,7 @@ Definition commit_changes (id : N) (changes : task -> list TaskChange.edit) (val
  | Some target => TaskChange.interpret
    (TaskChange.Plan value target (changes (TaskScope.selected target)))
  end.
-Definition call_result_changes (invocation : call) (result : json) (error : bool) (remaining : list call) :=
- [TaskChange.AppendHistory [FunctionOutput (call_id invocation) result error];
-  TaskChange.ChangePhase (PendingCalls remaining)].
+Definition call_result_changes := OperationEvent.call_result.
 Definition call_result (invocation : call) (result : json) (error : bool) (remaining : list call) (task : task) :=
  TaskChange.apply (call_result_changes invocation result error remaining) task.
 Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (task : task) (value : world) :=
@@ -73,14 +71,10 @@ Definition internal_result_available (task : task) :=
  end.
 Definition internal_result (id : N) (invocation : call) (remaining : list call)
  (result : json) (error : bool) (task : task) (value : world) :=
- match Callbacks.after_plugins task with
- | [] => acknowledged (commit_changes id (fun _ => call_result_changes invocation result error remaining) value)
- | _ =>
-   let '(ticket, value) := allocate_ticket value in
-   let operation := Operation ticket invocation false (Executing ticket) in
-   Callbacks.tool_completed id ticket result error
-     (commit_changes id (fun _ => [TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)]) value)
- end.
+ acknowledged (put_task id
+   (OperationEvent.native_result id (world_next_ticket value) invocation remaining result error task)
+   (match Callbacks.after_plugins task with
+    | [] => value | _ => with_ticket (N.succ (world_next_ticket value)) value end)).
 Definition call_admission (tool : tool) (invocation : call) (value : world) :=
  if negb (Capabilities.available (environment_tools (world_environment value)) tool) then
    Some ("tool_unavailable", "The task's frozen tool route is unavailable")
@@ -161,12 +155,8 @@ Definition after_hooks_step (id : N) (operation : operation) (task : task) (valu
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) value)
-   else acknowledged (Tasks.commit_result id (fun task =>
-     let receipt := TaskChange.AppendHistory [AfterReceipt id (operation_id operation) plugin
-       (Inputs.after_json (Inputs.AfterFailure "The frozen result-processing plugin revision is unavailable"))] in
-     Tasks.prefix_result [receipt] (Callbacks.settle_operation_plan operation
-       (State.failure "after_hook_unavailable" "The frozen result-processing plugin revision is unavailable; the tool has already completed") true
-       )) value)
+   else acknowledged (Tasks.commit_result id
+     (OperationEvent.plan id (OperationEvent.AfterUnavailable operation plugin)) value)
  | _ => acknowledged value
  end.
 Definition ready_operation (operations : list operation) := find (fun operation =>

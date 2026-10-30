@@ -58,4 +58,4 @@ Definition candidate {before : world} (accepted : plan before) :=
  accept JNull (decision_world result)
    (decision_effects result ++ [ContinueScheduling]).
 Definition packet {before : world} (accepted : plan before) (raw : json) : world * json :=
- DeferredCommit.packet (Some Continue) raw before (candidate accepted).
+ DeferredCommit.packet (Some Continue) before (candidate accepted).

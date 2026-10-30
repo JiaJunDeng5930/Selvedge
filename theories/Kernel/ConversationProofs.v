@@ -219,7 +219,7 @@ Proof.
      task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix).
    symmetry; apply app_assoc.
  - cbn [TaskChange.apply TaskChange.apply_edit fold_left].
-   exists []; rewrite app_nil_r, changing_activity_preserves_history; reflexivity.
+   exists []; rewrite app_nil_r; reflexivity.
 Qed.
 
 Theorem actual_text_completion_retains_its_content_and_request_identity :

@@ -21,7 +21,7 @@ Definition input (decoded : option Inputs.input) (before : world) :=
 Definition candidate {before : world} (request : plan before) :=
  DeferredCommit.continue_result before (CommandResult.Accepted (TitleRuntime.issue request)).
 Definition packet {before : world} (request : plan before) (raw : json) :=
- DeferredCommit.packet (Some Continue) raw before (candidate request).
+ DeferredCommit.packet (Some Continue) before (candidate request).
 Definition enqueue (result : decision) :=
  match resolve (decision_world result) with
  | Some _ => Decision (decision_world result) (decision_reply result)

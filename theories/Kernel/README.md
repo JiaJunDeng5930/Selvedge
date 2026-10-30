@@ -1,32 +1,30 @@
 # Task runtime and history
 
 Start with the product operation in `Packet.packet` and its owning definitions.
-`WorldInvariant.world_valid` states the retained world requirements as named
-checks over the actual runtime values. `well_formed` exposes their environment,
-project, task, correlation and feature obligations separately.
+The host keeps the world opaque: it starts from `initial` and replays accepted
+input records through the packet entry. Constructors own the state properties
+needed by those operations.
 
-`WorldInvariantProofs` establishes initial validity and the commit admission
-contract: accepted candidates retain their exact state and effects; invalid
-candidates restore the previous state and discard every effect. `PacketProofs`
-instantiates preservation at the exported packet boundary, including scheduling,
-notifications, output admission and the journal cursor.
+`TaskChange` restricts ordinary edits to lifecycle, queued input and appended
+history. `OperationEvent` interprets each hook, approval or tool outcome into
+its receipt and continuation together. `TicketedRequest` allocates a request's
+ticket and installs its receiver in the same operation. New operations should
+reuse these constructors before introducing a separate proof obligation.
 
-External manual fork commits through `ForkCommit` before independent scheduling.
-`ForkPreservation` proves its constructor preserves arbitrary well-formed worlds;
-`ForkCommitPreservation` connects that result to delivery without repeating global
-admission. `ForkPacketProofs` states the positive exported operation. The existing
-durable continuation drives later scheduling; see ADR 0065 for this boundary.
+`Delivery` owns the actual serialized output budget. `Dispatch` cancels stale
+requests and freezes their final context. The packet selects a complete
+business outcome before adding notifications and the journal receipt. A delivery
+failure cannot partially commit that outcome.
 
-`Journal` defines histories of that packet operation. `JournalProofs` proves
-preservation for an actual history step, reachability, finite execution and
-replay, in addition to receipt order and replay correspondence. The safety
-results depend on packet preservation, rather than equality between two traces.
+External manual forks and native forks commit their controlled task birth before
+independent scheduling. `ForkConstructionProofs` covers the unique ancestry and
+capacity requirements; `ForkCommitProofs` and `NativeForkCommitProofs` cover the
+durable continuation. See ADR 0065 for the commit boundary.
 
-The kernel checks these propositions about the Gallina computations. Extraction,
-JSON admission, physical journal persistence and effect execution have separate
-validation boundaries. Inter-transition retention and effect authorization are
-additional contracts; a well-formed candidate alone does not establish them.
-
+`JournalProofs` covers receipt order and input replay. Extraction, physical
+journal persistence and effect execution have their own external boundaries.
+Generic construction properties belong with their interpreter; feature proofs
+cover the additional behavior required by that feature.
 
 For reasoning policy, start with `Domain`, `Codec.parse_reasoning_policy`, and
 `Reasoning.next`. `ReasoningProofs` states the requirements on the actual

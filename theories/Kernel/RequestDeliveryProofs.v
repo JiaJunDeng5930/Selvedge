@@ -200,12 +200,12 @@ Proof.
  cbv zeta.
  rewrite an_after_budget_refusal_uses_the_owned_failure_settlement with
    (task:=task) (operation:=operation) (pending:=pending); try assumption.
- unfold HookCallbacks.after_result_plan,HookCallbacks.after_result_plan_for; cbn [HookRules.after_apply].
+ unfold HookCallbacks.after_result_plan, OperationEvent.after_checked, OperationEvent.after_result; cbn [HookRules.after_apply].
  change (Tasks.apply_result owner task
    (Tasks.prefix_result [TaskChange.AppendHistory
      [AfterReceipt owner (operation_id operation) plugin
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))]]
-     (Callbacks.settle_operation_plan operation
+     (OperationEvent.settle operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
    (Tasks.mark_context_wake owner task (put_task owner
@@ -303,6 +303,7 @@ Proof.
  apply normalized_delivery_preserves_reply.
 Qed.
 
+Local Opaque RequestDelivery.normalize Delivery.fits RequestDelivery.finish.
 Theorem budget_admission_checks_the_final_envelope_and_its_continuation :
  forall reply value effects next emitted,
  RequestDelivery.advance reply value effects = Some (next,emitted) ->

@@ -1,38 +1,15 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs TaskChangeProofs SchedulerChangesProofs TaskChangesProofs.
 Import ListNotations.
-
-Local Lemma lifecycle_after_with_lifecycle : forall state task,
- task_lifecycle (Domain.with_lifecycle state task) = state.
-Proof.
- intros state task; unfold Domain.with_lifecycle.
- exact (@set_get Domain.task Domain.lifecycle task_lifecycle _ (fun _ => state) task).
-Qed.
-
-Local Lemma operations_after_running_lifecycle : forall phase operations task,
- task_operations (Domain.with_lifecycle (Running phase operations) task) = operations.
-Proof.
- intros; unfold Domain.task_operations; rewrite lifecycle_after_with_lifecycle; reflexivity.
-Qed.
-
-Local Lemma lifecycle_after_history_append : forall messages task,
- task_lifecycle (Domain.append_history messages task) = task_lifecycle task.
-Proof.
- intros messages [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; reflexivity.
-Qed.
 
 Theorem publishing_live_operations_only_marks_them_announced :
  forall task phase operations,
  task_lifecycle task = Running phase operations ->
  task_operations (Scheduler.publish_operations task) = map Scheduler.announce_operation operations.
 Proof.
- intros task phase operations RunningTask.
- unfold Scheduler.publish_operations, TicketedRequest.publish_operations, Domain.with_operations.
- rewrite lifecycle_after_history_append, RunningTask.
- rewrite operations_after_running_lifecycle.
- unfold Domain.task_operations; rewrite RunningTask; reflexivity.
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+   phase operations RunningTask.
+ cbn in RunningTask; subst lifecycle; reflexivity.
 Qed.
 
 Theorem operation_publication_preserves_its_completion_owner :
@@ -217,7 +194,8 @@ Proof.
  { unfold Tasks.promote, Tasks.promote_changes; rewrite Pending.
    destruct (task_queued task) as [|first rest].
    - right; exact Pending.
-   - left; cbn [TaskChange.apply TaskChange.apply_edit fold_left]; unfold with_activity; rewrite Pending; reflexivity. }
+   - left; change (change_activity WantsModel (task_lifecycle task) = Running WantsModel operations).
+     now rewrite Pending. }
  assert (PromotedOperations : task_operations (Tasks.promote task) = operations).
  { destruct Promoted as [Promoted|Promoted];
      unfold Domain.task_operations; rewrite Promoted; reflexivity. }
@@ -228,11 +206,10 @@ Proof.
  rewrite SomeWork, Bool.orb_true_r.
  assert (NextPhase : task_lifecycle (Domain.with_activity WantsModel (Tasks.promote task)) =
    Running WantsModel operations).
- { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];
-     rewrite Promoted; apply lifecycle_after_with_lifecycle. }
+ { change (change_activity WantsModel (task_lifecycle (Tasks.promote task)) = Running WantsModel operations).
+   destruct Promoted as [Promoted|Promoted]; now rewrite Promoted. }
  assert (NextOperations : task_operations (Domain.with_activity WantsModel (Tasks.promote task)) = operations).
- { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];
-     rewrite Promoted; apply operations_after_running_lifecycle. }
+ { unfold task_operations; now rewrite NextPhase. }
  rewrite NextPhase, NextOperations; split; [reflexivity|exact Member].
 Qed.
 

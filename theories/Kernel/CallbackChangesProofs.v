@@ -59,7 +59,8 @@ Lemma settle_operation_expression : forall operation result error task,
  Tasks.wake_after_result (with_operations (Callbacks.remove_operation (operation_id operation) (task_operations task))
  (append_history [History.operation_result operation result error] task)).
 Proof.
- intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes, Callbacks.settle_operation_plan, Tasks.result_changes.
+ intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes,
+   Callbacks.settle_operation_plan, OperationEvent.settle, Tasks.result_changes.
  rewrite applying_change_lists.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
    destruct lifecycle; reflexivity.

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import Numbers State InputDecoder CallbackProtocolProofs Packet PacketProofs WorldInvariant Notifications Delivery CommitAdmission.
+From Selvedge.Kernel Require Import Numbers State InputDecoder CallbackProtocolProofs Packet PacketProofs Notifications Delivery.
 From Selvedge.Features Require Import Board BoardProofs Remote Worktree Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -83,8 +83,8 @@ Lemma packet_keeps_an_ignored_nondurable_result : forall source value result,
  field "durable" (snd (Packet.packet source value))=Some (JBool false).
 Proof.
  intros source value result Transition Unchanged Empty.
- unfold Packet.packet,Packet.packet_admitted; destruct (N.leb _ _).
- - rewrite (PacketProofs.a_nondurable_transition_selects_its_ordinary_commit source value result _ Transition).
+ unfold Packet.packet; destruct (N.leb _ _).
+ - rewrite (PacketProofs.a_nondurable_transition_selects_its_ordinary_commit source value result Transition).
    apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; assumption.
  - repeat split; reflexivity.
 Qed.

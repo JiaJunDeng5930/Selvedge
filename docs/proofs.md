@@ -14,10 +14,22 @@ before it becomes a domain value. Shared declarations supply structural facts;
 owner-specific requirements still govern authorization, correlation and business
 behavior.
 
-A generic theorem supplies a guarantee only after its premises are instantiated
-for the actual exported operations. An abstract contract with no checked
-production instance is incomplete evidence. A proof of a decoder's field shape
-is not a proof that an accepted command has the intended effect.
+Production operations must consume the controlled constructors whose types and
+interpreters provide their shared guarantees. A new owner supplies its domain
+inputs and any unique admission rule; it does not repeat history, frame,
+correlation or decoding proofs already owned by the language. Review the actual
+construction path, including whether an interface still permits independent
+values that are required to agree. An unused abstract contract supplies no
+production guarantee.
+
+The worker owns an opaque world initialized by the kernel. The journal stores
+inputs and receipts and restores state by replaying admitted inputs; it does not
+load a caller-supplied world. Domain admission resolves current references,
+permissions and capacities before constructing a change. Internal commit does
+not scan the entire world or reconstruct operation certificates from JSON
+receipts. Receipt and continuation construction share the same operation event.
+The commit boundary withdraws requests cancelled later in the same transaction
+and enforces the complete output budget before dispatch.
 
 ## What kernel checking establishes
 

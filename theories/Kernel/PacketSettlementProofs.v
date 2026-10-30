@@ -2,8 +2,8 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs InputDecoder
  Scheduler SideContext Dispatch Limits Observation Notifications Delivery Packet.
-From Selvedge.Kernel Require Import TicketedRequest Capabilities WorldInvariant WorldInvariantProofs
- AfterHookPreservation AfterHookAuthorizationProofs PacketBusinessProofs CommitAdmission ScopedRequestProofs
+From Selvedge.Kernel Require Import TicketedRequest Capabilities
+ PacketBusinessProofs ScopedRequestProofs
  TerminalSettlement TerminalSettlementPlanProofs TerminalSettlementPacketProofs.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit BoardCommit ConnectionCommit TitleCommit.
 From Selvedge.Features Require Import Runtime.
@@ -158,27 +158,24 @@ Theorem an_archived_result_is_committed_by_the_exported_packet :
  InputDecoder.decode raw = Some (TerminalSettlement.source accepted) ->
  TerminalSettlement.resolve (TerminalSettlement.source accepted) before = Some accepted ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
- WorldInvariant.well_formed before ->
  Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
  Packet.packet raw before =
  (with_sequence (N.succ (world_sequence before)) (decision_world (TerminalSettlement.candidate accepted)),
   Notifications.envelope true true (Some (TerminalSettlement.source accepted)) before
     (TerminalSettlement.candidate accepted)).
 Proof.
- intros raw before accepted Decoded Resolved InputBudget Valid OutputBudget.
- unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted.
- rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ intros raw before accepted Decoded Resolved InputBudget OutputBudget.
+ unfold Packet.packet, Packet.select.
  rewrite InputBudget; cbv beta zeta; rewrite Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].
  rewrite Resolved.
- apply a_terminal_settlement_commits_before_independent_runtime_work; assumption.
+ exact (a_terminal_settlement_commits_before_independent_runtime_work before accepted raw OutputBudget).
 Qed.
 
-(* The public result follows from the real callback ownership and the output
-   budget. Neither the constructor, the executor nor an admission bit is an
-   assumed successful result. Other tasks and feature registries are arbitrary. *)
+(* The public result follows from callback ownership, decoded input and the
+   frame budgets. Other tasks and feature registries are arbitrary. *)
 Theorem every_owned_terminal_callback_commits_at_the_public_packet :
  forall raw before payload current,
  let input := AfterCompleted (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
@@ -187,7 +184,6 @@ Theorem every_owned_terminal_callback_commits_at_the_public_packet :
  find_task (TerminalSettlement.owner payload) before = Some current ->
  TerminalSettlement.eligible payload current = true ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
- WorldInvariant.well_formed before ->
  exists accepted, TerminalSettlement.resolve_request payload before = Some accepted /\
  (Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
   let result := TerminalSettlement.candidate accepted in
@@ -197,7 +193,7 @@ Theorem every_owned_terminal_callback_commits_at_the_public_packet :
   decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
   decision_effects result = [ContinueScheduling]).
 Proof.
- intros raw before payload current input Decoded Found Eligible InputBudget Valid.
+ intros raw before payload current input Decoded Found Eligible InputBudget.
  destruct (every_owned_terminal_callback_resolves_its_finite_transaction payload before current Found Eligible)
   as [accepted Resolved].
  pose proof (resolution_retains_the_callback_payload payload before accepted Resolved) as Payload.
@@ -209,7 +205,5 @@ Proof.
    + rewrite Source; exact Decoded.
    + rewrite Source; unfold input, TerminalSettlement.resolve.
      destruct payload; exact Resolved.
- - destruct (every_terminal_plan_constructs_its_exact_successful_settlement before accepted)
-   as [operations [original [plugin [previous [failed [_ [_ [_ [_ Exact]]]]]]]]].
-   rewrite Exact; split; reflexivity.
+ - split; reflexivity.
 Qed.

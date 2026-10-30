@@ -7,6 +7,21 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks LifecyclePr
 Import ListNotations.
 Open Scope string_scope.
 
+Theorem constructed_children_have_the_requested_count :
+ forall count owner parent messages settings entry start next invocation,
+ List.length (Tasks.constructed_children count owner parent messages settings entry start next invocation) = count.
+Proof.
+ induction count; intros; cbn [Tasks.constructed_children List.length]; auto.
+Qed.
+
+Theorem constructed_children_have_the_parent_lineage :
+ forall count owner parent messages settings entry start next invocation,
+ Forall (fun child => task_lineage child = owner :: task_lineage parent)
+   (Tasks.constructed_children count owner parent messages settings entry start next invocation).
+Proof.
+ induction count; intros; cbn [Tasks.constructed_children]; constructor; [reflexivity|apply IHcount].
+Qed.
+
 Definition registry_lookup_preserved_by_append := @Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append.
 Lemma append_task_preserves_existing : forall owner existing child value,
  find_task owner value = Some existing -> find_task owner (append_task child value) = Some existing.

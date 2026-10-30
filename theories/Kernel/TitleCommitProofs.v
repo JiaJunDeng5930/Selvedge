@@ -1,25 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration ArgumentDeclarationProofs.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs TaskScope TicketedRequest
- TitleCommit FeatureFrameProofs WorldInvariant WorldInvariantProofs DeferredCommit TitleCommitPreservation TicketBoundMonotonicityProofs.
-From Selvedge.Features Require Import Domain State Titles TitleRuntime TitleProofs.
-Import ListNotations.
+From Selvedge.Features Require Import Titles.
 Open Scope string_scope.
-Open Scope list_scope.
-Module F := Selvedge.Features.Domain.
-Module S := TicketedRequest.Scoped.
-
-Theorem a_title_plan_resolves_the_actual_eligible_task : forall before (request : TitleCommit.plan before),
- exists selected,
- TitleRuntime.entry (TaskScope.owner (TitleCommit.reference request)) before = None /\
- TitleRuntime.accepts (TaskScope.selected (TitleCommit.reference request)) = true /\
- Utf8.nonblank (TitleRuntime.first_request (task_history (TaskScope.selected (TitleCommit.reference request)))) = true /\
- TitleRuntime.selected_profile (TaskScope.selected (TitleCommit.reference request)) before = Some selected.
-Proof.
- intros before [reference selected Absent Eligible Chosen].
- pose proof (proj1 (Bool.andb_true_iff _ _) Eligible) as [Accepts Nonblank].
- exists selected; repeat split; assumption.
-Qed.
 
 Local Lemma string_append_length : forall first second,
  String.length (first ++ second) = (String.length first + String.length second)%nat.
@@ -55,71 +37,4 @@ Proof.
      (Titles.prompt_bytes - N.of_nat (String.length (Titles.instructions ++ Titles.title_format)))) as Bound.
    rewrite string_append_length, Nat2N.inj_add in Bound. lia.
  - cbn [String.length]. lia.
-Qed.
-
-Definition an_automatic_title_selects_a_capable_configured_profile :=
- FeatureRequestAdmission.selected_title_profile_is_registered_and_capable.
-
-Lemma an_automatic_title_uses_an_admitted_profile : forall task before selected,
- well_formed before -> TitleRuntime.selected_profile task before = Some selected -> profile_valid selected = true.
-Proof.
- intros task before selected Valid Chosen.
- pose proof (an_automatic_title_selects_a_capable_configured_profile task before selected Chosen) as [Member Capable].
- pose proof (environment_requirement before Valid) as Environment.
- unfold environment_valid in Environment. repeat rewrite andb_true_iff in Environment.
- assert (Profiles : profiles_valid (environment_profiles (world_environment before)) = true) by tauto.
- unfold profiles_valid in Profiles. apply andb_true_iff in Profiles as [Profiles Unique].
- now apply forallb_forall with (x:=selected) in Profiles.
-Qed.
-
-Definition title_prompt (owner : N) (current : task) before :=
- TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features before)))
-   (TitleRuntime.first_request (task_history current)).
-Definition title_decision owner (current : task) selected before :=
- let prompt := title_prompt owner current before in
- Decision (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))
-   (with_ticket (N.succ (world_next_ticket before)) before))
-   (success JNull) [SuggestTitle owner (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt));ContinueScheduling].
-
-Theorem every_title_plan_constructs_its_exact_request : forall before (request : TitleCommit.plan before) selected,
- TitleRuntime.entry (TaskScope.owner (TitleCommit.reference request)) before = None ->
- TitleRuntime.accepts (TaskScope.selected (TitleCommit.reference request)) = true ->
- Utf8.nonblank (TitleRuntime.first_request (task_history (TaskScope.selected (TitleCommit.reference request)))) = true ->
- TitleRuntime.selected_profile (TaskScope.selected (TitleCommit.reference request)) before = Some selected ->
- TitleCommit.candidate request = title_decision (TaskScope.owner (TitleCommit.reference request))
-   (TaskScope.selected (TitleCommit.reference request)) selected before.
-Proof.
- intros before request selected Absent Accepts Nonblank Chosen.
- pose proof (FeatureRequestAdmission.title_chosen request) as Selected.
- change (FeatureRequestAdmission.selected_title_profile
-   (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before = Some selected) in Chosen.
- rewrite Chosen in Selected; inversion Selected; subst selected; reflexivity.
-Qed.
-
-Theorem every_eligible_title_request_preserves_all_world_requirements :
- forall owner current selected before,
- well_formed before -> find_task owner before = Some current -> TitleRuntime.entry owner before = None ->
- TitleRuntime.selected_profile current before = Some selected ->
- well_formed (decision_world (title_decision owner current selected before)).
-Proof.
- intros owner current selected before Valid Owned Absent Chosen.
- pose proof (well_formed_feature_requirements before Valid) as Features.
- assert (Titles : titles_valid before = true).
- { unfold features_valid in Features; repeat rewrite andb_true_iff in Features; tauto. }
- assert (Supply : tickets_valid before = true) by exact (tickets_requirement before Valid).
- assert (Prompt : Titles.valid_instructions
-   (F.title_agent_prompt (F.feature_title_settings (world_features before))) = true).
- { unfold titles_valid in Titles; repeat rewrite andb_true_iff in Titles; tauto. }
- cbn [title_decision decision_world].
- apply storing_a_title_preserves_every_other_world_requirement.
- - apply well_formed_with_ticket; [exact Valid|apply N.le_succ_diag_r].
- - apply storing_one_eligible_title_preserves_title_requirements with (task:=current).
-   + apply titles_valid_with_ticket; [apply N.le_succ_diag_r|exact Titles].
-   + exact Absent.
-   + exact Owned.
-   + apply N.lt_succ_diag_r.
-   + eapply an_automatic_title_uses_an_admitted_profile; eauto.
-   + now apply an_automatic_title_selects_a_capable_configured_profile in Chosen as [_ Chosen].
-   + apply a_title_prompt_obeys_the_declared_byte_bound; exact Prompt.
- - apply a_fresh_title_preserves_global_ticket_ownership; assumption.
 Qed.

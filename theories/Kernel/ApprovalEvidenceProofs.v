@@ -67,7 +67,7 @@ Local Lemma a_decision_keeps_its_reviewer_record : forall owner pending actor ou
    (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner pending actor outcome task.
- unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan.
+ unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
  apply prefixed_results_retain_their_history_record.
 Qed.
 
@@ -83,11 +83,11 @@ Theorem an_approval_denial_runs_the_frozen_result_chain :
    else current) (task_operations task).
 Proof.
  intros owner pending actor reason task plugin rest Normal Hooks.
- unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan.
+ unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
  rewrite Normal, prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
- unfold Callbacks.begin_result_plan, Callbacks.settle_operation_plan, Tasks.result_changes.
+ unfold OperationEvent.returned, OperationEvent.settle, Tasks.result_changes.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
- destruct lifecycle; unfold Callbacks.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
+ destruct lifecycle; unfold Callbacks.after_plugins, OperationEvent.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
 Qed.
 
 Theorem model_approval_completion_records_its_captured_reviewer :

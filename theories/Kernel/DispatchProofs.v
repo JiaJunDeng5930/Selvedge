@@ -57,7 +57,7 @@ Qed.
 
 (* These are the actual maintenance effect constructors. In particular, an
    unfreeze-created Scope is withdrawn if a later native archive clears its
-   receiver, before CommitAdmission checks the final decision. *)
+   receiver, before the final output is delivered. *)
 Theorem task_cancellation_withdraws_scope_measurement_and_compaction :
  forall value reply effects owner ticket input scope validating target progress,
  In (CancelTask owner) effects ->
@@ -76,7 +76,7 @@ Qed.
 
 (* A precise maintenance cancellation uses the same globally allocated task
    ticket as its provider request or context observation. The Cancel effect
-   itself is retained and still has to pass its existing retirement authority. *)
+   itself is retained so the host can retire that pending request. *)
 Theorem a_maintenance_cancellation_withdraws_its_exact_request :
  forall value reply effects request owner ticket,
  Dispatch.request_coordinate request = Some (owner,ticket) ->
@@ -86,6 +86,19 @@ Proof.
  intros value reply effects request owner ticket Coordinate Cancelled.
  apply (a_cancelled_request_is_withdrawn value reply effects request owner ticket Coordinate).
  now apply maintenance_cancellation_matches_its_owned_ticket.
+Qed.
+
+Theorem withdrawal_never_dispatches_execution_for_an_archived_owner :
+ forall owner task operations current request ticket,
+ find_task owner (decision_world current) = Some task ->
+ task_lifecycle task = Archived operations ->
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ ~ In request (decision_effects (Dispatch.retain_live_effects current)).
+Proof.
+ intros owner task operations current request ticket Found ArchivedTask Coordinate Emitted.
+ unfold Dispatch.retain_live_effects in Emitted; cbn in Emitted.
+ apply filter_In in Emitted as [_ Live].
+ unfold Dispatch.live_request in Live; rewrite Coordinate, Found, ArchivedTask in Live; discriminate.
 Qed.
 
 Theorem an_uncancelled_request_keeps_its_owned_effect :

@@ -77,6 +77,20 @@ Proof.
  apply the_fork_constructor_emits_no_unbound_effects.
 Qed.
 
+Theorem fork_command_has_no_external_effects : forall request context before,
+ match CommandExecution.handle_fork_result request context before with
+ | CommandResult.Accepted change => CommandResult.change_effects change = []
+ | CommandResult.Rejected _ => True end.
+Proof.
+ intros request context before.
+ assert (Empty : decision_effects (CommandHandlers.execute (G.Cmd_fork request) context before) = []).
+ { rewrite the_actual_fork_handler_interprets_its_message_admission.
+   destruct (Codec.traverse Images.parse_content (message_sources request)); [|reflexivity].
+   apply the_fork_constructor_emits_no_unbound_effects. }
+ rewrite the_actual_fork_handler_has_its_typed_result in Empty.
+ destruct (CommandExecution.handle_fork_result request context before); [exact Empty|exact I].
+Qed.
+
 Lemma the_fork_transaction_emits_only_its_durable_continuation : forall request before,
  Forall (fun effect => effect = ContinueScheduling) (decision_effects (ForkCommit.candidate request before)).
 Proof.
