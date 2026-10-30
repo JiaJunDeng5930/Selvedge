@@ -34,62 +34,58 @@ Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
 Definition configure_decoder := Decoder "configure" Configuration.environment_schema
  (fun values => option_map Configure (Configuration.environment_of_fields values)).
-Definition context_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Context false)
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let observations := head values in let diagnostic := head (tail values) in
-  if ok then match observations,diagnostic with
-  | Some observations,None => option_map (fun observations => ContextCompleted id ticket (Some observations) "") (Codec.traverse parse_observation observations)
-  | _,_ => None end
-  else match observations,diagnostic with
-  | None,Some text => if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
-  | _,_ => None end).
-Definition model_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Model false)
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let items := head values in let values := tail values in
-  let diagnostic := head values in let failure := head (tail values) in
-  if ok then match items with
-  | Some items => option_map (fun items => ModelCompleted id ticket (ModelSuccess items)) (Codec.traverse Codec.parse_model_item items)
-  | None => None end
-  else match diagnostic with
-  | Some text => Some (ModelCompleted id ticket (match failure with Some _ => ModelContextLimit | None => ModelFailure text end))
-  | None => None end).
-Definition reasoning_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Reasoning false)
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let effort := head values in let values := tail values in
-  let generations := head values in let diagnostic := head (tail values) in
-  if ok then match effort,generations,diagnostic with
-  | Some effort,Some generations,None =>
-      if Nat.leb (Utf8.byte_length effort) 64 then Some (ReasoningCompleted id ticket (Reasoning.Chosen effort generations)) else None
-  | _,_,_ => None end
-  else match effort,generations,diagnostic with
-  | None,None,Some reason =>
-      if Nat.leb (Utf8.byte_length reason) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed reason)) else None
-  | _,_,_ => None end).
-Definition tool_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Tool false)
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  Some (ToolCompleted id ticket (match head (tail values) with Some value => value | None => JNull end) (head values))).
-Definition hook_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Hook false)
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  option_map (HookCompleted id ticket) (parse_hook (head (tail values)))).
-Definition after_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration AfterHook false)
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  let values := tail values in let operation := head values in
-  option_map (AfterCompleted id operation ticket) (parse_after (head (tail values)))).
-Definition approval_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Approval false)
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  option_map (ApprovalCompleted id ticket) (parse_approval_outcome (head (tail values)))).
-Definition decoders := [command_decoder;configure_decoder;context_decoder;model_decoder;reasoning_decoder;
- tool_decoder;hook_decoder;after_decoder;approval_decoder;
+(** The callback language chooses its result branch before exposing values.
+    Domain handlers receive exactly that branch's fields and never reconstruct
+    a relationship between independent optional payloads and a status flag. *)
+Definition callback_kinds := [Context;Model;Reasoning;Tool;Hook;AfterHook;Approval].
+Definition callback_named (name : string) :=
+ find (fun kind => String.eqb name (callback_text kind)) callback_kinds.
+Definition callback_input (kind : callback_kind) : forall ok,
+ fields (CallbackDeclarations.coordinates kind) -> fields (CallbackDeclarations.payload kind ok) -> option input :=
+ match kind as kind return forall ok, fields (CallbackDeclarations.coordinates kind) ->
+   fields (CallbackDeclarations.payload kind ok) -> option input with
+ | Context => fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return fields (CallbackDeclarations.payload Context ok) -> option input then
+     fun values => option_map (fun observations => ContextCompleted id ticket (Some observations) "")
+       (Codec.traverse parse_observation (head values))
+   else fun values => let text := head values in
+     if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
+ | Model => fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return fields (CallbackDeclarations.payload Model ok) -> option input then
+     fun values => option_map (fun items => ModelCompleted id ticket (ModelSuccess items))
+       (Codec.traverse Codec.parse_model_item (head values))
+   else fun values => Some (ModelCompleted id ticket
+     (match head (tail values) with Some _ => ModelContextLimit | None => ModelFailure (head values) end))
+ | Reasoning => fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return fields (CallbackDeclarations.payload Reasoning ok) -> option input then
+     fun values => if Nat.leb (Utf8.byte_length (head values)) 64
+       then Some (ReasoningCompleted id ticket (Reasoning.Chosen (head values) (head (tail values)))) else None
+   else fun values => let text := head values in
+     if Nat.leb (Utf8.byte_length text) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed text)) else None
+ | Tool => fun ok address values => Some (ToolCompleted (head address) (head (tail address))
+     (match head values with Some value => value | None => JNull end) (negb ok))
+ | Hook => fun _ address values => option_map (HookCompleted (head address) (head (tail address))) (parse_hook (head values))
+ | AfterHook => fun _ address values => option_map
+     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address))) (parse_after (head values))
+ | Approval => fun _ address values => option_map (ApprovalCompleted (head address) (head (tail address)))
+     (parse_approval_outcome (head values))
+ | _ => fun _ _ _ => None end.
+Definition decode_callback kind source :=
+ match CallbackDeclarations.decode kind source with
+ | Some (existT _ ok (address,values)) => callback_input kind ok address values
+ | None => None end.
+Definition decoders := [command_decoder;configure_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
 Definition decode (source : json) : option input :=
  match source with
  | JObject members => if Schema.unique_names (map fst members) then
    match lookup "kind" members with
-   | Some (JString _) => ModelDeclarations.decode_cases decoders source
+   | Some (JString name) => match callback_named name with
+     | Some kind => decode_callback kind source
+     | None => ModelDeclarations.decode_cases decoders source end
    | _ => None end
    else None
  | _ => None end.
@@ -120,7 +116,10 @@ Proof.
    (Selvedge.Generated.Commands.AdmittedCommand (head values) command Parsed)).
 Qed.
 Definition owns_kind (source : json) :=
- match string_field "kind" source with Some kind => existsb (fun decoder => String.eqb kind (decoder_name decoder)) decoders | None => false end.
+ match string_field "kind" source with Some kind =>
+   match callback_named kind with Some _ => true
+   | None => existsb (fun decoder => String.eqb kind (decoder_name decoder)) decoders end
+ | None => false end.
 
 Open Scope string_scope.
 Definition schema_diagnostic (label : string) (declaration : schema) (source : json) :=
@@ -152,7 +151,11 @@ Definition command_diagnostic (source : json) :=
  end.
 Definition diagnostic (source : json) :=
  match string_field "kind" source with
- | Some kind => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
+ | Some kind => match callback_named kind with
+   | Some callback => match CallbackDeclarations.read_status callback source with
+     | Some ok => schema_diagnostic ("callback '" ++ kind ++ "'") (CallbackDeclarations.full_schema callback ok) source
+     | None => "Missing or invalid callback result marker" end
+   | None => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
    | Some decoder =>
      let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
      match Schema.decode (decoder_fields decoder) payload with
@@ -161,6 +164,6 @@ Definition diagnostic (source : json) :=
        else "Invalid domain values in input '" ++ kind ++ "'"
      end
    | None => "Unknown protocol input '" ++ kind ++ "'"
-   end
+   end end
  | None => "Missing or invalid protocol 'kind'"
  end.

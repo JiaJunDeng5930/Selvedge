@@ -124,19 +124,33 @@ Definition kernel_failure_input (kind : callback_kind) : fields (coordinates kin
 Ltac compute_typed_roundtrip Roundtrip :=
  cbv beta iota zeta delta -[diagnostic show_natural parse_natural] in Roundtrip;
  repeat rewrite natural_print_parse in Roundtrip.
-Ltac failure_wire_roundtrip decoder :=
+Ltac failure_wire_roundtrip :=
  lazymatch goal with
  | |- InputDecoder.decode (CallbackDeclarations.encode ?kind false ?address ?values) = ?expected =>
- let typed := constr:(append_fields (coordinates kind) (payload kind false) address values) in
- destruct (declared_input_wire (InputDecoder.decoder_name decoder) (InputDecoder.decoder_fields decoder)
-   (ModelDeclarations.decoder_construct decoder) typed eq_refl eq_refl eq_refl)
-   as [canonical [Roundtrip Decoded]];
- change (InputDecoder.decode (ModelDeclarations.encode (decoder_declaration decoder) typed) = expected);
- transitivity (ModelDeclarations.decoder_construct decoder canonical); [exact Decoded|];
- compute_typed_roundtrip Roundtrip; inversion Roundtrip; subst canonical;
- cbv beta iota zeta delta -[diagnostic InputDecoder.parse_approval_outcome
-   InputDecoder.parse_hook InputDecoder.parse_after HookRules.parse_hook HookRules.parse_after
-   Nat.leb Utf8.byte_length String.length]
+   let wire := constr:(CallbackDeclarations.encode kind false address values) in
+   let branch := eval cbv in (match CallbackDeclarations.status kind with None => true | Some _ => false end) in
+   destruct (constructed_callback_has_declared_fields kind false address values)
+     as [canonical [Decoded _]];
+   let Computed := fresh "Computed" in pose proof Decoded as Computed;
+   compute_typed_roundtrip Computed; inversion Computed; subst canonical;
+   change (InputDecoder.decode_callback kind wire = expected);
+   unfold InputDecoder.decode_callback,CallbackDeclarations.decode;
+   let Status := fresh "Status" in
+   assert (Status : CallbackDeclarations.read_status kind wire = Some branch) by reflexivity;
+   rewrite Status;
+   let Kind := fresh "Kind" in
+   assert (Kind : ModelDeclarations.matches (CallbackDeclarations.declaration kind branch) wire = true) by reflexivity;
+   rewrite Kind;
+   let Parsed := fresh "Parsed" in
+   pose proof Decoded as Parsed;
+   lazymatch type of Parsed with
+   | _ = Some ?result =>
+     change (Schema.decode (CallbackDeclarations.full_schema kind branch) wire = Some result) in Parsed
+   end;
+   rewrite Parsed;
+   cbv beta iota zeta delta -[diagnostic InputDecoder.parse_approval_outcome
+     InputDecoder.parse_hook InputDecoder.parse_after HookRules.parse_hook HookRules.parse_after
+     Nat.leb Utf8.byte_length String.length]
  end.
 
 (** Issued coordinates are typed before callback construction. The schema
@@ -148,30 +162,27 @@ Theorem every_kernel_failure_callback_is_decoded kind address message limit expe
 Proof.
  destruct kind; cbn [kernel_failure_input]; try discriminate;
  intros Expected; inversion Expected; subst expected.
- - failure_wire_roundtrip InputDecoder.approval_decoder.
+ - failure_wire_roundtrip.
    now rewrite approval_failure_diagnostic_is_decoded.
- - failure_wire_roundtrip InputDecoder.hook_decoder.
+ - failure_wire_roundtrip.
    now rewrite hook_failure_diagnostic_is_decoded.
- - failure_wire_roundtrip InputDecoder.after_decoder.
+ - failure_wire_roundtrip.
    now rewrite after_failure_diagnostic_is_decoded.
- - failure_wire_roundtrip InputDecoder.context_decoder.
+ - failure_wire_roundtrip.
    destruct (diagnostic_text_contract Context message) as [_ [_ Bound]].
    lazymatch goal with |- (if ?within then _ else _) = _ => change (within = true) in Bound end.
    now rewrite Bound.
- - failure_wire_roundtrip InputDecoder.reasoning_decoder.
+ - failure_wire_roundtrip.
    destruct (diagnostic_text_contract Reasoning message) as [_ [_ Bound]].
    lazymatch goal with |- (if ?within then _ else _) = _ => change (within = true) in Bound end.
    now rewrite Bound.
- - destruct limit; failure_wire_roundtrip InputDecoder.model_decoder; reflexivity.
- - failure_wire_roundtrip InputDecoder.tool_decoder; reflexivity.
+ - destruct limit; failure_wire_roundtrip; reflexivity.
+ - failure_wire_roundtrip; reflexivity.
 Qed.
 
 Ltac callback_schema_roundtrip kind address values :=
- let description := constr:(full_schema kind false) in
- let typed := constr:(FCons (field:=Field "kind" KText) (callback_text kind)
-   (append_fields (coordinates kind) (payload kind false) address values)) in
- destruct (schema_wire_roundtrip description typed eq_refl eq_refl) as [canonical [Decoded _]];
- change (Schema.decode description (CallbackDeclarations.encode kind false address values) = Some canonical) in Decoded;
+ destruct (constructed_callback_has_declared_fields kind false address values)
+   as [canonical [Decoded _]];
  let Computed := fresh "Computed" in pose proof Decoded as Computed;
  compute_typed_roundtrip Computed; inversion Computed; subst canonical.
 
@@ -185,7 +196,7 @@ Proof.
    (failure_payload BoardText (diagnostic BoardText message) limit).
  unfold Board.decode_completion_payload.
  rewrite Decoded; cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
-   CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect ModelDeclarations.payload_fields
+   CallbackDeclarations.coordinates CallbackDeclarations.payload CallbackDeclarations.status CallbackDeclarations.wire_payload ModelDeclarations.effect ModelDeclarations.payload_fields
    List.app Schema.of_tuple Schema.head Schema.tail fst snd].
  rewrite board_failure_diagnostic_is_admitted; reflexivity.
 Qed.

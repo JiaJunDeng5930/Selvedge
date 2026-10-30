@@ -98,17 +98,18 @@ Definition decode_activity (value : json) : option completion := match natural_f
  natural_field "source_length" value, natural_field "now" value, string_field "scope" value with
  | Some id, Some source, Some now, Some scope => Some (Activity id source now scope) | _, _, _, _ => None end.
 Definition decode_outcome (completed : bool) (value : json) : option completion :=
- match value with JObject members =>
- match Schema.decode_fields (ModelDeclarations.payload_fields (CallbackDeclarations.declaration (ModelDeclarations.Compaction completed) false)) members with
- | Some values => let id := Schema.head values in let values := Schema.tail values in
-   let ticket := Schema.head values in let values := Schema.tail values in
-   match Schema.head values with JObject fields => let error := Schema.head (Schema.tail values) in
-     if completed then
-       if error then match string_field "message" (JObject fields) with Some _ => Some (Completed id ticket (JObject fields) error) | None => None end
+ match CallbackDeclarations.decode (ModelDeclarations.Compaction completed) value with
+ | Some (existT _ ok (address,values)) =>
+   let id := Schema.head address in let ticket := Schema.head (Schema.tail address) in
+   let error := negb ok in
+   match Schema.head values with
+   | JObject fields => if completed then
+       if error then match string_field "message" (JObject fields) with
+         | Some _ => Some (Completed id ticket (JObject fields) error) | None => None end
        else Some (Completed id ticket (JObject fields) error)
      else option_map (MeasuredInput id ticket) (decode_inspection error (JObject fields))
    | _ => None end
- | None => None end | _ => None end.
+ | None => None end.
 Definition completion_decoders : list (string * (json -> option completion)) := [
  ("compaction_configure", decode_configure);
  ("compaction_clock", fun value => option_map Clock (natural_field "now" value));

@@ -14,7 +14,7 @@ Definition committed_coordinates (effect reply : json) : Prop := forall kind add
 Lemma encoded_callback_preserves_coordinates kind ok address values :
  decode_fields (coordinates kind) (object_fields (CallbackDeclarations.encode kind ok address values)) = Some address.
 Proof.
- destruct kind; cbn [CallbackDeclarations.encode append_fields coordinates declaration
+ destruct kind; cbn [CallbackDeclarations.encode CallbackDeclarations.mark CallbackDeclarations.status CallbackDeclarations.wire_payload append_fields coordinates declaration
    ModelDeclarations.effect ModelDeclarations.payload_fields ModelDeclarations.identity
    ModelDeclarations.task_only List.app ModelDeclarations.encode ModelDeclarations.tag_field
    ModelDeclarations.tag_value operation_identity String.eqb Ascii.eqb Bool.eqb

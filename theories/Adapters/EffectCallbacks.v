@@ -25,25 +25,27 @@ Definition observed_payload kind ok members : option (reply_fields kind) :=
 Definition observed_result (kind : callback_kind) (result : json) : option (reply_fields kind) :=
  let members := object_fields result in
  match kind as kind return option (reply_fields kind) with
- | TaskTitle => observed_payload TaskTitle true (("ok",JBool true) :: members)
-| BoardText => observed_payload BoardText true (("ok",JBool true) :: members)
-| Context => observed_payload Context true (("ok",JBool true) :: members)
-| Reasoning => observed_payload Reasoning true (("ok",JBool true) :: members)
- | Tool => observed_payload Tool true members
- | ChatgptExec => observed_payload ChatgptExec true members
+ | TaskTitle => observed_payload TaskTitle true members
+ | BoardText => observed_payload BoardText true members
+ | Context => observed_payload Context true members
+ | Reasoning => observed_payload Reasoning true members
+ | Tool => match bool_field "error" result with
+   | Some error => observed_payload Tool (negb error) members | None => None end
+ | ChatgptExec => match bool_field "error" result with
+   | Some error => observed_payload ChatgptExec (negb error) members | None => None end
  | Approval => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Approval true) [!result!]))
 | Hook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Hook true) [!result!]))
 | AfterHook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload AfterHook true) [!result!]))
- | Compaction done => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload (Compaction done) true) [!result;false!]))
+ | Compaction done => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload (Compaction done) true) [!result!]))
  | Model => option_map (fun items => existT _ true
-     (Schema.of_tuple (CallbackDeclarations.payload Model true) [!true;Some items;None;None!])) (as_array result)
+     (Schema.of_tuple (CallbackDeclarations.payload Model true) [!items!])) (as_array result)
  | Worktree created =>
    match bool_field "ok" result with
    | None => None
    | Some true => if created as created return option (reply_fields (Worktree created))
      then observed_payload (Worktree true) true members
      else option_map (fun outcome => existT _ true
-       (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) true) [!true;outcome!]))
+       (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) true) [!outcome!]))
        (match Json.field "outcome" result with
         | Some outcome => Some outcome
         (* Cloud workspace receipts carry their archived root; local receipts
@@ -53,11 +55,11 @@ Definition observed_result (kind : callback_kind) (result : json) : option (repl
    | Some false => if created as created return option (reply_fields (Worktree created)) then
        option_map (fun values : fields (CallbackDeclarations.payload (Worktree true) false) => existT _ false
          (Schema.of_tuple (CallbackDeclarations.payload (Worktree true) false)
-           [!false;Schema.head (Schema.tail values);diagnostic (Worktree true) (Schema.head (Schema.tail (Schema.tail values)))!]))
+           [!Schema.head values;diagnostic (Worktree true) (Schema.head (Schema.tail values))!]))
          (decode_fields (CallbackDeclarations.payload (Worktree true) false) members)
      else option_map (fun values : fields (CallbackDeclarations.payload (Worktree false) false) => existT _ false
          (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) false)
-           [!false;diagnostic (Worktree false) (Schema.head (Schema.tail values))!]))
+           [!diagnostic (Worktree false) (Schema.head values)!]))
          (decode_fields (CallbackDeclarations.payload (Worktree false) false) members)
    end
  end.
@@ -73,16 +75,15 @@ Definition failure_outcome (message : string) := JObject [("decision",JString "f
 Definition failure_payload (kind : callback_kind) (message : string) (context_limit : bool)
  : fields (CallbackDeclarations.payload kind false) := Schema.of_tuple _
  (match kind as kind return Schema.tuple (CallbackDeclarations.payload kind false) with
- | TaskTitle | BoardText => [!false;message!]
+ | TaskTitle | BoardText => [!message!]
  | Approval | Hook | AfterHook => [!failure_outcome message!]
- | Context => [!false;None;Some message!]
- | Reasoning => [!false;None;None;Some message!]
- | Model => [!false;None;Some message;if context_limit then Some (exist _ "context_limit" (or_introl eq_refl)) else None!]
- | Tool => [!true;Some (error_value message)!]
- | ChatgptExec => [!true;error_value message!]
- | Compaction _ => [!JObject [("message",JString message)];true!]
+ | Context | Reasoning => [!message!]
+ | Model => [!message;if context_limit then Some (exist _ "context_limit" (or_introl eq_refl)) else None!]
+ | Tool => [!Some (error_value message)!]
+ | ChatgptExec => [!error_value message!]
+ | Compaction _ => [!JObject [("message",JString message)]!]
  | Worktree created => if created as created return Schema.tuple (CallbackDeclarations.payload (Worktree created) false)
-     then [!false;None;message!] else [!false;message!] end).
+     then [!None;message!] else [!message!] end).
 Definition failed (effect : json) (original : string) (context_limit : bool) : option json :=
  match callback_kind_of (str effect "kind") with
  | Some kind => option_map (fun address => CallbackDeclarations.encode kind false address

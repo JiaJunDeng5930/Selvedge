@@ -127,7 +127,7 @@ Proof.
  unfold Worktree.decode_creation_completion.
  destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
  cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
-  CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect
+  CallbackDeclarations.coordinates CallbackDeclarations.payload CallbackDeclarations.wire_payload CallbackDeclarations.status ModelDeclarations.effect
   ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
  destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
  do 4 apply decoded_field_tail in Fields.
@@ -148,7 +148,7 @@ Proof.
  unfold Worktree.decode_creation_completion.
  destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
  cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
-  CallbackDeclarations.coordinates CallbackDeclarations.payload ModelDeclarations.effect
+  CallbackDeclarations.coordinates CallbackDeclarations.payload CallbackDeclarations.wire_payload CallbackDeclarations.status ModelDeclarations.effect
   ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
  destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
  do 4 apply decoded_field_tail in Fields.
