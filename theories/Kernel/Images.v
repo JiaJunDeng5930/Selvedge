@@ -51,19 +51,22 @@ Definition content_of_values (value : D.denote content_declaration) : content :=
  | inr (inr impossible) => match impossible with end end.
 Definition image_count (parts : content) :=
  List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).
-Definition bounded_content := D.checked (fun parts => Nat.leb (image_count parts) message_image_limit).
+Definition content_within_limit parts := Nat.leb (image_count parts) message_image_limit.
+Definition bounded_content := D.checked content_within_limit.
 (* DEFENSE: Message parts and separately uploaded attachments share the public
    per-message limit; their combined image count can exceed four. *)
 Definition admit_content : content -> option bounded_content :=
- D.admit (fun parts => Nat.leb (image_count parts) message_image_limit).
+ D.admit content_within_limit.
 Definition message_content (value : D.denote content_declaration) :=
  option_map (@proj1_sig _ _) (admit_content (content_of_values value)).
-Definition user_content (message : option (D.denote content_declaration))
- (images : option (D.denote images_declaration)) :=
- option_map (@proj1_sig _ _) (admit_content
-   (List.app (match message with Some value => content_of_values value | None => [] end)
-    (match images with Some values => map (fun value => ImagePart (reference_of_values value)) values
-     | None => [] end))).
+Definition user_content_parts (values : option (D.denote content_declaration) * option (D.denote images_declaration)) :=
+ List.app (match fst values with Some value => content_of_values value | None => [] end)
+   (match snd values with Some values => map (fun value => ImagePart (reference_of_values value)) values
+    | None => [] end).
+Definition admit_user_content message images :=
+ D.admit (fun values => content_within_limit (user_content_parts values)) (message,images).
+Definition user_content message images :=
+ option_map (fun value => user_content_parts (proj1_sig value)) (admit_user_content message images).
 
 (** Raw entry points are for external attachment receipts, tool results and
     serialized content. Commands use the admitted interpreters above. *)
@@ -74,8 +77,6 @@ Definition parse_content (source : json) : option content := match source with
  | JNull => Some [] | _ => match D.decode content_declaration source with
    | Some value => message_content value | None => None end end.
 Definition valid_image_asset source := D.present (D.decode asset_declaration source).
-Definition valid_image_part source := D.present (D.decode image_part_declaration source).
-Definition valid_reference source := D.present (D.decode reference_declaration source).
 Definition only_images (parts : content) :=
  filter (fun part => match part with ImagePart _ => true | _ => false end) parts.
 Definition result_images (source : json) :=

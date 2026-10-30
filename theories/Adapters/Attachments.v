@@ -1,11 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Utf8 Schema.
+From Selvedge.Foundation Require Import Utf8 Schema OptionList.
 From Selvedge.Kernel Require Import Images.
 From Selvedge.Features Require BoardParameters.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module D := ArgumentDeclaration.
 
 Definition filename_character (code : N) := (31 <? code) &&
   negb (N.eqb code 127 || N.eqb code 47 || N.eqb code 92).
@@ -16,7 +17,9 @@ Definition filename (value : json) :=
     negb (String.eqb name "." || String.eqb name "..")
   then success value else type_error "An attachment needs a plain filename of at most 256 UTF-8 bytes".
 Definition identifier (value : json) :=
-  if is_text value && Images.valid_identifier (text value) then success value else type_error "Invalid attachment identifier".
+  match D.decode ContentDeclarations.identifier_declaration value with
+  | Some id => success (D.encode ContentDeclarations.identifier_declaration id)
+  | None => type_error "Invalid attachment identifier" end.
 Definition attachment (source : json) :=
   let record := get source "record" in
   if is_object record && equal (get record "version") (number 1) && equal (get record "id") (get source "id") &&
@@ -68,43 +71,41 @@ Fixpoint reference_match (keys : list string) (value attachment : json) :=
     if negb (has value key) || equal (get value key) (get attachment key)
     then reference_match rest value attachment
     else type_error ("Attachment " ++ key ++ " does not match its stored observation") end.
-Inductive image_collection := Collected (values : list json) | InvalidImages (reason : string).
-Definition join (left right : image_collection) := match left,right with
-  | InvalidImages reason,_ | _,InvalidImages reason => InvalidImages reason
-  | Collected xs,Collected ys => Collected (List.app xs ys) end.
-Definition checked (accepted : bool) (values : list json) (error : string) :=
-  if accepted then Collected values else InvalidImages error.
-Definition image_part (part : json) :=
-  if String.eqb (str part "type") "image" then checked (Images.valid_image_part part) [get part "image"] "Invalid image content part"
-  else checked (match Images.parse_content_part part with Some _ => true | None => false end) [] "Invalid message content part".
-Fixpoint image_parts (values : list json) := match values with [] => Collected [] | value::rest => join (image_part value) (image_parts rest) end.
-Definition message_parts (value : json) := match value with
-  | JArray values => image_parts values
-  | JString _ | JNull => Collected []
-  | _ => InvalidImages "Invalid message content" end.
-Fixpoint reference_images (values : list json) :=
-  match values with [] => Collected [] | value::rest =>
-    join (checked (Images.valid_reference value) [value] "Invalid image attachment reference") (reference_images rest) end.
-Definition image_references (value : json) := match value with
-  | JNull => Collected [] | JArray values => reference_images values | _ => InvalidImages "Images must be an array" end.
-Definition limited (collection : image_collection) := match collection with
-  | InvalidImages reason => InvalidImages reason
-  | Collected values => checked (Nat.leb (List.length values) Images.message_image_limit) values "A user message supports at most four images" end.
-Fixpoint messages_images (messages : list json) := match messages with
-  | [] => Collected [] | message::rest => join (limited (message_parts message)) (messages_images rest) end.
+Definition decode_optional declaration source : option (option (D.denote declaration)) :=
+  match source with JNull => Some None | _ => option_map (@Some _) (D.decode declaration source) end.
+Definition content_images (parts : Domain.content) := flat_map (fun part => match part with
+  | Domain.ImagePart image => [Images.image_json image] | _ => [] end) parts.
+Definition message_images_only source := option_map content_images (Images.parse_content source).
 Definition message_images (source : json) :=
   let command := get source "command" in
-  match join (limited (join (message_parts (get command "message")) (image_references (get command "images"))))
-    (messages_images (items (get command "messages"))) with
-  | Collected images => success (JArray images)
-  | InvalidImages reason => type_error reason end.
+  match decode_optional ContentDeclarations.content_declaration (get command "message"),
+    decode_optional ContentDeclarations.images_declaration (get command "images"),
+    OptionList.traverse message_images_only (items (get command "messages")) with
+  | Some message,Some references,Some batches =>
+    match Images.admit_user_content message references with
+    | Some admitted =>
+      let '(message,references) := proj1_sig admitted in
+      let content := match message with Some value => content_images (Images.content_of_values value) | None => [] end in
+      let attachments := match references with
+        | Some values => map (D.encode ContentDeclarations.reference_declaration) values | None => [] end in
+      success (JArray (content ++ attachments ++ List.concat batches))
+    (* DEFENSE: Inline images and uploaded references share the public per-message image limit. *)
+    | None => type_error "A user message supports at most four images" end
+  (* DEFENSE: A raw command can contain malformed image references or oversized message image batches. *)
+  | _,_,_ => type_error "Each message requires well-formed content and at most four images" end.
 Definition message_image_match (source : json) :=
-  let value := get source "value" in let stored := get source "attachment" in
-  let bytes := fun value => match get value "bytes" with JString value | JNumber value => value | _ => "" end in
-  if Images.valid_reference value && equal (get value "id") (get stored "id") &&
-    equal (get value "mime") (get stored "mime") && String.eqb (bytes value) (bytes stored) &&
-    forallb (fun key => negb (has value key) || equal (get value key) (get stored key)) ["name";"path"]
-  then success value else type_error "Image reference does not match the stored attachment".
+  let stored := get source "attachment" in
+  let invalid := type_error "Image reference does not match the stored attachment" in
+  match D.decode ContentDeclarations.reference_declaration (get source "value") with
+  | Some admitted => let '(id,(mime,(bytes,(name,(path,_))))) := proj1_sig admitted in
+    let matches key value := match value with
+      | Some value => equal (JString (proj1_sig value)) (get stored key) | None => true end in
+    if equal (JString (proj1_sig id)) (get stored "id") &&
+      equal (JString (proj1_sig mime)) (get stored "mime") &&
+      String.eqb (decimal (Images.reference_byte_count bytes)) (diagnostic (get stored "bytes")) &&
+      matches "name" name && matches "path" path
+    then success (D.encode ContentDeclarations.reference_declaration admitted) else invalid
+  | None => invalid end.
 Definition attachment_budget (source : json) :=
   if bound (get source "size") 0 Images.image_byte_limit then success JNull else range_error "Each board attachment is limited to 10 MiB".
 Definition artifact_limit (source : json) :=
