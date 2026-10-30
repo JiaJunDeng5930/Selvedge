@@ -33,13 +33,19 @@ Definition prepare_effect value : outcome json :=
   else Accepted effect.
 Definition prepare source := render_outcome (fun value => value) (prepare_effect source).
 Definition allowed_tool name := JObject [("type",JString "function");("name",name)].
-Record tool_authority := ToolAuthority { authority_tools : list json; authority_names : list json }.
+(** A callable name is derived from its registered tool. Backends cannot
+    supply an independent allowlist that names undeclared capabilities. *)
+Definition tool_authority := list (json * bool).
+Definition authority_tools (authority : tool_authority) := map fst authority.
+Definition callable_tools (authority : tool_authority) := map fst (filter snd authority).
+Definition authority_names authority := map (fun tool => get tool "name") (callable_tools authority).
 Definition request_authority (independent : bool) := if independent then unit else tool_authority.
 Definition construct_authority (independent : bool) effect : request_authority independent :=
  match independent as independent return request_authority independent with
  | true => tt
- | false => ToolAuthority (NativeTools.presentation_catalog (items (get effect "tools")))
-     (items (get effect "callable")) end.
+ | false => let names := items (get effect "callable") in
+     map (fun entry => (entry,contains names (get entry "name")))
+       (NativeTools.presentation_catalog (items (get effect "tools"))) end.
 Definition declared_tools {independent} : request_authority independent -> list json :=
  match independent as independent return request_authority independent -> list json with
  | true => fun _ => [] | false => authority_tools end.
@@ -68,13 +74,12 @@ Definition encode_authority (independent : bool) (account : bool) : request_auth
  | true => fun _ => ([],JString "none")
  | false => fun authority =>
    let tools := map tool (authority_tools authority) in
-   let names := authority_names authority in
    if account then
-     match filter (fun item => contains names (get item "name")) tools with
+     match map tool (callable_tools authority) with
      | [] => ([],JString "none")
      | selected => ([JObject [("type",JString "namespace");("name",JString local_tool_namespace);
          ("description",JString "Local Selvedge tools");("tools",JArray selected)]],JString "auto") end
-   else (tools,match names with [] => JString "none" | _ => JObject [
+   else (tools,match authority_names authority with [] => JString "none" | names => JObject [
      ("type",JString "allowed_tools");("mode",JString "auto");("tools",JArray (map allowed_tool names))] end)
  end.
 Definition optional_field (name : string) (value : option json) :=
@@ -87,14 +92,16 @@ Definition encode_request {independent} (profile : json) (request : response_req
    optional_field "instructions" (response_instructions request) ++
    optional_field "reasoning" (response_reasoning request) ++
    optional_field "text" (response_format request) ++ optional_field "max_output_tokens" (response_limit request)).
-Definition task_text_format effect := JObject [
-  ("type",JString "json_schema");("name",get effect "kind");("strict",JBool true);
-  ("schema",Titles.output_schema (String.eqb (str effect "kind") "board_text" && negb (boolean_field effect "retitle")))].
-Definition text_format effect :=
- if existsb (String.eqb (str effect "kind")) ["task_title";"board_text"]
- then Some (JObject [("format",task_text_format effect)]) else None.
-Definition structured_text body effect := match text_format effect with
+Definition task_text_format_fields (kind : string) (retitle : bool) := JObject [
+  ("type",JString "json_schema");("name",JString kind);("strict",JBool true);
+  ("schema",Titles.output_schema (String.eqb kind "board_text" && negb retitle))].
+Definition text_format_fields kind retitle :=
+ if existsb (String.eqb kind) ["task_title";"board_text"]
+ then Some (JObject [("format",task_text_format_fields kind retitle)]) else None.
+Definition text_format effect := text_format_fields (str effect "kind") (boolean_field effect "retitle").
+Definition structured_text_fields body kind retitle := match text_format_fields kind retitle with
  | Some format => set body "text" format | None => body end.
+Definition structured_text body effect := structured_text_fields body (str effect "kind") (boolean_field effect "retitle").
 Definition reasoning_value effect profile := JObject [
  ("effort",if account profile then effective_effort effect else request_effort effect)].
 Definition admit_reasoning effect profile : outcome (option json) :=
