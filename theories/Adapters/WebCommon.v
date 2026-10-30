@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson Utf8 CallWire.
+From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields ObjectMethod.
 From Selvedge.Adapters Require Export Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -17,36 +18,57 @@ Definition subset value keys := fold_right (fun key rest =>
 Definition contains_name values key value := existsb (fun item => same (get item key) value) values.
 Definition first_item values := match values with [] => JNull | item::_ => item end.
 Definition nth_history values index := nth (N.to_nat index) values JNull.
-Fixpoint wire value := match value with
-  | JString source => Utf8.well_formed source
-  | JArray values => forallb wire values
-  | JObject fields => forallb (fun pair => Utf8.well_formed (fst pair) && wire (snd pair)) fields
-  | _ => true end.
+Module D := ArgumentDeclaration.
+Module O := ObjectMethod.
+Definition missing (value : option json) := match value with Some value => value | None => JNull end.
+Definition member fields name := missing (Json.lookup name fields).
+Definition member_text fields name := text (member fields name).
+Definition member_subset fields keys := fold_right (fun key rest =>
+  match Json.lookup key fields with Some value => (key,value)::rest | None => rest end) [] keys.
+Definition required := DeclarationFields.required.
+Definition raw (name : string) := DeclarationFields.optional name D.Any.
+Definition safe_natural := D.Natural 0 9007199254740991.
+Definition project fields {result : Set} (handler : O.arguments fields result)
+ (values : D.denote (D.OpenObject fields)) := O.apply fields handler (proj1_sig values).
 Inductive retirement := Active | Cancelled | ConfigurationChanged.
 Definition retirement_code reason := number (match reason with Active => 0 | Cancelled => 1 | ConfigurationChanged => 2 end).
-Definition retired_as reason record := same (retirement_code reason) (get record "retired").
-Definition retirement_valid record := retired_as Active record || retired_as Cancelled record || retired_as ConfigurationChanged record.
-Definition retirement_optional record := is_null record || retirement_valid record.
-Definition base_source source := is_object source && wire source &&
-  retirement_optional (get source "record") && retirement_optional (get source "previous") &&
-  retirement_optional (get source "current").
-Definition owner_value effect := JString (if eq effect "kind" "model"
-  then "task:" ++ name_or_number (get effect "task_id")
-  else str effect "kind" ++ ":" ++ name_or_number (if is_null (get effect "task_id")
-    then get effect "card_id" else get effect "task_id") ++ ":" ++ name_or_number (get effect "ticket")).
-Definition owner source := success (owner_value (get source "effect")).
+Definition retirement_declaration := D.Union (map (fun reason => D.Const (retirement_code reason))
+  [Active;Cancelled;ConfigurationChanged]).
+Definition retirement_value (value : D.denote retirement_declaration) : retirement :=
+ match value with inl _ => Active | inr (inl _) => Cancelled | inr (inr (inl _)) => ConfigurationChanged
+ | inr (inr (inr impossible)) => match impossible with end end.
+Record stored_request := StoredRequest { stored_fields : list (string * json); stored_retirement : retirement }.
+Definition stored_json value := JObject (("retired",retirement_code value.(stored_retirement))::
+  Json.remove_field "retired" value.(stored_fields)).
+(** Persisted retirement is decoded only where it determines request reuse.
+    The encoder derives its wire value from that same state. *)
+Definition read_stored value : option stored_request := match value with
+ | JObject fields => option_map (StoredRequest (Json.remove_field "retired" fields))
+     (option_map retirement_value (D.decode retirement_declaration (member fields "retired")))
+ | _ => None end.
+Definition optional_stored value : option (option stored_request) := match value with
+ | JNull => Some None | _ => option_map Some (read_stored value) end.
+Definition stored_as reason value := match reason,value.(stored_retirement) with
+ | Active,Active | Cancelled,Cancelled | ConfigurationChanged,ConfigurationChanged => true | _,_ => false end.
+Definition stored_member value name := member value.(stored_fields) name.
+Definition owner_parts kind task card ticket := JString (if String.eqb kind "model"
+  then "task:" ++ name_or_number task
+  else kind ++ ":" ++ name_or_number (if is_null task then card else task) ++ ":" ++ name_or_number ticket).
+Definition owner_value effect := owner_parts (member_text effect "kind") (member effect "task_id")
+  (member effect "card_id") (member effect "ticket").
+Definition owner effect := success (owner_value effect).
 Definition receipt_tag value := eq value "type" "provider_receipt" && eq value "provider" "chatgpt-web".
 Fixpoint receipt_index history offset latest := match history with [] => latest | item::rest =>
   receipt_index rest (offset+1) (if eq item "role" "model_context" && receipt_tag (get item "content")
     then number offset else latest) end.
-Definition position source :=
-  let effect := get source "effect" in
-  let index := if eq effect "kind" "model" then receipt_index (items (get effect "history")) 0 JNull else JNull in
+Definition cursor kind history := if String.eqb kind "model" then receipt_index history 0 JNull else JNull.
+Definition position kind history :=
+  let index := cursor kind history in
   success (JObject [("position",if is_null index then JNumber "-1" else index);
     ("input_count",if is_null index then JNull else get (get
-      (nth_history (items (get effect "history")) (nat_value index)) "content") "input_count")]).
-Definition replacement_suffix effect := if eq effect "kind" "model" then
-  match Common.natural (get effect "context_replacement_source") with
+      (nth_history history (nat_value index)) "content") "input_count")]).
+Definition replacement_suffix kind replacement := if String.eqb kind "model" then
+  match Common.natural replacement with
   | Some index => ":context:" ++ decimal index | None => "" end else "".
 Definition successor_body id input := JObject [("previous_response_id",id);("input",JArray input);("stream",JBool true)].
 (* DEFENSE: Protocol JSON may contain duplicate members or unpaired Unicode
