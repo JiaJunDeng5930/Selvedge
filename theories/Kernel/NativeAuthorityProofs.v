@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskConstraints.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
@@ -70,7 +71,7 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
  forall invocation origin id count messages options value task selected selection remaining operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (PendingCalls remaining) operations ->
- TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) = true ->
+ TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
  Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
  Tasks.resolve_settings (task_current_profile task) options (Tasks.fork_settings_base origin task value) value = Some selected ->
@@ -196,7 +197,7 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
  forall invocation remaining origin id count messages options value task selected selection,
  find_task id value = Some task ->
  Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) task = true ->
- TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) = true ->
+ TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
  Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
  Tasks.resolve_settings (task_current_profile task) options (Tasks.fork_settings_base origin task value) value = Some selected ->

@@ -47,7 +47,7 @@ Lemma the_actual_fork_handler_interprets_its_message_admission : forall request 
      if N.eqb (Tasks.native_owner accepted) (G.fork_task_id request)
      then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
      else Tasks.ManualFork | None => Tasks.ManualFork end)
-   (settings_origin request) (G.fork_task_id request) (G.fork_child_count request)
+   (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
    messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before
  | None => reject "invalid_message" "Child messages contain invalid content parts" before end.
 Proof.
@@ -60,7 +60,7 @@ Proof.
          if N.eqb (Tasks.native_owner accepted) (G.fork_task_id request)
          then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
          else Tasks.ManualFork | None => Tasks.ManualFork end)
-        (settings_origin request) (G.fork_task_id request) (G.fork_child_count request)
+        (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
         messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before
     | None => CommandResult.refuse "invalid_message" "Child messages contain invalid content parts" end).
  destruct (Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request)); reflexivity.
@@ -129,7 +129,7 @@ Lemma a_manual_fork_uses_the_actual_domain_constructor : forall request messages
  Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) = Some messages ->
  CommandHandlers.execute (G.Cmd_fork request) None before =
  Tasks.fork_with_caller Tasks.ManualFork (settings_origin request)
-   (G.fork_task_id request) (G.fork_child_count request) messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before.
+   (G.fork_task_id request) (G.fork_child_count_admitted request) messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before.
 Proof.
  intros request messages before Parsed.
  rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed; reflexivity.

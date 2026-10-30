@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskConstraints.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith Lia.
@@ -44,7 +45,7 @@ Proof.
  rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task id before) as [parent|]; [|exact Found].
  destruct (Tasks.fork_parent_ready entry parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before).
  2: { unfold Tasks.fork_refusal; destruct entry;
@@ -71,7 +72,7 @@ Proof.
  intros invocation remaining origin id count messages settings before parent Found.
  rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
  destruct (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before); [|exact Found].
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)

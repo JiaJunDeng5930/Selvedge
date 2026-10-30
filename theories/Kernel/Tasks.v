@@ -519,13 +519,13 @@ Definition fork_refusal_reason (entry : fork_entry) (id count : N) (parent : tas
  | AcceptedNativeFork _ _ => start_refusal NativeForkEntry
      (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity)
  end.
-Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
+Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
  (messages : list content) (settings : option settings_request) (value : world) :=
  match TaskScope.select id value with
  | None => CommandResult.refuse "task_not_found" "The parent task does not exist"
  | Some target => let task := TaskScope.selected target in
    if fork_parent_ready entry task &&
-    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
+    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) &&
     TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
     match resolve_settings (task_current_profile task) settings (fork_settings_base origin task value) value with
@@ -556,7 +556,7 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id co
  end.
 Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
  CommandResult.reject value (fork_refusal_reason entry id count parent value).
-Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
+Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
  (messages : list content) (settings : option settings_request) (value : world) :=
  CommandResult.decide value (fork_result entry origin id count messages settings value).
 Definition fork := fork_with_caller ManualFork ParentSettings.

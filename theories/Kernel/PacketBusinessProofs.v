@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskConstraints.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonProofs.
@@ -11,7 +12,7 @@ Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
  forall origin owner count messages options before parent operations selected selection,
  find_task owner before = Some parent ->
  task_lifecycle parent = Running Idle operations ->
- TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) = true ->
+ TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
  Tasks.ancestors_fit (owner :: task_lineage parent) count before = true ->
  Tasks.resolve_settings (task_current_profile parent) options

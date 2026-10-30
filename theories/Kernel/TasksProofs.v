@@ -18,7 +18,7 @@ Proof.
  destruct phase; try discriminate; intros _; eauto.
 Qed.
 
-Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count messages requested value parent:
+Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id (count : TaskConstraints.fork_count) messages requested value parent:
  find_task id value=Some parent ->
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
@@ -163,7 +163,7 @@ Qed.
 Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining origin id count messages requested value parent selected selection,
  find_task id value = Some parent ->
  (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count value) = true ->
  Tasks.resolve_settings (task_current_profile parent) requested

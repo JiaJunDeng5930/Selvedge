@@ -77,7 +77,7 @@ Lemma exhausted_descendant_capacity_refuses_the_actual_native_fork_handler :
 Proof.
  intros request invocation remaining messages before parent Parsed Found Capacity.
  change (Tasks.ancestors_fit (@cons N (G.fork_task_id request) (task_lineage parent))
-   (G.fork_child_count request) before = false) in Capacity.
+   (TaskConstraints.fork_count_value (G.fork_child_count_admitted request)) before = false) in Capacity.
  unfold CommandExecution.handle_fork_result.
  match goal with |- match ?parsed with Some _ => _ | None => _ end = _ =>
    change (parsed = Some messages) in Parsed end; rewrite Parsed.

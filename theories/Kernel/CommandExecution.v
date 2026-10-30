@@ -235,7 +235,7 @@ Definition handle_fork_result (request : Selvedge.Generated.Commands.fork_payloa
  match traverse Images.message_content (match Selvedge.Generated.Commands.fork_messages_admitted request with Some values => values | None => [] end) with
    | Some messages => Tasks.fork_result (match context with Some accepted => if N.eqb (Tasks.native_owner accepted) (Selvedge.Generated.Commands.fork_task_id request) then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted) else Tasks.ManualFork | None => Tasks.ManualFork end) (match Selvedge.Generated.Commands.fork_settings_origin request with
      |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
-     |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (option_map (settings_request_of_values true) (Selvedge.Generated.Commands.fork_settings_admitted request)) value
+     |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count_admitted request) messages (option_map (settings_request_of_values true) (Selvedge.Generated.Commands.fork_settings_admitted request)) value
    | None => CommandResult.refuse "invalid_message" "Child messages contain invalid content parts" end.
 
 Definition handle_fork (request : Selvedge.Generated.Commands.fork_payload)

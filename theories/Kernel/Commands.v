@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Arguments JsonSchema.
-From Selvedge.Kernel Require Import WorkspaceBackend Pagination.
+From Selvedge.Kernel Require Import WorkspaceBackend Pagination TaskConstraints.
 From Selvedge.Kernel Require Export CommandArguments.
 Import ListNotations.
 Open Scope string_scope.
@@ -63,7 +63,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "stop" task_identity);
   DeclareCommand KernelChange TaskExcluded (WireCommand "interrupt" task_identity);
   DeclareCommand KernelChange TaskAllowed (WireCommand "archive" task_identity);
-  DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [bounded 1 JsonSchema.maximum_natural (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"])]));
+  DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [typed TaskConstraints.fork_count_declaration (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"])]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "open_side_conversation" (task_identity ++ content_fields));
   DeclareCommand KernelChange TaskExcluded (WireCommand "return_side_conversation" task_identity);
   DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [opt "summary" KText]));
