@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Capabilities ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
+Open Scope list_scope.
 
 Module LeaseState.
 Definition failed_result (error : bool) (value : json) :=
@@ -44,17 +45,19 @@ Definition trailing_configuration (history : list message) :=
  | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
  | ApprovalReceipt _ _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
  | _ => false end) history false.
-Definition generation (owner : N) (model : profile) (remaining : N) (task : task) :=
+Definition generation_messages (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in
  let emit := match profile_policy (task_current_profile task) with
  | AdaptivePolicy policy => match reasoning_transport_mode policy with
    | RequestEffort => false | ConfigurationUpdates =>
      match last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous effort) end end
  | FixedReasoning => false end in
- let task := if emit && trailing_configuration (task_history task) then
-  append_history [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."] task else task in
- let task := append_history [ReasoningRecord owner effort (N.pred remaining) true] task in
- if emit then append_history [ReasoningConfigurationMessage effort] task else task.
+ (if emit && trailing_configuration (task_history task) then
+   [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."] else []) ++
+ [ReasoningRecord owner effort (N.pred remaining) true] ++
+ (if emit then [ReasoningConfigurationMessage effort] else []).
+Definition generation owner model remaining source :=
+ append_history (generation_messages owner model remaining source) source.
 
 End Plans.
 
@@ -64,30 +67,36 @@ Definition chosen_plan (model : profile) (remaining : option N) :=
  match remaining with None => Plans.Fixed model | Some count => Plans.Reuse model count end.
 Definition prepared (owner : N) (source : task) (model : profile) (remaining : option N) :=
  match remaining with None => source | Some count => Plans.generation owner model count source end.
-Definition canonical (owner : N) (model : profile) (snapshot : task) : Prop :=
- exists source remaining,
-   Plans.next owner source = chosen_plan model remaining /\
-   snapshot = prepared owner source model remaining.
-Record frozen (owner : N) := Frozen {
+(** A selection is indexed by the actual task that was read. Its prepared
+    history is derived from that source and its reasoning lease; there is no
+    independently supplied snapshot or existential alternate source. *)
+Record frozen (owner : N) (source : task) := Frozen {
  model : profile;
- base : task;
- selected_by_reasoning : canonical owner model base
+ remaining : option N;
+ selected_by_reasoning : Plans.next owner source = chosen_plan model remaining
 }.
 Definition freeze (owner : N) (source : task) (model : profile) (remaining : option N)
- (selection : Plans.next owner source = chosen_plan model remaining) : frozen owner :=
- Frozen owner model (prepared owner source model remaining)
-   (ex_intro _ source (ex_intro _ remaining (conj selection eq_refl))).
-Definition choose (owner : N) (source : task) : option (frozen owner) :=
- match Plans.next owner source as selected return Plans.next owner source = selected -> option (frozen owner) with
+ (selection : Plans.next owner source = chosen_plan model remaining) : frozen owner source :=
+ Frozen owner source model remaining selection.
+Definition choose (owner : N) (source : task) : option (frozen owner source) :=
+ match Plans.next owner source as selected return Plans.next owner source = selected -> option (frozen owner source) with
  | Plans.Fixed model => fun evidence => Some (freeze owner source model None evidence)
  | Plans.Reuse model remaining => fun evidence => Some (freeze owner source model (Some remaining) evidence)
  | Plans.Evaluate => fun _ => None end eq_refl.
-Arguments model {owner}.
-Arguments base {owner}.
-Arguments selected_by_reasoning {owner}.
+Arguments model {owner source}.
+Arguments remaining {owner source}.
+Arguments selected_by_reasoning {owner source}.
+Definition base {owner source} (choice : frozen owner source) :=
+ prepared owner source (model choice) (remaining choice).
+Definition receipts {owner source} (choice : frozen owner source) :=
+ match remaining choice with
+ | None => None
+ | Some count => Some (Plans.generation_messages owner (model choice) count source) end.
+
 Record t := Request {
  owner : N;
- selection : frozen owner;
+ origin : task;
+ selection : frozen owner origin;
  ticket : N;
  callable : list string;
  mode : output_mode;
@@ -101,15 +110,14 @@ Definition request_activity (value : t) := AskingModel (ticket value) (callable 
 Definition context_task (value : t) : Domain.task :=
  Domain.with_history (history value)
    (with_model_cursor (List.length (task_history (base (selection value)))) (base (selection value))).
-Definition pending_task (value : t) := with_activity (request_activity value) (context_task value).
-Definition issue (owner : N) (choice : frozen owner) (ticket : N) (environment : environment) : t :=
+Definition issue (owner : N) {origin : task} (choice : frozen owner origin) (ticket : N) (environment : environment) : t :=
  let source := base choice in
- Request owner choice ticket (Capabilities.callable source environment)
+ Request owner origin choice ticket (Capabilities.callable source environment)
    (if ContextUpdates.interactive_available (ContextUpdates.bindings (task_history source))
     then InteractiveOutput else PlainOutput)
    (task_history source) "" 0.
 Definition with_history (replacement : list message) (value : t) : t :=
- Request (owner value) (selection value) (ticket value) (callable value) (mode value) replacement (scope value) (reserve value).
+ Request (owner value) (origin value) (selection value) (ticket value) (callable value) (mode value) replacement (scope value) (reserve value).
 Definition with_context (replacement_scope : string) (replacement_reserve : N) (value : t) : t :=
- Request (owner value) (selection value) (ticket value) (callable value) (mode value) (history value)
+ Request (owner value) (origin value) (selection value) (ticket value) (callable value) (mode value) (history value)
    replacement_scope replacement_reserve.

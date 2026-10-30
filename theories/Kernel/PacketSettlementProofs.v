@@ -10,21 +10,6 @@ From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
 
-Lemma a_current_after_operation_uses_the_before_indexed_request :
- forall owner task before original plugin pending result error,
- find_task owner before = Some task ->
- TicketedRequest.Scoped.operation_at (operation_id original) task = Some original ->
- operation_stage original = AfterHooksReady (plugin :: pending) result error ->
- Capabilities.hook_available Capabilities.AfterTool plugin
-   (environment_plugins (world_environment before)) = true ->
- Scheduler.after_hooks_step owner original task before =
- TicketedRequest.issue owner (TicketedRequest.After original plugin pending result error task) before.
-Proof.
- intros owner task before original plugin pending result error Found Owned Stage Available.
- unfold Scheduler.after_hooks_step; rewrite Stage, Available.
- apply after_uses_the_current_operation; assumption.
-Qed.
-
 Lemma a_quiet_task_prefix_is_skipped :
  forall execute permitted prefix suffix value first,
  Forall (fun entry => let '(owner,task) := entry in

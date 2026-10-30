@@ -13,20 +13,10 @@ Open Scope list_scope.
 (* A request chooses a domain operation, rather than supplying an independently
    writable pending state and effect. The interpreter binds their shared ticket. *)
 Inductive external_authority := Ordinary | Unrestricted | AskHuman | AskModel (reviewer : profile).
-Inductive request :=
-| Observe (task : task)
-| Infer (task : task)
-| Before (plugin : json) (tool : tool) (invocation : call)
-    (pending : list json) (remaining : list call) (task : task)
-| Start (tool : tool) (invocation : call) (remaining : list call)
-    (authority : external_authority) (task : task)
-| Resume (operation : operation) (tool : tool) (reviewer : reviewer) (task : task)
-| After (operation : operation) (plugin : json) (pending : list json)
-    (result : json) (error : bool) (task : task).
-Definition append_operation (operation : operation) (remaining : list call) (task : task) :=
- with_activity (PendingCalls remaining) (with_operations (task_operations task ++ [operation]) task).
-Definition replace_operation (replacement : operation) (values : list operation) :=
- map (fun operation => if N.eqb (operation_id replacement) (operation_id operation) then replacement else operation) values.
+Definition opening_changes (operation : operation) (remaining : list call) :=
+ [TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)].
+Definition append_operation operation remaining current :=
+ TaskChange.apply (opening_changes operation remaining) current.
 Definition operation_notice (value : operation) := JObject [
  ("status",JString (match operation_stage value with AwaitingApproval _ _ => "awaiting_approval"
   | Granted _ => "approved_waiting_to_run" | _ => "running" end));
@@ -38,54 +28,14 @@ Definition operation_notice (value : operation) := JObject [
  | _ => "This operation is still running, not completed. Its result will arrive as an asynchronous operation result. Continue independent work, or end your turn to wait; do not poll or sleep just to wait." end))].
 Definition announce_operation (value : operation) :=
  Operation (operation_id value) (operation_call value) true (operation_stage value).
-Definition publish_operations (task : task) :=
+Definition publication_changes (task : task) :=
  let notices := fold_right (fun operation rest => if operation_announced operation then rest else
   FunctionOutput (call_id (operation_call operation)) (operation_notice operation) false :: rest) [] (task_operations task) in
- with_operations (map announce_operation (task_operations task)) (append_history notices task).
+ [TaskChange.AppendHistory notices; TaskChange.operation_change (map announce_operation)].
+Definition publish_operations current := TaskChange.apply (publication_changes current) current.
 Definition last_configuration := ReasoningPlan.last_configuration.
 Definition trailing_configuration := ReasoningPlan.trailing_configuration.
 Definition generation := ReasoningPlan.generation.
-Definition build (owner ticket : N) (environment : environment) (source : request) : task * list effect :=
- match source with
- | Observe task =>
-   (with_activity (ObservingContext ticket (List.length (task_history task))) task,
-    [ObserveContext owner ticket task])
- | Infer source =>
-   match ModelRequest.choose owner source with
-   | Some choice => let request := ModelRequest.issue owner choice ticket environment in
-     (ModelRequest.pending_task request,[RequestModel request])
-   | None => (with_activity (EvaluatingReasoning ticket (List.length (task_history source))) source,
-     [RequestReasoning owner ticket source]) end
- | Before plugin tool invocation pending remaining task =>
-   (with_activity (CheckingHook ticket plugin invocation pending remaining) task,
-    [CheckTool owner ticket plugin tool invocation])
- | Start tool invocation remaining authority task =>
-   let settings := task_current_settings task in
-   match authority with
-   | Ordinary =>
-     (append_operation (Operation ticket invocation false (Executing ticket)) remaining task,
-      [ExecuteTool owner ticket ticket tool invocation settings DefaultAccess])
-   | Unrestricted =>
-     (append_operation (Operation ticket invocation false (Elevated ticket HumanReviewer)) remaining task,
-      [ExecuteTool owner ticket ticket tool invocation settings ElevatedAccess])
-   | AskHuman =>
-     (Tasks.promote (append_operation (Operation ticket invocation false (AwaitingApproval ticket HumanReviewer)) remaining task),[])
-   | AskModel reviewer =>
-     let waiting := Tasks.promote (append_operation
-       (Operation ticket invocation false (AwaitingApproval ticket (ModelReviewer reviewer))) remaining task) in
-     (waiting,[RequestApproval owner ticket reviewer invocation waiting])
-   end
- | Resume operation tool reviewer task =>
-   let running := Operation (operation_id operation) (operation_call operation)
-     (operation_announced operation) (Elevated ticket reviewer) in
-   (Tasks.wake_after_result (with_operations (replace_operation running (task_operations task)) task),
-    [ExecuteTool owner ticket (operation_id operation) tool (operation_call operation) (task_current_settings task) ElevatedAccess])
- | After operation plugin pending result error task =>
-   let waiting := Operation (operation_id operation) (operation_call operation)
-     (operation_announced operation) (AwaitingAfterHook ticket plugin pending result error) in
-   (with_operations (replace_operation waiting (task_operations task)) task,
-    [CheckResult owner ticket (operation_id operation) plugin (operation_call operation) result error])
- end.
 Inductive identity_space := TaskTicket | ConnectionIdentity.
 Definition next_identity (space : identity_space) (before : world) :=
  match space with
@@ -101,14 +51,6 @@ Definition allocate_identity (space : identity_space) (before : world) : N * wor
      (set Selvedge.Features.Domain.sharing_next (fun _ => N.succ identity)
        (Selvedge.Features.Domain.feature_sharing (world_features before)))
      (world_features before)) before end).
-Definition issue (owner : N) (source : request) (before : world) :=
- let '(ticket,allocated) := allocate_identity TaskTicket before in
- let '(pending,effects) := build owner ticket (world_environment before) source in
- let installed := put_task owner pending allocated in
- let installed := match source with
- | Resume _ _ _ current => Tasks.mark_context_wake owner current installed
- | _ => installed end in
- accept (JObject [("accepted",JBool true)]) installed effects.
 
 Module Scoped.
 Import TaskScope.
@@ -184,17 +126,64 @@ Record plan (before : world) := Plan {
 }.
 Arguments target {before}.
 Arguments intent {before}.
-Definition lower {before} (value : plan before) : request :=
- let current := selected (target value) in
+(** The admitted plan is the only task issuance language. Its interpreter can
+    only append history and change task progress; allocation and installation
+    use the selected owner once for the whole request. *)
+Definition build {before} (value : plan before) (ticket : N) : list TaskChange.edit * list effect :=
+ let target := target value in
+ let owner := owner target in
+ let current := selected target in
  match intent value with
- | ObserveTask publish => Observe (if publish then publish_operations (Tasks.promote current) else current)
- | InferTask => Infer current
- | AuthorizeCall plugin tool invocation pending remaining => Before plugin tool invocation pending remaining current
- | StartCall tool invocation remaining authority => Start tool invocation remaining authority current
- | ResumeOperation operation tool reviewer => Resume operation tool reviewer current
- | AfterOperation operation plugin pending result error => After operation plugin pending result error current
+ | ObserveTask publish =>
+   let prepared := if publish then Tasks.promote_changes current ++
+     publication_changes (Tasks.promote current) else [] in
+   let captured := TaskChange.apply prepared current in
+   (prepared ++ [TaskChange.ChangePhase (ObservingContext ticket (List.length (task_history captured)))],
+    [ObserveContext owner ticket captured])
+ | InferTask => match ModelRequest.choose owner current with
+   | Some choice =>
+     let sent := ModelRequest.issue owner choice ticket (world_environment before) in
+     ((match ModelRequest.receipts choice with
+       | Some messages => [TaskChange.AppendHistory messages] | None => [] end) ++
+       [TaskChange.ChangeModelCursor (List.length (task_history (ModelRequest.base choice)));
+        TaskChange.ChangePhase (ModelRequest.request_activity sent)], [RequestModel sent])
+   | None => ([TaskChange.ChangePhase (EvaluatingReasoning ticket (List.length (task_history current)))],
+     [RequestReasoning owner ticket current]) end
+ | AuthorizeCall plugin tool invocation pending remaining =>
+   ([TaskChange.ChangePhase (CheckingHook ticket plugin invocation pending remaining)],
+    [CheckTool owner ticket plugin tool invocation])
+ | StartCall tool invocation remaining authority =>
+   let begin stage := opening_changes (Operation ticket invocation false stage) remaining in
+   let wait actor := let changes := begin (AwaitingApproval ticket actor) in
+     changes ++ Tasks.promote_changes (TaskChange.apply changes current) in
+   match authority with
+   | Ordinary => (begin (Executing ticket),
+     [ExecuteTool owner ticket ticket tool invocation (task_current_settings current) DefaultAccess])
+   | Unrestricted => (begin (Elevated ticket HumanReviewer),
+     [ExecuteTool owner ticket ticket tool invocation (task_current_settings current) ElevatedAccess])
+   | AskHuman => (wait HumanReviewer, [])
+   | AskModel reviewer => let changes := wait (ModelReviewer reviewer) in
+     (changes,[RequestApproval owner ticket reviewer invocation (TaskChange.apply changes current)])
+   end
+ | ResumeOperation operation tool reviewer =>
+   let changes := [TaskChange.ChangeOperationStage (operation_id operation) (Elevated ticket reviewer)] in
+   (changes ++ Tasks.wake_after_result_changes (TaskChange.apply changes current),
+    [ExecuteTool owner ticket (operation_id operation) tool (operation_call operation)
+      (task_current_settings current) ElevatedAccess])
+ | AfterOperation operation plugin pending result error =>
+   ([TaskChange.ChangeOperationStage (operation_id operation)
+       (AwaitingAfterHook ticket plugin pending result error)],
+    [CheckResult owner ticket (operation_id operation) plugin (operation_call operation) result error])
  end.
-Definition issue {before} (value : plan before) := TicketedRequest.issue (owner (target value)) (lower value) before.
+Definition issue {before} (value : plan before) :=
+ let target := target value in
+ let '(ticket,allocated) := allocate_identity TaskTicket before in
+ let '(changes,effects) := build value ticket in
+ let installed := put_task (owner target) (TaskChange.apply changes (selected target)) allocated in
+ let installed := match intent value with
+ | ResumeOperation _ _ _ => Tasks.mark_context_wake (owner target) (selected target) installed
+ | _ => installed end in
+ accept (JObject [("accepted",JBool true)]) installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
  (evidence : can_observe publish (selected target) before = allowed) : option (plan before) :=
  match allowed as allowed

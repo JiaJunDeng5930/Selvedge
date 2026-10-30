@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json RegistryProofs.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler Reasoning TicketedRequest ScopedRequestProofs SchedulerChangesProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler Reasoning TicketedRequest ScopedRequestProofs TicketedRequestProofs SchedulerChangesProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -59,6 +59,13 @@ Proof.
  intros execute id task value Found ObserveAllowed Lifecycle.
  unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_operation].
  eexists; split; [reflexivity|]. unfold Reasoning.observe_scheduled_context.
- rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task true Found ObserveAllowed).
- split; [left; reflexivity|reflexivity].
+ destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected.
+ split.
+ - rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+   cbn [snd]. rewrite TaskChangeProofs.apply_app; left; reflexivity.
+ - unfold TicketedRequest.Scoped.issue; rewrite Intent.
+   cbn [TicketedRequest.allocate_identity TicketedRequest.next_identity].
+   unfold TicketedRequest.Scoped.build; rewrite Intent; reflexivity.
 Qed.

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List NArith Bool.
 From Selvedge.Foundation Require Import Json JsonProofs.
-From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Tasks Scheduler TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Tasks Scheduler TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -42,15 +42,18 @@ Proof.
    Found ExecuteAllowed Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call, Scheduler.finish_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
- rewrite Arguments; cbn.
+ rewrite Arguments; cbn [negb].
  assert (NoAdmitted : NativeTools.admit_command id invocation = None).
  { unfold NativeTools.command in NoNative.
    destruct (NativeTools.admit_command id invocation); [discriminate|reflexivity]. }
  rewrite NoAdmitted, NoDiscover.
- rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task advertised invocation remaining
-   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
- rewrite Room. unfold TicketedRequest.Scoped.external_authority_for.
+ destruct (starting_selects_the_current_call id value task advertised invocation remaining
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found
+   ltac:(unfold TicketedRequest.Scoped.call_action; now rewrite ExecuteAllowed,Ready,Known))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold Scheduler.start_external; rewrite Selected,Current,Room.
+ rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ unfold TicketedRequest.Scoped.external_authority_for.
  rewrite NoBash. destruct (settings_approval (task_current_settings task)); reflexivity.
 Qed.
 

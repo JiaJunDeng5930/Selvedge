@@ -12,25 +12,24 @@ Inductive status := RunningStatus | FrozenStatus | StoppedStatus | ArchivedStatu
 Record mutable := Mutable {
  current_lifecycle : lifecycle;
  current_queued : list content;
- current_side_cursor : N;
  current_model_cursor : nat
 }.
 Definition task_parts (value : task) :=
- ((Mutable (task_lifecycle value) (task_queued value) (task_side_cursor value) (task_model_cursor value),
+ ((Mutable (task_lifecycle value) (task_queued value) (task_model_cursor value),
    task_history value),
   (task_contract value, task_current_profile value, task_current_settings value,
-   task_lineage value, task_side_parent value)).
+   task_lineage value, task_side_parent value, task_side_cursor value)).
 Definition from_parts
- (parts : (mutable * list message) * (contract * profile * task_settings * list N * option N)) :=
- let '((current,history),(contract,profile,settings,lineage,parent)) := parts in
+ (parts : (mutable * list message) * (contract * profile * task_settings * list N * option N * N)) :=
+ let '((current,history),(contract,profile,settings,lineage,parent,cursor)) := parts in
  Task contract profile settings
    (current_lifecycle current) history (current_queued current) lineage parent
-   (current_side_cursor current) (current_model_cursor current).
+   cursor (current_model_cursor current).
 Definition task_focus : Focus.t task (mutable * list message).
 Proof.
  refine (Focus.Focus _ _ _ task_parts from_parts _ _).
  - intros []; reflexivity.
- - intros [[[] history] [[[[contract profile] settings] lineage] parent]]; reflexivity.
+ - intros [[[] history] [[[[[contract profile] settings] lineage] parent] cursor]]; reflexivity.
 Defined.
 
 Record edit := Edit {
@@ -51,7 +50,6 @@ Definition AppendHistory (messages : list message) := Edit (fun current => curre
 Definition ReplaceQueued (messages : list content) := modify (set current_queued (fun _ => messages)).
 Definition AppendQueued (message : content) := modify (set current_queued (fun queued => queued ++ [message])).
 Definition ChangeModelCursor (cursor : nat) := modify (set current_model_cursor (fun _ => cursor)).
-Definition ChangeSideCursor (cursor : N) := modify (set current_side_cursor (fun _ => cursor)).
 Definition operation_change (change : list operation -> list operation) := modify
  (set current_lifecycle (change_operations change)).
 Definition AddOperation (operation : operation) := operation_change (fun operations => operations ++ [operation]).

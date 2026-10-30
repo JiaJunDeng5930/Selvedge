@@ -7,13 +7,6 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Dispatch
 Import ListNotations.
 Open Scope string_scope.
 
-Lemma task_operations_after_replacement : forall operations task,
- task_operations (with_operations operations task) = operations.
-Proof.
- intros operations [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; reflexivity.
-Qed.
-
 Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
  forall origin owner count messages options before parent operations selected selection,
  find_task owner before = Some parent ->
@@ -67,60 +60,34 @@ Proof.
  unfold RequestReceiver.operation_receiver; rewrite Owned, Waiting, !N.eqb_refl; reflexivity.
 Qed.
 
-Lemma replacing_an_operation_installs_its_settlement :
- forall original plugin pending result error ticket operations,
- In original operations ->
- In (Operation (operation_id original) (operation_call original)
-   (operation_announced original) (AwaitingAfterHook ticket plugin pending result error))
-   (TicketedRequest.replace_operation
-     (Operation (operation_id original) (operation_call original)
-       (operation_announced original) (AwaitingAfterHook ticket plugin pending result error)) operations).
-Proof.
- intros original plugin pending result error ticket operations Member.
- unfold TicketedRequest.replace_operation. apply in_map_iff.
- exists original; split; [cbn; rewrite N.eqb_refl; reflexivity|exact Member].
-Qed.
-
 Theorem an_issued_after_hook_survives_the_final_withdrawal :
- forall owner original plugin pending result error task before,
- find_task owner before = Some task ->
- In original (task_operations task) ->
- decision_effects (Dispatch.retain_live_effects
-   (TicketedRequest.issue owner (TicketedRequest.After original plugin pending result error task) before)) =
- [CheckResult owner (world_next_ticket before) (operation_id original)
-   plugin (operation_call original) result error].
+ forall before (request : TicketedRequest.Scoped.plan before) original plugin pending result error,
+ TicketedRequest.Scoped.intent request =
+   TicketedRequest.Scoped.AfterOperation original plugin pending result error ->
+ decision_effects (Dispatch.retain_live_effects (TicketedRequest.Scoped.issue request)) =
+ [CheckResult (TaskScope.owner (TicketedRequest.Scoped.target request))
+   (world_next_ticket before) (operation_id original) plugin (operation_call original) result error].
 Proof.
- intros owner original plugin pending result error task before Found Member.
- unfold Dispatch.retain_live_effects.
- rewrite (proj1 (an_issued_after_hook_keeps_the_operation_and_ticket
-   owner original plugin pending result error task before)).
- cbn [filter].
- assert (Installed : find_task owner
-   (decision_world (TicketedRequest.issue owner
-     (TicketedRequest.After original plugin pending result error task) before)) =
-   Some (with_operations (TicketedRequest.replace_operation
-     (Operation (operation_id original) (operation_call original) (operation_announced original)
-       (AwaitingAfterHook (world_next_ticket before) plugin pending result error))
-     (task_operations task)) task)).
- { rewrite (proj2 (an_issued_after_hook_keeps_the_operation_and_ticket
-     owner original plugin pending result error task before)).
-   apply find_put_task with (before:=task); exact Found. }
- unfold Dispatch.live_request; rewrite Installed.
- assert (Live : existsb (fun operation =>
-   N.eqb (operation_id original) (operation_id operation) &&
-   match RequestReceiver.operation_receiver RequestReceiver.AfterReceiver operation with
-   | Some (expected,_) => N.eqb (world_next_ticket before) expected
-   | None => false end)
-   (task_operations (with_operations (TicketedRequest.replace_operation
-     (Operation (operation_id original) (operation_call original) (operation_announced original)
-       (AwaitingAfterHook (world_next_ticket before) plugin pending result error))
-     (task_operations task)) task)) = true).
- { rewrite task_operations_after_replacement.
-   apply existsb_exists.
-   exists (Operation (operation_id original) (operation_call original) (operation_announced original)
-     (AwaitingAfterHook (world_next_ticket before) plugin pending result error)).
-   split.
-   - apply replacing_an_operation_installs_its_settlement; exact Member.
-   - cbn; rewrite !N.eqb_refl; reflexivity. }
- rewrite Live; reflexivity.
+ intros before request original plugin pending result error Intent.
+ pose proof (TicketedRequest.Scoped.operation_observed before request) as Admitted.
+ rewrite Intent in Admitted; cbn [TicketedRequest.Scoped.admitted_action] in Admitted.
+ destruct Admitted as [Owned Stage].
+ unfold TicketedRequest.Scoped.operation_at,RequestReceiver.operation_at in Owned.
+ apply find_some in Owned as [Member _].
+ pose proof (issued_task before request) as Installed.
+ unfold TicketedRequest.Scoped.build in Installed; rewrite Intent in Installed; cbn [fst] in Installed.
+ pose proof (issued_effects before request) as Effects.
+ unfold TicketedRequest.Scoped.build in Effects; rewrite Intent in Effects; cbn [snd] in Effects.
+ unfold Dispatch.retain_live_effects; rewrite Effects; cbn [filter].
+ assert (Live : Dispatch.live_request (decision_world (TicketedRequest.Scoped.issue request))
+   [CheckResult (TaskScope.owner (TicketedRequest.Scoped.target request))
+     (world_next_ticket before) (operation_id original) plugin (operation_call original) result error]
+   (CheckResult (TaskScope.owner (TicketedRequest.Scoped.target request))
+     (world_next_ticket before) (operation_id original) plugin (operation_call original) result error) = true).
+ { eapply a_retained_after_hook_survives_the_final_withdrawal.
+   - exact Installed.
+   - apply TaskChangeProofs.changing_stage_retains_the_selected_operation; exact Member.
+   - reflexivity.
+   - reflexivity. }
+ now rewrite Live.
 Qed.

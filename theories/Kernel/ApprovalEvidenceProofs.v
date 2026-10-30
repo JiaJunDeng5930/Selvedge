@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs LifecycleProofs.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs TicketedRequestProofs LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -22,10 +22,15 @@ Theorem model_approval_captures_queued_requests : forall owner tool invocation t
  task_queued captured = [].
 Proof.
  intros owner tool invocation task value reviewer phase operations Found Ready Known Running Review Elevated Room.
- rewrite (ScopedRequestProofs.starting_uses_the_current_call owner value task tool invocation []
-   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action, TicketedRequest.Scoped.can_execute; rewrite Running; rewrite Ready, Known; reflexivity. }
- rewrite Room. unfold TicketedRequest.Scoped.external_authority_for; rewrite Review, Elevated.
+ destruct (starting_selects_the_current_call owner value task tool invocation []
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found
+   ltac:(unfold TicketedRequest.Scoped.call_action, TicketedRequest.Scoped.can_execute;
+     rewrite Running,Ready,Known; reflexivity))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold Scheduler.start_external; rewrite Selected,Current,Room.
+ rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
+ rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
  unfold Scheduler.append_operation, Tasks.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].

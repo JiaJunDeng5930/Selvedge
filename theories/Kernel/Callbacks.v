@@ -112,7 +112,6 @@ Definition context_completed (id ticket : N) (observations : option (list contex
       | _ => context_ready false id task value end).
 Definition operation_executing := RequestReceiver.operation_executing.
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
-Definition replace_operation := TicketedRequest.replace_operation.
 
 Definition settle_operation_plan := OperationEvent.settle.
 Definition settle_operation_changes (operation : operation) (result : json) (error : bool) (task : task) :=

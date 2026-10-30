@@ -19,10 +19,13 @@ Theorem full_access_dispatch_is_unrestricted : forall id tool invocation remaini
    (task_current_settings task) ElevatedAccess].
 Proof.
  intros id tool invocation remaining task value Found ExecuteAllowed Ready Known Full Room.
- rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task tool invocation remaining
-   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
- rewrite Room. cbn [decision_effects TicketedRequest.issue TicketedRequest.build accept].
+ destruct (starting_selects_the_current_call id value task tool invocation remaining
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found
+   ltac:(unfold TicketedRequest.Scoped.call_action; now rewrite ExecuteAllowed,Ready,Known))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold Scheduler.start_external; rewrite Selected,Current,Room.
+ rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ cbn [snd].
  unfold TicketedRequest.Scoped.external_authority_for; now rewrite Full.
 Qed.
 
@@ -104,10 +107,13 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
        (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
  intros id tool invocation remaining task value reviewer Found ExecuteAllowed Ready Known Room Bash Elevated Policy.
- rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task tool invocation remaining
-   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
- rewrite Room. unfold TicketedRequest.Scoped.external_authority_for.
+ destruct (starting_selects_the_current_call id value task tool invocation remaining
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found
+   ltac:(unfold TicketedRequest.Scoped.call_action; now rewrite ExecuteAllowed,Ready,Known))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold Scheduler.start_external; rewrite Selected,Current,Room.
+ rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ unfold TicketedRequest.Scoped.external_authority_for.
  rewrite Policy, Bash, Elevated; reflexivity.
 Qed.
 
@@ -127,26 +133,11 @@ Proof.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
  unfold Reasoning.observe_scheduled_context.
- rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task true Found ObserveAllowed); reflexivity.
-Qed.
-
-Theorem actual_model_request_freezes_the_consumed_history : forall id model task value,
- find_task id value = Some task ->
- TicketedRequest.Scoped.can_infer task value = true ->
- ReasoningPlan.next id task = ReasoningPlan.Fixed model ->
- exists request,
- decision_effects (Scheduler.ready_model id value) = [RequestModel request] /\
- ModelRequest.owner request = id /\
- ModelRequest.ticket request = world_next_ticket value /\
- ModelRequest.model (ModelRequest.selection request) = model /\
- ModelRequest.history request = task_history task /\
- task_model_cursor (ModelRequest.context_task request) = List.length (task_history task).
-Proof.
- intros id model task value Found InferAllowed Fixed. unfold Scheduler.ready_model.
- rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found InferAllowed).
- destruct (TicketedRequestProofs.fixed_inference_freezes_its_complete_context id task value model Fixed)
-   as [request [Effects [Owner [Ticket [Model [History [Cursor Contract]]]]]]].
- exists request; repeat split; assumption.
+ destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.
+ unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current; cbn [snd].
+ rewrite TaskChangeProofs.apply_app; reflexivity.
 Qed.
 
 Theorem a_result_after_the_model_snapshot_is_unconsumed : forall task prefix suffix operation invocation result error,

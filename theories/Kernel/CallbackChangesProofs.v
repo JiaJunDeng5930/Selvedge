@@ -56,29 +56,9 @@ Definition reasoning_completed_expression (id ticket : N) (outcome : Reasoning.o
  let body := eval unfold Callbacks.reasoning_completed in (Callbacks.reasoning_completed id ticket outcome value) in
  derive_callback_view constr:(Callbacks.reasoning_completed id ticket outcome value) body id value).
 
-
-
-
-
-
-
 Definition context_ready_expression (accepted : bool) (id : N) (task : task) (value : world) := ltac:(
  let body := eval unfold Callbacks.context_ready in (Callbacks.context_ready accepted id task value) in
  derive_callback_view constr:(Callbacks.context_ready accepted id task value) body id value).
-
-Lemma context_retry_uses_the_current_task : forall id value current,
- find_task id value = Some current ->
- Reasoning.context_retry id value =
- if TicketedRequest.Scoped.can_observe false current value then
-   TicketedRequest.issue id (TicketedRequest.Observe current) value
- else Reasoning.context_retry_wait id current value.
-Proof.
- intros id value current Found.
- destruct (selecting_an_existing_task_retains_its_key id value current Found)
-   as [reference [Selected [Owner Current]]].
- unfold Reasoning.context_retry; rewrite Selected, observe_selected_erases_its_capability.
- now rewrite Owner, Current.
-Qed.
 
 Definition context_completed_expression (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) := ltac:(
  let body := eval unfold Callbacks.context_completed in (Callbacks.context_completed id ticket observations diagnostic value) in

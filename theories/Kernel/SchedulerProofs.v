@@ -224,18 +224,3 @@ Proof.
  unfold Scheduler.next_runnable_step; rewrite Blocked.
  unfold task_operations; rewrite ArchivedTask, Pending; reflexivity.
 Qed.
-Theorem archived_after_hook_dispatches_its_retained_result :
- forall owner task value operations pending plugin remaining result error,
- find_task owner value = Some task ->
- TicketedRequest.Scoped.operation_at (operation_id pending) task = Some pending ->
- task_lifecycle task = Archived operations ->
- operation_stage pending = AfterHooksReady (plugin :: remaining) result error ->
- Capabilities.hook_available Capabilities.AfterTool plugin
-   (environment_plugins (world_environment value)) = true ->
- Scheduler.after_hooks_step owner pending task value =
- TicketedRequest.issue owner (TicketedRequest.After pending plugin remaining result error task) value.
-Proof.
- intros owner task value operations pending plugin remaining result error Found Owned ArchivedTask Stage Available.
- unfold Scheduler.after_hooks_step; rewrite Stage, Available.
- now apply ScopedRequestProofs.after_uses_the_current_operation.
-Qed.

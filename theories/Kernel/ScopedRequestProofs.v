@@ -1,157 +1,106 @@
-From Selvedge.Kernel Require Import TaskScopeProofs.
-From Selvedge.Kernel Require Import TaskScope.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Tasks ReasoningPlan TicketedRequest Scheduler Limits.
-Import ListNotations.
-Open Scope string_scope.
+From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TicketedRequest.
+Module S := TicketedRequest.Scoped.
 
-Definition selected_result_erases_its_lookup_witness := @TaskScopeProofs.selected_result_erases_its_lookup_witness.
-
-Lemma observe_selected_erases_its_capability : forall before publish reference fallback,
- (match @TicketedRequest.Scoped.observe_selected before publish reference with
- | Some request => TicketedRequest.Scoped.issue request | None => fallback end) =
- if TicketedRequest.Scoped.can_observe publish (TaskScope.selected reference) before then
- TicketedRequest.issue (TaskScope.owner reference)
-   (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations
-     (Tasks.promote (TaskScope.selected reference)) else TaskScope.selected reference)) before
- else fallback.
-Proof.
- intros before publish reference fallback.
- assert (Erase : forall allowed evidence,
-   (match @TicketedRequest.Scoped.observe_allowed before publish reference allowed evidence with
-    | Some request => TicketedRequest.Scoped.issue request | None => fallback end) =
-   if allowed then TicketedRequest.issue (TaskScope.owner reference)
-    (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations
-     (Tasks.promote (TaskScope.selected reference)) else TaskScope.selected reference)) before
-   else fallback).
- { intros [] evidence; reflexivity. }
- apply Erase.
-Qed.
-
-Theorem observing_resolves_the_current_task : forall id before current publish,
- find_task id before = Some current ->
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id publish before) =
- if TicketedRequest.Scoped.can_observe publish current before then
- TicketedRequest.issue id
-   (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations (Tasks.promote current) else current)) before
- else State.ignored before.
-Proof.
- intros id before current publish Found.
- destruct (selecting_an_existing_task_retains_its_key id before current Found)
-   as [reference [Selected [Owner Current]]].
- unfold TicketedRequest.Scoped.observe; rewrite Selected.
- unfold TicketedRequest.Scoped.run; rewrite observe_selected_erases_its_capability.
- now rewrite ?Owner, ?Current.
-Qed.
-
-Theorem observing_uses_the_current_task : forall id before current publish,
- find_task id before = Some current ->
- TicketedRequest.Scoped.can_observe publish current before = true ->
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id publish before) =
- TicketedRequest.issue id
-   (TicketedRequest.Observe (if publish then TicketedRequest.publish_operations (Tasks.promote current) else current)) before.
+(** Selection establishes availability. The returned plan itself retains the
+    selected source and admission; no second, unscoped request is constructed. *)
+Theorem observing_selects_the_current_task : forall id before current publish,
+ find_task id before = Some current -> S.can_observe publish current before = true ->
+ exists request, S.observe id publish before = Some request /\
+ owner (S.target request) = id /\ selected (S.target request) = current /\
+ S.intent request = S.ObserveTask publish.
 Proof.
  intros id before current publish Found Allowed.
- rewrite (observing_resolves_the_current_task id before current publish Found), Allowed; reflexivity.
+ destruct (selecting_an_existing_task_retains_its_key id before current Found)
+   as [reference [Selected [Owner Current]]].
+ unfold S.observe,S.observe_selected; rewrite Selected.
+ pattern (S.observe_allowed publish reference _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.observe_allowed before publish reference)).
+ intros condition Evidence.
+ assert (condition = true) by (rewrite Current,Allowed in Evidence; symmetry; exact Evidence).
+ revert Evidence; rewrite H; intro Evidence.
+ eexists; split; [reflexivity|]. cbn; repeat split; assumption.
 Qed.
 
-Definition computed_model owner current before :=
- TicketedRequest.issue owner (TicketedRequest.Infer current) before.
-Lemma model_selected_erases_its_capability : forall before reference,
- TicketedRequest.Scoped.run (@TicketedRequest.Scoped.model_selected before reference) =
- if TicketedRequest.Scoped.can_infer (TaskScope.selected reference) before then
- computed_model (TaskScope.owner reference) (TaskScope.selected reference) before
- else State.ignored before.
-Proof.
- intros before reference.
- assert (Erase : forall allowed evidence,
-   TicketedRequest.Scoped.run (@TicketedRequest.Scoped.model_allowed before reference allowed evidence) =
-   if allowed then computed_model (TaskScope.owner reference)
-     (TaskScope.selected reference) before else State.ignored before).
- { intros [] evidence; reflexivity. }
- apply Erase.
-Qed.
-
-Theorem model_selection_uses_the_current_task : forall id before current,
- find_task id before = Some current ->
- TicketedRequest.Scoped.can_infer current before = true ->
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.model id before) = computed_model id current before.
+Theorem model_selects_the_current_task : forall id before current,
+ find_task id before = Some current -> S.can_infer current before = true ->
+ exists request, S.model id before = Some request /\
+ owner (S.target request) = id /\ selected (S.target request) = current /\
+ S.intent request = S.InferTask.
 Proof.
  intros id before current Found Allowed.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [reference [Selected [Owner Current]]].
- unfold TicketedRequest.Scoped.model; rewrite Selected, model_selected_erases_its_capability.
- now rewrite Owner, Current, Allowed.
+ unfold S.model,S.model_selected; rewrite Selected.
+ pattern (S.model_allowed reference _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.model_allowed before reference)).
+ intros condition Evidence.
+ assert (condition = true) by (rewrite Current,Allowed in Evidence; symmetry; exact Evidence).
+ revert Evidence; rewrite H; intro Evidence.
+ eexists; split; [reflexivity|]. cbn; repeat split; assumption.
 Qed.
 
-Theorem starting_uses_the_current_call : forall id before current tool invocation remaining authority,
+Theorem starting_selects_the_current_call : forall id before current tool invocation remaining authority,
  find_task id before = Some current ->
- TicketedRequest.Scoped.call_action current = Some (TicketedRequest.Scoped.StartCall tool invocation remaining authority) ->
- Scheduler.start_external id before =
- if N.ltb (N.of_nat (List.length (task_operations current))) Limits.operation_limit then
-   TicketedRequest.issue id (TicketedRequest.Start tool invocation remaining authority current) before
- else Scheduler.call_error id invocation "operation_limit"
-   "This task has reached its in-flight operation limit; wait for results or cancel an operation" remaining current before.
+ S.call_action current = Some (S.StartCall tool invocation remaining authority) ->
+ exists request, S.start id before = Some (request,invocation,remaining) /\
+ owner (S.target request) = id /\ selected (S.target request) = current /\
+ S.intent request = S.StartCall tool invocation remaining authority.
 Proof.
  intros id before current tool invocation remaining authority Found Ready.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [reference [Selected [Owner Current]]].
- unfold Scheduler.start_external, TicketedRequest.Scoped.start, TicketedRequest.Scoped.next_call; rewrite Selected.
- pattern (TicketedRequest.Scoped.next_call_selected reference _ eq_refl).
- apply (@observed_value_elimination _ _ _ (@TicketedRequest.Scoped.next_call_selected before reference)); intros source Evidence.
- assert (Source : source = Some (TicketedRequest.Scoped.StartCall tool invocation remaining authority)).
- { rewrite Current in Evidence; congruence. }
- revert Evidence; rewrite Source; intro Evidence; cbn [TicketedRequest.Scoped.next_call_selected TicketedRequest.Scoped.intent
-   TicketedRequest.Scoped.target TicketedRequest.Scoped.issue TicketedRequest.Scoped.lower].
- unfold TicketedRequest.Scoped.issue, TicketedRequest.Scoped.lower.
- cbn [TicketedRequest.Scoped.target TicketedRequest.Scoped.intent].
- now rewrite ?Owner, ?Current.
+ unfold S.start,S.next_call; rewrite Selected.
+ pattern (S.next_call_selected reference _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.next_call_selected before reference)).
+ intros source Evidence.
+ assert (source = Some (S.StartCall tool invocation remaining authority)) by
+   (rewrite Current,Ready in Evidence; symmetry; exact Evidence).
+ revert Evidence; rewrite H; intro Evidence.
+ eexists; split; [reflexivity|]. cbn; repeat split; assumption.
 Qed.
 
-Theorem authorizing_uses_the_current_call : forall id before current plugin tool invocation pending remaining,
+Theorem authorizing_selects_the_current_call : forall id before current plugin tool invocation pending remaining,
  find_task id before = Some current ->
- TicketedRequest.Scoped.call_action current =
-   Some (TicketedRequest.Scoped.AuthorizeCall plugin tool invocation pending remaining) ->
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.authorize id before) =
- TicketedRequest.issue id (TicketedRequest.Before plugin tool invocation pending remaining current) before.
+ S.call_action current = Some (S.AuthorizeCall plugin tool invocation pending remaining) ->
+ exists request, S.authorize id before = Some request /\
+ owner (S.target request) = id /\ selected (S.target request) = current /\
+ S.intent request = S.AuthorizeCall plugin tool invocation pending remaining.
 Proof.
  intros id before current plugin tool invocation pending remaining Found Ready.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [reference [Selected [Owner Current]]].
- unfold TicketedRequest.Scoped.authorize, TicketedRequest.Scoped.next_call; rewrite Selected.
- pattern (TicketedRequest.Scoped.next_call_selected reference _ eq_refl).
- apply (@observed_value_elimination _ _ _ (@TicketedRequest.Scoped.next_call_selected before reference)); intros source Evidence.
- assert (Source : source = Some (TicketedRequest.Scoped.AuthorizeCall plugin tool invocation pending remaining)).
- { rewrite Current in Evidence; congruence. }
- revert Evidence; rewrite Source; intro Evidence; cbn [TicketedRequest.Scoped.next_call_selected TicketedRequest.Scoped.intent
-   TicketedRequest.Scoped.run TicketedRequest.Scoped.target TicketedRequest.Scoped.issue TicketedRequest.Scoped.lower].
- unfold TicketedRequest.Scoped.issue, TicketedRequest.Scoped.lower.
- cbn [TicketedRequest.Scoped.target TicketedRequest.Scoped.intent].
- now rewrite ?Owner, ?Current.
+ unfold S.authorize,S.next_call; rewrite Selected.
+ pattern (S.next_call_selected reference _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.next_call_selected before reference)).
+ intros source Evidence.
+ assert (source = Some (S.AuthorizeCall plugin tool invocation pending remaining)) by
+   (rewrite Current,Ready in Evidence; symmetry; exact Evidence).
+ revert Evidence; rewrite H; intro Evidence.
+ eexists; split; [reflexivity|]. cbn; repeat split; assumption.
 Qed.
 
-Theorem after_uses_the_current_operation : forall id before current operation plugin pending result error,
+Theorem after_selects_the_current_operation : forall id before current operation plugin pending result error,
  find_task id before = Some current ->
- TicketedRequest.Scoped.operation_at (operation_id operation) current = Some operation ->
+ S.operation_at (operation_id operation) current = Some operation ->
  operation_stage operation = AfterHooksReady (plugin :: pending) result error ->
- TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) before) =
- TicketedRequest.issue id (TicketedRequest.After operation plugin pending result error current) before.
+ exists request, S.after id (operation_id operation) before = Some request /\
+ owner (S.target request) = id /\ selected (S.target request) = current /\
+ S.intent request = S.AfterOperation operation plugin pending result error.
 Proof.
  intros id before current operation plugin pending result error Found Owned Ready.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [reference [Selected [Owner Current]]].
- unfold TicketedRequest.Scoped.after; rewrite Selected.
- pattern (TicketedRequest.Scoped.after_operation_selected reference (operation_id operation) _ eq_refl).
- apply (@observed_value_elimination _ _ _ (@TicketedRequest.Scoped.after_operation_selected before reference (operation_id operation))); intros found Evidence.
+ unfold S.after; rewrite Selected.
+ pattern (S.after_operation_selected reference (operation_id operation) _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.after_operation_selected before reference (operation_id operation))).
+ intros found Evidence.
  assert (Present : found = Some operation) by (rewrite Current in Evidence; congruence).
- revert Evidence; rewrite Present; intro Evidence; cbn [TicketedRequest.Scoped.after_operation_selected].
- pattern (TicketedRequest.Scoped.after_stage_selected reference (operation_id operation) operation Evidence _ eq_refl).
- apply (@observed_value_elimination _ _ _ (@TicketedRequest.Scoped.after_stage_selected before reference (operation_id operation) operation Evidence)); intros stage Stage.
+ revert Evidence; rewrite Present; intro Evidence; cbn [S.after_operation_selected].
+ pattern (S.after_stage_selected reference (operation_id operation) operation Evidence _ eq_refl).
+ apply (@observed_value_elimination _ _ _ (@S.after_stage_selected before reference (operation_id operation) operation Evidence)).
+ intros stage Stage.
  assert (Waiting : stage = AfterHooksReady (plugin :: pending) result error) by congruence.
- revert Stage; rewrite Waiting; intro Stage; cbn [TicketedRequest.Scoped.after_stage_selected TicketedRequest.Scoped.run
-   TicketedRequest.Scoped.target TicketedRequest.Scoped.intent TicketedRequest.Scoped.issue TicketedRequest.Scoped.lower].
- unfold TicketedRequest.Scoped.issue, TicketedRequest.Scoped.lower.
- cbn [TicketedRequest.Scoped.target TicketedRequest.Scoped.intent].
- now rewrite ?Owner, ?Current.
+ revert Stage; rewrite Waiting; intro Stage.
+ eexists; split; [reflexivity|]. cbn; repeat split; assumption.
 Qed.
