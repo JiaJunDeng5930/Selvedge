@@ -1,27 +1,27 @@
 From Selvedge.Kernel Require Import ModelDeclarations CallbackDeclarations.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Foundation Require Import Schema DeclarationFields.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson BoundedDiagnostic.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module D := ArgumentDeclaration.
+Module F := DeclarationFields.
 
 Definition callback_kind_of (kind : string) :=
  match find (fun declaration => Json.equal declaration.(ModelDeclarations.tag_value) (JString kind)) ModelDeclarations.effects with
  | Some declaration => declaration.(ModelDeclarations.callback_name)
  | None => None end.
-Definition diagnostic_contract (kind : ModelDeclarations.callback_kind) :=
-  match kind with
-  | Approval => BoundedDiagnostic.Contract 2048 true
-  | TaskTitle | BoardText | ChatgptExec | Context | Compaction _ | Worktree _ |
-      Reasoning | Hook | AfterHook | Model | Tool => BoundedDiagnostic.Contract 4096 false
-  end.
-Definition diagnostic (kind : ModelDeclarations.callback_kind) (message : string) :=
-  BoundedDiagnostic.make (diagnostic_contract kind) message.
-Definition reply_fields kind := { ok : bool & fields (CallbackDeclarations.payload kind ok) }.
+Definition diagnostic_fallback kind : D.text_value (diagnostic_format kind).
+Proof. refine (exist _ BoundedDiagnostic.fallback _); destruct kind; reflexivity. Defined.
+Definition diagnostic kind message := BoundedDiagnostic.make
+ (diagnostic_constraints kind) (diagnostic_fallback kind) message.
+Definition diagnostic_value kind (value : D.text_value (diagnostic_format kind)) :=
+ D.encode_text (diagnostic_format kind) value.
+Definition reply_fields kind := { ok : bool & F.values (CallbackDeclarations.payload kind ok) }.
 Definition observed_payload kind ok members : option (reply_fields kind) :=
- option_map (fun values => existT _ ok values) (decode_fields (CallbackDeclarations.payload kind ok) members).
+ option_map (fun values => existT _ ok values) (F.observe (CallbackDeclarations.payload kind ok) (JObject members)).
 Definition observed_result (kind : callback_kind) (result : json) : option (reply_fields kind) :=
  let members := object_fields result in
  match kind as kind return option (reply_fields kind) with
@@ -33,34 +33,28 @@ Definition observed_result (kind : callback_kind) (result : json) : option (repl
    | Some error => observed_payload Tool (negb error) members | None => None end
  | ChatgptExec => match bool_field "error" result with
    | Some error => observed_payload ChatgptExec (negb error) members | None => None end
- | Approval => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Approval true) [!result!]))
-| Hook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload Hook true) [!result!]))
-| AfterHook => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload AfterHook true) [!result!]))
- | Compaction done => Some (existT _ true (Schema.of_tuple (CallbackDeclarations.payload (Compaction done) true) [!result!]))
- | Model => option_map (fun items => existT _ true
-     (Schema.of_tuple (CallbackDeclarations.payload Model true) [!items!])) (as_array result)
+ | Approval => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode approval_schema result)
+ | Hook => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode hook_schema result)
+ | AfterHook => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode after_schema result)
+ | Compaction done => option_map (fun parsed => existT _ true (parsed,tt)) (D.decode D.RawObject result)
+ | Model => option_map (fun items => existT _ true (items,tt)) (as_array result)
  | Worktree created =>
    match bool_field "ok" result with
    | None => None
    | Some true => if created as created return option (reply_fields (Worktree created))
      then observed_payload (Worktree true) true members
-     else option_map (fun outcome => existT _ true
-       (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) true) [!outcome!]))
+     else option_map (fun outcome => existT _ true (outcome,tt))
        (match Json.field "outcome" result with
         | Some outcome => Some outcome
         (* Cloud workspace receipts carry their archived root; local receipts
-           already distinguish an archived root from a released reservation. *)
+           distinguish an archived root from a released reservation. *)
         | None => option_map (fun root => JObject [("kind",JString "archived_at");("root",JString root)])
             (string_field "root" result) end)
    | Some false => if created as created return option (reply_fields (Worktree created)) then
-       option_map (fun values : fields (CallbackDeclarations.payload (Worktree true) false) => existT _ false
-         (Schema.of_tuple (CallbackDeclarations.payload (Worktree true) false)
-           [!Schema.head values;diagnostic (Worktree true) (Schema.head (Schema.tail values))!]))
-         (decode_fields (CallbackDeclarations.payload (Worktree true) false) members)
-     else option_map (fun values : fields (CallbackDeclarations.payload (Worktree false) false) => existT _ false
-         (Schema.of_tuple (CallbackDeclarations.payload (Worktree false) false)
-           [!diagnostic (Worktree false) (Schema.head values)!]))
-         (decode_fields (CallbackDeclarations.payload (Worktree false) false) members)
+       match F.observe [F.optional "root" D.text;F.required "message" (D.Value KText)] result with
+       | Some values => Some (existT _ false (fst values,(diagnostic (Worktree true) (fst (snd values)),tt)))
+       | None => None end
+     else option_map (fun message => existT _ false (diagnostic (Worktree false) message,tt)) (string_field "message" result)
    end
  end.
 Definition completed (effect result : json) : option json :=
@@ -69,21 +63,23 @@ Definition completed (effect result : json) : option json :=
    | Some address,Some (existT _ ok values) => Some (CallbackDeclarations.encode kind ok address values)
    | _,_ => None end
  | None => None end.
-Definition error_value (message : string) := JObject [("error",JObject
+Definition error_fields (message : string) := [("error",JObject
  [("code",JString "external_execution_failed");("message",JString message)])].
-Definition failure_outcome (message : string) := JObject [("decision",JString "failed");("reason",JString message)].
-Definition failure_payload (kind : callback_kind) (message : string) (context_limit : bool)
- : fields (CallbackDeclarations.payload kind false) := Schema.of_tuple _
- (match kind as kind return Schema.tuple (CallbackDeclarations.payload kind false) with
- | TaskTitle | BoardText => [!message!]
- | Approval | Hook | AfterHook => [!failure_outcome message!]
- | Context | Reasoning => [!message!]
- | Model => [!message;if context_limit then Some (exist _ "context_limit" (or_introl eq_refl)) else None!]
- | Tool => [!Some (error_value message)!]
- | ChatgptExec => [!error_value message!]
- | Compaction _ => [!JObject [("message",JString message)]!]
- | Worktree created => if created as created return Schema.tuple (CallbackDeclarations.payload (Worktree created) false)
-     then [!None;message!] else [!message!] end).
+Definition error_value message := JObject (error_fields message).
+Definition failure_payload (kind : callback_kind) (message : D.text_value (diagnostic_format kind)) (context_limit : bool)
+ : F.values (CallbackDeclarations.payload kind false) :=
+ match kind as kind return D.text_value (diagnostic_format kind) -> F.values (CallbackDeclarations.payload kind false) with
+ | TaskTitle | BoardText | Context | Reasoning => fun message => (message,tt)
+ | Approval => fun message => (inr (inr (inl (exist _ (tt,(message,tt)) eq_refl))),tt)
+ | Hook | AfterHook => fun message => (inr (inr (inr (inl (exist _ (tt,(message,tt)) eq_refl)))),tt)
+ | Model => fun message => (message,(if context_limit then Some tt else None,tt))
+ | Tool => fun message => (Some (error_value (diagnostic_value Tool message)),tt)
+ | ChatgptExec => fun message => (error_fields (diagnostic_value ChatgptExec message),tt)
+ | Compaction _ => fun message => (exist _ (message,tt) eq_refl,tt)
+ | Worktree created => if created as created return D.text_value (diagnostic_format (Worktree created)) ->
+     F.values (CallbackDeclarations.payload (Worktree created) false)
+   then fun message => (None,(message,tt)) else fun message => (message,tt)
+ end message.
 Definition failed (effect : json) (original : string) (context_limit : bool) : option json :=
  match callback_kind_of (str effect "kind") with
  | Some kind => option_map (fun address => CallbackDeclarations.encode kind false address

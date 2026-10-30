@@ -101,14 +101,13 @@ Definition decode_outcome (completed : bool) (value : json) : option completion 
  match CallbackDeclarations.decode (ModelDeclarations.Compaction completed) value with
  | Some (existT _ ok (address,values)) =>
    let id := Schema.head address in let ticket := Schema.head (Schema.tail address) in
-   let error := negb ok in
-   match Schema.head values with
-   | JObject fields => if completed then
-       if error then match string_field "message" (JObject fields) with
-         | Some _ => Some (Completed id ticket (JObject fields) error) | None => None end
-       else Some (Completed id ticket (JObject fields) error)
-     else option_map (MeasuredInput id ticket) (decode_inspection error (JObject fields))
-   | _ => None end
+   (if ok as ok return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Compaction completed) ok) -> option completion
+    then fun values => let result := JObject (fst values) in
+      if completed then Some (Completed id ticket result false)
+      else option_map (MeasuredInput id ticket) (decode_inspection false result)
+    else fun values => let message := proj1_sig (fst (proj1_sig (fst values))) in
+      if completed then Some (Completed id ticket (JObject [("message",JString message)]) true)
+      else Some (MeasuredInput id ticket (InspectionFailed message))) values
  | None => None end.
 Definition completion_decoders : list (string * (json -> option completion)) := [
  ("compaction_configure", decode_configure);

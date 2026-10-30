@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
+From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
@@ -13,23 +14,16 @@ Definition decoder_name (value : decoder) := match ModelDeclarations.tag_value (
 Definition decoder_fields (value : decoder) := ModelDeclarations.payload_fields (ModelDeclarations.decoder_declaration value).
 Definition decoder_construct := @ModelDeclarations.decoder_construct input.
 Definition coordinates := ModelDeclarations.identity.
-Definition parse_reason_decision := HookRules.parse_reason_decision.
 Definition parse_hook := HookRules.parse_hook.
 Definition parse_after := HookRules.parse_after.
-Definition parse_approval_outcome (source : json) : option approval_outcome :=
- match Schema.decode [Field "decision" KText; Field "reason" KText] source with
- | None => None
- | Some fields =>
-   let reason := head (tail fields) in
-   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason | "failed" => ApprovalFailed reason
-    | _ => ApprovalFailed "The review did not return a valid decision" end in
-   (* DEFENSE: Native approval callbacks can supply a blank reason. Reject that
-      malformed outcome; invalid text still settles as a failed review. *)
-   if ApprovalProtocol.valid_justification reason then
-     Some (ApprovalProtocol.normalize_outcome outcome)
-   else if ApprovalProtocol.valid_reason reason then None
-   else Some (ApprovalProtocol.normalize_outcome outcome)
- end.
+Definition approval_from_fields (value : ArgumentDeclaration.denote CallbackDeclarations.approval_schema) : approval_outcome :=
+ match value with
+ | inl reason => Approved (proj1_sig (fst (snd (proj1_sig reason))))
+ | inr (inl reason) => Denied (proj1_sig (fst (snd (proj1_sig reason))))
+ | inr (inr (inl reason)) => ApprovalFailed (proj1_sig (fst (snd (proj1_sig reason))))
+ | inr (inr (inr impossible)) => match impossible with end end.
+Definition parse_approval_outcome source := option_map approval_from_fields
+ (ArgumentDeclaration.decode CallbackDeclarations.approval_schema source).
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
 Definition configure_decoder := Decoder "configure" Configuration.environment_schema
@@ -41,37 +35,34 @@ Definition callback_kinds := [Context;Model;Reasoning;Tool;Hook;AfterHook;Approv
 Definition callback_named (name : string) :=
  find (fun kind => String.eqb name (callback_text kind)) callback_kinds.
 Definition callback_input (kind : callback_kind) : forall ok,
- fields (CallbackDeclarations.coordinates kind) -> fields (CallbackDeclarations.payload kind ok) -> option input :=
+ fields (CallbackDeclarations.coordinates kind) -> DeclarationFields.values (CallbackDeclarations.payload kind ok) -> option input :=
  match kind as kind return forall ok, fields (CallbackDeclarations.coordinates kind) ->
-   fields (CallbackDeclarations.payload kind ok) -> option input with
+   DeclarationFields.values (CallbackDeclarations.payload kind ok) -> option input with
  | Context => fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return fields (CallbackDeclarations.payload Context ok) -> option input then
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Context ok) -> option input then
      fun values => option_map (fun observations => ContextCompleted id ticket (Some observations) "")
-       (Codec.traverse parse_observation (head values))
-   else fun values => let text := head values in
-     if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
+       (Codec.traverse parse_observation (fst values))
+   else fun values => Some (ContextCompleted id ticket None (proj1_sig (fst values)))
  | Model => fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return fields (CallbackDeclarations.payload Model ok) -> option input then
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
      fun values => option_map (fun items => ModelCompleted id ticket (ModelSuccess items))
-       (Codec.traverse Codec.parse_model_item (head values))
+       (Codec.traverse Codec.parse_model_item (fst values))
    else fun values => Some (ModelCompleted id ticket
-     (match head (tail values) with Some _ => ModelContextLimit | None => ModelFailure (head values) end))
+     (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end))
  | Reasoning => fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return fields (CallbackDeclarations.payload Reasoning ok) -> option input then
-     fun values => if Nat.leb (Utf8.byte_length (head values)) 64
-       then Some (ReasoningCompleted id ticket (Reasoning.Chosen (head values) (head (tail values)))) else None
-   else fun values => let text := head values in
-     if Nat.leb (Utf8.byte_length text) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed text)) else None
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Reasoning ok) -> option input then
+     fun values => Some (ReasoningCompleted id ticket (Reasoning.Chosen (proj1_sig (fst values)) (fst (snd values))))
+   else fun values => Some (ReasoningCompleted id ticket (EvaluationFailed (proj1_sig (fst values))))
  | Tool => fun ok address values => Some (ToolCompleted (head address) (head (tail address))
-     (match head values with Some value => value | None => JNull end) (negb ok))
- | Hook => fun _ address values => option_map (HookCompleted (head address) (head (tail address))) (parse_hook (head values))
- | AfterHook => fun _ address values => option_map
-     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address))) (parse_after (head values))
- | Approval => fun _ address values => option_map (ApprovalCompleted (head address) (head (tail address)))
-     (parse_approval_outcome (head values))
+     (match fst values with Some value => value | None => JNull end) (negb ok))
+ | Hook => fun _ address values => Some (HookCompleted (head address) (head (tail address)) (HookRules.hook_from_fields (fst values)))
+ | AfterHook => fun _ address values => Some
+     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values)))
+ | Approval => fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
+     (approval_from_fields (fst values)))
  | _ => fun _ _ _ => None end.
 Definition decode_callback kind source :=
  match CallbackDeclarations.decode kind source with
@@ -127,7 +118,7 @@ Definition diagnostic (source : json) :=
  match string_field "kind" source with
  | Some kind => match callback_named kind with
    | Some callback => match CallbackDeclarations.read_status callback source with
-     | Some ok => schema_diagnostic ("callback '" ++ kind ++ "'") (CallbackDeclarations.full_schema callback ok) source
+     | Some ok => "Invalid callback '" ++ kind ++ "'; expected " ++ TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema callback ok))
      | None => "Missing or invalid callback result marker" end
    | None => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
    | Some decoder =>

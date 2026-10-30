@@ -149,17 +149,11 @@ Definition settle id result error value :bool*bool*decision := match find_job id
    else (false,false,accept (JObject [("accepted",JBool false)]) value [])
  | None=>(false,false,accept (JObject [("accepted",JBool false)]) value []) end.
 Definition completion source value :option (bool*bool*decision) := match string_field "kind" source with
- | Some kind=>if String.eqb kind "chatgpt_result" then Some (
-   match Schema.decode (CallbackDeclarations.full_schema ModelDeclarations.ChatgptExec false) source with
-   | Some values => let values := Schema.tail values in let id := Schema.head values in
-     let values := Schema.tail values in let error := Schema.head values in let result := Schema.head (Schema.tail values) in
-     (* DEFENSE: External job callbacks must retain the unsigned identity and
-        object-result contract of the execution protocol. *)
-     if ids_valid [id] && (match result with JObject _=>true | _=>false end)
-     then settle id result error value
-     else (false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value)
-   | None=>(false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value) end) else None
- | None=>None end.
+ | Some kind => if String.eqb kind "chatgpt_result" then Some (
+   match CallbackDeclarations.decode ModelDeclarations.ChatgptExec source with
+   | Some (existT _ ok (address,values)) => settle (Schema.head address) (JObject (fst values)) (negb ok) value
+   | None => (false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value) end) else None
+ | None => None end.
 Definition recover_job job := match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning=>with_outcome (Selvedge.Features.Domain.JobInterrupted "Service restarted; execution may have happened and will not be replayed") job
  | _=>job end.

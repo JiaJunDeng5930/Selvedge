@@ -47,15 +47,10 @@ Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
  let next:=if correlated then store id (if ok && negb (String.eqb normalized "") then Selvedge.Features.Domain.Named normalized else Selvedge.Features.Domain.TitleFailed text) value else value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
- match string_field "kind" source with Some "task_title" =>
- match bool_field "ok" source with
- | Some ok => match Schema.decode (CallbackDeclarations.full_schema ModelDeclarations.TaskTitle ok) source with
-   | None => None
-   | Some fields => let fields := tail fields in let id := head fields in let fields := tail fields in
-     let ticket := head fields in let text := head (tail (tail fields)) in
-     if negb (N.leb (N.of_nat (String.length text)) Titles.response_title_bytes && Utf8.well_formed text) then None else
-     Some (true,true,complete id ticket ok text value) end
- | None => None end | _ => None end.
+ match CallbackDeclarations.decode ModelDeclarations.TaskTitle source with
+ | Some (existT _ ok (address,values)) =>
+   Some (true,true,complete (head address) (head (tail address)) ok (proj1_sig (fst values)) value)
+ | None => None end.
 Definition recover (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_titles (map (fun item=>match Selvedge.Features.Domain.title_value item with
  | Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope _ (_, _))=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")

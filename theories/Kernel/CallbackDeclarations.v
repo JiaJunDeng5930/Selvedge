@@ -1,80 +1,108 @@
-From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import ModelDeclarations.
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Schema DeclarationFields.
+From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Kernel Require Import ModelDeclarations ApprovalProtocol.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Module D := ArgumentDeclaration.
+Module F := DeclarationFields.
 
 Definition operation_identity := Field "operation_id" KNatural.
-Definition failure_kind := Field "failure_kind" (KOptional (KEnum "context_limit" [])).
 Definition coordinates (kind : callback_kind) := match kind with
  | ChatgptExec => [operation_identity]
  | BoardText => [Field "card_id" KNatural;Field "ticket" KNatural]
  | Worktree _ => ModelDeclarations.task_only
  | AfterHook => ModelDeclarations.identity ++ [operation_identity]
  | _ => ModelDeclarations.identity end.
-(** A branch stores only its data. The constructor owns the result marker, so
-    a successful callback cannot contain a failure marker or a failure-only
-    payload. The same branch description admits external callbacks. *)
+Definition text_constraints bytes no_nul nonblank :=
+ D.TextConstraints 0 D.maximum_natural bytes no_nul nonblank false None.
+Definition text bytes no_nul := D.Text (text_constraints bytes no_nul false).
+Definition diagnostic_constraints kind := match kind with
+ | Approval => ApprovalProtocol.justification_constraints
+ | _ => text_constraints 4096 true false end.
+Definition diagnostic_format kind := D.ConstrainedText (diagnostic_constraints kind).
+Definition diagnostic_text kind := D.Textual (diagnostic_format kind).
+Definition reason decision declaration := D.Object
+ [F.required "decision" (D.Const (JString decision));F.required "reason" declaration].
+Definition hook_schema := D.Union
+ [D.Object [F.required "decision" (D.Const (JString "allow"))];
+  D.Object [F.required "decision" (D.Const (JString "rewrite"));F.required "arguments" D.RawObject];
+  reason "deny" (diagnostic_text Hook);reason "failed" (diagnostic_text Hook)].
+Definition after_schema := D.Union
+ [D.Object [F.required "decision" (D.Const (JString "allow"))];
+  D.Object [F.required "decision" (D.Const (JString "rewrite"));F.required "value" D.Any];
+  reason "deny" (diagnostic_text AfterHook);reason "failed" (diagnostic_text AfterHook)].
+Definition created_workspace := D.Object
+ [F.required "roots" (D.Array D.text);F.required "primary_root" D.text].
+Definition approval_schema := D.Union
+ [reason "allow" ApprovalProtocol.justification_declaration;
+  reason "deny" ApprovalProtocol.justification_declaration;
+  reason "failed" ApprovalProtocol.justification_declaration].
+
+(** The branch carries the constraints used by the public decoder. Its fixed
+    marker and field names are supplied by the declaration. *)
 Definition status (kind : callback_kind) : option (string * bool) := match kind with
  | Approval | Hook | AfterHook => None
  | Tool | ChatgptExec | Compaction _ => Some ("error",false)
  | _ => Some ("ok",true) end.
 Definition payload (kind : callback_kind) (ok : bool) := match kind with
- | TaskTitle => [Field (if ok then "title" else "message") KText]
- | BoardText => if ok then [Field "title" KText;Field "description" KText] else [Field "message" KText]
- | Approval | Hook | AfterHook => [Field "outcome" KJson]
- | Context => if ok then [Field "observations" (KArray KJson)] else [Field "message" KText]
- | Reasoning => if ok then [Field "effort" KText;Field "generations" KNatural] else [Field "message" KText]
- | Model => if ok then [Field "items" (KArray KJson)] else [Field "message" KText;failure_kind]
- | Tool => [Field "value" (KOptional KJson)]
- | ChatgptExec => [Field "value" KJson]
- | Compaction _ => [Field "result" KJson]
+ | TaskTitle => [F.required (if ok then "title" else "message")
+     (D.Text (if ok then text_constraints 4096 false false else diagnostic_constraints TaskTitle))]
+ | BoardText => if ok then [F.required "title" (text 4096 true);F.required "description" (text 100000 true)]
+   else [F.required "message" (diagnostic_text BoardText)]
+ | Approval => [F.required "outcome" approval_schema]
+ | Hook => [F.required "outcome" hook_schema]
+ | AfterHook => [F.required "outcome" after_schema]
+ | Context => if ok then [F.required "observations" (D.Array D.Any)] else [F.required "message" (diagnostic_text Context)]
+ | Reasoning => if ok then [F.required "effort" (text 64 false);F.required "generations" (D.Value KNatural)]
+   else [F.required "message" (diagnostic_text Reasoning)]
+ | Model => if ok then [F.required "items" (D.Array D.Any)]
+   else [F.required "message" (diagnostic_text Model);F.optional "failure_kind" (D.Const (JString "context_limit"))]
+ | Tool => [F.optional "value" D.Any]
+ | ChatgptExec => [F.required "value" D.RawObject]
+ | Compaction _ => [F.required "result" (if ok then D.RawObject else
+     D.Object [F.required "message" (diagnostic_text (Compaction false))])]
  | Worktree created =>
-   if created then if ok then [Field "root" KText;Field "workspace" KJson;Field "guidance" KJson]
-     else [Field "root" (KOptional KText);Field "message" KText]
-   else if ok then [Field "outcome" KJson] else [Field "message" KText]
+   if created then if ok then [F.required "root" D.text;F.required "workspace" created_workspace;F.required "guidance" D.Any]
+     else [F.optional "root" D.text;F.required "message" (diagnostic_text (Worktree true))]
+   else if ok then [F.required "outcome" D.Any] else [F.required "message" (diagnostic_text (Worktree false))]
  end.
 Definition wire_payload kind ok := match status kind with
- | Some (name,_) => Field name KBool :: payload kind ok
+ | Some (name,success) => F.required name (D.Const (JBool (Bool.eqb ok success))) :: payload kind ok
  | None => payload kind ok end.
-Definition declaration kind ok := ModelDeclarations.effect (callback_text kind) (coordinates kind ++ wire_payload kind ok) None.
-Definition full_schema kind ok := Field "kind" KText :: ModelDeclarations.payload_fields (declaration kind ok).
-Fixpoint append_fields (first second : schema) : fields first -> fields second -> fields (first ++ second) :=
- match first as first return fields first -> fields second -> fields (first ++ second) with
- | [] => fun _ values => values
- | field :: rest => fun first second => FCons (head first) (append_fields rest _ (tail first) second) end.
-Fixpoint split_fields (first second : schema) : fields (first ++ second) -> fields first * fields second :=
- match first as first return fields (first ++ second) -> fields first * fields second with
- | [] => fun values => (FNil,values)
- | field :: rest => fun values => let '(prefix,suffix) := split_fields rest second (tail values) in
-   (FCons (head values) prefix,suffix) end.
-Definition mark kind ok : fields (payload kind ok) -> fields (wire_payload kind ok) :=
- match status kind as marker return fields (payload kind ok) ->
-   fields (match marker with Some (name,_) => Field name KBool :: payload kind ok | None => payload kind ok end) with
- | Some (name,success) => fun values => FCons (field:=Field name KBool) (Bool.eqb ok success) values
+Definition full_properties kind ok := F.required "kind" (D.Const (JString (callback_text kind))) ::
+ F.schema_properties (coordinates kind) ++ wire_payload kind ok.
+Definition full_schema kind ok := D.Object (full_properties kind ok).
+Definition mark kind ok : F.values (payload kind ok) -> F.values (wire_payload kind ok) :=
+ match status kind as marker return F.values (payload kind ok) ->
+   F.values (match marker with Some (name,success) =>
+     F.required name (D.Const (JBool (Bool.eqb ok success))) :: payload kind ok | None => payload kind ok end) with
+ | Some (name,success) => fun values => (tt,values)
  | None => fun values => values end.
-Definition unmark kind ok : fields (wire_payload kind ok) -> fields (payload kind ok) :=
- match status kind as marker return
-   fields (match marker with Some (name,_) => Field name KBool :: payload kind ok | None => payload kind ok end) -> fields (payload kind ok) with
- | Some (name,_) => fun values => @tail (Field name KBool) (payload kind ok) values
+Definition unmark kind ok : F.values (wire_payload kind ok) -> F.values (payload kind ok) :=
+ match status kind as marker return F.values (match marker with Some (name,success) =>
+     F.required name (D.Const (JBool (Bool.eqb ok success))) :: payload kind ok | None => payload kind ok end) ->
+   F.values (payload kind ok) with
+ | Some (name,success) => fun values => snd values
  | None => fun values => values end.
-Definition encode kind ok (address : fields (coordinates kind)) (values : fields (payload kind ok)) :=
- ModelDeclarations.encode (declaration kind ok) (append_fields _ _ address (mark kind ok values)).
-Definition full_fields kind ok (address : fields (coordinates kind)) (values : fields (payload kind ok)) :=
- FCons (field:=Field "kind" KText) (callback_text kind)
-   (append_fields _ _ address (mark kind ok values)).
+Definition full_fields kind ok (address : Schema.fields (coordinates kind)) (values : F.values (payload kind ok))
+ : D.denote (full_schema kind ok).
+Proof.
+ refine (exist _ (tt,F.append _ _ (F.from_schema address) (mark kind ok values)) _).
+ destruct kind; destruct ok; try destruct completed; try destruct created; reflexivity.
+Defined.
+Definition encode kind ok address values := D.encode (full_schema kind ok) (full_fields kind ok address values).
 Definition read_status kind source := match status kind with
- | Some (name,success) => option_map (fun flag => Bool.eqb flag success) (bool_field name source)
+ | Some (name,success) => option_map (fun marked => Bool.eqb marked success) (bool_field name source)
  | None => Some true end.
-Definition response kind := { ok : bool & (fields (coordinates kind) * fields (payload kind ok))%type }.
-Definition decode kind source : option (response kind) :=
+Definition decoded kind := { ok : bool & (Schema.fields (coordinates kind) * F.values (payload kind ok))%type }.
+Definition decode_branch kind ok source :=
+ option_map (fun values =>
+   let '(address,payload) := F.split (F.schema_properties (coordinates kind)) (wire_payload kind ok) (snd (proj1_sig values)) in
+   (F.to_schema (coordinates kind) address,unmark kind ok payload))
+   (D.decode (full_schema kind ok) source).
+Definition decode kind source : option (decoded kind) :=
  match read_status kind source with
- | None => None
- | Some ok => if ModelDeclarations.matches (declaration kind ok) source then
-   option_map (fun values =>
-     let '(address,values) := split_fields (coordinates kind) (wire_payload kind ok) (tail values) in
-     existT _ ok (address,unmark kind ok values))
-     (Schema.decode (full_schema kind ok) source)
-   else None
- end.
+ | Some ok => option_map (fun values => existT _ ok values) (decode_branch kind ok source)
+ | None => None end.

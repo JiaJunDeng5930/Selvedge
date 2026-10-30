@@ -324,17 +324,13 @@ Record completion_payload := CompletionPayload {
  completion_title : string; completion_description : string; completion_message : string
 }.
 Definition decode_completion_payload (source:json) (ok:bool) : option completion_payload :=
- if ok then match Schema.decode (CallbackDeclarations.full_schema ModelDeclarations.BoardText true) source with
- | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail fields in
-   let ticket:=head fields in let fields:=tail (tail fields) in let title:=head fields in
-   if limited title Titles.response_title_bytes then
-     Some (CompletionPayload id ticket title (head (tail fields)) "") else None
- | None=>None end
- else match Schema.decode (CallbackDeclarations.full_schema ModelDeclarations.BoardText false) source with
- | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail fields in
-   let ticket:=head fields in let message:=head (tail (tail fields)) in
-   if limited message 4096 then Some (CompletionPayload id ticket "" "" message) else None
- | None=>None end.
+ if ok then match CallbackDeclarations.decode_branch ModelDeclarations.BoardText true source with
+ | Some (address,values) => Some (CompletionPayload (head address) (head (tail address))
+     (proj1_sig (fst values)) (proj1_sig (fst (snd values))) "")
+ | None => None end
+ else match CallbackDeclarations.decode_branch ModelDeclarations.BoardText false source with
+ | Some (address,values) => Some (CompletionPayload (head address) (head (tail address)) "" "" (proj1_sig (fst values)))
+ | None => None end.
 Definition suggestion (ok retitle:bool) (title description message:string) (card:Selvedge.Features.Domain.card) (value:world) :=
  let old:=Selvedge.Features.Domain.card_contents card in
  let draft:=(set Selvedge.Features.Domain.draft_description (fun _=>(if retitle then Selvedge.Features.Domain.draft_description old else description)) (set Selvedge.Features.Domain.draft_title (fun _=>(Titles.normalize title)) (old))) in

@@ -115,51 +115,17 @@ Proof.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
  rewrite Different, Live, Bound. unfold Workspace.same_resource. rewrite N.eqb_refl; reflexivity.
 Qed.
-(** A host success must name its primary directory and carry guidance from that
-    directory. These boundary requirements observe only the relevant fields. *)
-Theorem created_completion_requires_explicit_primary : forall source value observed,
+(** The callback language requires an explicit primary directory. Guidance
+    must additionally refer to that selected directory. *)
+Theorem created_completion_rejects_other_directory_guidance : forall source value address fields,
  string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
- field "workspace" source = Some observed -> string_field "primary_root" observed = None ->
+ CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source = Some (address,fields) ->
+ Codec.guidance_member (Worktree.completed_workspace (fst (snd fields))) (fst (snd (snd fields))) = false ->
  Worktree.completion source value = None.
 Proof.
- intros source value observed kind succeeded workspace missing.
- unfold Worktree.completion; rewrite kind, succeeded; cbn [String.eqb].
- unfold Worktree.decode_creation_completion.
- destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
- cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
-  CallbackDeclarations.coordinates CallbackDeclarations.payload CallbackDeclarations.wire_payload CallbackDeclarations.status ModelDeclarations.effect
-  ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
- destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
- do 4 apply decoded_field_tail in Fields.
- pose proof (decoded_field_head _ _ _ _ Fields) as Workspace; cbn [field_name] in Workspace.
- change (Json.lookup "workspace" members=Some observed) in workspace.
- rewrite workspace in Workspace; cbn [decode_field decode_value] in Workspace; injection Workspace as Workspace.
- rewrite <-Workspace; destruct (parse_workspace observed); cbn; rewrite ?missing;
- repeat rewrite andb_false_r; reflexivity.
-Qed.
-Theorem created_completion_rejects_other_directory_guidance : forall source value observed space,
- string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
- field "workspace" source = Some observed -> parse_workspace observed = Some space ->
- Codec.guidance_member space (value_or_null "guidance" source) = false ->
- Worktree.completion source value = None.
-Proof.
- intros source value observed space kind succeeded workspace parsed mismatch.
- unfold Worktree.completion; rewrite kind, succeeded; cbn [String.eqb].
- unfold Worktree.decode_creation_completion.
- destruct (Schema.decode _ source) as [values|] eqn:Decoded; [|reflexivity].
- cbv beta iota zeta delta [CallbackDeclarations.full_schema CallbackDeclarations.declaration
-  CallbackDeclarations.coordinates CallbackDeclarations.payload CallbackDeclarations.wire_payload CallbackDeclarations.status ModelDeclarations.effect
-  ModelDeclarations.payload_fields ModelDeclarations.task_only List.app Field field_value field_representation field_kind] in *.
- destruct (decoded_object_fields _ _ _ Decoded) as [members [-> Fields]].
- do 4 apply decoded_field_tail in Fields.
- pose proof (decoded_field_head _ _ _ _ Fields) as Workspace; cbn [field_name] in Workspace.
- change (Json.lookup "workspace" members=Some observed) in workspace.
- rewrite workspace in Workspace; cbn [decode_field decode_value] in Workspace; injection Workspace as Workspace.
- apply decoded_field_tail in Fields; apply decoded_field_head in Fields; cbn [field_name] in Fields.
- destruct (Json.lookup "guidance" members) as [guidance|] eqn:Guidance;
- cbn [decode_field decode_value missing_value] in Fields; [|discriminate].
- injection Fields as Fields; unfold value_or_null in mismatch; cbn [Json.field] in mismatch; rewrite Guidance in mismatch.
- rewrite <-Workspace, parsed; cbn; rewrite <-Fields, mismatch; repeat rewrite andb_false_r; reflexivity.
+ intros source value address fields Kind Succeeded Decoded Mismatch.
+ unfold Worktree.completion; rewrite Kind, Succeeded; cbn [String.eqb].
+ unfold Worktree.decode_creation_completion; rewrite Decoded, Mismatch, andb_false_r; reflexivity.
 Qed.
 (** Resource phases carry their roots, so a ready tree cannot have no root. *)
 Theorem ready_tree_has_root : forall tree,

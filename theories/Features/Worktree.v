@@ -563,30 +563,30 @@ Record creation_completion := CreationCompletion {
  creation_owner : N; creation_root : option string; creation_workspace : option workspace;
  creation_guidance : json; creation_message : string
 }.
+Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
+ let fields := proj1_sig values in
+ Workspace (map (@proj1_sig _ _) (fst fields)) (Some (proj1_sig (fst (snd fields)))).
 Definition decode_creation_completion (source : json) (ok : bool) : option creation_completion :=
- if ok then match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) true) source with
- | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail (tail fields) in
-   let root:=head fields in let fields:=tail fields in let observed:=head fields in let guidance:=head (tail fields) in
-   match parse_workspace observed with
-   | Some space => if Workspace.valid_path root && Codec.valid_guidance guidance && Codec.guidance_member space guidance &&
-       match string_field "primary_root" observed with Some _=>true | None=>false end
-     then Some (CreationCompletion id (Some root) (Some space) guidance "") else None
-   | None=>None end
- | None=>None end
- else match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree true) false) source with
- | Some fields => let fields:=tail fields in let id:=head fields in let fields:=tail (tail fields) in
-   let root:=head fields in let message:=head (tail fields) in
-   if match root with Some root=>Workspace.valid_path root | None=>true end
-   then Some (CreationCompletion id root None JNull message) else None
- | None=>None end.
+ if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source with
+ | Some (address,values) =>
+   let root := proj1_sig (fst values) in let space := completed_workspace (fst (snd values)) in
+   let guidance := fst (snd (snd values)) in
+   if Workspace.valid_path root && Workspace.valid_workspace space &&
+      Codec.valid_guidance guidance && Codec.guidance_member space guidance
+   then Some (CreationCompletion (head address) (Some root) (Some space) guidance "") else None
+ | None => None end
+ else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) false source with
+ | Some (address,values) => let root := option_map (@proj1_sig _ _) (fst values) in
+   if match root with Some root => Workspace.valid_path root | None => true end
+   then Some (CreationCompletion (head address) root None JNull (proj1_sig (fst (snd values)))) else None
+ | None => None end.
 Definition decode_archive_completion (source : json) (ok : bool) : option (N * option archive_outcome * string) :=
- if ok then match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) true) source with
- | Some fields => let fields:=tail fields in
-   option_map (fun outcome=>(head fields,Some outcome,"")) (archive_outcome_of (head (tail (tail fields))))
- | None=>None end
- else match Schema.decode (CallbackDeclarations.full_schema (ModelDeclarations.Worktree false) false) source with
- | Some fields => let fields:=tail fields in Some (head fields,None,head (tail (tail fields)))
- | None=>None end.
+ if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) true source with
+ | Some (address,values) => option_map (fun outcome => (head address,Some outcome,"")) (archive_outcome_of (fst values))
+ | None => None end
+ else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) false source with
+ | Some (address,values) => Some (head address,None,proj1_sig (fst values))
+ | None => None end.
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
  match string_field "kind" source,bool_field "ok" source with
  | Some kind,Some ok=>

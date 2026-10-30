@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Utf8.
+From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Inputs.
 Import ListNotations.
 Open Scope string_scope.
@@ -38,11 +39,17 @@ Definition user_request_text (history : list message) : list string :=
       end) history []).
 Definition user_requests history := map JString (user_request_text history).
 Definition reason_bytes : N := 2048%N.
+Definition reason_constraints := ArgumentDeclaration.TextConstraints
+ 0 ArgumentDeclaration.maximum_natural reason_bytes true false false None.
+Definition justification_constraints := ArgumentDeclaration.TextConstraints
+ 0 ArgumentDeclaration.maximum_natural reason_bytes true true false None.
+Definition reason_declaration := ArgumentDeclaration.Text reason_constraints.
+Definition justification_declaration := ArgumentDeclaration.Text justification_constraints.
+
 Definition valid_reason (text : string) :=
-  Utf8.well_formed text && Utf8.no_nul text &&
-  N.leb (N.of_nat (String.length text)) reason_bytes.
+ ArgumentDeclaration.check reason_declaration (JString text).
 Definition valid_justification (text : string) :=
-  Utf8.nonblank text && valid_reason text.
+ ArgumentDeclaration.check justification_declaration (JString text).
 Definition outcome_reason (outcome : approval_outcome) := match outcome with
  | Approved reason | Denied reason | ApprovalFailed reason => reason end.
 Definition normalize_outcome (outcome : approval_outcome) :=

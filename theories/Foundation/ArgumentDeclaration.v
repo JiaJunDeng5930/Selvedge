@@ -23,7 +23,7 @@ Inductive text_format :=
 | NaturalSpelling (minimum : N) (maximum : option N)
 | PrefixedSpelling (prefix : string) (suffix : text_format).
 Inductive t :=
-| Reject | Null
+| Reject | RawObject | Null
 | Value (kind : Schema.kind)
 | Const (value : json)
 | Textual (format : text_format)
@@ -93,7 +93,8 @@ Fixpoint encode_text (format : text_format) : text_value format -> string :=
     names are unique by type; unions retain the selected alternative. *)
 Fixpoint denote (declaration : t) : Set :=
  match declaration with
- | Reject => Empty_set | Null | Const _ => unit | Value kind => Schema.denote kind
+ | Reject => Empty_set | RawObject => list (string * json)
+ | Null | Const _ => unit | Value kind => Schema.denote kind
  | Textual format => text_value format
  | UnboundedNatural minimum => checked (fun value => minimum <=? value)
  | Natural minimum maximum => checked (in_bounds minimum maximum)
@@ -115,6 +116,7 @@ Definition present {A} (value : option A) := match value with Some _ => true | N
 Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :=
  match declaration as description return option (denote description) with
  | Reject => None | Value kind => Schema.decode_value kind value
+ | RawObject => match value with JObject members => Some members | _ => None end
  | Null => match value with JNull => Some tt | _ => None end
  | Const expected => if Json.equal value expected then Some tt else None
  | Textual format => match value with JString source => decode_text format source | _ => None end
@@ -155,7 +157,7 @@ Fixpoint encode (declaration : t) : denote declaration -> json :=
  match declaration as description return denote description -> json with
  | Reject => fun impossible => match impossible with end
  | Null => fun _ => JNull | Const value => fun _ => value
- | Value kind => Schema.encode_value kind
+ | Value kind => Schema.encode_value kind | RawObject => JObject
  | Textual format => fun value => JString (encode_text format value)
  | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
  | Array element => fun values => JArray (map (encode element) values)
@@ -198,6 +200,7 @@ Fixpoint text_schema (format : text_format) : json := match format with
 Fixpoint schema (declaration : t) : json :=
  match declaration with
  | Reject => JBool false | Value kind => JObject (Schema.kind_schema kind)
+ | RawObject => JObject [("type",JString "object")]
  | Const value => JObject [("const",value)]
  | Null => JObject [("type",JString "null")]
  | Textual format => text_schema format
