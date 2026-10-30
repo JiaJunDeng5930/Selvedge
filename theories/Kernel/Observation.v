@@ -189,9 +189,9 @@ Definition effect_packet (state : world) (value : effect) := match value with
  | CancelTicket id ticket => ModelDeclarations.pack ModelDeclarations.cancel_ticket [!id;ticket!] | ContinueScheduling => ModelDeclarations.pack ModelDeclarations.continue [!!]
  | CreateWorktree id root workspace backend => ModelDeclarations.pack ModelDeclarations.worktree_create [!WorkspaceBackend.to_value backend;id;root;workspace_json workspace!]
  | ArchiveWorktree id source root backend => ModelDeclarations.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source!]
- | SuggestTitle id ticket profile prompt => ModelDeclarations.pack ModelDeclarations.task_title [!id;ticket;task_text_model_json profile;prompt!]
- | SuggestCard id ticket revision profile prompt draft retitle => ModelDeclarations.pack ModelDeclarations.board_text [!id;ticket;task_text_model_json profile;prompt;retitle!]
- | RunConnectionJob id job => ModelDeclarations.pack ModelDeclarations.chatgpt_exec [!id;Selvedge.Features.Domain.job_arguments_json job;JObject [
+ | SuggestTitle id (RequestEnvelope.Envelope ticket (profile, prompt)) => ModelDeclarations.pack ModelDeclarations.task_title [!id;ticket;task_text_model_json profile;prompt!]
+ | SuggestCard id (RequestEnvelope.Envelope ticket (revision, retitle)) profile prompt draft => ModelDeclarations.pack ModelDeclarations.board_text [!id;ticket;task_text_model_json profile;prompt;retitle!]
+ | RunConnectionJob (RequestEnvelope.Envelope id job) => ModelDeclarations.pack ModelDeclarations.chatgpt_exec [!id;Selvedge.Features.Domain.job_arguments_json job;JObject [
     ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));
     ("resource",WorkspaceBinding.reference_execution (Selvedge.Features.Domain.job_resource job) state);
     ("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]

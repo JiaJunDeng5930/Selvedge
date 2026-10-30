@@ -41,7 +41,7 @@ Proof.
    TaskScope.select State.find_task registry_at TaskScope.selected TaskScope.owner
    Tasks.control_target Tasks.control_transition Tasks.control_changes
    TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
-   TaskChange.apply_edit TaskChange.change_status Tasks.control_effects].
+   TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
  unfold Selvedge.Features.Runtime.guard_result, Worktree.guard_result, accept, put_task.
  cbn -[Json.equal].
  rewrite !JsonProofs.equal_is_reflexive.

@@ -130,7 +130,7 @@ Proof.
  intros entry Valid; unfold WorldInvariant.title_valid in *.
  apply andb_true_iff in Valid as [Present Valid].
  apply andb_true_iff; split; [apply an_existing_task_remains_present; exact Present|].
- destruct (Selvedge.Features.Domain.title_value entry); try exact Valid.
+ destruct (Selvedge.Features.Domain.title_value entry) as [[ticket [selected prompt]]|text|reason]; try exact Valid.
  repeat rewrite andb_true_iff in Valid |- *.
  destruct Valid as [[[Ticket Profile] Capable] Budget].
  repeat split; try assumption; apply N.ltb_lt; apply N.ltb_lt in Ticket; lia.
@@ -150,7 +150,7 @@ Proof.
  - apply andb_true_iff in Static as [Fixed Linked]; apply andb_true_iff; split.
    + rewrite <- Draft; exact Fixed.
    + destruct (Selvedge.Features.Domain.card_task card); [apply an_existing_task_remains_present; exact Linked|reflexivity].
- - destruct (Selvedge.Features.Domain.card_enrichment card); try exact Enrichment.
+ - destruct (Selvedge.Features.Domain.card_enrichment card) as [|[ticket [revision retitle]]|reason]; try exact Enrichment.
    repeat rewrite andb_true_iff in Enrichment |- *.
    destruct Enrichment as [[Ticket Revision] Active]; repeat split; try assumption.
    apply N.ltb_lt; apply N.ltb_lt in Ticket; lia.

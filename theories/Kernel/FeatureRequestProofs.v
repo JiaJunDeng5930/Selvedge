@@ -9,10 +9,10 @@ Module C := Selvedge.Features.CompactionTypes.
 
 Definition title_receiver owner ticket selected prompt value :=
  find (fun item => N.eqb owner (F.title_task item)) (F.feature_titles (world_features value)) =
- Some (F.TitleEntry owner (F.TitlePending ticket selected prompt)).
+ Some (F.TitleEntry owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt)))).
 Definition card_receiver owner ticket revision retitle value :=
  exists card, registry_at owner (F.board_cards (F.feature_board (world_features value))) = Some (Some card) /\
- F.card_enrichment card = F.Enriching ticket revision retitle.
+ F.card_enrichment card = F.Enriching (RequestEnvelope.Envelope ticket (revision, retitle)).
 Definition connection_receiver identity job value :=
  find (fun item => N.eqb identity (fst item)) (F.sharing_jobs (F.feature_sharing (world_features value))) = Some (identity,job) /\
  F.job_state job = F.JobRunning.
@@ -24,23 +24,23 @@ Definition maintenance_receiver owner ticket value :=
   | C.Preparing expected _ _ _ | C.Compacting expected _ _ _ _ | C.Validating expected _ _ _ _ _ => expected=ticket
   | _ => False end).
 Definition receiver_installed (request : effect) value := match request with
- | SuggestTitle owner ticket selected prompt => title_receiver owner ticket selected prompt value
- | SuggestCard owner ticket revision _ _ _ retitle => card_receiver owner ticket revision retitle value
- | RunConnectionJob identity job => connection_receiver identity job value
+ | SuggestTitle owner (RequestEnvelope.Envelope ticket (selected, prompt)) => title_receiver owner ticket selected prompt value
+ | SuggestCard owner (RequestEnvelope.Envelope ticket (revision, retitle)) _ _ _ => card_receiver owner ticket revision retitle value
+ | RunConnectionJob (RequestEnvelope.Envelope identity job) => connection_receiver identity job value
  | MaintainContext (C.Scope owner ticket _) | MaintainContext (C.Measure owner ticket _ _ _)
  | MaintainContext (C.Compact owner ticket _ _ _ _) => maintenance_receiver owner ticket value
  | _ => False end.
 
 Lemma put_title_installs : forall owner ticket selected prompt value,
- title_receiver owner ticket selected prompt (S.put_title owner (F.TitlePending ticket selected prompt) value).
+ title_receiver owner ticket selected prompt (S.put_title owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt))) value).
 Proof. intros. unfold title_receiver,S.put_title. unfold with_features, Selvedge.Features.State.with_titles, set. cbn. now rewrite N.eqb_refl. Qed.
 Lemma put_card_installs : forall owner ticket card retitle value,
  (owner <= N.of_nat (List.length (F.board_cards (F.feature_board (world_features value)))))%N ->
  card_receiver owner ticket (F.card_revision card) retitle
-  (S.put_card owner (set F.card_enrichment (fun _ => F.Enriching ticket (F.card_revision card) retitle) card) value).
+  (S.put_card owner (set F.card_enrichment (fun _ => F.Enriching (RequestEnvelope.Envelope ticket ((F.card_revision card), retitle))) card) value).
 Proof.
  intros owner ticket card retitle value Bound. unfold card_receiver,S.put_card; unfold with_features, Selvedge.Features.State.with_board, set. cbn.
- exists (set F.card_enrichment (fun _ => F.Enriching ticket (F.card_revision card) retitle) card); split; [|reflexivity].
+ exists (set F.card_enrichment (fun _ => F.Enriching (RequestEnvelope.Envelope ticket ((F.card_revision card), retitle))) card); split; [|reflexivity].
  destruct (N.eqb owner (N.of_nat (List.length (F.board_cards (F.feature_board (world_features value)))))) eqn:Append.
  - apply N.eqb_eq in Append; subst owner. apply registry_lookup_at_appended_index.
  - assert (owner < N.of_nat (List.length (F.board_cards (F.feature_board (world_features value)))))%N as Strict
@@ -77,6 +77,7 @@ Proof.
  - destruct Member as [<-|[]]. apply put_card_installs.
    apply andb_true_iff in Valid as [Bound Scope]. now apply N.leb_le.
  - destruct Member as [<-|[]]. apply put_connection_installs.
+   cbn [RequestEnvelope.input].
    cbn [S.feature_valid] in Valid. destruct (F.job_state job); try discriminate; reflexivity.
  - destruct (S.maintenance_build owner (world_next_ticket before) request) as [pending request_effect] eqn:Built.
    cbn in *. destruct Member as [<-|[]].

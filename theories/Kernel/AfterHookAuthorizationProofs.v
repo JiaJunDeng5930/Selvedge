@@ -119,7 +119,8 @@ Qed.
 Lemma an_unchanged_title_state_is_retained : forall state,
  CommitAdmission.title_value_retained state (Some state) = true.
 Proof.
- destruct state; cbn; rewrite ?N.eqb_refl, ?the_same_profile_has_the_same_configuration,
+ destruct state as [[ticket [profile prompt]]|text|reason]; cbn;
+   rewrite ?N.eqb_refl, ?the_same_profile_has_the_same_configuration,
    ?String.eqb_refl; reflexivity.
 Qed.
 

@@ -43,7 +43,7 @@ Definition start (id:N) (result:decision) :decision :=
  | Some request => DecisionComposition.follow result (CommandResult.accept (issue request))
  end.
 Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
- let correlated:=match entry id value with Some item=>match Selvedge.Features.Domain.title_value item with Selvedge.Features.Domain.TitlePending expected _ _=>N.eqb ticket expected | _=>false end | None=>false end in
+ let correlated:=match entry id value with Some item=>match Selvedge.Features.Domain.title_value item with Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope expected (_, _))=>N.eqb ticket expected | _=>false end | None=>false end in
  let normalized:=Titles.normalize text in
  let next:=if correlated then store id (if ok && negb (String.eqb normalized "") then Selvedge.Features.Domain.Named normalized else Selvedge.Features.Domain.TitleFailed text) value else value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
@@ -59,5 +59,5 @@ Definition completion (source:json) (value:world) :option (bool*bool*decision) :
  | None => None end | _ => None end.
 Definition recover (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_titles (map (fun item=>match Selvedge.Features.Domain.title_value item with
- | Selvedge.Features.Domain.TitlePending _ _ _=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")
+ | Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope _ (_, _))=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")
  | _=>item end) (Selvedge.Features.Domain.feature_titles (world_features value))) (world_features value)) value.

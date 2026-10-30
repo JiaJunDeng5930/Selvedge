@@ -24,7 +24,7 @@ Qed.
 
 Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
  match F.card_enrichment card with
- | F.Enriching expected revision _ =>
+ | F.Enriching (RequestEnvelope.Envelope expected (revision, _)) =>
      ticket=expected /\ revision=F.card_revision card /\ F.card_archived card=false
  | _ => False
  end.
@@ -47,7 +47,7 @@ Proof.
  set (id:=Board.completion_card payload) in *; set (ticket:=Board.completion_ticket payload) in *.
  unfold Board.completion; rewrite kind, outcome, Parsed; cbn zeta; fold id ticket.
  destruct (Board.lookup id value) as [card|] eqn:found.
- - destruct (F.card_enrichment card) as [|expected revision retitle|reason] eqn:lease.
+ - destruct (F.card_enrichment card) as [|[expected [revision retitle]]|reason] eqn:lease.
    + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
      repeat split; try reflexivity. exact found.
    + destruct (N.eqb ticket expected && N.eqb revision (F.card_revision card) && negb (F.card_archived card)) eqn:matches.
@@ -131,11 +131,12 @@ Lemma interrupt_preserves_task_authority : forall task,
  Selvedge.Kernel.Domain.task_current_settings (Tasks.control_task Tasks.Interrupt task)=
    Selvedge.Kernel.Domain.task_current_settings task.
 Proof.
- intros task; unfold Tasks.control_task, Tasks.control_changes, TaskChange.apply, TaskChange.apply_edit, TaskChange.change_status.
- unfold Tasks.control_target, Tasks.control_transition,
-   Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.append_history,
-   Selvedge.Kernel.Domain.with_history.
- cbv [set]. destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl; repeat split; reflexivity.
+ intros task; unfold Tasks.control_task.
+ pose proof (TaskChangeProofs.field_changes_keep_the_immutable_task_identity
+   (Tasks.control_changes Tasks.Interrupt task) task) as Identity.
+ pose proof (TaskChangeProofs.field_changes_keep_execution_configuration
+   (Tasks.control_changes Tasks.Interrupt task) task) as Configuration.
+ tauto.
 Qed.
 
 (** Archiving a busy linked card keeps the association and the Task's frozen
@@ -358,10 +359,8 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
    (environment_profiles (world_environment value))=Some selected ->
  TitleRuntime.ordinary selected=true ->
  decision_effects (Board.regenerate id revision observed profile_name value)=
- [SuggestCard id (world_next_ticket value) (N.succ (F.card_revision card)) selected
-   (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
-     (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true)
-   (F.card_contents card) true].
+ [SuggestCard id (RequestEnvelope.Envelope (world_next_ticket value) ((N.succ (F.card_revision card)), true)) selected (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
+     (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true) (F.card_contents card)].
 Proof.
  intros id revision value card profile_name selected now observed Found Current Clock Mutable Available Ordinary.
  subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name now observed Found Clock Mutable).

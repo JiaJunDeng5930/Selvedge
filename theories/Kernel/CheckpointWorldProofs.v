@@ -175,18 +175,18 @@ Proof.
  unfold WorldInvariant.feature_tickets.
  change (ticket_subsequence
   (flat_map (fun entry => match Selvedge.Features.Domain.title_value entry with
-    Selvedge.Features.Domain.TitlePending ticket _ _ => [ticket] | _ => [] end)
+    Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end)
       (Selvedge.Features.Domain.feature_titles (world_features before)) ++
    flat_map (fun value => match Selvedge.Features.Domain.card_enrichment value with
-    Selvedge.Features.Domain.Enriching ticket _ _ => [ticket] | _ => [] end)
+    Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end)
       (WorldInvariant.cards_present (Selvedge.Features.Domain.feature_board (world_features before))) ++
    flat_map maintenance_tickets (filter (fun pair : N * CompactionTypes.entry => negb (N.eqb (fst pair) owner))
       (CompactionTypes.maintenance_entries (Compaction.registry before))))
   (flat_map (fun entry => match Selvedge.Features.Domain.title_value entry with
-    Selvedge.Features.Domain.TitlePending ticket _ _ => [ticket] | _ => [] end)
+    Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end)
       (Selvedge.Features.Domain.feature_titles (world_features before)) ++
    flat_map (fun value => match Selvedge.Features.Domain.card_enrichment value with
-    Selvedge.Features.Domain.Enriching ticket _ _ => [ticket] | _ => [] end)
+    Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end)
       (WorldInvariant.cards_present (Selvedge.Features.Domain.feature_board (world_features before))) ++
    flat_map maintenance_tickets (CompactionTypes.maintenance_entries (Compaction.registry before)))).
  apply ticket_subsequence_append; [apply ticket_subsequence_reflexive|].

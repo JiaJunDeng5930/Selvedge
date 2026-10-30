@@ -60,7 +60,7 @@ Lemma an_issued_connection_has_the_fresh_state : forall before
  TicketedRequest.Scoped.feature_issue request =
  accept (JObject [("accepted"%string,JBool true)])
   (Chatgpt.store (fresh_state before job) before)
-  [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job].
+  [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job)].
 Proof.
  intros before [source Admitted] job Intent Bounded.
  cbn in Intent; subst source.
@@ -83,7 +83,7 @@ Proof.
 Qed.
 
 Lemma fresh_connection_effect_has_receiver_authority : forall before job,
- A.feature_effect_valid (RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job)
+ A.feature_effect_valid (RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job))
   before (Chatgpt.store (fresh_state before job) before)=true.
 Proof.
  intros. unfold A.feature_effect_valid,A.fresh_connection_job,A.connection_job_at,
@@ -166,7 +166,7 @@ Theorem fresh_connection_has_complete_commit_authority : forall source raw befor
  W.features_valid before=true ->
  A.transition_authorized true source raw before
   (Decision (Chatgpt.store (fresh_state before job) before) reply
-    [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job;ContinueScheduling])=true.
+    [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job);ContinueScheduling])=true.
 Proof.
  intros source raw before job reply Features.
  unfold A.transition_authorized,A.world_evolution,A.retained_tasks.
@@ -176,9 +176,9 @@ Proof.
  (N.of_nat (List.length (world_projects before)) <=? N.of_nat (List.length (world_projects before)))%N &&
  A.features_evolution (world_features before) (world_features (Chatgpt.store (fresh_state before job) before)) &&
  A.effect_tickets_fresh (world_next_ticket before) (world_next_ticket before)
- [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job;ContinueScheduling] &&
+ [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job);ContinueScheduling] &&
  A.effects_authorized source raw before (Chatgpt.store (fresh_state before job) before)
- [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job;ContinueScheduling]=true).
+ [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job);ContinueScheduling]=true).
  rewrite !N.leb_refl,fresh_connection_preserves_feature_evolution by exact Features.
  cbn [A.effect_tickets_fresh A.unique_effect_tickets A.effect_ticket A.effects_authorized A.effect_authorized].
  rewrite fresh_connection_effect_has_receiver_authority. reflexivity.
@@ -204,7 +204,7 @@ Definition admitted_job connection project request decoded granted target :=
 Definition accepted_decision before job :=
  Decision (Chatgpt.store (fresh_state before job) before)
   (success (Chatgpt.receipt (F.sharing_next (Chatgpt.registry before)) job))
-  [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job;ContinueScheduling].
+  [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job);ContinueScheduling].
 
 Theorem admissible_connection_command_constructs_its_exact_result :
  forall connection project request arguments decoded granted target before,
@@ -260,7 +260,7 @@ Theorem admissible_connection_request_passes_every_commit_requirement :
  F.job_state job=F.JobRunning ->
  WorkspaceBinding.resource_ready (F.job_workspace job) (F.job_resource job) before=true ->
  let candidate:=Decision (Chatgpt.store (fresh_state before job) before) reply
-  [RunConnectionJob (F.sharing_next (Chatgpt.registry before)) job;ContinueScheduling] in
+  [RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry before)) job);ContinueScheduling] in
  Delivery.fits true candidate=true ->
  DeferredCommit.admit_with_status true source raw before candidate=(true,candidate).
 Proof.

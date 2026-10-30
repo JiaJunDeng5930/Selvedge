@@ -254,7 +254,7 @@ Definition registry_bound {A : Type} (entries : list A) := within_u32 (N.of_nat 
 Definition title_valid (value : F.title_entry) (state : world) :=
  present (find_task (F.title_task value) state) &&
  match F.title_value value with
- | F.TitlePending ticket selected prompt => (ticket <? world_next_ticket state)%N &&
+ | F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt)) => (ticket <? world_next_ticket state)%N &&
    profile_valid selected && TitleRuntime.capable selected &&
    N.leb (N.of_nat (String.length prompt))
      (Titles.maximum_instruction_bytes + N.of_nat (String.length Titles.title_format) +
@@ -293,7 +293,7 @@ Definition card_valid (value : F.card) (state : world) :=
    (F.draft_attachments (F.card_contents value)) && BoardParameters.limited (F.card_start_error value) 4096 &&
  (match F.card_task value with Some id => present (find_task id state) | None => true end) &&
  match F.card_enrichment value with
- | F.Enriching ticket revision _ => (ticket <? world_next_ticket state)%N &&
+ | F.Enriching (RequestEnvelope.Envelope ticket (revision, _)) => (ticket <? world_next_ticket state)%N &&
    N.eqb revision (F.card_revision value) && negb (F.card_archived value)
  | F.EnrichmentFailed reason => BoardParameters.limited reason 4096 | _ => true end.
 Definition cards_present (state : F.board) := fold_right (fun value rest => match value with Some card => card :: rest | None => rest end) [] (F.board_cards state).
@@ -362,8 +362,8 @@ Definition compaction_valid (state : world) :=
  unique_tickets (map fst (C.maintenance_entries maintenance)) &&
  forallb (fun entry => maintenance_entry_valid entry state) (C.maintenance_entries maintenance).
 Definition feature_tickets (features : F.state) :=
- flat_map (fun entry => match F.title_value entry with F.TitlePending ticket _ _ => [ticket] | _ => [] end) (F.feature_titles features) ++
- flat_map (fun value => match F.card_enrichment value with F.Enriching ticket _ _ => [ticket] | _ => [] end) (cards_present (F.feature_board features)) ++
+ flat_map (fun entry => match F.title_value entry with F.TitlePending (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end) (F.feature_titles features) ++
+ flat_map (fun value => match F.card_enrichment value with F.Enriching (RequestEnvelope.Envelope ticket (_, _)) => [ticket] | _ => [] end) (cards_present (F.feature_board features)) ++
  flat_map (fun entry =>
    (match Compaction.measurement_ticket (C.entry_measurement (snd entry)) with Some ticket => [ticket] | None => [] end) ++
    (match Compaction.provider_job_ticket (C.entry_job (snd entry)) with Some ticket => [ticket] | None => [] end)) (C.maintenance_entries (F.feature_compaction features)).

@@ -21,7 +21,7 @@ Qed.
 
 Lemma storing_a_fresh_title_allocates_one_feature_ticket : forall owner ticket selected prompt before,
  TitleRuntime.entry owner before = None ->
- feature_tickets (world_features (TitleRuntime.store owner (F.TitlePending ticket selected prompt) before)) =
+ feature_tickets (world_features (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt))) before)) =
  ticket :: feature_tickets (world_features before).
 Proof.
  intros owner ticket selected prompt before Absent.
@@ -48,7 +48,7 @@ Qed.
 Theorem a_fresh_title_preserves_global_ticket_ownership : forall owner selected prompt before,
  tickets_valid before = true -> TitleRuntime.entry owner before = None ->
  tickets_valid (TitleRuntime.store owner
-   (F.TitlePending (world_next_ticket before) selected prompt)
+   (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))
    (with_ticket (N.succ (world_next_ticket before)) before)) = true.
 Proof.
  intros owner selected prompt before Supply Absent.
@@ -66,7 +66,7 @@ Lemma storing_one_eligible_title_preserves_title_requirements :
  (N.of_nat (String.length prompt) <= Titles.maximum_instruction_bytes +
   N.of_nat (String.length Titles.title_format) +
   (Titles.prompt_bytes - N.of_nat (String.length (Titles.instructions ++ Titles.title_format))))%N ->
- titles_valid (TitleRuntime.store owner (F.TitlePending ticket selected prompt) before) = true.
+ titles_valid (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt))) before) = true.
 Proof.
  intros owner ticket selected prompt task before Valid Absent Owned Bound Profile Capable Prompt.
  assert (NoOwner : ~ In owner (map F.title_task (F.feature_titles (world_features before)))).
@@ -74,7 +74,7 @@ Proof.
    unfold TitleRuntime.entry,FeatureRequestAdmission.title_entry in Absent.
    pose proof (find_none _ _ Absent entry Member) as Different.
    cbn in Different. rewrite Identity, N.eqb_refl in Different. discriminate. }
- assert (OldTitles : forallb (fun entry => title_valid entry (TitleRuntime.store owner (F.TitlePending ticket selected prompt) before))
+ assert (OldTitles : forallb (fun entry => title_valid entry (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt))) before))
    (F.feature_titles (world_features before)) =
    forallb (fun entry => title_valid entry before) (F.feature_titles (world_features before))) by reflexivity.
  unfold titles_valid in Valid. repeat rewrite andb_true_iff in Valid.
@@ -85,7 +85,7 @@ Proof.
  cbn [map forallb]. repeat rewrite andb_true_iff; repeat split; try assumption.
  - apply distinct_tickets_pass_the_uniqueness_checker. constructor; [exact NoOwner|].
    now apply unique_tickets_denotes_distinct_correlation_owners.
- - change (title_valid (F.TitleEntry owner (F.TitlePending ticket selected prompt)) before &&
+ - change (title_valid (F.TitleEntry owner (F.TitlePending (RequestEnvelope.Envelope ticket (selected, prompt)))) before &&
      forallb (fun entry => title_valid entry before) (F.feature_titles (world_features before)) = true).
    rewrite Entries. apply andb_true_iff; split; [|reflexivity].
    unfold title_valid. cbn [F.title_value F.title_task]. rewrite Owned. cbn [present].

@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json Schema RequestEnvelope.
 From Selvedge.Features Require Import Titles CompactionTypes.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend.
 From Selvedge.Foundation Require Export RemoteIdentity.
@@ -13,7 +13,7 @@ Record attachment := Attachment { attachment_id : string; attachment_name : stri
 Record card_draft := CardDraft { draft_title : string; draft_description : string;
  draft_stage : board_stage; draft_priority : priority; draft_owner : owner;
  draft_project : option N; draft_labels : list string; draft_attachments : list attachment }.
-Inductive enrichment := NoEnrichment | Enriching (ticket revision : N) (retitle : bool) | EnrichmentFailed (reason : string).
+Inductive enrichment := NoEnrichment | Enriching (request : RequestEnvelope.t (N * bool)) | EnrichmentFailed (reason : string).
 Record card := Card { card_revision : N; card_contents : card_draft;
  card_task : option N; card_archived : bool; card_created : N; card_updated : N;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.
@@ -73,7 +73,7 @@ Definition job_arguments_json job := Schema.encode ChatgptArguments.argument_dec
 Record connection_state := ConnectionState { sharing_grants : list connection_grant;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
 Record title_settings := TitleSettings { title_revision : N; title_task_prompt : string; title_agent_prompt : string }.
-Inductive title_state := TitlePending (ticket : N) (selected : profile) (prompt : string) | Named (text : string) | TitleFailed (reason : string).
+Inductive title_state := TitlePending (request : RequestEnvelope.t (profile * string)) | Named (text : string) | TitleFailed (reason : string).
 Record title_entry := TitleEntry { title_task : N; title_value : title_state }.
 Record state := State {
  feature_board : board;

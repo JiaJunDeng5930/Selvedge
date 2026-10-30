@@ -56,7 +56,7 @@ Proof.
    (world_features (decision_world (title_decision owner current selected before))) = true).
  { change (A.features_evolution (world_features before)
      (world_features (TitleRuntime.store owner
-       (F.TitlePending (world_next_ticket before) selected (title_prompt owner current before)) before)) = true).
+       (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, (title_prompt owner current before)))) before)) = true).
    apply adding_a_fresh_title_keeps_every_feature_authority; assumption. }
  unfold A.transition_authorized. apply andb_true_iff; split.
  - apply andb_true_iff; split.
@@ -67,14 +67,14 @@ Proof.
      * apply N.leb_refl.
      * exact Evolution.
    + change (A.effect_tickets_fresh (world_next_ticket before) (N.succ (world_next_ticket before))
-       [SuggestTitle owner (world_next_ticket before) selected (title_prompt owner current before);ContinueScheduling] = true).
+       [SuggestTitle owner (RequestEnvelope.Envelope (world_next_ticket before) (selected, (title_prompt owner current before)));ContinueScheduling] = true).
      unfold A.effect_tickets_fresh, A.unique_effect_tickets, A.has_effect_ticket, A.effect_ticket.
      cbn [forallb existsb]. rewrite !N.leb_refl.
      assert (Fresh : (world_next_ticket before <? N.succ (world_next_ticket before))%N = true)
        by (apply N.ltb_lt; apply N.lt_succ_diag_r).
      now rewrite Fresh.
  - change (A.title_effect_valid owner (world_next_ticket before) selected (title_prompt owner current before)
-     (TitleRuntime.store owner (F.TitlePending (world_next_ticket before) selected (title_prompt owner current before))
+     (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, (title_prompt owner current before))))
        (with_ticket (N.succ (world_next_ticket before)) before)) && true = true).
    rewrite andb_true_r.
    unfold A.title_effect_valid. rewrite TitleProofs.stored_title_is_observed.

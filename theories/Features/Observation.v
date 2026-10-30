@@ -18,7 +18,7 @@ Definition attachment_json (value : Selvedge.Features.Domain.attachment) := JObj
  ("bytes", JString (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.attachment_bytes value)))].
 Definition enrichment_json (value:Selvedge.Features.Domain.enrichment) := match value with
  | Selvedge.Features.Domain.NoEnrichment=>JObject [("status",JString "idle")]
- | Selvedge.Features.Domain.Enriching ticket revision retitle=>JObject [("status",JString "running");("ticket",number ticket);("revision",number revision);("retitle",JBool retitle)]
+ | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket (revision, retitle))=>JObject [("status",JString "running");("ticket",number ticket);("revision",number revision);("retitle",JBool retitle)]
  | Selvedge.Features.Domain.EnrichmentFailed reason=>JObject [("status",JString "failed");("reason",JString reason)] end.
 Definition card_json (id : N) (value : Selvedge.Features.Domain.card) :=
  let draft := Selvedge.Features.Domain.card_contents value in JObject [

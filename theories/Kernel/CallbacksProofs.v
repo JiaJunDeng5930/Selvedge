@@ -177,9 +177,8 @@ Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  task_lifecycle (Tasks.wake_after_result task) = Frozen WantsModel operations /\
  task_operations (Tasks.wake_after_result task) = operations.
 Proof.
- intros task operations Frozen; unfold Tasks.wake_after_result, Tasks.wake_after_result_changes.
- rewrite Frozen; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
- unfold with_activity; rewrite Frozen.
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+   operations Frozen; cbn in Frozen; subst lifecycle.
  split; reflexivity.
 Qed.
 

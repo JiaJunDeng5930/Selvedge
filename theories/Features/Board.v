@@ -347,7 +347,7 @@ Definition completion (source:json) (value:world) :option (bool*bool*decision) :
  let id:=completion_card payload in let ticket:=completion_ticket payload in
  let ignored:=Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] in
  Some (match lookup id value with Some card=>match Selvedge.Features.Domain.card_enrichment card with
- | Selvedge.Features.Domain.Enriching expected revision retitle=>if N.eqb ticket expected && N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card) then
+ | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope expected (revision, retitle))=>if N.eqb ticket expected && N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card) then
  (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (put id (suggestion ok retitle (completion_title payload) (completion_description payload) (completion_message payload) card value) value) [])
  else (false,false,ignored)
  | _=>(false,false,ignored) end | None=>(false,false,ignored) end)

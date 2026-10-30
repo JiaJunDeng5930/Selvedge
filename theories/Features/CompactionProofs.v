@@ -788,9 +788,6 @@ Proof.
    + unfold stopped, compaction_failure_task.
      destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
        destruct lifecycle; reflexivity.
-   + unfold stopped, compaction_failure_task.
-     destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
-       destruct lifecycle; try destruct phase; reflexivity.
 Qed.
 
 Lemma a_failed_capture_is_fresh_for_its_unchanged_input : forall current value,

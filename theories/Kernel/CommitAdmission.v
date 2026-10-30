@@ -273,9 +273,9 @@ Definition title_entry_at (owner : N) (entries : list F.title_entry) :=
  find (fun entry => N.eqb owner (F.title_task entry)) entries.
 Definition title_value_retained (before : F.title_state) (after : option F.title_state) :=
  match before, after with
- | F.TitlePending old_ticket old_profile old_prompt, Some (F.TitlePending next_ticket next_profile next_prompt) =>
+ | F.TitlePending (RequestEnvelope.Envelope old_ticket (old_profile, old_prompt)), Some (F.TitlePending (RequestEnvelope.Envelope next_ticket (next_profile, next_prompt))) =>
    N.eqb old_ticket next_ticket && same_profile old_profile next_profile && String.eqb old_prompt next_prompt
- | F.TitlePending _ _ _, Some (F.Named _) | F.TitlePending _ _ _, Some (F.TitleFailed _) => true
+ | F.TitlePending (RequestEnvelope.Envelope _ (_, _)), Some (F.Named _) | F.TitlePending (RequestEnvelope.Envelope _ (_, _)), Some (F.TitleFailed _) => true
  | F.Named old, Some (F.Named next) => String.eqb old next
  | F.TitleFailed _, Some (F.TitleFailed _) => true
  | _, _ => false
@@ -335,8 +335,8 @@ Definition effect_ticket (value : K.effect) : option N :=
  | K.ObserveContext _ ticket _
  | K.RequestReasoning _ ticket _ | K.ExecuteTool _ ticket _ _ _ _ _
  | K.RequestApproval _ ticket _ _ _ | K.CheckTool _ ticket _ _ _
- | K.CheckResult _ ticket _ _ _ _ _ | K.SuggestTitle _ ticket _ _
- | K.SuggestCard _ ticket _ _ _ _ _ => Some ticket
+ | K.CheckResult _ ticket _ _ _ _ _ | K.SuggestTitle _ (RequestEnvelope.Envelope ticket (_, _))
+ | K.SuggestCard _ (RequestEnvelope.Envelope ticket (_, _)) _ _ _ => Some ticket
  | K.MaintainContext request => match request with
    | C.Scope _ ticket _ | C.Measure _ ticket _ _ _ | C.Compact _ ticket _ _ _ _ => Some ticket
    | _ => None end
@@ -499,7 +499,7 @@ Definition configured_profile (profile : D.profile) (after : K.world) :=
 Definition title_effect_valid (owner ticket : N) (profile : D.profile) (prompt : string) (after : K.world) :=
  match K.find_task owner after, TitleRuntime.entry owner after with
  | Some task, Some entry => match F.title_value entry with
-   | F.TitlePending expected selected sent_prompt =>
+   | F.TitlePending (RequestEnvelope.Envelope expected (selected, sent_prompt)) =>
      N.eqb ticket expected && same_profile profile selected &&
      (match TitleRuntime.selected_profile task after with
       | Some actual => same_profile profile actual | None => false end) &&
@@ -517,7 +517,7 @@ Definition card_effect_valid (card_id ticket revision : N) (profile : D.profile)
    N.eqb revision (F.card_revision card) &&
    same_card_draft draft (F.card_contents card) &&
    match F.card_enrichment card with
-   | F.Enriching expected expected_revision expected_retitle =>
+   | F.Enriching (RequestEnvelope.Envelope expected (expected_revision, expected_retitle)) =>
      N.eqb ticket expected && N.eqb revision expected_revision &&
      Bool.eqb retitle expected_retitle && negb (F.card_archived card) &&
      configured_profile profile after && TitleRuntime.ordinary profile &&
@@ -663,14 +663,14 @@ Definition fresh_connection_job (id : N) (before after : K.world) :=
  N.ltb id (F.sharing_next (F.feature_sharing (K.world_features after))).
 Definition feature_effect_valid (effect : K.effect) (before after : K.world) :=
  match effect with
- | K.SuggestTitle owner ticket profile prompt => title_effect_valid owner ticket profile prompt after
- | K.SuggestCard card_id ticket revision profile prompt draft retitle =>
+ | K.SuggestTitle owner (RequestEnvelope.Envelope ticket (profile, prompt)) => title_effect_valid owner ticket profile prompt after
+ | K.SuggestCard card_id (RequestEnvelope.Envelope ticket (revision, retitle)) profile prompt draft =>
    card_effect_valid card_id ticket revision profile prompt draft retitle after
  | K.CreateWorktree owner source space backend =>
    worktree_create_effect_valid owner source space backend after
  | K.ArchiveWorktree owner source root backend =>
    worktree_archive_effect_valid owner source root backend after
- | K.RunConnectionJob id job =>
+ | K.RunConnectionJob (RequestEnvelope.Envelope id job) =>
    fresh_connection_job id before after &&
    match connection_job_at id (F.feature_sharing (K.world_features after)) with
    | Some current => same_connection_job job current | None => false end

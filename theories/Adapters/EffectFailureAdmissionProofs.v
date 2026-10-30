@@ -234,7 +234,7 @@ Theorem failed_board_effect_settles_issued_ticket effect id ticket message limit
  decode_fields (coordinates BoardText) (object_fields effect) = Some (Schema.of_tuple (coordinates BoardText) [!id;ticket!]) ->
  Board.lookup id value = Some card ->
  Selvedge.Features.Domain.card_enrichment card =
-   Selvedge.Features.Domain.Enriching ticket (Selvedge.Features.Domain.card_revision card) retitle ->
+   Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket ((Selvedge.Features.Domain.card_revision card), retitle)) ->
  Selvedge.Features.Domain.card_archived card = false ->
  (match failed effect message limit with Some reply => Board.completion reply value | None => None end) =
  Some (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)])

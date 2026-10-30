@@ -153,7 +153,7 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
    (F.sharing_next (Chatgpt.registry value) <? ChatgptArguments.identity_maximum))=true ->
  exists decision job,
  Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value=decision /\
- decision_effects decision=[RunConnectionJob (F.sharing_next (Chatgpt.registry value)) job] /\
+ decision_effects decision=[RunConnectionJob (RequestEnvelope.Envelope (F.sharing_next (Chatgpt.registry value)) job)] /\
  F.job_connection job=connection /\ F.job_project job=project /\ F.job_arguments job=decoded /\
  F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
 Proof.

@@ -77,9 +77,9 @@ Definition title_prompt (owner : N) (current : task) before :=
    (TitleRuntime.first_request (task_history current)).
 Definition title_decision owner (current : task) selected before :=
  let prompt := title_prompt owner current before in
- Decision (TitleRuntime.store owner (F.TitlePending (world_next_ticket before) selected prompt)
+ Decision (TitleRuntime.store owner (F.TitlePending (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt)))
    (with_ticket (N.succ (world_next_ticket before)) before))
-   (success JNull) [SuggestTitle owner (world_next_ticket before) selected prompt;ContinueScheduling].
+   (success JNull) [SuggestTitle owner (RequestEnvelope.Envelope (world_next_ticket before) (selected, prompt));ContinueScheduling].
 
 Theorem every_title_plan_constructs_its_exact_request : forall before (request : TitleCommit.plan before) selected,
  TitleRuntime.entry (TaskScope.owner (TitleCommit.reference request)) before = None ->

@@ -15,9 +15,8 @@ Theorem title_start_installs_its_frozen_request : forall id task result selected
  Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task))=true ->
  TitleRuntime.selected_profile task (decision_world result)=Some selected ->
  receiver_installed
-  (SuggestTitle id (world_next_ticket (decision_world result)) selected
-   (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features (decision_world result))))
-    (TitleRuntime.first_request (task_history task))))
+  (SuggestTitle id (RequestEnvelope.Envelope (world_next_ticket (decision_world result)) (selected, (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features (decision_world result))))
+    (TitleRuntime.first_request (task_history task))))))
   (decision_world (TitleRuntime.start id result)).
 Proof.
  intros id task result selected Found Absent Eligible Nonblank Selected.

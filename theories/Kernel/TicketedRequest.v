@@ -475,11 +475,16 @@ Definition maintenance_build owner identity source : C.entry * C.effect :=
 Definition feature_build identity source observation allocated : world * effect :=
  match source with
  | TitleRequest owner selected prompt =>
-   (put_title owner (F.TitlePending identity selected prompt) allocated, SuggestTitle owner identity selected prompt)
+   let request := RequestEnvelope.Envelope identity (selected,prompt) in
+   (put_title owner (F.TitlePending request) allocated, SuggestTitle owner request)
  | CardRequest owner card selected prompt retitle =>
-   (put_card owner (set F.card_enrichment (fun _ => F.Enriching identity (F.card_revision card) retitle) card) allocated,
-     SuggestCard owner identity (F.card_revision card) selected prompt (F.card_contents card) retitle)
- | ConnectionRequest job => (put_connection identity job allocated, RunConnectionJob identity job)
+   let request := RequestEnvelope.Envelope identity (F.card_revision card,retitle) in
+   (put_card owner (set F.card_enrichment (fun _ => F.Enriching request) card) allocated,
+     SuggestCard owner request selected prompt (F.card_contents card))
+ | ConnectionRequest job =>
+   let request := RequestEnvelope.Envelope identity job in
+   (put_connection (RequestEnvelope.identity request) (RequestEnvelope.input request) allocated,
+     RunConnectionJob request)
  | MaintainRequest owner request =>
    let '(pending, request_effect) := maintenance_build owner identity request in
    let pending := set C.entry_observation (fun _ => observation) pending in
