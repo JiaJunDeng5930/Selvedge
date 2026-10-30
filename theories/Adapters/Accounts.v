@@ -24,13 +24,11 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.record_decode",record_decode);
   ("account.cache_decode",cache_decode);
   ("account.account_namespace",AccountCatalog.account_namespace);
-  ("account.account_summary",AccountCatalog.account_summary);
   ("account.audio_connection",AccountIdentity.audio_connection);
   ("account.audio_identity",AccountIdentity.audio_identity);
   ("account.auth_parameters",AccountOAuth.auth_parameters);
   ("account.authorization_view",AccountIdentity.authorization_view);
   ("account.authorize_prompt",AccountOAuth.authorize_prompt);
-  ("account.auto_preset",AccountMaterialization.auto_preset);
   ("account.cache",AccountCatalog.cache);
   ("account.cache_error",AccountCatalog.cache_error);
   ("account.cache_fallback",AccountCatalog.cache_fallback);
@@ -46,7 +44,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.catalog_failure",catalog_failure);
   ("account.catalog_fetch_failure",catalog_fetch_failure);
   ("account.catalog_result",AccountCatalog.catalog_result);
-  ("account.catalog_selectable",AccountCatalog.catalog_selectable);
+  ("account.discovery_catalog",AccountCatalog.discovery_catalog);
   ("account.catalog_transport",AccountTransport.catalog_transport);
   ("account.code_grant_checks",AccountOAuth.code_grant_checks);
   ("account.config_materialized",AccountMaterialization.config_materialized);
@@ -66,7 +64,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.issuer_admission",AccountIdentity.issuer_admission);
   ("account.login_account",AccountMaterialization.login_account);
   ("account.login_result",AccountIdentity.login_result);
-  ("account.materialization_diagnostic",AccountMaterialization.materialization_diagnostic);
   ("account.materialization_failure",AccountMaterialization.materialization_failure);
   ("account.materialize",AccountMaterialization.materialize);
   ("account.model_cache_path",AccountCatalog.model_cache_path);

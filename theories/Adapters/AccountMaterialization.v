@@ -22,40 +22,42 @@ Definition candidates source := let config := get source "config" in success (JA
    else [candidate (default (get config "chatgpt") AccountContracts.defaults) true])).
 Definition configured_path all path := existsb (fun item =>
   negb (boolean_field item "primary") && same (get item "path") path) all.
-Fixpoint select_candidates all seen values := match values with [] => [] | value::rest =>
-  if (boolean_field value "primary" && configured_path all (get value "path")) ||
-    existsb (String.eqb (str value "identity")) seen
-  then select_candidates all seen rest
-  else get value "profile" :: select_candidates all (str value "identity"::seen) rest end.
+Module CandidateEntries.
+ Definition t := json.
+ Definition key := string.
+ Definition key_of value := str value "identity".
+ Definition key_eq_dec := String.string_dec.
+End CandidateEntries.
+Module Candidates := KeyedCollection.Make CandidateEntries.
 Definition candidate_paths source := let values := items (get source "candidates") in
-  success (JArray (select_candidates values [] values)).
-Fixpoint unique_efforts seen values := match values with [] => [] | value::rest =>
-  let effort := str value "effort" in
-  if existsb (String.eqb effort) seen then unique_efforts seen rest
-  else effort :: unique_efforts (effort::seen) rest end.
-Definition effort_name value := slug value && utf16_within 128 value &&
-  negb (contains_text ":" value) && Nat.leb (String.length value) 64.
+  let candidates := Candidates.distinct (filter (fun value =>
+    negb (boolean_field value "primary" && configured_path values (get value "path"))) values) in
+  success (JArray (map (fun value => get value "profile") (Candidates.values candidates))).
+Definition effort_name (value : label) := let name := proj1_sig value in
+  slug name && negb (contains_text ":" name) && Nat.leb (String.length name) 64.
+Definition baseline_value model (values : list label) first := match model.(model_reasoning) with
+ | Some (Some baseline) => if existsb (fun value => String.eqb (proj1_sig value) (proj1_sig baseline)) values
+   then baseline else first
+ | _ => first end.
 Definition auto_policy profile model : outcome (option json) :=
-  if same (get model "slug") (JString "gpt-6-astra") && is_array (get model "supported_reasoning_levels") then
-    let values := unique_efforts [] (items (get model "supported_reasoning_levels")) in
-    if Nat.eqb (List.length values) 0 || existsb (String.eqb "auto") values then Accepted None
+  if String.eqb (model_id model) "gpt-6-astra" then match unique_efforts model with
+  | [] => Accepted None
+  | first::rest => let values := first::rest in
+    if existsb (fun value => String.eqb (proj1_sig value) "auto") values then Accepted None
     else if Nat.leb (List.length values) 16 && forallb effort_name values then
       Accepted (Some (set profile "adaptive_reasoning" (JObject [
-        ("evaluator",JString "jev");("efforts",JArray (map JString values));
-        ("baseline",if existsb (String.eqb (str model "default_reasoning_level")) values
-          then get model "default_reasoning_level" else JString (hd "" values));
+        ("evaluator",JString "jev");("efforts",JArray (map label_json values));
+        ("baseline",label_json (baseline_value model values first));
         ("transport",JString "configuration_update");("max_lease",number 10)])))
-    else reject "Adaptive reasoning requires an evaluator, distinct actual efforts, a supported baseline, transport, and a lease bound of 1..10"
+    else reject "Adaptive reasoning requires an evaluator, distinct actual efforts, a supported baseline, transport, and a lease bound of 1..10" end
   else Accepted None.
-Definition auto_preset source := render_outcome (fun value => match value with Some value => value | None => JNull end)
-  (auto_policy (get source "profile") (get source "descriptor")).
 Definition review_info model :=
-  if existsb (String.eqb "low") (unique_efforts [] (items (get model "supported_reasoning_levels")))
-  then JObject ([("default_reasoning_level",JString "low")] ++ selected_fields model
-    ["slug";"display_name";"visibility";"priority";"supported_reasoning_levels";"context_window";"effective_context_window_percent"])
-  else model.
+  match find (fun value => String.eqb (proj1_sig value) "low") (model_effort_values model) with
+  | Some low => ModelDescriptor model.(model_slug) model.(model_display) model.(model_visibility)
+    model.(model_priority) model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
+  | None => model end.
 Definition model_profile source model := JObject (object_fields (get source "connection") ++
-  [("model",get model "slug");("bound_account_id",get (get source "result") "account_id");("model_info",model)]).
+  [("model",JString (model_id model));("bound_account_id",get (get source "result") "account_id");("model_info",model_json model)]).
 Definition materialize_model source model generated key :=
   if has (get (get source "config") "profiles") key then reject "A configured profile conflicts with an account model"
   else let profile := model_profile source model in
@@ -84,15 +86,27 @@ Fixpoint reviewer_aliases source model profiles generated := match profiles with
     bind action (fun generated => reviewer_aliases source model rest generated) end.
 Fixpoint materialize_list source (reviewers : bool) models generated := match models with
   | [] => Accepted generated | model::rest =>
-    bind (materialize_model source model generated (AccountNamespace.model_key (str source "namespace") (str model "slug"))) (fun generated =>
+    bind (materialize_model source model generated (AccountNamespace.model_key (str source "namespace") (model_id model))) (fun generated =>
       bind (if reviewers then reviewer_aliases source model (object_fields (get (get source "config") "profiles")) generated
         else Accepted generated) (fun generated => materialize_list source reviewers rest generated)) end.
+Definition materialization_diagnostic result models :=
+  let stale := boolean_field result "stale" in
+  let reviewer := negb (Nat.eqb (Models.size (review_models models)) 0) in
+  match stale,reviewer with
+  | false,true => JNull
+  | true,true => JString "ChatGPT is temporarily unavailable; using this account’s cached model catalog"
+  | false,false => JString "This ChatGPT connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly"
+  | true,false => JString "ChatGPT is temporarily unavailable; using this account’s cached model catalog. This connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly" end.
+Definition materialization_summary result models := JObject [
+  ("models",number (N.of_nat (Models.size (selectable models))));("cached",get result "cached");("stale",get result "stale")].
 Definition materialize source :=
   if negb (AccountNamespace.is_namespace (str source "namespace")) then err "Invalid ChatGPT account namespace" else
-  render_outcome JObject (bind (admit_models [] (items (get (get source "result") "models"))) (fun values =>
-    let models := map model_json values in
-    bind (materialize_list source false (selectable models) []) (fun generated =>
-      materialize_list source true (map review_info (review_models models)) generated))).
+  let result := get source "result" in
+  render_outcome (fun result => result) (bind (decode_models (get result "models")) (fun models =>
+    bind (materialize_list source false (Models.values (selectable models)) []) (fun generated =>
+    bind (materialize_list source true (map review_info (Models.values (review_models models))) generated) (fun generated =>
+      Accepted (JObject [("profiles",JObject generated);("summary",materialization_summary result models);
+        ("diagnostic",materialization_diagnostic result models)]))))).
 
 Definition namespace_discovered key profile configured_path discoveries := existsb (fun discovery =>
   starts key (str discovery "namespace" ++ "/") && same_reviewer_connection profile discovery configured_path) discoveries.
@@ -109,12 +123,4 @@ Definition config_materialized source :=
     success (set config "profiles" merged)
   else failure "account_namespace_mismatch"
     "A configured ChatGPT account profile could not verify its account connection; use the original account connection or a new profile key".
-Definition materialization_diagnostic source :=
-  let result := get source "result" in let stale := boolean_field result "stale" in
-  let reviewer := negb (Nat.eqb (List.length (review_models (items (get result "models")))) 0) in
-  success (match stale,reviewer with
-  | false,true => JNull
-  | true,true => JString "ChatGPT is temporarily unavailable; using this account’s cached model catalog"
-  | false,false => JString "This ChatGPT connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly"
-  | true,false => JString "ChatGPT is temporarily unavailable; using this account’s cached model catalog. This connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly" end).
 Definition materialization_failure source := success (JObject [("rethrow",get source "force");("message",get source "message")]).

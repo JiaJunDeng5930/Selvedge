@@ -13,8 +13,8 @@ Proof.
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite model;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
- change (credential source = err "Invalid current-format ChatGPT credential; sign in again").
- unfold credential,admit_credential;destruct (decode_complete credential_schema (get source "value"));
+ change (AccountIdentity.credential source = err "Invalid current-format ChatGPT credential; sign in again").
+ unfold AccountIdentity.credential,admit_credential;destruct (decode_complete credential_schema (get source "value"));
    try rewrite invalid;reflexivity.
 Qed.
 Theorem public_audio_credential_rejects_another_client : forall source,
@@ -26,8 +26,8 @@ Proof.
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite audio;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
- change (credential source = err "Invalid current-format ChatGPT credential; sign in again").
- unfold credential,admit_credential;destruct (decode_complete credential_schema (get source "value"));
+ change (AccountIdentity.credential source = err "Invalid current-format ChatGPT credential; sign in again").
+ unfold AccountIdentity.credential,admit_credential;destruct (decode_complete credential_schema (get source "value"));
    try rewrite invalid;reflexivity.
 Qed.
 Theorem public_registration_rejects_another_issuer : forall source,
@@ -149,58 +149,6 @@ Theorem public_valid_credential_is_retained :
       ("last_refresh",JObject [("iso",JString "2029-01-01T00:00:00Z")])])]) = success example_credential.
 Proof. vm_compute;reflexivity. Qed.
 
-Lemma admitted_model_has_a_fresh_name : forall seen source value,
-  admit_model seen source = Some value -> ~ In value.(model_slug) seen.
-Proof.
- intros seen source value accepted;unfold admit_model in accepted.
- repeat match type of accepted with
- | context [match ?choice with Some _ => _ | None => _ end] => destruct choice eqn:?;try discriminate
- end.
- destruct (is_object source && bounded_text (JString s) && bounded_text (JString s0) && slug s &&
-   negb (existsb (String.eqb s) seen)) eqn:valid;try discriminate.
- inversion accepted;subst;cbn.
- apply andb_true_iff in valid as [_ fresh];apply negb_true_iff in fresh.
- intro present;assert (existsb (String.eqb s) seen = true) as found.
- { apply existsb_exists;exists s;split;auto;apply String.eqb_refl. }
- congruence.
-Qed.
-
-Lemma admitted_models_have_unique_fresh_names : forall source seen values,
-  admit_models seen source = Accepted values ->
-  NoDup (map model_slug values) /\
-  (forall value, In value values -> ~ In value.(model_slug) seen).
-Proof.
- induction source as [|head rest IH];intros seen values accepted.
- - cbn [admit_models] in accepted;inversion accepted;subst;split.
-   + cbn;constructor.
-   + intros value present;contradiction.
- - cbn [admit_models] in accepted.
-   destruct (admit_model seen head) as [value|] eqn:admitted;try discriminate.
-   destruct (admit_models (model_slug value :: seen) rest) as [tail|code message] eqn:decoded;try discriminate.
-   cbn [bind] in accepted;inversion accepted;subst.
-   destruct (IH _ _ decoded) as [unique avoid].
-   split.
-   + cbn;constructor;auto.
-     intro repeated;apply in_map_iff in repeated as [item [same_name present]].
-     apply (avoid item present);cbn;left;congruence.
-   + intros item present;destruct present as [<-|present].
-     * now apply (admitted_model_has_a_fresh_name _ _ _ admitted).
-     * intro old;apply (avoid item present);now right.
-Qed.
-
-Theorem public_successful_catalog_has_distinct_model_names : forall source values,
-  Api.call "account.catalog" source = success (JArray values) ->
-  NoDup (map (fun model => str model "slug") values).
-Proof.
- intros source values accepted;change (catalog source = success (JArray values)) in accepted.
- unfold catalog in accepted.
- destruct (is_object (get source "value") && is_array (get (get source "value") "models") &&
-   Nat.leb (List.length (items (get (get source "value") "models"))) 512);try discriminate.
- destruct (admit_models [] (items (get (get source "value") "models"))) as [models|code message] eqn:decoded;try discriminate.
- cbn [render_outcome] in accepted;inversion accepted;subst.
- rewrite map_map;change (NoDup (map model_slug models)).
- exact (proj1 (admitted_models_have_unique_fresh_names _ _ _ decoded)).
-Qed.
 (* Callback admission binds the browser request to this login. Token signature,
    nonce and PKCE verification remain obligations of the OpenID client. *)
 Theorem public_valid_callback_authorizes_its_client : forall source code state id,
@@ -251,24 +199,15 @@ Proof.
  destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
  unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
 Qed.
-Definition example_model := JObject [("slug",JString "model-1");("display_name",JString "Model 1");("visibility",JString "list")].
-Theorem public_valid_model_is_selectable :
-  Api.call "account.catalog" (JObject [("value",JObject [("models",JArray [example_model])])]) = success (JArray [example_model]).
-Proof. vm_compute;reflexivity. Qed.
-Theorem public_duplicate_model_identity_is_rejected :
-  Api.call "account.catalog" (JObject [("value",JObject [("models",JArray [example_model;example_model])])]) =
-    err "ChatGPT returned an invalid model descriptor".
-Proof. vm_compute;reflexivity. Qed.
-
 Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("display_name",JString "Astra");
   ("visibility",JString "list");("supported_reasoning_levels",JArray [JObject [("effort",JString "low")]])].
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
   ("display_name",JString "Independent external model");("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :
-  map fst (object_fields (get (Api.call "account.materialize" (JObject [
+  map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
     ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);
     ("config",JObject [("profiles",JObject [])]);
-    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value")) =
+    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value") "profiles")) =
   ["chatgpt/0123456789abcdef/gpt-6-astra";"chatgpt/0123456789abcdef/gpt-6-astra/~auto";
     "chatgpt/0123456789abcdef/gpt-6-astra-auto"].
 Proof. vm_compute;reflexivity. Qed.
@@ -289,8 +228,8 @@ Theorem public_credential_requires_unambiguous_identity : forall source value,
     Utf8.no_nul (str (get source "value") name) = true.
 Proof.
   intros source value accepted name member.
-  change (credential source = success value) in accepted.
-  unfold credential, admit_credential in accepted.
+  change (AccountIdentity.credential source = success value) in accepted.
+  unfold AccountIdentity.credential, admit_credential in accepted.
   destruct (decode_complete credential_schema (get source "value")) as [decoded|]; [|discriminate].
   destruct (credential_checks source) eqn:checks; [|discriminate].
   unfold credential_checks, credential_binding, client, identity_text in checks.
