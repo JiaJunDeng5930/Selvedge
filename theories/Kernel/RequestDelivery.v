@@ -98,7 +98,7 @@ Definition advance (reply : json) : Scheduler.advancement := fun value effects =
     feature delta was processed. Refresh that maintenance state before the
     runnable gate; a frozen inference already owns its measured input. *)
  let result := if existsb Scheduler.frozen_inference effects then Decision value reply effects
-   else Selvedge.Features.Compaction.synchronize_all (Decision value reply effects) in
+   else DecisionComposition.run Selvedge.Features.Compaction.synchronize_all (Decision value reply effects) in
  let result := normalize result in
  let result := Decision (decision_world result) reply (decision_effects result) in
  if Delivery.fits true (finish result) && Delivery.fits true (finish (continuing result))

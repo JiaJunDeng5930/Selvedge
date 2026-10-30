@@ -327,7 +327,7 @@ Qed.
     unrelated scheduling effects. *)
 Theorem failed_workspace_delivery_records_rejection : forall source item result,
  Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
- TaskGraph.send_delivery source item result =
+ DecisionComposition.run (TaskGraph.send_delivery source item) result =
  Decision
    (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
      (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
@@ -336,14 +336,14 @@ Theorem failed_workspace_delivery_records_rejection : forall source item result,
    (decision_reply result) (decision_effects result).
 Proof.
  intros source item result unavailable.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite unavailable.
+ unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite unavailable.
  cbn [Worktree.failed_execution reject decision_world decision_reply decision_effects].
  now rewrite app_nil_r.
 Qed.
 
 Theorem failed_workspace_delivery_preserves_every_task : forall source item result,
  Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
- world_tasks (decision_world (TaskGraph.send_delivery source item result)) =
+ world_tasks (decision_world (DecisionComposition.run (TaskGraph.send_delivery source item) result)) =
  world_tasks (decision_world result).
 Proof.
  intros source item result unavailable.
@@ -355,7 +355,7 @@ Theorem available_workspace_delivery_records_the_ordinary_send_result : forall s
  Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=true ->
  let sent := Tasks.send (TaskGraph.delivery_target item)
    [TextPart (TaskGraph.delivery_text item)] (decision_world result) in
- TaskGraph.send_delivery source item result =
+ DecisionComposition.run (TaskGraph.send_delivery source item) result =
  Decision
    (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
      (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
@@ -363,7 +363,7 @@ Theorem available_workspace_delivery_records_the_ordinary_send_result : forall s
    (decision_reply result) (decision_effects result ++ decision_effects sent).
 Proof.
  intros source item result available.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. now rewrite available.
+ unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. now rewrite available.
 Qed.
 
 (** The actual dispatcher writes the delivered text through the ordinary Task
@@ -376,13 +376,13 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
  exists received,
  K.find_task (TaskGraph.delivery_target item)
-   (decision_world (TaskGraph.send_delivery source item result))=Some received /\
+   (decision_world (DecisionComposition.run (TaskGraph.send_delivery source item) result))=Some received /\
  task_history received=task_history task ++
    map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
  task_lifecycle received=Running WantsModel [].
 Proof.
  intros source item result task available found idle nonempty.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite available.
+ unfold DecisionComposition.run, TaskGraph.send_delivery, Worktree.execution_guard; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite available.
  rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
@@ -406,7 +406,7 @@ Theorem actual_delivery_to_preparing_workspace_reaches_idle_task :
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
  exists received,
  K.find_task (TaskGraph.delivery_target item)
-   (decision_world (TaskGraph.send_delivery source item result))=Some received /\
+   (decision_world (DecisionComposition.run (TaskGraph.send_delivery source item) result))=Some received /\
  task_history received=task_history task ++
    map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
  task_lifecycle received=Running WantsModel [].

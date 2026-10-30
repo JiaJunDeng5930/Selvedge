@@ -315,7 +315,7 @@ Proof.
  unfold RequestDelivery.advance in Accepted.
  remember (RequestDelivery.normalize
    (if existsb Scheduler.frozen_inference effects then Decision value reply effects
-    else Selvedge.Features.Compaction.synchronize_all (Decision value reply effects))) as prepared.
+    else DecisionComposition.run Selvedge.Features.Compaction.synchronize_all (Decision value reply effects))) as prepared.
  destruct prepared as [prepared_world prepared_reply prepared_effects].
  cbn [decision_world decision_effects] in Accepted.
  destruct (Delivery.fits true (RequestDelivery.finish (Decision prepared_world reply prepared_effects)) &&

@@ -613,14 +613,14 @@ Definition completion (source:json) (value:world) :option (bool*bool*decision) :
    | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
  | None=>None end
  else None | _,_=>None end.
-Definition archive_after (tree:Selvedge.Features.Domain.worktree) (result:decision) :=
- let value:=decision_world result in
+Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComposition.step := fun value _ =>
  match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with Some task=>if archived task then
  match Selvedge.Features.Domain.worktree_phase tree with
- | Selvedge.Features.Domain.TreeCreating false=>Selvedge.Kernel.State.Decision (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating true) tree) value) (decision_reply result) (decision_effects result)
- | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>DecisionComposition.follow result (archive_tree tree value)
- | _=>result end else result | None=>result end.
-Definition after_transition (_before:world) (result:decision) := fold_left (fun current tree=>archive_after tree current) (Selvedge.Features.Domain.feature_worktrees (world_features (decision_world result))) result.
+ | Selvedge.Features.Domain.TreeCreating false=>DecisionComposition.unchanged (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating true) tree) value)
+ | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>DecisionComposition.from_decision (archive_tree tree value)
+ | _=>DecisionComposition.unchanged value end else DecisionComposition.unchanged value | None=>DecisionComposition.unchanged value end.
+Definition after_transition (_before:world) : DecisionComposition.step := fun value effects =>
+ DecisionComposition.each (Selvedge.Features.Domain.feature_worktrees (world_features value)) archive_after value effects.
 Definition recover (value:world) := value.
 Definition failed_execution_reason := CommandResult.Refusal "worktree_creation_failed"
  "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace.".

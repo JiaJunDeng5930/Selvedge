@@ -294,15 +294,16 @@ Definition pending_deliveries (source:N) (output:string) (value:world) := flat_m
 Definition record_receipt (graph:N) (receipt:Selvedge.Features.Domain.graph_receipt) (value:world) := match lookup graph value with None=>value | Some graph_value=>
  let combined:=Selvedge.Features.Domain.graph_receipts graph_value++[receipt] in
  store graph (Selvedge.Features.Domain.TaskGraph (Selvedge.Features.Domain.graph_name graph_value) (Selvedge.Features.Domain.graph_nodes graph_value) (Selvedge.Features.Domain.graph_rules graph_value) (skipn (List.length combined-256) combined)) value end.
-Definition send_delivery (source:N) (item:delivery) (result:decision) :=
- let sent:=match Worktree.execution_guard (delivery_target item) (decision_world result) with
+Definition send_delivery (source:N) (item:delivery) : DecisionComposition.step := fun value _ =>
+ let sent:=match Worktree.execution_guard (delivery_target item) value with
  | Some refused=>refused
- | None=>Tasks.send (delivery_target item) [TextPart (delivery_text item)] (decision_world result) end in
- Selvedge.Kernel.State.Decision (record_receipt (delivery_graph item) (Selvedge.Features.Domain.GraphReceipt source (delivery_rule item) (delivery_target item) (decision_reply sent)) (decision_world sent))
- (decision_reply result) (decision_effects result++decision_effects sent).
-Definition react_output (source:N) (output:string) (result:decision) :=
- fold_left (fun progress item=>send_delivery source item progress) (pending_deliveries source output (decision_world result)) result.
-Definition after_transition (before:world) (result:decision) :=
- fold_left (fun progress pair=>fold_left (fun current output=>react_output (fst pair) output current)
- (new_outputs before (fst pair) (snd pair)) progress)
- (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) result.
+ | None=>Tasks.send (delivery_target item) [TextPart (delivery_text item)] value end in
+ DecisionComposition.Update
+ (record_receipt (delivery_graph item) (Selvedge.Features.Domain.GraphReceipt source (delivery_rule item) (delivery_target item) (decision_reply sent)) (decision_world sent))
+ (decision_effects sent).
+Definition react_output (source:N) (output:string) : DecisionComposition.step := fun value effects =>
+ DecisionComposition.each (pending_deliveries source output value) (send_delivery source) value effects.
+Definition after_transition (before:world) : DecisionComposition.step := fun value effects =>
+ DecisionComposition.each (indexed (fun id task=>(id,task)) 0 (world_tasks value))
+ (fun pair=>DecisionComposition.each (new_outputs before (fst pair) (snd pair))
+   (react_output (fst pair))) value effects.

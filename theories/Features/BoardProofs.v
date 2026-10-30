@@ -1,5 +1,4 @@
 From Selvedge.Kernel Require CommandResult.
-From Selvedge.Kernel Require Import DecisionCompositionProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8.
@@ -410,106 +409,27 @@ Proof.
  split; [exact locked|]. unfold BoardFacts.runnable. now rewrite locked.
 Qed.
 
-(** Each bounded batch is composed from the real one-attempt operation.  A
-    stalled batch remains stalled; splitting the budget cannot lose a launch. *)
-Lemma pump_stalled : forall fuel result,
- Board.next (decision_world result)=None -> Board.pump fuel result=result.
-Proof. intros fuel result idle. destruct fuel; [reflexivity|]. cbn [Board.pump]. now rewrite idle. Qed.
-
-Lemma pump_missing_selection : forall fuel result id,
- Board.next (decision_world result)=Some id ->
- Board.lookup id (decision_world result)=None -> Board.pump fuel result=result.
-Proof.
- intros fuel result id selected missing. destruct fuel; [reflexivity|].
- cbn [Board.pump]. now rewrite selected,missing.
-Qed.
-
-Theorem pump_batches_compose : forall first remaining result,
- Board.pump (first+remaining) result=Board.pump remaining (Board.pump first result).
-Proof.
- induction first as [|first IH]; intros remaining result; [reflexivity|].
- cbn [Nat.add Board.pump].
- destruct (Board.next (decision_world result)) as [id|] eqn:selected.
- - destruct (Board.lookup id (decision_world result)) as [card|] eqn:found.
-   + apply IH.
-   + symmetry. eapply pump_missing_selection; eauto.
- - symmetry. now apply pump_stalled.
-Qed.
-
-(** An accepted launch appends its complete effect list in order.  A rejected
-    launch contributes no effects; its selected card is blocked instead. *)
-Theorem pump_one_success_effects : forall result id card,
- Board.next (decision_world result)=Some id ->
- Board.lookup id (decision_world result)=Some card ->
- let advanced:=Board.run id (F.card_revision card)
-   (Some (F.decimal_text (F.card_updated card))) None (decision_world result) in
- bool_default "ok" (decision_reply advanced) false=true ->
- decision_effects (Board.pump 1 result)=decision_effects result++decision_effects advanced.
-Proof.
- intros result id card selected found advanced accepted.
- unfold advanced,Board.run in accepted |- *.
- cbn [Board.pump]. rewrite selected,found.
- destruct (Board.run_result id (F.card_revision card)
-   (Some (F.decimal_text (F.card_updated card))) None (decision_world result));
- [reflexivity|discriminate].
-Qed.
-
-Theorem pump_retains_reply_and_effects : forall fuel result,
- retains_reply_and_effects result (Board.pump fuel result).
-Proof.
- induction fuel as [|fuel IH]; intros result; [apply retention_is_reflexive|].
- cbn [Board.pump].
- destruct (Board.next (decision_world result)) as [id|]; [|apply retention_is_reflexive].
- destruct (Board.lookup id (decision_world result)) as [card|]; [|apply retention_is_reflexive].
- destruct (Board.run_result id (F.card_revision card)
-   (Some (F.decimal_text (F.card_updated card))) None (decision_world result)).
- - eapply retention_is_transitive; [apply following_retains_reply_and_effects|apply IH].
- - eapply retention_is_transitive; [apply replacing_world_retains_reply_and_effects|apply IH].
-Qed.
-
-(** Finishing never drops an earlier effect.  A continuation is appended only
-    for runnable remaining work and only when none has already been emitted. *)
-Theorem finish_effects : forall result,
- decision_reply (Board.finish result)=decision_reply result /\
- (decision_effects (Board.finish result)=decision_effects result \/
-  decision_effects (Board.finish result)=decision_effects result++[ContinueScheduling]).
-Proof.
- intros result. unfold Board.finish. split; [reflexivity|].
- destruct (match Board.next (Board.synchronize (decision_world result)) with Some _=>true | None=>false end &&
-   negb (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end) (decision_effects result))) eqn:more;
-   [right|left]; reflexivity.
-Qed.
-
 Theorem finish_schedules_remaining_work : forall result id,
  Board.next (Board.synchronize (decision_world result))=Some id ->
- In ContinueScheduling (decision_effects (Board.finish result)).
+ In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).
 Proof.
- intros result id remaining. unfold Board.finish. rewrite remaining. cbn.
+ intros result id remaining. unfold DecisionComposition.run, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite remaining. cbn.
  destruct (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)) eqn:continuing; cbn.
  - apply existsb_exists in continuing. destruct continuing as [effect [present is_continue]].
-   destruct effect; cbn in is_continue; try discriminate. exact present.
+   destruct effect; cbn in is_continue; try discriminate. apply in_or_app; now left.
  - apply in_or_app. right. now left.
 Qed.
 
 Theorem finish_retains_existing_continuation : forall result,
  In ContinueScheduling (decision_effects result) ->
- decision_effects (Board.finish result)=decision_effects result.
+ decision_effects (DecisionComposition.run Board.finish result)=decision_effects result.
 Proof.
- intros result continuing. unfold Board.finish.
+ intros result continuing. unfold DecisionComposition.run, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
  assert (present:existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)=true).
  { apply existsb_exists. exists ContinueScheduling. now split. }
- rewrite present. cbn. now rewrite Bool.andb_false_r.
-Qed.
-
-Theorem after_transition_retains_reply_and_effects : forall before result,
- decision_reply (Board.after_transition before result)=decision_reply result /\
- exists appended, decision_effects (Board.after_transition before result)=decision_effects result++appended.
-Proof.
- intros before result. unfold Board.after_transition.
- exact (pump_retains_reply_and_effects 8
-   (Decision (Board.synchronize (decision_world result)) (decision_reply result) (decision_effects result))).
+ rewrite present. cbn. rewrite Bool.andb_false_r. apply app_nil_r.
 Qed.
 
 Lemma successful_run_links_selected_card : forall id revision observed caller value card,
@@ -547,13 +467,13 @@ Theorem pump_one_resolves_selected_card : forall result id card,
  Board.next (decision_world result)=Some id ->
  Board.lookup id (decision_world result)=Some card ->
  exists updated,
- Board.lookup id (decision_world (Board.pump 1 result))=Some updated /\
- Board.ready updated (decision_world (Board.pump 1 result))=false.
+ Board.lookup id (decision_world (DecisionComposition.run (Board.pump 1) result))=Some updated /\
+ Board.ready updated (decision_world (DecisionComposition.run (Board.pump 1) result))=false.
 Proof.
- intros result id card selected found. cbn [Board.pump]. rewrite selected,found.
+ intros result id card selected found. unfold DecisionComposition.run; cbn [decision_world Board.pump]. rewrite selected,found.
  destruct (Board.run_result id (F.card_revision card)
    (Some (F.decimal_text (F.card_updated card))) None (decision_world result))
-   as [advanced|reason] eqn:Outcome; cbn [decision_world].
+   as [advanced|reason] eqn:Outcome; cbn [DecisionComposition.and_then DecisionComposition.unchanged DecisionComposition.from_decision DecisionComposition.updated_world DecisionComposition.appended_effects decision_world].
  - assert (Accepted : bool_default "ok" (decision_reply
      (Board.run id (F.card_revision card) (Some (F.decimal_text (F.card_updated card))) None (decision_world result))) false = true).
    { unfold Board.run; rewrite Outcome; reflexivity. }
@@ -568,18 +488,4 @@ Proof.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
    + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
      now repeat rewrite Bool.andb_false_r.
-Qed.
-
-Theorem completed_board_batch_retains_reply_and_effects : forall before result,
- let completed:=Board.finish (Board.after_transition before result) in
- decision_reply completed=decision_reply result /\
- exists appended, decision_effects completed=decision_effects result++appended.
-Proof.
- intros before result completed.
- change (retains_reply_and_effects result completed); unfold completed.
- eapply retention_is_transitive; [apply after_transition_retains_reply_and_effects|].
- destruct (finish_effects (Board.after_transition before result)) as [Reply [Same|Continued]];
-   split; [exact Reply| |exact Reply|].
- - exists []; now rewrite Same, app_nil_r.
- - exists [ContinueScheduling]; exact Continued.
 Qed.

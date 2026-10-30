@@ -400,7 +400,6 @@ Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.wor
      else if fresh (entry_measurement entry) task value then Some (commit id entry value [])
      else Some (begin_scope id (capture_task task value) None entry value) end end end
  else None.
-Definition combine := DecisionComposition.follow.
 Definition cancelled_task (id : N) (effects : list Selvedge.Kernel.State.effect) :=
  existsb (fun effect => match effect with Selvedge.Kernel.State.CancelTask owner => N.eqb owner id | _ => false end) effects.
 Definition cancelled_ticket (id ticket : N) (effects : list Selvedge.Kernel.State.effect) :=
@@ -421,23 +420,22 @@ Definition awaiting_context_demand (ticket : N) (purpose : option reason) (entry
  | AwaitingContext actual current demanded =>
    if N.eqb actual ticket && same_context_purpose current purpose then Some demanded else None
  | _ => None end.
-Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N) (result : Selvedge.Kernel.State.decision) :=
- let value := Selvedge.Kernel.State.decision_world result in
+Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N)  : DecisionComposition.step := fun value effects =>
  let entry := current_entry id (registry value) in
  match Selvedge.Kernel.State.find_task id before, Selvedge.Kernel.State.find_task id value with
  | Some previous, Some task =>
-   if cancelled_task id (Selvedge.Kernel.State.decision_effects result) then
-     combine result (commit id (clear_entry task entry) value [])
+   if cancelled_task id (effects) then
+     DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
    else match task_activity previous with
    | ObservingContext observed _ =>
      match entry_job (current_entry id (registry before)) with
      | AwaitingContext expected purpose resume_model =>
        if N.eqb expected observed then
        match awaiting_context_demand expected purpose entry with
-       | None => result
+       | None => DecisionComposition.unchanged value
        | Some demanded =>
-       if cancelled_ticket id expected (Selvedge.Kernel.State.decision_effects result) then
-         combine result (commit id (clear_entry task entry) value [])
+       if cancelled_ticket id expected (effects) then
+         DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
        else let resume_model := resume_model || demanded in
        match task_activity task, task_lifecycle task with
        | ReadyForModel, Running _ _ =>
@@ -446,54 +444,53 @@ Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N) (resul
          let input := capture_task task value in
          let entry := with_observation (Some input) (with_measurement Unmeasured (with_job NoJob entry)) in
          let recorded := commit id entry value [] in
-         combine result (begin_scope id input purpose entry (Selvedge.Kernel.State.decision_world recorded))
+         DecisionComposition.from_decision (begin_scope id input purpose entry (Selvedge.Kernel.State.decision_world recorded))
        | ObservingContext next _, _ =>
          (* A revision retry keeps the same purpose but owns its newly issued
             ticket. A stale receiver cannot claim a later inference read. *)
-         combine result (commit id (with_job (AwaitingContext next purpose resume_model) entry) value [])
+         DecisionComposition.from_decision (commit id (with_job (AwaitingContext next purpose resume_model) entry) value [])
        | WantsModel, Frozen _ _ | WantsModel, Stopped _ _ =>
          let task := suspended_context_task purpose resume_model task in
-         combine result (cancel id task entry (Selvedge.Kernel.State.put_task id task value))
+         DecisionComposition.from_decision (cancel id task entry (Selvedge.Kernel.State.put_task id task value))
        | WantsModel, Running _ _ =>
          if TicketedRequest.Scoped.resources_available task value then
-           combine result (cancel id task entry value)
+           DecisionComposition.from_decision (cancel id task entry value)
          else
            let task := with_activity (resume_activity resume_model) task in
-           combine result (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
-       | _, _ => combine result (cancel id task entry value) end end
-       else result
+           DecisionComposition.from_decision (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
+       | _, _ => DecisionComposition.from_decision (cancel id task entry value) end end
+       else DecisionComposition.unchanged value
      | _ => match task_activity task, task_lifecycle task with
        | ReadyForModel, Running _ _ =>
-         combine result (commit id (with_observation (Some (capture_task task value)) entry) value [])
-       | _, _ => result end end
-   | _ => result end
- | _, _ => result end.
-Definition synchronize_task (id : N) (result : Selvedge.Kernel.State.decision) :=
- match Selvedge.Kernel.State.find_task id (Selvedge.Kernel.State.decision_world result) with
- | Some current => match synchronize id current (Selvedge.Kernel.State.decision_world result) with
-   | Some next => combine result next | None => result end
- | None => result end.
+         DecisionComposition.from_decision (commit id (with_observation (Some (capture_task task value)) entry) value [])
+       | _, _ => DecisionComposition.unchanged value end end
+   | _ => DecisionComposition.unchanged value end
+ | _, _ => DecisionComposition.unchanged value end.
+Definition synchronize_task (id : N) : DecisionComposition.step := fun value _ =>
+ match Selvedge.Kernel.State.find_task id value with
+ | Some current => match synchronize id current value with
+   | Some next => DecisionComposition.from_decision next | None => DecisionComposition.unchanged value end
+ | None => DecisionComposition.unchanged value end.
 
 Definition entry_deadline (entry : entry) (now lead : N) :=
  let due := entry_cache_deadline entry - lead in
  if (entry_maintained entry <? entry_useful entry) && (entry_attempted entry <? entry_useful entry) &&
     negb (job_pending (entry_job entry)) && (now <? due) then due else 0.
 Definition earlier (left right : N) := if N.eqb left 0 || ((0 <? right) && (right <? left)) then right else left.
-Definition arm_clock (result : Selvedge.Kernel.State.decision) :=
- let value := Selvedge.Kernel.State.decision_world result in
+Definition arm_clock : DecisionComposition.step := fun value _ =>
  let state := registry value in
  let deadline := if policy_enabled (maintenance_policy state) then
  fold_right (fun pair rest => earlier (entry_deadline (snd pair) (maintenance_now state) (policy_idle_lead (maintenance_policy state))) rest)
   0 (maintenance_entries state) else 0 in
- if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then result
- else combine result (acknowledged true (store (set maintenance_timer (fun _ => deadline) state) value) [Selvedge.Kernel.State.MaintainContext (ArmClock deadline)]).
-Definition synchronize_all (result : Selvedge.Kernel.State.decision) :=
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks (Selvedge.Kernel.State.decision_world result))) in
- arm_clock (fold_left (fun result id => synchronize_task id result) identities result).
-Definition after_transition (before : Selvedge.Kernel.State.world) (result : Selvedge.Kernel.State.decision) :=
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks (Selvedge.Kernel.State.decision_world result))) in
- let result := fold_left (fun result id => observe_manual before id result) identities result in
- synchronize_all result.
+ if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then DecisionComposition.unchanged value
+ else DecisionComposition.Update (store (set maintenance_timer (fun _ => deadline) state) value)
+   [Selvedge.Kernel.State.MaintainContext (ArmClock deadline)].
+Definition synchronize_all : DecisionComposition.step := fun value effects =>
+ let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ DecisionComposition.and_then (DecisionComposition.each identities synchronize_task) arm_clock value effects.
+Definition after_transition (before : Selvedge.Kernel.State.world) : DecisionComposition.step := fun value effects =>
+ let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ DecisionComposition.and_then (DecisionComposition.each identities (observe_manual before)) synchronize_all value effects.
 Definition recover (value : Selvedge.Kernel.State.world) :=
  let state := registry value in
  store (MaintenanceState (maintenance_policy state)

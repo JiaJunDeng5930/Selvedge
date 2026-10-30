@@ -368,21 +368,24 @@ Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_ord
 Definition next (value:world) := if Selvedge.Features.Domain.board_automatic (registry value) then hd_error (queued value) else None.
 Definition start_failed (id:N) (card:Selvedge.Features.Domain.card) (reason:string) (value:world) := put id
  ((set Selvedge.Features.Domain.card_start_error (fun _=>(failure_text reason)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.Blocked (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) value.
-Fixpoint pump (fuel:nat) (result:decision) :decision := match fuel with O=>result | S rest=>
- let value:=decision_world result in match next value with None=>result | Some id=>match lookup id value with None=>result | Some card=>
+Fixpoint pump (fuel:nat) : DecisionComposition.step := fun value effects => match fuel with
+ | O=>DecisionComposition.unchanged value
+ | S rest=>match next value with None=>DecisionComposition.unchanged value | Some id=>
+ match lookup id value with None=>DecisionComposition.unchanged value | Some card=>
  let current:=match run_result id (Selvedge.Features.Domain.card_revision card)
    (Some (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.card_updated card))) None value with
- | CommandResult.Accepted advanced=>DecisionComposition.follow result (CommandResult.accept advanced)
- | CommandResult.Rejected reason=>Selvedge.Kernel.State.Decision
+ | CommandResult.Accepted advanced=>DecisionComposition.from_decision (CommandResult.accept advanced)
+ | CommandResult.Rejected reason=>DecisionComposition.unchanged
    (start_failed id card (String.append (CommandResult.refusal_code reason)
-     (String.append ": " (CommandResult.refusal_message reason))) value)
-   (decision_reply result) (decision_effects result) end in
- pump rest current end end end.
-Definition after_transition (_before:world) (result:decision) := pump 8 (Selvedge.Kernel.State.Decision (synchronize (decision_world result)) (decision_reply result) (decision_effects result)).
-Definition finish (result:decision) := let value:=synchronize (decision_world result) in
+     (String.append ": " (CommandResult.refusal_message reason))) value) end in
+ DecisionComposition.and_then (fun _ _=>current) (pump rest) value effects end end end.
+Definition after_transition (_before:world) : DecisionComposition.step :=
+ DecisionComposition.and_then (DecisionComposition.world_only synchronize) (pump 8).
+Definition finish : DecisionComposition.step := fun value effects =>
+ let value:=synchronize value in
  let more:=match next value with Some _=>true | None=>false end in
- let continuing:=existsb (fun effect=>match effect with Selvedge.Kernel.State.ContinueScheduling=>true | _=>false end) (decision_effects result) in
- Selvedge.Kernel.State.Decision value (decision_reply result) (if more && negb continuing then decision_effects result++[Selvedge.Kernel.State.ContinueScheduling] else decision_effects result).
+ let continuing:=existsb (fun effect=>match effect with Selvedge.Kernel.State.ContinueScheduling=>true | _=>false end) effects in
+ DecisionComposition.Update value (if more && negb continuing then [Selvedge.Kernel.State.ContinueScheduling] else []).
 Definition recover (value:world) := let b:=registry value in
  let cards:=map (option_map (fun card=>if pending card then
  (set Selvedge.Features.Domain.card_enrichment (fun _=>(Selvedge.Features.Domain.EnrichmentFailed "The service restarted during drafting. Review the saved request and explicitly retry; no paid drafting request was replayed.")) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))) else card)) (Selvedge.Features.Domain.board_cards b) in

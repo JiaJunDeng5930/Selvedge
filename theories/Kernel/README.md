@@ -11,6 +11,10 @@ its receipt and continuation together. `TicketedRequest` allocates a request's
 ticket and installs its receiver in the same operation. New operations should
 reuse these constructors before introducing a separate proof obligation.
 
+`DecisionComposition` composes maintenance steps that own only their next world
+and new effects. Its interpreter retains the initiating reply and all earlier
+effects. Steps may inspect those effects to reconcile cancellations.
+
 `Delivery` owns the actual serialized output budget. `Dispatch` cancels stale
 requests and freezes their final context. The packet selects a complete
 business outcome before adding notifications and the journal receipt. A delivery

@@ -4,45 +4,6 @@ From Selvedge.Kernel Require Import Domain State StateProofs Scheduler Packet Re
 From Selvedge.Features Require Import Runtime Worktree TaskGraph Board TitleRuntime Compaction BoardProofs CompactionProofs.
 Import ListNotations.
 
-(* Runtime maintenance may advance other tasks and feature registries. Its
-   acknowledgement belongs to the operation that caused the turn, so every
-   maintenance fold must retain that operation's exact reply. *)
-Local Ltac split_matches :=
- repeat match goal with
- | |- context [match ?term with _ => _ end] => destruct term eqn:?
- end; reflexivity.
-
-Lemma worktree_archive_retains_reply : forall tree current,
- decision_reply (Worktree.archive_after tree current) = decision_reply current.
-Proof. intros; unfold Worktree.archive_after; split_matches. Qed.
-
-Lemma graph_delivery_retains_reply : forall source item current,
- decision_reply (TaskGraph.send_delivery source item current) = decision_reply current.
-Proof. reflexivity. Qed.
-
-Lemma graph_output_retains_reply : forall source output current,
- decision_reply (TaskGraph.react_output source output current) = decision_reply current.
-Proof. intros; unfold TaskGraph.react_output; apply reply_preserving_fold; intros; apply graph_delivery_retains_reply. Qed.
-
-Lemma title_start_retains_reply : forall id current,
- decision_reply (TitleRuntime.start id current) = decision_reply current.
-Proof. intros; unfold TitleRuntime.start, DecisionComposition.follow; split_matches. Qed.
-
-Theorem runtime_maintenance_retains_the_operation_reply : forall before current,
- decision_reply (Runtime.after_transition before current) = decision_reply current.
-Proof.
- intros before current; unfold Runtime.after_transition, Compaction.after_transition.
- rewrite synchronization_preserves_the_operation_reply.
- rewrite reply_preserving_fold by
-   (intros; apply (proj1 (manual_observation_retains_the_operation_result _ _ _))).
- rewrite (proj1 (after_transition_retains_reply_and_effects _ _)).
- unfold TaskGraph.after_transition.
- rewrite reply_preserving_fold.
- 2: { intros; apply reply_preserving_fold; intros; apply graph_output_retains_reply. }
- unfold Worktree.after_transition.
- apply reply_preserving_fold; intros; apply worktree_archive_retains_reply.
-Qed.
-
 (* No quiet-world or identity-maintenance premise: the actual Packet entry
    retains the operation's reply through either bounded scheduling or durable
    callback deferral, including request normalization and feature finalization. *)
@@ -52,10 +13,10 @@ Theorem the_production_runtime_preserves_the_exact_operation_result :
    decision_reply current.
 Proof.
  intros schedules source before current; unfold Packet.prepare.
- destruct schedules; [|apply runtime_maintenance_retains_the_operation_reply].
+ destruct schedules; [|reflexivity].
  destruct (Packet.callback_input source).
- - rewrite deferred_delivery_preserves_reply; apply runtime_maintenance_retains_the_operation_reply.
- - rewrite bounded_scheduling_preserves_reply; apply runtime_maintenance_retains_the_operation_reply.
+ - rewrite deferred_delivery_preserves_reply; reflexivity.
+ - rewrite bounded_scheduling_preserves_reply; reflexivity.
 Qed.
 
 (* A scoped observation can be followed across an arbitrarily busy scheduler.
