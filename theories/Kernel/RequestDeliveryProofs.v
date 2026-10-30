@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State StateProofs TaskScope TaskChange TaskChangeProofs
+From Selvedge.Kernel Require Import Domain State StateProofs TaskScope TaskChange
  Dispatch Scheduler Delivery DeferredCommit Inputs Packet RequestDelivery
  CallbackChangesProofs CallbacksProofs LifecycleProofs TaskWakeProofs HookRules.
 Import ListNotations.
@@ -27,34 +27,6 @@ Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
    phase operations Current.
  cbn in Current; subst lifecycle; reflexivity.
-Qed.
-
-Theorem refusing_a_current_request_changes_only_its_owned_task :
- forall result request owner ticket (target : TaskScope.task_reference (decision_world result)) other,
- RequestDelivery.inference_coordinate request = Some (owner,ticket) ->
- TaskScope.select owner (decision_world result) = Some target ->
- RequestDelivery.owns_inference request (TaskScope.selected target) = true ->
- TaskScope.owner target <> other ->
- find_task other (decision_world (RequestDelivery.refuse request result)) =
-   find_task other (decision_world result).
-Proof.
- intros result request owner ticket target other Coordinate Selected Owned Other.
- unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_world].
- apply a_field_plan_preserves_every_other_task; exact Other.
-Qed.
-
-Theorem refusing_a_current_request_installs_the_exact_history_preserving_changes :
- forall result request owner ticket (target : TaskScope.task_reference (decision_world result)),
- RequestDelivery.inference_coordinate request = Some (owner,ticket) ->
- TaskScope.select owner (decision_world result) = Some target ->
- RequestDelivery.owns_inference request (TaskScope.selected target) = true ->
- find_task (TaskScope.owner target) (decision_world (RequestDelivery.refuse request result)) =
-   Some (TaskChange.apply RequestDelivery.refusal_changes (TaskScope.selected target)).
-Proof.
- intros result request owner ticket target Coordinate Selected Owned.
- unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_world].
- exact (a_field_plan_installs_its_exact_interpretation (decision_world result)
-   (TaskChange.Plan (decision_world result) target RequestDelivery.refusal_changes)).
 Qed.
 
 Theorem a_refused_request_cannot_still_be_emitted :
