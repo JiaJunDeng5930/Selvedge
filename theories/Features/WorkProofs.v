@@ -22,33 +22,31 @@ Qed.
 
 Theorem admitted_creation_stores_the_new_work : forall value chosen name,
  let id := N.of_nat (List.length (F.feature_works (world_features value))) in
- name = (match chosen with
-   | Some text => if String.eqb text "" then String.append "Work #" (F.decimal_text id) else text
-   | None => String.append "Work #" (F.decimal_text id) end)%string ->
- N.ltb id 4294967295 = true -> Work.valid_name name = true ->
+ name = Work.creation_name id chosen ->
+ N.ltb id 4294967295 = true ->
  let updated := Work.create chosen value in
  Work.lookup id (decision_world updated) = Some (F.Work name "" 0) /\
  F.feature_task_owners (world_features (decision_world updated)) = F.feature_task_owners (world_features value) /\
  F.feature_graph_owners (world_features (decision_world updated)) = F.feature_graph_owners (world_features value) /\
  decision_effects updated = [].
 Proof.
- intros value chosen name id Name Available Valid; subst name.
- cbv zeta; unfold Work.create; cbv beta zeta; fold id; rewrite Available, Valid.
+ intros value chosen name id Name Available; subst name.
+ cbv zeta; unfold Work.create; cbv beta zeta; fold id; rewrite Available.
  cbn [decision_world decision_effects]; split.
  - unfold Work.lookup; cbn; apply Selvedge.Foundation.RegistryProofs.registry_lookup_at_appended_index.
  - repeat split; reflexivity.
 Qed.
 
 Theorem rename_preserves_shared_ui_and_ownership : forall value id previous name,
- Work.lookup id value = Some previous -> Work.valid_name name = true ->
+ Work.lookup id value = Some previous ->
  let updated := decision_world (Work.rename id name value) in
- Work.lookup id updated = Some (F.Work name (F.work_ui_source previous) (F.work_ui_revision previous)) /\
+ Work.lookup id updated = Some (F.Work (proj1_sig name) (F.work_ui_source previous) (F.work_ui_revision previous)) /\
  F.feature_task_owners (world_features updated) = F.feature_task_owners (world_features value) /\
  F.feature_graph_owners (world_features updated) = F.feature_graph_owners (world_features value) /\
  world_tasks updated = world_tasks value.
 Proof.
- intros value id previous name Found Valid; cbv zeta.
- unfold Work.rename; rewrite Found, Valid; cbn [decision_world]; split.
+ intros value id previous name Found; cbv zeta.
+ unfold Work.rename; rewrite Found; cbn [decision_world]; split.
  - unfold Work.lookup in *; cbn; now apply registry_replace_selected with previous.
  - repeat split; reflexivity.
 Qed.
@@ -58,7 +56,7 @@ Theorem rename_preserves_other_works : forall value id name other,
  Work.lookup other (decision_world (Work.rename id name value)) = Work.lookup other value.
 Proof.
  intros value id name other Different; unfold Work.rename.
- destruct (Work.lookup id value); [destruct (Work.valid_name name)|]; try reflexivity.
+ destruct (Work.lookup id value); [|reflexivity].
  unfold Work.lookup; cbn; now apply Selvedge.Foundation.RegistryProofs.registry_replace_other.
 Qed.
 

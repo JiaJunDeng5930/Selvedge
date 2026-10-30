@@ -5,7 +5,8 @@ From Selvedge.Features Require Import Domain State WorkUIPatch.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition valid_name (name:string) := negb (String.eqb name "") && Utf8.well_formed name && Nat.leb (String.length name) 4096.
+Definition valid_name (name:string) := ArgumentDeclaration.check
+ Selvedge.Features.Domain.work_name_declaration (JString name).
 Definition lookup (id:N) (value:world) := registry_at id (Selvedge.Features.Domain.feature_works (world_features value)).
 Definition plain_json (id:N) (value:Selvedge.Features.Domain.work) := JObject [("work_id",number id);("name",JString (Selvedge.Features.Domain.work_name value))].
 Definition ui_json (id:N) (value:Selvedge.Features.Domain.work) := JObject [("work_id",number id);("source",JString (Selvedge.Features.Domain.work_ui_source value));("revision",number (Selvedge.Features.Domain.work_ui_revision value))].
@@ -24,19 +25,23 @@ Definition observe (id:N) (work:Selvedge.Features.Domain.work) (value:world) := 
  ("task_ids",JArray (task_ids id value));("graph_ids",JArray (graph_ids id value))].
 Definition list_works (value:world) := JArray (indexed (fun id work=>observe id work value) 0 (Selvedge.Features.Domain.feature_works (world_features value))).
 Definition read (id:N) (value:world) := match lookup id value with Some work=>Selvedge.Kernel.State.success (observe id work value) | None=>Selvedge.Kernel.State.failure "work_not_found" "The Work does not exist." end.
-Definition create (chosen:option string) (value:world) :=
+Definition creation_name (id : N)
+ (chosen : option (ArgumentDeclaration.denote Selvedge.Features.Domain.work_creation_name_declaration)) :=
+ match chosen with
+ | Some (inr (inl name)) => proj1_sig name
+ | None | Some (inl _) => String.append "Work #" (Selvedge.Features.Domain.decimal_text id)
+ | Some (inr (inr impossible)) => match impossible with end end.
+Definition create (chosen : option (ArgumentDeclaration.denote Selvedge.Features.Domain.work_creation_name_declaration)) (value:world) :=
  let features:=world_features value in let id:=N.of_nat (List.length (Selvedge.Features.Domain.feature_works features)) in
- let name:=match chosen with Some text=>if String.eqb text "" then String.append "Work #" (Selvedge.Features.Domain.decimal_text id) else text | None=>String.append "Work #" (Selvedge.Features.Domain.decimal_text id) end in
- if N.ltb id 4294967295 then if valid_name name then
+ let name:=creation_name id chosen in
+ if N.ltb id 4294967295 then
  let next:=Selvedge.Features.Domain.feature_works features++[Selvedge.Features.Domain.Work name "" 0] in
  Selvedge.Kernel.State.accept (plain_json id (Selvedge.Features.Domain.Work name "" 0)) (with_features (Selvedge.Features.State.with_works next features) value) []
- else Selvedge.Kernel.State.reject "invalid_name" "Work names must contain between 1 and 4096 UTF-8 bytes." value
  else Selvedge.Kernel.State.reject "capacity" "No more Work identifiers are available." value.
-Definition rename (id:N) (name:string) (value:world) := match lookup id value with
+Definition rename (id:N) (name:ArgumentDeclaration.denote Selvedge.Features.Domain.work_name_declaration) (value:world) := match lookup id value with
  | None=>Selvedge.Kernel.State.reject "not_found" "Work does not exist." value
- | Some previous=>if valid_name name then let work:=Selvedge.Features.Domain.Work name (Selvedge.Features.Domain.work_ui_source previous) (Selvedge.Features.Domain.work_ui_revision previous) in
- Selvedge.Kernel.State.accept (plain_json id work) (with_features (Selvedge.Features.State.with_works (replace id work (Selvedge.Features.Domain.feature_works (world_features value))) (world_features value)) value) []
- else Selvedge.Kernel.State.reject "invalid_name" "Work names must contain between 1 and 4096 UTF-8 bytes." value end.
+ | Some previous=>let work:=Selvedge.Features.Domain.Work (proj1_sig name) (Selvedge.Features.Domain.work_ui_source previous) (Selvedge.Features.Domain.work_ui_revision previous) in
+ Selvedge.Kernel.State.accept (plain_json id work) (with_features (Selvedge.Features.State.with_works (replace id work (Selvedge.Features.Domain.feature_works (world_features value))) (world_features value)) value) [] end.
 Definition read_ui (caller:option N) (value:world) := match caller with
  | None=>Selvedge.Kernel.State.failure "task_call_required" "Read the shared UI through a Task tool call."
  | Some caller=>match task_owner caller value with
@@ -98,8 +103,8 @@ Definition handle_read_work (payload:Selvedge.Generated.Commands.read_work_paylo
 Definition handle_read_work_ui (payload:Selvedge.Generated.Commands.read_work_ui_payload) (caller:option N) (value:world) :json :=
  read_ui caller value.
 Definition handle_create_work (payload:Selvedge.Generated.Commands.create_work_payload) (caller:option N) (value:world) :decision :=
- create (Selvedge.Generated.Commands.create_work_name payload) value.
+ create (Selvedge.Generated.Commands.create_work_name_admitted payload) value.
 Definition handle_rename_work (payload:Selvedge.Generated.Commands.rename_work_payload) (caller:option N) (value:world) :decision :=
- rename (Selvedge.Generated.Commands.rename_work_work_id payload) (Selvedge.Generated.Commands.rename_work_name payload) value.
+ rename (Selvedge.Generated.Commands.rename_work_work_id payload) (Selvedge.Generated.Commands.rename_work_name_admitted payload) value.
 Definition handle_apply_work_ui_patch (payload:Selvedge.Generated.Commands.apply_work_ui_patch_payload) (caller:option N) (value:world) :decision :=
  apply_ui_patch caller (Selvedge.Generated.Commands.apply_work_ui_patch_patch payload) (Selvedge.Generated.Commands.apply_work_ui_patch_revision payload) value.

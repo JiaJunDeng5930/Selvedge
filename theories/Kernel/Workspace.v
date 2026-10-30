@@ -4,8 +4,10 @@ From Selvedge.Kernel Require Import Domain Numbers.
 From Selvedge.Kernel Require WorkspacePath.
 Import ListNotations.
 Open Scope string_scope.
+Definition project_name_declaration := ArgumentDeclaration.Text
+ (ArgumentDeclaration.TextConstraints 0 ArgumentDeclaration.maximum_natural 256 false true false None).
 Definition valid_project_name (name : string) :=
- Utf8.nonblank name && Nat.leb (String.length name) 256.
+ ArgumentDeclaration.check project_name_declaration (Json.JString name).
 Definition path_constraints := WorkspacePath.constraints.
 Definition path_declaration := WorkspacePath.declaration.
 Definition canonical_path := WorkspacePath.canonical.

@@ -165,16 +165,15 @@ Theorem moving_a_project_discards_unselected_guidance : forall id value project 
  project_deleted project = false -> workspace_of_values raw = Some workspace ->
  WorkspaceBinding.select_resource workspace value = Some owner ->
  WorkspaceBinding.resource_ready workspace owner value = true ->
- Workspace.valid_project_name (project_name project) = true ->
  guidance_member workspace (Domain.project_guidance project) = false ->
  let result := decision_reply (CommandExecution.update_project id None (Some raw) None None None value) in
  bool_default "ok" result false = true /\
  field "guidance" (value_or_null "result" result) = Some JNull.
 Proof.
- intros id value project raw workspace owner Found Live Parsed Selected Ready Name Unselected; cbn zeta.
+ intros id value project raw workspace owner Found Live Parsed Selected Ready Unselected; cbn zeta.
  unfold CommandExecution.update_project; rewrite Found, Live, Parsed, Selected.
  unfold inherited_guidance; rewrite Unselected.
- rewrite Ready, Name; split; reflexivity.
+ rewrite Ready; split; reflexivity.
 Qed.
 
 Theorem project_query_reports_current_bindings : forall value id project,

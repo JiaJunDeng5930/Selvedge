@@ -64,7 +64,7 @@ Definition create_in_context (name : string) (effort : option string) (contents 
    then Tasks.interpret_start plan value
    else Tasks.refuse_start entry Tasks.AuthorityExpansion value
  end.
-Definition create_project (name : string) (source : D.denote workspace_declaration)
+Definition create_project (name : D.denote Workspace.project_name_declaration) (source : D.denote workspace_declaration)
  (guidance : option (D.denote guidance_declaration)) (worktree : option bool)
  (resource : option (D.denote binding_declaration)) (value : world) :=
  match workspace_of_values source with
@@ -78,18 +78,18 @@ Definition create_project (name : string) (source : D.denote workspace_declarati
      | None => reject "invalid_project" "Project guidance must describe the selected workspace" value
      | Some guidance =>
      if WorkspaceBinding.resource_ready workspace owner value &&
-        Workspace.valid_project_name name && guidance_member workspace guidance &&
+        guidance_member workspace guidance &&
         Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
         N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
      let id := N.of_nat (List.length (world_projects value)) in
-     let project := Project name workspace guidance (match worktree with Some value => value | None => false end)
+     let project := Project (proj1_sig name) workspace guidance (match worktree with Some value => value | None => false end)
       (Workspace.next_project_order (world_projects value)) false owner in
      accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
-     else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+     else reject "invalid_project" "Project guidance or registry capacity is invalid" value
      end
    end
  end.
-Definition update_project (id : N) (name : option string)
+Definition update_project (id : N) (name : option (D.denote Workspace.project_name_declaration))
  (workspace_source : option (D.denote workspace_declaration))
  (guidance : option (D.denote guidance_declaration))
  (worktree : option bool) (resource : option (D.denote binding_declaration)) (value : world) :=
@@ -108,16 +108,16 @@ Definition update_project (id : N) (name : option string)
      | Some owner =>
        let ready := match resource, workspace_source with None,None => true
          | _,_ => WorkspaceBinding.resource_ready workspace owner value end in
-       let name := match name with Some name => name | None => project_name project end in
+       let name := match name with Some name => proj1_sig name | None => project_name project end in
        match match guidance with Some fields => Guidance.of_values fields
          | None => Some (inherited_guidance workspace (Domain.project_guidance project)) end with
        | None => reject "invalid_project" "Project guidance must describe the selected workspace" value
        | Some guidance =>
-       if ready && Workspace.valid_project_name name && guidance_member workspace guidance then
+       if ready && guidance_member workspace guidance then
        let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
         (Workspace.next_project_order (world_projects value)) false owner in
        accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
-       else reject "invalid_project" "Project name or guidance is invalid" value
+       else reject "invalid_project" "Project guidance is invalid" value
        end
      end
    end
@@ -253,11 +253,11 @@ Definition handle_return_side_conversation (request : Selvedge.Generated.Command
 
 Definition handle_create_project (request : Selvedge.Generated.Commands.create_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace_admitted request) (Selvedge.Generated.Commands.create_project_guidance_admitted request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding_admitted request) value.
+ create_project (Selvedge.Generated.Commands.create_project_name_admitted request) (Selvedge.Generated.Commands.create_project_workspace_admitted request) (Selvedge.Generated.Commands.create_project_guidance_admitted request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding_admitted request) value.
 
 Definition handle_update_project (request : Selvedge.Generated.Commands.update_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace_admitted request) (Selvedge.Generated.Commands.update_project_guidance_admitted request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding_admitted request) value.
+ update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name_admitted request) (Selvedge.Generated.Commands.update_project_workspace_admitted request) (Selvedge.Generated.Commands.update_project_guidance_admitted request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding_admitted request) value.
 
 Definition handle_delete_project (request : Selvedge.Generated.Commands.delete_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=

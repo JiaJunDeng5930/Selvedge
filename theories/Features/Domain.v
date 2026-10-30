@@ -25,6 +25,10 @@ Record board_agent := BoardAgent { agent_revision : N; agent_name : string;
 Definition agent_settings (value : board_agent) := Codec.settings_request_json (agent_settings_request value).
 Record board := Board { board_cards : list (option card); board_order : list N;
  board_agents : list (option board_agent); board_agent_order : list N; board_automatic : bool; board_draft_profile : string }.
+Definition work_name_declaration := ArgumentDeclaration.Text
+ (ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural 4096 false false false None).
+Definition work_creation_name_declaration := ArgumentDeclaration.Union
+ [ArgumentDeclaration.Const (JString ""%string);work_name_declaration].
 Record work := Work { work_name : string; work_ui_source : string; work_ui_revision : N }.
 Inductive graph_message := GraphOutput | GraphLiteral (text : string) | GraphConcat (parts : list graph_message).
 Record graph_action := GraphAction { action_target : string; action_message : graph_message }.
