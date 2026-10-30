@@ -54,7 +54,7 @@ Definition experience_approval_json (value : approval_policy) :=
 Definition experience_settings_json (value : task_settings) :=
   match settings_json value with
   | JObject fields => JObject (set_field "approval" (experience_approval_json (settings_approval value))
-      fields ++ [("guidance", settings_guidance value);
+      fields ++ [("guidance", Guidance.json (settings_guidance value));
       ("create_worktree", JBool (settings_worktree value))])
   | value => value
   end.
@@ -86,7 +86,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  | JObject fields => JObject (fields ++ [("tools", JArray (map tool_json (contract_tools (task_contract value))));
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
- ("guidance",settings_guidance (task_current_settings value));
+ ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
  ("history", JArray (map (public_message_json id) (task_history value)));
  ("context", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history value))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>
@@ -95,7 +95,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  | value => value end.
 Definition project_fields (id : N) (value : project) := [
  ("id", number id); ("project_id", number id); ("name", JString (project_name value));
- ("workspace", workspace_json (project_workspace value)); ("guidance", Domain.project_guidance value);
+ ("workspace", workspace_json (project_workspace value)); ("guidance", Guidance.json (Domain.project_guidance value));
  ("workspace_resource",optional_number (project_resource value)); ("create_worktree", JBool (project_worktree value))].
 Definition project_json (id : N) (value : project) := JObject (project_fields id value).
 Definition project_task_count (id : N) (tasks : list task) :=

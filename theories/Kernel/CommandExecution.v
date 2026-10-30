@@ -74,11 +74,11 @@ Definition create_project (name : string) (source : D.denote workspace_declarati
    match selected with
    | None => reject "workspace_unavailable" "The workspace does not select one available execution environment" value
    | Some owner =>
-     let guidance_valid := match guidance with None => true | Some fields =>
-       guidance_valid_values fields && guidance_values_member workspace fields end in
-     let guidance := match guidance with Some fields => D.encode guidance_declaration fields | None => JNull end in
+     match requested_guidance guidance with
+     | None => reject "invalid_project" "Project guidance must describe the selected workspace" value
+     | Some guidance =>
      if WorkspaceBinding.resource_ready workspace owner value &&
-        Workspace.valid_project_name name && guidance_valid &&
+        Workspace.valid_project_name name && guidance_member workspace guidance &&
         Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
         N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
      let id := N.of_nat (List.length (world_projects value)) in
@@ -86,6 +86,7 @@ Definition create_project (name : string) (source : D.denote workspace_declarati
       (Workspace.next_project_order (world_projects value)) false owner in
      accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
      else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+     end
    end
  end.
 Definition update_project (id : N) (name : option string)
@@ -108,15 +109,16 @@ Definition update_project (id : N) (name : option string)
        let ready := match resource, workspace_source with None,None => true
          | _,_ => WorkspaceBinding.resource_ready workspace owner value end in
        let name := match name with Some name => name | None => project_name project end in
-       let guidance_valid := match guidance with None => true | Some fields =>
-         guidance_valid_values fields && guidance_values_member workspace fields end in
-       let guidance := match guidance with Some fields => D.encode guidance_declaration fields
-         | None => inherited_guidance workspace (Domain.project_guidance project) end in
-       if ready && Workspace.valid_project_name name && guidance_valid then
+       match match guidance with Some fields => Guidance.of_values fields
+         | None => Some (inherited_guidance workspace (Domain.project_guidance project)) end with
+       | None => reject "invalid_project" "Project guidance must describe the selected workspace" value
+       | Some guidance =>
+       if ready && Workspace.valid_project_name name && guidance_member workspace guidance then
        let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
         (Workspace.next_project_order (world_projects value)) false owner in
        accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
        else reject "invalid_project" "Project name or guidance is invalid" value
+       end
      end
    end
  end.
@@ -128,7 +130,7 @@ Definition delete_project (id : N) (value : world) :=
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_not_empty" "A project referenced by a task cannot be deleted" value
    else accept (JObject [("project_id",number id)])
-    (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true None) (world_projects value)) value) []
+    (with_projects (replace id (Project "" (Workspace [] None) None false (project_order project) true None) (world_projects value)) value) []
  end.
 Definition speech_transcript (id : N) (session item : string) (speaker : Domain.speaker)
  (completion : speech_completion) (text : string) (value : world) :=

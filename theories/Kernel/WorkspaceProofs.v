@@ -16,6 +16,7 @@ Proof.
  destruct (workspace_of_values workspace) as [space|]; [|reflexivity].
  destruct (match resource with Some source => Some (binding_of_values source)
   | None => WorkspaceBinding.select_resource space value end); [|reflexivity].
+ destruct (requested_guidance guidance); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
  end; reflexivity.
@@ -35,6 +36,8 @@ Proof.
   | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|reflexivity].
+ destruct (match guidance with Some fields => Guidance.of_values fields
+   | None => Some (inherited_guidance space (Domain.project_guidance previous)) end); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
  end; reflexivity.
@@ -61,6 +64,8 @@ Proof.
   | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|discriminate].
+ destruct (match guidance with Some fields => Guidance.of_values fields
+   | None => Some (inherited_guidance space (Domain.project_guidance previous)) end); [|discriminate].
  match type of Accepted with context [if ?allowed then _ else _] =>
    destruct allowed; [|discriminate] end.
  eexists; split.

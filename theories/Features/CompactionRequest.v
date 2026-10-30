@@ -15,7 +15,7 @@ Definition capture_task (current : task) (before : world) :=
    (Capabilities.task_tools current) (Capabilities.callable current (world_environment before)).
 Definition input_description (input : C.capture) := JObject [
  ("model", Codec.model_json (C.captured_profile input)); ("profile", profile_metadata (C.captured_profile input));
- ("settings", Codec.settings_json (C.captured_settings input)); ("guidance", settings_guidance (C.captured_settings input));
+ ("settings", Codec.settings_json (C.captured_settings input)); ("guidance", Guidance.json (settings_guidance (C.captured_settings input)));
  ("worktree", JBool (settings_worktree (C.captured_settings input)));
  ("tools", JArray (map Codec.tool_json (C.captured_tools input))); ("callable", JArray (map JString (C.captured_callable input)))].
 Definition same_description (input : C.capture) (current : task) (before : world) :=

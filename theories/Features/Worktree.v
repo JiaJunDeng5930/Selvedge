@@ -503,9 +503,9 @@ Definition handle_retry_worktree_archive (payload:Selvedge.Generated.Commands.re
  retry (Selvedge.Generated.Commands.retry_worktree_archive_task_id payload) value.
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with
  | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
-Definition selected_settings (space:workspace) (guidance:json) (settings:task_settings) := Settings space (settings_project settings)
+Definition selected_settings (space:workspace) (guidance:Guidance.t) (settings:task_settings) := Settings space (settings_project settings)
  (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings).
-Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:json) (task:task) :=
+Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Guidance.t) (task:task) :=
  let old:=task_contract task in
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
@@ -513,28 +513,27 @@ Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:jso
  Tasks.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
-Definition completed_task (space : workspace) (guidance : json) (task : task) :=
+Definition completed_task (space : workspace) (guidance : Guidance.t) (task : task) :=
  install_workspace (match task_lifecycle task with Frozen activity operations=>Running activity operations
   | other=>other end) space guidance task.
 (* A side or native child can inherit the pending environment before its
    physical root exists. Setup selects that root for every live binding before
    the scheduler captures any of their first model requests. *)
-Definition complete_binding (owner id : N) (space : workspace) (guidance : json) (task : task) :=
+Definition complete_binding (owner id : N) (space : workspace) (guidance : Guidance.t) (task : task) :=
  if N.eqb owner id || archived task then task else
  if Workspace.same_resource (settings_resource (contract_settings (task_contract task))) (Some owner)
  then install_workspace (task_lifecycle task) space guidance task else task.
-Definition complete_bindings (owner : N) (space : workspace) (guidance : json) (value : world) :=
+Definition complete_bindings (owner : N) (space : workspace) (guidance : Guidance.t) (value : world) :=
  Selvedge.Kernel.State.with_tasks
   (indexed (fun id task => complete_binding owner id space guidance task) 0 (world_tasks value)) value.
 Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then task_lifecycle task else Stopped Idle []) (append_history [FailureMessage message] task).
-Definition created_valid (root:string) (space:workspace) (guidance:json) (task:task) :=
- Workspace.valid_path root && Workspace.valid_workspace space && Workspace.valid_path (primary space) && inside root (primary space) &&
- match Json.equal (workspace_json space) (workspace_json (selected_workspace (primary space) (settings_workspace (task_current_settings task)))) with
- | true=>Codec.valid_guidance guidance && match guidance with JNull=>true | _=>String.eqb (text_default "workspace" guidance "") (primary space) end | false=>false end.
-Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:option string) (space:option workspace) (guidance:json) (message:string) (value:world) :=
+Definition created_valid (root:string) (space:workspace) (task:task) :=
+ inside root (primary space) &&
+ Json.equal (workspace_json space) (workspace_json (selected_workspace (primary space) (settings_workspace (task_current_settings task)))).
+Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:option string) (space:option workspace) (guidance:Guidance.t) (message:string) (value:world) :=
  let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
  match Selvedge.Kernel.State.find_task id value with None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] | Some task=>
- let success:=match root,space with Some root,Some space=>ok && created_valid root space guidance task | _,_=>false end in
+ let success:=match root,space with Some root,Some space=>ok && created_valid root space task | _,_=>false end in
  if success then match root,space with Some root,Some space=>
  let ready:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeReady root (primary space)) tree in
  if archived task then archive_tree ready (store ready value)
@@ -562,24 +561,26 @@ Definition archive_outcome_matches (tree : Selvedge.Features.Domain.worktree) (r
    negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)) && String.eqb previous root end.
 Record creation_completion := CreationCompletion {
  creation_owner : N; creation_root : option string; creation_workspace : option workspace;
- creation_guidance : json; creation_message : string
+ creation_guidance : Guidance.t; creation_message : string
 }.
 Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
  let fields := proj1_sig values in
- Workspace (map (@proj1_sig _ _) (fst fields)) (Some (proj1_sig (fst (snd fields)))).
+ Workspace (map (@proj1_sig _ _) (proj1_sig (fst fields))) (Some (proj1_sig (fst (snd fields)))).
 Definition decode_creation_completion (source : json) (ok : bool) : option creation_completion :=
  if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source with
  | Some (address,values) =>
    let root := proj1_sig (fst values) in let space := completed_workspace (fst (snd values)) in
-   let guidance := fst (snd (snd values)) in
-   if Workspace.valid_path root && Workspace.valid_workspace space &&
-      Codec.valid_guidance guidance && Codec.guidance_member space guidance
-   then Some (CreationCompletion (head address) (Some root) (Some space) guidance "") else None
+   match Guidance.of_values (fst (snd (snd values))) with
+   | Some guidance =>
+     if Workspace.canonical_path root && forallb Workspace.canonical_path (workspace_roots space) &&
+        Workspace.valid_selection space && Codec.guidance_member space guidance
+     then Some (CreationCompletion (head address) (Some root) (Some space) guidance "") else None
+   | None => None end
  | None => None end
  else match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) false source with
  | Some (address,values) => let root := option_map (@proj1_sig _ _) (fst values) in
    if match root with Some root => Workspace.valid_path root | None => true end
-   then Some (CreationCompletion (head address) root None JNull (proj1_sig (fst (snd values)))) else None
+   then Some (CreationCompletion (head address) root None None (proj1_sig (fst (snd values)))) else None
  | None => None end.
 Definition decode_archive_completion (source : json) (ok : bool) : option (N * option archive_outcome * string) :=
  if ok then match CallbackDeclarations.decode_branch (ModelDeclarations.Worktree false) true source with

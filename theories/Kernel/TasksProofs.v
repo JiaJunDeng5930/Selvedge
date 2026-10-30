@@ -103,7 +103,7 @@ Proof.
  intros settings parent history.
  unfold Tasks.selected_context_history.
  destruct (Json.equal (settings_json settings) (settings_json (task_current_settings parent)) &&
-   Json.equal (settings_guidance settings) (settings_guidance (task_current_settings parent))) eqn:Hsame.
+   Guidance.same (settings_guidance settings) (settings_guidance (task_current_settings parent))) eqn:Hsame.
  - exists []. rewrite app_nil_r. reflexivity.
  - remember (fold_right (fun snapshot rest =>
      if Tasks.context_selected (settings_workspace settings) (snapshot_key snapshot) then rest

@@ -63,7 +63,7 @@ Theorem failed_creation_stops_owner : forall tree value task ok root space guida
  find_task (F.worktree_task tree) value = Some task ->
  Worktree.archived task = false ->
  (match root, space with
-  | Some root, Some space => ok && Worktree.created_valid root space guidance task
+  | Some root, Some space => ok && Worktree.created_valid root space task
   | _, _ => false end) = false ->
  let result := Worktree.created tree ok root space guidance message value in
  decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\
@@ -105,7 +105,7 @@ Qed.
 
 Lemma successful_creation_records_completed_task : forall tree value task root space guidance message,
  find_task (F.worktree_task tree) value = Some task ->
- Worktree.created_valid root space guidance task = true ->
+ Worktree.created_valid root space task = true ->
  Worktree.archived task = false ->
  find_task (F.worktree_task tree)
    (decision_world (Worktree.created tree true (Some root) (Some space) guidance message value)) =
@@ -136,7 +136,7 @@ Theorem accepted_creation_completion_binds_or_stops : forall source value payloa
  Worktree.completion source value = Some (true, true, result) ->
  (exists observed_root observed_space completed ready,
    root = Some observed_root /\ space = Some observed_space /\
-   Worktree.created_valid observed_root observed_space guidance task = true /\
+   Worktree.created_valid observed_root observed_space task = true /\
    decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\
    find_task (F.worktree_task tree) (decision_world result) = Some completed /\
    task_current_settings completed = Worktree.selected_settings observed_space guidance (task_current_settings task) /\
@@ -167,7 +167,7 @@ Proof.
  destruct ok as [|] eqn:reported_ok.
  - destruct root as [observed_root|].
    + destruct space as [observed_space|].
-     * destruct (Worktree.created_valid observed_root observed_space guidance task) eqn:valid.
+     * destruct (Worktree.created_valid observed_root observed_space task) eqn:valid.
        -- pose proof (WorktreeProofs.successful_creation_installs_ready_resource
             tree value task observed_root observed_space guidance message owner_task valid live)
             as success.

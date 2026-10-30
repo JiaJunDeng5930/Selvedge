@@ -1,19 +1,14 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Schema Utf8 Numbers ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Numbers.
+From Selvedge.Kernel Require WorkspacePath.
 Import ListNotations.
 Open Scope string_scope.
 Definition valid_project_name (name : string) :=
  Utf8.nonblank name && Nat.leb (String.length name) 256.
-Fixpoint contains (needle text : string) :=
- if String.prefix needle text then true else match text with EmptyString => false | String _ rest => contains needle rest end.
-Definition path_constraints := ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural
- 4096 true false false None.
-Definition path_declaration := ArgumentDeclaration.Text path_constraints.
-Definition canonical_path (path : string) :=
- String.prefix "/" path &&
- negb (contains "/../" (String.append path "/")) && negb (contains "/./" (String.append path "/")) &&
- (String.eqb path "/" || negb (contains "//" (String.append path "/"))).
+Definition path_constraints := WorkspacePath.constraints.
+Definition path_declaration := WorkspacePath.declaration.
+Definition canonical_path := WorkspacePath.canonical.
 Definition valid_path (path : string) :=
  ArgumentDeclaration.check_text path_constraints path && canonical_path path.
 Definition valid_selection (value : workspace) :=

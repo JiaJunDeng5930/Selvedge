@@ -117,15 +117,16 @@ Proof.
 Qed.
 (** The callback language requires an explicit primary directory. Guidance
     must additionally refer to that selected directory. *)
-Theorem created_completion_rejects_other_directory_guidance : forall source value address fields,
+Theorem created_completion_rejects_other_directory_guidance : forall source value address fields guidance,
  string_field "kind" source = Some "worktree_created" -> bool_field "ok" source = Some true ->
  CallbackDeclarations.decode_branch (ModelDeclarations.Worktree true) true source = Some (address,fields) ->
- Codec.guidance_member (Worktree.completed_workspace (fst (snd fields))) (fst (snd (snd fields))) = false ->
+ Guidance.of_values (fst (snd (snd fields))) = Some guidance ->
+ Codec.guidance_member (Worktree.completed_workspace (fst (snd fields))) guidance = false ->
  Worktree.completion source value = None.
 Proof.
- intros source value address fields Kind Succeeded Decoded Mismatch.
+ intros source value address fields guidance Kind Succeeded Decoded Observed Mismatch.
  unfold Worktree.completion; rewrite Kind, Succeeded; cbn [String.eqb].
- unfold Worktree.decode_creation_completion; rewrite Decoded, Mismatch, andb_false_r; reflexivity.
+ unfold Worktree.decode_creation_completion; rewrite Decoded, Observed, Mismatch, andb_false_r; reflexivity.
 Qed.
 (** Resource phases carry their roots, so a ready tree cannot have no root. *)
 Theorem ready_tree_has_root : forall tree,
@@ -147,7 +148,7 @@ Proof. reflexivity. Qed.
     assumptions; the checked conclusion concerns their admitted domain update. *)
 Theorem successful_creation_installs_ready_resource : forall tree value task root space guidance message,
  find_task (F.worktree_task tree) value = Some task ->
- Worktree.created_valid root space guidance task = true ->
+ Worktree.created_valid root space task = true ->
  Worktree.archived task = false ->
  let result := Worktree.created tree true (Some root) (Some space) guidance message value in
  decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\

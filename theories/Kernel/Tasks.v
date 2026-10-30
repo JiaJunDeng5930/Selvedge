@@ -25,9 +25,9 @@ Definition selected_reasoning (effort : option string) (profile : profile) :=
    else if Domain.reasoning_allowed value profile then Some (with_reasoning value profile) else None end.
 Definition creation_defaults (environment : environment) :=
  let project := environment_project environment in
- let workspace := match value_or_null "workspace" project with
- | JString root => Workspace [root] (Some root)
- | value => match parse_workspace value with Some workspace => workspace | None => default_workspace end end in
+ let workspace := match project with
+ | Some observed => let root := Guidance.root observed in Workspace [root] (Some root)
+ | None => default_workspace end in
  Settings workspace None (settings_sandbox default_settings)
   (settings_approval default_settings) project false None.
 Definition resolve_settings (model : profile) (source : option settings_request) (fallback : task_settings) (value : world) :=
@@ -73,14 +73,7 @@ Definition native_creation_allowed (options : option settings_request) (selected
  Workspace.may_delegate selected caller && no_guidance && no_resource_observation options &&
  forallb (fun root => existsb (String.eqb root) (observed_creation_roots selected caller value))
    (workspace_roots (settings_workspace selected)).
-Definition initial_project_guidance (settings : task_settings) :=
- let source := settings_guidance settings in
- match string_field "workspace" source, string_field "path" source,
-       string_field "revision" source, string_field "instructions" source with
- | Some workspace, Some path, Some revision, Some content =>
-   ContextUpdates.construct_snapshot Context.project_guidance [("workspace",workspace)] revision
-     [("content",content);("path",path);("applies_to",workspace);("precedence",workspace)]
- | _,_,_,_ => None end.
+Definition initial_project_guidance (settings : task_settings) := Guidance.initial (settings_guidance settings).
 Definition initial_history (environment : environment) (chosen : profile) (settings : task_settings) :=
  let configured := Snapshot (ContextKey Context.configured (exist _ (tt,tt) eq_refl)) initial_revision
    (exist _ (environment_instructions environment,tt) eq_refl) in
@@ -407,7 +400,7 @@ Definition context_selected (selected : workspace) (key : context_key) :=
 Definition selected_context_history (settings : task_settings) (parent : task) (history : list message) :=
  let previous := task_current_settings parent in
  if Json.equal (settings_json settings) (settings_json previous) &&
-    Json.equal (settings_guidance settings) (settings_guidance previous) then history else
+    Guidance.same (settings_guidance settings) (settings_guidance previous) then history else
  let removals := fold_right (fun snapshot rest =>
    if context_selected (settings_workspace settings) (snapshot_key snapshot) then rest
    else ContextObservation (Remove (snapshot_key snapshot) (snapshot_revision snapshot)) :: rest)

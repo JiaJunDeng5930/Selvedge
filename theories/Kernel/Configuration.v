@@ -48,17 +48,16 @@ Definition environment_of_fields (values : Schema.fields environment_schema) : o
  let max_fork := head values in let values := tail values in
  let max_descendants := head values in let values := tail values in
  let project := match head values with Some project => project | None => JNull end in
- match traverse parse_profile profiles, traverse parse_tool raw_tools, parse_instructions (head (tail values)) with
- | Some profiles, Some tools, Some (configured,global) =>
+ match traverse parse_profile profiles, traverse parse_tool raw_tools, parse_instructions (head (tail values)), Guidance.parse project with
+ | Some profiles, Some tools, Some (configured,global), Some project =>
    let catalog := (NativeTools.catalog max_fork ++ tools)%list in
    if Schema.unique_names (map profile_key profiles) && Schema.unique_names (map tool_name catalog) &&
       forallb valid_plugin plugins && Nat.leb (List.length plugins) 16 &&
       Schema.unique_names (map (fun plugin => text_default "name" (value_or_null "reference" plugin) "") plugins) &&
       forallb (valid_route plugins) raw_tools &&
-      ((0 <? max_fork) && (max_fork <=? 4294967295) && (0 <? max_descendants) && (max_descendants <=? 4294967295))%N &&
-      valid_guidance project
+      ((0 <? max_fork) && (max_fork <=? 4294967295) && (0 <? max_descendants) && (max_descendants <=? 4294967295))%N
    then Some (Environment profiles catalog max_fork max_descendants project plugins configured global) else None
- | _,_,_ => None end.
+ | _,_,_,_ => None end.
 Definition parse_environment source := match source with
  | JObject source => match Schema.decode_fields environment_schema source with
    | Some values => environment_of_fields values | None => None end

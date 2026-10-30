@@ -56,7 +56,7 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
 Definition command now value :=source<-command_json now(Draft.contents value);;Schema.decode_command command_specs source.
 Definition admit_directories source:=kind<-string_field "kind" source;;if String.eqb kind "directories"then
  workspace<-bind(field "workspace" source)Codec.parse_workspace;;guidance<-field "guidance" source;;
- if Codec.valid_guidance guidance && Codec.guidance_member workspace guidance then Some(workspace,guidance)else None else None.
+ match Codec.parse_guidance workspace guidance with Some _=>Some(workspace,guidance)|None=>None end else None.
 Definition prepare_command source (selected:Domain.workspace):option(command_value command_specs):=
  (* Browser preparation canonicalizes selected paths. The service observes
     authoritative guidance again during worker admission and execution. *)

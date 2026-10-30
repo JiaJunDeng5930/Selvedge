@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema DeclarationFields ModelWire.
 From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import ModelDeclarations ApprovalProtocol.
+From Selvedge.Kernel Require Guidance WorkspacePath.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -34,7 +35,7 @@ Definition after_schema := D.Union
   D.Object [F.required "decision" (D.Const (JString "rewrite"));F.required "value" D.Any];
   reason "deny" (diagnostic_text AfterHook);reason "failed" (diagnostic_text AfterHook)].
 Definition created_workspace := D.Object
- [F.required "roots" (D.Array D.text);F.required "primary_root" D.text].
+ [F.required "roots" (D.BoundedArray 0 32 WorkspacePath.declaration);F.required "primary_root" WorkspacePath.declaration].
 Definition approval_schema := ApprovalProtocol.callback_declaration.
 
 (** The branch carries the constraints used by the public decoder. Its fixed
@@ -61,7 +62,7 @@ Definition payload (kind : callback_kind) (ok : bool) := match kind with
  | Compaction _ => [F.required "result" (if ok then D.RawObject else
      D.Object [F.required "message" (diagnostic_text (Compaction false))])]
  | Worktree created =>
-   if created then if ok then [F.required "root" D.text;F.required "workspace" created_workspace;F.required "guidance" D.Any]
+   if created then if ok then [F.required "root" WorkspacePath.declaration;F.required "workspace" created_workspace;F.required "guidance" Guidance.declaration]
      else [F.optional "root" D.text;F.required "message" (diagnostic_text (Worktree true))]
    else if ok then [F.required "outcome" D.Any] else [F.required "message" (diagnostic_text (Worktree false))]
  end.

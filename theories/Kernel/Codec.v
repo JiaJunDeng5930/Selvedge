@@ -104,37 +104,17 @@ Definition binding_of_values (values : D.denote binding_declaration) : option N 
  | inl owner => Some (proj1_sig owner) | inr (inl _) => None
  | inr (inr impossible) => match impossible with end end.
 Definition parse_workspace_binding source := option_map binding_of_values (D.decode binding_declaration source).
-Definition guidance_case (path revision instructions : D.t) := D.Object
- [("workspace",true,Workspace.path_declaration);("path",true,path);("revision",true,revision);
-  ("instructions",true,instructions)].
-Definition guidance_body_declaration := D.Union
- [guidance_case (D.Const (JString "")) (D.Const (JString "absent")) (D.Const (JString ""));
-  guidance_case D.text (D.exact_lower_hex 64)
-    (D.Text (D.TextConstraints 0 D.maximum_natural 32768 true false false None))].
-Definition guidance_declaration := D.nullable guidance_body_declaration.
-Definition guidance_root (value : D.denote guidance_body_declaration) : string :=
- match value with inl fields | inr (inl fields) => proj1_sig (fst (proj1_sig fields))
- | inr (inr impossible) => match impossible with end end.
-Definition guidance_valid_values (values : D.denote guidance_declaration) :=
- match values with
- | inl value => Workspace.canonical_path (guidance_root value) &&
-   match value with inl _ => true
-   | inr (inl fields) => Context.policy_source_path Context.guidance_policy
-       (guidance_root value) (proj1_sig (fst (snd (proj1_sig fields))))
-   | inr (inr impossible) => match impossible with end end
- | inr (inl _) => true | inr (inr impossible) => match impossible with end end.
-Definition valid_guidance source := match D.decode guidance_declaration source with
- | Some values => guidance_valid_values values | None => false end.
-Definition guidance_member (workspace : workspace) (guidance : json) := match guidance with
- | JNull => true | _ => match workspace_primary workspace, string_field "workspace" guidance with
- | Some root, Some observed => String.eqb root observed | _,_ => false end end.
-Definition inherited_guidance (workspace : workspace) (guidance : json) :=
- if guidance_member workspace guidance then guidance else JNull.
-Definition guidance_values_member (workspace : workspace) (value : D.denote guidance_declaration) :=
- match value with
- | inl fields => match workspace_primary workspace with
-   | Some root => String.eqb root (guidance_root fields) | None => false end
- | inr (inl _) => true | inr (inr impossible) => match impossible with end end.
+Definition guidance_declaration := Guidance.declaration.
+Definition guidance_member (workspace : workspace) (guidance : Guidance.t) := match guidance with
+ | None => true | Some observed => match workspace_primary workspace with
+ | Some root => String.eqb root (Guidance.root observed) | None => false end end.
+Definition inherited_guidance (workspace : workspace) (guidance : Guidance.t) :=
+ if guidance_member workspace guidance then guidance else None.
+Definition parse_guidance (workspace : workspace) source :=
+ match Guidance.parse source with Some observed => if guidance_member workspace observed then Some observed else None
+ | None => None end.
+Definition requested_guidance (values : option (D.denote guidance_declaration)) :=
+ match values with Some values => Guidance.of_values values | None => Some None end.
 Definition settings_declaration (observed : bool) := D.Object
  ([("workspace",false,workspace_declaration);("sandbox",false,sandbox_patch_declaration);
    ("approval",false,approval_declaration);("project_id",false,D.Natural 0 4294967295)] ++
@@ -169,8 +149,9 @@ Definition with_requested_project (project : option N) (value : settings_request
    project (guidance_observation value) (binding_observation value).
 Definition settings_of_request (model : profile) (catalog : list profile)
  (request : settings_request) (fallback : task_settings) : option task_settings :=
- let guidance := guidance_observation request in
- if match guidance with None => true | Some value => guidance_valid_values value end then
+ match requested_guidance (guidance_observation request) with
+ | None => None
+ | Some guidance =>
  match (match workspace_override request with None => Some (settings_workspace fallback)
         | Some values => workspace_of_values values end),
        (match approval_override request with None => Some (settings_approval fallback)
@@ -179,17 +160,16 @@ Definition settings_of_request (model : profile) (catalog : list profile)
    let sandbox := match sandbox_override request with None => settings_sandbox fallback
      | Some values => sandbox_patch_of_values (settings_sandbox fallback) values end in
    let contents := match guidance with
-     | None | Some (inr (inl _)) => match workspace_override request with
+     | None => match workspace_override request with
        | None => settings_guidance fallback
        | Some _ => inherited_guidance workspace (settings_guidance fallback) end
-     | Some (inl fields) => D.encode guidance_body_declaration fields
-     | Some (inr (inr impossible)) => match impossible with end end in
+     | Some observed => Some observed end in
    let owner := match binding_observation request with Some owner => owner
      | None => match workspace_override request with Some _ => None | None => settings_resource fallback end end in
-   if match guidance with None => true | Some values => guidance_values_member workspace values end then
+   if guidance_member workspace guidance then
      Some (Settings workspace (match project_override request with Some id => Some id | None => settings_project fallback end)
        sandbox approval contents (settings_worktree fallback) owner) else None
- | _,_ => None end else None.
+ | _,_ => None end end.
 Definition profile_json (value : profile) := profile_metadata value.
 Definition reviewer_json (value : reviewer) := match value with
  | HumanReviewer => JObject [("kind",JString "human")]
