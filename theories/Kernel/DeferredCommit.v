@@ -1,16 +1,14 @@
 From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Inputs Dispatch Delivery Notifications.
+From Selvedge.Kernel Require Import Domain State Inputs Dispatch Delivery Notifications DecisionComposition.
 Import ListNotations.
 
 (* An independent request is durable before the scheduler may change its owner.
    The existing continuation performs ordinary scheduling in the next turn. *)
-Definition continue (result : decision) :=
- if Codec.bool_default "ok"%string (decision_reply result) false then
-   Decision (decision_world result) (decision_reply result)
-     (decision_effects result ++ [ContinueScheduling])
- else result.
+Definition continuation : DecisionComposition.transformation := fun reply value effects =>
+ (value,if Codec.bool_default "ok"%string reply false then effects ++ [ContinueScheduling] else effects).
+Definition continue := DecisionComposition.transform continuation.
 
 Definition continue_result (before : world) (result : CommandResult.result CommandResult.change) :=
  CommandResult.commit before (CommandResult.append_effects [ContinueScheduling]) result.

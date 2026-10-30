@@ -22,9 +22,6 @@ Definition candidate {before : world} (request : plan before) :=
  DeferredCommit.continue_result before (CommandResult.Accepted (TitleRuntime.issue request)).
 Definition packet {before : world} (request : plan before) (raw : json) :=
  DeferredCommit.packet (Some Continue) before (candidate request).
-Definition enqueue (result : decision) :=
- match resolve (decision_world result) with
- | Some _ => Decision (decision_world result) (decision_reply result)
-     (decision_effects result ++ [ContinueScheduling])
- | None => result
- end.
+Definition enqueue_title : DecisionComposition.transformation := fun _ value effects =>
+ (value,match resolve value with Some _ => effects ++ [ContinueScheduling] | None => effects end).
+Definition enqueue := DecisionComposition.transform enqueue_title.

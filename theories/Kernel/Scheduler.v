@@ -308,11 +308,12 @@ Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
    end
  end end.
 Definition schedule := schedule_with unrestricted.
-Definition run_with (advance : advancement) (execute : executor)
- (permitted : N -> world -> bool) (decision : decision) :=
+Definition scheduling_with (advance : advancement) (execute : executor)
+ (permitted : N -> world -> bool) : DecisionComposition.transformation := fun _ value effects =>
  let '(value,effects) := schedule_with advance Limits.schedule_steps execute permitted
-   (decision_world decision) (decision_effects decision) in
- let '(value,effects) := Dispatch.prepare value effects in
- Decision value (decision_reply decision) effects.
+   value effects in
+ Dispatch.prepare value effects.
+Definition run_with (advance : advancement) (execute : executor) (permitted : N -> world -> bool) :=
+ DecisionComposition.transform (scheduling_with advance execute permitted).
 Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
  run_with unrestricted execute permitted decision.

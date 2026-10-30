@@ -103,9 +103,12 @@ Theorem an_admitted_task_cancellation_uses_the_dispatch_commit_boundary :
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current owner Present.
- unfold Scheduler.run_with.
+ unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite task_cancellation_commits_before_further_scheduler_changes with (owner:=owner) by exact Present.
- reflexivity.
+ unfold Scheduler.continue_runnable.
+ destruct (Dispatch.prepare (decision_world current)
+   (if Scheduler.has_runnable_work permitted (decision_world current)
+    then decision_effects current ++ [ContinueScheduling] else decision_effects current)) as [value effects]; reflexivity.
 Qed.
 
 Theorem a_pending_model_request_commits_before_further_scheduler_changes :
@@ -159,9 +162,12 @@ Theorem an_admitted_frozen_request_uses_the_dispatch_commit_boundary :
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current Frozen.
- unfold Scheduler.run_with.
+ unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
- reflexivity.
+ unfold Scheduler.continue_runnable.
+ destruct (Dispatch.prepare (decision_world current)
+   (if Scheduler.has_runnable_work permitted (decision_world current)
+    then decision_effects current ++ [ContinueScheduling] else decision_effects current)) as [value effects]; reflexivity.
 Qed.
 
 Theorem a_refused_scheduler_step_keeps_the_complete_accepted_prefix :

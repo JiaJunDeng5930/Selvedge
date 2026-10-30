@@ -1,23 +1,6 @@
-From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State StateProofs Scheduler Packet RequestDeliveryProofs.
-From Selvedge.Features Require Import Runtime Worktree TaskGraph Board TitleRuntime Compaction BoardProofs CompactionProofs.
+From Stdlib Require Import List Bool NArith.
+From Selvedge.Kernel Require Import Domain State Scheduler.
 Import ListNotations.
-
-(* No quiet-world or identity-maintenance premise: the actual Packet entry
-   retains the operation's reply through either bounded scheduling or durable
-   callback deferral, including request normalization and feature finalization. *)
-Theorem the_production_runtime_preserves_the_exact_operation_result :
- forall schedules source before current,
- decision_reply (Packet.prepare schedules source (Runtime.after_transition before current)) =
-   decision_reply current.
-Proof.
- intros schedules source before current; unfold Packet.prepare.
- destruct schedules; [|reflexivity].
- destruct (Packet.callback_input source).
- - rewrite deferred_delivery_preserves_reply; reflexivity.
- - rewrite bounded_scheduling_preserves_reply; reflexivity.
-Qed.
 
 (* A scoped observation can be followed across an arbitrarily busy scheduler.
    Each premise is a local obligation of the actual reconciliation or selected

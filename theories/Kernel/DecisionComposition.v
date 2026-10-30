@@ -1,6 +1,20 @@
 From Stdlib Require Import List.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State.
 Import ListNotations.
+
+(** Scheduling and delivery may withdraw effects, unlike append-only feature
+    maintenance. The operation's reply is a read-only input in both languages. *)
+Definition transformation := json -> world -> list effect -> world * list effect.
+Definition transform (change : transformation) (result : decision) :=
+ let next := change (decision_reply result) (decision_world result) (decision_effects result) in
+ Decision (fst next) (decision_reply result) (snd next).
+Definition compose (first second : transformation) : transformation := fun reply value effects =>
+ let '(value,effects) := first reply value effects in second reply value effects.
+Definition append (more : list effect) : transformation := fun _ value effects => (value,effects ++ more).
+Definition fold {A : Type} (items : list A) (body : A -> transformation) : transformation :=
+ fun reply value effects => fold_left
+   (fun current item => body item reply (fst current) (snd current)) items (value,effects).
 
 (** A maintenance step can inspect effects already issued in this turn, for
     example a cancellation. Its result owns only the next world and newly
@@ -22,9 +36,9 @@ Definition and_then (first second : step) : step := fun value effects =>
 Definition each {A : Type} (items : list A) (body : A -> step) : step :=
  fold_right (fun item rest => and_then (body item) rest)
    (fun value _ => unchanged value) items.
-Definition run (maintenance : step) (result : decision) :=
- let next := maintenance (decision_world result) (decision_effects result) in
- Decision (updated_world next) (decision_reply result)
-   (decision_effects result ++ appended_effects next).
+Definition maintain (maintenance : step) : transformation := fun _ value effects =>
+ let next := maintenance value effects in
+ (updated_world next,effects ++ appended_effects next).
+Definition run (maintenance : step) := transform (maintain maintenance).
 Definition follow (first second : decision) :=
  run (fun _ _ => from_decision second) first.

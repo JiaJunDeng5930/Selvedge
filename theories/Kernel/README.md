@@ -19,9 +19,12 @@ interpreters directly. JSON encoding belongs at a transport or display
 boundary. A new command does not provide a second parser or remember a set of
 per-field proof obligations.
 
-`DecisionComposition` composes maintenance steps that own only their next world
-and new effects. Its interpreter retains the initiating reply and all earlier
-effects. Steps may inspect those effects to reconcile cancellations.
+`DecisionComposition` gives scheduling and delivery transformations read-only
+access to the initiating reply. The shared interpreter retains that reply;
+transformations return only their next world and effects. Its narrower
+maintenance language permits only appended effects, so feature maintenance also
+retains earlier emissions. Scheduling may withdraw requests that cannot be sent
+or were cancelled. Both forms compose without a per-step reply theorem.
 
 `Delivery` owns the actual serialized output budget. `Dispatch` cancels stale
 requests and freezes their final context. The packet selects a complete

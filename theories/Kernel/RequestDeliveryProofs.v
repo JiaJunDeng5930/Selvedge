@@ -39,7 +39,7 @@ Theorem refusing_a_current_request_changes_only_its_owned_task :
    find_task other (decision_world result).
 Proof.
  intros result request owner ticket target other Coordinate Selected Owned Other.
- unfold RequestDelivery.refuse; rewrite Coordinate, Selected, Owned; cbn [decision_world].
+ unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_world].
  apply a_field_plan_preserves_every_other_task; exact Other.
 Qed.
 
@@ -52,7 +52,7 @@ Theorem refusing_a_current_request_installs_the_exact_history_preserving_changes
    Some (TaskChange.apply RequestDelivery.refusal_changes (TaskScope.selected target)).
 Proof.
  intros result request owner ticket target Coordinate Selected Owned.
- unfold RequestDelivery.refuse; rewrite Coordinate, Selected, Owned; cbn [decision_world].
+ unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_world].
  exact (a_field_plan_installs_its_exact_interpretation (decision_world result)
    (TaskChange.Plan (decision_world result) target RequestDelivery.refusal_changes)).
 Qed.
@@ -65,24 +65,11 @@ Theorem a_refused_request_cannot_still_be_emitted :
  ~ In request (decision_effects (RequestDelivery.refuse request result)).
 Proof.
  intros result request owner ticket target Coordinate Selected Owned.
- unfold RequestDelivery.refuse; rewrite Coordinate, Selected, Owned; cbn [decision_effects].
+ unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_effects].
  intro Present; apply filter_In in Present; destruct Present as [_ Accepted].
  unfold RequestDelivery.same_inference in Accepted; rewrite Coordinate, !N.eqb_refl in Accepted.
  discriminate.
 Qed.
-
-Theorem request_refusal_preserves_the_original_business_reply : forall request result,
- decision_reply (RequestDelivery.refuse request result) = decision_reply result.
-Proof.
- intros request result; unfold RequestDelivery.refuse.
- destruct (RequestDelivery.inference_coordinate request) as [[owner ticket]|]; [|reflexivity].
- destruct (TaskScope.select owner (decision_world result)) as [target|]; [|reflexivity].
- destruct (RequestDelivery.owns_inference request (TaskScope.selected target)); reflexivity.
-Qed.
-
-Theorem after_request_refusal_preserves_the_original_business_reply : forall request result,
- decision_reply (RequestDelivery.refuse_after request result) = decision_reply result.
-Proof. intros request result; destruct request; reflexivity. Qed.
 
 Theorem the_shared_after_budget_failure_emits_no_additional_effect :
  forall owner identity ticket value,
@@ -105,44 +92,45 @@ Theorem a_refused_after_request_cannot_still_be_emitted :
  ~ In request (decision_effects (RequestDelivery.refuse_after request current)).
 Proof.
  intros current owner ticket identity plugin invocation result error; cbv zeta.
- cbn [RequestDelivery.refuse_after decision_effects].
+ cbn [RequestDelivery.refuse_after DecisionComposition.transform RequestDelivery.after_refusal decision_effects].
  intro Present; apply filter_In in Present; destruct Present as [_ Accepted].
  cbn [RequestDelivery.same_after] in Accepted.
  rewrite !N.eqb_refl in Accepted; discriminate.
 Qed.
 
-Lemma after_request_refusal_introduces_no_effect : forall request current emitted,
- In emitted (decision_effects (RequestDelivery.refuse_after request current)) ->
- In emitted (decision_effects current).
+Lemma after_request_refusal_introduces_no_effect : forall request reply value effects emitted,
+ In emitted (snd (RequestDelivery.after_refusal request reply value effects)) -> In emitted effects.
 Proof.
- intros request current emitted Present; destruct request;
-   cbn [RequestDelivery.refuse_after decision_effects] in Present; try exact Present.
+ intros request reply value effects emitted Present; destruct request;
+   cbn [RequestDelivery.after_refusal snd] in Present; try exact Present.
  apply filter_In in Present; exact (proj1 Present).
 Qed.
 
-Lemma after_request_refusal_fold_keeps_absent_effects_absent : forall requests current request,
- ~ In request (decision_effects current) ->
- ~ In request (decision_effects
-   (fold_left (fun result request => RequestDelivery.refuse_after request result) requests current)).
+Lemma after_request_refusal_fold_keeps_absent_effects_absent : forall requests reply current request,
+ ~ In request (snd current) ->
+ ~ In request (snd (fold_left
+   (fun current request => RequestDelivery.after_refusal request reply (fst current) (snd current)) requests current)).
 Proof.
- induction requests as [|first rest IH]; intros current request Absent; [exact Absent|].
+ induction requests as [|first rest IH]; intros reply current request Absent; [exact Absent|].
  cbn [fold_left]; apply IH.
  intro Present; apply Absent.
  eapply after_request_refusal_introduces_no_effect; exact Present.
 Qed.
 
 Lemma after_request_refusal_fold_retires_each_selected_request :
- forall requests current owner ticket identity plugin invocation result error,
+ forall requests reply current owner ticket identity plugin invocation result error,
  let request := CheckResult owner ticket identity plugin invocation result error in
  In request requests ->
- ~ In request (decision_effects
-   (fold_left (fun result request => RequestDelivery.refuse_after request result) requests current)).
+ ~ In request (snd (fold_left
+   (fun current request => RequestDelivery.after_refusal request reply (fst current) (snd current)) requests current)).
 Proof.
- induction requests as [|first rest IH]; intros current owner ticket identity plugin invocation result error;
+ induction requests as [|first rest IH]; intros reply current owner ticket identity plugin invocation result error;
    cbv zeta; intro Member; [contradiction|].
  cbn [fold_left]; destruct Member as [Same|Later].
  - subst first; apply after_request_refusal_fold_keeps_absent_effects_absent.
-   apply a_refused_after_request_cannot_still_be_emitted.
+   destruct current as [value effects].
+   exact (a_refused_after_request_cannot_still_be_emitted
+     (Decision value reply effects) owner ticket identity plugin invocation result error).
  - apply IH; exact Later.
 Qed.
 
@@ -155,7 +143,17 @@ Theorem normalization_retires_every_individually_oversized_after_request :
  ~ In request (decision_effects (RequestDelivery.normalize current)).
 Proof.
  intros current owner ticket identity plugin invocation result error; cbv zeta.
- intros Present Oversized; unfold RequestDelivery.normalize.
+ intros Present Oversized.
+ unfold RequestDelivery.normalize,RequestDelivery.normalization,RequestDelivery.capture,
+   RequestDelivery.capture_requests,Selvedge.Features.Runtime.finish,DecisionComposition.transform in *.
+ destruct (Dispatch.prepare (decision_world current) (decision_effects current)) as [captured effects].
+ cbn [decision_world decision_effects decision_reply fst snd] in Present,Oversized |- *.
+ destruct (Selvedge.Features.Runtime.finalization (decision_reply current) captured effects) as [encoded emitted].
+ cbn [decision_world decision_effects fst snd] in Present,Oversized |- *.
+ unfold DecisionComposition.compose,DecisionComposition.fold.
+ destruct (fold_left (fun accumulator request => RequestDelivery.refusal request (decision_reply current)
+   (fst accumulator) (snd accumulator)) (filter (RequestDelivery.oversized_inference encoded) emitted) (captured,effects))
+   as [advanced retained].
  apply after_request_refusal_fold_retires_each_selected_request.
  apply filter_In; split; [exact Present|].
  cbn [RequestDelivery.oversized_after]; rewrite Oversized; reflexivity.
@@ -173,7 +171,7 @@ Theorem an_after_budget_refusal_uses_the_owned_failure_settlement :
      (AfterFailure RequestDelivery.after_failure_message)) (decision_world current).
 Proof.
  intros current owner ticket identity plugin invocation result error task operation pending Found Owned Waiting.
- unfold RequestDelivery.refuse_after.
+ unfold RequestDelivery.refuse_after,DecisionComposition.transform,RequestDelivery.after_refusal.
  rewrite after_completed_expression, Found, Owned, Waiting, N.eqb_refl.
  reflexivity.
 Qed.
@@ -244,66 +242,13 @@ Theorem a_stale_after_budget_refusal_cannot_change_the_current_operation :
    (CheckResult owner ticket identity plugin invocation result error) current) = decision_world current.
 Proof.
  intros current owner ticket expected identity plugin invocation result error task operation pending Found Owned Waiting Stale.
- unfold RequestDelivery.refuse_after.
+ unfold RequestDelivery.refuse_after,DecisionComposition.transform,RequestDelivery.after_refusal.
  rewrite after_completed_expression, Found, Owned, Waiting.
  assert (Mismatch : N.eqb expected ticket = false) by (apply N.eqb_neq; congruence).
  rewrite Mismatch; reflexivity.
 Qed.
 
-Theorem normalized_delivery_preserves_reply : forall current,
- decision_reply (RequestDelivery.normalize current) = decision_reply current.
-Proof.
- intro current; unfold RequestDelivery.normalize.
- rewrite reply_preserving_fold by (intros; apply after_request_refusal_preserves_the_original_business_reply).
- rewrite reply_preserving_fold by (intros; apply request_refusal_preserves_the_original_business_reply).
- unfold RequestDelivery.capture; destruct (Dispatch.prepare _ _); reflexivity.
-Qed.
-
-Theorem scheduling_retains_the_operation_reply : forall advance execute permitted current,
- decision_reply (Scheduler.run_with advance execute permitted current) = decision_reply current.
-Proof.
- intros; unfold Scheduler.run_with.
- destruct (Scheduler.schedule_with _ _ _ _ _ _); destruct (Dispatch.prepare _ _); reflexivity.
-Qed.
-
-Theorem finishing_retains_the_operation_reply : forall current,
- decision_reply (Selvedge.Features.Runtime.finish current) = decision_reply current.
-Proof.
- intros; unfold Selvedge.Features.Runtime.finish, TitleCommit.enqueue.
- destruct (TitleCommit.resolve _); reflexivity.
-Qed.
-
-Lemma deferred_continuation_preserves_reply : forall current,
- decision_reply (DeferredCommit.continue current) = decision_reply current.
-Proof.
- intros; unfold DeferredCommit.continue.
- destruct (Codec.bool_default "ok" (decision_reply current) false); reflexivity.
-Qed.
-
-Theorem bounded_scheduling_preserves_reply : forall execute permitted current,
- decision_reply (RequestDelivery.run execute permitted current) = decision_reply current.
-Proof.
- intros execute permitted current; unfold RequestDelivery.run; cbv beta zeta.
- destruct (RequestDelivery.advance (decision_reply (RequestDelivery.normalize current))
-   (decision_world (RequestDelivery.normalize current))
-   (decision_effects (RequestDelivery.normalize current))) as [[next emitted]|].
- - unfold RequestDelivery.finish; rewrite finishing_retains_the_operation_reply,
-     scheduling_retains_the_operation_reply; cbn [decision_reply].
-   apply normalized_delivery_preserves_reply.
- - unfold RequestDelivery.finish; rewrite finishing_retains_the_operation_reply,
-     deferred_continuation_preserves_reply.
-   apply normalized_delivery_preserves_reply.
-Qed.
-
-Theorem deferred_delivery_preserves_reply : forall current,
- decision_reply (RequestDelivery.defer current) = decision_reply current.
-Proof.
- intro current; unfold RequestDelivery.defer, RequestDelivery.finish.
- rewrite finishing_retains_the_operation_reply, deferred_continuation_preserves_reply.
- apply normalized_delivery_preserves_reply.
-Qed.
-
-Local Opaque RequestDelivery.normalize Delivery.fits RequestDelivery.finish.
+Local Opaque RequestDelivery.normalization Delivery.fits RequestDelivery.finish.
 Theorem budget_admission_checks_the_final_envelope_and_its_continuation :
  forall reply value effects next emitted,
  RequestDelivery.advance reply value effects = Some (next,emitted) ->
@@ -313,10 +258,10 @@ Theorem budget_admission_checks_the_final_envelope_and_its_continuation :
 Proof.
  intros reply value effects next emitted Accepted.
  unfold RequestDelivery.advance in Accepted.
- remember (RequestDelivery.normalize
-   (if existsb Scheduler.frozen_inference effects then Decision value reply effects
-    else DecisionComposition.run Selvedge.Features.Compaction.synchronize_all (Decision value reply effects))) as prepared.
- destruct prepared as [prepared_world prepared_reply prepared_effects].
+ destruct (if existsb Scheduler.frozen_inference effects then (value,effects)
+   else DecisionComposition.maintain Selvedge.Features.Compaction.synchronize_all reply value effects)
+   as [current pending].
+ destruct (RequestDelivery.normalization reply current pending) as [prepared_world prepared_effects].
  cbn [decision_world decision_effects] in Accepted.
  destruct (Delivery.fits true (RequestDelivery.finish (Decision prepared_world reply prepared_effects)) &&
    Delivery.fits true (RequestDelivery.finish

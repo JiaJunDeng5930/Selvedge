@@ -24,7 +24,9 @@ Definition schedules (command:Selvedge.Generated.Commands.command) :bool := matc
  | Selvedge.Generated.Commands.Cmd_remote_revoke _ | Selvedge.Generated.Commands.Cmd_remote_status _ => false | _=>true end.
 Definition can_schedule_task (id:N) (value:world) :=
  Worktree.execution_ready id value && Compaction.can_schedule_task id value.
-Definition finish (result:decision) := TitleCommit.enqueue (Selvedge.Features.Compaction.attach (DecisionComposition.run Board.finish result)).
+Definition finalization := DecisionComposition.compose (DecisionComposition.maintain Board.finish)
+ (DecisionComposition.compose Selvedge.Features.Compaction.attach_context TitleCommit.enqueue_title).
+Definition finish := DecisionComposition.transform finalization.
 
 Definition guard_command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :=
  or_else (Worktree.guard_command command caller value) (fun _=>match command with

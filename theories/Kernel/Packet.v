@@ -82,11 +82,12 @@ Definition callback_input (source : option Inputs.input) :=
  match source with
  | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false
  | _ => true end.
-Definition prepare (schedules : bool) (source : option Inputs.input) (result : decision) :=
+Definition preparation (schedules : bool) (source : option Inputs.input) : DecisionComposition.transformation :=
  if schedules then
-   if callback_input source then RequestDelivery.defer result
-   else RequestDelivery.run execute_command Selvedge.Features.Runtime.can_schedule_task result
- else result.
+   if callback_input source then RequestDelivery.deferral
+   else RequestDelivery.scheduling execute_command Selvedge.Features.Runtime.can_schedule_task
+ else fun _ value effects => (value,effects).
+Definition prepare schedules source := DecisionComposition.transform (preparation schedules source).
 Definition manual_fork_input (decoded : option Inputs.input) : option Selvedge.Generated.Commands.fork_payload :=
  match decoded with
  | Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request)) => Some request

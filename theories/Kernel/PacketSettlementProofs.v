@@ -122,10 +122,8 @@ Proof.
      (Scheduler.operation_step (N.of_nat (List.length prefix)) issued task before)) effects)).
  { rewrite Registry, a_quiet_task_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.find_step]. rewrite Selected, Interpreted; reflexivity. }
- unfold Scheduler.run, Scheduler.run_with. cbn [decision_world decision_reply decision_effects].
- change ((let '(value,effects) := Scheduler.schedule (S (Nat.pred Limits.schedule_steps)) execute permitted before [] in
-   let '(value,effects) := Dispatch.prepare value effects in Decision value reply effects) =
-   Decision after reply effects).
+ unfold Scheduler.run, Scheduler.run_with, DecisionComposition.transform, Scheduler.scheduling_with. cbn [decision_world decision_reply decision_effects].
+ change Limits.schedule_steps with (S (Nat.pred Limits.schedule_steps)).
  assert (NoFork : Scheduler.first_native_fork permitted 0 (world_tasks before) before = None).
  { rewrite Registry, a_quiet_native_fork_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.first_native_fork]. rewrite Selected; reflexivity. }

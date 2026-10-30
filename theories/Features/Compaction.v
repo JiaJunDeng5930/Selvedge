@@ -574,7 +574,6 @@ Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects 
      Selvedge.Kernel.State.RequestModel (Selvedge.Kernel.ModelRequest.with_context scope (reserve_tokens budget) request)
    | _ => effect end
  | _ => effect end) effects.
-Definition attach (result : Selvedge.Kernel.State.decision) :=
- Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world result)
-  (Selvedge.Kernel.State.decision_reply result)
-  (prepare_model_effects (Selvedge.Kernel.State.decision_world result) (Selvedge.Kernel.State.decision_effects result)).
+Definition attach_context : DecisionComposition.transformation := fun _ value effects =>
+ (value,prepare_model_effects value effects).
+Definition attach := DecisionComposition.transform attach_context.
