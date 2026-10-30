@@ -144,11 +144,10 @@ Proof.
   rewrite (eq_refl : Utf8.nonblank "call-1" = true),
     (eq_refl : Utf8.nonblank "read_work" = true), malformed. reflexivity.
 Qed.
-Theorem public_helper_request_has_no_tool_authority : forall tools callable,
-  let source := JObject [("effect",JObject [("kind",JString "context_compaction");
-    ("tools",JArray tools);("callable",JArray callable);("history",JArray []);
-    ("model",JObject [("provider",JString "responses");("name",JString "fixture")])]);
-    ("profile",JObject [("provider",JString "responses")])] in
-  get (Api.call "backend.request" source) "ok" = JBool true /\
-  get (get (Api.call "backend.request" source) "value") "tools" = JArray [].
-Proof. intros;split;reflexivity. Qed.
+(** This law covers every construction and provider registration. The true
+    index leaves no place for a helper request to carry tool authority. *)
+Theorem independent_requests_have_no_tool_authority : forall profile
+  (request : BackendRequests.response_request true),
+  get (BackendRequests.encode_request profile request) "tools" = JArray [] /\
+  get (BackendRequests.encode_request profile request) "tool_choice" = JString "none".
+Proof. intros; split; reflexivity. Qed.

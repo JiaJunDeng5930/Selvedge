@@ -9,22 +9,20 @@ Open Scope N_scope.
 
 Definition request_effort effect := default (get (get effect "sampling") "request_effort") (get (get effect "model") "reasoning").
 Definition effective_effort effect := default (get (get effect "sampling") "effective_effort") (get (get effect "model") "reasoning").
-Definition independent_task_text effect := set (set (set (set effect "instructions" (JString ""))
-  "tools" (JArray [])) "callable" (JArray [])) "history"
+Definition independent_task_text effect := set (set effect "instructions" (JString "")) "history"
   (JArray [message "user" (get effect "prompt")]).
 Definition independent_effect effect :=
   let kind := str effect "kind" in
-  if String.eqb kind "context_compaction" then set (set effect "output_mode" (JString "plain")) "history"
+  if String.eqb kind "context_compaction" then set effect "history"
     (JArray (helper_history (items (get effect "history"))))
   else if existsb (String.eqb kind) ["task_title";"board_text"] then
-    set (independent_task_text effect) "output_mode" (JString "plain")
+    independent_task_text effect
   else if String.eqb kind "approval" then
-    set (set (set (set effect "tools" (JArray [])) "callable" (JArray [])) "history"
+    set effect "history"
       (JArray [message "user" (JString (TextJson.render_json (JObject [
         ("task_id",get effect "task_id");("request_id",get effect "ticket");("command",CallWire.external (get effect "call"));
         ("task_settings",get effect "settings");("recent_user_requests_newest_first",get effect "user_requests");
-        ("context_boundary",JString "Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.")])))]))
-      "output_mode" (JString "plain")
+        ("context_boundary",JString "Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.")])))])
   else effect.
 Definition prepare_effect value : outcome json :=
   let effect := independent_effect value in
@@ -32,59 +30,99 @@ Definition prepare_effect value : outcome json :=
      (String.eqb (text (request_effort effect)) "auto" || String.eqb (text (effective_effort effect)) "auto" ||
       (is_object (get (get effect "model") "adaptive_reasoning") && negb (has effect "sampling")))
   then reject "An automatic endpoint requires a committed native reasoning selection"
-  else Accepted (set (set (set effect "requestEffort" (request_effort effect))
-    "effectiveEffort" (effective_effort effect)) "history" (get effect "history")).
+  else Accepted effect.
 Definition prepare source := render_outcome (fun value => value) (prepare_effect source).
 Definition allowed_tool name := JObject [("type",JString "function");("name",name)].
-Definition allowed_tools effect := match items (get effect "callable") with
-  | [] => JString "none" | names => JObject [("type",JString "allowed_tools");("mode",JString "auto");
-      ("tools",JArray (map allowed_tool names))] end.
-Definition request_base effect profile input := JObject [
-  ("model",get (get effect "model") "name");("stream",JBool true);("store",JBool false);
-  ("instructions",if independent_kind (str effect "kind") then get effect "instructions" else JString "");
-  ("input",input);("reasoning",JObject [("effort",if account profile then effective_effort effect else request_effort effect)]);
-  ("tools",JArray (map tool (NativeTools.presentation_catalog (items (get effect "tools")))));
-  ("parallel_tool_calls",JBool true);("include",JArray [JString "reasoning.encrypted_content"]);
-  ("tool_choice",allowed_tools effect)].
-Definition account_tools body effect :=
-  let selected := filter (fun item => contains (items (get effect "callable")) (get item "name"))
-    (items (get body "tools")) in
-  match selected with
-  | [] => set (set body "tools" (JArray [])) "tool_choice" (JString "none")
-  | _ => set (set body "tools" (JArray [JObject [("type",JString "namespace");
-      ("name",JString local_tool_namespace);("description",JString "Local Selvedge tools");("tools",JArray selected)]]))
-      "tool_choice" (JString "auto") end.
-Definition request_account body effect profile : outcome json :=
-  if account profile then
-    let body := account_tools body effect in
-    let observed_levels := get (get profile "model_info") "supported_reasoning_levels" in
-    if is_array observed_levels then
-      let levels := map (fun level => get level "effort") (items observed_levels) in
-      if Nat.eqb (List.length levels) 0 && negb (is_object (get (get effect "model") "adaptive_reasoning"))
-      then Accepted (without body "reasoning")
-      else if independent_kind (str effect "kind") || contains levels (effective_effort effect) then Accepted body
-      else reject ("This account model supports these reasoning levels: " ++ String.concat ", " (map text levels))
-    else Accepted body
-  else Accepted body.
+Record tool_authority := ToolAuthority { authority_tools : list json; authority_names : list json }.
+Definition request_authority (independent : bool) := if independent then unit else tool_authority.
+Definition construct_authority (independent : bool) effect : request_authority independent :=
+ match independent as independent return request_authority independent with
+ | true => tt
+ | false => ToolAuthority (NativeTools.presentation_catalog (items (get effect "tools")))
+     (items (get effect "callable")) end.
+Definition declared_tools {independent} : request_authority independent -> list json :=
+ match independent as independent return request_authority independent -> list json with
+ | true => fun _ => [] | false => authority_tools end.
+
+(** Independent text requests cannot contain tool authority. Every Responses
+    backend uses this constructor and encoder, including account transports. *)
+Record response_request (independent : bool) := ResponseRequest {
+  response_model : json;
+  response_input : list json;
+  response_instructions : option json;
+  response_reasoning : option json;
+  response_authority : request_authority independent;
+  response_format : option json;
+  response_limit : option json
+}.
+Arguments ResponseRequest {independent} _ _ _ _ _ _ _.
+Arguments response_model {independent} _.
+Arguments response_input {independent} _.
+Arguments response_instructions {independent} _.
+Arguments response_reasoning {independent} _.
+Arguments response_authority {independent} _.
+Arguments response_format {independent} _.
+Arguments response_limit {independent} _.
+Definition encode_authority (independent : bool) (account : bool) : request_authority independent -> list json * json :=
+ match independent as independent return request_authority independent -> list json * json with
+ | true => fun _ => ([],JString "none")
+ | false => fun authority =>
+   let tools := map tool (authority_tools authority) in
+   let names := authority_names authority in
+   if account then
+     match filter (fun item => contains names (get item "name")) tools with
+     | [] => ([],JString "none")
+     | selected => ([JObject [("type",JString "namespace");("name",JString local_tool_namespace);
+         ("description",JString "Local Selvedge tools");("tools",JArray selected)]],JString "auto") end
+   else (tools,match names with [] => JString "none" | _ => JObject [
+     ("type",JString "allowed_tools");("mode",JString "auto");("tools",JArray (map allowed_tool names))] end)
+ end.
+Definition optional_field (name : string) (value : option json) :=
+ match value with Some value => [(name,value)] | None => [] end.
+Definition encode_request {independent} (profile : json) (request : response_request independent) :=
+ let '(tools,choice) := encode_authority independent (account profile) (response_authority request) in
+ JObject ([("model",response_model request);("stream",JBool true);("store",JBool false);
+   ("input",JArray (response_input request));("tools",JArray tools);("tool_choice",choice);
+   ("parallel_tool_calls",JBool true);("include",JArray [JString "reasoning.encrypted_content"])] ++
+   optional_field "instructions" (response_instructions request) ++
+   optional_field "reasoning" (response_reasoning request) ++
+   optional_field "text" (response_format request) ++ optional_field "max_output_tokens" (response_limit request)).
 Definition task_text_format effect := JObject [
   ("type",JString "json_schema");("name",get effect "kind");("strict",JBool true);
   ("schema",Titles.output_schema (String.eqb (str effect "kind") "board_text" && negb (boolean_field effect "retitle")))].
-Definition structured_text body effect :=
-  if existsb (String.eqb (str effect "kind")) ["task_title";"board_text"] then
-    set body "text" (JObject [("format",task_text_format effect)]) else body.
-Definition request_final body effect :=
-  let body := if independent_kind (str effect "kind") && negb
-    (String.eqb (str effect "kind") "approval" && (String.eqb (str (get effect "model") "provider") "chatgpt" &&
-      String.eqb (str (get effect "model") "name") ModelCapabilities.codex_auto_review_model))
-    then without body "reasoning" else body in
-  let body := if String.eqb (str body "instructions") "" && negb (account (get effect "model"))
-    then without body "instructions" else body in
-  structured_text (if independent_kind (str effect "kind") then
-    set (set body "tool_choice" (JString "none")) "tools" (JArray []) else body) effect.
-Definition request_output_limit body effect :=
-  if has effect "max_output_tokens" || (0 <? num effect "output_reserve_tokens") then
-    set body "max_output_tokens" (if has effect "max_output_tokens" then get effect "max_output_tokens"
-      else get effect "output_reserve_tokens") else body.
+Definition text_format effect :=
+ if existsb (String.eqb (str effect "kind")) ["task_title";"board_text"]
+ then Some (JObject [("format",task_text_format effect)]) else None.
+Definition structured_text body effect := match text_format effect with
+ | Some format => set body "text" format | None => body end.
+Definition reasoning_value effect profile := JObject [
+ ("effort",if account profile then effective_effort effect else request_effort effect)].
+Definition admit_reasoning effect profile : outcome (option json) :=
+ let value := Some (reasoning_value effect profile) in
+ let observed := get (get profile "model_info") "supported_reasoning_levels" in
+ if account profile && is_array observed then
+   let levels := map (fun level => get level "effort") (items observed) in
+   if Nat.eqb (List.length levels) 0 && negb (is_object (get (get effect "model") "adaptive_reasoning"))
+   then Accepted None
+   else if independent_kind (str effect "kind") || contains levels (effective_effort effect) then Accepted value
+   else reject ("This account model supports these reasoning levels: " ++ String.concat ", " (map text levels))
+ else Accepted value.
+Definition output_limit effect :=
+ if has effect "max_output_tokens" then Some (get effect "max_output_tokens")
+ else if 0 <? num effect "output_reserve_tokens" then Some (get effect "output_reserve_tokens") else None.
+Definition construct_request effect input reasoning limit
+ : response_request (independent_kind (str effect "kind")) :=
+ let independent := independent_kind (str effect "kind") in
+ let instructions := if independent then get effect "instructions" else JString "" in
+ let keep_reasoning := negb independent ||
+   (String.eqb (str effect "kind") "approval" &&
+     account (get effect "model") &&
+     String.eqb (str (get effect "model") "name") ModelCapabilities.codex_auto_review_model) in
+ ResponseRequest (get (get effect "model") "name") input
+   (if String.eqb (text instructions) "" && negb (account (get effect "model")) then None else Some instructions)
+   (if keep_reasoning then reasoning else None)
+   (construct_authority independent effect)
+   (text_format effect) limit.
 Definition effect_input (select_history : list json -> string -> list json) effect profile :=
   let history := items (get effect "history") in
   input_items (if boolean_field effect "context_selected" then history else
@@ -92,13 +130,14 @@ Definition effect_input (select_history : list json -> string -> list json) effe
 Definition request (select_history : list json -> string -> list json) source :=
   render_outcome (fun body => body) (bind (prepare_effect (get source "effect")) (fun effect =>
     bind (effect_input select_history effect (get source "profile")) (fun input =>
-      bind (request_account (request_base effect (get source "profile") (JArray input)) effect (get source "profile"))
-        (fun body => Accepted (request_output_limit (request_final body effect) effect))))).
+      bind (admit_reasoning effect (get source "profile")) (fun reasoning =>
+        Accepted (encode_request (get source "profile")
+          (construct_request effect input reasoning (output_limit effect))))))).
 Definition measurement_request (select_history : list json -> string -> list json) source :=
   let effect := get source "effect" in let profile := get source "profile" in
-  render_outcome (fun input => request_final
-    (if account profile then account_tools (request_base effect profile (JArray input)) effect
-      else request_base effect profile (JArray input)) effect) (effect_input select_history effect profile).
+  render_outcome (fun input => encode_request profile
+    (construct_request effect input (Some (reasoning_value effect profile)) None))
+    (effect_input select_history effect profile).
 Definition input (select_history : list json -> string -> list json) source :=
   let profile := get source "profile" in let history := items (get source "history") in
   render_outcome JArray (input_items

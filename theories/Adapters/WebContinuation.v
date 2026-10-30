@@ -50,9 +50,10 @@ Definition continuation_batch_complete source :=
   N.eqb (N.of_nat (List.length (result_items (continuation_suffix source))))
     (unique_call_count (items (get (continuation_receipt source) "calls"))).
 Definition root_body (structured_text : json -> json -> json) source values :=
-  let request := get source "request" in structured_text (JObject
-    ([("model",get (get (get source "effect") "model") "name");("input",JArray values);("stream",JBool true);("tools",get source "tools")] ++
-      optional (truthy (get request "instructions")) "instructions" (get request "instructions"))) (get source "effect").
+  let request := get source "request" in
+  bind (WebHistory.request_tools (get source "effect")) (fun tools => Accepted (structured_text (JObject
+    ([("model",get (get (get source "effect") "model") "name");("input",JArray values);("stream",JBool true);("tools",JArray tools)] ++
+      optional (truthy (get request "instructions")) "instructions" (get request "instructions"))) (get source "effect"))).
 Definition continuation (structured_text : json -> json -> json) source :=
   if truthy (get (get (get source "effect") "model") "adaptive_reasoning")
   then err "ChatGPT Web effort is fixed by its model profile"
@@ -61,7 +62,9 @@ Definition continuation (structured_text : json -> json -> json) source :=
   else if negb (continuation_owner source) then
     match history (items (get (get source "request") "history")) with
     | Rejected code message => failure code message
-    | Accepted values => continuation_result (root_body structured_text source values) [] source end
+    | Accepted values => match root_body structured_text source values with
+      | Accepted body => continuation_result body [] source
+      | Rejected code message => failure code message end end
   else if negb (continuation_binding source) then err "ChatGPT Web continuation connection or contract changed; restore it or create a new task"
   else if negb (continuation_span source) then err "ChatGPT Web continuation history no longer matches its committed input receipt"
   else let receipt := continuation_receipt source in

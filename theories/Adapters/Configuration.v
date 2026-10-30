@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
+From Selvedge.Adapters Require ProviderCatalog.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Foundation Require Schema.
 From Selvedge.Kernel Require Import Context.
@@ -20,8 +21,7 @@ Definition policy_field (source : json) (key : string) :=
 Definition target_reserve (target : json) := defaulted target "output_reserve_tokens"
   (number (N.min 8192 (num target "window_tokens" / 8))).
 Definition target_method (target : json) := defaulted target "method" (JString "auto").
-Definition supported_provider (profile : json) :=
-  existsb (String.eqb (str profile "provider")) ["responses";"chatgpt"].
+Definition supported_provider := ProviderCatalog.supports_compaction.
 Definition target_budget (legal_budget : N -> N -> bool) (target : json) :=
   bound (get target "window_tokens") 0 4294967295 && bound (target_reserve target) 0 4294967295 &&
   legal_budget (num target "window_tokens") (nat_value (target_reserve target)).

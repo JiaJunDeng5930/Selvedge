@@ -67,9 +67,9 @@ Proof.
    + right;rewrite Lencrypted;apply orb_true_l.
 Qed.
 
-Theorem public_chatgpt_image_requests_use_the_complete_request_estimate : forall source,
+Theorem public_account_image_requests_use_the_complete_request_estimate : forall source,
   is_object (get source "request") = true ->
-  str (get source "profile") "provider" = "chatgpt" ->
+  ProviderCatalog.account (get source "profile") = true ->
   0 < image_count (classify_content (get source "request")) ->
   Api.call "backend.compaction_measurement_plan" source =
     success (JObject [("action",JString "local"); ("scope",get source "scope");
@@ -77,9 +77,9 @@ Theorem public_chatgpt_image_requests_use_the_complete_request_estimate : forall
         1844 * image_count (classify_content (get source "request"))));
       ("tokenizer",JString "codex_image_estimate")]).
 Proof.
- intros source request_object chatgpt images.
+ intros source request_object account images.
  change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).
- unfold measurement_plan; rewrite request_object,chatgpt.
+ unfold measurement_plan; rewrite request_object,account.
  assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
    by (apply N.ltb_lt; exact images).
  rewrite has_images; reflexivity.

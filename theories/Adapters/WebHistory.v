@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Kernel Require Import NativeTools.
-From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory.
+From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory BackendRequests.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -67,9 +67,10 @@ Definition flat_name value := nonempty value && Nat.leb (String.length (text val
 Fixpoint tool_names_valid values := match values with [] => true | item::rest =>
   flat_name (get item "name") && negb (contains_name rest "name" (get item "name")) &&
   is_object (get item "parameters") && tool_names_valid rest end.
-Definition tools source := let effect := get source "effect" in
-  if negb (eq effect "kind" "model") then success (JArray [])
-  else let values := items (get effect "tools") in
-    if tool_names_valid values then success (JArray (map (fun value => JObject
-      (("type",JString "function")::subset value ["name";"description";"parameters"])) (NativeTools.presentation_catalog values)))
-    else err "ChatGPT Web requires unique flat function names and JSON Schema parameters".
+Definition request_tools effect : outcome (list json) :=
+ let values := BackendRequests.declared_tools
+   (BackendRequests.construct_authority (negb (eq effect "kind" "model")) effect) in
+ if tool_names_valid values then Accepted (map (fun value => JObject
+   (("type",JString "function")::subset value ["name";"description";"parameters"])) values)
+ else reject "ChatGPT Web requires unique flat function names and JSON Schema parameters".
+Definition tools source := render_outcome JArray (request_tools (get source "effect")).

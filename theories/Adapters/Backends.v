@@ -13,17 +13,17 @@ Definition profile_head source :=
   else match find (fun field => negb (existsb (String.eqb (fst field))
     (List.app connection_keys ["model";"api_key_env";"adaptive_reasoning"]))) (object_fields profile) with
   | Some field => err ("Unknown profile " ++ key ++ " field: " ++ fst field)
-  | None => if negb (is_object (backend profile)) then err ("Unknown provider for " ++ key)
-    else if negb (nonempty (get profile "model")) then err ("model for " ++ key ++ " must be a nonempty string")
-    else success profile end.
-Definition uses_endpoint profile := existsb (String.eqb (str (backend profile) "auth")) ["environment";"web"].
+  | None => match backend profile with
+    | None => err ("Unknown provider for " ++ key)
+    | Some _ => if negb (nonempty (get profile "model")) then err ("model for " ++ key ++ " must be a nonempty string")
+      else success profile end end.
 Definition chosen_endpoint source := success (if uses_endpoint (get source "profile") then endpoint (get source "profile") else JNull).
 Definition profile source :=
   let original := get source "profile" in
   let profile := if has original "timeout_ms" then original else set original "timeout_ms" (number 300000) in
   let adaptive := get source "adaptive" in let key := str source "key" in
-  let web := String.eqb (str (backend profile) "auth") "web" in
-  if is_object adaptive && String.eqb (str (backend profile) "protocol") "echo" then
+  let web := ProviderCatalog.web profile in
+  if is_object adaptive && (match connection_of profile with Some Offline => true | _ => false end) then
     err "The offline echo provider cannot select model reasoning effort"
   else if web && negb (existsb (String.eqb (str profile "model"))
     ["chatgpt-web/light";"chatgpt-web/medium";"chatgpt-web/high";"chatgpt-web/xhigh";"chatgpt-web/pro"])
@@ -45,7 +45,7 @@ Definition profile source :=
     ["localhost";"127.0.0.1";"[::1]"]) then err ("endpoint for " ++ key ++ " requires HTTPS except on loopback")
   else if web && negb (ends (str url "pathname") "/v1/responses" && String.eqb (str url "search") "")
     then err "ChatGPT Web endpoint must end in /v1/responses without a query"
-  else let credential := default (get profile "api_key_env") (get (backend profile) "api_key_env") in
+  else let credential := ProviderCatalog.credential profile in
   if is_text credential && env_name (text credential) then success (set profile "api_key_env" credential)
   else err ("Invalid API key environment variable for " ++ key).
 Definition authorization source :=
@@ -84,12 +84,15 @@ Definition support source :=
     err "Image input requires a ChatGPT account model; this model backend does not support image input"
   else if negb (is_object profile && JsonObjects.equivalent (get profile "provider") (get (get effect "model") "provider")) then
     err "The frozen model provider is no longer configured"
-  else if boolean_field (backend profile) "independent_text" then success (backend profile)
-  else let kind := str effect "kind" in
-    if String.eqb kind "board_text" then err "The offline echo profile cannot generate board descriptions; configure a model provider"
-    else if String.eqb kind "approval" then err "The offline echo profile cannot review an approval; configure a model provider"
-    else if String.eqb kind "context_compaction" then err "The offline echo profile cannot compact context; configure a model provider"
-    else success (backend profile).
+  else match backend profile with
+  | None => err "The frozen model provider is no longer configured"
+  | Some backend =>
+    if connection_live (provider_connection backend) then success (descriptor backend)
+    else let kind := str effect "kind" in
+      if String.eqb kind "board_text" then err "The offline echo profile cannot generate board descriptions; configure a model provider"
+      else if String.eqb kind "approval" then err "The offline echo profile cannot review an approval; configure a model provider"
+      else if String.eqb kind "context_compaction" then err "The offline echo profile cannot compact context; configure a model provider"
+      else success (descriptor backend) end.
 Definition echo source :=
   if history_has_images (items (get source "history")) then err "Image input is not supported by the offline echo backend"
   else let last := fold_left (fun fallback item => if String.eqb (str item "role") "user" then
