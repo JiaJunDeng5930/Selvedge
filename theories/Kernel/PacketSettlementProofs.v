@@ -3,9 +3,9 @@ From Selvedge.Programming Require DecisionComposition.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs InputDecoder
  Scheduler SideContext Dispatch Limits Observation Notifications Delivery Packet.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Kernel Require Import TicketedRequest.
 From Selvedge.Kernel Require Import Capabilities PacketBusinessProofs.
-From Selvedge.Programming Require Import ScopedRequestProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 From Selvedge.Kernel Require Import TerminalSettlement TerminalSettlementPlanProofs TerminalSettlementPacketProofs.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit BoardCommit ConnectionCommit TitleCommit.
 From Selvedge.Features Require Import Runtime.

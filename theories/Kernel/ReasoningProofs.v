@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChange TaskResult TaskScope TaskScopeProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
@@ -5,7 +6,7 @@ From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Programming Require OptionObservationProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
 From Selvedge.Kernel Require Import ReasoningPlan.
-From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -34,7 +35,7 @@ Proof.
   policy phase operations Policy RunningTask Effort Duration.
  cbn in Policy, RunningTask. subst lifecycle.
  unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
- unfold TaskResult.promote, TaskResult.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  split; reflexivity.
 Qed.
 
@@ -46,7 +47,7 @@ Proof.
  intros owner reason [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Queued.
  cbn in Policy, Queued. subst queued.
  unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskResult.promote, TaskResult.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -58,7 +59,7 @@ Proof.
  intros owner effort generations [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Rejected Queued.
  cbn in Policy, Queued. subst queued.
  unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskResult.promote, TaskResult.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -82,7 +83,7 @@ Lemma failed_evaluation_is_never_ready_for_a_model : forall reason task,
  task_activity (Reasoning.failed reason task) <> ReadyForModel.
 Proof.
  intros reason [contract profile settings lifecycle history queued lineage parent cursor consumed].
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskResult.promote, TaskResult.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; destruct queued; discriminate.
 Qed.
 Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner effort generations task policy,

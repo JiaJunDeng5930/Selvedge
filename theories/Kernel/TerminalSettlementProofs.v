@@ -1,5 +1,7 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require OperationEvent TaskResult.
+From Selvedge.Programming Require TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Inputs History Tasks.
 From Selvedge.Programming Require Import TaskChange.
@@ -34,6 +36,6 @@ Proof.
    cbn in ArchivedTask; subst lifecycle;
    cbn [HookCallbacks.after_result_plan OperationEvent.after_checked OperationEvent.after_result
      HookRules.after_apply OperationEvent.settle TaskResult.prefix_result TaskResult.result_changes
-     TaskResult.wake_after_result_changes TaskResult.promote_changes TaskChange.apply fold_left];
+     TaskWake.wake_after_result_changes TaskWake.promote_changes TaskChange.apply fold_left];
    split; try reflexivity; cbn; now rewrite <- app_assoc.
 Qed.

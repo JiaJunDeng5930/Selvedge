@@ -8,7 +8,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecod
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
 From Selvedge.Kernel Require Import CommandHandlers ForkCommit.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement.
-From Selvedge.Programming Require DeferredCommit.
+From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Kernel Require BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.

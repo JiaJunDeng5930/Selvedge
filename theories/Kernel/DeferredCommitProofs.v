@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State Inputs Dispatch.
-From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Kernel Require Import Delivery Notifications NotificationsProofs.
 From Selvedge.Programming Require Import CommitPacket.
 Import ListNotations.

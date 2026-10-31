@@ -1,12 +1,14 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require DecisionComposition OperationEvent TaskResult.
+From Selvedge.Programming Require DecisionComposition TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State StateProofs.
 From Selvedge.Programming Require Import TaskScope TaskChange.
 From Selvedge.Kernel Require Import Dispatch Scheduler Delivery.
-From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Kernel Require Import Inputs Packet RequestDelivery CallbackChangesProofs CallbacksProofs LifecycleProofs.
-From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 From Selvedge.Kernel Require Import HookRules.
 Import ListNotations.
 Open Scope string_scope.
@@ -183,7 +185,7 @@ Proof.
      (OperationEvent.settle operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
-   (TaskResult.mark_context_wake owner task (put_task owner
+   (TaskWake.mark_context_wake owner task (put_task owner
      (Callbacks.settle_operation operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true
        (append_history [AfterReceipt owner (operation_id operation) plugin
@@ -198,7 +200,7 @@ Proof.
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (TaskResult.wake_after_result settled), released; split.
+ exists (TaskWake.wake_after_result settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].

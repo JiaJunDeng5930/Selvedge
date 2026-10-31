@@ -5,7 +5,7 @@ From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
 From Selvedge.Features Require Import BoardParameters BoardDrafting.
@@ -19,7 +19,7 @@ Open Scope list_scope.
 Definition registry (value:world) := Selvedge.Features.Domain.feature_board (world_features value).
 Definition store (board:Selvedge.Features.Domain.board) (value:world) := Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_board board (world_features value)) value.
 Definition lookup_agent (id:N) (value:world) := match registry_at id (Selvedge.Features.Domain.board_agents (registry value)) with Some agent=>agent | None=>None end.
-Definition put := TicketedRequest.Scoped.put_card.
+Definition put := BoardDrafting.put_card.
 Definition result (id:N) (card:Selvedge.Features.Domain.card) := JObject [("card_id",number id);("revision",number (Selvedge.Features.Domain.card_revision card))].
 Definition save_change (id:N) (card:Selvedge.Features.Domain.card) (value:world) :=
  CommandResult.Change (result id card) (put id card value) [].
@@ -69,7 +69,7 @@ Definition request_text_result {value} (target:BD.drafting_target value) (profil
  (fun profile Selected =>
    CommandResult.require (TitleRuntime.ordinary profile) (fun Ordinary =>
      let request:=BD.plan target name profile Selected Ordinary in
-     let issued:=TicketedRequest.Scoped.feature_issue_change request in
+     let issued:=FeatureRequest.feature_issue_change request in
      CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
        (CommandResult.change_world issued) (CommandResult.change_effects issued)))
    "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
@@ -293,7 +293,7 @@ Definition completion_choice reply value (card : Selvedge.Features.Domain.card)
  let '(revision,retitle) := RequestEnvelope.input request in
  if N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card)
  then Some (suggestion_from_reply reply retitle card value) else None.
-Definition completion_path id := Receiver.field world_features (TicketedRequest.Scoped.card_slot id).
+Definition completion_path id := Receiver.field world_features (BoardDrafting.card_slot id).
 Definition completion (received : Callback.decoded ModelDeclarations.BoardText) (value : world)
  : bool * bool * decision :=
  let '(existT _ ok (address,fields)) := received in

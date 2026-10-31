@@ -4,10 +4,10 @@ From Selvedge.Programming Require CommandResult.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.Programming Require Import OptionObservationProofs ReceiverProofs.
 From Selvedge.Kernel Require Import Domain State.
-From Selvedge.Programming Require Import TicketedRequest TaskScopeProofs.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
-Module S := TicketedRequest.Scoped.
+Module S := FeatureRequest.
 Module F := Selvedge.Features.Domain.
 
 (** The common contract follows the receiver constructor, independently of

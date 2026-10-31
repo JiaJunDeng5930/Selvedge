@@ -4,7 +4,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State.
 From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChange TaskChangeProofs.
 From Selvedge.Kernel Require Import Tasks.
-From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 From Selvedge.Kernel Require Import History.
 Import ListNotations.
 Open Scope string_scope.

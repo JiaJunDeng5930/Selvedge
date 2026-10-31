@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require TaskResult TaskScope.
 From Selvedge.Foundation Require Import Json.
@@ -27,7 +28,7 @@ Proof.
  destruct queued as [|first rest]; unfold Worktree.completed_task, Worktree.install_workspace;
  cbn [task_contract task_current_profile task_current_settings task_lifecycle
   task_history task_queued task_lineage task_side_parent task_side_cursor task_model_cursor
-  Selvedge.Programming.TaskResult.promote];
+  Selvedge.Kernel.TaskWake.promote];
  unfold with_lifecycle, with_queued, append_history, with_history; cbv [set]; cbn;
  split; try reflexivity; now rewrite <- app_assoc.
 Qed.

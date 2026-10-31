@@ -2,7 +2,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require TaskChange.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Kernel Require Import Domain State.
-From Selvedge.Programming Require Import TaskScope TaskChangeProofs TaskWakeProofs TicketedRequest.
+From Selvedge.Programming Require Import TaskScope TaskChangeProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs TicketedRequest.
 From Selvedge.Kernel Require Import ModelRequestConstructionProofs.
 Import ListNotations.
 Module S := TicketedRequest.Scoped.
@@ -13,7 +14,7 @@ Module S := TicketedRequest.Scoped.
 Theorem issued_effects : forall before (request : S.plan before),
  decision_effects (S.issue request) = snd (S.build request (world_next_ticket before)).
 Proof.
- intros; unfold S.issue; cbn [TicketedRequest.allocate_identity TicketedRequest.next_identity].
+ intros; unfold S.issue; cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
  destruct (S.build request (world_next_ticket before)); reflexivity.
 Qed.
 Theorem issued_task : forall before (request : S.plan before),
@@ -21,7 +22,7 @@ Theorem issued_task : forall before (request : S.plan before),
  Some (TaskChange.apply (fst (S.build request (world_next_ticket before)))
    (TaskScope.selected (S.target request))).
 Proof.
- intros; unfold S.issue; cbn [TicketedRequest.allocate_identity TicketedRequest.next_identity].
+ intros; unfold S.issue; cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
  destruct (S.build request (world_next_ticket before)); cbn [fst decision_world accept].
  destruct (S.intent request); rewrite ?context_wake_preserves_every_task_lookup;
  unfold find_task,put_task,with_tasks,with_ticket; cbn;

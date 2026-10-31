@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskBirth TaskChangeProofs TaskResult.
 From Selvedge.Programming Require CommandResult.
 From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
@@ -80,14 +81,14 @@ Lemma completed_task_contract_settings : forall space guidance task,
    (Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task)).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- unfold TaskResult.promote. rewrite (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity _ _)); reflexivity.
+ unfold TaskWake.promote. rewrite (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity _ _)); reflexivity.
 Qed.
 Lemma completed_task_current_settings : forall space guidance task,
  Selvedge.Kernel.Domain.task_current_settings (Worktree.completed_task space guidance task) =
  Worktree.selected_settings space guidance (Selvedge.Kernel.Domain.task_current_settings task).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- unfold TaskResult.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
+ unfold TaskWake.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
 Qed.
 (** Host jobs hold local roots. A frozen cloud selection is a different resource
     even when its path text is identical. *)

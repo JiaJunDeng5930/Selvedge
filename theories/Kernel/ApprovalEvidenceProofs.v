@@ -1,10 +1,13 @@
-From Selvedge.Programming Require OperationEvent TaskChange TaskChangeProofs TaskResult.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require Import TaskResultProofs.
+From Selvedge.Programming Require TaskChange TaskChangeProofs TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
-From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits.
-From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 From Selvedge.Kernel Require Import LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -36,7 +39,7 @@ Proof.
  unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
- unfold Scheduler.append_operation, TaskResult.promote.
+ unfold Scheduler.append_operation, TaskWake.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
@@ -108,7 +111,7 @@ Theorem model_approval_completion_records_its_captured_reviewer :
  decision_world (Callbacks.approval_completed owner ticket outcome value) =
    (match Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task with
     | TaskResult.KeepDemand _ => put_task owner updated value
-    | TaskResult.WakeDemand _ => TaskResult.mark_context_wake owner task (put_task owner updated value) end) /\
+    | TaskResult.WakeDemand _ => TaskWake.mark_context_wake owner task (put_task owner updated value) end) /\
  find_task owner (decision_world (Callbacks.approval_completed owner ticket outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
@@ -138,7 +141,7 @@ Theorem human_approval_command_records_its_actual_reviewer :
  decision_world (Callbacks.review_approval owner operation outcome value) =
    (match Callbacks.approval_decision_plan owner pending HumanReviewer outcome task with
     | TaskResult.KeepDemand _ => put_task owner updated value
-    | TaskResult.WakeDemand _ => TaskResult.mark_context_wake owner task (put_task owner updated value) end) /\
+    | TaskResult.WakeDemand _ => TaskWake.mark_context_wake owner task (put_task owner updated value) end) /\
  find_task owner (decision_world (Callbacks.review_approval owner operation outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer

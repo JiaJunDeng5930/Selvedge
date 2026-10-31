@@ -23,7 +23,9 @@ Inductive event :=
 Definition after_plugins (task : task) :=
  Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
 Definition settle (operation : operation) (result : json) (error : bool) :=
- TaskResult.WakeDemand [TaskChange.CompleteOperation operation result error].
+ TaskResult.WakeDemand [TaskChange.Edit
+   (TaskChange.update (TaskChange.RemoveOperation (operation_id operation)))
+   (Some [History.operation_result operation result error])].
 Definition result_stage (pending : list json) (result : json) (error : bool) :=
  AfterHooksReady pending result error.
 Definition result_receipt (owner : N) (operation : operation) (result : json) (error : bool) :=

@@ -5,7 +5,8 @@ From Selvedge.Programming Require Import OptionObservation Receiver Schema.
 From Selvedge.Kernel Require Import Domain State Tasks.
 From Selvedge.Programming Require Import TaskScope.
 From Selvedge.Kernel Require Import Capabilities Codec ContextSelection.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Kernel Require TicketedRequest.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Kernel Require Import CompactionPlan.
 From Selvedge.Features Require Import State CompactionTypes CompactionCodec.
 From Selvedge.Programming Require Import RequestTypes.
@@ -15,7 +16,7 @@ Open Scope string_scope.
 Open Scope list_scope.
 Module F := Selvedge.Features.Domain.
 Module C := Selvedge.Features.CompactionTypes.
-Module S := TicketedRequest.Scoped.
+Module S := FeatureRequest.
 
 Definition capture_task (current : task) (before : world) :=
  C.Capture (task_history current) (task_current_profile current) (task_current_settings current)
@@ -36,7 +37,7 @@ Definition compaction_entry (owner : N) (before : world) :=
    caller's proposed entry or captured history cannot create that capability. *)
 Definition maintenance_ready_from (input : C.capture) (current : task) (entry : C.entry) (before : world) :=
  (match task_lifecycle current with Running _ _ => true | _ => false end) &&
- S.resources_available current before && capture_compatible input current before &&
+ TicketedRequest.Scoped.resources_available current before && capture_compatible input current before &&
  match C.entry_observation entry with
  | Some observed => capture_compatible observed current before &&
      ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
@@ -106,7 +107,7 @@ Definition compaction_slot owner (before : F.state) :=
 Definition put_compaction owner entry before :=
  S.install_feature (Receiver.path (compaction_slot owner (world_features before))) entry before.
 Definition can_observe_maintenance (current : task) (before : world) :=
- S.resources_available current before && match task_lifecycle current with
+ TicketedRequest.Scoped.resources_available current before && match task_lifecycle current with
  | Running Idle _ | Running ReadyForModel _ => true | _ => false end.
 Definition maintenance_prefix_ready (purpose : option C.reason) (history : list message) :=
  match purpose with None => true | Some _ => ContextSelection.closed_prefix history end.

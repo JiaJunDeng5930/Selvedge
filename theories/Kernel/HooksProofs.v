@@ -1,9 +1,11 @@
-From Selvedge.Programming Require OperationEvent TaskChange TaskResult.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskChange TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec State Tasks Capabilities Inputs Callbacks Scheduler HookCallbacks.
-From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -173,7 +175,7 @@ Theorem denied_after_hook_ends_the_operation_chain :
  operation_stage current = AwaitingAfterHook expected plugin pending result error ->
  ticket = expected ->
  HookCallbacks.after_completed id identity ticket (DenyResult reason) value =
-   acknowledged (TaskResult.mark_context_wake id task (put_task id
+   acknowledged (TaskWake.mark_context_wake id task (put_task id
      (Callbacks.settle_operation current (State.failure "after_hook_denied" reason) true
        (append_history [AfterReceipt id (operation_id current) plugin
          (Inputs.after_json (DenyResult reason))] task)) value)) /\

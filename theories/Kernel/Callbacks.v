@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require TaskResult.
 From Selvedge.Foundation Require Import Json.
@@ -7,7 +8,7 @@ From Selvedge.Programming Require Import TaskScope.
 From Selvedge.Kernel Require Import RequestReceiver.
 From Selvedge.Programming Require Import TaskChange.
 From Selvedge.Kernel Require Import Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol.
-From Selvedge.Programming Require Import OperationEvent.
+From Selvedge.Kernel Require Import OperationEvent.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -39,7 +40,7 @@ Definition item_calls (items : list model_item) := fold_right (fun item rest =>
  match item with CallItem invocation => invocation :: rest | _ => rest end) [] items.
 Definition settle_model_changes (task : task) :=
  let phase := if unseen_model_input task then WantsModel else Idle in
- TaskChange.ChangePhase phase :: TaskResult.promote_changes (with_activity phase task).
+ TaskChange.ChangePhase phase :: TaskWake.promote_changes (with_activity phase task).
 Definition settle_model (task : task) := TaskChange.apply (settle_model_changes task) task.
 Definition model_result_changes (owner ticket : N) (allowed : list string) (mode : output_mode)
  (outcome : model_outcome) (task : task) :=
@@ -158,5 +159,5 @@ Definition reasoning_completed (id ticket : N) (outcome : Reasoning.outcome) (va
     (* DEFENSE: The evaluator lease belongs to its captured history revision. *)
     let changes := if Nat.eqb source_length (List.length (task_history task))
       then Reasoning.complete_changes id outcome task
-      else TaskChange.ChangePhase ReadyForModel :: TaskResult.promote_changes (with_activity ReadyForModel task) in
+      else TaskChange.ChangePhase ReadyForModel :: TaskWake.promote_changes (with_activity ReadyForModel task) in
     acknowledged (TaskChange.interpret (TaskChange.Plan value target changes))).

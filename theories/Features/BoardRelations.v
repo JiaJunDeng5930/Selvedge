@@ -1,4 +1,5 @@
-From Selvedge.Programming Require TicketedRequest CardScope.
+From Selvedge.Features Require BoardDrafting.
+From Selvedge.Programming Require CardScope.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List NArith Lia.
@@ -17,7 +18,7 @@ Proof.
  destruct (registry_at id (Selvedge.Features.Domain.board_cards (Selvedge.Features.Domain.feature_board (world_features value))))
    as [stored|] eqn:slot; cbn in found; try discriminate.
  inversion found; subst stored.
- pose proof (ReceiverProofs.installed (TicketedRequest.Scoped.card_slot id) replacement
+ pose proof (ReceiverProofs.installed (BoardDrafting.card_slot id) replacement
    (world_features value) (or_intror (ex_intro _ (Some before) slot))) as Installed.
  change (match registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))) with
    | Some stored => Constructor.project (@Some card) stored | None => None end = Some replacement) in Installed.

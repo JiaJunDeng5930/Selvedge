@@ -5,14 +5,28 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Receiver.
 From Selvedge.Foundation Require Import Registry.
 From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
 From Selvedge.Programming Require CardScope.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 Module F := Selvedge.Features.Domain.
-Module S := TicketedRequest.Scoped.
+Module S := FeatureRequest.
+
+Definition board_contents : Focus.t F.board (list (option F.card) * list N).
+Proof.
+ refine (Focus.Focus _ _ _
+   (fun board => ((F.board_cards board,F.board_order board),
+     (F.board_agents board,F.board_agent_order board,F.board_automatic board,F.board_draft_profile board)))
+   (fun parts => let '((cards,order),(agents,agent_order,automatic,profile)) := parts in
+     F.Board cards order agents agent_order automatic profile) _ _).
+ - intros []; reflexivity.
+ - intros [[cards order] [[[agents agent_order] automatic] profile]]; reflexivity.
+Defined.
+Definition card_slot owner := Receiver.field F.feature_board
+ (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).
+Definition put_card owner := FeatureRequest.install_feature (card_slot owner).
 
 Definition prompt card retitle before := Titles.board_prompt
  (F.title_task_instructions (F.feature_title_settings (world_features before)))
@@ -46,18 +60,18 @@ Definition target_retitle {before} (target : drafting_target before) := match ta
 Definition target_location {before} (target : drafting_target before)
  : Receiver.located F.state F.card (world_features before).
 Proof.
- refine (Receiver.Located (S.card_slot (target_id target)) _).
+ refine (Receiver.Located (card_slot (target_id target)) _).
  destruct target as [draft now Draft Capacity Identity|id reference now Mutable].
  - exact (Receiver.position
      (Receiver.At.field (world_features before) F.feature_board
-       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+       (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_append (Focus.read S.board_contents (F.feature_board (world_features before)))))))).
+           (Receiver.At.ordered_append (Focus.read board_contents (F.feature_board (world_features before)))))))).
  - exact (Receiver.position
      (Receiver.At.field (world_features before) F.feature_board
-       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+       (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_present (Focus.read S.board_contents (F.feature_board (world_features before)))
+           (Receiver.At.ordered_present (Focus.read board_contents (F.feature_board (world_features before)))
              id (CardScope.selected_card reference) (CardScope.selected_card_found reference)))))).
 Defined.
 
@@ -83,7 +97,7 @@ Definition protocol {before} (request : drafting_request before)
      [!Codec.task_text_model_json (requested_profile request);
        prompt (target_card target) (target_retitle target) before;snd input!]).
 Definition channel : S.feature_channel drafting_request (N * bool) :=
- @S.FeatureChannel drafting_request (N * bool) TicketedRequest.TaskTicket
+ @S.FeatureChannel drafting_request (N * bool) Selvedge.Kernel.State.TaskTicket
    (fun _ request => let target := requested_target request in
      (F.card_revision (target_card target),target_retitle target))
    (fun _ request => protocol request).

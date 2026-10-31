@@ -4,7 +4,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State.
 From Selvedge.Programming Require Import TaskChange.
 From Selvedge.Kernel Require Import Tasks.
-From Selvedge.Programming Require Import OperationEvent.
+From Selvedge.Kernel Require Import OperationEvent.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

@@ -1,5 +1,5 @@
 From Selvedge.Programming Require RequestTypes.
-From Selvedge.Programming Require TicketedRequest.
+From Selvedge.Programming Require FeatureRequest.
 From Selvedge.Kernel Require Import FeatureAdmissionProofs.
 From Selvedge.Programming Require CommandResult.
 From Selvedge.Kernel Require FeatureRequestAdmission.
@@ -146,11 +146,11 @@ Proof.
  rewrite Resolved.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
    Chatgpt.resolved_connection_change Chatgpt.plan
-   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_input TicketedRequest.Scoped.feature_selected
-   TicketedRequest.Scoped.feature_request TicketedRequest.Scoped.feature_envelope TicketedRequest.Scoped.feature_protocol
-   TicketedRequest.Scoped.channel_protocol TicketedRequest.Scoped.channel_space
-   Chatgpt.channel TicketedRequest.Scoped.channel_input TicketedRequest.allocate_identity TicketedRequest.next_identity].
- assert (Input : TicketedRequest.Scoped.feature_input (Chatgpt.plan resolved) =
+   FeatureRequest.feature_issue_change FeatureRequest.feature_input FeatureRequest.feature_selected
+   FeatureRequest.feature_request FeatureRequest.feature_envelope FeatureRequest.feature_protocol
+   FeatureRequest.channel_protocol FeatureRequest.channel_space
+   Chatgpt.channel FeatureRequest.channel_input Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
+ assert (Input : FeatureRequest.feature_input (Chatgpt.plan resolved) =
    FeatureRequestAdmission.connection_job connection project (ChatgptArguments.request_text request) arguments granted target) by exact Job.
  rewrite Job. eexists; eexists; repeat split; try reflexivity; rewrite Input; reflexivity.
 Qed.

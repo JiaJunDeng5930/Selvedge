@@ -5,7 +5,7 @@ From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Dispatch.
-From Selvedge.Programming Require Import TicketedRequest TicketedRequestProofs.
+From Selvedge.Kernel Require Import TicketedRequest TicketedRequestProofs.
 From Selvedge.Kernel Require Import LifecycleProofs ForkConstructionProofs.
 Import ListNotations.
 Open Scope string_scope.

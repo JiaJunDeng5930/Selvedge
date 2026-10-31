@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskBirth TaskResult.
 From Selvedge.Programming Require Callback.
 From Selvedge.Programming Require InputRoute.
@@ -482,7 +483,7 @@ Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Gui
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
  let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
- TaskResult.promote (Task contract (task_current_profile task) chosen phase
+ TaskWake.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
 Definition completed_task (space : workspace) (guidance : Guidance.t) (task : task) :=

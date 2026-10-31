@@ -4,7 +4,7 @@ From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs Utf8.
 From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates ContextProtocol State Tasks Callbacks LifecycleProofs.
-From Selvedge.Programming Require Import ScopedRequestProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

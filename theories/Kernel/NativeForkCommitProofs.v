@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Programming Require CommandResult DecisionComposition OperationEvent TaskChange.
+From Selvedge.Programming Require CommandResult DecisionComposition TaskChange.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs.

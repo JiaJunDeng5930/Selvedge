@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import State Inputs.
-From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Features Require Import Compaction.
 
 (* Checkpoint admission owns this transaction. Scheduling may begin new work

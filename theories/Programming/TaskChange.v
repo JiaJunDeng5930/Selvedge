@@ -2,7 +2,6 @@ From Stdlib Require Import List NArith.
 From Selvedge.Programming Require Import Focus.
 From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Programming Require Import TaskScope.
-From Selvedge.Kernel Require Import History.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope list_scope.
@@ -65,12 +64,6 @@ Definition AnnounceOperation (identity : N) := operation_change
    else operation)).
 Definition RemoveOperation (identity : N) := operation_change
  (filter (fun operation => negb (N.eqb identity (operation_id operation)))) .
-Definition CompleteOperation (operation : operation) (result : Json.json) (error : bool) :=
- Edit (update (RemoveOperation (operation_id operation)))
-   (Some [History.operation_result operation result error]).
-Definition CancelOperation (operation : operation) :=
- Edit (update (RemoveOperation (operation_id operation)))
-   (Some [History.cancelled_operation operation]).
 Definition ClearOperations := operation_change (fun _ => []).
 Definition edit_parts (change : edit) (parts : mutable * list message) :=
  (update change (fst parts), match appended change with

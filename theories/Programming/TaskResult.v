@@ -1,59 +1,26 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Programming Require Import TaskScope TaskChange.
-From Selvedge.Features Require CompactionTypes Domain State.
-From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
+From Selvedge.Kernel Require TaskWake.
 Import ListNotations.
 Open Scope list_scope.
 
-Definition promote_changes (task : task) : list TaskChange.edit :=
- match task_lifecycle task, task_queued task with
- | Running Idle operations, first :: rest | Running (PendingCalls []) operations, first :: rest
- | Running WantsModel operations, first :: rest =>
-   [TaskChange.ChangePhase WantsModel; TaskChange.ReplaceQueued [];
-    TaskChange.AppendHistory (map UserMessage (first :: rest))]
- | Stopped Idle operations, first :: rest | Stopped (PendingCalls []) operations, first :: rest =>
-   [TaskChange.ChangePhase Idle; TaskChange.ReplaceQueued [];
-    TaskChange.AppendHistory (map UserMessage (first :: rest))]
- | _,_ => [] end.
-Definition promote (task : task) := TaskChange.apply (promote_changes task) task.
-Definition wake_after_result_changes (task : task) : list TaskChange.edit :=
- match task_lifecycle task with
- | Running Idle _ | Frozen Idle _ => [TaskChange.ChangePhase WantsModel]
- | _ => promote_changes task end.
-Definition wake_after_result (task : task) := TaskChange.apply (wake_after_result_changes task) task.
 (* A result transition records whether it calls the shared wake operation.
    Its interpreter also preserves that demand when maintenance temporarily
-   owns the task's ObservingContext phase. Callers cannot separate those two
-   consequences of an actual wake. *)
+   owns the task's ObservingContext phase. Running this interpreter keeps
+   both consequences of an actual wake together. *)
 Inductive result_update := KeepDemand (changes : list TaskChange.edit) | WakeDemand (changes : list TaskChange.edit).
 Definition result_changes (update : result_update) (current : task) := match update with
  | KeepDemand changes => changes
- | WakeDemand changes => changes ++ wake_after_result_changes (TaskChange.apply changes current) end.
+ | WakeDemand changes => changes ++ TaskWake.wake_after_result_changes (TaskChange.apply changes current) end.
 Definition prefix_result (prefix : list TaskChange.edit) (update : result_update) := match update with
  | KeepDemand changes => KeepDemand (prefix ++ changes)
  | WakeDemand changes => WakeDemand (prefix ++ changes) end.
-Definition wake_context_entry (owner ticket : N) (pair : N * Selvedge.Features.CompactionTypes.entry) :=
- let '(id,entry) := pair in
- if N.eqb owner id then match Selvedge.Features.CompactionTypes.entry_job entry with
-   | Selvedge.Features.CompactionTypes.AwaitingContext expected purpose demand =>
-     if N.eqb ticket expected then (id, set Selvedge.Features.CompactionTypes.entry_job
-       (fun _ => Selvedge.Features.CompactionTypes.AwaitingContext expected purpose true) entry) else pair
-   | _ => pair end else pair.
-Definition mark_context_wake (owner : N) (current : task) (value : world) :=
- match task_lifecycle current with
- | Running (ObservingContext ticket _) _ | Frozen (ObservingContext ticket _) _ =>
-   let features := world_features value in
-   let state := Selvedge.Features.Domain.feature_compaction features in
-   let entries := map (wake_context_entry owner ticket) (Selvedge.Features.CompactionTypes.maintenance_entries state) in
-   with_features (Selvedge.Features.State.with_compaction
-     (set Selvedge.Features.CompactionTypes.maintenance_entries (fun _ => entries) state) features) value
- | _ => value end.
 Definition apply_result (owner : N) (current : task) (update : result_update) (before : world) :=
  let value := put_task owner (TaskChange.apply (result_changes update current) current) before in
  match update with
  | KeepDemand _ => value
- | WakeDemand _ => mark_context_wake owner current value end.
+ | WakeDemand _ => TaskWake.mark_context_wake owner current value end.
 Definition interpret_result {before} (target : TaskScope.task_reference before) (update : result_update) :=
  apply_result (TaskScope.owner target) (TaskScope.selected target) update before.
 Definition commit_result (id : N) (update : task -> result_update) (before : world) :=

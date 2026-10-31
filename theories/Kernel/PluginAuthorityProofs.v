@@ -1,7 +1,7 @@
 From Stdlib Require Import String List NArith Bool.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Tasks Scheduler.
-From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 

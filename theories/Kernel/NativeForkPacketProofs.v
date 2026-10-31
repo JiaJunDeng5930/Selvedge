@@ -1,8 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require CommandResult OperationEvent TaskScope.
+From Selvedge.Programming Require CommandResult TaskScope.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Inputs InputDecoder Packet NativeForkCommit NativeForkCommitProofs.
-From Selvedge.Programming Require Import DeferredCommit DeferredCommitProofs.
+From Selvedge.Kernel Require Import DeferredCommit DeferredCommitProofs.
 From Selvedge.Kernel Require Import Dispatch Delivery Notifications NotificationsProofs.
 Import ListNotations.
 Open Scope string_scope.

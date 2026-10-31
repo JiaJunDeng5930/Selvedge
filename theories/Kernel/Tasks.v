@@ -307,7 +307,9 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
    match find (fun operation => N.eqb operation_id (Domain.operation_id operation)) (task_operations task) with
    | None => reject "operation_not_found" "The operation is not live in this task" value
    | Some operation =>
-     let changes := [TaskChange.CancelOperation operation] in
+     let changes := [TaskChange.Edit
+       (TaskChange.update (TaskChange.RemoveOperation (Domain.operation_id operation)))
+       (Some [History.cancelled_operation operation])] in
      accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
       (TaskResult.interpret_result target (TaskResult.WakeDemand changes))
       (match operation_stage operation with

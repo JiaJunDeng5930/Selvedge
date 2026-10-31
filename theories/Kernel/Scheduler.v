@@ -1,11 +1,13 @@
-From Selvedge.Programming Require OperationEvent TaskResult.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Programming Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Kernel Require Import TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
@@ -34,8 +36,8 @@ Definition process_needs_model (value : operation) := negb (operation_announced 
  String.eqb (call_name (operation_call value)) "bash" &&
  match operation_stage value with Executing _ | Elevated _ _ => true | _ => false end.
 Definition continue_after_calls_changes (task : task) :=
- let promoted := TaskResult.promote task in
- TaskResult.promote_changes task ++ [TaskChange.ChangePhase
+ let promoted := TaskWake.promote task in
+ TaskWake.promote_changes task ++ [TaskChange.ChangePhase
   (if unseen_model_input promoted || existsb process_needs_model (task_operations promoted) then WantsModel else Idle)].
 Definition continue_after_calls (task : task) := TaskChange.apply (continue_after_calls_changes task) task.
 Definition start_external (id : N) (value : world) :=
@@ -183,7 +185,7 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
      | PendingCalls [] => Some (acknowledged (commit_changes id continue_after_calls_changes value))
      | Idle => match task_queued task with
        | [] => None
-       | _ => Some (acknowledged (commit_changes id TaskResult.promote_changes value)) end
+       | _ => Some (acknowledged (commit_changes id TaskWake.promote_changes value)) end
      | _ => None end
    end
  | Stopped phase operations => match ready_settlement operations with
@@ -191,7 +193,7 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
    | None => match phase with
      | PendingCalls (first :: rest) => Some (start_call execute id first rest task value)
      | ReadyForHooks invocation pending remaining => Some (ready_hooks execute id invocation pending remaining task value)
-     | PendingCalls [] | WantsModel | ReadyForModel => Some (acknowledged (commit_changes id (fun task => TaskResult.promote_changes task ++ [TaskChange.ChangePhase Idle]) value))
+     | PendingCalls [] | WantsModel | ReadyForModel => Some (acknowledged (commit_changes id (fun task => TaskWake.promote_changes task ++ [TaskChange.ChangePhase Idle]) value))
      | _ => None end end
  | Frozen _ operations | Archived operations => match ready_settlement operations with
    | Some operation => Some (operation_step id operation task value) | None => None end

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import List NArith Bool.
 From Selvedge.Programming Require TaskResult.
 From Selvedge.Foundation Require Import RegistryProofs.
@@ -18,7 +19,7 @@ Proof. intros; rewrite commit_changes_expression, H; reflexivity. Qed.
 
 Lemma continue_after_calls_expression : forall task,
  Scheduler.continue_after_calls task =
- let promoted := TaskResult.promote task in
+ let promoted := TaskWake.promote task in
  with_activity (if unseen_model_input promoted ||
    existsb Scheduler.process_needs_model (task_operations promoted) then WantsModel else Idle) promoted.
 Proof.

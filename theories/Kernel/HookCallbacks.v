@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require OperationEvent TaskResult.
+From Selvedge.Programming Require TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec State.
 From Selvedge.Programming Require Import TaskScope.

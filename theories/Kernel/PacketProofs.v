@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require DeferredCommit.
+From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State Inputs InputDecoder Packet Delivery Notifications NotificationsProofs Observation Queries.
-From Selvedge.Programming Require Import DeferredCommitProofs.
+From Selvedge.Kernel Require Import DeferredCommitProofs.
 Import ListNotations.
 Open Scope string_scope.
 Local Opaque Packet.decode CommandHandlers.interpret DeferredCommit.select.

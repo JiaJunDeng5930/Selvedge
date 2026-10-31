@@ -9,7 +9,7 @@ From Selvedge.Programming Require Import Completion.
 From Selvedge.Programming Require CommandResult.
 From Selvedge.Kernel Require FeatureRequestAdmission.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments.
-From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Worktree WorkspaceBinding.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -79,7 +79,11 @@ Definition configure entries value := match ConnectionGrants.admit_grants entrie
  | Some entries=>if forallb (grant_projects_exist value) (ConnectionGrants.Grants.values entries) then
    accept (JObject []) (store (set Selvedge.Features.Domain.sharing_authorities (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
-Definition replace_job id job := Receiver.install TicketedRequest.Scoped.connection_jobs (id,job).
+Definition connection_jobs := Receiver.field Selvedge.Features.Domain.sharing_jobs
+ (Receiver.keyed (@fst N Selvedge.Features.Domain.connection_job)).
+Definition connection_slot := Receiver.field Selvedge.Features.Domain.feature_sharing connection_jobs.
+Definition put_connection identity job := FeatureRequest.install_feature connection_slot (identity,job).
+Definition replace_job id job := Receiver.install connection_jobs (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
 Definition storage (features : Selvedge.Features.Domain.state) :=
  Receiver.At.field features Selvedge.Features.Domain.feature_sharing
@@ -97,23 +101,23 @@ Definition protocol (features : Selvedge.Features.Domain.state)
        ("resource",Selvedge.Features.Domain.reference_execution (Selvedge.Features.Domain.job_resource job) features);
        ("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]).
 Definition channel identity project request
- : TicketedRequest.Scoped.feature_channel
+ : FeatureRequest.feature_channel
      (fun before => FeatureRequestAdmission.resolved_connection before identity project request)
      Selvedge.Features.Domain.connection_job :=
- TicketedRequest.Scoped.FeatureChannel TicketedRequest.ConnectionIdentity
+ FeatureRequest.FeatureChannel Selvedge.Kernel.State.ConnectionIdentity
    (fun _ source => FeatureRequestAdmission.resolved_job source)
-   (fun before _ => protocol (world_features (snd (TicketedRequest.allocate_identity TicketedRequest.ConnectionIdentity before)))).
+   (fun before _ => protocol (world_features (snd (Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.ConnectionIdentity before)))).
 Definition plan {before identity project request}
  (source : FeatureRequestAdmission.resolved_connection before identity project request) :=
- TicketedRequest.Scoped.FeaturePlan (channel identity project request) source.
+ FeatureRequest.FeaturePlan (channel identity project request) source.
 Definition resolved_connection_change {value identity project request_id}
  (resolved : FeatureRequestAdmission.connection_resolution value identity project request_id) :=
  match resolved with
  | FeatureRequestAdmission.ExistingConnection id job => CommandResult.Change (receipt id job) value []
  | FeatureRequestAdmission.NewConnection request =>
    let job := FeatureRequestAdmission.resolved_job request in
-   let issued := TicketedRequest.Scoped.feature_issue_change (plan request) in
-   CommandResult.Change (receipt (TicketedRequest.next_identity TicketedRequest.ConnectionIdentity value) job)
+   let issued := FeatureRequest.feature_issue_change (plan request) in
+   CommandResult.Change (receipt (Selvedge.Kernel.State.next_identity Selvedge.Kernel.State.ConnectionIdentity value) job)
      (CommandResult.change_world issued) (CommandResult.change_effects issued)
  end.
 Definition run_result connection project_id request arguments value :=

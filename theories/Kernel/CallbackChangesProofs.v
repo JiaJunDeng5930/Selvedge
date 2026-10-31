@@ -1,12 +1,14 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require OperationEvent TaskResult.
+From Selvedge.Programming Require TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec State.
 From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChange TaskChangeProofs.
 From Selvedge.Kernel Require Import Tasks TaskChangesProofs.
-From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 From Selvedge.Kernel Require Import History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs ApprovalProtocol Scheduler HookRules RequestReceiver.
-From Selvedge.Programming Require Import ScopedRequestProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -29,13 +31,13 @@ Definition model_completed_expression (id ticket : N) (outcome : model_outcome) 
  derive_callback_view constr:(Callbacks.model_completed id ticket outcome value) body id value).
 
 Lemma settle_model_expression : forall task,
- Callbacks.settle_model task = TaskResult.promote (with_activity
+ Callbacks.settle_model task = TaskWake.promote (with_activity
  (if unseen_model_input task then WantsModel else Idle) task).
 Proof. reflexivity. Qed.
 
 Lemma settle_operation_expression : forall operation result error task,
  Callbacks.settle_operation operation result error task =
- TaskResult.wake_after_result (with_operations (Callbacks.remove_operation (operation_id operation) (task_operations task))
+ TaskWake.wake_after_result (with_operations (Callbacks.remove_operation (operation_id operation) (task_operations task))
  (append_history [History.operation_result operation result error] task)).
 Proof.
  intros; unfold Callbacks.settle_operation, Callbacks.settle_operation_changes,

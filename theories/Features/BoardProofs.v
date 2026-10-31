@@ -1,4 +1,5 @@
-From Selvedge.Programming Require DecisionComposition TaskChangeProofs TicketedRequest.
+From Selvedge.Features Require BoardDrafting.
+From Selvedge.Programming Require DecisionComposition TaskChangeProofs FeatureRequest.
 From Selvedge.Programming Require Callback.
 From Selvedge.Programming Require CommandResult CardScope.
 From Stdlib Require Import String List Bool NArith Lia.
@@ -297,8 +298,8 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
  TitleRuntime.ordinary selected=true ->
  exists request : BoardDrafting.drafting_request value,
  decision_effects (Board.regenerate id revision observed profile_name value) =
-   [RequestFeature (TicketedRequest.Scoped.feature_request
-     (TicketedRequest.Scoped.FeaturePlan BoardDrafting.channel request))] /\
+   [RequestFeature (FeatureRequest.feature_request
+     (FeatureRequest.FeaturePlan BoardDrafting.channel request))] /\
  BoardDrafting.target_id (BoardDrafting.requested_target request) = id /\
  BoardDrafting.target_card (BoardDrafting.requested_target request) =
    BoardFacts.revised (F.card_contents card) observed card /\

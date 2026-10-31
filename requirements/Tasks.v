@@ -96,7 +96,7 @@ Export NotificationsProofs(notification_envelopes_preserve_all_business_effects,
     are not a substitute for its reliable committed continuation. *)
 
 From Selvedge.Kernel Require CommandDeclarationsProofs CommandOriginProofs.
-From Selvedge.Programming Require FeatureRequestProofs.
+From Selvedge.Programming Require FeatureRequest FeatureRequestProofs.
 From Selvedge.Programming Require CompletionProofs.
 Export CommandDeclarationsProofs(malformed_commands_are_not_durable).
 Export CommandOriginProofs(task_excluded_commands_are_read_only_rejections_at_every_handler_entry).
@@ -116,7 +116,7 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
 
     An admitted local fact is not authority over an unrelated world or source.
     [TaskScope.task_reference], planned births and
-    [TicketedRequest.Scoped.feature_plan] retain their actual source context.
+    [FeatureRequest.feature_plan] retain their actual source context.
     The latter allocates one [RequestEnvelope], installs it through its located
     receiver and emits that same value. The universal
     [every_feature_request_has_its_installed_receiver] and
@@ -173,7 +173,7 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     decision to that operation. The TaskChange configuration law retains the
     persistent settings; the shared independent-request language gives an
     automatic reviewer no tool authority. *)
-From Selvedge.Programming Require TicketedRequest OperationEvent.
+From Selvedge.Kernel Require TicketedRequest OperationEvent.
 From Selvedge.Kernel Require Scheduler ApprovalEvidenceProofs.
 Export TicketedRequest.Scoped(external_authority_for).
 Export OperationEvent(plan).

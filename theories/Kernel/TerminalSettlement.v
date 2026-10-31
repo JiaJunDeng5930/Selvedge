@@ -7,7 +7,7 @@ From Selvedge.Kernel Require RequestReceiver Tasks.
 From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Programming Require Import TaskScope.
 From Selvedge.Kernel Require Import Inputs HookRules HookCallbacks.
-From Selvedge.Programming Require DeferredCommit.
+From Selvedge.Kernel Require DeferredCommit.
 Import ListNotations.
 
 Record after_request := AfterRequest {

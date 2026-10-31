@@ -6,7 +6,7 @@ From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks.
-From Selvedge.Programming Require Import TicketedRequest DecisionComposition.
+From Selvedge.Programming Require Import FeatureRequest DecisionComposition.
 From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
@@ -49,16 +49,16 @@ Definition protocol (features : Selvedge.Features.Domain.state) owner
    ModelDeclarations.task_title_request
    (fun input _ => Schema.of_tuple (Variant.request_body_fields ModelDeclarations.task_title_request)
      [!Codec.task_text_model_json (fst input);snd input!]).
-Definition channel : TicketedRequest.Scoped.feature_channel FeatureRequestAdmission.resolved_title (profile * string) :=
- TicketedRequest.Scoped.FeatureChannel TicketedRequest.TaskTicket
+Definition channel : FeatureRequest.feature_channel FeatureRequestAdmission.resolved_title (profile * string) :=
+ FeatureRequest.FeatureChannel Selvedge.Kernel.State.TaskTicket
    (fun before request => (FeatureRequestAdmission.title_profile request,
      FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before))
    (fun before request => protocol (world_features before)
      (TaskScope.owner (FeatureRequestAdmission.title_reference request))).
 Definition plan {before} (request : FeatureRequestAdmission.resolved_title before) :=
- TicketedRequest.Scoped.FeaturePlan channel request.
+ FeatureRequest.FeaturePlan channel request.
 Definition issue {before} (request : FeatureRequestAdmission.resolved_title before) : CommandResult.change :=
- let issued := TicketedRequest.Scoped.feature_issue_change (plan request) in
+ let issued := FeatureRequest.feature_issue_change (plan request) in
  CommandResult.Change JNull (CommandResult.change_world issued) (CommandResult.change_effects issued).
 Definition start (id:N) (result:decision) :decision :=
  match FeatureRequestAdmission.resolve_title id (decision_world result) with

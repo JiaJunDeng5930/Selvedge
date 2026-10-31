@@ -4,7 +4,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Programming Require Import TaskScope TaskChange.
 From Selvedge.Kernel Require Import ModelRequest Dispatch Scheduler Delivery.
-From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Kernel Require Import HookCallbacks RequestReceiver.
 From Selvedge.Features Require Runtime.
 Import ListNotations.
