@@ -7,13 +7,18 @@
     into an instruction. *)
 
 From Selvedge.Kernel Require ContextProofs ReasoningProofs
-  ModelRequestConstructionProofs HistoryRoleProofs.
+  ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
   failed_context_observation_retains_the_last_admitted_binding).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
+  context_completion_requires_the_current_ticket,
+  an_actual_stale_context_result_restarts_from_the_current_prefix,
+  a_frozen_context_completion_waits_for_a_new_observation,
+  a_stopped_context_completion_waits_for_a_new_observation,
   actual_model_requests_retain_the_complete_committed_history).
+Export RequestDeliveryProofs(context_completion_commits_before_following_scheduling).
 Export ModelRequestConstructionProofs(every_frozen_model_is_supported_by_its_frozen_profile,
   captured_history_cannot_reselect_the_model).
 Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
@@ -39,6 +44,16 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     an admitted profile choice. [every_frozen_model_is_supported_by_its_frozen_profile]
     and [captured_history_cannot_reselect_the_model] are properties of the
     source-indexed selection, not comparisons with a duplicate model field.
+    A matching ticket also captures a history revision. Another completed
+    operation may have extended that history while observation was outstanding;
+    the actual callback then requests a new observation of the current prefix.
+    Frozen and stopped completions retain ordinary inference demand for a new
+    observation when resumed. [context_completion_commits_before_following_scheduling]
+    binds this callback to packet preparation and its committed continuation.
+    Real-file discovery and global-guidance delivery are exercised through the
+    public service in [tests/filesystem-boundaries.test.mjs] and
+    [tests/context-discovery-control.test.mjs].
+
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their
     previews are bounded and omit private provider continuations. *)
@@ -52,6 +67,7 @@ Export ContextSelectionProofs(adoption_keeps_the_original_history,
   an_unresolved_captured_call_cannot_be_compacted).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
+  suspended_manual_context_completion_cancels_its_job,
   a_compaction_failure_is_not_immediately_resubmitted).
 Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
   unselected_model_request_uses_portable_context,
@@ -74,7 +90,11 @@ Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
     Compaction therefore retains its captured typed input across measurement,
     preparation and validation. [measured_scope_and_reserve_reach_the_executed_request]
     connects the measurement to the request actually sent. Manual compaction
-    first uses the same context-observation operation as inference. Unresolved
+    first uses the same context-observation operation as inference. A frozen or
+    stopped completion cancels that manual job and records the reason while
+    retaining the original history. Its cleared job cannot itself authorize a
+    later summary request. This is the actual maintenance operation constrained by
+    [suspended_manual_context_completion_cancels_its_job]. Unresolved
     captured calls cannot be discarded before their outputs arrive.
 
     Compaction has its own feature state so preparatory work can coexist with
