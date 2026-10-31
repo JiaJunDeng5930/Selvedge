@@ -5,11 +5,22 @@ The host keeps the world opaque: it starts from `initial` and replays accepted
 input records through the packet entry. Constructors own the state properties
 needed by those operations.
 
-`TaskChange` restricts ordinary edits to lifecycle, queued input and appended
-history. `OperationEvent` interprets each hook, approval or tool outcome into
-its receipt and continuation together. `TicketedRequest` allocates a request's
-ticket and installs its receiver in the same operation. New operations should
-reuse these constructors before introducing a separate proof obligation.
+The reusable task and decision construction interfaces live in
+[Programming](../Programming/README.md). This directory owns the task vocabulary,
+admission policies and operations that compose those interfaces.
+
+`Programming.TaskChange` restricts ordinary edits to lifecycle, queued input,
+the model cursor and appended history. `Programming.TaskResult` composes those
+edits with the wake behavior defined in `TaskWake`. The construction's shared
+proofs cover arbitrary supplied edits; `TaskWakeProofs` covers the fixed
+lifecycle and context-demand policy.
+
+`OperationEvent` selects the receipt and continuation for each concrete hook,
+approval or tool outcome. `TicketedRequest` owns task-request admission,
+authority and issuance. Their domain plans have fixed business meanings.
+Feature owners instead supply a channel to `Programming.FeatureRequest`, whose
+shared proof binds the emitted request to its installed receiver without a case
+for each feature. `State` owns the identity allocation rules used by both.
 
 `CommandPayload` distinguishes an editor proposal from an admitted command.
 MetaRocq generates both from the owning declaration. Execution payloads retain

@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require CommandResult DecisionComposition.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Inputs TaskScope DeferredCommit.
+From Selvedge.Kernel Require Import Numbers Domain State Inputs.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Features Require Import TitleRuntime.
 Import ListNotations.
 Module Reference := TaskScope.

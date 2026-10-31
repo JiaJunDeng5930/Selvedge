@@ -1,9 +1,14 @@
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskChangeProofs TaskResult.
 From Selvedge.Kernel Require Import TaskConstraints.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks CommandExecution Scheduler Codec Limits Inputs TicketedRequest ScopedRequestProofs ReasoningPlan TicketedRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks CommandExecution Scheduler Codec Limits Inputs.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import ReasoningPlan.
+From Selvedge.Kernel Require Import TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -90,7 +95,7 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id value) =
  [RequestApproval id (world_next_ticket value) reviewer invocation
-   (Tasks.promote (Scheduler.append_operation
+   (TaskWake.promote (Scheduler.append_operation
      (Operation (world_next_ticket value) invocation false
        (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
@@ -115,7 +120,7 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute id
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (Tasks.promote task))].
+ decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (TaskWake.promote task))].
 Proof.
  intros execute id task value operations Found ObserveAllowed Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
@@ -168,12 +173,12 @@ Proof. intros maximum; vm_compute. repeat (apply NoDup_cons; [simpl; intuition d
 Theorem production_native_bindings_are_registered : forall binding,
  In binding Selvedge.Kernel.NativeTools.bindings ->
  exists specification, In specification Selvedge.Kernel.Commands.command_specs /\
- Selvedge.Foundation.Schema.command_name specification = Selvedge.Kernel.NativeTools.binding_command binding.
+ Selvedge.Programming.Schema.command_name specification = Selvedge.Kernel.NativeTools.binding_command binding.
 Proof.
  intros binding member.
  assert (registered:forallb (fun binding=>existsb
    (fun specification=>String.eqb (Selvedge.Kernel.NativeTools.binding_command binding)
-     (Selvedge.Foundation.Schema.command_name specification))
+     (Selvedge.Programming.Schema.command_name specification))
    Selvedge.Kernel.Commands.command_specs) Selvedge.Kernel.NativeTools.bindings=true) by (vm_compute;reflexivity).
  apply forallb_forall with (x:=binding) in registered; [|exact member].
  apply existsb_exists in registered as [specification [present equal]].

@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Interaction Require Import Graphics.
+From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Decimal Expression Types State Local Vocabulary Sources Expand.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -61,7 +62,7 @@ Definition chart p : outcome(plot input):=
  then Error "Chart x and y require nonempty field paths" else
  (* Expansion validates every row's axis types. Fixed-decimal conversion is
     only needed for the plotted prefix; values outside it do not affect it. *)
- points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
+ points <-? Outcome.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
  x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
  y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;
  coordinates <-? chart_coordinates x_domain y_domain 0 (List.length points) points;;

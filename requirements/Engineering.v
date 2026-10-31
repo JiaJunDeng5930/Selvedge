@@ -1,9 +1,6 @@
-From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import Schema DeclarationRegistry.
-From Selvedge.Foundation Require Focus ArgumentDeclarationProofs
-  NumbersProofs BoundedIntegerCorrectness.
-Import ListNotations.
-Open Scope list_scope.
+From Selvedge.Programming Require Focus ArgumentDeclarationProofs
+  DeclarationRegistryProofs.
+From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
 
 (** * Engineering goals and their construction
 
@@ -36,6 +33,41 @@ Open Scope list_scope.
     and js_of_ocaml remain trusted translations, including the exact-number and
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
+
+    ** Choose constructions that fit the domain
+
+    [theories/Programming] owns the project's existing reusable languages,
+    controlled constructors and composition operations, together with their
+    shared laws. Their scope is part of their meaning: a construction may work
+    over arbitrary types or intentionally describe this project's task state.
+    Domain dependence alone is not a reason to invent a more general framework.
+
+    Membership requires a construction that another program can use: identify
+    what its caller supplies, which common operation interprets or combines it,
+    and which properties follow through that interface. State the premises and
+    scope of those properties, distinguishing guarantees enforced by types and
+    definitions from the conclusions of checked theorems. Supporting vocabulary
+    and proofs belong with that construction; they need not be separate paradigms.
+    A reusable function, indexed plan or proof of a fixed business operation is
+    not sufficient by itself. Keep a concrete catalogue, admission policy or
+    business recipe with its domain, including when it uses a shared constructor.
+    Split mixed modules at this boundary without inventing a more general model.
+
+    Before reusing one, check that its concepts, admissible values, writable
+    state and observations express the requirement. Reuse and compose it when
+    they do. When they do not, keep a direct domain model or use another suitable
+    construction. Do not reshape the domain, add artificial state or introduce
+    special cases merely to use a preferred programming paradigm. The project
+    need not describe every concern through the same language.
+
+    Extract shared construction semantics that already have a real use. Keep
+    concrete declarations, policies and fixed business transitions with their
+    domain owners. An extension inherits the properties enforced by its chosen
+    constructor and interpreter; only its additional required behavior needs a
+    local proof. New concepts must not require a central enumeration of all
+    domains or a repeated list of shared proof obligations. The source location
+    makes these operations discoverable; it does not impose a new dependency
+    layer on otherwise independent domain models.
 
     ** A local update retains the rest of the state
 
@@ -76,74 +108,9 @@ Export BoundedIntegerCorrectness(decode_safe_integer_mathematical_iff).
     [declare] constructor and its automatically elaborated [DistinctNames]
     argument; an owner supplies local entries, not a new preservation proof.
     The carrier and naming function remain arbitrary. *)
-Section Registrations.
-Context {A : Type} (name : A -> string).
-
-Lemma distinct_declarations_retrieve_their_member : forall entries entry,
- unique_names (map name entries) = true ->
- In entry entries ->
- find (fun candidate => String.eqb (name entry) (name candidate)) entries = Some entry.
-Proof.
- intros entries; induction entries as [|first rest IH]; intros entry Unique Present.
- - contradiction.
- - cbn [map unique_names] in Unique.
-   apply andb_true_iff in Unique; destruct Unique as [Absent Unique].
-   cbn [find].
-   destruct Present as [Same|Present].
-   + subst entry; rewrite String.eqb_refl; reflexivity.
-   + destruct (String.eqb (name entry) (name first)) eqn:Same.
-     * apply String.eqb_eq in Same.
-       apply negb_true_iff in Absent.
-       assert (Listed : existsb (String.eqb (name first)) (map name rest) = true).
-       { apply existsb_exists; exists (name entry); split.
-         - apply in_map; exact Present.
-         - apply String.eqb_eq; symmetry; exact Same. }
-       congruence.
-     * apply IH; assumption.
-Qed.
-
-Theorem every_registered_declaration_is_retrievable :
- forall (registered : @DeclarationRegistry.t A name) entry,
- In entry (DeclarationRegistry.values registered) ->
- DeclarationRegistry.lookup (name entry) registered = Some entry.
-Proof.
- intros registered entry Present; unfold DeclarationRegistry.lookup.
- apply distinct_declarations_retrieve_their_member.
- - apply DeclarationRegistry.unique.
- - exact Present.
-Qed.
-
-Lemma lookup_selects_a_declared_name :
- forall (registered : @DeclarationRegistry.t A name) identity entry,
- DeclarationRegistry.lookup identity registered = Some entry ->
- In entry (DeclarationRegistry.values registered) /\ identity = name entry.
-Proof.
- intros registered identity entry Selected; unfold DeclarationRegistry.lookup in Selected.
- apply find_some in Selected; destruct Selected as [Present Named].
- split; [exact Present|now apply String.eqb_eq in Named].
-Qed.
-
 (** The extension constructor itself rules out collisions among old and new
     entries. Both clauses below are inherited by any such extension, including
     additions whose type and contents were unknown when this theorem was
     checked. There is no global enumeration of extension owners. *)
-Theorem registration_extension_keeps_old_and_reaches_new :
- forall (previous : @DeclarationRegistry.t A name) additions
-   (distinct : DistinctNames (map name (DeclarationRegistry.values previous ++ additions))),
- let extended := @DeclarationRegistry.declare A name
-   (DeclarationRegistry.values previous ++ additions) distinct in
- (forall identity entry,
-   DeclarationRegistry.lookup identity previous = Some entry ->
-   DeclarationRegistry.lookup identity extended = Some entry) /\
- (forall entry,
-   In entry additions -> DeclarationRegistry.lookup (name entry) extended = Some entry).
-Proof.
- intros previous additions distinct; cbv zeta; split.
- - intros identity entry Selected.
-   destruct (lookup_selects_a_declared_name previous identity entry Selected) as [Present Named].
-   rewrite Named; apply every_registered_declaration_is_retrievable.
-   apply in_or_app; left; exact Present.
- - intros entry Present; apply every_registered_declaration_is_retrievable.
-   apply in_or_app; right; exact Present.
-Qed.
-End Registrations.
+Export DeclarationRegistryProofs(every_registered_declaration_is_retrievable,
+  registration_extension_keeps_old_and_reaches_new).

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Arith.
 From Selvedge.Browser Require Import Appearance Typography Layout SemanticAppearance.
-From Selvedge.Interaction.Presentation Require Roles Surface.
+From Selvedge.Interaction.Presentation Require Roles.
+From Selvedge.Programming.Presentation Require Surface.
 Import ListNotations.
 Open Scope string_scope.
 

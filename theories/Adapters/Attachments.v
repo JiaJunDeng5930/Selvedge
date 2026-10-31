@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Utf8 Schema OptionList.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import OptionList.
 From Selvedge.Kernel Require Import Images.
 From Selvedge.Features Require BoardParameters.
 From Selvedge.Adapters Require Import Common Observation.

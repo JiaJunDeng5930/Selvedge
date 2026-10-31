@@ -1,7 +1,10 @@
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require DecisionComposition.
+From Selvedge.Programming Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
-From Selvedge.Foundation Require Receiver.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Receiver.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Tasks CommandExecution.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work Worktree TaskGraphDeclarations.

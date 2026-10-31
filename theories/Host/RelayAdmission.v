@@ -1,6 +1,8 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema EnrollmentCredential.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import EnrollmentCredential.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Host Require Import RemoteProtocol.
 Module RP := RemoteProtocol.
 Module D := ArgumentDeclaration.

@@ -1,7 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson Schema.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Export Attachments Appearance.
-From Selvedge.Interaction Require Import Codec Identity Resource ModelSelection.
+From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import ModelSelection.
 From Selvedge.Interaction.Session Require Draft DraftCodec.
 From Selvedge.Interaction Require CommandAssessment.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -145,8 +148,6 @@ Definition cancel_editor e s :=
    if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end.
 Definition upload_owner (r:resource upload_request attachment) := match r with Dormant=>None|Loading _ a|Loaded _ a _|Failed _ a _=>Some(upload_editor a) end.
 Definition blocks e s := existsb(fun r=>match upload_owner r with Some owner=>same_editor e owner|None=>false end)(uploads s).
-Definition ticket_matches {A B} (ticket:N) (resource:resource A B) :=
- match resource_ticket resource with Some current=>N.eqb ticket current|None=>false end.
 Definition connection_ticket_matches (t:N) (observation:connection_observation) := connection_matches t observation.
 Definition forget_upload t s := with_uploads(filter(fun r=>negb(ticket_matches t r))(uploads s))s.
 Inductive service_input :=

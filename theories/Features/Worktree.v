@@ -1,10 +1,15 @@
-From Selvedge.Kernel Require InputRoute.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskBirth TaskResult.
+From Selvedge.Programming Require Callback.
+From Selvedge.Programming Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
-From Selvedge.Foundation Require Receiver Completion.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Receiver Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace Tasks CommandExecution.
-From Selvedge.Kernel Require CommandResult DecisionComposition TaskScope.
+From Selvedge.Programming Require CommandResult DecisionComposition TaskScope.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work WorkspaceBinding.
 Import ListNotations.
@@ -177,25 +182,25 @@ Defined.
 (** The resource interpreter retains Task birth's actual fresh reference. The
     only decoration it may add is that reference's pending resource and effect. *)
 Record born_start (before : world) := BornStart {
- born_task : Tasks.birth_result before;
+ born_task : TaskBirth.birth_result before;
  born_resource : option WorkspaceBackend.backend
 }.
 Arguments BornStart {before}.
 Arguments born_task {before}.
 Arguments born_resource {before}.
-Definition born_identity {before} (birth : born_start before) := Tasks.birth_id (born_task birth).
+Definition born_identity {before} (birth : born_start before) := TaskBirth.birth_id (born_task birth).
 Definition born_world {before} (birth : born_start before) :=
  let core := born_task birth in
  match born_resource birth with
- | None => Tasks.birth_world core
- | Some backend => let space := settings_workspace (task_current_settings (Tasks.birth_task core)) in
-   store (Selvedge.Features.Domain.Worktree (Tasks.birth_id core) (primary space)
-     (Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false)) backend) (Tasks.birth_world core)
+ | None => TaskBirth.birth_world core
+ | Some backend => let space := settings_workspace (task_current_settings (TaskBirth.birth_task core)) in
+   store (Selvedge.Features.Domain.Worktree (TaskBirth.birth_id core) (primary space)
+     (Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false)) backend) (TaskBirth.birth_world core)
  end.
 Definition born_effects {before} (birth : born_start before) :=
  match born_resource birth with
  | None => []
- | Some backend => let space := settings_workspace (task_current_settings (Tasks.birth_task (born_task birth))) in
+ | Some backend => let space := settings_workspace (task_current_settings (TaskBirth.birth_task (born_task birth))) in
    [CreateWorktree (born_identity birth) (primary space) space backend]
  end.
 Definition interpret_planned_birth {before : world} (plan : planned_start before) (current : world) :=
@@ -209,7 +214,7 @@ Definition interpret_planned_birth {before : world} (plan : planned_start before
      append_history [EnvironmentNotice environment_notice] task else task,None)
  | ProvisionLocal => (resource_task fresh WorkspaceBackend.Local task,Some WorkspaceBackend.Local)
  | ProvisionCloud => (resource_task fresh WorkspaceBackend.TencentCvm task,Some WorkspaceBackend.TencentCvm) end in
- BornStart (Tasks.birth_prepared prepared current) resource.
+ BornStart (TaskBirth.birth_prepared prepared current) resource.
 Definition born_decision {before} (birth : born_start before) :=
  accept (JObject [("task_id",number (born_identity birth))]) (born_world birth) (born_effects birth).
 (** This pure interpreter is the shared meaning used by the closed batch
@@ -217,16 +222,16 @@ Definition born_decision {before} (birth : born_start before) :=
 Definition consume_planned_start {before : world} (plan : planned_start before) (current : world) :=
  born_decision (interpret_planned_birth plan current).
 Lemma born_world_preserves_tasks : forall before (birth : born_start before),
- world_tasks (born_world birth) = world_tasks (Tasks.birth_world (born_task birth)).
+ world_tasks (born_world birth) = world_tasks (TaskBirth.birth_world (born_task birth)).
 Proof. intros before [birth resource]; destruct resource; reflexivity. Qed.
 Lemma born_world_preserves_works : forall before (birth : born_start before),
  Selvedge.Features.Domain.feature_works (world_features (born_world birth)) =
  Selvedge.Features.Domain.feature_works (world_features before).
 Proof.
  intros before [birth resource]; destruct resource;
- change (Selvedge.Features.Domain.feature_works (world_features (Tasks.birth_world birth)) =
+ change (Selvedge.Features.Domain.feature_works (world_features (TaskBirth.birth_world birth)) =
    Selvedge.Features.Domain.feature_works (world_features before));
- rewrite (Tasks.birth_features before birth); reflexivity.
+ rewrite (TaskBirth.birth_features before birth); reflexivity.
 Qed.
 Definition final_settings {before} (plan : planned_start before) :=
  let selected := Tasks.start_settings (planned_task plan) in
@@ -320,22 +325,22 @@ Defined.
 Theorem scoped_birth_uses_its_actual_identity : forall origin current
  (plan : scoped_start origin) (frame : birth_frame origin current) owner,
  transition_identity (consume_scoped_start plan frame owner) =
- Tasks.birth_id (born_task (transition_birth (consume_scoped_start plan frame owner))).
+ TaskBirth.birth_id (born_task (transition_birth (consume_scoped_start plan frame owner))).
 Proof. reflexivity. Qed.
 Theorem transition_tasks_are_the_witnessed_birth : forall origin before
  (created : start_transition origin before),
  world_tasks (transition_world created) = world_tasks before ++
-   [Tasks.birth_task (born_task (transition_birth created))].
+   [TaskBirth.birth_task (born_task (transition_birth created))].
 Proof.
  intros origin before [birth owner works frame].
  unfold transition_world; cbn [transition_birth transition_owner transition_works].
  destruct owner;
- change (world_tasks (born_world birth) = world_tasks before ++ [Tasks.birth_task (born_task birth)]);
- rewrite born_world_preserves_tasks; apply Tasks.birth_tasks.
+ change (world_tasks (born_world birth) = world_tasks before ++ [TaskBirth.birth_task (born_task birth)]);
+ rewrite born_world_preserves_tasks; apply TaskBirth.birth_tasks.
 Qed.
 Theorem transition_identity_is_fresh : forall origin before (created : start_transition origin before),
  transition_identity created = next_task before.
-Proof. intros; apply Tasks.birth_fresh. Qed.
+Proof. intros; apply TaskBirth.birth_fresh. Qed.
 Theorem transition_preserves_board : forall origin before (created : start_transition origin before),
  Selvedge.Features.Domain.feature_board (world_features (transition_world created)) =
  Selvedge.Features.Domain.feature_board (world_features before).
@@ -343,9 +348,9 @@ Proof.
  intros origin before [[birth resource] owner works frame].
  unfold transition_world,attach_born,born_world; cbn [transition_birth transition_owner transition_works born_task born_resource].
  destruct owner; destruct resource;
- change (Selvedge.Features.Domain.feature_board (world_features (Tasks.birth_world birth)) =
+ change (Selvedge.Features.Domain.feature_board (world_features (TaskBirth.birth_world birth)) =
    Selvedge.Features.Domain.feature_board (world_features before));
- rewrite (Tasks.birth_features before birth); reflexivity.
+ rewrite (TaskBirth.birth_features before birth); reflexivity.
 Qed.
 Theorem scoped_plan_bounds_final_authority : forall before (plan : scoped_start before),
  final_authority (scoped_caller plan) (scoped_plan plan) = true.
@@ -478,7 +483,7 @@ Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Gui
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
  let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
- Tasks.promote (Task contract (task_current_profile task) chosen phase
+ TaskWake.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
 Definition completed_task (space : workspace) (guidance : Guidance.t) (task : task) :=
@@ -559,9 +564,9 @@ Record creation_completion := CreationCompletion {
 Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
  let fields := proj1_sig values in
  Workspace (map (@proj1_sig _ _) (proj1_sig (fst fields))) (Some (proj1_sig (fst (snd fields)))).
-Definition creation_from_values (ok : bool) (address : Schema.fields (CallbackDeclarations.coordinates (ModelDeclarations.Worktree true)))
- : DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree true) ok) -> option creation_completion :=
- if ok as outcome return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree true) outcome) -> option creation_completion
+Definition creation_from_values (ok : bool) (address : Schema.fields (Callback.coordinates (ModelDeclarations.Worktree true)))
+ : DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree true) ok) -> option creation_completion :=
+ if ok as outcome return DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree true) outcome) -> option creation_completion
  then fun values =>
    let root := proj1_sig (fst values) in let space := completed_workspace (fst (snd values)) in
    match Guidance.of_values (fst (snd (snd values))) with
@@ -573,15 +578,15 @@ Definition creation_from_values (ok : bool) (address : Schema.fields (CallbackDe
  else fun values => let root := option_map (@proj1_sig _ _) (fst values) in
    if match root with Some root => Workspace.valid_path root | None => true end
    then Some (CreationCompletion (head address) (CreationFailure root (proj1_sig (fst (snd values))))) else None.
-Definition decode_creation_completion (received : CallbackDeclarations.decoded (ModelDeclarations.Worktree true)) :=
+Definition decode_creation_completion (received : Callback.decoded (ModelDeclarations.Worktree true)) :=
  let '(existT _ ok (address,values)) := received in creation_from_values ok address values.
 Inductive archive_observation := ArchiveSucceeded (outcome:archive_outcome) | ArchiveFailure (message:string).
-Definition archive_from_values (ok : bool) (address : Schema.fields (CallbackDeclarations.coordinates (ModelDeclarations.Worktree false)))
- : DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree false) ok) -> option (N * archive_observation) :=
- if ok as outcome return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Worktree false) outcome) -> option (N * archive_observation)
+Definition archive_from_values (ok : bool) (address : Schema.fields (Callback.coordinates (ModelDeclarations.Worktree false)))
+ : DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree false) ok) -> option (N * archive_observation) :=
+ if ok as outcome return DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree false) outcome) -> option (N * archive_observation)
  then fun values => option_map (fun outcome => (head address,ArchiveSucceeded outcome)) (archive_outcome_of (fst values))
  else fun values => Some (head address,ArchiveFailure (proj1_sig (fst values))).
-Definition decode_archive_completion (received : CallbackDeclarations.decoded (ModelDeclarations.Worktree false)) :=
+Definition decode_archive_completion (received : Callback.decoded (ModelDeclarations.Worktree false)) :=
  let '(existT _ ok (address,values)) := received in archive_from_values ok address values.
 Definition archive_choice (observed:archive_observation) (contents:Selvedge.Features.Domain.worktree_contents)
  (request:RequestEnvelope.owned (string*string))

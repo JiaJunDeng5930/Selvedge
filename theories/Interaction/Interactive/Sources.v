@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Interaction.Interactive Require Import Expression.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Record request := Request { source_name:string; graph_id:N }.
@@ -9,8 +10,6 @@ Definition id_text j :=option_map show_natural(number_id j).
 Definition required name j:=from_option("Missing resource field: "++name)(field name j).
 Definition required_array name j:=from_option("Missing resource list: "++name)(array_field name j).
 Definition required_text name j:=from_option("Missing resource text: "++name)(string_field name j).
-Fixpoint traverse{A B}(f:A->outcome B)(xs:list A):outcome(list B):=
- match xs with []=>Good[]|x::xs=>y <-? f x;;ys <-? traverse f xs;;Good(y::ys)end.
 Definition find_id name id xs:=find(fun x=>match field name x with
  | Some j=>match number_id j with Some n=>N.eqb id n|None=>false end|None=>false end)xs.
 Definition operation_projection operation:outcome json:=

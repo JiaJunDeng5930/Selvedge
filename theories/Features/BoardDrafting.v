@@ -1,23 +1,32 @@
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Receiver Registry.
-From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission TicketedRequest.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema Receiver.
+From Selvedge.Foundation Require Import Registry.
+From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
+From Selvedge.Programming Require CardScope.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 Module F := Selvedge.Features.Domain.
-Module S := TicketedRequest.Scoped.
+Module S := FeatureRequest.
 
-Definition lookup id before :=
- match registry_at id (F.board_cards (F.feature_board (world_features before))) with
- | Some card => card | None => None end.
-Record card_reference (before : world) (id : N) := CardReference {
- selected_card : F.card;
- selected_card_found : lookup id before = Some selected_card
-}.
-Arguments CardReference {before id}.
-Arguments selected_card {before id}.
-Arguments selected_card_found {before id}.
+Definition board_contents : Focus.t F.board (list (option F.card) * list N).
+Proof.
+ refine (Focus.Focus _ _ _
+   (fun board => ((F.board_cards board,F.board_order board),
+     (F.board_agents board,F.board_agent_order board,F.board_automatic board,F.board_draft_profile board)))
+   (fun parts => let '((cards,order),(agents,agent_order,automatic,profile)) := parts in
+     F.Board cards order agents agent_order automatic profile) _ _).
+ - intros []; reflexivity.
+ - intros [[cards order] [[[agents agent_order] automatic] profile]]; reflexivity.
+Defined.
+Definition card_slot owner := Receiver.field F.feature_board
+ (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).
+Definition put_card owner := FeatureRequest.install_feature (card_slot owner).
 
 Definition prompt card retitle before := Titles.board_prompt
  (F.title_task_instructions (F.feature_title_settings (world_features before)))
@@ -35,8 +44,8 @@ Inductive drafting_target (before : world) :=
     (Draft : BoardFacts.valid_draft draft before = true)
     (Capacity : Nat.ltb (live_count before) 512 = true)
     (Identity : (fresh_id before <? 4294967295) = true)
-| RevisedTarget (id : N) (reference : card_reference before id) (now : BoardParameters.clock)
-    (Mutable : BoardFacts.mutable (selected_card reference) before = true).
+| RevisedTarget (id : N) (reference : CardScope.card_reference before id) (now : BoardParameters.clock)
+    (Mutable : BoardFacts.mutable (CardScope.selected_card reference) before = true).
 Definition fresh_target := FreshTarget.
 Definition revised_target := RevisedTarget.
 Definition target_id {before} (target : drafting_target before) := match target with
@@ -45,25 +54,25 @@ Definition target_id {before} (target : drafting_target before) := match target 
 Definition target_card {before} (target : drafting_target before) := match target with
  | FreshTarget _ draft now _ _ _ => fresh_card draft now
  | RevisedTarget _ _ reference now _ =>
-     BoardFacts.revised (F.card_contents (selected_card reference)) now (selected_card reference) end.
+     BoardFacts.revised (F.card_contents (CardScope.selected_card reference)) now (CardScope.selected_card reference) end.
 Definition target_retitle {before} (target : drafting_target before) := match target with
  | FreshTarget _ _ _ _ _ _ => false | RevisedTarget _ _ _ _ _ => true end.
 Definition target_location {before} (target : drafting_target before)
  : Receiver.located F.state F.card (world_features before).
 Proof.
- refine (Receiver.Located (S.card_slot (target_id target)) _).
+ refine (Receiver.Located (card_slot (target_id target)) _).
  destruct target as [draft now Draft Capacity Identity|id reference now Mutable].
  - exact (Receiver.position
      (Receiver.At.field (world_features before) F.feature_board
-       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+       (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_append (Focus.read S.board_contents (F.feature_board (world_features before)))))))).
+           (Receiver.At.ordered_append (Focus.read board_contents (F.feature_board (world_features before)))))))).
  - exact (Receiver.position
      (Receiver.At.field (world_features before) F.feature_board
-       (Receiver.At.focused (F.feature_board (world_features before)) S.board_contents
+       (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_present (Focus.read S.board_contents (F.feature_board (world_features before)))
-             id (selected_card reference) (selected_card_found reference)))))).
+           (Receiver.At.ordered_present (Focus.read board_contents (F.feature_board (world_features before)))
+             id (CardScope.selected_card reference) (CardScope.selected_card_found reference)))))).
 Defined.
 
 Record drafting_request (before : world) := DraftingRequest {
@@ -84,11 +93,11 @@ Definition protocol {before} (request : drafting_request before)
  RequestTypes.Protocol
    (Receiver.At.in_record (target_location target) F.card_enrichment F.Enriching (target_card target))
    ModelDeclarations.board_text_request
-   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.board_text_request)
+   (fun input _ => Schema.of_tuple (Variant.request_body_fields ModelDeclarations.board_text_request)
      [!Codec.task_text_model_json (requested_profile request);
        prompt (target_card target) (target_retitle target) before;snd input!]).
 Definition channel : S.feature_channel drafting_request (N * bool) :=
- @S.FeatureChannel drafting_request (N * bool) TicketedRequest.TaskTicket
+ @S.FeatureChannel drafting_request (N * bool) Selvedge.Kernel.State.TaskTicket
    (fun _ request => let target := requested_target request in
      (F.card_revision (target_card target),target_retitle target))
    (fun _ request => protocol request).

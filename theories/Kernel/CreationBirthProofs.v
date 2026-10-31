@@ -39,3 +39,8 @@ Proof.
  - unfold find_task,next_task; rewrite Registry. apply registry_lookup_at_appended_index.
  - rewrite Registry,length_app; cbn; apply PeanoNat.Nat.add_1_r.
 Qed.
+
+Theorem a_refused_start_is_atomic : forall entry cause before,
+ decision_world (refuse_start entry cause before) = before /\
+ decision_effects (refuse_start entry cause before) = [].
+Proof. intros; split; reflexivity. Qed.

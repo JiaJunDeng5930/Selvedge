@@ -1,3 +1,4 @@
+From Selvedge.Programming Require TaskChange TaskScope.
 From Selvedge.Kernel Require Import CommandHandlers.
 From Selvedge.Foundation Require Import RemoteIdentity.
 From Stdlib Require Import String List Bool NArith.

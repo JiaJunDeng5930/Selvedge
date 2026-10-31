@@ -1,6 +1,9 @@
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain Observation CompactionCodec WorkspaceBinding.
 Import ListNotations.
@@ -154,7 +157,7 @@ Definition world_json (value : world) :=
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
 Definition history_json (id : N) (task : task) := JArray (map (public_message_json id) (task_history task)).
 Definition effect_packet (state : world) (value : effect) := match value with
- | ObserveContext id ticket task => ModelDeclarations.pack ModelDeclarations.observe_context
+ | ObserveContext id ticket task => Variant.pack ModelDeclarations.observe_context
    [!id;ticket;settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;
     map definition_json definitions;map Context.snapshot_json (ContextUpdates.bindings (task_history task))!]
  | RequestModel request =>
@@ -164,35 +167,35 @@ Definition effect_packet (state : world) (value : effect) := match value with
    let scope := ModelRequest.scope request in let reserve := ModelRequest.reserve request in
    let source := ContextSelection.history_json id (task_history task) in
    let selected := ContextSelection.latest source (if (0 <? reserve)%N then scope else "") 0 ContextSelection.Original in
-   ModelDeclarations.pack ModelDeclarations.request_model [!id;ModelRequest.ticket request;model_json model;output_mode_value (ModelRequest.mode request);
+   Variant.pack ModelDeclarations.request_model [!id;ModelRequest.ticket request;model_json model;output_mode_value (ModelRequest.mode request);
     settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;
     Reasoning.sampling model (task_current_profile task);
     (if (0 <? reserve)%N then ContextSelection.assemble selected source scope else ContextSelection.portable_messages source);
     (0 <? reserve)%N;scope;(match selected with ContextSelection.Replacement length _ => Some length | _ => None end);
     reserve;N.of_nat (List.length (task_history task));map tool_json (contract_tools (task_contract task));ModelRequest.callable request!]
- | RequestReasoning id ticket task => let model := task_current_profile task in ModelDeclarations.pack ModelDeclarations.reasoning
+ | RequestReasoning id ticket task => let model := task_current_profile task in Variant.pack ModelDeclarations.reasoning
    [!id;ticket;model_json model;Reasoning.evaluator_history id task;Reasoning.evaluator_project_context task;
     true;N.of_nat ReasoningView.maximum_bytes!]
- | ExecuteTool id ticket operation tool call settings access => ModelDeclarations.pack ModelDeclarations.tool
+ | ExecuteTool id ticket operation tool call settings access => Variant.pack ModelDeclarations.tool
    [!id;ticket;operation;tool_json tool;wire_call_json call;
     JObject [("workspace",workspace_json (settings_workspace settings));("resource",WorkspaceBinding.execution settings state);
       ("sandbox",sandbox_json (settings_sandbox settings));("access",JString (match access with DefaultAccess=>"sandboxed"|ElevatedAccess=>"unrestricted" end))]!]
- | RequestApproval id ticket profile call task => ModelDeclarations.pack ModelDeclarations.approval
+ | RequestApproval id ticket profile call task => Variant.pack ModelDeclarations.approval
    [!id;ticket;model_json profile;wire_call_json call;settings_json (task_current_settings task);
     ApprovalProtocol.instructions;ApprovalProtocol.user_request_text (task_history task)!]
- | CheckTool id ticket plugin tool call => ModelDeclarations.pack ModelDeclarations.hook [!id;ticket;plugin;tool_json tool;wire_call_json call!]
- | CheckResult id ticket operation plugin call value error => ModelDeclarations.pack ModelDeclarations.after_hook [!id;ticket;operation;plugin;wire_call_json call;value;error!]
- | ResetModelSession id => ModelDeclarations.pack ModelDeclarations.reset_model_session [!id!]
- | CancelTask id => ModelDeclarations.pack ModelDeclarations.cancel [!id!]
- | CancelTicket id ticket => ModelDeclarations.pack ModelDeclarations.cancel_ticket [!id;ticket!] | ContinueScheduling => ModelDeclarations.pack ModelDeclarations.continue [!!]
- | CreateWorktree id root workspace backend => ModelDeclarations.pack ModelDeclarations.worktree_create [!WorkspaceBackend.to_value backend;id;root;workspace_json workspace!]
- | ArchiveWorktree id source root backend => ModelDeclarations.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source!]
+ | CheckTool id ticket plugin tool call => Variant.pack ModelDeclarations.hook [!id;ticket;plugin;tool_json tool;wire_call_json call!]
+ | CheckResult id ticket operation plugin call value error => Variant.pack ModelDeclarations.after_hook [!id;ticket;operation;plugin;wire_call_json call;value;error!]
+ | ResetModelSession id => Variant.pack ModelDeclarations.reset_model_session [!id!]
+ | CancelTask id => Variant.pack ModelDeclarations.cancel [!id!]
+ | CancelTicket id ticket => Variant.pack ModelDeclarations.cancel_ticket [!id;ticket!] | ContinueScheduling => Variant.pack ModelDeclarations.continue [!!]
+ | CreateWorktree id root workspace backend => Variant.pack ModelDeclarations.worktree_create [!WorkspaceBackend.to_value backend;id;root;workspace_json workspace!]
+ | ArchiveWorktree id source root backend => Variant.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source!]
  | RequestFeature sent => RequestTypes.encode_packet sent (world_features state)
- | CancelConnectionJob id => ModelDeclarations.pack ModelDeclarations.chatgpt_cancel [!id!]
+ | CancelConnectionJob id => Variant.pack ModelDeclarations.chatgpt_cancel [!id!]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_packet request
  end.
-Definition effect_fields state value := Schema.encode_fields (ModelDeclarations.packet_fields (effect_packet state value)).
-Definition effect_json state value := ModelDeclarations.encode_packet (effect_packet state value).
+Definition effect_fields state value := Schema.encode_fields (Variant.packet_fields (effect_packet state value)).
+Definition effect_json state value := Variant.encode_packet (effect_packet state value).
 Definition envelope_with_effects (durable : bool) (reply : json) (effects : list json) := JObject [
  ("durable", JBool durable); ("reply", reply); ("effects", JArray effects)].
 Definition envelope (durable : bool) (value : decision) :=

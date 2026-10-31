@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State TaskScope.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope.
 
 (* The pending phase owns both correlation and the frozen continuation data.
    Callbacks and outgoing-effect admission consume this same description. *)

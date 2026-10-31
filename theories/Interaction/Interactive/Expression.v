@@ -1,15 +1,12 @@
 From Stdlib Require Import String Ascii List Bool Arith NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson Utf8.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson Utf8.
 From Selvedge.Interaction.Interactive Require Import Bounds Builtins Decimal.
+From Selvedge.Programming Require Import Outcome Metered.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope nat_scope.
-Inductive outcome (A:Type) := Good (value:A) | Error (reason:string).
-Arguments Good {A} _.
-Arguments Error {A} _.
-Definition bind {A B} (v:outcome A) (f:A->outcome B) := match v with Good x=>f x | Error e=>Error e end.
-Notation "x <-? a ;; b" := (bind a (fun x=>b)) (at level 100, a at next level, right associativity).
-Definition from_option {A} message (v:option A) := match v with Some x=>Good x | None=>Error message end.
 Inductive token := Literal (value:json) | Name (name:string) | Symbol (name:string).
 Definition alpha c := let n:=nat_of_ascii c in ((65<=?n)&&(n<=?90))||((97<=?n)&&(n<=?122))||Ascii.eqb c "_".
 Definition alphanumeric c := alpha c || is_digit c.
@@ -206,13 +203,6 @@ Definition order_values a b : outcome comparison :=
  | JNumber _,JNumber _=>da <-? from_option "Invalid sort number"(decimal_value a);;
    db <-? from_option "Invalid sort number"(decimal_value b);;Good(Z.compare(Decimal.units da)(Decimal.units db))
  | _,_=>Error "Sort keys must have one string or number type" end.
-Definition metered(A:Type):Type:=nat->(outcome A*nat).
-Definition met_return{A}(value:A):metered A:=fun budget=>(Good value,budget).
-Definition met_lift{A}(value:outcome A):metered A:=fun budget=>(value,budget).
-Definition met_fail{A}(reason:string):metered A:=met_lift(Error reason).
-Definition met_bind{A B}(first:metered A)(next:A->metered B):metered B:=fun budget=>
- let '(result,remaining):=first budget in match result with Good value=>next value remaining|Error reason=>(Error reason,remaining)end.
-Notation "x <-! a ;; b" := (met_bind a (fun x=>b)) (at level 100,a at next level,right associativity).
 Definition met_charge cost:metered unit:=fun budget=>
  if cost<=?budget then(Good tt,budget-cost)else(Error "Expression evaluation budget exceeded",0).
 Fixpoint insert_metered(path:string)(descending:bool)(value:json)(xs:list json):metered(list json):=

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
-From Selvedge.Foundation Require Import Json Schema DeclarationFields.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema DeclarationFields.
+From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.

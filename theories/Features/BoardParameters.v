@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Schema.
-From Selvedge.Foundation Require ArgumentDeclaration FiniteChoice.
+From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require ArgumentDeclaration FiniteChoice.
 From Selvedge.Kernel Require Import Numbers Codec.
 From Selvedge.Features Require Domain BoardClock.
 Import ListNotations.

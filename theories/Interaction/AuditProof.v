@@ -1,11 +1,11 @@
 From Stdlib Require Import List.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Interaction Require Import Audit AuditReading.
-From Selvedge.Interaction.Presentation Require Import Surface.
+From Selvedge.Programming.Presentation Require Import Surface.
 Import ListNotations.
 
 Module AR := Selvedge.Interaction.AuditReading.
-Module S := Selvedge.Interaction.Presentation.Surface.
+Module S := Selvedge.Programming.Presentation.Surface.
 
 Definition activity_sources {Action} (node : S.node Action) : option (list json) :=
  match S.node_meaning node with

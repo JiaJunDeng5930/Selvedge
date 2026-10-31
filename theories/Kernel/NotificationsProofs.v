@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
 From Selvedge.Kernel Require Import Domain Inputs State Observation Notifications Delivery.
@@ -58,7 +59,7 @@ Proof.
  intros. unfold Notifications.envelope; destruct (durable && admitted); [|left; reflexivity].
  destruct (Notifications.batch source before result) eqn:Batch; [left; reflexivity|].
  destruct (Delivery.fits_json _); [right|left; reflexivity].
- cbn; unfold ModelDeclarations.encode_packet,ModelDeclarations.pack,ModelDeclarations.encode; cbn.
+ cbn; unfold Variant.encode_packet,Variant.pack,Variant.encode; cbn.
  now rewrite map_id.
 Qed.
 Theorem oversized_notification_batch_leaves_the_complete_base_envelope : forall source before result,

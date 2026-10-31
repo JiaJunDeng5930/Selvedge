@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 
 Definition fork_count_declaration := ArgumentDeclaration.Natural 1 ArgumentDeclaration.maximum_natural.
 Definition fork_count := ArgumentDeclaration.denote fork_count_declaration.

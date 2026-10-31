@@ -2,6 +2,7 @@ From Stdlib Require Import String Ascii List Bool ZArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Interaction Require Import Codec.
 From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Registry Vocabulary Types State Expand.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope list_scope.
 Open Scope string_scope.

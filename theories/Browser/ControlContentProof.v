@@ -2,12 +2,13 @@ From Stdlib Require Import Arith String List.
 From Selvedge.Browser Require Import ControlContent Layout DOM ControlPurpose Appearance.
 From Selvedge.Features Require BoardFilter Domain.
 From Selvedge.Interaction Require Input ControlPurpose.
-From Selvedge.Interaction.Presentation Require Surface Model Roles.
+From Selvedge.Programming.Presentation Require Surface Model.
+From Selvedge.Interaction.Presentation Require Roles.
 Import ListNotations.
 
 Module AppPurpose := Selvedge.Interaction.ControlPurpose.
-Module S := Selvedge.Interaction.Presentation.Surface.
-Module PM := Selvedge.Interaction.Presentation.Model.
+Module S := Selvedge.Programming.Presentation.Surface.
+Module PM := Selvedge.Programming.Presentation.Model.
 Module R := Selvedge.Interaction.Presentation.Roles.
 Module CC := Selvedge.Browser.ControlContent.
 Module P := Selvedge.Browser.ControlPurpose.

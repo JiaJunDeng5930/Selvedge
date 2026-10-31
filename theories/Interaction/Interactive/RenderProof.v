@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Arith Lia.
 From Selvedge.Foundation Require Import Numbers.
 From Selvedge.Interaction Require Import CodeSource.
-From Selvedge.Interaction.Presentation Require Surface.
+From Selvedge.Programming.Presentation Require Surface.
 From Selvedge.Interaction.Interactive Require Import Bounds Types Registry Expand Plot Render.
 Import ListNotations.
 Open Scope string_scope.

@@ -220,10 +220,24 @@ export async function build(options = {}) {
       reachable.add(filename);
       requested.push(...(graph.get(filename) ?? []));
     }
+    const generatorInputs = new Set();
     if (allModules || reachable.has('theories/Generated/Commands.v')) {
-      const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Foundation/ArgumentProjection.v'];
+      const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v', 'theories/Derive/CommandGeneration.v'];
+      const missingGeneratorDependencies = generatorDependencies.filter(filename => !graph.has(filename));
+      if (missingGeneratorDependencies.length) {
+        const generatorGraph = await dependencies(missingGeneratorDependencies, true, readInput);
+        for (const [filename, imported] of generatorGraph) graph.set(filename, imported);
+      }
+      const generatorSources = [...generatorDependencies];
+      while (generatorSources.length) {
+        const filename = generatorSources.pop();
+        if (generatorInputs.has(filename)) continue;
+        generatorInputs.add(filename);
+        generatorSources.push(...(graph.get(filename) ?? []));
+      }
       await settleIndependent(generatorDependencies.map(compile), 'Command generator dependencies failed');
       const generator = 'theories/Derive/Commands.v';
+      generatorInputs.add(generator);
       const generatorSource = (await readInput(generator)).toString('utf8');
       const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), generatorSource, generatorDependencies.map(filename => next[filename])]));
       const generatedPath = 'theories/Generated/Commands.v';
@@ -334,7 +348,9 @@ export async function build(options = {}) {
           if (!sources.has(dependency)) { sources.add(dependency); pending.push(dependency); }
         }
       }
-      if (sources.has('theories/Generated/Commands.v')) sources.add('theories/Derive/Commands.v');
+      if (sources.has('theories/Generated/Commands.v')) {
+        for (const filename of generatorInputs) sources.add(filename);
+      }
       for (const filename of inputFingerprints.keys()) {
         if (!filename.endsWith('.v')) sources.add(filename);
       }

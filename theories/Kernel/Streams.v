@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require OptionList.
-From Selvedge.Foundation Require Import Json Numbers Utf8 Schema TextMetrics.
+From Selvedge.Foundation Require Import Json Numbers Utf8.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextMetrics.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

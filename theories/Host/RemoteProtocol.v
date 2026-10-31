@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool Ascii NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema Utf8 RemoteIdentity.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields KeyedCollection.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8 RemoteIdentity.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require KeyedCollection.
 Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
 Import ListNotations.

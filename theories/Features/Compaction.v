@@ -1,10 +1,14 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CommandResult DecisionComposition.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskResult TaskScope.
+From Selvedge.Programming Require InputRoute.
+From Selvedge.Programming Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects TextJson Completion.
+From Selvedge.Foundation Require Import Json JsonObjects TextJson.
+From Selvedge.Programming Require Import Completion.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning.
+From Selvedge.Kernel Require Import TicketedRequest.
 From Selvedge.Features Require Import Domain State CompactionTypes CompactionCodec CompactionRequest.
 Module R := CompactionRequest.
 Import ListNotations.
@@ -420,7 +424,7 @@ Definition suspended_context_task (purpose : option reason) (resume_model : bool
  let task := match purpose with Some Manual => append_history
    [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task
    | _ => task end in
- Tasks.promote (with_activity (if resume_model then WantsModel else Idle) task).
+ TaskWake.promote (with_activity (if resume_model then WantsModel else Idle) task).
 Definition same_context_purpose (first second : option reason) := match first, second with
  | None, None | Some Background, Some Background | Some Blocking, Some Blocking
  | Some IdleMaintenance, Some IdleMaintenance | Some Manual, Some Manual => true

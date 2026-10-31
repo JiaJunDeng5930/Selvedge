@@ -1,5 +1,5 @@
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Kernel Require Import ModelDeclarations.
+From Selvedge.Programming Require Variant.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
@@ -36,18 +36,18 @@ Definition state_of (source : json) := SessionState (get source "id") (get sourc
   (num source "cursor") (num source "sequence") (items (get source "pending")) (items (get source "delegations"))
   (if equal (get source "progress") JNull then None else Some (progress_of (get source "progress"))) (boolean_field source "dirty").
 Definition primitive_packet (s : session_state) (effect : primitive) := match effect with
- | Publish event => ModelDeclarations.pack ModelResultDeclarations.audio_emit [!set (set event "session_id" (session_id s)) "task_id" (task_id s)!]
- | CommitSpeech token command => ModelDeclarations.pack ModelResultDeclarations.audio_journal [!token;command!]
- | AppendContext context => ModelDeclarations.pack ModelResultDeclarations.audio_context [!context!]
- | DeliverContexts token contexts => ModelDeclarations.pack ModelResultDeclarations.audio_contexts [!number token;contexts!]
- | ReadProgress token after => ModelDeclarations.pack ModelResultDeclarations.audio_read [!number token;after!]
- | StopTransport => ModelDeclarations.pack ModelResultDeclarations.audio_stop [!!]
- | Release => ModelDeclarations.pack ModelResultDeclarations.audio_release [!!]
- | ArmLifetime => ModelDeclarations.pack ModelResultDeclarations.audio_timer [!!]
- | ArmConnect => ModelDeclarations.pack ModelResultDeclarations.audio_connect_timer [!!]
- | Reject message => ModelDeclarations.pack ModelResultDeclarations.audio_reject [!message!]
+ | Publish event => Variant.pack ModelResultDeclarations.audio_emit [!set (set event "session_id" (session_id s)) "task_id" (task_id s)!]
+ | CommitSpeech token command => Variant.pack ModelResultDeclarations.audio_journal [!token;command!]
+ | AppendContext context => Variant.pack ModelResultDeclarations.audio_context [!context!]
+ | DeliverContexts token contexts => Variant.pack ModelResultDeclarations.audio_contexts [!number token;contexts!]
+ | ReadProgress token after => Variant.pack ModelResultDeclarations.audio_read [!number token;after!]
+ | StopTransport => Variant.pack ModelResultDeclarations.audio_stop [!!]
+ | Release => Variant.pack ModelResultDeclarations.audio_release [!!]
+ | ArmLifetime => Variant.pack ModelResultDeclarations.audio_timer [!!]
+ | ArmConnect => Variant.pack ModelResultDeclarations.audio_connect_timer [!!]
+ | Reject message => Variant.pack ModelResultDeclarations.audio_reject [!message!]
  end.
-Definition primitive_json s effect := ModelDeclarations.encode_packet (primitive_packet s effect).
+Definition primitive_json s effect := Variant.encode_packet (primitive_packet s effect).
 Definition with_phase (s : session_state) (p : session_phase) := SessionState (session_id s) (task_id s) (owner s) (generation s)
   p (cursor s) (sequence s) (journal_pending s) (delegations s) (progress_pending s) (progress_dirty s).
 Definition event_type kind := JObject [("type",JString kind)].

@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects Numbers Schema TextJson Utf8.
+From Selvedge.Foundation Require Import Json JsonObjects Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson Utf8.
 From Selvedge.Interaction Require Import Codec.
 From Selvedge.Interaction.Interactive Require Import Bounds Expression Syntax Local Registry Types State Paths Codec.
 Import ListNotations.

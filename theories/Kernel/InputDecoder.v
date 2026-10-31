@@ -1,7 +1,10 @@
-From Selvedge.Kernel Require InputRoute.
+From Selvedge.Programming Require Callback.
+From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import SchemaJson TextJson Utf8 Numbers.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
@@ -18,27 +21,27 @@ Definition configure_decoder := Decoder "configure" Configuration.environment_sc
 (** The callback language chooses its result branch before exposing values.
     Domain handlers receive exactly that branch's fields and never reconstruct
     a relationship between independent optional payloads and a status flag. *)
-Definition CallbackDecoder (description : callback_kind)
- (construct : forall ok, fields (CallbackDeclarations.coordinates description) ->
-   DeclarationFields.values (CallbackDeclarations.payload description ok) -> option input) : decoder :=
+Definition CallbackDecoder (description : Callback.callback_kind)
+ (construct : forall ok, fields (Callback.coordinates description) ->
+   DeclarationFields.values (Callback.payload description ok) -> option input) : decoder :=
  InputRoute.callback description (fun received =>
    let '(existT _ ok (address,values)) := received in construct ok address values).
 Definition callback_kinds := [
  CallbackDecoder Context (fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Context ok) -> option input then
+   if ok as ok return DeclarationFields.values (Callback.payload Context ok) -> option input then
      fun values => option_map (fun observations => ContextCompleted id ticket (Some observations) "")
        (Codec.traverse parse_observation (fst values))
    else fun values => Some (ContextCompleted id ticket None (proj1_sig (fst values))));
  CallbackDecoder Model (fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
+   if ok as ok return DeclarationFields.values (Callback.payload Model ok) -> option input then
      fun values => Some (ModelCompleted id ticket (model_outcome_from_items (fst values)))
    else fun values => Some (ModelCompleted id ticket
      (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end)));
  CallbackDecoder Reasoning (fun ok address =>
    let id := head address in let ticket := head (tail address) in
-   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Reasoning ok) -> option input then
+   if ok as ok return DeclarationFields.values (Callback.payload Reasoning ok) -> option input then
      fun values => Some (ReasoningCompleted id ticket (Reasoning.Chosen (proj1_sig (fst values)) (fst (snd values))))
    else fun values => Some (ReasoningCompleted id ticket (EvaluationFailed (proj1_sig (fst values)))));
  CallbackDecoder Tool (fun ok address values => Some (ToolCompleted (head address) (head (tail address))
@@ -83,9 +86,9 @@ Definition command_diagnostic (source : json) :=
 Definition diagnostic {A} (entry : InputRoute.t A) (source : json) :=
  match InputRoute.language entry with
  | InputRoute.Callback callback =>
-   match CallbackDeclarations.read_status callback source with
-   | Some ok => "Invalid callback '" ++ callback_text callback ++ "'; expected " ++
-       TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema callback ok))
+   match Callback.read_status callback source with
+   | Some ok => "Invalid callback '" ++ Callback.callback_text callback ++ "'; expected " ++
+       TextJson.render_json (ArgumentDeclaration.schema (Callback.full_schema callback ok))
    | None => "Missing or invalid callback result marker" end
  | InputRoute.Object name declaration _ =>
    let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in

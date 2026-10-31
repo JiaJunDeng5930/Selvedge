@@ -1,8 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints.
 From Selvedge.Features Require Domain BoardParameters Board Work Titles TaskGraph.
-From Selvedge.Interaction Require Import Codec Identity Context Resource Services CommandAssessment DocumentState ModelSelection.
+From Selvedge.Interaction Require Import Codec Identity Context.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services CommandAssessment DocumentState ModelSelection.
 From Selvedge.Interaction.Session Require Draft State Observation Initialize.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Experience Require Import Model Activity.

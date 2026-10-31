@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require WorkspaceBackend Codec.
 From Selvedge.Features Require Observation.
 From Selvedge.Features Require Domain.

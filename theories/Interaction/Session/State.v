@@ -1,9 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands Streams.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction.Interactive Require Types State.
-From Selvedge.Interaction Require Import Codec Identity Services Speech SkillMention Resource DocumentState.
+From Selvedge.Interaction Require Import Codec Identity Services Speech SkillMention.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import DocumentState.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Interaction.Experience Require Import Model Activity.
 From Selvedge.Interaction.Session Require Import Draft.

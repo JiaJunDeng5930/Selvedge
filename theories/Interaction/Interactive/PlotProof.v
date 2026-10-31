@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool Arith Lia ZArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Interaction Require Import Graphics.
+From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Plot.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope Z_scope.
@@ -10,9 +11,8 @@ Module P := Selvedge.Interaction.Interactive.Plot.
 Module D := Selvedge.Interaction.Interactive.Decimal.
 Module E := Selvedge.Interaction.Interactive.Expression.
 Module X := Selvedge.Interaction.Interactive.Expand.
-Module Src := Selvedge.Interaction.Interactive.Sources.
 Module V := Selvedge.Interaction.Interactive.Vocabulary.
-Module G := Selvedge.Interaction.Graphics.
+Module G := Selvedge.Programming.Graphics.
 
 Lemma firstn_nth_error_prefix {A} (limit : nat) (source : list A) index :
   (index < limit)%nat ->
@@ -61,7 +61,7 @@ Qed.
 Theorem data_point_admits_category_x x_path y_path row category y_value :
   get_path x_path row = JString category ->
   E.decimal_value (get_path y_path row) = Some y_value ->
-  P.data_point x_path y_path row = E.Good (P.Point None y_value).
+  P.data_point x_path y_path row = Outcome.Good (P.Point None y_value).
 Proof.
   intros X Y.
   unfold P.data_point.
@@ -73,7 +73,7 @@ Theorem data_point_admits_finite_numeric_x x_path y_path row x_source x_value y_
   get_path x_path row = JNumber x_source ->
   E.decimal_value (JNumber x_source) = Some x_value ->
   E.decimal_value (get_path y_path row) = Some y_value ->
-  P.data_point x_path y_path row = E.Good (P.Point (Some x_value) y_value).
+  P.data_point x_path y_path row = Outcome.Good (P.Point (Some x_value) y_value).
 Proof.
   intros X FiniteX FiniteY.
   unfold P.data_point.
@@ -83,7 +83,7 @@ Qed.
 
 Theorem data_point_rejects_non_decimal_y x_path y_path row :
   E.decimal_value (get_path y_path row) = None ->
-  P.data_point x_path y_path row = E.Error "Chart y field must be a finite fixed decimal".
+  P.data_point x_path y_path row = Outcome.Error "Chart y field must be a finite fixed decimal".
 Proof.
   intros InvalidY.
   unfold P.data_point.
@@ -94,7 +94,7 @@ Qed.
 Theorem data_point_rejects_boolean_x x_path y_path row enabled y_value :
   get_path x_path row = JBool enabled ->
   E.decimal_value (get_path y_path row) = Some y_value ->
-  P.data_point x_path y_path row = E.Error "Chart x field must be numeric or a string category".
+  P.data_point x_path y_path row = Outcome.Error "Chart x field must be numeric or a string category".
 Proof.
   intros X FiniteY.
   unfold P.data_point.
@@ -103,10 +103,10 @@ Proof.
 Qed.
 
 Theorem chart_magnitude_stays_within_the_decimal_range project points magnitude :
-  P.magnitude project points = E.Good magnitude ->
+  P.magnitude project points = Outcome.Good magnitude ->
   Z.abs (D.units magnitude) <= D.limit.
 Proof.
-  unfold P.magnitude, E.from_option.
+  unfold P.magnitude, Outcome.from_option.
   destruct (D.checked
     (fold_left (fun value point => Z.max value (Z.abs (project point))) points 1))
     as [value|] eqn:Checked; simpl; try discriminate.
@@ -126,17 +126,17 @@ Definition zero := P.chart_whole 0%Z eq_refl.
 
 Theorem negative_y_lies_below_the_zero_baseline :
   P.chart_coordinate P.y_origin P.y_span false negative_one positive_one =
-    E.Good "210".
+    Outcome.Good "210".
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem zero_y_lies_on_the_zero_baseline :
   P.chart_coordinate P.y_origin P.y_span false zero positive_one =
-    E.Good "120".
+    Outcome.Good "120".
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem numeric_x_uses_both_sides_of_zero :
-  P.chart_coordinate P.x_origin P.x_span true negative_two positive_two = E.Good "40" /\
-  P.chart_coordinate P.x_origin P.x_span true positive_two positive_two = E.Good "440".
+  P.chart_coordinate P.x_origin P.x_span true negative_two positive_two = Outcome.Good "40" /\
+  P.chart_coordinate P.x_origin P.x_span true positive_two positive_two = Outcome.Good "440".
 Proof. vm_compute. repeat split; reflexivity. Qed.
 
 Theorem line_geometry_connects_points_in_order :
@@ -151,7 +151,7 @@ Theorem bar_geometry_returns_to_the_zero_baseline :
 Proof. reflexivity. Qed.
 
 Theorem successful_chart_has_a_bounded_nontrivial_plot properties drawing :
-  P.chart properties = E.Good drawing ->
+  P.chart properties = Outcome.Good drawing ->
   G.width drawing = 480%positive /\
   G.height drawing = 240%positive /\
   exists values,
@@ -163,18 +163,18 @@ Proof.
   unfold P.chart in Admitted.
   destruct(negb(E.valid_field_path(X.property_text "x" properties)&&
     E.valid_field_path(X.property_text "y" properties)))eqn:Paths;try discriminate.
-  cbn [E.bind] in Admitted.
-  destruct (Src.traverse
+  cbn [Outcome.bind] in Admitted.
+  destruct (Outcome.traverse
     (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
     (P.chart_rows properties)) as [points|reason] eqn:Rows;
-    cbn [E.bind] in Admitted; try discriminate.
+    cbn [Outcome.bind] in Admitted; try discriminate.
   destruct (P.magnitude
     (fun point => match P.x_number point with Some x => D.units x | None => 0 end) points)
-    as [x_domain|reason] eqn:XDomain; cbn [E.bind] in Admitted; try discriminate.
+    as [x_domain|reason] eqn:XDomain; cbn [Outcome.bind] in Admitted; try discriminate.
   destruct (P.magnitude (fun point => D.units (P.y_number point)) points)
-    as [y_domain|reason] eqn:YDomain; cbn [E.bind] in Admitted; try discriminate.
+    as [y_domain|reason] eqn:YDomain; cbn [Outcome.bind] in Admitted; try discriminate.
   destruct (P.chart_coordinates x_domain y_domain 0 (List.length points) points)
-    as [coordinates|reason] eqn:Coordinates; cbn [E.bind] in Admitted; try discriminate.
+    as [coordinates|reason] eqn:Coordinates; cbn [Outcome.bind] in Admitted; try discriminate.
   inversion Admitted; subst drawing.
   repeat split; try reflexivity.
   exists (if String.eqb properties.(X.description).(V.component_tag) "bar-chart"

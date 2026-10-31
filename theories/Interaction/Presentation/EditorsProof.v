@@ -1,7 +1,8 @@
 From Stdlib Require Import List Bool String.
 From Selvedge.Interaction.Experience Require Model Observation.
-From Selvedge.Interaction.Presentation Require Import Editors Surface.
-From Selvedge.Interaction.Presentation Require Model.
+From Selvedge.Interaction.Presentation Require Import Editors.
+From Selvedge.Programming.Presentation Require Import Surface.
+From Selvedge.Programming.Presentation Require Model.
 Import ListNotations.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module Observe := Selvedge.Interaction.Experience.Observation.

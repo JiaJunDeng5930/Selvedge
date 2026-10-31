@@ -1,6 +1,10 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskChangeProofs TaskResult.
 From Selvedge.Foundation Require Import Json RegistryProofs.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler Reasoning TicketedRequest ScopedRequestProofs TicketedRequestProofs SchedulerChangesProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler Reasoning.
+From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import SchedulerChangesProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -29,7 +33,7 @@ Proof.
  exists (with_activity Idle task); split;
  [ cbn [decision_world Callbacks.acknowledged accept];
    rewrite (commit_changes_use_the_observed_owner id _ value task Owner);
-   unfold Tasks.promote_changes; rewrite Lifecycle;
+   unfold TaskWake.promote_changes; rewrite Lifecycle;
    change (find_task id (put_task id (with_activity Idle task) value) = Some (with_activity Idle task));
    unfold find_task, put_task, with_tasks; cbn;
    eapply registry_replace_selected; exact Owner
@@ -52,7 +56,7 @@ Theorem a_runnable_task_requests_context_before_inference :
  task_lifecycle task = Running WantsModel [] ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- In (ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (Tasks.promote task)))
+ In (ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (TaskWake.promote task)))
    (decision_effects result) /\
  world_next_ticket (decision_world result) = N.succ (world_next_ticket value).
 Proof.
@@ -66,6 +70,6 @@ Proof.
  - rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
    cbn [snd]. rewrite TaskChangeProofs.apply_app; left; reflexivity.
  - unfold TicketedRequest.Scoped.issue; rewrite Intent.
-   cbn [TicketedRequest.allocate_identity TicketedRequest.next_identity].
+   cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
    unfold TicketedRequest.Scoped.build; rewrite Intent; reflexivity.
 Qed.

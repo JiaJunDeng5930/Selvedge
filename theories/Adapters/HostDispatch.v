@@ -1,9 +1,9 @@
+From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Host Require Import Dispatch.
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Kernel Require Import ModelDeclarations.
+From Selvedge.Programming Require Import Schema.
 Import ListNotations.
 Open Scope string_scope.
 Definition provider_json value := JString (match value with NoProvider=>"none" | TaskProvider=>"task" | IndependentProvider=>"independent" end).
@@ -54,15 +54,15 @@ Definition observation_of (source : json) :=
     match natural (get source "generation"), outcome_of (str source "outcome") with Some (N.pos generation), Some outcome => Some (Settlement (N.pos generation) outcome) | _, _ => None end
   else if String.eqb kind "shutdown" then Some Shutdown else None.
 Definition primitive_packet (p : primitive) := match p with
-| Start generation => ModelDeclarations.pack ModelResultDeclarations.dispatch_start [!generation!]
-| RollbackWorkspace => ModelDeclarations.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
-| RetainWorkspace => ModelDeclarations.pack ModelResultDeclarations.dispatch_retain_workspace [!!]
-| Await generation => ModelDeclarations.pack ModelResultDeclarations.dispatch_await [!generation!]
-| Cancel generation provider => ModelDeclarations.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
-| RetryFailure => ModelDeclarations.pack ModelResultDeclarations.dispatch_retry_failure [!!]
-| Settled => ModelDeclarations.pack ModelResultDeclarations.dispatch_settled [!!]
-| Retire => ModelDeclarations.pack ModelResultDeclarations.dispatch_retire [!!] end.
-Definition primitive_json p := ModelDeclarations.encode_packet (primitive_packet p).
+| Start generation => Variant.pack ModelResultDeclarations.dispatch_start [!generation!]
+| RollbackWorkspace => Variant.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
+| RetainWorkspace => Variant.pack ModelResultDeclarations.dispatch_retain_workspace [!!]
+| Await generation => Variant.pack ModelResultDeclarations.dispatch_await [!generation!]
+| Cancel generation provider => Variant.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
+| RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!]
+| Settled => Variant.pack ModelResultDeclarations.dispatch_settled [!!]
+| Retire => Variant.pack ModelResultDeclarations.dispatch_retire [!!] end.
+Definition primitive_json p := Variant.encode_packet (primitive_packet p).
 
 Definition call (operation : string) (source : json) : json :=
   if String.eqb operation "control.dispatch.initial" then success (state_json initial)

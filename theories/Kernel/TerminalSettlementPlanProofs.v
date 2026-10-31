@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Foundation Require Import OptionListProofs.
+From Selvedge.Programming Require Import OptionObservationProofs.
 From Selvedge.Kernel Require Import Domain State TerminalSettlement.
 
 Lemma observed_resolution_tracks_its_eligibility : forall payload before current observed,

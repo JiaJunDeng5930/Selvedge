@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import ModelWire.
 From Selvedge.Adapters Require Import WebCommon WebResources WebHistory ProviderCatalog BackendRequests.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -10,7 +11,7 @@ Record history_effect := HistoryEffect {
  effect_ticket : json; effect_replacement : json; effect_retitle : bool; effect_tools_value : json; effect_instructions : json }.
 Definition history_fields := [required "history" (D.Array D.Any);raw "kind";raw "model";raw "task_id";
  raw "ticket";raw "context_replacement_source";raw "retitle";raw "tools";raw "instructions"].
-Definition history_value := project history_fields (fun history kind model task ticket replacement retitle tools instructions =>
+Definition history_value := O.project history_fields (fun history kind model task ticket replacement retitle tools instructions =>
  HistoryEffect history (text (missing kind)) (missing model) (missing task) (missing ticket)
    (missing replacement) (flag (missing retitle)) (missing tools) (missing instructions)).
 Record continuation_input := ContinuationInput {
@@ -47,7 +48,7 @@ Record receipt_context := ReceiptContext {
  receipt_input_count : D.denote safe_natural; receipt_output_count : D.denote positive_natural;
  receipt_requires_action : bool; receipt_calls : list json;
  receipt_store : json; receipt_binding : json; receipt_contract : json; receipt_hash : json }.
-Definition receipt_value := project receipt_fields (fun response deferred inputs outputs status calls store binding contract hash =>
+Definition receipt_value := O.project receipt_fields (fun response deferred inputs outputs status calls store binding contract hash =>
  ReceiptContext response deferred inputs outputs (String.eqb (proj1_sig status) "requires_action") calls
    (missing store) (missing binding) (missing contract) (missing hash)).
 Definition continuation_binding source receipt :=
@@ -123,7 +124,7 @@ Definition continuation source :=
     | None => err "ChatGPT Web continuation history no longer matches its committed input receipt"
     | Some suffix => continue_receipt source receipt suffix end end.
 Definition model_history_fields := [required "kind" (D.Const (JString "model"));required "history" (D.Array D.Any);raw "model";raw "task_id"].
-Definition model_history_value := project model_history_fields (fun _ history model task => (history,missing model,missing task)).
+Definition model_history_value := O.project model_history_fields (fun _ history model task => (history,missing model,missing task)).
 Definition receipt (history : list json) model task response record deferred
  (output_count : D.denote positive_natural) (input_hash store_identity : D.denote nonempty_text) binding contract tools :=
   if (String.eqb (member_text response "status") "completed" || String.eqb (member_text response "status") "requires_action") &&

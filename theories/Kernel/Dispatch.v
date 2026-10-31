@@ -1,4 +1,5 @@
 From Stdlib Require Import List Bool NArith.
+From Selvedge.Programming Require RequestTypes.
 From Selvedge.Kernel Require Import Domain State Reasoning RequestReceiver.
 From Selvedge.Features Require CompactionTypes.
 Import ListNotations.

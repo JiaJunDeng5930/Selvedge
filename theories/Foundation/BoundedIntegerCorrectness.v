@@ -1,5 +1,7 @@
 From Stdlib Require Import String Bool ZArith NArith Lia DecimalZ DecimalPos DecimalFacts.
-From Selvedge.Foundation Require Import Numbers NumbersProofs Refinement BoundedInteger BoundedIntegerProofs BoundedIntegerSemantics BoundedIntegerDigits.
+From Selvedge.Foundation Require Import Numbers NumbersProofs.
+From Selvedge.Programming Require Import Refinement.
+From Selvedge.Foundation Require Import BoundedInteger BoundedIntegerProofs BoundedIntegerSemantics BoundedIntegerDigits.
 Open Scope Z_scope.
 
 Lemma decimal_signed_scaling negative coefficient fractional exponent value :

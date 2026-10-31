@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskResult.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State TaskChange Tasks History Inputs
- Capabilities ApprovalProtocol HookRules.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskChange.
+From Selvedge.Kernel Require Import History Inputs Capabilities ApprovalProtocol HookRules.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -21,7 +23,9 @@ Inductive event :=
 Definition after_plugins (task : task) :=
  Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
 Definition settle (operation : operation) (result : json) (error : bool) :=
- Tasks.WakeDemand [TaskChange.CompleteOperation operation result error].
+ TaskResult.WakeDemand [TaskChange.Edit
+   (TaskChange.update (TaskChange.RemoveOperation (operation_id operation)))
+   (Some [History.operation_result operation result error])].
 Definition result_stage (pending : list json) (result : json) (error : bool) :=
  AfterHooksReady pending result error.
 Definition result_receipt (owner : N) (operation : operation) (result : json) (error : bool) :=
@@ -29,7 +33,7 @@ Definition result_receipt (owner : N) (operation : operation) (result : json) (e
 Definition returned (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  match after_plugins task with
  | [] => settle operation result error
- | pending => Tasks.KeepDemand
+ | pending => TaskResult.KeepDemand
    [TaskChange.AppendHistory [result_receipt owner operation result error];
     TaskChange.ChangeOperationStage (operation_id operation) (result_stage pending result error)]
  end.
@@ -41,11 +45,11 @@ Definition after_result (operation : operation) (pending : list json) (error : b
  | HookRules.RefuseResult code reason => settle operation (State.failure code reason) true
  | HookRules.ContinueResult result => match pending with
    | [] => settle operation result error
-   | _ => Tasks.KeepDemand
+   | _ => TaskResult.KeepDemand
      [TaskChange.ChangeOperationStage (operation_id operation) (result_stage pending result error)] end end.
 Definition after_checked (owner : N) (operation : operation) (plugin : json)
  (pending : list json) (result : json) (error : bool) (outcome : after_outcome) :=
- Tasks.prefix_result [TaskChange.AppendHistory
+ TaskResult.prefix_result [TaskChange.AppendHistory
    [AfterReceipt owner (operation_id operation) plugin (Inputs.after_json outcome)]]
    (after_result operation pending error (HookRules.after_apply result outcome)).
 Definition before_interruption_reason :=
@@ -55,22 +59,22 @@ Definition plan (owner : N) (observation : event) (task : task) := match observa
  | Reviewed operation actor outcome =>
    let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
      actor (ApprovalProtocol.encode_outcome outcome)] in
-   Tasks.prefix_result [TaskChange.AppendHistory receipt] (if ApprovalProtocol.allows outcome then Tasks.KeepDemand
+   TaskResult.prefix_result [TaskChange.AppendHistory receipt] (if ApprovalProtocol.allows outcome then TaskResult.KeepDemand
      [TaskChange.ChangeOperationStage (operation_id operation) (Granted actor)]
    else returned owner operation
      (State.failure "approval_denied" ("Bash was not started. " ++ ApprovalProtocol.outcome_reason outcome)) true
      (append_history receipt task))
  | BeforeChecked plugin invocation pending remaining outcome =>
-   Tasks.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin (Inputs.hook_json outcome)] ::
+   TaskResult.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin (Inputs.hook_json outcome)] ::
     match HookRules.before_apply invocation outcome with
     | HookRules.Proceed invocation => [TaskChange.ChangePhase (ReadyForHooks invocation pending remaining)]
     | HookRules.Refuse code reason => call_result invocation (State.failure code reason) true remaining end)
  | BeforeInterrupted plugin invocation remaining =>
-   Tasks.KeepDemand (TaskChange.AppendHistory
+   TaskResult.KeepDemand (TaskChange.AppendHistory
      [HookReceipt owner invocation plugin (Inputs.hook_json (HookFailure before_interruption_reason))] ::
      call_result invocation (State.failure "hook_interrupted" before_interruption_reason) true remaining)
  | AfterUnavailable operation plugin =>
-   Tasks.prefix_result [TaskChange.AppendHistory [AfterReceipt owner (operation_id operation) plugin
+   TaskResult.prefix_result [TaskChange.AppendHistory [AfterReceipt owner (operation_id operation) plugin
      (Inputs.after_json (AfterFailure "The frozen result-processing plugin revision is unavailable"))]]
      (settle operation (State.failure "after_hook_unavailable"
        "The frozen result-processing plugin revision is unavailable; the tool has already completed") true)

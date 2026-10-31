@@ -1,13 +1,15 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CommitPacket.
+From Selvedge.Programming Require DecisionComposition.
+From Selvedge.Programming Require InputRoute.
+From Selvedge.Programming Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
 From Selvedge.Kernel Require Import CommandHandlers ForkCommit.
-From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement DeferredCommit
- BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
+From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement.
+From Selvedge.Kernel Require DeferredCommit.
+From Selvedge.Kernel Require BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.

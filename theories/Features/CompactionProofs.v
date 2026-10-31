@@ -1,8 +1,16 @@
+From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs OptionListProofs CompletionProofs.
+From Selvedge.Programming Require CommandResult DecisionComposition TaskResult TaskScope.
+From Selvedge.Kernel Require TicketedRequest.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs.
+From Selvedge.Programming Require Import OptionObservationProofs CompletionProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs TaskScopeProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs.
+From Selvedge.Programming Require Import ProtocolProofs.
+From Selvedge.Kernel Require Import ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan.
+From Selvedge.Programming Require Import FeatureRequestProofs TaskScopeProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction CompactionRequestProofs.
 Module R := CompactionRequest.
 Import ListNotations.
@@ -321,7 +329,7 @@ Theorem suspended_manual_context_completion_cancels_its_job :
  A.cancelled_task id (K.decision_effects result) = false ->
  A.cancelled_ticket id ticket (K.decision_effects result) = false ->
  (task_lifecycle task = Frozen WantsModel operations \/ task_lifecycle task = Stopped WantsModel operations) ->
- let cancelled := Tasks.promote (with_activity Idle (append_history
+ let cancelled := TaskWake.promote (with_activity Idle (append_history
    [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task)) in
  DecisionComposition.run (A.observe_manual before id) result =
  DecisionComposition.follow result (A.cancel id cancelled (A.current_entry id (A.registry (K.decision_world result)))

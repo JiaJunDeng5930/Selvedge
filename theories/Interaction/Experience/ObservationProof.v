@@ -1,7 +1,10 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Workspace.
-From Selvedge.Interaction Require Import Codec Resource Services CommandAssessment Identity.
+From Selvedge.Interaction Require Import Codec.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services CommandAssessment Identity.
 From Selvedge.Interaction.Session Require Draft State.
 From Selvedge.Interaction.Submission Require Parameters Values.
 From Selvedge.Interaction.Experience Require Import Model Activity Observation.

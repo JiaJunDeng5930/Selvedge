@@ -27,6 +27,8 @@ foreign code interprets effects and translates external data. Reuse shared
 field and command descriptions, indexed types and generic operations rather than
 maintaining repeated structural facts. Keep computational modules independent of
 MetaRocq and proof automation to preserve useful incremental checking.
+Find the existing construction interfaces and their applicability in
+[theories/Programming](theories/Programming/README.md).
 
 Assign every desired property one earliest sufficient assurance owner:
 construction and domain languages, then types and proofs, then public end-to-end

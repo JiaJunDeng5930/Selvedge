@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Interaction Require Import Codec Identity Resource Services ObjectActions.
+From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services ObjectActions.
 From Selvedge.Interaction Require CommandAssessment.
 From Selvedge.Interaction.Session Require State.
 Open Scope string_scope.

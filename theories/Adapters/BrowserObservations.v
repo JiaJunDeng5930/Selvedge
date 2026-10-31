@@ -1,6 +1,6 @@
+From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Kernel Require ModelDeclarations.
+From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
@@ -21,23 +21,23 @@ Definition request_plan (source : json) : json :=
   let request := get source "observation" in
   if negb (is_object request) then type_error "Expected an observation request"
   else if String.eqb (observation_kind request) "streams" && field_count_is 1 request then
-    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_streams [!!]))
+    success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_streams [!!]))
   else if String.eqb (observation_kind request) "workspace-git" &&
       request_count_is 2 request then
     match (match string_field "primary" request with Some "" => string_field "cwd" source | selected => selected end) with
-    | Some primary => success (ModelDeclarations.encode_packet
-        (ModelDeclarations.pack ModelResultDeclarations.browser_workspace_git [!primary;field "task_id" request!]))
+    | Some primary => success (Variant.encode_packet
+        (Variant.pack ModelResultDeclarations.browser_workspace_git [!primary;field "task_id" request!]))
     (* DEFENSE: A non-text primary, or an empty primary without a text cwd,
        cannot supply the declared workspace root. *)
     | None => type_error "Expected a workspace root" end
   else if String.eqb (observation_kind request) "browse-directories" && request_count_is 2 request then
-    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_browse_directories
+    success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_browse_directories
       [!get request "path";empty_requested_path request;get source "project_root";field "task_id" request!]))
   else if String.eqb (observation_kind request) "directories" && request_count_is 2 request && truthy (get request "workspace") then
-    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_directories
+    success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_directories
       [!get request "workspace";field "task_id" request!]))
   else if String.eqb (observation_kind request) "skill-catalog" && request_count_is 2 request && truthy (get request "workspace") then
-    success (ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.browser_skill_catalog
+    success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_skill_catalog
       [!get request "workspace";field "task_id" request!]))
   else type_error "Unknown browser observation".
 

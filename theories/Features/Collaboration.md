@@ -33,12 +33,12 @@ preservation to the production functions.
 
 ## Declared handoffs
 
-[TaskGraph.v](TaskGraph.v) accepts checked declarations before installation.
-The same admission predicate serves parsed JSON and ordinary Gallina producers
-such as `paired` and `compose`. Composition still requires admission: combining
-two valid declarations can introduce duplicate keys or exceed graph bounds.
-Task existence and Work membership depend on the current world and are checked
-during installation. A failed node creation rolls back the whole installation.
+[TaskGraph.v](TaskGraph.v) checks declaration keys, references and combined
+message sizes before installation; typed field declarations retain the syntax
+bounds. Task existence and Work membership are checked against the original
+world while preparing node plans. Every node must be admitted before
+installation creates any Task, so a refused node leaves the world and effects
+unchanged.
 
 Installed graphs route subsequent fresh plain assistant replies. Installation
 does not replay history. Interactive output and replies containing tool calls

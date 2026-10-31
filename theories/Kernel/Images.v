@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain ContentDeclarations.
 Import ListNotations.
 Open Scope string_scope.

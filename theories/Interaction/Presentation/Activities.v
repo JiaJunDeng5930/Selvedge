@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Import Codec Identity Input Context.
@@ -7,7 +9,8 @@ From Selvedge.Interaction Require Services.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Session Require State Draft.
 From Selvedge.Interaction.Submission Require Parameters Values.
-From Selvedge.Interaction.Presentation Require Import Surface Model Construction Composer Editors Projection.
+From Selvedge.Programming.Presentation Require Import Surface Model Construction Composer.
+From Selvedge.Interaction.Presentation Require Import Editors Projection.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.

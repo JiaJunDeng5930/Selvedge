@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects Schema Utf8.
+From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Context Domain Codec.
 Import ListNotations.
 Open Scope string_scope.

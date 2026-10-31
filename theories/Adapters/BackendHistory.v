@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json CallWire TextJson JsonObjects.
 From Selvedge.Kernel Require Import Images ContextProtocol Conversation HistoryRole.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

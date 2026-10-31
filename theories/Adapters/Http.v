@@ -1,6 +1,7 @@
+From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Adapters Require Import Common Observation Audio.
@@ -35,12 +36,12 @@ Definition matches_route (source : json) (route : route) :=
   (negb (starts (ModelResultDeclarations.http_action_name route.(route_target)) "remote_") || String.eqb (str source "search") "").
 Definition selected_route (source : json) := find (matches_route source) routes.
 Definition action (kind : ModelResultDeclarations.http_action) :=
- ModelDeclarations.encode_packet (ModelResultDeclarations.http_action_packet kind).
+ Variant.encode_packet (ModelResultDeclarations.http_action_packet kind).
 Definition rejection (status : N) (code message : string) :=
- ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_respond
+ Variant.encode_packet (Variant.pack ModelResultDeclarations.http_respond
  [!status;JObject [("ok",JBool false);("error",JObject [("code",JString code);("message",JString message)])]!]).
 Definition exception (kind : ModelResultDeclarations.exception_kind) (message : string) :=
- ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_throw
+ Variant.encode_packet (Variant.pack ModelResultDeclarations.http_throw
  [!ModelResultDeclarations.exception_value kind;message!]).
 Definition unknown_route := rejection 404 "not_found" "Unknown local endpoint".
 Definition action_named (target : string) :=
@@ -125,7 +126,7 @@ Definition local_target (source : json) :=
   then (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_download)
   else match selected_route source with Some route => (ModelResultDeclarations.http_action_name route.(route_target)) | None => audio_target source end.
 Definition content_target (target : ModelResultDeclarations.http_body_target) :=
- ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_observe_content_type [!target!]).
+ Variant.encode_packet (Variant.pack ModelResultDeclarations.http_observe_content_type [!target!]).
 Definition remote_path (source : json) := existsb (fun route =>
   starts (ModelResultDeclarations.http_action_name route.(route_target)) "remote_" && String.eqb (str source "pathname") route.(route_path)) routes.
 Definition unknown_local (source : json) :=
@@ -179,8 +180,8 @@ Definition body_error (target : string) := exception ModelResultDeclarations.Typ
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then "Account refresh takes an empty object"
    else "A browser command contains only command").
 Definition body_action (target : ModelResultDeclarations.http_body_target) (value : option json) :=
- ModelDeclarations.encode_packet
-   (ModelDeclarations.pack (ModelResultDeclarations.http_body_declaration (proj1_sig target)) [!value!]).
+ Variant.encode_packet
+   (Variant.pack (ModelResultDeclarations.http_body_declaration (proj1_sig target)) [!value!]).
 Definition body_stage (body : bool) (source : json) :=
   match body_target source with
   | None => unknown_route
@@ -198,10 +199,10 @@ Definition body_stage (body : bool) (source : json) :=
     | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
     end
   end end.
-Definition audio_limits := ModelDeclarations.encode_packet (ModelDeclarations.pack ModelDeclarations.audio_allowed
+Definition audio_limits := Variant.encode_packet (Variant.pack ModelDeclarations.audio_allowed
  [!Audio.asr_max_bytes;Audio.request_timeout_ms;Audio.connect_timeout_ms;Audio.session_max_ms!]).
-Definition audio_reject (message : string) := ModelDeclarations.encode_packet
- (ModelDeclarations.pack ModelDeclarations.audio_rejected [!message!]).
+Definition audio_reject (message : string) := Variant.encode_packet
+ (Variant.pack ModelDeclarations.audio_rejected [!message!]).
 Definition audio_admission (source : json) :=
   let kind := str source "kind" in
   if String.eqb kind "create" then

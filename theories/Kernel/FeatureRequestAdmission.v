@@ -1,7 +1,10 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Registry OptionList.
-From Selvedge.Kernel Require CommandResult.
-From Selvedge.Kernel Require Import Domain State Tasks TaskScope ChatgptArguments.
+From Selvedge.Foundation Require Import Json Utf8 Registry.
+From Selvedge.Programming Require Import OptionObservation.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Kernel Require Import Domain State Tasks.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import ChatgptArguments.
 From Selvedge.Features Require Import Domain Observation Titles WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
@@ -62,12 +65,8 @@ Definition resolved_job {before identity project request}
  connection_job identity project request (resolved_arguments resolved)
    (resolved_grant resolved) (resolved_target resolved).
 
-Definition observe := @OptionList.observe.
+Definition observe := @OptionObservation.observe.
 Arguments observe {A B}.
-Definition require {A : Type} (condition : bool) (accepted : condition = true -> CommandResult.result A)
- (code message : string) : CommandResult.result A :=
- match condition as found return condition = found -> CommandResult.result A with
- | true => accepted | false => fun _ => CommandResult.refuse code message end eq_refl.
 Inductive connection_resolution (before : world) (owner project : N) (request : string) :=
  | ExistingConnection (identity : N) (job : F.connection_job)
  | NewConnection (resolved : resolved_connection before owner project request).
@@ -79,7 +78,7 @@ Definition resolve_connection identity project (request : ChatgptArguments.reque
  let request := ChatgptArguments.request_text request in
  observe (connection_authority identity project (sharing_registry before)) (fun grant Authority =>
  observe (connection_project project before) (fun target Project =>
- require (connection_has_primary target) (fun Primary =>
+ CommandResult.require (connection_has_primary target) (fun Primary =>
  observe (connection_retry identity request (sharing_registry before)) (fun pair _ =>
    let '(id,job) := pair in
    if N.eqb identity (F.job_connection job) && N.eqb project (F.job_project job) &&
@@ -89,8 +88,8 @@ Definition resolve_connection identity project (request : ChatgptArguments.reque
  (fun Retry =>
    (* DEFENSE: Only a new physical execution needs an available managed root;
       replaying its retained receipt must remain possible while archiving. *)
-   require (connection_workspace target before) (fun Workspace =>
-   require (connection_capacity before) (fun Capacity =>
+   CommandResult.require (connection_workspace target before) (fun Workspace =>
+   CommandResult.require (connection_capacity before) (fun Capacity =>
      CommandResult.Accepted (NewConnection (ResolvedConnection before identity project request
        arguments grant target Authority Project Primary Retry Workspace Capacity)))
    "operation_capacity" "Forget a completed operation before starting more work")

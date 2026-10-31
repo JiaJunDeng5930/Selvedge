@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Numbers.
 Open Scope N_scope.
 Definition minimum_window : N := 4096.

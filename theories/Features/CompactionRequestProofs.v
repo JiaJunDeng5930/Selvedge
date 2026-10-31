@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Registry RegistryProofs OptionListProofs ReceiverProofs.
-From Selvedge.Kernel Require Import Domain State TicketedRequest TaskScopeProofs.
+From Selvedge.Programming Require TaskScope.
+From Selvedge.Foundation Require Import Json Registry RegistryProofs.
+From Selvedge.Programming Require Import OptionObservationProofs ReceiverProofs.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import FeatureRequest TaskScopeProofs.
 From Selvedge.Features Require Import CompactionRequest.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -51,7 +54,7 @@ Proof.
    unfold find_task, put_task, with_tasks; cbn.
    eapply registry_replace_selected. exact (TaskScope.observed (S.maintenance_context_target request)).
  - split; [|reflexivity].
-   unfold S.compaction_entry,S.put_compaction,TicketedRequest.Scoped.install_feature,S.compaction_slot,S.compaction_entries,
+   unfold S.compaction_entry,S.put_compaction,FeatureRequest.install_feature,S.compaction_slot,S.compaction_entries,
      Receiver.field,Receiver.inject,Receiver.keyed,Receiver.install,with_features,set; cbn.
    rewrite N.eqb_refl. eexists; split; reflexivity.
 Qed.

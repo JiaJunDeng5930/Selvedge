@@ -1,9 +1,11 @@
-From Selvedge.Kernel Require CommandResult.
-From Selvedge.Kernel Require Import TaskScope TaskChange.
+From Selvedge.Programming Require TaskResult.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Programming Require Import TaskScope TaskChange.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 FreshNames Refinement.
+From Selvedge.Foundation Require Import Json Utf8 FreshNames.
+From Selvedge.Programming Require Import Refinement.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 Import ListNotations.
 Open Scope string_scope.
@@ -164,27 +166,9 @@ Definition resolve_start (entry : creation_entry) (name : string) (reasoning : o
      end
    end
  end.
-Record birth_result (before : world) := BirthResult {
- birth_id : N;
- birth_task : task;
- birth_world : world;
- birth_fresh : birth_id = next_task before;
- birth_tasks : world_tasks birth_world = world_tasks before ++ [birth_task];
- birth_sequence : world_sequence birth_world = world_sequence before;
- birth_ticket : world_next_ticket birth_world = world_next_ticket before;
- birth_environment : world_environment birth_world = world_environment before;
- birth_projects : world_projects birth_world = world_projects before;
- birth_features : world_features birth_world = world_features before
-}.
-Arguments birth_id {before}.
-Arguments birth_task {before}.
-Arguments birth_world {before}.
 Definition start_task (plan : resolved_start) :=
  make_task (start_profile plan) (start_settings plan) (start_contents plan)
    (start_idle plan) (start_environment plan).
-Definition birth_prepared (created : task) (value : world) : birth_result value :=
- BirthResult value (next_task value) created (append_task created value)
-   eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl.
 Definition queue (contents : content) (value : task) :=
  TaskChange.apply [TaskChange.AppendQueued contents] value.
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
@@ -316,60 +300,6 @@ Definition control_result (id : N) (command : control) (before : world) :=
    end end.
 Definition control_command (id : N) (command : control) (value : world) :=
  CommandResult.decide value (control_result id command value).
-Definition promote_changes (task : task) : list TaskChange.edit :=
- match task_lifecycle task, task_queued task with
- | Running Idle operations, first :: rest | Running (PendingCalls []) operations, first :: rest
- | Running WantsModel operations, first :: rest =>
-   [TaskChange.ChangePhase WantsModel; TaskChange.ReplaceQueued [];
-    TaskChange.AppendHistory (map UserMessage (first :: rest))]
- | Stopped Idle operations, first :: rest | Stopped (PendingCalls []) operations, first :: rest =>
-   [TaskChange.ChangePhase Idle; TaskChange.ReplaceQueued [];
-    TaskChange.AppendHistory (map UserMessage (first :: rest))]
- | _,_ => [] end.
-Definition promote (task : task) := TaskChange.apply (promote_changes task) task.
-Definition wake_after_result_changes (task : task) : list TaskChange.edit :=
- match task_lifecycle task with
- | Running Idle _ | Frozen Idle _ => [TaskChange.ChangePhase WantsModel]
- | _ => promote_changes task end.
-Definition wake_after_result (task : task) := TaskChange.apply (wake_after_result_changes task) task.
-(* A result transition records whether it calls the shared wake operation.
-   Its interpreter also preserves that demand when maintenance temporarily
-   owns the task's ObservingContext phase. Callers cannot separate those two
-   consequences of an actual wake. *)
-Inductive result_update := KeepDemand (changes : list TaskChange.edit) | WakeDemand (changes : list TaskChange.edit).
-Definition result_changes (update : result_update) (current : task) := match update with
- | KeepDemand changes => changes
- | WakeDemand changes => changes ++ wake_after_result_changes (TaskChange.apply changes current) end.
-Definition prefix_result (prefix : list TaskChange.edit) (update : result_update) := match update with
- | KeepDemand changes => KeepDemand (prefix ++ changes)
- | WakeDemand changes => WakeDemand (prefix ++ changes) end.
-Definition wake_context_entry (owner ticket : N) (pair : N * Selvedge.Features.CompactionTypes.entry) :=
- let '(id,entry) := pair in
- if N.eqb owner id then match Selvedge.Features.CompactionTypes.entry_job entry with
-   | Selvedge.Features.CompactionTypes.AwaitingContext expected purpose demand =>
-     if N.eqb ticket expected then (id, set Selvedge.Features.CompactionTypes.entry_job
-       (fun _ => Selvedge.Features.CompactionTypes.AwaitingContext expected purpose true) entry) else pair
-   | _ => pair end else pair.
-Definition mark_context_wake (owner : N) (current : task) (value : world) :=
- match task_lifecycle current with
- | Running (ObservingContext ticket _) _ | Frozen (ObservingContext ticket _) _ =>
-   let features := world_features value in
-   let state := Selvedge.Features.Domain.feature_compaction features in
-   let entries := map (wake_context_entry owner ticket) (Selvedge.Features.CompactionTypes.maintenance_entries state) in
-   with_features (Selvedge.Features.State.with_compaction
-     (set Selvedge.Features.CompactionTypes.maintenance_entries (fun _ => entries) state) features) value
- | _ => value end.
-Definition apply_result (owner : N) (current : task) (update : result_update) (before : world) :=
- let value := put_task owner (TaskChange.apply (result_changes update current) current) before in
- match update with
- | KeepDemand _ => value
- | WakeDemand _ => mark_context_wake owner current value end.
-Definition interpret_result {before} (target : TaskScope.task_reference before) (update : result_update) :=
- apply_result (TaskScope.owner target) (TaskScope.selected target) update before.
-Definition commit_result (id : N) (update : task -> result_update) (before : world) :=
- match TaskScope.select id before with
- | Some target => interpret_result target (update (TaskScope.selected target))
- | None => before end.
 Definition cancel_operation (id operation_id : N) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
@@ -377,9 +307,11 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
    match find (fun operation => N.eqb operation_id (Domain.operation_id operation)) (task_operations task) with
    | None => reject "operation_not_found" "The operation is not live in this task" value
    | Some operation =>
-     let changes := [TaskChange.CancelOperation operation] in
+     let changes := [TaskChange.Edit
+       (TaskChange.update (TaskChange.RemoveOperation (Domain.operation_id operation)))
+       (Some [History.cancelled_operation operation])] in
      accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
-      (interpret_result target (WakeDemand changes))
+      (TaskResult.interpret_result target (TaskResult.WakeDemand changes))
       (match operation_stage operation with
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]
        | Granted _ | AfterHooksReady _ _ _ => [] end)

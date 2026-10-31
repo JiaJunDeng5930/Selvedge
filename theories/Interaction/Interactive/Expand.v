@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Interaction.Interactive Require Import Decimal Expression Syntax Local Sources Vocabulary Registry Types State.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope nat_scope.
@@ -17,7 +20,7 @@ Definition key_value j:=match j with
  |JString s=>if String.eqb s ""then None else Some("s:"++TextJson.quote s)
  |JNumber _=>match decimal_value j with Some d=>if Decimal.integral d then Some("n:"++Decimal.text d)else None|None=>None end
  |_=>None end.
-Definition collection_keys path xs:=Sources.traverse(fun x=>from_option "Collection key must be a nonempty string or integer"(key_value(get_path path x)))xs.
+Definition collection_keys path xs:=Outcome.traverse(fun x=>from_option "Collection key must be a nonempty string or integer"(key_value(get_path path x)))xs.
 Definition collection_valid path xs:=valid_field_path path&&match collection_keys path xs with Good keys=>Schema.unique_names keys|_=>false end.
 Definition chart_rows_valid x y rows := forallb(fun row=>
  (match get_path x row with JString _|JNumber _=>true|_=>false end) &&

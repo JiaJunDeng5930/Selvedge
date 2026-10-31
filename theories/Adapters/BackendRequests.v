@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json TextJson CallWire.
 From Selvedge.Kernel Require Import NativeTools ModelCapabilities.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory ProviderCompaction.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

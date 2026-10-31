@@ -15,7 +15,7 @@ Inductive activity_request := PropertyActivity (kind : property_kind)
 
 Record assignment (e : editor) := Assignment {
   assignment_subject : subject e;
-  assignment_value : Selvedge.Foundation.Schema.denote (subject_kind assignment_subject)
+  assignment_value : Selvedge.Programming.Schema.denote (subject_kind assignment_subject)
 }.
 Arguments Assignment {e}.
 Arguments assignment_subject {e}.

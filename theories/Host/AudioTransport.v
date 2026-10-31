@@ -1,7 +1,8 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Kernel Require Import ModelDeclarations ModelResultDeclarations.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Selvedge.Host Require Import AudioConnection AudioState.
 Import ListNotations.
 Open Scope string_scope.
@@ -21,12 +22,12 @@ Record transport_state := TransportState {
   serial : N
 }.
 Definition primitive_packet effect := match effect with
-  | Connect attempt => ModelDeclarations.pack ModelResultDeclarations.audio_transport_connect [!attempt!]
-  | Retry attempt delay => ModelDeclarations.pack ModelResultDeclarations.audio_transport_retry [!attempt;delay!]
-  | Ready => ModelDeclarations.pack ModelResultDeclarations.audio_transport_ready [!!]
-  | Emit event => ModelDeclarations.pack ModelResultDeclarations.audio_transport_emit [!event!]
-  | Close event => ModelDeclarations.pack ModelResultDeclarations.audio_transport_close [!event!] end.
-Definition primitive_json effect := ModelDeclarations.encode_packet (primitive_packet effect).
+  | Connect attempt => Variant.pack ModelResultDeclarations.audio_transport_connect [!attempt!]
+  | Retry attempt delay => Variant.pack ModelResultDeclarations.audio_transport_retry [!attempt;delay!]
+  | Ready => Variant.pack ModelResultDeclarations.audio_transport_ready [!!]
+  | Emit event => Variant.pack ModelResultDeclarations.audio_transport_emit [!event!]
+  | Close event => Variant.pack ModelResultDeclarations.audio_transport_close [!event!] end.
+Definition primitive_json effect := Variant.encode_packet (primitive_packet effect).
 Definition primitive_of source := let kind := str source "type" in
   if String.eqb kind "connect" then Connect (num source "attempt")
   else if String.eqb kind "retry" then Retry (num source "attempt") (num source "delay")

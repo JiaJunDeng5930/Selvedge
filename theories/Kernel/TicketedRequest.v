@@ -1,10 +1,11 @@
-From Selvedge.Kernel Require Import TaskScope RequestReceiver.
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskChange.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import RequestReceiver.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects OptionList Receiver Schema.
+From Selvedge.Foundation Require Import Json JsonObjects OptionList.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
 From Selvedge.Features Require Import WorkspaceBinding State.
-From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -35,21 +36,6 @@ Definition publish_operations current := TaskChange.apply (publication_changes c
 Definition last_configuration := ReasoningPlan.last_configuration.
 Definition trailing_configuration := ReasoningPlan.trailing_configuration.
 Definition generation := ReasoningPlan.generation.
-Inductive identity_space := TaskTicket | ConnectionIdentity.
-Definition next_identity (space : identity_space) (before : world) :=
- match space with
- | TaskTicket => world_next_ticket before
- | ConnectionIdentity => Selvedge.Features.Domain.sharing_next
-     (Selvedge.Features.Domain.feature_sharing (world_features before)) end.
-Definition allocate_identity (space : identity_space) (before : world) : N * world :=
- let identity := next_identity space before in
- (identity, match space with
- | TaskTicket => with_ticket (N.succ identity) before
- | ConnectionIdentity => with_features
-   (Selvedge.Features.State.with_sharing
-     (set Selvedge.Features.Domain.sharing_next (fun _ => N.succ identity)
-       (Selvedge.Features.Domain.feature_sharing (world_features before)))
-     (world_features before)) before end).
 
 Module Scoped.
 Import TaskScope.
@@ -134,8 +120,8 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
  let current := selected target in
  match intent value with
  | ObserveTask publish =>
-   let prepared := if publish then Tasks.promote_changes current ++
-     publication_changes (Tasks.promote current) else [] in
+   let prepared := if publish then TaskWake.promote_changes current ++
+     publication_changes (TaskWake.promote current) else [] in
    let captured := TaskChange.apply prepared current in
    (prepared ++ [TaskChange.ChangePhase (ObservingContext ticket (List.length (task_history captured)))],
     [ObserveContext owner ticket captured])
@@ -154,7 +140,7 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
  | StartCall tool invocation remaining authority =>
    let begin stage := opening_changes (Operation ticket invocation false stage) remaining in
    let wait actor := let changes := begin (AwaitingApproval ticket actor) in
-     changes ++ Tasks.promote_changes (TaskChange.apply changes current) in
+     changes ++ TaskWake.promote_changes (TaskChange.apply changes current) in
    match authority with
    | Ordinary => (begin (Executing ticket),
      [ExecuteTool owner ticket ticket tool invocation (task_current_settings current) DefaultAccess])
@@ -166,7 +152,7 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
    end
  | ResumeOperation operation tool reviewer =>
    let changes := [TaskChange.ChangeOperationStage (operation_id operation) (Elevated ticket reviewer)] in
-   (changes ++ Tasks.wake_after_result_changes (TaskChange.apply changes current),
+   (changes ++ TaskWake.wake_after_result_changes (TaskChange.apply changes current),
     [ExecuteTool owner ticket (operation_id operation) tool (operation_call operation)
       (task_current_settings current) ElevatedAccess])
  | AfterOperation operation plugin pending result error =>
@@ -180,7 +166,7 @@ Definition issue {before} (value : plan before) :=
  let '(changes,effects) := build value ticket in
  let installed := put_task (owner target) (TaskChange.apply changes (selected target)) allocated in
  let installed := match intent value with
- | ResumeOperation _ _ _ => Tasks.mark_context_wake (owner target) (selected target) installed
+ | ResumeOperation _ _ _ => TaskWake.mark_context_wake (owner target) (selected target) installed
  | _ => installed end in
  accept (JObject [("accepted",JBool true)]) installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
@@ -270,69 +256,5 @@ Definition run {before} (candidate : option (plan before)) :=
  (* DEFENSE: A task or operation can disappear before a callback is handled;
     lifecycle, phase or resource admission can also refuse a new request. *)
  | None => State.ignored before end.
-(* Feature requests extend the same before-indexed request family. An action
-   records its receiver and frozen domain input once; callers cannot choose an
-   effect independently of the receiver installed by the interpreter. *)
-Module F := Selvedge.Features.Domain.
-Module FS := Selvedge.Features.State.
-Definition board_contents : Focus.t F.board (list (option F.card) * list N).
-Proof.
- refine (Focus.Focus _ _ _
-   (fun board => ((F.board_cards board,F.board_order board),
-     (F.board_agents board,F.board_agent_order board,F.board_automatic board,F.board_draft_profile board)))
-   (fun parts => let '((cards,order),(agents,agent_order,automatic,profile)) := parts in
-     F.Board cards order agents agent_order automatic profile) _ _).
- - intros []; reflexivity.
- - intros [[cards order] [[[agents agent_order] automatic] profile]]; reflexivity.
-Defined.
-Definition card_slot owner := Receiver.field F.feature_board
- (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).
-Definition connection_jobs := Receiver.field F.sharing_jobs
- (Receiver.keyed (@fst N F.connection_job)).
-Definition connection_slot := Receiver.field F.feature_sharing connection_jobs.
-Definition install_feature {input} (receiver : Receiver.t F.state input) request value :=
- with_features (Receiver.install receiver request (world_features value)) value.
-Definition put_card owner := install_feature (card_slot owner).
-Definition put_connection identity job := install_feature connection_slot (identity,job).
-(** A channel consumes a domain selection. Its payload and located protocol
-    are projections of that one selection; only domain-specific eligibility is
-    part of the source. Allocation and receiver installation belong here. *)
-Record feature_channel (source : world -> Type) (payload : Type) := FeatureChannel {
- channel_space : identity_space;
- channel_input : forall before, source before -> payload;
- channel_protocol : forall before, source before ->
-   RequestTypes.located payload (world_features (snd (allocate_identity channel_space before)))
-}.
-Arguments FeatureChannel {source payload}.
-Arguments channel_space {source payload}.
-Arguments channel_input {source payload} _ {before}.
-Arguments channel_protocol {source payload} _ {before}.
-Record feature_plan (before : world) := FeaturePlan {
- feature_source : world -> Type;
- feature_payload : Type;
- feature_protocol : feature_channel feature_source feature_payload;
- feature_selected : feature_source before
-}.
-Arguments FeaturePlan {before feature_source feature_payload}.
-Arguments feature_source {before}.
-Arguments feature_payload {before}.
-Arguments feature_protocol {before}.
-Arguments feature_selected {before}.
-Definition feature_input {before} (request : feature_plan before) :=
- channel_input (feature_protocol request) (feature_selected request).
-Definition feature_envelope {before} (request : feature_plan before) :=
- RequestEnvelope.Envelope (next_identity (channel_space (feature_protocol request)) before) (feature_input request).
-Definition feature_request {before} (request : feature_plan before) :=
- RequestTypes.Packet
-   (RequestTypes.release (channel_protocol (feature_protocol request) (feature_selected request)))
-   (feature_envelope request).
-Definition feature_issue_change {before} (request : feature_plan before) : CommandResult.change :=
- let '(_,allocated) := allocate_identity (channel_space (feature_protocol request)) before in
- let sent := feature_request request in
- CommandResult.Change (JObject [("accepted",JBool true)])
-   (with_features (RequestTypes.install sent (world_features allocated)) allocated)
-   [RequestFeature sent].
-Definition feature_issue {before} (request : feature_plan before) : decision :=
- CommandResult.accept (feature_issue_change request).
 
 End Scoped.

@@ -1,4 +1,6 @@
-From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
+From Selvedge.Programming Require TaskChange.
+From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 From Stdlib Require Import String List Bool Ascii NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec Conversation OutputClassification Callbacks State Tasks Inputs.

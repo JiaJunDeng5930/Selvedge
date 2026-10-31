@@ -1,6 +1,9 @@
 From Stdlib Require Import List String NArith.
+From Selvedge.Programming Require CommandResult TaskScope.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State TaskScopeProofs Tasks History Codec.
+From Selvedge.Kernel Require Import Numbers Domain State.
+From Selvedge.Programming Require Import TaskScopeProofs.
+From Selvedge.Kernel Require Import Tasks History Codec.
 Import ListNotations.
 Open Scope string_scope.
 

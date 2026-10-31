@@ -3,7 +3,8 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Import Identity Input Services Codec.
 From Selvedge.Interaction.Session Require State Navigation Authoring.
 Module SessionNavigation := Selvedge.Interaction.Session.Navigation.
-From Selvedge.Interaction.Presentation Require Import Surface Model Construction Projection.
+From Selvedge.Programming.Presentation Require Import Surface Model Construction.
+From Selvedge.Interaction.Presentation Require Import Projection.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.

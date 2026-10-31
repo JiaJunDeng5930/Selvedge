@@ -1,9 +1,11 @@
 From Stdlib Require Import String List Bool NArith Lia.
+From Selvedge.Programming Require CommandResult DecisionComposition TaskChange.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs TaskScope TaskScopeProofs
- TaskChangeProofs HistoryProofs NativeTools Scheduler NativeForkCommit NativeForkSchedulingProofs
- ForkCommit ForkCommitProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs.
+From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChangeProofs.
+From Selvedge.Kernel Require Import HistoryProofs NativeTools Scheduler NativeForkCommit NativeForkSchedulingProofs ForkCommit ForkCommitProofs.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.

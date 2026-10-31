@@ -1,8 +1,11 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Foundation Require Import Json RequestEnvelope.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import RequestEnvelope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend ModelRequest.
-From Selvedge.Features Require Import Domain CompactionTypes RequestTypes.
+From Selvedge.Features Require Import Domain CompactionTypes.
+From Selvedge.Features Require State.
+From Selvedge.Programming Require Import RequestTypes.
 Import ListNotations.
 
 Record world := World {
@@ -29,6 +32,22 @@ Definition with_projects (replacement : list project) (value : world) :=
  set world_projects (fun _ => replacement) value.
 Definition with_features (replacement : Selvedge.Features.Domain.state) (value : world) :=
  set world_features (fun _ => replacement) value.
+Inductive identity_space := TaskTicket | ConnectionIdentity.
+Definition next_identity (space : identity_space) (before : world) :=
+ match space with
+ | TaskTicket => world_next_ticket before
+ | ConnectionIdentity => Selvedge.Features.Domain.sharing_next
+     (Selvedge.Features.Domain.feature_sharing (world_features before)) end.
+Definition allocate_identity (space : identity_space) (before : world) : N * world :=
+ let identity := next_identity space before in
+ (identity, match space with
+ | TaskTicket => with_ticket (N.succ identity) before
+ | ConnectionIdentity => with_features
+   (Selvedge.Features.State.with_sharing
+     (set Selvedge.Features.Domain.sharing_next (fun _ => N.succ identity)
+       (Selvedge.Features.Domain.feature_sharing (world_features before)))
+     (world_features before)) before end).
+
 Definition find_task (id : N) (value : world) := registry_at id (world_tasks value).
 Definition put_task (id : N) (replacement : task) (value : world) :=
  with_tasks (replace id replacement (world_tasks value)) value.

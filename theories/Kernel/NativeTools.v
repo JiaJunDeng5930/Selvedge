@@ -1,7 +1,11 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import SchemaJson.
+From Selvedge.Programming Require Import JsonSchema Arguments.
+From Selvedge.Foundation Require Import Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
-From Selvedge.Kernel Require Export CommandDeclarations.
+From Selvedge.Kernel Require CommandDeclarations.
 From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
 From Selvedge.Features Require Import Titles BoardParameters.
 From Selvedge.Generated Require Import Commands.
@@ -62,7 +66,7 @@ Definition natural_bounds (argument : argument_spec) :=
  | _ => argument end.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
  map (fun field =>
-   let argument := CommandDeclarations.refine_argument false (binding_command binding)
+   let argument := Selvedge.Kernel.CommandDeclarations.refine_argument false (binding_command binding)
      (Commands.command_argument (binding_command binding) field) in
    let argument := model_field binding argument in
    if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"

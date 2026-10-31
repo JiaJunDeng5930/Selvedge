@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Callback.
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import CallWire Json Utf8 TextJson.
 From Selvedge.Kernel Require Import ChatgptProtocol ChatgptArguments.
@@ -31,7 +32,7 @@ Definition call_request source := let effect := get source "effect" in let tool_
       ("operation_id",get effect "ticket");("call_id",get (get effect "call") "id")])]) else err "Plugin tool revision is unavailable".
 (** Plugins choose allow, rewrite or deny; transport failures are emitted by the host. *)
 Definition external_hook_choice {Allow Rewrite Failure : Set}
- (value : (Allow + (Rewrite + (D.denote (CD.reason "deny" (CD.diagnostic_text ModelDeclarations.Hook)) + Failure)))%type) :=
+ (value : (Allow + (Rewrite + (D.denote (CD.reason "deny" (Callback.diagnostic_text ModelDeclarations.Hook)) + Failure)))%type) :=
  match value with
  | inl _ | inr (inl _) => true
  | inr (inr (inl reason)) => Utf8.nonblank (proj1_sig (fst (snd (proj1_sig reason))))

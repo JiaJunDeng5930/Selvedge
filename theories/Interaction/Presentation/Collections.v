@@ -6,7 +6,8 @@ From Selvedge.Interaction Require ModelSelection.
 From Selvedge.Interaction.Experience Require Observation.
 From Selvedge.Interaction Require Import Codec Identity Input ObjectActions.
 From Selvedge.Interaction.Session Require State Observation Authoring.
-From Selvedge.Interaction.Presentation Require Import Surface Model Construction Projection Navigation.
+From Selvedge.Programming.Presentation Require Import Surface Model Construction.
+From Selvedge.Interaction.Presentation Require Import Projection Navigation.
 From Selvedge.Interaction.Presentation Require Roles Information Composition.
 Import ListNotations.
 Open Scope string_scope.

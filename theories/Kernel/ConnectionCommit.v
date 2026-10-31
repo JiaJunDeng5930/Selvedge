@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import State Inputs DeferredCommit.
+From Selvedge.Kernel Require Import State Inputs.
+From Selvedge.Kernel Require Import DeferredCommit.
 From Selvedge.Features Require Import Chatgpt.
 
 Definition input (decoded : option Inputs.input) : option Commands.chatgpt_exec_payload :=

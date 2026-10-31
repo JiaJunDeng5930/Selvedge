@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Schema.
+From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain BoardFacts Titles.
 From Selvedge.Kernel Require Import State.

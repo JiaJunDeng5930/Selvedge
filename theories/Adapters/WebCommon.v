@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson Utf8 CallWire.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields ObjectMethod.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields ObjectMethod.
 From Selvedge.Adapters Require Export Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -28,8 +28,6 @@ Definition member_subset fields keys := fold_right (fun key rest =>
 Definition required := DeclarationFields.required.
 Definition raw (name : string) := DeclarationFields.optional name D.Any.
 Definition safe_natural := D.Natural 0 9007199254740991.
-Definition project fields {result : Set} (handler : O.arguments fields result)
- (values : D.denote (D.OpenObject fields)) := O.apply fields handler (proj1_sig values).
 Inductive retirement := Active | Cancelled | ConfigurationChanged.
 Definition retirement_code reason := number (match reason with Active => 0 | Cancelled => 1 | ConfigurationChanged => 2 end).
 Definition retirement_declaration := D.Union (map (fun reason => D.Const (retirement_code reason))

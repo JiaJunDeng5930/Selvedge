@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Foundation Require ArgumentDeclaration Utf8.
+From Selvedge.Programming Require ArgumentDeclaration.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Context WorkspacePath.
 Import ListNotations.
 Open Scope string_scope.

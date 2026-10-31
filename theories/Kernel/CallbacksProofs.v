@@ -1,9 +1,12 @@
+From Selvedge.Kernel Require TaskWake.
+From Selvedge.Programming Require TaskChange TaskResult.
+From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import SequenceProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks History Callbacks
- LifecycleProofs RequestReceiver TaskWakeProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks History Callbacks LifecycleProofs RequestReceiver.
+From Selvedge.Kernel Require Import TaskWakeProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -11,9 +14,9 @@ Open Scope list_scope.
    result that woke it, or change the remaining operation rights. *)
 Lemma waking_a_result_preserves_operations_and_only_releases_queued_input :
  forall task,
- task_operations (Tasks.wake_after_result task) = task_operations task /\
+ task_operations (TaskWake.wake_after_result task) = task_operations task /\
  exists released,
- task_history (Tasks.wake_after_result task) =
+ task_history (TaskWake.wake_after_result task) =
    task_history task ++ map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
@@ -23,7 +26,7 @@ Proof.
    calls | invocation plugins calls | checking plugin invocation plugins calls ];
  try destruct calls as [|first_call other_calls];
  destruct queued as [|first rest];
- cbn [Tasks.wake_after_result Tasks.wake_after_result_changes Tasks.promote Tasks.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
+ cbn [TaskWake.wake_after_result TaskWake.wake_after_result_changes TaskWake.promote TaskWake.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
    with_lifecycle with_queued append_history with_history].
  all: split.
  all: try reflexivity.
@@ -53,8 +56,8 @@ Proof.
  rewrite !tool_completed_expression; rewrite Found, Owned.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
- change (Tasks.apply_result id task (OperationEvent.settle operation result error) value)
-   with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+ change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
+   with (TaskWake.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
  cbn [decision_effects decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
  split; [reflexivity|].
@@ -63,7 +66,7 @@ Proof.
    (append_history [History.operation_result operation result error] task)).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (Tasks.wake_after_result settled), released; split.
+ exists (TaskWake.wake_after_result settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
@@ -146,8 +149,8 @@ Qed.
 Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  forall task operations,
  task_lifecycle task = Frozen Idle operations ->
- task_lifecycle (Tasks.wake_after_result task) = Frozen WantsModel operations /\
- task_operations (Tasks.wake_after_result task) = operations.
+ task_lifecycle (TaskWake.wake_after_result task) = Frozen WantsModel operations /\
+ task_operations (TaskWake.wake_after_result task) = operations.
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed] operations Frozen.
  cbn in Frozen; subst lifecycle; split; reflexivity.
@@ -183,8 +186,8 @@ Proof.
  rewrite !tool_completed_expression; rewrite Found, Owned.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
- change (Tasks.apply_result id task (OperationEvent.settle operation result error) value)
-   with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+ change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
+   with (TaskWake.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
  cbn [decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup.
  exists (Callbacks.settle_operation operation result error task); split.

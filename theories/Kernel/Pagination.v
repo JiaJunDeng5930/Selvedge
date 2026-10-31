@@ -1,5 +1,5 @@
 From Stdlib Require Import NArith.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 
 (* Page limits constrain both the public queries and their model-facing tools. *)
 Definition history_limit : N := 100.

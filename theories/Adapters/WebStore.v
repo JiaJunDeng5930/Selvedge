@@ -33,7 +33,7 @@ Record new_request := NewRequest {
  request_profile : json; request_endpoint : json; request_binding : json; request_reset : json }.
 Definition request_fields := [required "body" D.RawObject; raw "invocation"; raw "owner";
  raw "profile"; raw "endpoint"; raw "binding"; raw "reset"].
-Definition request_value := project request_fields (fun body invocation owner profile endpoint binding reset =>
+Definition request_value := O.project request_fields (fun body invocation owner profile endpoint binding reset =>
  NewRequest body (missing invocation) (missing owner) (missing profile) (missing endpoint) (missing binding) (missing reset)).
 Definition prepare_decision action record := success (JObject [("action",JString action);("record",record)]).
 Definition prepare_identity record request :=

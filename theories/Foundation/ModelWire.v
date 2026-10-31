@@ -1,6 +1,9 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Foundation Require Import Json Schema DeclarationFields CallWire.
-From Selvedge.Foundation Require ArgumentDeclaration KeyedCollection.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema DeclarationFields.
+From Selvedge.Foundation Require Import CallWire.
+From Selvedge.Programming Require ArgumentDeclaration.
+From Selvedge.Foundation Require KeyedCollection.
 Import ListNotations.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.

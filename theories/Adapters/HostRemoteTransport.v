@@ -1,40 +1,41 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Host Require Import RemoteTransport.
-From Selvedge.Kernel Require Import ModelDeclarations ModelResultDeclarations.
+From Selvedge.Kernel Require Import ModelResultDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
 Definition state_packet s := match s with
- | Stopped g => ModelDeclarations.pack remote_stopped [!g!]
- | Connecting g tries => ModelDeclarations.pack remote_connecting [!g;tries!]
- | Negotiating g tries => ModelDeclarations.pack remote_negotiating [!g;tries!]
- | Online g last => ModelDeclarations.pack remote_online [!g;last!]
- | Retrying g tries deadline => ModelDeclarations.pack remote_retrying [!g;tries;deadline!]
- | AuthenticationFailed g => ModelDeclarations.pack remote_auth_failed [!g!] end.
-Definition state_json s := ModelDeclarations.encode_packet (state_packet s).
-Definition state_of := ModelDeclarations.decode_cases remote_state_decoders.
+ | Stopped g => Variant.pack remote_stopped [!g!]
+ | Connecting g tries => Variant.pack remote_connecting [!g;tries!]
+ | Negotiating g tries => Variant.pack remote_negotiating [!g;tries!]
+ | Online g last => Variant.pack remote_online [!g;last!]
+ | Retrying g tries deadline => Variant.pack remote_retrying [!g;tries;deadline!]
+ | AuthenticationFailed g => Variant.pack remote_auth_failed [!g!] end.
+Definition state_json s := Variant.encode_packet (state_packet s).
+Definition state_of := Variant.decode_cases remote_state_decoders.
 Definition action_packet action := match action with
- | Connect n => ModelDeclarations.pack remote_connect [!n!]
- | OpenSocket n => ModelDeclarations.pack remote_open [!n!]
- | RetryAt n deadline => ModelDeclarations.pack remote_retry [!n;deadline!]
- | HeartbeatAt n deadline => ModelDeclarations.pack remote_heartbeat [!n;deadline!]
- | MarkOnline n => ModelDeclarations.pack remote_mark_online [!n!]
- | Ping n => ModelDeclarations.pack remote_ping [!n!]
- | Retire => ModelDeclarations.pack remote_retire [!!]
- | MarkStopped => ModelDeclarations.pack remote_mark_stopped [!!]
- | MarkAuthenticationFailed => ModelDeclarations.pack remote_mark_auth_failed [!!] end.
-Definition action_json action := ModelDeclarations.encode_packet (action_packet action).
-Definition observation_of := ModelDeclarations.decode_cases remote_observation_decoders.
+ | Connect n => Variant.pack remote_connect [!n!]
+ | OpenSocket n => Variant.pack remote_open [!n!]
+ | RetryAt n deadline => Variant.pack remote_retry [!n;deadline!]
+ | HeartbeatAt n deadline => Variant.pack remote_heartbeat [!n;deadline!]
+ | MarkOnline n => Variant.pack remote_mark_online [!n!]
+ | Ping n => Variant.pack remote_ping [!n!]
+ | Retire => Variant.pack remote_retire [!!]
+ | MarkStopped => Variant.pack remote_mark_stopped [!!]
+ | MarkAuthenticationFailed => Variant.pack remote_mark_auth_failed [!!] end.
+Definition action_json action := Variant.encode_packet (action_packet action).
+Definition observation_of := Variant.decode_cases remote_observation_decoders.
 Definition settings_of source := Settings (num source "retry_base") (num source "retry_max")
  (num source "heartbeat") (num source "heartbeat_timeout").
-Definition authorization_json s := ModelDeclarations.encode_packet
- (ModelDeclarations.pack (remote_authorization_declaration s) [!!]).
-Definition authorization_of := ModelDeclarations.decode_cases remote_authorization_decoders.
-Definition grant_action_json action := ModelDeclarations.encode_packet
- (ModelDeclarations.pack (remote_authorization_action_declaration action) [!!]).
+Definition authorization_json s := Variant.encode_packet
+ (Variant.pack (remote_authorization_declaration s) [!!]).
+Definition authorization_of := Variant.decode_cases remote_authorization_decoders.
+Definition grant_action_json action := Variant.encode_packet
+ (Variant.pack (remote_authorization_action_declaration action) [!!]).
 Definition call operation source :=
  if String.eqb operation "control.remote.transport_initial" then success (state_json initial)
  else if String.eqb operation "control.remote.authorization_initial" then success (authorization_json FirstCheck)

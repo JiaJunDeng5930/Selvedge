@@ -1,6 +1,7 @@
 From Stdlib Require Import String Ascii Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Foundation Require ArgumentDeclaration Json.
+From Selvedge.Programming Require ArgumentDeclaration.
+From Selvedge.Foundation Require Json.
 Open Scope N_scope.
 
 Inductive controller_id := ControllerId (controller_text : string).
