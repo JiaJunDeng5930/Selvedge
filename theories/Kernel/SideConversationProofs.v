@@ -1,6 +1,6 @@
 From Stdlib Require Import List String NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks History Codec.
+From Selvedge.Kernel Require Import Numbers Domain State TaskScopeProofs Tasks History Codec.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -29,26 +29,32 @@ Theorem successful_open_side_records_private_birth_guidance : forall parent_id c
      (Tasks.fork_child_history (next_task value) parent_id parent (task_current_settings parent) true)) /\
    History.returned_content birth = false.
 Proof.
- intros parent_id contents value successful.
- unfold Tasks.open_side in successful |-.
- destruct (find_task parent_id value) as [parent|] eqn:Found; [|cbn in successful; discriminate].
- destruct (String.eqb (task_status parent) "archived") eqn:Archived; [cbn in successful; discriminate|].
- destruct (Tasks.ancestors_fit (parent_id :: task_lineage parent) 1 value)
-   eqn:Capacity; [|cbn in successful; discriminate].
- exists parent. split; [reflexivity|].
+ intros parent_id contents value.
  unfold Tasks.open_side.
- rewrite Found, Archived, Capacity.
- cbn [Tasks.open_side decision_world accept append_task with_tasks world_tasks].
- split.
- - apply in_or_app. right. simpl. left. reflexivity.
- - split; [reflexivity|].
-   split.
-   + unfold Tasks.fork_child, Tasks.fork_child_history.
-     simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
-   + split.
-     * rewrite <- side_birth_serializes_as_provider_context.
-       apply in_map.
-       unfold Tasks.fork_child, Tasks.fork_child_history.
-       simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
-     * split; [reflexivity|reflexivity].
+ pattern (TaskScope.select parent_id value).
+ apply TaskScopeProofs.selected_reference_elimination.
+ - intros reference Owner successful.
+   cbn beta iota zeta in successful |-.
+   set (parent := TaskScope.selected reference) in *.
+   destruct (String.eqb (task_status parent) "archived") eqn:Archived; [discriminate|].
+   destruct (Tasks.ancestors_fit (parent_id :: task_lineage parent) 1 value)
+     eqn:Capacity; [|discriminate].
+   destruct (Tasks.admit_input reference) as [admitted|reason] eqn:Admission; [|discriminate].
+   exists parent. split.
+   + rewrite <- Owner. exact (TaskScope.observed reference).
+   + cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+       CommandResult.accept decision_world accept append_task with_tasks world_tasks].
+     split.
+     * apply in_or_app. right. simpl. left. reflexivity.
+     * split; [reflexivity|].
+       split.
+       -- unfold Tasks.fork_child, Tasks.fork_child_history.
+          simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
+       -- split.
+          ++ rewrite <- side_birth_serializes_as_provider_context.
+             apply in_map.
+             unfold Tasks.fork_child, Tasks.fork_child_history.
+             simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
+          ++ split; [reflexivity|reflexivity].
+ - intros Missing successful. discriminate.
 Qed.
