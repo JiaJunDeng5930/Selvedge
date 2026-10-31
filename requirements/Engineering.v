@@ -42,6 +42,17 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     over arbitrary types or intentionally describe this project's task state.
     Domain dependence alone is not a reason to invent a more general framework.
 
+    Membership requires a construction that another program can use: identify
+    what its caller supplies, which common operation interprets or combines it,
+    and which properties follow through that interface. State the premises and
+    scope of those properties, distinguishing guarantees enforced by types and
+    definitions from the conclusions of checked theorems. Supporting vocabulary
+    and proofs belong with that construction; they need not be separate paradigms.
+    A reusable function, indexed plan or proof of a fixed business operation is
+    not sufficient by itself. Keep a concrete catalogue, admission policy or
+    business recipe with its domain, including when it uses a shared constructor.
+    Split mixed modules at this boundary without inventing a more general model.
+
     Before reusing one, check that its concepts, admissible values, writable
     state and observations express the requirement. Reuse and compose it when
     they do. When they do not, keep a direct domain model or use another suitable

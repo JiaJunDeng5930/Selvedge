@@ -1,57 +1,92 @@
 # Programming constructions
 
-This directory owns reusable ways to construct programs in Selvedge. Use the
-definitions here to inherit their existing guarantees. The engineering reason
-and applicability rule are in
-[Engineering.v](../../requirements/Engineering.v): choose a construction whose
-semantics fit the domain. Its reuse scope may be arbitrary types or a particular
-project domain; there is no requirement to fit every model into one paradigm.
+A construction belongs here when another program can supply declarations,
+operations, handlers or components and use a common interpretation with stated
+properties. Identify both what the caller supplies and what follows from using
+the interface. Reuse of a fixed business operation, a dependent type or a proof
+alone does not establish this role. Supporting types, interpreters and shared
+proofs stay with their construction; each helper need not be a separate paradigm.
 
-## Existing constructions
+The engineering reason and selection rule are in
+[Engineering.v](../../requirements/Engineering.v). A construction may use concrete
+project types when those types express its intended domain. Do not reshape a
+domain or introduce a more general framework merely to place code here.
 
-| Construction | Start here | Guarantee and scope |
+The tables describe the existing guarantees and their scope. A guarantee from an
+indexed type or a definition is distinguished from a theorem with premises.
+They do not assert that every possible use of the underlying data has the same
+guarantee as the named operation.
+
+## Values, declarations and dispatch
+
+| Construction and caller-supplied variation | Existing guarantee and evidence | Scope and premises |
 | --- | --- | --- |
-| Constrained values and boundary admission | [Refinement.v](Refinement.v), [EncodedObject.v](EncodedObject.v), [JsonSchema.v](JsonSchema.v) | Retain the established constraint or compiled schema with the admitted value. The parser and external schema dialect remain in Foundation. |
-| Declared records and arguments | [Schema.v](Schema.v), [ArgumentDeclaration.v](ArgumentDeclaration.v), [Arguments.v](Arguments.v), [DeclarationFields.v](DeclarationFields.v) | Field values, branches and codecs come from the same declaration; controlled construction retains field uniqueness and admission constraints. |
-| Projections and object handlers | [ArgumentProjection.v](ArgumentProjection.v), [SchemaProjection.v](SchemaProjection.v), [ObjectMethod.v](ObjectMethod.v) | A projection selects a declared source field; handler arguments retain the declaration's value types. Named object methods carry field uniqueness and their admission diagnostic. |
-| Command construction | [CommandFields.v](CommandFields.v), [CommandDeclarations.v](CommandDeclarations.v), [CommandPayload.v](CommandPayload.v) | Internal shape, external admission, host observation and typed dispatch come from the declared command. Concrete command vocabularies stay in Kernel. |
-| Command source generation | [CommandGeneration.v](CommandGeneration.v) | The existing pure builder emits typed payloads, projections and handler dispatch. MetaRocq orchestration stays in Derive; the build checks the generated source and records the generator inputs. |
-| Callback and request protocols | [Callback.v](Callback.v), [Variant.v](Variant.v), [InputRoute.v](InputRoute.v) | Framing, branch values, correlation coordinates and receivers are derived from the selected declaration. A domain supplies its own callback catalogue and diagnostics. |
-| Named declarations and choices | [DeclarationRegistry.v](DeclarationRegistry.v), [FiniteChoice.v](FiniteChoice.v) | Construction requires distinct names; lookup reaches each registered entry, including additions, without shadowing previous names. |
-| Observed values and constructor views | [OptionObservation.v](OptionObservation.v), [Constructor.v](Constructor.v) | Continuations retain the actual observation equality. Constructor views derive their projection; complete-case recognition carries its stronger law. |
-| Local updates | [Focus.v](Focus.v), [Receiver.v](Receiver.v) | A focus retains the unwritable remainder; receiver paths derive address, lookup and installation from the same structure. |
-| Request ownership and completion | [RequestEnvelope.v](RequestEnvelope.v), [Completion.v](Completion.v) | Correlation and receiver selection come from retained requests. Terminal completion cannot reconstruct the pending state through this interface. |
-| Task selection and birth | [TaskScope.v](TaskScope.v), [TaskBirth.v](TaskBirth.v) | A reference retains the task actually found in its source world. A prepared birth receives its fresh identity and preserves the other world fields. |
-| Task edits and result updates | [TaskChange.v](TaskChange.v), [TaskResult.v](TaskResult.v) | Caller-supplied edits retain the task frame and append history. Result updates keep wake behavior coupled to pending context demand. |
-| Card selection | [CardScope.v](CardScope.v), [CardScopeProofs.v](CardScopeProofs.v) | Selection retains its actual world observation; a revision mismatch refuses before the supplied continuation can run. |
-| Issued requests and operation results | [RequestTypes.v](RequestTypes.v), [TicketedRequest.v](TicketedRequest.v), [OperationEvent.v](OperationEvent.v) | A request installs its receiver and emits its correlated effect together; one operation observation determines its receipt and continuation. |
-| Decisions and commit composition | [CommandResult.v](CommandResult.v), [DecisionComposition.v](DecisionComposition.v), [CommitPacket.v](CommitPacket.v), [DeferredCommit.v](DeferredCommit.v) | Refusal carries no candidate update. Composition retains the initiating reply; maintenance also retains prior emissions. Commit construction finalizes the selected outcome. |
-| Asynchronous resource results | [Resource.v](Resource.v) | Arbitrary request and result types share pending-only settlement, matching tickets and retention of the original request. |
-| Error and budget composition | [Outcome.v](Outcome.v), [Metered.v](Metered.v), [MeteredProofs.v](MeteredProofs.v) | Error-aware continuations and traversals compose directly. Budget composition inherits non-increase from the supplied computations; the expression language keeps its own charging policy. |
-| Adapter results and admission stages | [AdapterResult.v](AdapterResult.v), [AdapterResultProofs.v](AdapterResultProofs.v) | Typed results and JSON stages preserve an earlier failure. The JSON stage operation composes already computed values; its admission laws remain with that existing representation. |
-| Shared presentation programs | [Presentation/Model.v](Presentation/Model.v), [Presentation/Surface.v](Presentation/Surface.v), [Presentation/Construction.v](Presentation/Construction.v), [Presentation/Composer.v](Presentation/Composer.v), [Graphics.v](Graphics.v) | Authors construct controls, surface trees and graphics with the existing typed actions, field owners and shared event interpretation. Pages and domain observations supply their concrete content. |
+| [Refinement](Refinement.v): choose a predicate and value; admit or strengthen the constraint. | Successful construction returns the value with evidence of its constraint in the subtype. | Establishes the supplied predicate, whose adequacy remains the domain's responsibility. |
+| [ArgumentDeclaration](ArgumentDeclaration.v): compose constrained values, objects and unions. | `denote` retains the admitted constraints and selected branch; [ArgumentDeclarationProofs](ArgumentDeclarationProofs.v) connects admission to those constraints. | These are internal declaration semantics. The external extension Schema dialect and its limits belong to [ExtensionSchema](../Foundation/ExtensionSchema.v). |
+| [EncodedObject](EncodedObject.v): supply encoded text and a nesting budget. | The abstract admitted value retains the actual parser result; `parsed_members` and `construct_members` relate it to those members. | Applies to the existing text parser and the supplied budget, not arbitrary JSON parsers or physical byte decoding. |
+| [JsonSchema](JsonSchema.v): register an external schema and check values against it. | `registered` retains the original source, compiled declaration and the actual successful compilation equation. Checks use that retained declaration. | Supports the existing extension dialect. It does not promise acceptance or semantic coverage of arbitrary external schema languages. |
+| [Schema](Schema.v): supply field kinds, presence and field values indexed by the schema. | Types align field values with their declarations; [SchemaProofs](SchemaProofs.v) and [ProtocolProofs](ProtocolProofs.v) provide the common codec laws under their stated premises. | A raw list of fields need not have unique names. Codec theorems require their uniqueness and kind hypotheses; `protocol_kinds` excludes integer and decimal kinds. |
+| [Arguments](Arguments.v): supply argument specifications and their descriptions. | Object declarations, admitted values, encoding and schema interpretation use the same specifications. Required, optional and nullable fields follow that interpretation. | Descriptions do not establish additional validation. Admitted values carry the declaration's constraints. |
+| [DeclarationFields](DeclarationFields.v): supply named fields, branch markers and branch fields. | Controlled field and branch construction requires distinct names; branch values cannot overwrite the fixed marker. Packet values are indexed by the selected branch. | Field and marker uniqueness comes from the constructor's evidence, not from arbitrary field lists. |
+| [FiniteChoice](FiniteChoice.v): supply nonempty choices and their spellings. | `declare` requires unique spellings; the admitted enum selects a domain value with the same spelling through `select`. | Applies to this declared set. The meaning of each supplied domain value is not supplied by the spelling. |
+| [DeclarationRegistry](DeclarationRegistry.v): supply entries and their naming function. | The constructor requires unique names. [DeclarationRegistryProofs](DeclarationRegistryProofs.v) proves every entry reachable and extension preserves old selections while reaching new entries. | Covers the registry's lookup. The registered handlers' business behavior is a separate concern. |
+| [SchemaProjection](SchemaProjection.v): select a target schema from a source schema. | The compiled program uses actual source-field positions, so interpretation reads the selected declared fields. | Requires successful compilation through `Available`; an arbitrary getter is not a projection program. |
+| [ArgumentProjection](ArgumentProjection.v): choose a field representation to obtain from an admitted argument. | `field` requires evidence that the representation conversion compiled; generated getters must typecheck with the declared input. | Covers only the conversions supported by this compiler. Not every pair of declarations has such a conversion. |
+| [ObjectMethod](ObjectMethod.v): supply field declarations, a handler and result type. | The handler's argument types come from the same declaration used by `apply`/`invoke`. An `operation` also carries distinct field names. | Uniqueness concerns one operation's fields, not an entire method catalogue. The interface supplies admitted values; it does not prohibit a caller's closure from retaining other data. |
+| [CommandFields](CommandFields.v) and [CommandPayload](CommandPayload.v): declare internal fields, wire admission and host-observed fields; construct proposals or admitted payloads. | The payload index separates proposed internal values from admitted declaration values. Field interpretation follows the supplied declaration and observation mode. | These types alone do not prove that every internal shape is projectable from every admission declaration. The actual generated getters use `ArgumentProjection` to check that relation. |
+| [CommandDeclarations](CommandDeclarations.v): supply a list of command declarations and one handler per branch. | `invocation` and `interpretations` use the same list; `interpret` dispatches each admitted branch to a handler with the matching argument types. Public interpretation omits host-observed slots. | Uses the project's existing command-declaration type. Fixed catalogue lookup, public/observed instances and admission entry points belong to [Kernel.CommandDeclarations](../Kernel/CommandDeclarations.v). |
+| [Callback](Callback.v): supply coordinates, branch layout, diagnostics and result observation. | Construction derives framing and typed branch payloads from one declaration and requires its field-name uniqueness. | The domain supplies result observation and failure interpretation; the construction does not establish that an external observation is true. |
+| [Variant](Variant.v): supply variant tags, payload schemas, callback declarations and correlation projections. | The declaration retains field-name constraints and a compiled projection for the callback coordinates. Packets use that selected variant's fields. | `safe_fields` is caller-supplied metadata, not a theorem that those fields are safe to expose. |
+| [InputRoute](InputRoute.v): supply an object or callback grammar and a handler. | The common decoder only invokes a handler with values admitted by its grammar. A declared registry supplies route-name uniqueness. | Concrete route catalogues and the handlers' authority checks remain with their domains. |
 
-Proof providers sit beside their constructions. `SchemaProofs` and
-`ProtocolProofs` retain their stated codec premises; `DeclarationRegistryProofs`,
-`OptionObservationProofs`, `ReceiverProofs` and `CompletionProofs` constrain the
-shared operations used by consumers. `Focus` and controlled declaration
-constructors also carry laws in their definitions. Reusing an operation does
-not require proving its shared law again.
+The catalogue-specific source builder is
+[Derive.CommandGeneration](../Derive/CommandGeneration.v). Its output names the
+Kernel command catalogue. The build checks the generated declarations and
+records generator inputs; there is no general correctness theorem for the
+string builder itself.
 
-The task constructions deliberately use `Kernel.Domain` and `Kernel.State`.
-Their shared contracts quantify over the edits, channels, continuations or
-prepared values accepted by those interfaces. Start, fork, lifecycle admission,
-scheduling and individual commit plans remain domain operations that use them.
-Keeping that concrete meaning avoids adding a second model of the task world.
+## Selection, updates and requests
 
-The presentation constructions likewise retain the project's subject and action
-vocabulary. `Presentation/SurfaceProofs` constrains their common event handling;
-the domain page recipes, observations and browser interpreter stay at their
-owners. The interactive Markdown language remains a product feature, using the
-shared outcome, budget and graphics constructions where its semantics fit.
+| Construction and caller-supplied variation | Existing guarantee and evidence | Scope and premises |
+| --- | --- | --- |
+| [Constructor](Constructor.v): supply an inductive constructor. | `View` carries `project_inject`; `Case` additionally requires successful recognition to reconstruct the whole stored value. | A `View` alone does not establish complete-case recognition. Consumers requiring that stronger property use `Case`. |
+| [OptionObservation](OptionObservation.v): supply an observation and present/absent continuations. | Each continuation receives the equation for the actual observation; [OptionObservationProofs](OptionObservationProofs.v) provides its elimination laws. | Establishes what was observed, not that the observed value meets unrelated domain conditions. |
+| [Focus](Focus.v): supply a reversible decomposition and local edits. | The interface's inverse laws support selected-value update, composition and retention of the unwritable remainder. | The decomposition must satisfy its inverse laws. Relations between the selected part and its remainder may impose additional domain conditions. |
+| [Receiver](Receiver.v): compose fields, focus, constructor views and keyed/indexed/ordered locations. | Address, lookup and installation are interpreted from the same path. [ReceiverProofs](ReceiverProofs.v) proves installation and preservation at other addresses. | Installation's lookup guarantee requires `positioned`; `At`/`located` retains that evidence for the actual source. A raw path alone does not establish a valid position. |
+| [Completion](Completion.v): supply a pending receiver, correlation and terminal continuation or row amendment. | [CompletionProofs](CompletionProofs.v) proves matching completion, wrong-ticket rejection and consumed-once behavior through the common operations. Terminal construction cannot restore the pending case through that interface. | The pending constructor needs its recognition laws. `Owner` deliberately does not distinguish attempts after a later explicit retry; external result validity stays with the caller. |
+| [TaskScope](TaskScope.v): select a task from a source world for subsequent programs. | The reference retains its actual lookup equation. [TaskScopeProofs](TaskScopeProofs.v) lets consumers use that observation without repeating selection proofs. | A source-world reference does not itself establish lifecycle admission, resources or validity in a different world. |
+| [TaskBirth](TaskBirth.v): supply a prepared task. | [TaskBirthProofs](TaskBirthProofs.v) proves it is installed at the source world's fresh registry index, every other reference is retained and other world fields are preserved. | Task identity is the registry index. The construction installs the supplied task; its contents and creation prerequisites remain with its owner. |
+| [TaskChange](TaskChange.v): supply mutable-field edits, appended history and a selected target. | Its focus excludes the task's creation identity and execution configuration; [TaskChangeProofs](TaskChangeProofs.v) proves append-only history, exact plan installation and preservation of other tasks and world fields. | Arbitrary edits may change the allowed mutable fields. `configure` is the separate explicit interface for admitted execution settings. Completion and cancellation receipt recipes belong to their Kernel operations. |
+| [TaskResult](TaskResult.v): compose edits, prefix additional edits and choose whether the result requests wake. | `interpret_result` applies the result changes and the associated context-demand update together. [TaskResultProofs](TaskResultProofs.v) proves prefix-once behavior and installation of the exact task update. | The guarantee concerns this interpreter/`commit_result`, not applying `result_changes` alone. Lifecycle promotion and compaction-demand policies, with their proofs, belong to [TaskWake](../Kernel/TaskWake.v) and [TaskWakeProofs](../Kernel/TaskWakeProofs.v). |
+| [CardScope](CardScope.v): supply a continuation for a selected card and observed revision. | The reference retains the lookup. [CardScopeProofs](CardScopeProofs.v) proves `with_card` refuses a stale revision atomically for any continuation. | The reference itself carries no revision equation. A successful continuation still owns its authority checks and allowed changes. |
+| [RequestTypes](RequestTypes.v), using [RequestEnvelope](RequestEnvelope.v): supply a payload, receiver, protocol declaration and wire body. | Packet installation and encoding use the same retained request input and correlation identity. The body has the declared wire-field type. | This family uses feature state. A raw packet does not prove that its receiver is positioned; the feature construction below establishes that condition. |
+| [FeatureRequest](FeatureRequest.v): supply a source selection, payload projection and located protocol as a channel. | [FeatureRequestProofs](FeatureRequestProofs.v) proves the emitted request is installed at its receiver and task/project/environment/sequence fields are retained, for every compatible channel. | The receiver location is proven in the feature state after allocation. Allocation rules remain in [Kernel.State](../Kernel/State.v); the source owns project, revision, resource and other domain admission. Concrete card and connection receivers stay in [BoardDrafting](../Features/BoardDrafting.v) and [Chatgpt](../Features/Chatgpt.v). |
+| [CommandResult](CommandResult.v): compose typed accepted/refused results and supply successful changes. | Refusal contains no candidate world/effects. `a_failed_command_is_atomic` and `a_failed_commit_is_atomic` constrain `decide`/`commit`; `require` passes evidence of the accepted condition. | An arbitrary `resolve` continuation is wider than `commit` and is not covered by its failure-atomicity theorem. The caller supplies the condition's business meaning. |
+| [DecisionComposition](DecisionComposition.v): supply transformations or maintenance steps and compose them. | [DecisionCompositionProofs](DecisionCompositionProofs.v) proves transformations retain the initiating reply; maintenance also retains the previous effects as a prefix. | A general transformation may replace effects; the stronger prefix guarantee belongs to maintenance `step`/`run`. Neither interface validates the supplied business update. |
+| [CommitPacket](CommitPacket.v): supply a complete selected outcome, durability flag and source input. | `finalize` retains the selected receipt and advances the durable cursor. `finalize_preserves` lifts any world property stable under sequence replacement. | It does not prove candidate admission, the durability choice, output budget or physical persistence. Those decisions belong to the commit owner. |
 
-Ordinary collection, numeric and text algorithms remain in `Foundation`.
-Concrete protocol catalogues and business rules remain with their domains.
-Dependencies are tracked between source modules: this directory is an ownership
-boundary for constructions, not a rule that every file must depend on a lower
-directory. Keep computation independent of proof automation and requirements.
+The task issuer [TicketedRequest](../Kernel/TicketedRequest.v), tool-result
+interpreter [OperationEvent](../Kernel/OperationEvent.v), and deferred commit
+pipeline [DeferredCommit](../Kernel/DeferredCommit.v) assemble fixed lifecycle,
+authority, hook, delivery and scheduling rules. Their domain proofs stay in
+Kernel. In contrast, a new feature channel supplies a source and located
+protocol without adding a case to the shared feature issuer.
+
+## Interaction and presentation
+
+| Construction and caller-supplied variation | Existing guarantee and evidence | Scope and premises |
+| --- | --- | --- |
+| [Resource](Resource.v): choose request/result types and codecs, then settle a request by ticket. | Existing theorems constrain `settle`: a stale ticket cannot settle it, a non-pending value cannot complete, and accepted success retains the original request. | Ticket freshness, external truth and additional business correlation are responsibilities of the service using the resource. |
+| [Outcome](Outcome.v): supply error-aware continuations and element operations. | `bind` propagates the existing error; `traverse` composes results in input order. These follow from the shared definitions. | Applies to this pure string-error computation; it does not specify physical effect execution. |
+| [Metered](Metered.v): compose computations that return a result and remaining budget. | `met_bind` passes the first computation's remaining budget onward. [MeteredProofs](MeteredProofs.v) proves budget non-increase when the supplied computations are `budget_safe`. | The function type alone permits increasing a budget. Expression charging, exhaustion diagnostics and their additional proofs stay in the expression language. |
+| [AdapterResult](AdapterResult.v): supply typed continuations, encoders or JSON stage results and admission conditions. | Typed composition retains earlier failures. [AdapterResultProofs](AdapterResultProofs.v) relates JSON stage success to the preceding stage and condition. | JSON `next` accepts already computed values; it does not prevent computing a later value or order physical effects. Domain admission predicates remain in their adapters. |
+| [Presentation.Model](Presentation/Model.v) and [Surface](Presentation/Surface.v): provide typed actions, receivers, controls, trees and layers. | Actions can be mapped into a surrounding program while retaining the description. [SurfaceProofs](Presentation/SurfaceProofs.v) constrains unavailable presses, display-only assignment and use of the supplied search confirmation control. | Those theorems concern the named event operations. They do not establish every receiver's business admission, unique node keys or complete enumeration of open text-input actions. |
+| [Presentation.Construction](Presentation/Construction.v) and [Composer](Presentation/Composer.v): compose supplied properties, controls and subtrees. | `composer` keeps supporting controls and the commit control in distinct children, and ties its subject, action unit and assessment to the same editor index. | The index does not establish equal action revisions or the correctness of arbitrary supplied actions. Availability projection, editor-specific labels and button-role choices belong to [Projection](../Interaction/Presentation/Projection.v) and [Editors](../Interaction/Presentation/Editors.v). |
+| [Graphics](Graphics.v): supply geometry, text, tones and hitbox actions; map actions or keys. | Plot dimensions have positive types; relevant primitive dimensions are naturals. The mappings preserve the other geometry by their definitions. | SVG path strings are not verified paths. Types do not establish unique hitbox keys, non-overlap or the meaning of a domain chart. |
+
+Concrete page recipes, observations, service rules and the interactive Markdown
+language retain their domain owners. Ordinary collection, numeric and text
+algorithms remain in Foundation. Dependencies are checked between source
+modules; this directory does not impose a separate model or a directory-wide
+layering rule. Production computation stays independent of requirements and
+proof automation.
