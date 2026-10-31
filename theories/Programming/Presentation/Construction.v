@@ -1,5 +1,5 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Interaction.Presentation Require Import Surface Model.
+From Selvedge.Programming.Presentation Require Import Surface Model.
 From Selvedge.Interaction.Presentation Require Roles Information Composition.
 Import ListNotations.
 Open Scope string_scope.

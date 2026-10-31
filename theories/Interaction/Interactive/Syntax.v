@@ -1,6 +1,7 @@
 From Stdlib Require Import String Ascii List Bool Arith.
 From Selvedge.Foundation Require Import Json Numbers TextJson Utf8.
 From Selvedge.Interaction.Interactive Require Import Bounds Expression Vocabulary.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope nat_scope.

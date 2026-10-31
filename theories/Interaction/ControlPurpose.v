@@ -93,7 +93,7 @@ Definition describe snapshot state input:P.purpose:=match input with
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile
  |Services.OpenDirectory _ _ trigger=>P.OpenPanel "folder"false
-  (match Selvedge.Interaction.Resource.resource_request(Services.directory(State.service_state state))with
+  (match Selvedge.Programming.Resource.resource_request(Services.directory(State.service_state state))with
    |Some request=>String.eqb trigger(Services.directory_trigger request)|None=>false end)|_=>P.NamedAction end
 |Input.SetDisclosure _ _ _ expanded=>P.ShowActivity(negb expanded)
 |Input.RetainedOutput _ toggle=>P.ShowActivity(negb toggle)

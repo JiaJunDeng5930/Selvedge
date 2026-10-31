@@ -2,7 +2,9 @@ From Stdlib Require Import List String Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Input Services.
 From Selvedge.Interaction.Session Require State.
-From Selvedge.Interaction.Presentation Require Import Surface Model Navigation Pages Layers ServiceControls Construction.
+From Selvedge.Programming.Presentation Require Import Surface Model.
+From Selvedge.Interaction.Presentation Require Import Navigation Pages Layers ServiceControls.
+From Selvedge.Programming.Presentation Require Import Construction.
 Import ListNotations.
 Open Scope string_scope.
 

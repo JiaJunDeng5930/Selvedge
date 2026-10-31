@@ -1,12 +1,14 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction Require Import Identity Appearance Graphics CodeSource CodeBlock DocumentPublication Audit.
+From Selvedge.Interaction Require Import Identity Appearance.
+From Selvedge.Programming Require Import Graphics.
+From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication Audit.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture.
-From Selvedge.Interaction.Presentation Require Import Model.
+From Selvedge.Programming.Presentation Require Import Model.
 Import ListNotations.
 Open Scope string_scope.
 

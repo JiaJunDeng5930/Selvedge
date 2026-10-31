@@ -44,7 +44,7 @@ Native modal dialogs supply background inertness, cancellation and focus isolati
 Physical view occurrences scope DOM identities and ID references. They retain the
 same logical editor, document and source authority. `Focus.resolve_target` first
 honors a physical key, then chooses an observed logical alias in the active view.
-Scene-declared focus aliases also keep responsive return targets available.
+Surface-declared focus aliases also keep responsive return targets available.
 Anchored menus refer to their actual trigger and use native CSS anchor positioning.
 Graph templates remain in fixed, internally scrollable node enclosures; their
 owning `Plot` calculation changes geometry without shrinking native controls.

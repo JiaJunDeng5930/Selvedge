@@ -1,14 +1,18 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Import Conversation Streams.
-From Selvedge.Interaction Require Import Codec Identity Origin CodeSource DocumentPublication DocumentState Documents Audit Graphics.
+From Selvedge.Interaction Require Import Codec Identity Origin CodeSource DocumentPublication DocumentState Documents Audit.
+From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Types State Language.
-From Selvedge.Interaction.Presentation Require Import Surface Roles Model Information.
+From Selvedge.Programming.Presentation Require Import Surface.
+From Selvedge.Interaction.Presentation Require Import Roles.
+From Selvedge.Programming.Presentation Require Import Model.
+From Selvedge.Interaction.Presentation Require Import Information.
 Import ListNotations.
 Open Scope string_scope.
-Module S := Selvedge.Interaction.Presentation.Surface.
+Module S := Selvedge.Programming.Presentation.Surface.
 Module R := Selvedge.Interaction.Presentation.Roles.
-Module M := Selvedge.Interaction.Presentation.Model.
+Module M := Selvedge.Programming.Presentation.Model.
 Record actions (Action:Type) := ReadingActions {
  reading_disclosure:N->N->N->bool->Action;
  reading_interactive:Types.input->Action;

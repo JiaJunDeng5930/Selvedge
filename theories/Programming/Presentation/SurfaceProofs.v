@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Interaction.Presentation Require Import Model Surface Gesture.
+From Selvedge.Programming.Presentation Require Import Model Surface.
+From Selvedge.Interaction.Presentation Require Import Gesture.
 From Selvedge.Interaction.Experience Require Model.
 Open Scope string_scope.
 

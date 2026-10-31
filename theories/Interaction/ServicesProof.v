@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Interaction Require Services Resource.
+From Selvedge.Interaction Require Services.
+From Selvedge.Programming Require Resource.
 
 Theorem disconnected_upload_retry_emits_no_effect state ticket:
  Services.connected state=false ->

@@ -2,17 +2,23 @@ From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Interaction Require Import Codec Graphics CodeSource CodeBlock DocumentPublication.
-From Selvedge.Interaction.Presentation Require Import Surface Roles Model Information.
+From Selvedge.Interaction Require Import Codec.
+From Selvedge.Programming Require Import Graphics.
+From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication.
+From Selvedge.Programming.Presentation Require Import Surface.
+From Selvedge.Interaction.Presentation Require Import Roles.
+From Selvedge.Programming.Presentation Require Import Model.
+From Selvedge.Interaction.Presentation Require Import Information.
 From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Local Vocabulary Registry Types State Sources Expand Plot Presentation.
+From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Open Scope nat_scope.
 Local Infix "+++" := String.append (at level 60, right associativity).
-Module S := Selvedge.Interaction.Presentation.Surface.
+Module S := Selvedge.Programming.Presentation.Surface.
 Module R := Selvedge.Interaction.Presentation.Roles.
-Module M := Selvedge.Interaction.Presentation.Model.
+Module M := Selvedge.Programming.Presentation.Model.
 Module IP := Selvedge.Interaction.Interactive.Presentation.
 Definition scene := S.node Types.input.
 Definition text key value : scene := S.Node key "interactive-markdown/text" "" R.Content (S.Fact value) [].

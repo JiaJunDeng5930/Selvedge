@@ -16,6 +16,8 @@ Definition resource_request {A B} (r:resource A B) : option A :=
  match r with Dormant=>None|Loading _ request|Loaded _ request _|Failed _ request _=>Some request end.
 Definition resource_ticket {A B} (r:resource A B) : option N :=
   match r with Dormant => None | Loading t _ | Loaded t _ _ | Failed t _ _ => Some t end.
+Definition ticket_matches {A B} (ticket:N) (resource:resource A B) :=
+ match resource_ticket resource with Some current=>N.eqb ticket current|None=>false end.
 Definition settle {A B} (ticket:N) (result:sum string B) (r:resource A B) : resource A B :=
   match r with
   | Loading current request =>

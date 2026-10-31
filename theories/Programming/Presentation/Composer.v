@@ -1,8 +1,8 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Interaction Require Import Identity.
 From Selvedge.Interaction.Experience Require Model.
-From Selvedge.Interaction.Presentation Require Import Surface Construction.
-From Selvedge.Interaction.Presentation Require Import Model.
+From Selvedge.Programming.Presentation Require Import Surface Construction.
+From Selvedge.Programming.Presentation Require Import Model.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.

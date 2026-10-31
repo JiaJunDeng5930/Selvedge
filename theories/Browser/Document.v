@@ -2,12 +2,15 @@ From Selvedge.Interaction.Session Require Draft DraftCodec.
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
 From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
-From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication Graphics Audit Identity.
+From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication.
+From Selvedge.Programming Require Import Graphics.
+From Selvedge.Interaction Require Import Audit Identity.
 From Selvedge.Interaction Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local.
-From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture Model Surface.
+From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture.
+From Selvedge.Programming.Presentation Require Model Surface.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
 Open Scope string_scope.

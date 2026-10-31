@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Interaction Require Import Codec.
-From Selvedge.Interaction Require Resource Services.
+From Selvedge.Programming Require Resource.
+From Selvedge.Interaction Require Services.
 From Selvedge.Interaction.Session Require Draft State Authoring Observation.
 From Selvedge.Interaction.Submission Require Command.
 Module SS:=Selvedge.Interaction.Session.State.

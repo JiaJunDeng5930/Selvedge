@@ -5,7 +5,9 @@ From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Import Commands Streams Images.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities.
 From Selvedge.Features Require Domain BoardFilter Titles.
-From Selvedge.Interaction Require Import Codec Identity Input Resource Services Speech SkillMention CommandAssessment DocumentState ObjectActions AuditReading.
+From Selvedge.Interaction Require Import Codec Identity Input.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services Speech SkillMention CommandAssessment DocumentState ObjectActions AuditReading.
 From Selvedge.Interaction.Session Require Import Draft State.
 From Selvedge.Interaction.Session Require DraftCodec Initialize Observation Navigation.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
@@ -196,7 +198,7 @@ Definition valid_image_attachment file:=Images.valid_image_asset
   Selvedge.Kernel.Domain.ImageAuto)).
 Definition admitted_upload input state:=match input with
 |Services.Uploaded ticket(inr file)=>
- match find(Services.ticket_matches ticket)(Services.uploads(SS.service_state state))with
+ match find(Resource.ticket_matches ticket)(Services.uploads(SS.service_state state))with
  |Some(Resource.Loading _ request)=>match Services.upload_editor request with
   |Identity.NewTask _|Identity.Message _=>if valid_image_attachment file then input else
     Services.Uploaded ticket(inl "Select a PNG, JPEG, GIF or WebP image up to 10 MiB")

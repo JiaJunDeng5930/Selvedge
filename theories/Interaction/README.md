@@ -4,27 +4,28 @@
 are `initial`, `step` and `observe`; each returns the common JSON success/error
 envelope. Step consumes the same accepted world observation that observe uses,
 plus the durable journal namespace, the actual publication lag and wall-clock
-seconds supplied by the IO host. No Bend object representation crosses this API.
+seconds supplied by the IO host.
 
 Forms derive their heterogeneous value types, codecs and field edits from
-`Foundation.Schema`. A draft has one editor owner and the value type selected by
+`Programming.Schema`. A draft has one editor owner and the value type selected by
 that owner. Invalid native text is retained separately from admitted values, so
 editing a large integer or an incomplete JSON value never changes a typed value
-into an unvalidated string. Commands enter the shared `Kernel.Commands`
-declaration interpreter before they can become pending requests or effects.
+into an unvalidated string. `Programming.CommandDeclarations` interprets the
+`Kernel.Commands` catalogue before commands can become pending requests or effects.
 
-`Scene` is a parameterized semantic tree. Fields carry their schema and an
-explicit value-injection binding; buttons carry complete actions. Presentation
-and the interactive language use this same type, and Browser interprets its
-encoded boundary representation. Graphics likewise share one finite primitive
-vocabulary. Keeping these ordinary interpreters separate from business
-instances avoids creating another markup or command DSL.
+The shared [presentation constructions](../Programming/README.md) live under
+`Programming.Presentation`. `Surface` owns the semantic tree and common event
+interpretation; page, editor and activity modules supply concrete contents.
+`Browser.Document` compiles that tree into native presentation. Graphics use
+`Programming.Graphics`. The interactive Markdown feature retains its own
+component and state language, while its error-aware and metered computations use
+`Programming.Outcome` and `Programming.Metered`.
 
 Resource tickets, draft revisions and navigation generations have different
 responsibilities. Resource tickets reject unrelated IO completions; draft
 revisions preserve edits made after a submission; navigation generations prevent
 an earlier creation request from selecting a task after the user has moved on.
-`Resource`, `ApplicationProof` and `Documents` prove properties of the reducers
+`Programming.Resource`, `ApplicationProof` and `Documents` prove properties of the reducers
 that the extracted entry composes, rather than introducing a second specification
 implementation.
 

@@ -3,7 +3,9 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Import Codec Identity Input InputCodecs ControlPurpose Documents.
 From Selvedge.Interaction.Session Require State Codec Runtime Authoring.
-From Selvedge.Interaction.Presentation Require Gesture Surface Model View.
+From Selvedge.Interaction.Presentation Require Gesture.
+From Selvedge.Programming.Presentation Require Surface Model.
+From Selvedge.Interaction.Presentation Require View.
 From Selvedge.Interaction.Interactive Require Language.
 From Selvedge.Browser Require Layout Observation Document.
 Import ListNotations.
@@ -12,10 +14,10 @@ Module Session:=Selvedge.Interaction.Session.State.
 Module SC:=Selvedge.Interaction.Session.Codec.
 Module SR:=Selvedge.Interaction.Session.Runtime.
 Module SA:=Selvedge.Interaction.Session.Authoring.
-Module S:=Selvedge.Interaction.Presentation.Surface.
+Module S:=Selvedge.Programming.Presentation.Surface.
 Module V:=Selvedge.Interaction.Presentation.View.
 Module CP:=Selvedge.Interaction.ControlPurpose.
-Module BM:=Selvedge.Interaction.Presentation.Model.
+Module BM:=Selvedge.Programming.Presentation.Model.
 Definition capacity environment:=match Layout.observe_capacity environment with
 |Some(navigation,details)=>Some(BM.Capacity navigation details)|None=>None end.
 Definition environment request:=bind(field "environment" request)Observation.decode_environment.

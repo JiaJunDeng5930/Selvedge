@@ -5,7 +5,8 @@
     to available space without changing that meaning. *)
 
 From Selvedge.Interaction.Experience Require ObservationProof.
-From Selvedge.Interaction.Presentation Require EditorsProof SurfaceProofs.
+From Selvedge.Interaction.Presentation Require EditorsProof.
+From Selvedge.Programming.Presentation Require SurfaceProofs.
 Export ObservationProof(available_live_assignment_has_current_authority,
   blocked_draft_preserves_all_requirements,
   observed_property_retains_complete_help,

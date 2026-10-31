@@ -3,13 +3,14 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Identity.
 From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction.Experience Require Model.
-From Selvedge.Interaction.Presentation Require Surface Roles Information.
+From Selvedge.Programming.Presentation Require Surface.
+From Selvedge.Interaction.Presentation Require Roles Information.
 From Selvedge.Browser Require Import DOM Layout Typography Appearance ControlPurpose.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Module S := Selvedge.Interaction.Presentation.Surface.
-Module PM := Selvedge.Interaction.Presentation.Model.
+Module S := Selvedge.Programming.Presentation.Surface.
+Module PM := Selvedge.Programming.Presentation.Model.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module C := Selvedge.Browser.ControlPurpose.
 

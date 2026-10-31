@@ -24,6 +24,9 @@ project domain; there is no requirement to fit every model into one paradigm.
 | Task edits and result updates | [TaskChange.v](TaskChange.v), [TaskResult.v](TaskResult.v) | Caller-supplied edits retain the task frame and append history. Result updates keep wake behavior coupled to pending context demand. |
 | Issued requests and operation results | [RequestTypes.v](RequestTypes.v), [TicketedRequest.v](TicketedRequest.v), [OperationEvent.v](OperationEvent.v) | A request installs its receiver and emits its correlated effect together; one operation observation determines its receipt and continuation. |
 | Decisions and commit composition | [CommandResult.v](CommandResult.v), [DecisionComposition.v](DecisionComposition.v), [CommitPacket.v](CommitPacket.v), [DeferredCommit.v](DeferredCommit.v) | Refusal carries no candidate update. Composition retains the initiating reply; maintenance also retains prior emissions. Commit construction finalizes the selected outcome. |
+| Asynchronous resource results | [Resource.v](Resource.v) | Arbitrary request and result types share pending-only settlement, matching tickets and retention of the original request. |
+| Error and budget composition | [Outcome.v](Outcome.v), [Metered.v](Metered.v), [MeteredProofs.v](MeteredProofs.v) | Error-aware continuations and traversals compose directly. Budget composition inherits non-increase from the supplied computations; the expression language keeps its own charging policy. |
+| Shared presentation programs | [Presentation/Model.v](Presentation/Model.v), [Presentation/Surface.v](Presentation/Surface.v), [Presentation/Construction.v](Presentation/Construction.v), [Presentation/Composer.v](Presentation/Composer.v), [Graphics.v](Graphics.v) | Authors construct controls, surface trees and graphics with the existing typed actions, field owners and shared event interpretation. Pages and domain observations supply their concrete content. |
 
 Proof providers sit beside their constructions. `SchemaProofs` and
 `ProtocolProofs` retain their stated codec premises; `DeclarationRegistryProofs`,
@@ -37,6 +40,12 @@ Their shared contracts quantify over the edits, channels, continuations or
 prepared values accepted by those interfaces. Start, fork, lifecycle admission,
 scheduling and individual commit plans remain domain operations that use them.
 Keeping that concrete meaning avoids adding a second model of the task world.
+
+The presentation constructions likewise retain the project's subject and action
+vocabulary. `Presentation/SurfaceProofs` constrains their common event handling;
+the domain page recipes, observations and browser interpreter stay at their
+owners. The interactive Markdown language remains a product feature, using the
+shared outcome, budget and graphics constructions where its semantics fit.
 
 Ordinary collection, numeric and text algorithms remain in `Foundation`.
 Concrete protocol catalogues and business rules remain with their domains.

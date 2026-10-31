@@ -7,7 +7,8 @@ From Selvedge.Interaction Require Import Codec Identity Input Context SkillMenti
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Session Require Draft State Observation Authoring.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Interaction.Presentation Require Import Surface Model Construction Composer ServiceControls Projection.
+From Selvedge.Programming.Presentation Require Import Surface Model Construction Composer.
+From Selvedge.Interaction.Presentation Require Import ServiceControls Projection.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.

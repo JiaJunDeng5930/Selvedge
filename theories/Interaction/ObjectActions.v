@@ -4,7 +4,9 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Generated Require Commands.
 From Selvedge.Features Require Domain.
-From Selvedge.Interaction Require Import Codec Identity Resource Services DocumentState.
+From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services DocumentState.
 From Selvedge.Interaction Require CommandAssessment.
 From Selvedge.Interaction.Session Require State.
 Import ListNotations.

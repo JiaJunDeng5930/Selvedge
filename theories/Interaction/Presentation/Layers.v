@@ -4,12 +4,15 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Domain Commands Codec Images.
 From Selvedge.Generated Require Commands.
 From Selvedge.Features Require Domain BoardFilter BoardParameters.
-From Selvedge.Interaction Require Import Codec Identity Input Resource Services Attachments ObjectActions.
+From Selvedge.Interaction Require Import Codec Identity Input.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Services Attachments ObjectActions.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Session Require Draft State Observation Navigation.
 Module SessionNavigation := Selvedge.Interaction.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Interaction.Presentation Require Import Surface Model Construction Projection Editors Navigation Collections Activities Pages.
+From Selvedge.Programming.Presentation Require Import Surface Model Construction.
+From Selvedge.Interaction.Presentation Require Import Projection Editors Navigation Collections Activities Pages.
 From Selvedge.Interaction.Presentation Require Roles Information Composition.
 Import ListNotations.
 Open Scope string_scope.

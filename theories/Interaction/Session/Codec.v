@@ -3,7 +3,9 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands Streams.
 From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction Require Import Codec Identity Services Speech Resource SkillMention DocumentState.
+From Selvedge.Interaction Require Import Codec Identity Services Speech.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import SkillMention DocumentState.
 From Selvedge.Interaction.Session Require Import Draft DraftCodec State.
 From Selvedge.Interaction.Session Require NavigationCodec.
 From Selvedge.Interaction.Interactive Require Codec.

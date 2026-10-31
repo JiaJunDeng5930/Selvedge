@@ -3,7 +3,9 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Generated Require Commands.
-From Selvedge.Interaction Require Import Codec Identity Resource Input DocumentState.
+From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Interaction Require Import Input DocumentState.
 From Selvedge.Interaction.Session Require State Draft.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
