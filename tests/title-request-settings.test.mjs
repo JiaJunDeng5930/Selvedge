@@ -43,13 +43,20 @@ test('an adaptive Task generates its independent title with default reasoning an
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
   await taskIdle(service, created.reply.result.task_id);
   const deadline = Date.now() + 5000;
-  while (!modelRequests.some(body => body.text?.format?.name === 'task_title') && Date.now() < deadline) await delay(10);
+  let read;
+  do {
+    read = await service.command({ op: 'read', task_id: created.reply.result.task_id });
+    assert.equal(read.reply.ok, true, JSON.stringify(read.reply));
+    if (read.reply.result.task.title === 'Name the task') break;
+    await delay(10);
+  } while (Date.now() < deadline);
   const titles = modelRequests.filter(body => body.text?.format?.name === 'task_title');
   assert.equal(titles.length, 1, 'The actual model endpoint receives one independent title request');
   assert.equal(Object.hasOwn(titles[0], 'reasoning'), false, 'Default reasoning leaves the upstream reasoning option unspecified');
   assert.equal(model.requests.length, 1);
   assert.equal(model.requests[0].reasoning.effort, 'high', 'The actual Task still uses its evaluator-selected reasoning');
   assert.equal(evaluations.length, 1, 'The evaluator serves the Task, never its independent title generation');
+  assert.equal(read.reply.result.task.title, 'Name the task', 'The public read exposes the title returned by the independent provider');
   assert.deepEqual(failures, []);
   assert.deepEqual(model.failures, []);
 });
