@@ -128,7 +128,7 @@ Definition generate_commands : TemplateMonad unit :=
           tmMsg (bytestring.String.of_string "SELVDERIVE_BEGIN") ;;
           tmMsg (bytestring.String.of_string (concat [line "From Stdlib Require Import String List.";
             line "From Selvedge.Foundation Require Import Json.";
-            line "From Selvedge.Programming Require Import Schema Arguments ArgumentProjection CommandPayload.";
+            line "From Selvedge.Programming Require Import Schema Arguments ArgumentProjection CommandPayload CommandFields.";
             line "From Selvedge.Kernel Require Import Commands CommandDeclarations.";
             line "Import ListNotations."; line "Open Scope string_scope."])) ;;
           emit_payloads (indexed 0 commands) ;;

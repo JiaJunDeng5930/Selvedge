@@ -1,3 +1,4 @@
+From Selvedge.Programming Require CommandFields.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
@@ -19,7 +20,7 @@ Definition read_task (id after : N) (size : Pagination.size Pagination.history_l
    else State.failure "invalid_page" "History cursor exceeds the current history"
  end.
 Definition describe := JObject [
- ("commands", JArray (map (fun command => let name := wire_name (Selvedge.Kernel.Commands.declared_wire command) in
+ ("commands", JArray (map (fun command => let name := CommandFields.wire_name (Selvedge.Kernel.Commands.declared_wire command) in
  JObject [("name", JString name);
  ("description", JString (match Selvedge.Kernel.Commands.command_description name with
    | Some description => description | None => "" end));

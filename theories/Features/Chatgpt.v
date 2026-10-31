@@ -1,5 +1,5 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Programming Require Callback Variant.
+From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
@@ -88,7 +88,7 @@ Definition protocol (features : Selvedge.Features.Domain.state)
  RequestTypes.Protocol
    (Receiver.At.inject RequestEnvelope.as_pair (storage features))
    ModelDeclarations.chatgpt_exec_request
-   (fun job features => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.chatgpt_exec_request)
+   (fun job features => Schema.of_tuple (Variant.request_body_fields ModelDeclarations.chatgpt_exec_request)
      [!Selvedge.Features.Domain.job_arguments_json job;JObject [
        ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));
        ("resource",Selvedge.Features.Domain.reference_execution (Selvedge.Features.Domain.job_resource job) features);
@@ -162,7 +162,7 @@ Definition settle id result error value :bool*bool*decision :=
  let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
    (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
  (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
-Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.ChatgptExec) value :=
+Definition completion (received : Callback.decoded ModelDeclarations.ChatgptExec) value :=
  let '(existT _ ok (address,fields)) := received in
  settle (Schema.head address) (JObject (fst fields)) (negb ok) value.
 Definition completion_inputs := [InputRoute.callback ModelDeclarations.ChatgptExec

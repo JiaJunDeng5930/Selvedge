@@ -1,5 +1,5 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Programming Require Callback.
+From Selvedge.Programming Require InputRoute.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
@@ -289,10 +289,10 @@ Definition suggestion (ok retitle:bool) (title description message:string)
    (if valid then Completion.done Selvedge.Features.Domain.NoEnrichment
     else Completion.done (Selvedge.Features.Domain.EnrichmentFailed (failure_text (if ok then
       "The drafting endpoint returned an empty or oversized title/description. The original request is preserved." else message)))).
-Definition suggestion_from_reply (reply : CallbackDeclarations.reply_fields ModelDeclarations.BoardText)
+Definition suggestion_from_reply (reply : Callback.reply_fields ModelDeclarations.BoardText)
  (retitle : bool) (card : Selvedge.Features.Domain.card) (value : world) :=
  let '(existT _ ok fields) := reply in
- (if ok as ok return DeclarationFields.values (CallbackDeclarations.payload ModelDeclarations.BoardText ok) ->
+ (if ok as ok return DeclarationFields.values (Callback.payload ModelDeclarations.BoardText ok) ->
    Completion.Row.amendment Selvedge.Features.Domain.card Selvedge.Features.Domain.Enriching
   then fun fields => suggestion true retitle (proj1_sig (fst fields))
      (proj1_sig (fst (snd fields))) "" card value
@@ -303,7 +303,7 @@ Definition completion_choice reply value (card : Selvedge.Features.Domain.card)
  if N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card)
  then Some (suggestion_from_reply reply retitle card value) else None.
 Definition completion_path id := Receiver.field world_features (TicketedRequest.Scoped.card_slot id).
-Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.BoardText) (value : world)
+Definition completion (received : Callback.decoded ModelDeclarations.BoardText) (value : world)
  : bool * bool * decision :=
  let '(existT _ ok (address,fields)) := received in
  let id := head address in let ticket := head (tail address) in

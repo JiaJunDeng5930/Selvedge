@@ -1,5 +1,5 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Programming Require Callback Variant.
+From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
@@ -43,7 +43,7 @@ Definition protocol (features : Selvedge.Features.Domain.state) owner
  RequestTypes.Protocol
    (Receiver.At.inject Selvedge.Features.Domain.TitlePending (storage features owner))
    ModelDeclarations.task_title_request
-   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.task_title_request)
+   (fun input _ => Schema.of_tuple (Variant.request_body_fields ModelDeclarations.task_title_request)
      [!Codec.task_text_model_json (fst input);snd input!]).
 Definition channel : TicketedRequest.Scoped.feature_channel FeatureRequestAdmission.resolved_title (profile * string) :=
  TicketedRequest.Scoped.FeatureChannel TicketedRequest.TaskTicket
@@ -72,7 +72,7 @@ Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
  let '(correlated,next) := Completion.run (reception (world_features value) id) Selvedge.Features.Domain.TitlePending
    Completion.Ticket ticket (fun _ => completed_name ok text) value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
-Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.TaskTitle) (value : world)
+Definition completion (received : Callback.decoded ModelDeclarations.TaskTitle) (value : world)
  : bool * bool * decision :=
  let '(existT _ ok (address,fields)) := received in
  (true,true,complete (head address) (head (tail address)) ok (proj1_sig (fst fields)) value).

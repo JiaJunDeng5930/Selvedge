@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
@@ -5,8 +6,6 @@ From Selvedge.Foundation Require Import RemoteIdentity.
 From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Foundation Require OptionList.
 From Selvedge.Host Require Import RemoteProtocol.
-From Selvedge.Kernel Require ModelDeclarations.
-Module MD := Selvedge.Kernel.ModelDeclarations.
 Module RP := RemoteProtocol.
 Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
@@ -222,7 +221,7 @@ Definition action_declarations := map (fun action => F.packet_branch (action_pac
  [Ignore;Installed;Retired;PublishPairing;PendingPairing;PairingExpired;GrantsUpdated;Enqueued;Dequeued;Disconnect;
   BecameReady;ReceivedPong;RecordedNotice;CapturedSnapshot;Unsubscribed;DeliverNotice] ++
  [opened_action;closed_action;request_action;pair_request_action].
-Definition abi_variant declaration := MD.from_branch declaration (F.names (F.payload_fields declaration)) None.
+Definition abi_variant declaration := Variant.from_branch declaration (F.names (F.payload_fields declaration)) None.
 Definition connector_step source observed := match state_of source,event_of observed with
  | Some state,Some event => let '(next,action) := step state event in
    let state := state_packet next in let action := action_packet action in

@@ -1,5 +1,5 @@
-From Selvedge.Kernel Require InputRoute.
-From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Programming Require Callback Variant.
+From Selvedge.Programming Require InputRoute.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
@@ -12,34 +12,34 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Definition scope_fields (input : capture) :=
- Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_scope_request)
+ Schema.of_tuple (Variant.request_body_fields ModelDeclarations.context_scope_request)
  [!Codec.model_json (captured_profile input)!].
 Definition measure_fields owner (input : capture) scope validating :=
- Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_measure_request)
+ Schema.of_tuple (Variant.request_body_fields ModelDeclarations.context_measure_request)
  [!Codec.model_json (captured_profile input);
   ContextSelection.target_messages (ContextSelection.history_json owner (captured_history input)) scope;
   true;scope;map Codec.tool_json (captured_tools input);Codec.settings_json (captured_settings input);
   captured_callable input;validating!].
 Definition compact_fields (input : capture) (target : target) (scope : string) plan :=
- Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.context_compaction_request)
+ Schema.of_tuple (Variant.request_body_fields ModelDeclarations.context_compaction_request)
  [!Codec.model_json (captured_profile input);true;scope;method_name (target_method target);
   window_tokens (target_budget target);reserve_tokens (target_budget target);plan!].
 Definition compact_values (id ticket : N) (input : capture) (target : target) (scope : string) plan :=
- ModelDeclarations.Packet ModelDeclarations.context_compaction
-   (ModelDeclarations.request_fields ModelDeclarations.context_compaction_request id ticket
+ Variant.Packet ModelDeclarations.context_compaction
+   (Variant.request_fields ModelDeclarations.context_compaction_request id ticket
      (compact_fields input target scope plan)).
 Definition compact_metadata id ticket input target scope :=
- match ModelDeclarations.encode_packet (compact_values id ticket input target scope JNull) with
+ match Variant.encode_packet (compact_values id ticket input target scope JNull) with
  | JObject fields => Json.remove_field "plan" fields | _ => [] end.
 Definition compact_json id ticket input target progress scope :=
- ModelDeclarations.encode_packet (compact_values id ticket input target scope (CompactionPlan.plan_json progress)).
+ Variant.encode_packet (compact_values id ticket input target scope (CompactionPlan.plan_json progress)).
 Definition compact_metadata_bytes (id ticket : N) (input : capture) (target : target) (scope : string) :=
  N.of_nat (String.length (TextJson.render_json (JObject (compact_metadata id ticket input target scope)))) + 8.
 Definition effect_packet (value : effect) := match value with
- | ArmClock deadline => ModelDeclarations.pack ModelDeclarations.compaction_clock [!deadline!]
- | Cancel id ticket => ModelDeclarations.pack ModelDeclarations.compaction_cancel [!id;ticket!] end.
-Definition effect_fields value := Schema.encode_fields (ModelDeclarations.packet_fields (effect_packet value)).
-Definition effect_json value := ModelDeclarations.encode_packet (effect_packet value).
+ | ArmClock deadline => Variant.pack ModelDeclarations.compaction_clock [!deadline!]
+ | Cancel id ticket => Variant.pack ModelDeclarations.compaction_cancel [!id;ticket!] end.
+Definition effect_fields value := Schema.encode_fields (Variant.packet_fields (effect_packet value)).
+Definition effect_json value := Variant.encode_packet (effect_packet value).
 
 Definition target_json (value : target) := JObject [
  ("profile", JString (target_key value)); ("window_tokens", number (window_tokens (target_budget value)));
@@ -101,10 +101,10 @@ Definition decode_inspection (error : bool) (value : json) : option inspection :
      | _, _, _ => None end
    | _, _, _ => None end end.
 Definition outcome_from_values (completed : bool)
- (received : CallbackDeclarations.decoded (ModelDeclarations.Compaction completed)) : option completion :=
+ (received : Callback.decoded (ModelDeclarations.Compaction completed)) : option completion :=
  let '(existT _ ok (address,values)) := received in
  let id := Schema.head address in let ticket := Schema.head (Schema.tail address) in
- (if ok as ok return DeclarationFields.values (CallbackDeclarations.payload (ModelDeclarations.Compaction completed) ok) -> option completion
+ (if ok as ok return DeclarationFields.values (Callback.payload (ModelDeclarations.Compaction completed) ok) -> option completion
   then fun values => let result := JObject (fst values) in
     if completed then Some (Completed id ticket result false)
     else option_map (MeasuredInput id ticket) (decode_inspection false result)

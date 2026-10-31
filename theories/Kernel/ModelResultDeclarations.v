@@ -1,7 +1,7 @@
+From Selvedge.Programming Require Variant DeclarationFields DeclarationRegistry.
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Import ModelDeclarations.
 From Selvedge.Features Require Import Domain.
 From Selvedge.Host Require RemoteTransport RemoteConnectorSession.
 Module RT := Selvedge.Host.RemoteTransport.
@@ -12,9 +12,9 @@ Open Scope list_scope.
 
 Definition variant (field name : string) (fields : schema) (safe : list string)
  `{DistinctNames (field :: map field_name fields)} :=
- ModelDeclarations.declare_variant field (JString name) fields safe None.
-Definition tag (declaration : ModelDeclarations.variant) :=
- (declaration.(ModelDeclarations.tag_field),declaration.(ModelDeclarations.tag_value)).
+ Variant.declare_variant field (JString name) fields safe None.
+Definition tag (declaration : Variant.variant) :=
+ (declaration.(Variant.tag_field),declaration.(Variant.tag_value)).
 Definition http_respond := variant "action" "respond" [Field "status" KNatural;Field "value" KJson] ["status"].
 Definition http_throw := variant "action" "throw" [Field "kind" (KEnum "TypeError" ["RangeError"]);Field "message" KText] [].
 Inductive exception_kind := TypeErrorKind | RangeErrorKind.
@@ -64,9 +64,9 @@ Definition http_action_name value := fst (http_action_spec value).
 Definition http_action_has_body value := snd (http_action_spec value).
 Definition http_body_declaration name := variant "action" name [OmittableField "body" KJson] [].
 Definition http_action_packet value :=
- if http_action_has_body value then ModelDeclarations.pack (http_body_declaration (http_action_name value)) [!None!]
- else ModelDeclarations.pack (variant "action" (http_action_name value) [] []) [!!].
-Definition http_action_declaration value := ModelDeclarations.packet_declaration (http_action_packet value).
+ if http_action_has_body value then Variant.pack (http_body_declaration (http_action_name value)) [!None!]
+ else Variant.pack (variant "action" (http_action_name value) [] []) [!!].
+Definition http_action_declaration value := Variant.packet_declaration (http_action_packet value).
 Definition body_actions := map http_action_name (filter http_action_has_body all_http_actions).
 Definition http_body_target_kind := KEnum "account_refresh" (tl body_actions).
 Definition http_body_target := denote http_body_target_kind.
@@ -126,14 +126,14 @@ Definition remote_negotiating := remote_state "negotiating" [Field "attempt" KNa
 Definition remote_online := remote_state "online" [Field "last_pong" KNatural].
 Definition remote_retrying := remote_state "retrying" [Field "attempt" KNatural;Field "deadline" KNatural].
 Definition remote_auth_failed := remote_state "auth_failed" [].
-Definition remote_state_decoders : list (ModelDeclarations.decoder RT.state) := [
- ModelDeclarations.Decoder remote_stopped (fun values => Some (RT.Stopped (head values)));
- ModelDeclarations.Decoder remote_connecting (fun values => Some (RT.Connecting (head values) (head (tail values))));
- ModelDeclarations.Decoder remote_negotiating (fun values => Some (RT.Negotiating (head values) (head (tail values))));
- ModelDeclarations.Decoder remote_online (fun values => Some (RT.Online (head values) (head (tail values))));
- ModelDeclarations.Decoder remote_retrying (fun values => Some (RT.Retrying (head values) (head (tail values)) (head (tail (tail values)))));
- ModelDeclarations.Decoder remote_auth_failed (fun values => Some (RT.AuthenticationFailed (head values)))].
-Definition remote_transport_states := map ModelDeclarations.decoder_declaration remote_state_decoders.
+Definition remote_state_decoders : list (Variant.decoder RT.state) := [
+ Variant.Decoder remote_stopped (fun values => Some (RT.Stopped (head values)));
+ Variant.Decoder remote_connecting (fun values => Some (RT.Connecting (head values) (head (tail values))));
+ Variant.Decoder remote_negotiating (fun values => Some (RT.Negotiating (head values) (head (tail values))));
+ Variant.Decoder remote_online (fun values => Some (RT.Online (head values) (head (tail values))));
+ Variant.Decoder remote_retrying (fun values => Some (RT.Retrying (head values) (head (tail values)) (head (tail (tail values)))));
+ Variant.Decoder remote_auth_failed (fun values => Some (RT.AuthenticationFailed (head values)))].
+Definition remote_transport_states := map Variant.decoder_declaration remote_state_decoders.
 Definition remote_action tag fields `{DistinctNames ("kind" :: map field_name fields)} :=
  variant "kind" tag fields (map field_name fields).
 Definition remote_connect := remote_action "connect" [remote_generation].
@@ -149,28 +149,28 @@ Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;
  remote_ping;remote_retire;remote_mark_stopped;remote_mark_auth_failed].
 Definition remote_timed := [remote_generation;Field "now" KNatural].
 Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
-Definition remote_observation_decoders : list (ModelDeclarations.decoder RT.observation) := [
- ModelDeclarations.Decoder (remote_action "enable" []) (fun _ => Some RT.Enable);
- ModelDeclarations.Decoder (remote_action "stop" []) (fun _ => Some RT.Stop);
- ModelDeclarations.Decoder (remote_action "probe" (remote_sampled ++ [Field "status" KNatural]))
+Definition remote_observation_decoders : list (Variant.decoder RT.observation) := [
+ Variant.Decoder (remote_action "enable" []) (fun _ => Some RT.Enable);
+ Variant.Decoder (remote_action "stop" []) (fun _ => Some RT.Stop);
+ Variant.Decoder (remote_action "probe" (remote_sampled ++ [Field "status" KNatural]))
    (fun v => Some (RT.Probe (head v) (head (tail (tail (tail v)))) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_action "lost" remote_sampled)
+ Variant.Decoder (remote_action "lost" remote_sampled)
    (fun v => Some (RT.Lost (head v) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_action "rejected" [remote_generation]) (fun v => Some (RT.Rejected (head v)));
- ModelDeclarations.Decoder (remote_action "negotiated" remote_timed) (fun v => Some (RT.Negotiated (head v) (head (tail v))));
- ModelDeclarations.Decoder (remote_action "pong" remote_timed) (fun v => Some (RT.Pong (head v) (head (tail v))));
- ModelDeclarations.Decoder (remote_action "heartbeat" remote_sampled)
+ Variant.Decoder (remote_action "rejected" [remote_generation]) (fun v => Some (RT.Rejected (head v)));
+ Variant.Decoder (remote_action "negotiated" remote_timed) (fun v => Some (RT.Negotiated (head v) (head (tail v))));
+ Variant.Decoder (remote_action "pong" remote_timed) (fun v => Some (RT.Pong (head v) (head (tail v))));
+ Variant.Decoder (remote_action "heartbeat" remote_sampled)
    (fun v => Some (RT.Heartbeat (head v) (head (tail v)) (head (tail (tail v)))));
- ModelDeclarations.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
-Definition remote_transport_observations := map ModelDeclarations.decoder_declaration remote_observation_decoders.
+ Variant.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
+Definition remote_transport_observations := map Variant.decoder_declaration remote_observation_decoders.
 Definition authorization_name state := match state with
  | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last"
  | RT.Authorized => "authorized" | RT.Denied => "denied" | RT.RevisionChanged => "revision_changed" end.
 Definition remote_authorization_declaration state := variant "phase" (authorization_name state) [] [].
 Definition remote_authorization_decoders := map (fun state =>
- ModelDeclarations.Decoder (remote_authorization_declaration state) (fun _ => Some state))
+ Variant.Decoder (remote_authorization_declaration state) (fun _ => Some state))
  [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck;RT.Authorized;RT.Denied;RT.RevisionChanged].
-Definition remote_authorization_states := map ModelDeclarations.decoder_declaration remote_authorization_decoders.
+Definition remote_authorization_states := map Variant.decoder_declaration remote_authorization_decoders.
 Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
 Definition remote_authorization_action_declaration action := variant "kind" (grant_action_name action) [] [].
@@ -179,13 +179,10 @@ Definition remote_authorization_actions := map remote_authorization_action_decla
 Definition remote_connector_actions := map RC.abi_variant RC.action_declarations.
 Definition remote_connector_states := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.state_decoders.
 Definition remote_connector_observations := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.event_decoders.
-Definition declare_union (label : string) (entries : list ModelDeclarations.variant)
- `{DistinctNames (map ModelDeclarations.variant_key entries)} :=
- (label,DeclarationRegistry.declare ModelDeclarations.variant_key entries).
-Definition unions := [declare_union "RemoteConnectorSessionAction" remote_connector_actions;declare_union "RemoteConnectorSessionState" remote_connector_states;declare_union "RemoteConnectorSessionObservation" remote_connector_observations;declare_union "CloudReadinessAction" cloud_readiness_actions;declare_union "RemoteTransportState" remote_transport_states;declare_union "RemoteTransportAction" remote_transport_actions;
- declare_union "RemoteTransportObservation" remote_transport_observations;declare_union "RemoteAuthorizationState" remote_authorization_states;
- declare_union "RemoteAuthorizationAction" remote_authorization_actions;declare_union "HttpPlan" http_plans;declare_union "BrowserObservationPlan" browser_plans;
- declare_union "DispatchAction" dispatch_actions;declare_union "AudioAction" audio_actions;declare_union "AudioTransportAction" audio_transport_actions].
+Definition unions := [Variant.declare_union "RemoteConnectorSessionAction" remote_connector_actions;Variant.declare_union "RemoteConnectorSessionState" remote_connector_states;Variant.declare_union "RemoteConnectorSessionObservation" remote_connector_observations;Variant.declare_union "CloudReadinessAction" cloud_readiness_actions;Variant.declare_union "RemoteTransportState" remote_transport_states;Variant.declare_union "RemoteTransportAction" remote_transport_actions;
+ Variant.declare_union "RemoteTransportObservation" remote_transport_observations;Variant.declare_union "RemoteAuthorizationState" remote_authorization_states;
+ Variant.declare_union "RemoteAuthorizationAction" remote_authorization_actions;Variant.declare_union "HttpPlan" http_plans;Variant.declare_union "BrowserObservationPlan" browser_plans;
+ Variant.declare_union "DispatchAction" dispatch_actions;Variant.declare_union "AudioAction" audio_actions;Variant.declare_union "AudioTransportAction" audio_transport_actions].
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
@@ -214,8 +211,8 @@ Definition records : list (string * schema) := [
  ("HttpRemoteRevokeBody",http_remote_revoke_fields);
  ("HttpBrowserCommandBody",http_browser_command_fields)].
 Definition schema_json := JObject [
- ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",ModelDeclarations.kind_json KNatural);("safe",JBool true)]]);
+ ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",Variant.kind_json KNatural);("safe",JBool true)]]);
  ("unions",JArray (map (fun entry => JObject [("name",JString (fst entry));
- ("variants",JArray (map ModelDeclarations.variant_json (DeclarationRegistry.values (snd entry))))]) unions));
+ ("variants",JArray (map Variant.variant_json (DeclarationRegistry.values (snd entry))))]) unions));
  ("records",JArray (map (fun entry => JObject [("name",JString (fst entry));
- ("fields",ModelDeclarations.fields_json (snd entry))]) records))].
+ ("fields",Variant.fields_json (snd entry))]) records))].

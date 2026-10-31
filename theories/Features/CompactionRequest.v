@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Programming Require Import OptionObservation Receiver Schema.
@@ -196,4 +197,4 @@ Definition preview owner ticket request before :=
    (RequestTypes.Packet (RequestTypes.release (request_protocol owner (world_features before) (request_entry request) request))
      (RequestEnvelope.Envelope ticket (request_input request)))
    (world_features before).
-Definition preview_json owner ticket request before := ModelDeclarations.encode_packet (preview owner ticket request before).
+Definition preview_json owner ticket request before := Variant.encode_packet (preview owner ticket request before).

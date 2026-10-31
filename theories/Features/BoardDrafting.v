@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Receiver.
@@ -86,7 +87,7 @@ Definition protocol {before} (request : drafting_request before)
  RequestTypes.Protocol
    (Receiver.At.in_record (target_location target) F.card_enrichment F.Enriching (target_card target))
    ModelDeclarations.board_text_request
-   (fun input _ => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.board_text_request)
+   (fun input _ => Schema.of_tuple (Variant.request_body_fields ModelDeclarations.board_text_request)
      [!Codec.task_text_model_json (requested_profile request);
        prompt (target_card target) (target_retitle target) before;snd input!]).
 Definition channel : S.feature_channel drafting_request (N * bool) :=

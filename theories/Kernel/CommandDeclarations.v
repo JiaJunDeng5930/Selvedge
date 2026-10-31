@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Arguments.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Kernel Require Export CommandArguments.
+From Selvedge.Programming Require Import CommandFields.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

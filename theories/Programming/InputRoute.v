@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema DeclarationRegistry.
-From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Programming Require Callback.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -10,18 +10,18 @@ Open Scope string_scope.
 Inductive syntax :=
 | Object (name : string) (body : schema)
     (distinct : unique_names ("kind" :: map field_name body) = true)
-| Callback (description : CallbackDeclarations.callback_kind).
+| Callback (description : Callback.callback_kind).
 Definition name (form : syntax) := match form with
  | Object name _ _ => name
- | Callback description => CallbackDeclarations.callback_text description end.
+ | Callback description => Callback.callback_text description end.
 Definition values (form : syntax) : Type := match form with
  | Object _ body _ => Schema.fields body
- | Callback description => CallbackDeclarations.decoded description end.
+ | Callback description => Callback.decoded description end.
 Definition admit (form : syntax) : json -> option (values form) := match form with
  | Object name body _ => fun source =>
    option_map (@Schema.tail (Field "kind" (KEnum name [])) body)
      (Schema.decode (Field "kind" (KEnum name []) :: body) source)
- | Callback description => CallbackDeclarations.decode description end.
+ | Callback description => Callback.decode description end.
 
 Record t (A : Type) := Entry {
  language : syntax;
@@ -35,7 +35,7 @@ Definition object {A} name body (handle : Schema.fields body -> option A)
  `{DistinctNames ("kind" :: map field_name body)} : t A :=
  Entry (Object name body names_distinct) handle.
 Definition callback {A} description
- (handle : CallbackDeclarations.decoded description -> option A) : t A :=
+ (handle : Callback.decoded description -> option A) : t A :=
  Entry (Callback description) handle.
 Definition map {A B} (change : A -> B) (entry : t A) : t B :=
  Entry (language entry) (fun fields => option_map change (receive entry fields)).

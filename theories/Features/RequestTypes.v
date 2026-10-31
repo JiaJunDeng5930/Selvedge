@@ -1,5 +1,5 @@
+From Selvedge.Programming Require Variant.
 From Selvedge.Programming Require Import RequestEnvelope Receiver Schema.
-From Selvedge.Kernel Require Import ModelDeclarations.
 From Selvedge.Features Require Import Domain.
 
 (** An external request retains its typed input. The effect carries this same
@@ -8,8 +8,8 @@ From Selvedge.Features Require Import Domain.
 Inductive lifetime := Independent | TaskBound.
 Record declaration (payload location : Type) := Declare {
  receiver : location;
- wire : ModelDeclarations.request_variant;
- body : payload -> state -> Schema.fields (ModelDeclarations.request_body_fields wire);
+ wire : Variant.request_variant;
+ body : payload -> state -> Schema.fields (Variant.request_body_fields wire);
  request_lifetime : lifetime
 }.
 Arguments Declare {payload location}.
@@ -18,7 +18,7 @@ Arguments wire {payload location}.
 Arguments body {payload location}.
 Arguments request_lifetime {payload location}.
 Definition Protocol {payload location} selected operation
- (fields : payload -> state -> Schema.fields (ModelDeclarations.request_body_fields operation))
+ (fields : payload -> state -> Schema.fields (Variant.request_body_fields operation))
  : declaration payload location := Declare selected operation fields Independent.
 Definition task_bound {payload location} (protocol : declaration payload location) :=
  Declare (receiver protocol) (wire protocol) (body protocol) TaskBound.
@@ -36,7 +36,7 @@ Definition install (sent : packet) (before : state) :=
  Receiver.install (receiver (definition sent)) (request sent) before.
 Definition encode_packet (sent : packet) (current : state) :=
  let declaration := wire (definition sent) in
- ModelDeclarations.Packet (ModelDeclarations.request_variant_view declaration)
-   (ModelDeclarations.request_fields declaration
+ Variant.Packet (Variant.request_variant_view declaration)
+   (Variant.request_fields declaration
      (Receiver.address (receiver (definition sent)) (request sent)) (RequestEnvelope.identity (request sent))
      (body (definition sent) (RequestEnvelope.input (request sent)) current)).

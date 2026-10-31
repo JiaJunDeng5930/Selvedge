@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Programming Require Import Schema.
@@ -109,7 +110,7 @@ Definition batch (source : option input) (before : world) (result : decision) :=
 Definition enriched_envelope (durable : bool) (result : decision) (notices : list json) :=
  Observation.envelope_with_effects durable (decision_reply result)
    (map (Observation.effect_json (decision_world result)) (decision_effects result) ++
-     [ModelDeclarations.encode_packet (ModelDeclarations.pack ModelDeclarations.plugin_events [!notices!])]).
+     [Variant.encode_packet (Variant.pack ModelDeclarations.plugin_events [!notices!])]).
 (** Only the final public receipt can contain notifications. The admission flag
     records global rollback independently of a business reply's success flag. *)
 Definition envelope (durable admitted : bool) (source : option input) (before : world) (result : decision) :=

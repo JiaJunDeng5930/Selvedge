@@ -4,6 +4,7 @@ From Selvedge.Programming Require Import Schema Arguments JsonSchema.
 From Selvedge.Kernel Require Import WorkspaceBackend Pagination TaskConstraints ApprovalProtocol.
 From Selvedge.Kernel Require Compaction.
 From Selvedge.Kernel Require Export CommandArguments.
+From Selvedge.Programming Require Import CommandFields.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

@@ -1,3 +1,4 @@
+From Selvedge.Programming Require Callback.
 From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -34,8 +35,8 @@ Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
 (** A well-formed callback with no current card lease is acknowledged as
     ignored, without changing the board or dispatching another turn. *)
 Theorem board_text_without_current_lease_is_ignored : forall ok
- (address : Schema.fields (CallbackDeclarations.coordinates ModelDeclarations.BoardText))
- (fields : DeclarationFields.values (CallbackDeclarations.payload ModelDeclarations.BoardText ok)) value,
+ (address : Schema.fields (Callback.coordinates ModelDeclarations.BoardText))
+ (fields : DeclarationFields.values (Callback.payload ModelDeclarations.BoardText ok)) value,
  (forall card, Board.lookup (head address) value=Some card ->
    ~ current_board_lease (head (tail address)) card) ->
  exists result,
