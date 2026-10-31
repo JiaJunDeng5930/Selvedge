@@ -31,6 +31,9 @@ Definition submit_label draft e :=match Draft.contents draft with
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
+Definition commit_role {e}(unit:UX.action_unit e)(feedback:option string) :=
+ if UX.action_pending unit then Roles.PrimaryButton else
+ match feedback with Some _=>Roles.DestructiveButton|None=>Roles.PrimaryButton end.
 Definition assessment_availability {e}(value:UX.assessment e) :=match UX.assessment_outcome value with
 |UX.PreparationReady=>Available|UX.DirectoryObservationRequired _=>NeedsDirectoryObservation
 |UX.PreparationBlocked first rest=>Unavailable
@@ -152,13 +155,15 @@ Definition composer_view snapshot s e parent :=
  |None=>None
  |Some subject=>let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
+ let feedback:=draft_feedback(Session.current_draft s e)in
+ let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- Some(Composer.composer parent unit subject(field_control snapshot s subject)
+ Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
   (List.app (List.app (match e with NewTask _=>field_nodes snapshot s e parent [Fields.TaskEnvironment]|_=>[]end)
      [ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s);
       ServiceControls.files e parent s;assessment_nodes parent assessment])
      (skill_nodes snapshot s e parent))
-  (composer_tools snapshot s e parent)assessment commit(draft_feedback(Session.current_draft s e)))end.
+  (composer_tools snapshot s e parent)assessment commit feedback)end.
 
 (** Product sections reference the shared parameter declaration; they do not
     repeat field types, codecs, validation or assignments. *)
@@ -204,4 +209,4 @@ Definition editor_view snapshot s e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       [Node(part parent "submit")"submit"(control_label submit)
-        (Composer.commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]]])].
+        (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]]])].

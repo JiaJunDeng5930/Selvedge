@@ -3,12 +3,8 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction.Session Require Draft.
 From Selvedge.Features Require Domain.
-From Selvedge.Interaction.Experience Require Model.
 
 Inductive availability := Available | NeedsDirectoryObservation | Unavailable (reason : string) | Busy (reason : string).
-Definition domain_availability(value:Selvedge.Interaction.Experience.Model.availability):availability:=match value with
-|Selvedge.Interaction.Experience.Model.Available=>Available
-|Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
 Inductive prominence := Primary | Secondary | Destructive.
 
 Record control (Action : Type) := Control {

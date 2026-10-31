@@ -6,6 +6,7 @@ From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import Services Speech Attachments.
 From Selvedge.Interaction.Session Require Draft State Authoring.
 From Selvedge.Programming.Presentation Require Import Surface Model Construction.
+From Selvedge.Interaction.Presentation Require Import Projection.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.

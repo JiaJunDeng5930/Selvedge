@@ -3,11 +3,17 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Domain Codec.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Import Identity Codec DocumentState.
+From Selvedge.Interaction.Experience Require Model.
 From Selvedge.Interaction.Session Require State Navigation Context Observation.
+From Selvedge.Programming.Presentation Require Import Model.
 Module SessionNavigation := Selvedge.Interaction.Session.Navigation.
 Module SessionObservation := Selvedge.Interaction.Session.Observation.
 Import ListNotations.
 Open Scope string_scope.
+
+Definition domain_availability(value:Selvedge.Interaction.Experience.Model.availability):availability:=match value with
+|Selvedge.Interaction.Experience.Model.Available=>Available
+|Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
 
 (** Read-only product observations. The snapshot is admitted by the application;
     missing objects remain explicit rather than becoming fabricated entities. *)
