@@ -55,22 +55,21 @@ Definition parse_definition (source : json) :=
   parse_observer (value_or_null "observer" source),array_field "identity" source,array_field "fields" source with
  | Some kind,Some semantics,Some scope,Some observer,Some identity,Some fields =>
    match Codec.traverse parse_identity_field identity,Codec.traverse parse_value_field fields with
-   | Some identity,Some fields => let definition:=ContextDefinition kind semantics scope observer identity fields in
-     if ContextUpdates.valid_definition definition then Some definition else None
+   | Some identity,Some fields => admit_definition (DefinitionBody kind semantics scope observer identity fields)
    | _,_ => None end
  | _,_,_,_,_,_ => None end.
 Definition self_key (source : json) :=
  match string_field "type" source,parse_definition (value_or_null "definition" source),ContextUpdates.parse_fields (value_or_null "identity" source) with
  | Some kind,Some definition,Some identity =>
-   if String.eqb kind (definition_kind definition) && ContextUpdates.valid_identity definition identity
-   then Some (ContextKey definition identity) else None
+   if String.eqb kind (definition_kind definition)
+   then admit_key definition identity else None
  | _,_,_ => None end.
 Definition self_snapshot (source : json) :=
  match self_key (value_or_null "key" source),string_field "revision" source,
   ContextUpdates.parse_fields (value_or_null "fields" (value_or_null "value" source)) with
  | Some key,Some revision,Some fields =>
    if String.eqb (definition_kind (key_definition key)) (text_default "type" (value_or_null "value" source) "")
-   then ContextUpdates.construct_snapshot (key_definition key) (key_identity key) revision fields else None
+   then admit_snapshot key revision fields else None
  | _,_,_ => None end.
 Definition patch := ContextUpdates.parse_patch.
 Definition ordered_edits := ContextUpdates.ordered_edits.

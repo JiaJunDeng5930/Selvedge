@@ -27,9 +27,9 @@ Theorem grant_refresh_retains_only_current_authority g data sequence values entr
  | _ => True end.
 Proof. unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn. rewrite filter_In. tauto. Qed.
 
-Theorem different_grant_cannot_issue_request g data sequence id requested entry :
- find_connection data id = Some entry -> same_grant (authority entry) requested = false ->
- step (State (Ready g data) sequence) (Observe g (Frame (Request id requested))) =
+Theorem different_grant_cannot_issue_request g data sequence id requested request entry :
+ find_connection data (RemoteProtocol.identifier_text id) = Some entry -> same_grant (authority entry) requested = false ->
+ step (State (Ready g data) sequence) (Observe g (Frame (Request id requested request))) =
  (State (Ready g data) sequence,Disconnect).
 Proof.
  intros Present Different. unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn.

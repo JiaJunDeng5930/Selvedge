@@ -32,7 +32,7 @@ Definition parse_observed_settings snapshot value :=
  sandbox<-bind(field "sandbox" value)Codec.parse_sandbox;;
  approval<-bind(field "approval" value)(parse_observed_approval snapshot);;
  project<-bind(field "project_id" value)Identity.decode_id;;
- guidance<-field "guidance" value;; worktree<-bool_field "create_worktree" value;;
+ guidance<-bind(field "guidance" value)(Codec.parse_guidance workspace);; worktree<-bool_field "create_worktree" value;;
  resource<-bind(field "workspace_resource" value)Identity.decode_id;;
  Some(Selvedge.Kernel.Domain.Settings workspace project sandbox approval guidance worktree resource).
 Definition environment_settings snapshot :=
@@ -44,7 +44,7 @@ Definition task_settings task snapshot :=
 Definition project_settings project (base:Selvedge.Kernel.Domain.task_settings) snapshot :=
  value<-project_by_id project snapshot;;
  workspace<-bind(field "workspace" value)Codec.parse_workspace;;
- guidance<-field "guidance" value;; worktree<-bool_field "create_worktree" value;;
+ guidance<-bind(field "guidance" value)(Codec.parse_guidance workspace);; worktree<-bool_field "create_worktree" value;;
  Some(Selvedge.Kernel.Domain.Settings workspace (Some project) (Selvedge.Kernel.Domain.settings_sandbox base)
    (Selvedge.Kernel.Domain.settings_approval base) guidance worktree None).
 Definition origin_settings source snapshot := match source with
@@ -76,7 +76,7 @@ Definition context_preview snapshot (configuration:Context.configuration) : Cont
    (match Context.approval_override configuration with
      |Some value=>Context.ChosenApproval value|None=>Context.InheritedApproval(Selvedge.Kernel.Domain.settings_approval settings)end)
    (match Context.workspace_override configuration with
-     |Some _=>Context.AwaitingDirectoryGuidance|None=>Context.InheritedGuidance(Selvedge.Kernel.Domain.settings_guidance settings)end)
+     |Some _=>Context.AwaitingDirectoryGuidance|None=>Context.InheritedGuidance(Selvedge.Kernel.Guidance.json(Selvedge.Kernel.Domain.settings_guidance settings))end)
  end.
 Definition draft_context value := match Draft.contents value with
 |Draft.NewTaskBody _ _ _ configuration _ _|Draft.AgentBody _ _ _ _ _ _ configuration _
@@ -90,7 +90,7 @@ Definition frozen_preview snapshot task := match task_settings task snapshot wit
  (Context.InheritedWorkspace(Selvedge.Kernel.Domain.settings_workspace settings))
  (Context.InheritedSandbox(Selvedge.Kernel.Domain.settings_sandbox settings))
  (Context.InheritedApproval(Selvedge.Kernel.Domain.settings_approval settings))
- (Context.InheritedGuidance(Selvedge.Kernel.Domain.settings_guidance settings)) end.
+ (Context.InheritedGuidance(Selvedge.Kernel.Guidance.json(Selvedge.Kernel.Domain.settings_guidance settings))) end.
 Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fields.observed :=
  let prospective configuration:=Fields.ContextValue(context_preview snapshot configuration)(catalog snapshot) in
  match Draft.contents value with

@@ -1,39 +1,35 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json Utf8 ModelWire DeclarationFields.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
 Import ListNotations.
 Open Scope string_scope.
+Module D := ArgumentDeclaration.
+Module F := DeclarationFields.
 
-Definition fence_observation_valid observation :=
- is_object observation && is_text (get observation "raw_info") &&
- is_text (get observation "fence_kind") && Json.is_bool (get observation "info_complete").
-
+Definition fence_declaration := D.Object [F.required "raw_info" D.text;
+ F.required "fence_kind" D.text;F.required "info_complete" D.Boolean].
+Definition fences_declaration := D.Array fence_declaration.
+Definition fences := D.denote fences_declaration.
+Definition encode_fences := D.encode fences_declaration.
 Definition assistant_message text := JObject [
  ("type",JString "message");("role",JString "assistant");
  ("content",JArray [JObject [("type",JString "output_text");("text",text)]])].
-
-Definition provider_receipt text fences := JObject [
- ("type",JString "provider_receipt");("item",assistant_message text);
- ("markdown_fences",fences)].
-
-Definition observed_context item fences := JObject [
- ("type",JString "context");("part",get item "part");
- ("value",provider_receipt (get item "text") fences)].
-
-Definition observe_item item fences : outcome json :=
- if is_array fences && forallb fence_observation_valid (items fences) then
-   if String.eqb (str item "type") "text" then
-     if canonical_natural (get item "part") && is_text (get item "text") &&
-        Utf8.well_formed (str item "text")
-     then Accepted (observed_context item fences)
-     else reject "Model text output is malformed"
-   else if String.eqb (str item "type") "call" then
-     if Nat.eqb (List.length (items fences)) 0 then Accepted item
-     else reject "Tool output cannot carry Markdown fence observations"
-   else reject "Unsupported model output item for Markdown observation"
- else reject "Markdown fence observations are malformed".
-
-Fixpoint observe_items outputs observations : outcome (list json) :=
+Definition provider_fields := List.app ModelWire.context_fields
+ [F.required "markdown_fences" fences_declaration].
+Definition provider_observation part members fences := D.encode
+ (D.Object provider_fields) (exist _ (tt,(part,(members,(fences,tt)))) eq_refl).
+Definition observe_item item (observations : fences) : outcome ModelWire.value :=
+ match ModelWire.decode item with
+ | Some (inl text) => let fields := proj1_sig text in
+   Accepted (ModelWire.context (fst (snd fields)) [
+     ("type",JString "provider_receipt");("item",assistant_message (JString (proj1_sig (fst (snd (snd fields))))));
+     ("markdown_fences",encode_fences observations)])
+ | Some (inr (inl invocation)) =>
+   if Nat.eqb (List.length observations) 0
+   then Accepted (ModelWire.call (CallWire.of_item invocation))
+   else reject "Tool output cannot carry Markdown fence observations"
+ | _ => reject "Unsupported model output item for Markdown observation" end.
+Fixpoint observe_items outputs observations : outcome (list ModelWire.value) :=
  match outputs,observations with
  | [],[] => Accepted []
  | output::rest, fences::fence_rest =>
@@ -42,9 +38,8 @@ Fixpoint observe_items outputs observations : outcome (list json) :=
          Accepted (observed::observed_rest)))
  | _,_ => reject "Model output and Markdown fence observations are misaligned"
  end.
-
 Definition observe_text_output source :=
- match array_field "items" source,array_field "markdown_observations" source with
- | Some outputs,Some observations => render_outcome JArray (observe_items outputs observations)
+ match array_field "items" source,D.decode (D.Array fences_declaration) (get source "markdown_observations") with
+ | Some outputs,Some observations => render_outcome ModelWire.encode_items (observe_items outputs observations)
  | _,_ => err "Model text output has no aligned Markdown fence observations"
  end.

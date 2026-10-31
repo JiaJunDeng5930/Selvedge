@@ -23,7 +23,7 @@ Definition command value := match action_operation value with
 |SideConversation task=>decode_command command_specs(G.encode(G.Cmd_open_side_conversation(G.Build_open_side_conversation task None None)))
 |_=>None end.
 Definition local key label operation := Action key label operation None Available.
-Definition native key label confirmation generated :=
+Definition native key label confirmation (generated : G.proposal) :=
  option_map(fun command=>Action key label(NativeCommand command)confirmation Awaiting)
   (decode_command command_specs(G.encode generated)).
 Definition singleton {A} (value:option A) := match value with Some value=>[value]|None=>[]end.

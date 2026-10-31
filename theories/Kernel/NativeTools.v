@@ -58,8 +58,7 @@ Definition model_field (binding : command_binding) (argument : argument_spec) :=
  then Arguments.with_scalar (KArray KText) false argument else argument.
 Definition natural_bounds (argument : argument_spec) :=
  match argument_type_of argument with
- | Scalar KNatural => match argument_bounds argument with
-   | Some _ => argument | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument end
+ | Scalar KNatural => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
  | _ => argument end.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
  map (fun field =>
@@ -131,10 +130,10 @@ Definition command (caller : N) (invocation : call) :=
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
 Definition arguments_valid (definition : tool) (invocation : call) :=
  match tool_origin definition with
- | NativeToolSource parameters _ => Arguments.valid parameters (call_arguments invocation) &&
-   match primitive (call_name invocation) with
-   | Some primitive => ToolArguments.tool_constraints primitive (call_arguments invocation)
-   | None => match find_binding (call_name invocation) with
+ | NativeToolSource parameters _ => match primitive (call_name invocation) with
+   | Some primitive => ToolArguments.valid_arguments primitive (call_arguments invocation)
+   | None => Arguments.valid parameters (call_arguments invocation) &&
+     match find_binding (call_name invocation) with
      | Some _ => true
      | None => String.eqb (call_name invocation) "discover_tools"
      end

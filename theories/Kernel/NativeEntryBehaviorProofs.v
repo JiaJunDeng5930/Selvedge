@@ -21,6 +21,5 @@ Proof.
  unfold Callbacks.model_call_arguments_valid; rewrite Native, Invalid. reflexivity.
 Qed.
 
-(* The exported positive operation includes native decoding, the real fork
-   constructor, after-hook settlement and commit admission in arbitrary worlds. *)
+(* Native fork completion commits both successful and refused business results. *)
 From Selvedge.Kernel Require Export NativeForkPacketProofs.

@@ -1,6 +1,8 @@
+From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import TaskChangesProofs.
-From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Foundation Require Import RegistryProofs ReceiverProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
+From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Callbacks Tasks LifecycleProofs.
@@ -8,63 +10,6 @@ From Selvedge.Features Require Import Domain State TaskGraph TaskGraphSemantics 
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
 Module K:=Selvedge.Kernel.State.
-Lemma graph_lookup_has_registry_entry : forall id value graph,
- TaskGraph.lookup id value = Some graph ->
- registry_at id (TaskGraph.registry value) = Some (Some graph).
-Proof.
- intros id value graph Found. unfold TaskGraph.lookup in Found.
- destruct (registry_at id (TaskGraph.registry value)) as [[present|]|] eqn:Entry;
-   try discriminate. inversion Found; reflexivity.
-Qed.
-
-Theorem replacing_a_graph_preserves_its_identity : forall id value previous graph,
- TaskGraph.lookup id value = Some previous ->
- TaskGraph.lookup id (TaskGraph.store id graph value) = Some graph.
-Proof.
- intros id value previous graph Found.
- apply graph_lookup_has_registry_entry in Found.
- unfold TaskGraph.lookup.
- change (match registry_at id
-   (if N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace id (Some graph) (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end = Some graph).
- destruct (N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))) eqn:Append.
- - apply N.eqb_eq in Append. rewrite Append, registry_lookup_at_appended_index. reflexivity.
- - rewrite (registry_replace_selected _ _ _ _ _ Found). reflexivity.
-Qed.
-
-Theorem appending_a_graph_establishes_its_identity : forall value graph,
- let id := N.of_nat (List.length (TaskGraph.registry value)) in
- TaskGraph.lookup id (TaskGraph.store id graph value) = Some graph.
-Proof.
- intros value graph; cbv zeta. unfold TaskGraph.lookup.
- change (match registry_at (N.of_nat (List.length (TaskGraph.registry value)))
-   (if N.eqb (N.of_nat (List.length (TaskGraph.registry value)))
-       (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace (N.of_nat (List.length (TaskGraph.registry value))) (Some graph)
-      (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end = Some graph).
- rewrite N.eqb_refl, registry_lookup_at_appended_index. reflexivity.
-Qed.
-
-Theorem graph_installation_preserves_other_identities : forall id other value graph,
- id <> other ->
- TaskGraph.lookup other (TaskGraph.store id graph value) = TaskGraph.lookup other value.
-Proof.
- intros id other value graph Different. unfold TaskGraph.lookup.
- change (match registry_at other
-   (if N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))
-    then TaskGraph.registry value ++ [Some graph]
-    else replace id (Some graph) (TaskGraph.registry value)) with
-   | Some graph => graph | None => None end =
-   match registry_at other (TaskGraph.registry value) with
-   | Some graph => graph | None => None end).
- destruct (N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))) eqn:Append.
- - apply N.eqb_eq in Append. rewrite registry_append_preserves_other_lookup; [reflexivity|lia].
- - rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
-Qed.
 (** Installing a graph never dispatches the pre-existing history again. *)
 Theorem unchanged_history_has_no_new_outputs : forall value id task,
  K.find_task id value = Some task -> TaskGraph.new_outputs value id task = [].
@@ -83,65 +28,39 @@ Proof.
  apply N.eqb_neq in other. now rewrite other.
 Qed.
 
-Theorem resolved_installation_succeeds : forall original caller
- (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) plans,
- TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = TaskGraph.NodesResolved plans ->
- bool_default "ok"%string (decision_reply (TaskGraph.install_cached id owner checked)) false = true.
-Proof.
- intros original caller owner id checked plans Prepared.
- assert (Resolved : forall result (Evidence : TaskGraph.prepare_nodes
-   (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = result),
-   match result with
-   | TaskGraph.NodesResolved _ => bool_default "ok"%string
-       (decision_reply (TaskGraph.install_resolution id owner checked result Evidence)) false = true
-   | TaskGraph.NodesRefused _ => True end).
- { intros [nodes|reply] Evidence; [|exact I].
-   unfold TaskGraph.install_resolution,TaskGraph.install_plan.
-   cbn [TaskGraph.graph_plans TaskGraph.graph_checked].
-   destruct (fold_left (fun progress node => TaskGraph.birth owner node progress)
-     nodes (TaskGraph.initial_births original)); reflexivity. }
- pose proof (Resolved _ eq_refl) as Result.
- change (match TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) with
- | TaskGraph.NodesResolved _ => bool_default "ok"%string
-     (decision_reply (TaskGraph.install_cached id owner checked)) false = true
- | TaskGraph.NodesRefused _ => True end) in Result.
- now rewrite Prepared in Result.
-Qed.
 Theorem resolved_installation_follows_the_typed_plan : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) plans
  (Resolved : TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = TaskGraph.NodesResolved plans),
+   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans),
  TaskGraph.install_cached id owner checked =
  TaskGraph.install_plan id (TaskGraph.GraphPlan checked plans Resolved).
 Proof.
  intros original caller owner id checked plans Resolved.
- unfold TaskGraph.install_cached,TaskGraph.install_resolution,TaskGraph.install_plan.
+ unfold TaskGraph.install_cached,TaskGraph.install_cached_result,TaskGraph.install_resolution,
+   TaskGraph.install_plan,TaskGraph.install_change.
  cbn [TaskGraph.graph_checked TaskGraph.graph_plans].
  now rewrite Resolved.
 Qed.
-Theorem refused_plan_is_atomic : forall original caller
- (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) failure,
+Theorem resolved_installation_succeeds : forall original caller
+ (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) plans,
  TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = TaskGraph.NodesRefused failure ->
- TaskGraph.install_cached id owner checked = K.Decision original failure [].
+   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans ->
+ bool_default "ok"%string (decision_reply (TaskGraph.install_cached id owner checked)) false = true.
 Proof.
- intros original caller owner id checked failure Refused.
- assert (Atomic : forall result (Evidence : TaskGraph.prepare_nodes
-   (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = result),
-   match result with TaskGraph.NodesResolved _ => True
-   | TaskGraph.NodesRefused reply =>
-       TaskGraph.install_resolution id owner checked result Evidence = K.Decision original reply [] end).
- { intros [plans|reply] Evidence; [exact I|reflexivity]. }
- pose proof (Atomic _ eq_refl) as Result.
- change (match TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) with
- | TaskGraph.NodesResolved _ => True
- | TaskGraph.NodesRefused reply => TaskGraph.install_cached id owner checked = K.Decision original reply [] end) in Result.
- now rewrite Refused in Result.
+ intros; rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ H).
+ apply CommandResult.acceptance_has_a_success_reply.
+Qed.
+Theorem refused_plan_is_atomic : forall original caller
+ (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) reason,
+ TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
+   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Rejected reason ->
+ TaskGraph.install_cached id owner checked = CommandResult.reject original reason.
+Proof.
+ intros original caller owner id checked reason Refused.
+ unfold TaskGraph.install_cached,TaskGraph.install_cached_result,TaskGraph.install_resolution,
+   TaskGraph.install_change.
+ cbn [TaskGraph.graph_checked TaskGraph.graph_plans].
+ now rewrite Refused.
 Qed.
 Lemma concat_fragments : forall fragments,
  String.concat "" fragments = fold_right String.append "" fragments.
@@ -346,68 +265,40 @@ Proof.
  unfold TaskGraph.store. reflexivity.
 Qed.
 
-(** A handoff uses the public input gate. A failed workspace is a rejected
-    delivery, recorded in the graph without changing the recipient or causing
-    unrelated scheduling effects. *)
-Theorem failed_workspace_delivery_records_rejection : forall source item result,
- Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
- TaskGraph.send_delivery source item result =
- Decision
-   (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
-     (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
-       (decision_reply (Worktree.failed_execution (decision_world result))))
-     (decision_world result))
-   (decision_reply result) (decision_effects result).
-Proof.
- intros source item result unavailable.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite unavailable.
- cbn [Worktree.failed_execution reject decision_world decision_reply decision_effects].
- now rewrite app_nil_r.
-Qed.
-
-Theorem failed_workspace_delivery_preserves_every_task : forall source item result,
- Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
- world_tasks (decision_world (TaskGraph.send_delivery source item result)) =
- world_tasks (decision_world result).
-Proof.
- intros source item result unavailable.
- rewrite failed_workspace_delivery_records_rejection by exact unavailable.
- cbn [decision_world]. apply recording_receipt_preserves_tasks.
-Qed.
-
+(** Graph handoff consumes the ordinary typed input result, including a
+    refusal. It has no separate workspace policy or speculative task update. *)
 Theorem available_workspace_delivery_records_the_ordinary_send_result : forall source item result,
- Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=true ->
  let sent := Tasks.send (TaskGraph.delivery_target item)
    [TextPart (TaskGraph.delivery_text item)] (decision_world result) in
- TaskGraph.send_delivery source item result =
+ DecisionComposition.run (TaskGraph.send_delivery source item) result =
  Decision
    (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
      (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
        (decision_reply sent)) (decision_world sent))
    (decision_reply result) (decision_effects result ++ decision_effects sent).
 Proof.
- intros source item result available.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. now rewrite available.
+ intros source item result.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. reflexivity.
 Qed.
 
 (** The actual dispatcher writes the delivered text through the ordinary Task
     input operation. This is a state-update guarantee; it makes no assumption
     about an external model eventually producing a reply. *)
 Theorem actual_delivery_reaches_idle_task : forall source item result task,
- Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=true ->
  K.find_task (TaskGraph.delivery_target item) (decision_world result)=Some task ->
+ WorkspaceBinding.input_available task (decision_world result)=true ->
  task_lifecycle task=Running Idle [] ->
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
  exists received,
  K.find_task (TaskGraph.delivery_target item)
-   (decision_world (TaskGraph.send_delivery source item result))=Some received /\
+   (decision_world (DecisionComposition.run (TaskGraph.send_delivery source item) result))=Some received /\
  task_history received=task_history task ++
    map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
  task_lifecycle received=Running WantsModel [].
 Proof.
- intros source item result task available found idle nonempty.
- unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite available.
- rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
+ intros source item result task found available idle nonempty.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
+ rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty, available. cbn.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
@@ -415,7 +306,8 @@ Proof.
  rewrite tasks_same.
  exists (Tasks.receive [TextPart (TaskGraph.delivery_text item)] task).
  split; [now apply find_put_task with task|].
- rewrite TaskChangesProofs.receive_expression, idle. split; reflexivity.
+ destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.
 Qed.
 
 (** Preparation is different from failure: a live binding can accept its next
@@ -423,35 +315,24 @@ Qed.
 Theorem actual_delivery_to_preparing_workspace_reaches_idle_task :
  forall source item result task tree retiring,
  WorkspaceBinding.for_task (TaskGraph.delivery_target item) (decision_world result)=Some tree ->
- F.worktree_phase tree=F.TreeCreating retiring ->
+ F.worktree_phase tree=F.TreeCreating (RequestEnvelope.Owned retiring) ->
  K.find_task (TaskGraph.delivery_target item) (decision_world result)=Some task ->
  task_lifecycle task=Running Idle [] ->
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
  exists received,
  K.find_task (TaskGraph.delivery_target item)
-   (decision_world (TaskGraph.send_delivery source item result))=Some received /\
+   (decision_world (DecisionComposition.run (TaskGraph.send_delivery source item) result))=Some received /\
  task_history received=task_history task ++
    map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
  task_lifecycle received=Running WantsModel [].
 Proof.
  intros source item result task tree retiring bound preparing found idle nonempty.
  apply (actual_delivery_reaches_idle_task source item result task); try assumption.
- unfold Worktree.execution_allowed. now rewrite bound, preparing.
+ unfold WorkspaceBinding.for_task in bound; rewrite found in bound.
+ unfold WorkspaceBinding.input_available; now rewrite bound, preparing.
 Qed.
 
-Lemma removed_graph_owner_is_absent : forall id bindings,
- F.association id (filter (fun entry => negb (N.eqb id (fst entry))) bindings) = None.
-Proof.
- intros id bindings; unfold F.association.
- destruct (find (fun entry => N.eqb id (fst entry))
-   (filter (fun entry => negb (N.eqb id (fst entry))) bindings))
-   as [[key owner]|] eqn:Found; [|reflexivity].
- apply find_some in Found as [Member Selected].
- apply filter_In in Member as [_ Kept].
- change (N.eqb id key = true) in Selected.
- change (negb (N.eqb id key) = true) in Kept.
- rewrite Selected in Kept; discriminate.
-Qed.
+
 
 Theorem installed_plan_associates_its_work : forall original caller
  (owner : Work.owner_scope original) id (plan : TaskGraph.graph_plan original caller (Some owner)),
@@ -459,7 +340,7 @@ Theorem installed_plan_associates_its_work : forall original caller
    (decision_world (TaskGraph.install_plan id plan)))) = Some (Work.owner_identity owner).
 Proof.
  intros original caller owner id plan.
- unfold TaskGraph.install_plan.
+ unfold TaskGraph.install_plan,TaskGraph.install_change,CommandResult.accept.
  destruct (fold_left (fun progress node => TaskGraph.birth (Some owner) node progress)
    (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)) as [prepared frame nodes effects].
  unfold F.association,K.with_features,Selvedge.Features.State.with_graph_owners.
@@ -472,26 +353,13 @@ Qed.
 Theorem resolved_installation_associates_its_work : forall original caller
  (owner : Work.owner_scope original) id (checked : TaskGraph.checked_cached caller original) plans,
  TaskGraph.prepare_nodes (TaskGraph.scope_identity (Some owner)) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = TaskGraph.NodesResolved plans ->
+   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans ->
  F.association id (F.feature_graph_owners (world_features
    (decision_world (TaskGraph.install_cached id (Some owner) checked)))) = Some (Work.owner_identity owner).
 Proof.
  intros original caller owner id checked plans Prepared.
- assert (Owned : forall result (Evidence : TaskGraph.prepare_nodes
-   (TaskGraph.scope_identity (Some owner)) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = result),
-   match result with TaskGraph.NodesRefused _ => True
-   | TaskGraph.NodesResolved _ => F.association id (F.feature_graph_owners (world_features
-       (decision_world (TaskGraph.install_resolution id (Some owner) checked result Evidence)))) =
-       Some (Work.owner_identity owner) end).
- { intros [nodes|reply] Evidence; [apply installed_plan_associates_its_work|exact I]. }
- pose proof (Owned _ eq_refl) as Result.
- change (match TaskGraph.prepare_nodes (TaskGraph.scope_identity (Some owner)) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) with
- | TaskGraph.NodesRefused _ => True
- | TaskGraph.NodesResolved _ => F.association id (F.feature_graph_owners (world_features
-     (decision_world (TaskGraph.install_cached id (Some owner) checked)))) = Some (Work.owner_identity owner) end) in Result.
- now rewrite Prepared in Result.
+ rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ Prepared).
+ apply installed_plan_associates_its_work.
 Qed.
 
 Theorem graph_removal_preserves_other_identities : forall request caller value previous,
@@ -508,20 +376,26 @@ Proof.
  intros request caller value previous Found.
  unfold TaskGraph.handle_delete_task_graph. rewrite Found.
  eexists; split; [reflexivity|].
- pose proof (graph_lookup_has_registry_entry _ _ _ Found) as Entry.
+ pose proof (ReceiverProofs.lookup_has_position
+   (TaskGraph.receiver (Selvedge.Generated.Commands.delete_task_graph_graph_id request))
+   previous value previous Found) as Position.
  split.
- - change (match registry_at (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
-     (replace (Selvedge.Generated.Commands.delete_task_graph_graph_id request) None
-       (TaskGraph.registry value)) with Some graph => graph | None => None end = None).
-   rewrite (registry_replace_selected _ _ _ _ _ Entry). reflexivity.
+ - change (match Receiver.lookup (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) None
+     (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
+     with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end = None).
+   unfold TaskGraph.remove. rewrite ReceiverProofs.installed by exact Position. reflexivity.
  - split.
-   + apply removed_graph_owner_is_absent.
-   + intros other Different. unfold TaskGraph.lookup.
-   change (match registry_at other
-     (replace (Selvedge.Generated.Commands.delete_task_graph_graph_id request) None
-       (TaskGraph.registry value)) with Some graph => graph | None => None end =
-     match registry_at other (TaskGraph.registry value) with Some graph => graph | None => None end).
-     rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
+   + change (F.association (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
+       (filter (fun entry => negb (N.eqb (Selvedge.Generated.Commands.delete_task_graph_graph_id request) (fst entry)))
+         (F.feature_graph_owners (world_features value))) = None).
+     unfold F.association; rewrite removing_a_key_clears_its_lookup; reflexivity.
+   + intros other Different.
+     change (match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other
+       (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
+       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end =
+       match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other value
+       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end).
+     unfold TaskGraph.remove. rewrite ReceiverProofs.other_address; [reflexivity|exact (not_eq_sym Different)].
 Qed.
 
 Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value previous,
@@ -532,7 +406,8 @@ Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value
      (F.graph_receipts previous ++ [receipt]))).
 Proof.
  intros id receipt value previous Found. unfold TaskGraph.record_receipt. rewrite Found.
- now apply replacing_a_graph_preserves_its_identity with previous.
+ apply (ReceiverProofs.installed (TaskGraph.receiver id)).
+ exact (ReceiverProofs.lookup_has_position (TaskGraph.receiver id) previous value previous Found).
 Qed.
 
 Theorem recording_a_receipt_preserves_other_graphs : forall id other receipt value,
@@ -541,7 +416,7 @@ Theorem recording_a_receipt_preserves_other_graphs : forall id other receipt val
 Proof.
  intros id other receipt value Different. unfold TaskGraph.record_receipt.
  destruct (TaskGraph.lookup id value); [|reflexivity].
- now apply graph_installation_preserves_other_identities.
+ apply (ReceiverProofs.other_address (TaskGraph.receiver id)); exact (not_eq_sym Different).
 Qed.
 
 Theorem recording_a_receipt_bounds_the_retained_history : forall id receipt value previous current,
@@ -582,25 +457,6 @@ Proof.
 Qed.
 
 
-Lemma planned_node_preserves_existing_tasks : forall original
- (owner : option (Work.owner_scope original))
- (plan : TaskGraph.node_plan original (TaskGraph.scope_identity owner)) progress id task,
- find_task id (TaskGraph.born_world progress)=Some task ->
- find_task id (TaskGraph.born_world (TaskGraph.birth owner plan progress))=Some task.
-Proof.
- intros original owner plan [current frame nodes effects] id task Found.
- destruct plan as [key target previous observed membership|key start]; [exact Found|].
- apply WorktreeProofs.scoped_birth_preserves_existing_tasks; exact Found.
-Qed.
-Lemma planned_nodes_preserve_existing_tasks : forall original
- (owner : option (Work.owner_scope original))
- (plans : list (TaskGraph.node_plan original (TaskGraph.scope_identity owner))) progress id task,
- find_task id (TaskGraph.born_world progress)=Some task ->
- find_task id (TaskGraph.born_world (fold_left (fun progress plan=>TaskGraph.birth owner plan progress) plans progress))=Some task.
-Proof.
- intros original owner plans; induction plans as [|plan rest IH]; intros progress id task Found; [exact Found|].
- cbn [fold_left]. apply IH. apply planned_node_preserves_existing_tasks. exact Found.
-Qed.
 Theorem installed_plan_preserves_original_task_references : forall original caller
  (owner : option (Work.owner_scope original)) id (plan : TaskGraph.graph_plan original caller owner) task_id task,
  find_task task_id original=Some task ->
@@ -612,7 +468,7 @@ Proof.
      (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)))
    (TaskGraph.born_frame (fold_left (fun progress node=>TaskGraph.birth owner node progress)
      (TaskGraph.graph_plans plan) (TaskGraph.initial_births original))) task_id task Found) as Retained.
- unfold TaskGraph.install_plan.
+ unfold TaskGraph.install_plan,TaskGraph.install_change,CommandResult.accept.
  destruct owner; exact Retained.
 Qed.
 Theorem installation_preserves_original_task_references : forall original caller
@@ -621,10 +477,9 @@ Theorem installation_preserves_original_task_references : forall original caller
  find_task task_id (decision_world (TaskGraph.install_cached id owner checked))=Some task.
 Proof.
  intros original caller owner id checked task_id task Found.
- assert (Preserves : forall result (Evidence : TaskGraph.prepare_nodes
-   (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = result),
-   find_task task_id (decision_world (TaskGraph.install_resolution id owner checked result Evidence)) = Some task).
- { intros [plans|reply] Evidence; [apply installed_plan_preserves_original_task_references|]; exact Found. }
- apply Preserves.
+ destruct (TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
+   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked))) as [plans|reason] eqn:Prepared.
+ - rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ Prepared).
+   now apply installed_plan_preserves_original_task_references.
+ - rewrite (refused_plan_is_atomic _ _ _ _ _ _ Prepared); exact Found.
 Qed.

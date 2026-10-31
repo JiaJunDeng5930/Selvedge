@@ -1,15 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonSchema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope TaskChange Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol.
+From Selvedge.Foundation Require Import Json JsonSchema.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope RequestReceiver TaskChange Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol OperationEvent.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
 Definition ignored := State.ignored.
 Definition acknowledged (value : world) := accept (JObject [("accepted",JBool true)]) value [].
-Definition matching_activity (ticket : N) (phase : activity) := match phase with
- | ObservingContext expected _ | AskingModel expected _ _ | EvaluatingReasoning expected _
- | CheckingHook expected _ _ _ _ => N.eqb ticket expected | _ => false end.
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
   | NativeToolSource _ _ => NativeTools.arguments_valid tool invocation
@@ -18,20 +15,14 @@ Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   end.
 Definition call_known (id : string) (history : list message) :=
  existsb (fun message => match message with FunctionCall invocation => String.eqb id (call_id invocation) | _ => false end) history.
-Fixpoint permitted_items (items : list model_item) (allowed : list string) (task : task)
- (ids : list string) (parts : list N) :=
- match items with
- | [] => true
- | TextItem part text :: rest | ContextItem part (JString text) :: rest =>
-   negb (existsb (N.eqb part) parts) && Utf8.well_formed text && permitted_items rest allowed task ids (part :: parts)
- | ContextItem part _ :: rest => negb (existsb (N.eqb part) parts) && permitted_items rest allowed task ids (part :: parts)
- | CallItem invocation :: rest =>
-   negb (existsb (String.eqb (call_id invocation)) ids) && negb (call_known (call_id invocation) (task_history task)) &&
+Definition permitted_items (items : list model_item) (allowed : list string) (task : task) :=
+ forallb (fun item => match item with
+ | CallItem invocation =>
+   negb (call_known (call_id invocation) (task_history task)) &&
    existsb (String.eqb (call_name invocation)) allowed &&
    (match find_tool (call_name invocation) (contract_tools (task_contract task)) with
-   | None => false | Some _ => match call_arguments invocation with JObject _ => true | _ => false end end) &&
-   permitted_items rest allowed task (call_id invocation :: ids) parts
- end.
+   | None => false | Some _ => true end)
+ | _ => true end) items.
 Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=
  map (fun item => match item with
  | TextItem part text => AssistantMessage (OutputOrigin owner ticket part mode) text
@@ -50,55 +41,48 @@ Definition model_result_changes (owner ticket : N) (allowed : list string) (mode
  match outcome with
  | ModelFailure text => settle [FailureMessage text]
  | ModelContextLimit => settle [FailureMessage "Model context limit reached; full task history retained"]
- | ModelSuccess items =>
-   if permitted_items items allowed task [] [] then
+ | ModelSuccess batch =>
+   let items := Codec.model_items batch in
+   if permitted_items items allowed task then
    let messages := item_messages owner ticket mode items in
    TaskChange.AppendHistory messages ::
    match item_calls items with
    | [] => settle_model_changes (append_history messages task)
    | calls => [TaskChange.ChangePhase (PendingCalls calls)] end
-   else settle [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"]
+   else settle [FailureMessage "Invalid model reply: previously used call identity or unavailable tool"]
  end.
 Definition model_result (owner ticket : N) (allowed : list string) (mode : output_mode)
  (outcome : model_outcome) (task : task) :=
  TaskChange.apply (model_result_changes owner ticket allowed mode outcome task) task.
 Definition model_completed (id ticket : N) (outcome : model_outcome) (value : world) :=
- (* DEFENSE: IO may complete after interruption, archival or a later inference
-    request. Only the ticket stored by the accepted request owns this result. *)
- match TaskScope.select id value with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match task_activity task with
-   | AskingModel expected allowed mode =>
-     if N.eqb expected ticket then acknowledged (TaskChange.interpret (TaskChange.Plan value target (model_result_changes id ticket allowed mode outcome task)))
-     else ignored value
-   | _ => ignored value end
- end.
-Definition record_context_diagnostic_changes (message : string) (task : task) :=
+ RequestReceiver.deliver id value (RequestReceiver.pending_phase RequestReceiver.ModelReceiver ticket)
+   (fun target payload => let '(allowed,mode) := payload in
+    acknowledged (TaskChange.interpret (TaskChange.Plan value target
+      (model_result_changes id ticket allowed mode outcome (TaskScope.selected target))))).
+Definition context_diagnostic (diagnostic : string) (history : list message) :=
  (* DEFENSE: A persistently unreadable source is observed before every generation;
     repeat diagnostics must not keep changing history and invalidating leases. *)
  if existsb (fun entry => match entry with
-   | FailureMessage previous => String.eqb previous message | _ => false end) (task_history task)
- then [] else [TaskChange.AppendHistory [FailureMessage message]].
-Definition record_context_diagnostic (message : string) (task : task) :=
- TaskChange.apply (record_context_diagnostic_changes message task) task.
-Fixpoint context_diagnostic_changes (messages : list string) (task : task) :=
- match messages with
+   | FailureMessage previous => String.eqb previous diagnostic | _ => false end) history
+ then [] else [FailureMessage diagnostic].
+Fixpoint context_diagnostics (diagnostics : list string) (history : list message) :=
+ match diagnostics with
  | [] => []
- | message :: rest => let changes := record_context_diagnostic_changes message task in
-   changes ++ context_diagnostic_changes rest (TaskChange.apply changes task)
+ | diagnostic :: rest => let messages := context_diagnostic diagnostic history in
+   messages ++ context_diagnostics rest (history ++ messages)
  end.
-Definition observed_context_changes (observations : option (list context_observation)) (diagnostic : string) (task : task) :=
+(** Source observation owns only appended history. The callback interpreter
+    chooses the task phase after receiving this result. *)
+Definition observed_context_history (observations : option (list context_observation))
+ (diagnostic : string) (history : list message) :=
  match observations with
- | None => (false,record_context_diagnostic_changes diagnostic task)
+ | None => (false,context_diagnostic diagnostic history)
  | Some observations =>
-   let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings (task_history task)) in
+   let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings history) in
    let messages := map ContextObservation changes in
    (Nat.eqb (List.length diagnostics) 0,
-    TaskChange.AppendHistory messages :: context_diagnostic_changes diagnostics (append_history messages task))
+    messages ++ context_diagnostics diagnostics (history ++ messages))
  end.
-Definition observed_context (observations : option (list context_observation)) (diagnostic : string) (task : task) :=
- let '(accepted,changes) := observed_context_changes observations diagnostic task in
- (accepted,TaskChange.apply changes task).
 Definition context_phase (task : task) :=
  match task_lifecycle task with Running _ _ => ReadyForModel | _ => WantsModel end.
 Definition context_response (accepted : bool) (value : world) :=
@@ -110,79 +94,40 @@ Definition context_ready (accepted : bool) (id : N) (task : task) (value : world
    (TaskChange.interpret (TaskChange.Plan value target [TaskChange.ChangePhase (context_phase task)]))
  end.
 Definition context_completed (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) :=
- match TaskScope.select id value with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match task_activity task with
-   | ObservingContext expected revision => if N.eqb expected ticket then
-     (* DEFENSE: Tool completions and speech input can append history while source
-        IO reads the captured prefix. Its patches belong only to that revision. *)
-     if Nat.eqb revision (List.length (task_history task)) then
-       let '(accepted,changes) := observed_context_changes observations diagnostic task in
-       context_response accepted (TaskChange.interpret (TaskChange.Plan value target
-         (changes ++ [TaskChange.ChangePhase (context_phase task)])))
-     else match task_lifecycle task with
-       | Running _ _ => Reasoning.context_retry id value
-       | _ => context_ready false id task value end
-     else ignored value
-   | _ => ignored value end
- end.
-Definition operation_ticket (value : operation) : option N := match operation_stage value with
- | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => Some ticket
- | Granted _ | AfterHooksReady _ _ _ => None end.
-Definition operation_matches (ticket : N) (value : operation) := match operation_ticket value with
- | Some expected => N.eqb expected ticket | None => false end.
-Definition operation_executing (ticket : N) (value : operation) := match operation_stage value with
- | Executing expected | Elevated expected _ => N.eqb expected ticket | _ => false end.
+ RequestReceiver.deliver id value (RequestReceiver.pending_phase RequestReceiver.ContextReceiver ticket)
+   (fun target revision => let task := TaskScope.selected target in
+    (* DEFENSE: Source IO belongs to its captured history revision; concurrent
+       tool or speech results require a new observation. *)
+    if Nat.eqb revision (List.length (task_history task)) then
+      let '(accepted,messages) := observed_context_history observations diagnostic (task_history task) in
+      context_response accepted (TaskChange.interpret (TaskChange.Plan value target
+        [TaskChange.AppendHistory messages; TaskChange.ChangePhase (context_phase task)]))
+    else match task_lifecycle task with
+      | Running _ _ => Reasoning.context_retry id value
+      | _ => context_ready false id task value end).
+Definition operation_executing := RequestReceiver.operation_executing.
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
-Definition replace_operation := TicketedRequest.replace_operation.
 
-Definition settle_operation_plan (operation : operation) (result : json) (error : bool) :=
- Tasks.WakeDemand [TaskChange.AppendHistory [History.operation_result operation result error];
-   TaskChange.RemoveOperation (operation_id operation)].
+Definition settle_operation_plan := OperationEvent.settle.
 Definition settle_operation_changes (operation : operation) (result : json) (error : bool) (task : task) :=
  Tasks.result_changes (settle_operation_plan operation result error) task.
 Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
  TaskChange.apply (settle_operation_changes operation result error task) task.
-Definition after_plugins (task : task) :=
- Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
+Definition after_plugins := OperationEvent.after_plugins.
 Definition begin_result_plan (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- match after_plugins task with
- | [] => settle_operation_plan operation result error
- | pending =>
-   Tasks.KeepDemand [TaskChange.AppendHistory [ToolReceipt owner (operation_id operation) (operation_call operation) result error];
-    TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
- end.
+ OperationEvent.plan owner (OperationEvent.Returned operation result error) task.
 Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  Tasks.result_changes (begin_result_plan owner operation result error task) task.
 Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  TaskChange.apply (begin_result_changes owner operation result error task) task.
 Definition tool_completed (id ticket : N) (result : json) (error : bool) (value : world) :=
- (* DEFENSE: Tool delivery can be duplicated or delayed after cancellation;
-    a settled operation cannot acquire another completion or start a hook. *)
- match TaskScope.select id value with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match find (operation_executing ticket) (task_operations task) with
-   | None => ignored value
-   | Some operation => acknowledged (Tasks.interpret_result target (begin_result_plan id operation result error task))
-   end
- end.
-Definition find_pending_approval (selected : N -> N -> reviewer -> bool) (operations : list operation)
- : option (operation * reviewer) :=
- fold_right (fun pending rest => match operation_stage pending with
- | AwaitingApproval ticket actor =>
-   if selected (operation_id pending) ticket actor then Some (pending,actor) else rest
- | _ => rest end) None operations.
+ RequestReceiver.deliver id value (RequestReceiver.pending_tool ticket)
+   (fun target operation => acknowledged (Tasks.interpret_result target
+     (begin_result_plan id operation result error (TaskScope.selected target)))).
+Definition find_pending_approval := RequestReceiver.find_approval.
 Definition approval_decision_plan (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
- let outcome := ApprovalProtocol.normalize_outcome outcome in
- let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
-   reviewed_by (Inputs.approval_json outcome)] in
- Tasks.prefix_result [TaskChange.AppendHistory receipt]
- match outcome with
- | Approved _ => Tasks.KeepDemand [TaskChange.ChangeOperationStage (operation_id operation) (Granted reviewed_by)]
- | Denied reason | ApprovalFailed reason => begin_result_plan owner operation
-   (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true (append_history receipt task)
- end.
+ OperationEvent.plan owner (OperationEvent.Reviewed operation reviewed_by outcome) task.
 Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  Tasks.result_changes (approval_decision_plan owner operation reviewed_by outcome task) task.
@@ -190,34 +135,21 @@ Definition approval_decision (owner : N) (operation : operation) (reviewed_by : 
  (outcome : approval_outcome) (task : task) :=
  TaskChange.apply (approval_decision_changes owner operation reviewed_by outcome task) task.
 Definition approval_completed (id ticket : N) (outcome : approval_outcome) (value : world) :=
- match TaskScope.select id value with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match find_pending_approval (fun _ expected actor => match actor with
-   | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end) (task_operations task) with
-   | None => ignored value
-   | Some (operation,actor) => acknowledged (Tasks.interpret_result target (approval_decision_plan id operation actor outcome task))
-   end end.
+ RequestReceiver.deliver id value (RequestReceiver.pending_approval ticket)
+   (fun target payload => let '(operation,actor) := payload in
+    acknowledged (Tasks.interpret_result target
+      (approval_decision_plan id operation actor outcome (TaskScope.selected target)))).
 Definition review_approval (id operation : N) (outcome : approval_outcome) (value : world) :=
- let stale := reject "approval_not_pending"
-   "This task has no pending human approval with that operation identity" value in
- match TaskScope.select id value with
- | None => stale
- | Some target => let task := TaskScope.selected target in match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
-   match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
-   | None => stale
-   | Some (operation,actor) => acknowledged (Tasks.interpret_result target (approval_decision_plan id operation actor outcome task))
-   end end.
+ RequestReceiver.deliver_or id value (RequestReceiver.pending_human_approval operation)
+   (reject "approval_not_pending" "This task has no pending human approval with that operation identity" value)
+   (fun target payload => let '(operation,actor) := payload in
+    acknowledged (Tasks.interpret_result target
+      (approval_decision_plan id operation actor outcome (TaskScope.selected target)))).
 Definition reasoning_completed (id ticket : N) (outcome : Reasoning.outcome) (value : world) :=
- match TaskScope.select id value with
- | None => ignored value
- | Some target => let task := TaskScope.selected target in match task_activity task with
-   | EvaluatingReasoning expected source_length => if N.eqb expected ticket then
-      (* DEFENSE: Tool completions and speech transcripts can append evidence
-         while the evaluator runs; its lease belongs to the captured history. *)
-      let changes := if Nat.eqb source_length (List.length (task_history task))
-        then Reasoning.complete_changes id outcome task
-        else TaskChange.ChangePhase ReadyForModel :: Tasks.promote_changes (with_activity ReadyForModel task) in
-      acknowledged (TaskChange.interpret (TaskChange.Plan value target changes))
-      else ignored value
-   | _ => ignored value end
- end.
+ RequestReceiver.deliver id value (RequestReceiver.pending_phase RequestReceiver.ReasoningReceiver ticket)
+   (fun target source_length => let task := TaskScope.selected target in
+    (* DEFENSE: The evaluator lease belongs to its captured history revision. *)
+    let changes := if Nat.eqb source_length (List.length (task_history task))
+      then Reasoning.complete_changes id outcome task
+      else TaskChange.ChangePhase ReadyForModel :: Tasks.promote_changes (with_activity ReadyForModel task) in
+    acknowledged (TaskChange.interpret (TaskChange.Plan value target changes))).

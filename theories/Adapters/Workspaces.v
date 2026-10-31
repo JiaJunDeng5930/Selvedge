@@ -11,14 +11,16 @@ Open Scope N_scope.
 Definition type_admit (accepted : bool) (value : json) (message : string) :=
   if accepted then success value else type_error message.
 Definition path_valid (value : json) := is_text value && Utf8.well_formed (text value) && Utf8.no_nul (text value).
-Definition workspace_valid (value : json) := plain_fields_only ["roots";"primary_root"] value &&
-  is_array (get value "roots") && (N.of_nat (List.length (items (get value "roots"))) <=? 32).
-Definition workspace_admit (value : json) := type_admit (workspace_valid value) value
-  "A workspace requires at most 32 roots and an optional primary_root".
+Definition workspace_valid value := ArgumentDeclaration.present
+ (ArgumentDeclaration.decode Codec.workspace_declaration value).
+Definition workspace_admit value := match ArgumentDeclaration.decode Codec.workspace_declaration value with
+ | Some fields => success (ArgumentDeclaration.encode Codec.workspace_declaration fields)
+ | None => type_error "A workspace requires at most 32 roots and an optional primary_root" end.
 Definition root_admit (source : json) :=
-  let root := get source "root" in
-  type_admit (path_valid root && boolean_field source "absolute" && (N.of_nat (String.length (text root)) <=? 4096))
-    root "Workspace roots must be bounded absolute directory paths".
+ match ArgumentDeclaration.decode Workspace.path_declaration (get source "root") with
+ | Some root => type_admit (boolean_field source "absolute") (JString (proj1_sig root))
+     "Workspace roots must be bounded absolute directory paths"
+ | None => type_error "Workspace roots must be bounded absolute directory paths" end.
 Fixpoint distinct (seen roots : list json) :=
   match roots with [] => true | root::rest =>
     negb (existsb (equal root) seen) && distinct (root::seen) rest end.
@@ -74,32 +76,21 @@ Definition plan (command : json) : workspace_plan :=
     let selected := graph_selections 0%nat (items (get command "nodes")) in
     WorkspacePlan (Commands.root_task_creation command) false selected
   else WorkspacePlan false false [].
-Definition selection_fields (selection : selection) : fields ModelResultDeclarations.workspace_selection_fields :=
- FCons (field:=Field "value" KJson) selection.(selected_value)
- (FCons (field:=Field "resolve_project" KBool) selection.(resolve_project) FNil).
-Definition selection_json selection := JObject (Schema.encode_fields (selection_fields selection)).
-Definition command_plan_fields (plan : workspace_plan) : fields ModelResultDeclarations.workspace_command_fields :=
- FCons (field:=Field "root_task" KBool) plan.(root_task)
- (FCons (field:=Field "worktree" KBool) plan.(worktree)
- (FCons (field:=Field "selections" (KArray KJson)) (map selection_json plan.(selections)) FNil)).
-Definition plan_json plan := JObject (Schema.encode_fields (command_plan_fields plan)).
-Definition workspace_settings (source : json) :=
-  let value := get source "value" in
-  (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
-  let workspace_supplied := has value "workspace" in
-  (* DEFENSE: Non-null guidance or workspace bindings supplied by a client must not acquire service authority. *)
-  type_admit (is_null (get value "guidance") && is_null (get value "workspace_binding"))
-    (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
-      bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
-      ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
+Definition selection_json (selection : selection) :=
+ Schema.encode ModelResultDeclarations.workspace_selection_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_selection_fields
+     [! selection.(selected_value); selection.(resolve_project) !]).
+Definition plan_json (plan : workspace_plan) :=
+ Schema.encode ModelResultDeclarations.workspace_command_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_command_fields
+     [! plan.(root_task); plan.(worktree); map selection_json plan.(selections) !]).
 Definition workspace_selection_plan (source : json) :=
  let value := get source "value" in
+ (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
  let project := if boolean_field source "resolve_project" && negb (has value "workspace") &&
    bound (get value "project_id") 0 9007199254740991 then natural (get value "project_id") else None in
- let values : fields ModelResultDeclarations.workspace_settings_fields :=
- FCons (field:=Field "project_id" (KOptional KNatural)) project
- (FCons (field:=Field "observe_workspace" KBool) (has value "workspace") FNil) in
- success (JObject (Schema.encode_fields values)).
+ success (Schema.encode ModelResultDeclarations.workspace_settings_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_settings_fields [! project; has value "workspace" !])).
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
   let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
@@ -121,23 +112,12 @@ Definition workspace_command_observed (source : json) :=
   let command := get source "command" in
   success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
 
-(* Raw command admission precedes every observation, including cloud and unknown-task paths. *)
-Definition raw_settings_valid (selection : selection) :=
-  is_null (get selection.(selected_value) "guidance") &&
-  is_null (get selection.(selected_value) "workspace_binding").
-Definition clear_observed_fields (value : json) := match value with
-  | JObject fields => JObject (remove_field "workspace_binding" (remove_field "guidance" fields))
-  | _ => value end.
+(* Raw command admission precedes every observation, including cloud and unknown-task paths.
+   Service-owned observations have no constructors in this public declaration. *)
 Definition workspace_command_raw (source : json) :=
  match CommandDeclarations.admit_public (get source "command") with
  | None => type_error "Command fields do not match their declared presence, shape or bounds"
- | Some admitted =>
-  let command := CommandDeclarations.public_raw_source admitted in
-  let selections := (plan command).(selections) in
-  type_admit (forallb raw_settings_valid selections)
-    (fold_left (fun current selection => apply_observation current
-      (Selection selection.(selected_path) (clear_observed_fields selection.(selected_value)) selection.(resolve_project), JObject [])) selections command)
-    "Root guidance and workspace resources are observed by the service, not supplied by a client"
+ | Some admitted => success (CommandDeclarations.public_json admitted)
  end.
 
 Definition child (parent leaf : string) :=
@@ -180,7 +160,7 @@ Definition worktree_receipt (source : json) :=
     (unreserved || reservation_valid (get value "reservation") files) &&
     ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||
      (String.eqb (str value "status") "archived" && equal root (get files "archived"))) &&
-    workspace_valid workspace && forallb path_valid (items (get workspace "roots")) &&
+    workspace_valid workspace &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&
     contains_path (str workspace "primary_root") (text root)) value "Invalid managed worktree receipt".
 Definition relocated (value : json) (previous next : string) (descendants : bool) :=

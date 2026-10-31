@@ -64,7 +64,7 @@ Definition context_facts {A} directories snapshot task parent:list(node A) :=mat
  let workspace:=Domain.settings_workspace settings in
  let sandbox:=Domain.settings_sandbox settings in
  (* Directory, revision and instructions belong to the same committed observation. *)
- let guidance:=Domain.settings_guidance settings in
+ let guidance:=Selvedge.Kernel.Guidance.json(Domain.settings_guidance settings) in
  let project_facts:=List.app (match Domain.settings_project settings with
  |None=>[read_only parent "project" "Project" "Projectless task"]
  |Some id=>

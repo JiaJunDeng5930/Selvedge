@@ -1,8 +1,8 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch WorldInvariant LifecycleProofs.
-From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
+From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -30,7 +30,7 @@ Proof.
   [contract profile settings lifecycle history queued lineage parent cursor consumed]
   policy phase operations Policy RunningTask Effort Duration.
  cbn in Policy, RunningTask. subst lifecycle.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
  unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  split; reflexivity.
 Qed.
@@ -42,8 +42,8 @@ Theorem failed_reasoning_with_no_queued_input_is_idle : forall owner reason task
 Proof.
  intros owner reason [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Queued.
  cbn in Policy, Queued. subst queued.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy.
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -54,8 +54,8 @@ Theorem unsupported_reasoning_with_no_queued_input_is_idle : forall owner effort
 Proof.
  intros owner effort generations [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Rejected Queued.
  cbn in Policy, Queued. subst queued.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy, Rejected.
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -79,7 +79,7 @@ Lemma failed_evaluation_is_never_ready_for_a_model : forall reason task,
  task_activity (Reasoning.failed reason task) <> ReadyForModel.
 Proof.
  intros reason [contract profile settings lifecycle history queued lineage parent cursor consumed].
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; destruct queued; discriminate.
 Qed.
 Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner effort generations task policy,
@@ -89,7 +89,7 @@ Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner 
  (generations <= reasoning_max_lease policy)%N.
 Proof.
  intros owner effort generations task policy Policy Ready.
- rewrite !complete_reasoning_expression in Ready. rewrite Policy in Ready.
+ unfold Reasoning.complete, Reasoning.complete_changes in Ready. rewrite Policy in Ready.
  destruct (Reasoning.allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations) eqn:Admitted.
  - apply andb_true_iff in Admitted as [_ Duration].
    unfold ReasoningProtocol.valid_generations in Duration.
@@ -111,18 +111,6 @@ Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
  Reasoning.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
 Proof. intros; unfold Reasoning.trailing_configuration, TicketedRequest.trailing_configuration, ReasoningPlan.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
 
-Theorem a_fixed_profile_bypasses_the_evaluator : forall id task value,
- find_task id value = Some task ->
- TicketedRequest.Scoped.can_infer task value = true ->
- profile_policy (task_current_profile task) = FixedReasoning ->
- Scheduler.ready_model id value = TicketedRequest.issue id
-   (TicketedRequest.Infer task) value.
-Proof.
- intros id task value Found InferAllowed Fixed. unfold Scheduler.ready_model.
- rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found InferAllowed).
- reflexivity.
-Qed.
-
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
  find_task id value = Some task ->
  TicketedRequest.Scoped.can_infer task value = true ->
@@ -132,12 +120,13 @@ Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id t
  [RequestReasoning id (world_next_ticket value) task].
 Proof.
  intros id task value policy Found InferAllowed Policy Lease. unfold Scheduler.ready_model.
- rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found InferAllowed).
- assert (Selected : ModelRequest.Plans.next id task = ModelRequest.Plans.Evaluate).
- { unfold ModelRequest.Plans.next; rewrite Policy, Lease; reflexivity. }
- pose proof (ModelRequestConstructionProofs.choosing_an_evaluator id task Selected) as Chosen.
- unfold ScopedRequestProofs.computed_model, TicketedRequest.issue, TicketedRequest.build.
- rewrite Chosen; reflexivity.
+ destruct (model_selects_the_current_task id value task Found InferAllowed)
+   as [plan [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.
+ unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ assert (Evaluator : ModelRequest.Plans.next id task = ModelRequest.Plans.Evaluate).
+ { unfold ModelRequest.Plans.next; rewrite Policy,Lease; reflexivity. }
+ rewrite (ModelRequestConstructionProofs.choosing_an_evaluator id task Evaluator); reflexivity.
 Qed.
 
 Theorem actual_model_requests_retain_the_complete_committed_history : forall id model task value,
@@ -150,10 +139,13 @@ Theorem actual_model_requests_retain_the_complete_committed_history : forall id 
  task_contract (ModelRequest.context_task request) = task_contract task.
 Proof.
  intros id model task value Found InferAllowed Fixed. unfold Scheduler.ready_model.
- rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found InferAllowed).
- destruct (TicketedRequestProofs.fixed_inference_freezes_its_complete_context id task value model Fixed)
-   as [request [Effects [Owner [Ticket [Model [History [Cursor Contract]]]]]]].
- exists request; repeat split; assumption.
+ destruct (model_selects_the_current_task id value task Found InferAllowed)
+   as [plan [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected.
+ destruct (fixed_inference_freezes_its_complete_context value plan model Intent
+   ltac:(now rewrite Owner,Current))
+   as [request [Effects [Owned [Ticket [Origin [Model [History [Cursor Contract]]]]]]]].
+ exists request; rewrite Current in *; repeat split; assumption.
 Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
@@ -164,7 +156,7 @@ Theorem actual_model_generation_consumes_one_lease_step : forall owner model rem
   prefix = task_history task ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]) /\
  (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
- intros owner model remaining task. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation.
+ intros owner model remaining task. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation, ModelRequest.Plans.generation_messages.
  destruct (match profile_policy (task_current_profile task) with
  | AdaptivePolicy policy => match reasoning_transport_mode policy with
    | RequestEffort => false | ConfigurationUpdates =>
@@ -172,14 +164,14 @@ Proof.
  | FixedReasoning => false end);
  destruct (ReasoningPlan.trailing_configuration (task_history task));
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
- cbn [append_history with_history task_history].
+ cbn [andb app Domain.append_history Domain.with_history task_history].
  - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
      [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite app_assoc|split; [now right|now right]].
+   split; [now rewrite <- app_assoc|split; [now right|now right]].
  - exists history, [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite app_assoc|split; [now left|now right]].
- - exists history, []. rewrite app_nil_r; split; [reflexivity|split; now left].
- - exists history, []. rewrite app_nil_r; split; [reflexivity|split; now left].
+   split; [reflexivity|split; [now left|now right]].
+ - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
+ - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
 Qed.
 
 Theorem context_requests_capture_the_current_history_revision : forall id task value phase operations,
@@ -193,10 +185,24 @@ Theorem context_requests_capture_the_current_history_revision : forall id task v
  task_history waiting = task_history task /\ task_contract waiting = task_contract task.
 Proof.
  intros id task value phase operations Found ObserveAllowed RunningTask.
- rewrite context_retry_expression, Found, ObserveAllowed.
- split; [reflexivity|].
- eexists; split; [eapply find_put_task; exact Found|].
- unfold Reasoning.capture, with_activity. rewrite RunningTask. repeat split; reflexivity.
+ destruct (observing_selects_the_current_task id value task false Found ObserveAllowed)
+   as [request [Selected [Owner [Current Intent]]]].
+ assert (Issued : Reasoning.context_retry id value = TicketedRequest.Scoped.issue request).
+ { unfold TicketedRequest.Scoped.observe in Selected; unfold Reasoning.context_retry.
+   destruct (TaskScope.select id value); [now rewrite Selected|discriminate]. }
+ rewrite Issued; split.
+ - rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current; reflexivity.
+ - rewrite <- Owner,issued_task.
+   eexists; split; [reflexivity|].
+   unfold TicketedRequest.Scoped.build; rewrite Intent,Current; cbn [fst app].
+   change (task_activity (with_activity (ObservingContext (world_next_ticket value)
+     (List.length (task_history task))) task) = ObservingContext (world_next_ticket value)
+     (List.length (task_history task)) /\
+     task_history (with_activity (ObservingContext (world_next_ticket value)
+       (List.length (task_history task))) task) = task_history task /\
+     task_contract (with_activity (ObservingContext (world_next_ticket value)
+       (List.length (task_history task))) task) = task_contract task).
+   unfold with_activity; rewrite RunningTask; repeat split; reflexivity.
 Qed.
 
 Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute id task value operations,
@@ -239,24 +245,18 @@ Proof.
  assert (Phase : task_activity task = ObservingContext ticket revision).
  { unfold task_activity; now rewrite Status. }
  rewrite context_completed_expression, Found, Phase, N.eqb_refl, Stale, Status.
- rewrite context_retry_expression, Found.
- unfold TicketedRequest.Scoped.can_observe; rewrite Resource; cbn.
- unfold Reasoning.context_retry_wait; now rewrite Status.
-Qed.
-
-Local Lemma context_diagnostic_retains_lifecycle : forall message task,
- task_lifecycle (Callbacks.record_context_diagnostic message task) = task_lifecycle task.
-Proof. intros; rewrite !record_context_diagnostic_expression; destruct existsb; reflexivity. Qed.
-Local Lemma context_diagnostics_retain_lifecycle : forall messages task,
- task_lifecycle (fold_left (fun task message => Callbacks.record_context_diagnostic message task) messages task) = task_lifecycle task.
-Proof. induction messages; intros; cbn [fold_left]; [reflexivity|rewrite IHmessages; apply context_diagnostic_retains_lifecycle]. Qed.
-Local Lemma actual_context_observations_retain_lifecycle : forall observations diagnostic task,
- task_lifecycle (snd (Callbacks.observed_context observations diagnostic task)) = task_lifecycle task.
-Proof.
- intros [observations|] diagnostic task; rewrite !observed_context_expression.
- - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history task))) as [changes diagnostics].
-   cbn [snd]. rewrite context_diagnostics_retain_lifecycle; reflexivity.
- - cbn [snd]; apply context_diagnostic_retains_lifecycle.
+ destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key id value task Found)
+   as [reference [Selected [Owner Current]]].
+ unfold Reasoning.context_retry; rewrite Selected.
+ unfold TicketedRequest.Scoped.observe_selected.
+ pattern (TicketedRequest.Scoped.observe_allowed false reference _ eq_refl).
+ apply (@TaskScopeProofs.observed_value_elimination _ _ _
+   (@TicketedRequest.Scoped.observe_allowed value false reference)); intros condition Evidence.
+ assert (Unavailable : condition = false).
+ { rewrite Current in Evidence; unfold TicketedRequest.Scoped.can_observe in Evidence.
+   rewrite Resource in Evidence; cbn in Evidence; symmetry; exact Evidence. }
+ revert Evidence; rewrite Unavailable; intro Evidence; cbn [TicketedRequest.Scoped.observe_allowed].
+ rewrite Owner,Current; unfold Reasoning.context_retry_wait; now rewrite Status.
 Qed.
 
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
@@ -271,17 +271,18 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - pose proof (actual_context_observations_retain_lifecycle observations diagnostic task) as Lifecycle.
-   destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
-   unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
-   unfold Callbacks.context_phase; rewrite FrozenTask, applying_change_lists.
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. split; [reflexivity|].
+ - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
+   unfold Callbacks.context_phase; rewrite FrozenTask.
+   split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   unfold with_activity; rewrite Lifecycle, FrozenTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) =
+     Frozen WantsModel operations).
+   now rewrite FrozenTask.
  - rewrite FrozenTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite FrozenTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. unfold with_activity; rewrite FrozenTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) = Frozen WantsModel operations).
+   now rewrite FrozenTask.
 Qed.
 
 Theorem a_stopped_context_completion_waits_for_a_new_observation :
@@ -296,17 +297,18 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - pose proof (actual_context_observations_retain_lifecycle observations diagnostic task) as Lifecycle.
-   destruct (Callbacks.observed_context_changes observations diagnostic task) as [accepted changes] eqn:Observed.
-   unfold Callbacks.observed_context in Lifecycle; rewrite Observed in Lifecycle; cbn [snd] in Lifecycle.
-   unfold Callbacks.context_phase; rewrite StoppedTask, applying_change_lists.
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. split; [reflexivity|].
+ - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
+   unfold Callbacks.context_phase; rewrite StoppedTask.
+   split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   unfold with_activity; rewrite Lifecycle, StoppedTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) =
+     Stopped WantsModel operations).
+   now rewrite StoppedTask.
  - rewrite StoppedTask, context_ready_expression, Found.
    unfold Callbacks.context_phase; rewrite StoppedTask. split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
-   cbn [TaskChange.apply fold_left TaskChange.apply_edit]. unfold with_activity; rewrite StoppedTask; reflexivity.
+   change (change_activity WantsModel (task_lifecycle task) = Stopped WantsModel operations).
+   now rewrite StoppedTask.
 Qed.
 
 Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall owner task,
@@ -350,18 +352,6 @@ Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  ReasoningView.excerpt text = text.
 Proof. intros; unfold ReasoningView.excerpt; now rewrite H, H0. Qed.
 
-Theorem generation_preserves_the_frozen_task_contract : forall owner model remaining task,
- task_contract (Reasoning.generation owner model remaining task) = task_contract task.
-Proof.
- intros. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation.
- destruct (match profile_policy (task_current_profile task) with
- | AdaptivePolicy policy => match reasoning_transport_mode policy with
-   | RequestEffort => false | ConfigurationUpdates =>
-     match ReasoningPlan.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
- | FixedReasoning => false end);
- destruct (ReasoningPlan.trailing_configuration (task_history task)); destruct task; reflexivity.
-Qed.
-
 Theorem configuration_transport_keeps_the_request_baseline : forall model requested policy,
  profile_policy requested = AdaptivePolicy policy -> reasoning_transport_mode policy = ConfigurationUpdates ->
  Reasoning.sampling model requested = JObject [
@@ -379,16 +369,7 @@ Proof.
  unfold Dispatch.side_task in Selected.
  destruct (find_task id value) as [task|] eqn:Found; [|discriminate].
  destruct (task_side_parent task); inversion Selected; subst task.
- unfold Dispatch.capture_request; now rewrite Found, Phase, N.eqb_refl.
-Qed.
-
-
-Theorem captured_context_revisions_satisfy_the_actual_phase_contract : forall ticket task,
- WorldInvariant.phase_valid (Reasoning.capture ticket task) = true.
-Proof.
- intros ticket [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; unfold Reasoning.capture, WorldInvariant.phase_valid, WorldInvariant.calls_valid, WorldInvariant.phase_calls;
- cbn; try reflexivity; apply Nat.leb_refl.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite Found, Phase, N.eqb_refl.
 Qed.
 
 Theorem public_evaluator_assistant_content_remains_text : forall origin text,

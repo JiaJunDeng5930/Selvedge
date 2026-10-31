@@ -1,92 +1,82 @@
-From Stdlib Require Import String List Bool Ascii NArith.
-From Selvedge.Foundation Require OptionList.
-From Selvedge.Foundation Require Import Json Numbers Schema.
-From Selvedge.Kernel Require Import Domain.
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Numbers Schema ArgumentDeclaration.
+From Selvedge.Kernel Require Import Domain ContentDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module D := ArgumentDeclaration.
 
-Definition image_byte_limit : N := 10485760.
-Definition message_image_limit : nat := 4.
-Definition detail_name (value : image_detail) := match value with
-  | ImageAuto => "auto" | ImageLow => "low" | ImageHigh => "high" end.
-Definition detail_kind := KEnum "auto" ["low";"high"].
-Definition mime_kind := KEnum "image/png" ["image/jpeg";"image/gif";"image/webp"].
+Definition image_byte_limit := ContentDeclarations.image_byte_limit.
+Definition message_image_limit := ContentDeclarations.message_image_limit.
+Definition detail_kind := ContentDeclarations.detail_kind.
+Definition mime_kind := ContentDeclarations.mime_kind.
 Definition mime_types := match mime_kind with KEnum first rest => first::rest | _ => [] end.
-Fixpoint hex_digits (value : string) := match value with
-  | EmptyString => true
-  | String c rest => let n := N.of_nat (nat_of_ascii c) in
-    (((48 <=? n) && (n <=? 57)) || ((97 <=? n) && (n <=? 102))) && hex_digits rest end.
-Definition valid_identifier (value : string) := Nat.eqb (String.length value) 64 && hex_digits value.
-Definition asset_schema := [Field "id" KText;Field "mime" mime_kind;Field "bytes" KNatural].
-Definition reference_schema := [Field "id" KText;Field "mime" mime_kind;Field "bytes" KJson;
-  Field "name" (KOptional KText);Field "path" (KOptional KText)].
-Definition text_part_schema := [Field "type" (KEnum "text" []);Field "text" KText].
-Definition image_part_schema := [Field "type" (KEnum "image" []);Field "image" KJson;Field "detail" (KOptional detail_kind)].
-Definition parse_detail (value : json) := match as_string value with
-  | Some "auto" => Some ImageAuto | Some "low" => Some ImageLow | Some "high" => Some ImageHigh | _ => None end.
+Definition valid_identifier (value : string) :=
+ D.present (D.decode identifier_declaration (JString value)).
+Definition detail_name (value : image_detail) := match value with
+ | ImageAuto => "auto" | ImageLow => "low" | ImageHigh => "high" end.
 Definition image_json (value : image_asset) := JObject [("id",JString value.(image_id));
-  ("mime",JString value.(image_mime));("bytes",JNumber (show_natural value.(image_bytes)))].
+ ("mime",JString value.(image_mime));("bytes",JNumber (show_natural value.(image_bytes)))].
 Definition content_part_json (part : content_part) := match part with
-  | TextPart text => JObject [("type",JString "text");("text",JString text)]
-  | ImagePart image => JObject [("type",JString "image");("image",image_json image);
-      ("detail",JString (detail_name image.(image_detail_level)))] end.
-Definition raw_bytes (value : json) := match value with
-  | JString text | JNumber text => parse_natural text | _ => None end.
-Definition parse_asset_fields (value : json) : option image_asset :=
-  match string_field "id" value,string_field "mime" value,field "bytes" value with
-  | Some id,Some mime,Some raw => match raw_bytes raw with
-    | Some bytes => if valid_identifier id && existsb (String.eqb mime) mime_types &&
-      (0 <? bytes) && (bytes <=? image_byte_limit) then Some (ImageAsset id mime bytes ImageAuto) else None
-    | None => None end
-  | _,_,_ => None end.
-Definition parse_asset (value : json) : option image_asset :=
-  match Schema.decode asset_schema value with Some _ => parse_asset_fields value | None => None end.
-Definition parse_image (value : json) : option image_asset :=
-  match Schema.decode reference_schema value with
-  | Some _ => if (negb (has_field "name" value) || is_string (match field "name" value with Some x => x | None => JNull end)) &&
-      (negb (has_field "path" value) || is_string (match field "path" value with Some x => x | None => JNull end))
-    then parse_asset_fields value else None
-  | None => None end.
-Definition parse_content_part (value : json) : option content_part :=
-  match string_field "type" value with
-  | Some "text" => match Schema.decode text_part_schema value with
-      Some _ => option_map TextPart (string_field "text" value) | None => None end
-  | Some "image" => match Schema.decode image_part_schema value with
-    | None => None
-    | Some _ => match field "image" value with
-      | None => None
-      | Some source => match parse_asset source with
-        | None => None
-        | Some image =>
-          let detail := match field "detail" value with None => Some ImageAuto | Some value => parse_detail value end in
-          option_map (fun detail => ImagePart (ImageAsset image.(image_id) image.(image_mime) image.(image_bytes) detail)) detail
-        end end
-    end
-  | _ => None end.
-Definition traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
- OptionList.traverse parse values.
-Definition image_count (parts : content) := List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).
-(* DEFENSE: Both fork message arrays and message-plus-attachment requests can
-   exceed the per-message image limit at their public JSON input boundaries. *)
-Definition admit_content (parts : content) : option content :=
-  if Nat.leb (image_count parts) message_image_limit then Some parts else None.
-Definition parse_content (source : json) : option content :=
-  match match source with
-    | JNull => Some [] | JString text => Some [TextPart text]
-    | JArray values => traverse parse_content_part values | _ => None end with
-  | Some parts => admit_content parts | None => None end.
-Definition parse_user_content (source : json) : option content :=
-  let message := match field "message" source with Some value => value | None => JNull end in
-  let images := match field "images" source with None | Some JNull => Some []
-    | Some (JArray values) => traverse parse_image values | _ => None end in
-  match parse_content message,images with
-  | Some parts,Some images => admit_content (List.app parts (map ImagePart images))
-  | _,_ => None end.
-Definition valid_image_asset (source : json) := match parse_asset source with Some _ => true | None => false end.
-Definition valid_image_part (source : json) := match parse_content_part source with Some (ImagePart _) => true | _ => false end.
-Definition valid_reference (source : json) := match parse_image source with Some _ => true | None => false end.
+ | TextPart text => JObject [("type",JString "text");("text",JString text)]
+ | ImagePart image => JObject [("type",JString "image");("image",image_json image);
+     ("detail",JString (detail_name image.(image_detail_level)))] end.
 
+(** These interpreters consume declaration values directly. Shape, identity,
+    MIME membership and byte bounds have already been admitted together. *)
+Definition asset_of_values (values : D.denote asset_declaration) : image_asset :=
+ let '(id,(mime,(bytes,_))) := proj1_sig values in
+ ImageAsset (proj1_sig id) (proj1_sig mime) (proj1_sig bytes) ImageAuto.
+Definition reference_byte_count (value : D.denote reference_bytes) : N :=
+ match value with inl number | inr (inl number) => proj1_sig number
+ | inr (inr impossible) => match impossible with end end.
+Definition reference_of_values (values : D.denote reference_declaration) : image_asset :=
+ let '(id,(mime,(bytes,_))) := proj1_sig values in
+ ImageAsset (proj1_sig id) (proj1_sig mime) (reference_byte_count bytes) ImageAuto.
+Definition detail_of_values (value : option (Schema.denote detail_kind)) :=
+ match value with
+ | Some selected => if String.eqb (proj1_sig selected) "low" then ImageLow else
+     if String.eqb (proj1_sig selected) "high" then ImageHigh else ImageAuto
+ | None => ImageAuto end.
+Definition part_of_values (value : D.denote part_declaration) : content_part :=
+ match value with
+ | inl fields => let '(_,(text,_)) := proj1_sig fields in TextPart (proj1_sig text)
+ | inr (inl fields) => let '(_,(asset,(detail,_))) := proj1_sig fields in
+   let image := asset_of_values asset in
+   ImagePart (ImageAsset image.(image_id) image.(image_mime) image.(image_bytes) (detail_of_values detail))
+ | inr (inr impossible) => match impossible with end end.
+Definition content_of_values (value : D.denote content_declaration) : content :=
+ match value with inl text => [TextPart (proj1_sig text)]
+ | inr (inl parts) => map part_of_values parts
+ | inr (inr impossible) => match impossible with end end.
+Definition image_count (parts : content) :=
+ List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).
+Definition content_within_limit parts := Nat.leb (image_count parts) message_image_limit.
+Definition bounded_content := D.checked content_within_limit.
+(* DEFENSE: Message parts and separately uploaded attachments share the public
+   per-message limit; their combined image count can exceed four. *)
+Definition admit_content : content -> option bounded_content :=
+ D.admit content_within_limit.
+Definition message_content (value : D.denote content_declaration) :=
+ option_map (@proj1_sig _ _) (admit_content (content_of_values value)).
+Definition user_content_parts (values : option (D.denote content_declaration) * option (D.denote images_declaration)) :=
+ List.app (match fst values with Some value => content_of_values value | None => [] end)
+   (match snd values with Some values => map (fun value => ImagePart (reference_of_values value)) values
+    | None => [] end).
+Definition admit_user_content message images :=
+ D.admit (fun values => content_within_limit (user_content_parts values)) (message,images).
+Definition user_content message images :=
+ option_map (fun value => user_content_parts (proj1_sig value)) (admit_user_content message images).
+
+(** Raw entry points are for external attachment receipts, tool results and
+    serialized content. Commands use the admitted interpreters above. *)
+Definition parse_asset_fields value :=
+ option_map reference_of_values (D.decode reference_declaration value).
+Definition parse_content_part value := option_map part_of_values (D.decode part_declaration value).
+Definition parse_content (source : json) : option content := match source with
+ | JNull => Some [] | _ => match D.decode content_declaration source with
+   | Some value => message_content value | None => None end end.
+Definition valid_image_asset source := D.present (D.decode asset_declaration source).
 Definition only_images (parts : content) :=
  filter (fun part => match part with ImagePart _ => true | _ => false end) parts.
 Definition result_images (source : json) :=

@@ -13,86 +13,31 @@ Fixpoint text_fields (value : list (string * json)) : option (list (string * str
  | _ => None end.
 Definition parse_fields (value : json) :=
  match value with JObject fields => text_fields fields | _ => None end.
-Fixpoint find_text (name : string) (fields : list (string * string)) :=
- match fields with [] => None | (key,value) :: rest => if String.eqb name key then Some value else find_text name rest end.
-Definition nonempty_text (value : string) := negb (String.eqb value "").
-Definition declared_names_valid (names : list string) :=
- unique_names names && forallb nonempty_text names.
-Definition valid_definition (value : definition) :=
- let identity := definition_identity value in
- let fields := definition_fields value in
- let names := map identity_name identity in
- nonempty_text (definition_kind value) && nonempty_text (definition_semantics value) &&
- negb (Nat.eqb (List.length identity) 0) && negb (Nat.eqb (List.length fields) 0) &&
- (match definition_scope value with
-  | Global => true
-  | PrimaryWorkspace | EveryWorkspace => existsb (fun field =>
-      match identity_from field with WorkspaceRoot => identity_required field | _ => false end) identity
-  end) && declared_names_valid names && declared_names_valid (map value_name fields) &&
- forallb (fun field => match value_from field with
-   | IdentityValue name => existsb (String.eqb name) names | _ => true end) fields.
-Definition required_text (required : bool) (value : option string) :=
- match value with Some text => if required then nonempty_text text else true | None => negb required end.
-Definition valid_identity (definition : ContextTypes.definition) (fields : list (string * string)) :=
- Json.equal (JArray (map (fun field => JString (fst field)) fields))
-   (JArray (map (fun field => JString (identity_name field)) (definition_identity definition))) &&
- forallb (fun field => existsb (String.eqb (fst field)) (map identity_name (definition_identity definition))) fields &&
- forallb (fun spec => required_text (identity_required spec) (find_text (identity_name spec) fields) &&
- match identity_from spec, find_text (identity_name spec) fields with
- | Constant expected, Some actual => String.eqb expected actual
- | _,_ => true end) (definition_identity definition).
-Definition scoped_root (key : context_key) :=
- match find (fun spec => match identity_from spec with WorkspaceRoot => true | _ => false end)
-  (definition_identity (key_definition key)) with Some spec => find_text (identity_name spec) (key_identity key) | None => None end.
-Definition valid_observation_text (key : context_key) (spec : value_field) (text : string) :=
- match definition_observer (key_definition key),value_from spec with
- | PrimaryGuidance policy, ObservationField "path" => match scoped_root key with
-   | Some root => Context.policy_source_path policy root text
-   | None => false end
- | _,_ => true end.
-Definition valid_value (key : context_key) (fields : list (string * string)) :=
- Json.equal (JArray (map (fun field => JString (fst field)) fields))
-   (JArray (map (fun field => JString (value_name field)) (definition_fields (key_definition key)))) &&
- forallb (fun field => existsb (String.eqb (fst field)) (map value_name (definition_fields (key_definition key)))) fields &&
- forallb (fun spec => match value_from spec with
- | IdentityValue name => match find_text name (key_identity key), find_text (value_name spec) fields with
-   | Some expected, Some actual => String.eqb expected actual | _,_ => false end
- | _ => required_text (value_required spec) (find_text (value_name spec) fields) &&
-   match find_text (value_name spec) fields with Some text => valid_observation_text key spec text | None => false end end)
- (definition_fields (key_definition key)).
-Definition valid_snapshot (value : snapshot) :=
- let key := snapshot_key value in
- nonempty_text (snapshot_revision value) && valid_definition (key_definition key) &&
- valid_identity (key_definition key) (key_identity key) && valid_value key (snapshot_fields value).
+Definition find_text := ContextTypes.find_text.
 Definition construct_snapshot (definition : ContextTypes.definition)
  (identity : list (string * string)) (revision : string) (fields : list (string * string)) :=
- let key := ContextKey definition identity in
- let value := Snapshot key revision fields in
- if valid_snapshot value then Some value else None.
-Definition global_guidance_snapshot (source : json) : option snapshot :=
- match string_field "path" source, string_field "revision" source, string_field "content" source with
- | Some path, Some revision, Some content =>
-   construct_snapshot Context.global_guidance [("path",path)] revision [("content",content)]
- | _,_,_ => None end.
+ match admit_key definition identity with
+ | Some key => admit_snapshot key revision fields | None => None end.
+Definition global_guidance_fields :=
+ [Field "path" KText; Field "revision" KText; Field "content" KText].
+Definition global_guidance_from_fields (values : fields global_guidance_fields) :=
+ construct_snapshot Context.global_guidance [("path",head values)]
+   (head (tail values)) [("content",head (tail (tail values)))].
 
 Definition registered_key_candidate (source : json) : option context_key :=
  match string_field "type" source, parse_fields (value_or_null "identity" source),
  find (fun definition => JsonObjects.equivalent (definition_json definition) (value_or_null "definition" source)) definitions with
  | Some kind, Some fields, Some definition =>
    if String.eqb kind (definition_kind definition)
-   then Some (ContextKey definition fields) else None
+   then admit_key definition fields else None
  | _,_,_ => None end.
-Definition parse_key (source : json) : option context_key :=
- match registered_key_candidate source with
- | Some key => if valid_definition (key_definition key) && valid_identity (key_definition key) (key_identity key)
-   then Some key else None
- | None => None end.
+Definition parse_key := registered_key_candidate.
 Definition snapshot_candidate (source : json) : option snapshot :=
  match registered_key_candidate (value_or_null "key" source), string_field "revision" source,
  parse_fields (value_or_null "fields" (value_or_null "value" source)) with
  | Some key, Some revision, Some fields =>
    if String.eqb (text_default "type" (value_or_null "value" source) "") (definition_kind (key_definition key))
-   then Some (Snapshot key revision fields) else None
+   then admit_snapshot key revision fields else None
  | _,_,_ => None end.
 Definition parse_edit (source : json) : option text_edit :=
  match natural_field "start" source, string_field "removed" source, string_field "inserted" source with
@@ -109,14 +54,21 @@ Definition parse_patch (source : json) :=
  | _,_ => None end.
 Definition parse_observation (source : json) : option context_observation :=
  match string_field "type" source with
- | Some "present" => match snapshot_candidate (value_or_null "snapshot" source), parse_patch (value_or_null "patch" source) with
-   | Some snapshot, Some patch => Some (Present snapshot patch) | _,_ => None end
+ | Some "present" => Some (match snapshot_candidate (value_or_null "snapshot" source),
+     parse_patch (value_or_null "patch" source) with
+   | Some snapshot,Some patch => Present snapshot patch
+   (* DEFENSE: An external source can supply malformed fields or a patch;
+      reject that source while allowing the other observations to be consumed. *)
+   | _,_ => RejectedObservation end)
  | Some "absent" => option_map Absent (parse_key (value_or_null "key" source))
  | Some "failure" => match parse_key (value_or_null "key" source), string_field "message" source with
-   | Some key, Some message => Some (ObservationFailure key message) | _,_ => None end
+   | Some key,Some message => Some (ObservationFailure key message) | _,_ => None end
  | _ => None end.
 Definition same_key (left right : context_key) := Json.equal (key_json left) (key_json right).
-Definition find_snapshot (key : context_key) (values : list snapshot) := find (fun value => same_key key (snapshot_key value)) values.
+Definition find_source definition identity (values : list snapshot) := find (fun value =>
+ Json.equal (definition_json definition) (definition_json (key_definition (snapshot_key value))) &&
+ Json.equal (fields_json identity) (fields_json (key_identity (snapshot_key value)))) values.
+Definition find_snapshot (key : context_key) := find_source (key_definition key) (key_identity key).
 Definition remove_snapshot (key : context_key) (values : list snapshot) := filter (fun value => negb (same_key key (snapshot_key value))) values.
 Fixpoint apply_edits (edits : list text_edit) (cursor : N) (source : list (N * string)) : option (list (N * string)) :=
  match edits with
@@ -169,28 +121,24 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
         admitted a newer observation of the same source. *)
      if String.eqb (snapshot_revision previous) base then remove_snapshot key values else values
    end
- | Amend key base revision patches => match find_snapshot key values with
+ | Amend target base _ => let key := snapshot_key target in
+   match find_snapshot key values with
    | None => values
    | Some previous =>
-     (* DEFENSE: A returned side history can contain an amendment against an
-        older parent baseline; applying it must not overwrite newer context. *)
-     if String.eqb (snapshot_revision previous) base then
-     match apply_fields patches (snapshot_fields previous) with
-     | None => values
-     | Some fields => Snapshot key revision fields :: remove_snapshot key values
-     end else values end
+     (* DEFENSE: A side return can carry an amendment captured against an older
+        baseline; installing its target must not overwrite newer context. *)
+     if String.eqb (snapshot_revision previous) base
+     then target :: remove_snapshot key values else values end
  end.
 Definition bindings (history : list message) := fold_left
  (fun values message => match message with ContextObservation change => apply_change change values | _ => values end) history [].
 Definition observation_changes (observation : context_observation) (values : list snapshot) : option (list context_change) :=
  match observation with
+ | RejectedObservation => None
  | ObservationFailure _ _ => Some []
  | Absent key => match find_snapshot key values with
    | None => Some [] | Some previous => Some [Remove key (snapshot_revision previous)] end
  | Present current patch =>
-   (* DEFENSE: The observation contract rejects snapshots with an invalid
-      definition, source identity or value before accepting any context change. *)
-   if valid_snapshot current then
    let key := snapshot_key current in
    match find_snapshot key values with
    | None => Some [Introduce current]
@@ -201,9 +149,21 @@ Definition observation_changes (observation : context_observation) (values : lis
      if negb (String.eqb (snapshot_revision current) (snapshot_revision previous)) && valid_patch key patch then
      match apply_fields patch (snapshot_fields previous) with
      | Some fields => if Json.equal (fields_json fields) (fields_json (snapshot_fields current))
-       then Some [Amend key (snapshot_revision previous) (snapshot_revision current) patch] else None
+       then Some [Amend current (snapshot_revision previous) patch] else None
      | None => None end else None
-   end else None
+   end
+ end.
+(** Internal sources supply one typed target. The selected previous binding
+    fixes the baseline, and its declaration fixes the field order in both views. *)
+Definition replace_snapshot (target : snapshot) (values : list snapshot) : option context_change :=
+ match find_snapshot (snapshot_key target) values with
+ | None => Some (Introduce target)
+ | Some previous => let patches := flat_map (fun pair =>
+   let '(before,after) := pair in
+   if String.eqb (snd before) (snd after) then []
+   else [FieldPatch (fst after) [TextEdit 0 (snd before) (snd after)]])
+   (combine (snapshot_fields previous) (snapshot_fields target)) in
+   match patches with [] => None | _ => Some (Amend target (snapshot_revision previous) patches) end
  end.
 Definition source_diagnostics (observation : context_observation) :=
  match observation with
@@ -232,7 +192,6 @@ Definition interactive_available (values : list snapshot) :=
  | NativeText revision content => existsb (fun value =>
     Json.equal (definition_json (key_definition (snapshot_key value)))
       (definition_json Context.interactive_markdown) &&
-    valid_identity Context.interactive_markdown (key_identity (snapshot_key value)) &&
     String.eqb (snapshot_revision value) revision &&
     Json.equal (fields_json (snapshot_fields value)) (fields_json [("content",content)])) values
  | _ => false end.

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskConstraints.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith Lia.
@@ -6,6 +7,21 @@ From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
+
+Theorem constructed_children_have_the_requested_count :
+ forall count owner parent messages settings entry start next invocation,
+ List.length (Tasks.constructed_children count owner parent messages settings entry start next invocation) = count.
+Proof.
+ induction count; intros; cbn [Tasks.constructed_children List.length]; auto.
+Qed.
+
+Theorem constructed_children_have_the_parent_lineage :
+ forall count owner parent messages settings entry start next invocation,
+ Forall (fun child => task_lineage child = owner :: task_lineage parent)
+   (Tasks.constructed_children count owner parent messages settings entry start next invocation).
+Proof.
+ induction count; intros; cbn [Tasks.constructed_children]; constructor; [reflexivity|apply IHcount].
+Qed.
 
 Definition registry_lookup_preserved_by_append := @Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append.
 Lemma append_task_preserves_existing : forall owner existing child value,
@@ -18,8 +34,8 @@ Theorem fork_children_preserve_every_existing_task : forall count parent_id pare
  find_task owner before = Some existing ->
  find_task owner (Tasks.fork_children count parent_id parent messages settings entry start invocation before) = Some existing.
 Proof.
- induction count; intros; cbn [Tasks.fork_children]; [exact H|].
- apply IHcount. apply append_task_preserves_existing; exact H.
+ intros; unfold Tasks.fork_children, find_task, with_tasks; cbn.
+ eapply registry_lookup_preserved_by_append; exact H.
 Qed.
 Theorem fork_does_not_write_unrelated_existing_tasks : forall entry origin id count messages settings before other existing,
  other <> id -> find_task other before = Some existing ->
@@ -29,14 +45,16 @@ Proof.
  rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task id before) as [parent|]; [|exact Found].
  destruct (Tasks.fork_parent_ready entry parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before).
  2: { unfold Tasks.fork_refusal; destruct entry;
       try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Found. }
+ destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
+ cbn.
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)
    as [selected|]; [|exact Found].
- destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|exact Found].
+ destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); exact Found].
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
      Tasks.no_resource_observation settings) end); [exact Found|].
@@ -56,12 +74,14 @@ Proof.
  intros invocation remaining origin id count messages settings before parent Found.
  rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
  destruct (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before); [|exact Found].
+ destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
+ cbn.
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)
    as [selected|]; [|exact Found].
- destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|exact Found].
+ destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); exact Found].
  cbn. destruct (negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
    Tasks.no_resource_observation settings)); [exact Found|].
  destruct (allocate_ticket before). cbn [decision_world accept].

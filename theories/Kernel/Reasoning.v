@@ -70,8 +70,7 @@ Definition evaluator_history (_ : N) (task : task) := ReasoningView.history (tas
 Definition evaluator_project_context (task : task) :=
  match workspace_primary (settings_workspace (task_current_settings task)) with
  | None => JNull
- | Some root => match ContextUpdates.find_snapshot
-     (ContextKey Context.project_guidance [("workspace",root)])
+ | Some root => match ContextUpdates.find_source Context.project_guidance [("workspace",root)]
      (ContextUpdates.bindings (task_history task)) with
    | Some snapshot => Context.snapshot_json snapshot | None => JNull end
  end.

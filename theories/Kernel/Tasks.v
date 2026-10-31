@@ -1,8 +1,9 @@
+From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import TaskScope TaskChange.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 FreshNames.
+From Selvedge.Foundation Require Import Json Utf8 FreshNames Refinement.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 Import ListNotations.
 Open Scope string_scope.
@@ -19,43 +20,36 @@ Definition input_required_message := "A task input needs text or an image".
 Definition profile_required_message := "The configured model profile does not exist".
 Definition invalid_reasoning_message := "The selected reasoning effort is unavailable for this profile".
 Definition selected_reasoning (effort : option string) (profile : profile) :=
- match effort with None | Some "default" => Some profile
- | Some value =>
-   if match profile_policy profile with
-     | AdaptivePolicy _ => String.eqb value "auto"
-     | FixedReasoning => nonempty value && negb (String.eqb value "auto") &&
-       match profile_reasoning_options profile with [] => true | options => existsb (String.eqb value) options end
-     end then Some (with_reasoning value profile) else None end.
+ match effort with None => Some profile
+ | Some value => if String.eqb value "default" then Some profile
+   else if Domain.reasoning_allowed value profile then Some (with_reasoning value profile) else None end.
 Definition creation_defaults (environment : environment) :=
  let project := environment_project environment in
- let workspace := match value_or_null "workspace" project with
- | JString root => Workspace [root] (Some root)
- | value => match parse_workspace value with Some workspace => workspace | None => default_workspace end end in
+ let workspace := match project with
+ | Some observed => let root := Guidance.root observed in Workspace [root] (Some root)
+ | None => default_workspace end in
  Settings workspace None (settings_sandbox default_settings)
   (settings_approval default_settings) project false None.
-Definition resolve_settings (model : profile) (source : option json) (fallback : task_settings) (value : world) :=
- let raw := match source with Some raw => raw | None => JNull end in
- let base := match field "project_id" raw with
+Definition resolve_settings (model : profile) (source : option settings_request) (fallback : task_settings) (value : world) :=
+ match source with
+ | None => Some (WorkspaceBinding.normalize_settings fallback value)
+ | Some request => let base := match project_override request with
  | None => Some fallback
- | Some JNull => None
- | Some source => match natural source with
-   | None => None
-   | Some id => match registry_at id (world_projects value) with
-     | Some project => if project_deleted project then None else
-       Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
-        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
-     | None => None end end
- end in
+ | Some id => match registry_at id (world_projects value) with
+   | Some project => if project_deleted project then None else
+     Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
+       (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
+   | None => None end end in
  match base with
- | Some base => match parse_settings model (environment_profiles (world_environment value)) raw base with
+ | Some base => match settings_of_request model (environment_profiles (world_environment value)) request base with
    | Some settings =>
-     let selected := match field "workspace_binding" raw, field "workspace" raw with
-       | None, Some (JObject _) => WorkspaceBinding.select_bound_workspace base settings value
+     let selected := match binding_observation request, workspace_override request with
+       | None, Some _ => WorkspaceBinding.select_bound_workspace base settings value
        | _, _ => Some settings end in
      option_map (fun settings => WorkspaceBinding.normalize_settings settings value) selected
    | None => None end
- | None => None end.
-Definition resolve_for_profile (name : string) (source : option json) (fallback : task_settings) (value : world) :=
+ | None => None end end.
+Definition resolve_for_profile (name : string) (source : option settings_request) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | Some model => resolve_settings model source fallback value | None => None end.
 
@@ -70,32 +64,23 @@ Definition observed_creation_roots (selected caller : task_settings) (value : wo
  roots_in (settings_resource defaults) (settings_workspace defaults) ++
  List.concat (map (fun project => if project_deleted project then []
    else roots_in (project_resource project) (project_workspace project)) (world_projects value)).
-Definition no_resource_observation (options : option json) :=
- match options with None => true | Some source => match field "workspace_binding" source with
- | None => true | Some _ => false end end.
-Definition native_creation_allowed (options : option json) (selected caller : task_settings) (value : world) :=
- let no_guidance := match options with None => true | Some options =>
-   match field "guidance" options with None => true | Some _ => false end end in
+Definition no_resource_observation (options : option settings_request) :=
+ match options with None => true | Some request =>
+   match binding_observation request with None => true | Some _ => false end end.
+Definition native_creation_allowed (options : option settings_request) (selected caller : task_settings) (value : world) :=
+ let no_guidance := match options with None => true | Some request =>
+   match guidance_observation request with None => true | Some _ => false end end in
  Workspace.may_delegate selected caller && no_guidance && no_resource_observation options &&
  forallb (fun root => existsb (String.eqb root) (observed_creation_roots selected caller value))
    (workspace_roots (settings_workspace selected)).
-Definition initial_project_guidance (settings : task_settings) :=
- let source := settings_guidance settings in
- match string_field "workspace" source, string_field "path" source,
-       string_field "revision" source, string_field "instructions" source with
- | Some workspace, Some path, Some revision, Some content =>
-   ContextUpdates.construct_snapshot Context.project_guidance [("workspace",workspace)] revision
-     [("content",content);("path",path);("applies_to",workspace);("precedence",workspace)]
- | _,_,_,_ => None end.
+Definition initial_project_guidance (settings : task_settings) := Guidance.initial (settings_guidance settings).
 Definition initial_history (environment : environment) (chosen : profile) (settings : task_settings) :=
- let configured := Snapshot (ContextKey Context.configured [("origin","configured")]) "initial"
-   [("content",environment_instructions environment)] in
+ let configured := Snapshot (ContextKey Context.configured (exist _ (tt,tt) eq_refl)) initial_revision
+   (exist _ (environment_instructions environment,tt) eq_refl) in
  [ContextObservation (Introduce configured)] ++
  (match environment_global_instructions environment with
   | None => []
-  | Some source => match ContextUpdates.global_guidance_snapshot source with
-    | Some snapshot => [ContextObservation (Introduce snapshot)]
-    | None => [] end end) ++
+  | Some snapshot => [ContextObservation (Introduce snapshot)] end) ++
  (match initial_project_guidance settings with
   | Some snapshot => [ContextObservation (Introduce snapshot)] | None => [] end) ++
  [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)].
@@ -152,8 +137,10 @@ Definition failure_message (cause : failure_cause) := match cause with
  | ProjectPrimaryMismatch => "The cloud project primary root does not match the selected workspace"
  | InvalidWorkspace => "The selected workspace is invalid or unavailable"
  end.
+Definition start_refusal (entry : creation_entry) (cause : failure_cause) :=
+ CommandResult.Refusal (failure_code entry cause) (failure_message cause).
 Definition refuse_start (entry : creation_entry) (cause : failure_cause) (value : world) :=
- reject (failure_code entry cause) (failure_message cause) value.
+ CommandResult.reject value (start_refusal entry cause).
 Record resolved_start := ResolvedStart {
  start_profile : profile;
  start_settings : task_settings;
@@ -164,7 +151,7 @@ Record resolved_start := ResolvedStart {
 Inductive start_resolution := StartRefused (cause : failure_cause)
  | StartResolved (plan : resolved_start).
 Definition resolve_start (entry : creation_entry) (name : string) (reasoning : option string)
- (contents : content) (settings : option json) (idle : bool) (fallback : task_settings) (value : world) :=
+ (contents : content) (settings : option settings_request) (idle : bool) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | None => StartRefused UnknownProfile
  | Some profile => match resolve_settings profile settings fallback value with
@@ -198,21 +185,6 @@ Definition start_task (plan : resolved_start) :=
 Definition birth_prepared (created : task) (value : world) : birth_result value :=
  BirthResult value (next_task value) created (append_task created value)
    eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl.
-Definition birth_start (plan : resolved_start) (value : world) :=
- birth_prepared (start_task plan) value.
-Definition interpret_start (plan : resolved_start) (value : world) :=
- let born := birth_start plan value in
- accept (JObject [("task_id", number (birth_id born))]) (birth_world born) [].
-Definition create_with_defaults (name : string) (reasoning : option string) (contents : content)
- (settings : option json) (idle : bool) (fallback : task_settings) (value : world) : decision :=
- let entry := if idle then IdleCreation else OrdinaryCreation in
- match resolve_start entry name reasoning contents settings idle fallback value with
- | StartRefused cause => refuse_start entry cause value
- | StartResolved plan => interpret_start plan value
- end.
-Definition create (name : string) (reasoning : option string) (contents : content)
- (settings : option json) (idle : bool) (value : world) :=
- create_with_defaults name reasoning contents settings idle (creation_defaults (world_environment value)) value.
 Definition queue (contents : content) (value : task) :=
  TaskChange.apply [TaskChange.AppendQueued contents] value.
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
@@ -227,16 +199,6 @@ Definition receive_changes (contents : content) (value : task) : list TaskChange
  | Stopped _ _ => [TaskChange.ChangeStatus TaskChange.RunningStatus; TaskChange.AppendQueued contents]
  end.
 Definition receive (contents : content) (value : task) := TaskChange.apply (receive_changes contents value) value.
-Definition send (id : N) (contents : content) (value : world) :=
- match TaskScope.select id value with
- | None => reject "task_not_found" "The target task does not exist" value
- | Some target => let task := TaskScope.selected target in match task_lifecycle task with
-   | Archived _ => reject "invalid_arguments" "Archived tasks cannot accept input" value
-   | _ => if content_nonempty contents then
-      accept (JObject [("task_id", number id)]) (TaskChange.interpret (TaskChange.Plan value target (receive_changes contents task))) []
-     else reject "invalid_arguments" input_required_message value
-   end
- end.
 Definition inference_effects (id : N) (task : task) :=
  match task_activity task with
  | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
@@ -283,29 +245,77 @@ Definition control_effects (id : N) (command : control) (task : task) :=
  | Stop => []
  | Interrupt | Archive => [CancelTask id]
  end.
-Definition control_command (id : N) (command : control) (value : world) :=
- match TaskScope.select id value with
- | None => reject "task_not_found" "The target task does not exist" value
- | Some target => let task := TaskScope.selected target in match control_target command task with
-   | None => reject "invalid_transition" "This lifecycle control is unavailable for the task" value
-   | Some _ => accept (JObject [("task_id", number id)])
-      (TaskChange.interpret (TaskChange.Plan value target (control_changes command task))) (control_effects id command task)
+(** Resource admission belongs to the selected operation. Callers composing
+    input, speech, side returns or graph delivery share this actual reference. *)
+Definition input_admission {before : world} (target : TaskScope.task_reference before) :=
+ WorkspaceBinding.input_available (TaskScope.selected target) before = true.
+Definition failed_input_reason := CommandResult.Refusal "worktree_creation_failed"
+ "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace.".
+Definition admit_input {before : world} (target : TaskScope.task_reference before)
+ : CommandResult.result (input_admission target) :=
+ match Bool.bool_dec (WorkspaceBinding.input_available (TaskScope.selected target) before) true with
+ | left admitted => CommandResult.Accepted admitted
+ | right _ => CommandResult.Rejected failed_input_reason end.
+
+Inductive input_mode := AppendInput | ReplaceInput.
+Definition input_changes (mode : input_mode) (contents : content) (task : task) :=
+ match mode with
+ | AppendInput => receive_changes contents task
+ | ReplaceInput => [TaskChange.AppendHistory
+     (History.interrupted_phase (task_activity task) ++ [UserMessage contents]);
+     TaskChange.ChangeStatus (match task_lifecycle task with Frozen _ _ => TaskChange.FrozenStatus
+       | _ => TaskChange.RunningStatus end); TaskChange.ChangePhase WantsModel]
+ end.
+Definition input_effects (mode : input_mode) (id : N) (task : task) :=
+ match mode with AppendInput => [] | ReplaceInput => inference_effects id task end.
+Definition receive_input {before : world} (reference : TaskScope.task_reference before)
+ (_ : input_admission reference) (mode : input_mode) (contents : content) :=
+ let current := TaskScope.selected reference in
+ CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+   (TaskChange.interpret (TaskChange.Plan before reference (input_changes mode contents current)))
+   (input_effects mode (TaskScope.owner reference) current).
+Definition input_result (mode : input_mode) (id : N) (contents : content) (before : world) :=
+ match TaskScope.select id before with
+ | None => CommandResult.refuse "task_not_found" "The target task does not exist"
+ | Some target => match task_lifecycle (TaskScope.selected target) with
+   | Archived _ => CommandResult.refuse "invalid_arguments" "Archived tasks cannot accept input"
+   | _ => if content_nonempty contents then
+      CommandResult.map (fun admitted => receive_input target admitted mode contents) (admit_input target)
+     else CommandResult.refuse "invalid_arguments" input_required_message
    end end.
+Definition send_result := input_result AppendInput.
+Definition send (id : N) (contents : content) (value : world) :=
+ CommandResult.decide value (send_result id contents value).
+Definition steer_result := input_result ReplaceInput.
 Definition steer (id : N) (contents : content) (value : world) :=
- match TaskScope.select id value with
- | None => reject "task_not_found" "The target task does not exist" value
- | Some target => let task := TaskScope.selected target in match task_lifecycle task with
-   | Archived _ => reject "invalid_arguments" "Archived tasks cannot accept input" value
-   | current => if content_nonempty contents then
-     let changes := [TaskChange.AppendHistory
-       (History.interrupted_phase (task_activity task) ++ [UserMessage contents]);
-       TaskChange.ChangeStatus (match current with Frozen _ _ => TaskChange.FrozenStatus
-        | _ => TaskChange.RunningStatus end); TaskChange.ChangePhase WantsModel] in
-     accept (JObject [("task_id", number id)])
-      (TaskChange.interpret (TaskChange.Plan value target changes))
-      (inference_effects id task)
-     else reject "invalid_arguments" input_required_message value
+ CommandResult.decide value (steer_result id contents value).
+
+Definition control_resource_available (command : control) {before : world}
+ (target : TaskScope.task_reference before) :=
+ match command with Archive => WorkspaceBinding.archive_allowed (TaskScope.owner target) before
+ | _ => true end.
+Definition control_admission (command : control) {before : world}
+ (target : TaskScope.task_reference before) := control_resource_available command target = true.
+Definition admit_control (command : control) {before : world} (target : TaskScope.task_reference before)
+ : CommandResult.result (control_admission command target) :=
+ match Bool.bool_dec (control_resource_available command target) true with
+ | left admitted => CommandResult.Accepted admitted
+ | right _ => CommandResult.refuse "worktree_busy" "The managed worktree is unavailable or still used by another task" end.
+Definition perform_control (command : control) {before : world} (reference : TaskScope.task_reference before)
+ (_ : control_admission command reference) :=
+ let current := TaskScope.selected reference in
+ CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+   (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
+   (control_effects (TaskScope.owner reference) command current).
+Definition control_result (id : N) (command : control) (before : world) :=
+ match TaskScope.select id before with
+ | None => CommandResult.refuse "task_not_found" "The target task does not exist"
+ | Some target => match control_target command (TaskScope.selected target) with
+   | None => CommandResult.refuse "invalid_transition" "This lifecycle control is unavailable for the task"
+   | Some _ => CommandResult.map (perform_control command target) (admit_control command target)
    end end.
+Definition control_command (id : N) (command : control) (value : world) :=
+ CommandResult.decide value (control_result id command value).
 Definition promote_changes (task : task) : list TaskChange.edit :=
  match task_lifecycle task, task_queued task with
  | Running Idle operations, first :: rest | Running (PendingCalls []) operations, first :: rest
@@ -367,8 +377,7 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
    match find (fun operation => N.eqb operation_id (Domain.operation_id operation)) (task_operations task) with
    | None => reject "operation_not_found" "The operation is not live in this task" value
    | Some operation =>
-     let changes := [TaskChange.AppendHistory [History.cancelled_operation operation];
-       TaskChange.RemoveOperation operation_id] in
+     let changes := [TaskChange.CancelOperation operation] in
      accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
       (interpret_result target (WakeDemand changes))
       (match operation_stage operation with
@@ -400,7 +409,7 @@ Definition fork_parent_ready (entry : fork_entry) (task : task) :=
 Definition context_selected (selected : workspace) (key : context_key) :=
  match definition_scope (key_definition key) with
  | Global => true
- | EveryWorkspace | PrimaryWorkspace => match ContextUpdates.scoped_root key with
+ | EveryWorkspace | PrimaryWorkspace => match ContextTypes.scoped_root key with
    | None => false
    | Some root => existsb (String.eqb root) (workspace_roots selected) &&
      match definition_scope (key_definition key) with
@@ -411,7 +420,7 @@ Definition context_selected (selected : workspace) (key : context_key) :=
 Definition selected_context_history (settings : task_settings) (parent : task) (history : list message) :=
  let previous := task_current_settings parent in
  if Json.equal (settings_json settings) (settings_json previous) &&
-    Json.equal (settings_guidance settings) (settings_guidance previous) then history else
+    Guidance.same (settings_guidance settings) (settings_guidance previous) then history else
  let removals := fold_right (fun snapshot rest =>
    if context_selected (settings_workspace settings) (snapshot_key snapshot) then rest
    else ContextObservation (Remove (snapshot_key snapshot) (snapshot_revision snapshot)) :: rest)
@@ -456,17 +465,22 @@ Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation
  | ManualFork => WantsModel
  | AcceptedNativeFork _ remaining => match remaining with
    | [] => WantsModel | _ => PendingCalls (map Domain.recovery_call remaining) end end) child.
-Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+(* This fork owns its ordered birth suffix before feature maintenance can
+   append independent roots to the same registry. *)
+Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages : list content)
+ (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) : list task :=
  match count with
- | O => value
+ | O => []
  | S count =>
    let message := hd_error messages in
-   let owner := next_task value in
-   let child := fork_child_receipt entry start owner invocation
-     (fork_child owner id parent message settings false) in
-   fork_children count id parent (tl messages) settings entry start invocation (append_task child value)
+   fork_child_receipt entry start owner invocation
+     (fork_child owner id parent message settings false) ::
+   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
  end.
+Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
+ (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+ with_tasks (world_tasks value ++
+   constructed_children count id parent messages settings entry start (next_task value) invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
@@ -494,14 +508,19 @@ Definition fork_selection_fixed (parent : task) (selected : task_settings) (valu
  | None => true end.
 Record admitted_fork_selection (parent : task) (value : world) := AdmittedForkSelection {
  fork_selected : task_settings;
- fork_environment_fixed : fork_selection_fixed parent fork_selected value = true
+ fork_environment_fixed : fork_selection_fixed parent fork_selected value = true;
+ fork_workspace_available : WorkspaceBinding.selection_available fork_selected value = true
 }.
 Definition admit_fork_selection (parent : task) (value : world) (selected : task_settings)
  : option (admitted_fork_selection parent value) :=
- match fork_selection_fixed parent selected value as allowed return
-   fork_selection_fixed parent selected value = allowed -> option (admitted_fork_selection parent value) with
- | true => fun proof => Some (AdmittedForkSelection parent value selected proof)
- | false => fun _ => None end eq_refl.
+ match Bool.bool_dec (WorkspaceBinding.selection_available selected value) true with
+ | right _ => None
+ | left available =>
+   match fork_selection_fixed parent selected value as allowed return
+     fork_selection_fixed parent selected value = allowed -> option (admitted_fork_selection parent value) with
+   | true => fun proof => Some (AdmittedForkSelection parent value selected proof available)
+   | false => fun _ => None end eq_refl
+ end.
 (* A fork selects child settings; the retained parent's execution contract and operations stay its own. *)
 Definition fork_message_call_ids (message : Domain.message) : list string :=
  match message with
@@ -517,41 +536,40 @@ Definition fork_call_ids (task : Domain.task) : list string :=
 Definition manual_fork_identity (ticket : N) (task : Domain.task) : string :=
  FreshNames.fresh_name ("manual-fork-" ++ number_text ticket ++ "-") (fork_call_ids task).
 
-Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
+Definition fork_refusal_reason (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
  match entry with
  | ManualFork => if fork_parent_ready entry parent then
-     reject "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid" value
-   else reject "task_busy" "A manual fork requires an active, idle task" value
- | AcceptedNativeFork _ _ => refuse_start NativeForkEntry
-     (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity) value
+     CommandResult.Refusal "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid"
+   else CommandResult.Refusal "task_busy" "A manual fork requires an active, idle task"
+ | AcceptedNativeFork _ _ => start_refusal NativeForkEntry
+     (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity)
  end.
-Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
- (messages : list content) (settings : option json) (value : world) :=
+Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
+ (messages : list content) (settings : option settings_request) (value : world) :=
  match TaskScope.select id value with
- | None => reject "task_not_found" "The parent task does not exist" value
+ | None => CommandResult.refuse "task_not_found" "The parent task does not exist"
  | Some target => let task := TaskScope.selected target in
    if fork_parent_ready entry task &&
-    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
+    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract task)) &&
     TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
+    CommandResult.bind (admit_input target) (fun _ =>
     match resolve_settings (task_current_profile task) settings (fork_settings_base origin task value) value with
-    | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
+    | None => CommandResult.refuse "invalid_settings" "Child settings do not resolve to a current workspace"
     | Some selected => match admit_fork_selection task value selected with
-      | None => reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value
+      | None => if fork_selection_fixed task selected value then
+          CommandResult.refuse "worktree_unavailable" "The selected workspace belongs to an unavailable managed worktree"
+        else CommandResult.refuse "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment"
       | Some selection =>
       let selected := fork_selected task value selection in
       if match entry with ManualFork => false | AcceptedNativeFork _ _ =>
         negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) end then
-       refuse_start NativeForkEntry AuthorityExpansion value else
+       CommandResult.Rejected (start_refusal NativeForkEntry AuthorityExpansion) else
       let '(ticket, allocated) := allocate_ticket value in
       let invocation := match entry with
        | AcceptedNativeFork invocation _ => invocation
        | ManualFork => Call (manual_fork_identity ticket task) "fork_task"
          (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt end in
-      let parent := match entry with
-       | AcceptedNativeFork _ _ => task
-       | ManualFork => with_activity WantsModel (append_history
-           [FunctionCall invocation; ForkReceipt id invocation 0] task) end in
       let retained := match entry with ManualFork =>
         with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
           [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel]))
@@ -559,34 +577,43 @@ Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (
       let children := fork_children (N.to_nat count) id
         (match entry with ManualFork => append_history [FunctionCall invocation] task | _ => task end)
         messages selected entry (next_task value) invocation retained in
-      accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
+      CommandResult.Accepted (CommandResult.Change (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children [])
       end
-    end
-   else fork_refusal entry id count task value
+    end)
+   else CommandResult.Rejected (fork_refusal_reason entry id count task value)
  end.
+Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
+ CommandResult.reject value (fork_refusal_reason entry id count parent value).
+Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
+ (messages : list content) (settings : option settings_request) (value : world) :=
+ CommandResult.decide value (fork_result entry origin id count messages settings value).
 Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
- match find_task id value with
- | None => reject "task_not_found" "The parent task does not exist" value
- | Some task => if String.eqb (task_status task) "archived" then
-   reject "side_unavailable" "Archived tasks cannot create a side conversation" value
+ CommandResult.decide value
+ (match TaskScope.select id value with
+ | None => CommandResult.refuse "task_not_found" "The parent task does not exist"
+ | Some reference => let task := TaskScope.selected reference in
+   if String.eqb (task_status task) "archived" then
+     CommandResult.refuse "side_unavailable" "Archived tasks cannot create a side conversation"
    else if ancestors_fit (id :: task_lineage task) 1 value then
-   accept (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
-    (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) []
-   else reject "side_unavailable" "The parent task has no remaining descendant capacity" value
- end.
+     CommandResult.map (fun _ =>
+       CommandResult.Change (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
+         (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) [])
+       (admit_input reference)
+   else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
+ end).
 (* The wire approval DTO names its reviewer. An explicit selection can replace
    the frozen profile behind that same key, so wire equality is insufficient. *)
 Definition execution_reasoning (effort : option string) (current : profile) :=
  match effort with
- | Some "default" => match parse_profile (profile_metadata current) with
-   | Some configured => Some (with_reasoning (profile_reasoning configured) current)
-   | None => None end
- | _ => selected_reasoning effort current
- end.
+ | Some value => if String.eqb value "default" then Some (with_reasoning (profile_default current) current)
+   else selected_reasoning effort current
+ | None => selected_reasoning effort current end.
 
-Definition configure_execution_with (normalize : task_settings -> task_settings) (id : N)
- (name reasoning : option string) (sandbox_source approval_source : option json) (value : world) :=
+Definition configure_execution (id : N)
+ (name reasoning : option string)
+ (sandbox_source : option (D.denote sandbox_patch_declaration))
+ (approval_source : option (D.denote approval_declaration)) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some target => let task := TaskScope.selected target in
@@ -600,34 +627,31 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
      | None => task_current_profile task end in
    match match approval_source with
     | None => Some (settings_approval current)
-    | Some source => parse_approval reviewer_model (environment_profiles (world_environment value)) source end with
+    | Some source => approval_of_values reviewer_model (environment_profiles (world_environment value)) source end with
    | None => refuse_start Configuration InvalidPolicy value
    | Some approval => match model with
      | None => refuse_start Configuration UnknownProfile value
      | Some profile => match execution_reasoning reasoning profile with
        | None => refuse_start Configuration InvalidReasoning value
-       | Some chosen => match match sandbox_source with
-         | None => Some (settings_sandbox current)
-         | Some source => parse_sandbox_patch (settings_sandbox current) source end with
-         | None => reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value
-         | Some sandbox =>
+       | Some chosen =>
+           let sandbox := match sandbox_source with
+             | None => settings_sandbox current
+             | Some source => sandbox_patch_of_values (settings_sandbox current) source end in
            if quiescent task && negb (String.eqb (task_status task) "archived") &&
             (match History.history_lease id (task_history task) with History.NoLease => true | _ => false end) then
-           let settings := normalize (Settings (settings_workspace current) (settings_project current)
-            sandbox approval (settings_guidance current) (settings_worktree current) (settings_resource current)) in
+           let settings := WorkspaceBinding.normalize_settings
+            (Settings (settings_workspace current) (settings_project current) sandbox approval
+              (settings_guidance current) (settings_worktree current) (settings_resource current)) value in
            let same := Domain.same_profile chosen (task_current_profile task) &&
              Json.equal (settings_json settings) (settings_json current) &&
              same_approval (settings_approval settings) (settings_approval current) in
-           let changes := [TaskChange.ChangeExecution chosen settings] ++
-             (if same then [] else [TaskChange.AppendHistory [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)]]) in
+           let receipt := if same then None else
+             Some [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] in
            accept (JObject [("task_id", number id)])
-            (TaskChange.interpret (TaskChange.Plan value target changes))
+            (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
            else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
-         end
        end
      end
    end
  end.
-
-Definition configure_execution := configure_execution_with (fun settings=>settings).

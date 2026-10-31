@@ -55,28 +55,22 @@ Proof.
  now apply task_cancellation_matches_every_owned_ticket.
 Qed.
 
-(* These are the actual maintenance effect constructors. In particular, an
-   unfreeze-created Scope is withdrawn if a later native archive clears its
-   receiver, before CommitAdmission checks the final decision. *)
-Theorem task_cancellation_withdraws_scope_measurement_and_compaction :
- forall value reply effects owner ticket input scope validating target progress,
- In (CancelTask owner) effects ->
- let retained := decision_effects (Dispatch.retain_live_effects (Decision value reply effects)) in
- ~ In (MaintainContext (C.Scope owner ticket input)) retained /\
- ~ In (MaintainContext (C.Measure owner ticket input scope validating)) retained /\
- ~ In (MaintainContext (C.Compact owner ticket input target progress scope)) retained.
+(** Every task-bound declaration uses its installed receiver address and
+    envelope ticket for cancellation; extending the protocol set adds no case. *)
+Theorem a_task_bound_request_is_withdrawn_on_owner_cancellation :
+ forall value reply effects sent,
+ RequestTypes.request_lifetime (RequestTypes.definition sent) = RequestTypes.TaskBound ->
+ In (CancelTask (Receiver.address (RequestTypes.receiver (RequestTypes.definition sent)) (RequestTypes.request sent))) effects ->
+ ~ In (RequestFeature sent) (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
 Proof.
- intros value reply effects owner ticket input scope validating target progress Cancelled.
- cbn zeta; split.
- - eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
- - split.
-   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
-   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
+ intros value reply effects sent Bound Cancelled.
+ eapply a_task_cancellation_withdraws_every_owned_request; [|exact Cancelled].
+ cbn [Dispatch.request_coordinate]; now rewrite Bound.
 Qed.
 
 (* A precise maintenance cancellation uses the same globally allocated task
    ticket as its provider request or context observation. The Cancel effect
-   itself is retained and still has to pass its existing retirement authority. *)
+   itself is retained so the host can retire that pending request. *)
 Theorem a_maintenance_cancellation_withdraws_its_exact_request :
  forall value reply effects request owner ticket,
  Dispatch.request_coordinate request = Some (owner,ticket) ->
@@ -86,6 +80,19 @@ Proof.
  intros value reply effects request owner ticket Coordinate Cancelled.
  apply (a_cancelled_request_is_withdrawn value reply effects request owner ticket Coordinate).
  now apply maintenance_cancellation_matches_its_owned_ticket.
+Qed.
+
+Theorem withdrawal_never_dispatches_execution_for_an_archived_owner :
+ forall owner task operations current request ticket,
+ find_task owner (decision_world current) = Some task ->
+ task_lifecycle task = Archived operations ->
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ ~ In request (decision_effects (Dispatch.retain_live_effects current)).
+Proof.
+ intros owner task operations current request ticket Found ArchivedTask Coordinate Emitted.
+ unfold Dispatch.retain_live_effects in Emitted; cbn in Emitted.
+ apply filter_In in Emitted as [_ Live].
+ unfold Dispatch.live_request in Live; rewrite Coordinate, Found, ArchivedTask in Live; discriminate.
 Qed.
 
 Theorem an_uncancelled_request_keeps_its_owned_effect :
@@ -141,7 +148,7 @@ Proof.
  apply filter_In; split; [exact Present|].
  cbn [Dispatch.live_request Dispatch.request_coordinate]; rewrite Found.
  apply existsb_exists; exists pending; split; [exact Pending|].
- now rewrite Identity, Stage, !N.eqb_refl.
+ unfold RequestReceiver.operation_receiver; now rewrite Identity, Stage, !N.eqb_refl.
 Qed.
 
 (** Ordinary tasks and side conversations share the final context-capture
@@ -156,7 +163,7 @@ Theorem matching_uncommitted_context_captures_the_current_history :
     ObserveContext owner ticket (with_history (task_history current) original)).
 Proof.
  intros value owner ticket original current revision Found Phase.
- unfold Dispatch.capture_request; now rewrite Found, Phase, N.eqb_refl.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; now rewrite Found, Phase, N.eqb_refl.
 Qed.
 
 Theorem nonmatching_context_capture_keeps_the_original_request :
@@ -167,7 +174,7 @@ Theorem nonmatching_context_capture_keeps_the_original_request :
    (value,ObserveContext owner ticket original).
 Proof.
  intros value owner ticket original current Found WrongPhase.
- unfold Dispatch.capture_request; rewrite Found.
+ unfold Dispatch.capture_request, RequestReceiver.pending_phase, RequestReceiver.phase_receiver; rewrite Found.
  destruct (task_activity current) as
    [| | | expected revision | modelTicket callable mode
     | reasoningTicket length | calls | invocation pending remaining
@@ -236,6 +243,7 @@ Proof.
  destruct (find_task id value) as [owner|] eqn:Owned; [|discriminate].
  apply existsb_exists in Live as [pending [Member Checked]].
  apply andb_true_iff in Checked as [Identity Stage]. apply N.eqb_eq in Identity.
+ unfold RequestReceiver.operation_receiver in Stage.
  destruct (operation_stage pending) as [execution|execution reviewer|reviewer|execution reviewer|chain original raw_error|expected expected_plugin remaining original original_error] eqn:Phase; try discriminate.
  apply N.eqb_eq in Stage; subst expected.
  exists owner,pending,expected_plugin,remaining,original,original_error; repeat split; try assumption; congruence.

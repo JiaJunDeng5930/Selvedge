@@ -10,3 +10,8 @@ Fixpoint traverse {A B : Type} (parse : A -> option B) (values : list A) : optio
    | Some value, Some rest => Some (value :: rest)
    | _, _ => None end
  end.
+
+Definition observe {A B : Type} (source : option A)
+ (present : forall value, source = Some value -> B) (absent : source = None -> B) : B :=
+ match source as found return source = found -> B with
+ | Some value => present value | None => absent end eq_refl.

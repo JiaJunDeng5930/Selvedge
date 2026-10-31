@@ -4,7 +4,6 @@ From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Observatio
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition default_limit : N := Pagination.search_default.
 Definition lower_ascii (c : ascii) := let n := nat_of_ascii c in
  if (Nat.leb 65 n && Nat.leb n 90) then ascii_of_nat (n+32) else c.
 (* Reconstruct once after folding, so long admitted transcripts do not require
@@ -70,7 +69,9 @@ Definition page_remaining (remaining : list json) (after limit : N) :=
   ("has_more", JBool more); ("next_after", if more then number (after+limit)%N else JNull)]).
 Definition page (hits : list json) (after limit : N) :=
  page_remaining (if N.leb after (N.of_nat (List.length hits)) then skipn (N.to_nat after) hits else []) after limit.
-Definition search (query : string) (project work : option N) (after limit : N) (value : world) :=
+Definition search (query : string) (project work : option N) (after : N)
+ (size : Pagination.size Pagination.search_limit) (value : world) :=
+ let limit := proj1_sig size in
  let project_exists := match project with None => true | Some id =>
    match registry_at id (world_projects value) with Some entry => negb (project_deleted entry) | None => false end end in
  let work_exists := match work with None => true | Some id =>
@@ -79,8 +80,8 @@ Definition search (query : string) (project work : option N) (after limit : N) (
  if negb work_exists then State.failure "work_not_found" "The Work does not exist" else
  let query := trim query in
  match Utf8.scalar_count query with
- | Some length => if Nat.leb 1 length && Nat.leb length 240 && (N.leb 1 limit && N.leb limit Pagination.search_limit) then
+ | Some length => if Nat.leb 1 length && Nat.leb length 240 then
    let hits := concat (rev (indexed (fun id task => task_hits query project work id task value) 0 (world_tasks value))) in
    page hits after limit
-   else State.failure "invalid_search" "Search requires a query of 1..240 characters and a page size of 1..50"
+   else State.failure "invalid_search" "Search requires a query of 1..240 characters"
  | None => State.failure "invalid_search" "Search query must contain valid Unicode" end.

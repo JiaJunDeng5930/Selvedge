@@ -10,85 +10,58 @@ Open Scope N_scope.
    its existing nullable value kind. *)
 Inductive argument_type :=
 | Scalar (value : kind)
-| Structured (declaration : ArgumentDeclaration.executable).
+| Structured (declaration : ArgumentDeclaration.t).
 Record argument_spec := Argument {
   argument_name : string;
   argument_type_of : argument_type;
   argument_required : bool;
-  argument_description : string;
-  argument_bounds : option (N * N)
+  argument_description : string
 }.
 Definition from_field (field : field_spec) := Argument
   (field_name field) (Scalar (field_kind field))
-  (negb (field_omittable field || SchemaJson.optional_kind (field_kind field))) "" None.
+  (negb (field_omittable field || SchemaJson.optional_kind (field_kind field))) "".
 Definition with_scalar (value : kind) (required : bool) (argument : argument_spec) := Argument
- (argument_name argument) (Scalar value) required (argument_description argument) (argument_bounds argument).
+ (argument_name argument) (Scalar value) required (argument_description argument).
 Definition with_description (description : string) (argument : argument_spec) := Argument
  (argument_name argument) (argument_type_of argument) (argument_required argument)
- description (argument_bounds argument).
+ description.
 Definition omittable (argument : argument_spec) := Argument
  (argument_name argument) (argument_type_of argument) false
- (argument_description argument) (argument_bounds argument).
+ (argument_description argument).
 Definition omittable_nonnull (argument : argument_spec) :=
  match argument_type_of argument with
  | Scalar (KOptional value) => with_scalar value false argument
  | _ => argument
  end.
-Definition with_bounds (bounds : N * N) (argument : argument_spec) := Argument
-  (argument_name argument) (argument_type_of argument) (argument_required argument)
-  (argument_description argument) (Some bounds).
 Definition with_declaration (declaration : ArgumentDeclaration.t) (argument : argument_spec) := Argument
- (argument_name argument) (Structured (ArgumentDeclaration.compile declaration)) (argument_required argument)
- (argument_description argument) (argument_bounds argument).
-Definition with_structure (description : list (string * json)) (argument : argument_spec) :=
- with_declaration (match ArgumentDeclaration.parse (JObject description) with
- | Some declaration => declaration | None => ArgumentDeclaration.Reject end) argument.
-Definition refine_fields (overrides : list (string * list (string * json)))
- (declaration : list argument_spec) := map (fun argument =>
- match find (fun entry => String.eqb (argument_name argument) (fst entry)) overrides with
- | Some (_,fields) => with_structure fields argument | None => argument end) declaration.
-Definition type_valid (description : argument_type) (value : json) := match description with
- | Scalar kind => match Schema.decode_value kind value with Some _ => true | None => false end
- | Structured declaration => ArgumentDeclaration.check (ArgumentDeclaration.program declaration) value
- end.
-Definition type_schema (description : argument_type) := match description with
- | Scalar kind => SchemaJson.kind_schema kind
- | Structured declaration => match ArgumentDeclaration.emitted_schema declaration with JObject fields => fields | _ => [] end
- end.
-Definition shape_kind (description : argument_type) := match description with
- | Scalar kind => kind | Structured _ => KJson end.
-Definition argument_schema (declaration : list argument_spec) : schema :=
- map (fun argument => Field (argument_name argument)
-   (if argument_required argument then shape_kind (argument_type_of argument) else KOptional (shape_kind (argument_type_of argument)))) declaration.
-Definition numeric_bounds (value : json) (bounds : N * N) :=
- match as_number value with Some text => match parse_natural text with
- | Some n => (fst bounds <=? n) && (n <=? snd bounds) | None => false end | None => false end.
-Definition argument_valid (source : json) (argument : argument_spec) :=
- match field (argument_name argument) source with
- | None => negb (argument_required argument)
- | Some value => if type_valid (argument_type_of argument) value then match value, argument_bounds argument with
-     | JNull,_ | _,None => true
-     | _,Some bounds => numeric_bounds value bounds
-     end else false
- end.
+ (argument_name argument) (Structured declaration) (argument_required argument)
+ (argument_description argument).
+Definition with_bounds (bounds : N * N) (argument : argument_spec) :=
+ let bounded := ArgumentDeclaration.Natural (fst bounds) (snd bounds) in
+ with_declaration (match argument_type_of argument with
+ | Scalar (KOptional _) => ArgumentDeclaration.nullable bounded | _ => bounded end) argument.
+Definition type_declaration (description : argument_type) := match description with
+ | Scalar kind => ArgumentDeclaration.of_kind kind | Structured declaration => declaration end.
+Definition type_valid (description : argument_type) :=
+ ArgumentDeclaration.check (type_declaration description).
+Definition argument_declaration (declaration : list argument_spec) := ArgumentDeclaration.Object
+ (map (fun argument => (argument_name argument,argument_required argument,
+   type_declaration (argument_type_of argument))) declaration).
+Definition parsed_arguments (declaration : list argument_spec) :=
+ ArgumentDeclaration.denote (argument_declaration declaration).
+Definition decode_arguments (declaration : list argument_spec) :=
+ ArgumentDeclaration.decode (argument_declaration declaration).
+Definition encode_arguments (declaration : list argument_spec) :=
+ ArgumentDeclaration.encode (argument_declaration declaration).
 Definition valid (declaration : list argument_spec) (source : json) :=
- match Schema.decode (argument_schema declaration) source with
- | None => false
- | Some _ => forallb (argument_valid source) declaration
- end.
+ ArgumentDeclaration.present (decode_arguments declaration source).
 Definition argument_json (argument : argument_spec) :=
  let source := match argument_type_of argument with
  | Scalar kind => JObject (SchemaJson.kind_schema kind)
- | Structured declaration => ArgumentDeclaration.emitted_schema declaration end in
+ | Structured declaration => ArgumentDeclaration.schema declaration end in
  match source with
  | JObject original =>
- let fields := (original ++
-   [("description",JString (argument_description argument))])%list in
- JObject (match argument_bounds argument with
- | None => fields
- | Some (minimum,maximum) => set_field "minimum" (JNumber (show_natural minimum))
-     (set_field "maximum" (JNumber (show_natural maximum)) fields)
- end)
+ JObject (original ++ [("description",JString (argument_description argument))])%list
  | _ => source end.
 Definition schema_fields (declaration : list argument_spec) := SchemaJson.object_fields
  (map (fun argument => (argument_name argument,argument_json argument)) declaration)

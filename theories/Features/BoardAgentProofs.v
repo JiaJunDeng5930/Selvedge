@@ -2,30 +2,18 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State.
-From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain Board BoardParameters.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Module F := Selvedge.Features.Domain.
-Module C := Selvedge.Generated.Commands.
+Module G := Selvedge.Generated.Commands.
 
-(** Observable ledger projections, not a second implementation of save_agent.
-    Every behavioral statement below calls the production command handler. *)
+(** Board creation and revision updates share one capacity ledger. *)
 Definition agent_slots value := F.board_agents (Board.registry value).
 Definition occupied (slot : option F.board_agent) := match slot with Some _ => true | None => false end.
 Definition live_count slots := List.length (filter occupied slots).
 Definition agent_count value := live_count (agent_slots value).
-
-(** Reduce only the generated command projections and the actual handler.
-    Keeping this plumbing here leaves every theorem focused on its decision. *)
-Ltac unfold_save_handler :=
- unfold Board.handle_save_board_agent;
- cbn [C.save_board_agent_agent C.save_board_agent_revision C.save_board_agent_name
-      C.save_board_agent_profile C.save_board_agent_reasoning
-      C.save_board_agent_instructions C.save_board_agent_settings
-      C.save_board_agent_concurrency];
- unfold Board.save_agent; cbn beta iota zeta.
 
 Lemma replacing_present_slot_counts_the_actual_replacement slots id previous replacement :
  registry_at id slots = Some (Some previous) ->
@@ -46,143 +34,119 @@ Proof.
  intro Found. now subst slot.
 Qed.
 
-Theorem invalid_agent_precedes_capacity_lookup_and_revision supplied expected name profile reasoning instructions settings capacity caller value :
- (forall revision, Board.valid_agent
-   (F.BoardAgent revision name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = false) ->
- exists reason, Board.handle_save_board_agent
-   (C.Build_save_board_agent supplied expected name profile reasoning instructions settings capacity) caller value =
-   reject "invalid_agent" reason value.
+Theorem unavailable_agent_execution_precedes_capacity_and_revision source value :
+ (forall revision, Board.agent_execution_available (Board.agent_parameters revision source) value = false) ->
+ exists reason, Board.save_agent source value = reject "invalid_agent" reason value.
 Proof.
- intro Invalid. unfold_save_handler.
- destruct (String.eqb supplied "") eqn:Creating; cbn beta iota zeta.
- - rewrite (Invalid 0%N). eexists; reflexivity.
- - destruct (text_id supplied); cbn beta iota zeta.
-   + rewrite (Invalid (N.succ expected)). eexists; reflexivity.
-   + eexists; reflexivity.
+ intro Invalid. unfold Board.save_agent.
+ destruct (Board.agent_identity source); cbn beta iota zeta;
+ rewrite Invalid; eexists; reflexivity.
 Qed.
 
-Corollary empty_agent_name_precedes_capacity_lookup_and_revision supplied expected profile reasoning instructions settings capacity caller value :
- exists reason, Board.handle_save_board_agent
-   (C.Build_save_board_agent supplied expected "" profile reasoning instructions settings capacity) caller value =
-   reject "invalid_agent" reason value.
-Proof.
- apply invalid_agent_precedes_capacity_lookup_and_revision. intro revision. reflexivity.
-Qed.
-
-Theorem full_agent_capacity_rejects_only_new_agents expected name profile reasoning instructions settings capacity caller value :
- Board.valid_agent (F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = true ->
+Theorem full_agent_capacity_rejects_only_new_agents source value :
+ Board.agent_identity source = None ->
+ Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
  (64 <= agent_count value)%nat ->
- Board.handle_save_board_agent
-   (C.Build_save_board_agent "" expected name profile reasoning instructions settings capacity) caller value =
- reject "agent_limit" "The board holds at most 64 agents" value.
+ Board.save_agent source value = reject "agent_limit" "The board holds at most 64 agents" value.
 Proof.
- intros Valid Full. unfold_save_handler.
- rewrite String.eqb_refl,Valid. cbn beta iota zeta.
+ intros Creating Valid Full. unfold Board.save_agent; rewrite Creating; cbn beta iota zeta.
+ rewrite Valid. cbn beta iota zeta.
  assert (Capacity : Nat.ltb (agent_count value) 64 = false) by (apply Nat.ltb_ge;exact Full).
  change (Nat.ltb (List.length (filter (fun item : option F.board_agent =>
    match item with Some _=>true | None=>false end) (F.board_agents (Board.registry value)))) 64 = false) in Capacity.
  rewrite Capacity. reflexivity.
 Qed.
 
-Theorem valid_new_agent_is_saved_below_capacity expected name profile reasoning instructions settings capacity caller value :
- Board.valid_agent (F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = true ->
+Theorem valid_new_agent_is_saved_below_capacity source value :
+ Board.agent_identity source = None ->
+ Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
  (agent_count value < 64)%nat ->
  (N.of_nat (List.length (agent_slots value)) < 4294967295)%N ->
- let saved := Board.handle_save_board_agent
-   (C.Build_save_board_agent "" expected name profile reasoning instructions settings capacity) caller value in
+ let saved := Board.save_agent source value in
  let identity := N.of_nat (List.length (agent_slots value)) in
- let agent := F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity in
+ let agent := Board.agent_parameters 0 source in
  decision_reply saved = success (JObject [("agent_id",number identity);("revision",number 0)]) /\
  decision_effects saved = [] /\
  agent_slots (decision_world saved) = agent_slots value ++ [Some agent] /\
  Board.lookup_agent identity (decision_world saved) = Some agent /\
  agent_count (decision_world saved) = S (agent_count value).
 Proof.
- intros Valid Available Identity. cbn beta iota zeta.
- unfold_save_handler.
- rewrite String.eqb_refl,Valid. cbn beta iota zeta.
+ intros Creating Valid Available Identity. cbn beta iota zeta.
+ unfold Board.save_agent; rewrite Creating; cbn beta iota zeta.
+ rewrite Valid. cbn beta iota zeta.
  assert (Capacity : Nat.ltb (agent_count value) 64 = true) by (apply Nat.ltb_lt;exact Available).
  assert (Space : N.ltb (N.of_nat (List.length (agent_slots value))) 4294967295 = true)
    by (apply N.ltb_lt;exact Identity).
  unfold agent_count,live_count,occupied,agent_slots in Capacity,Space.
  rewrite Capacity,Space. cbn beta iota zeta. repeat split; try reflexivity.
  - change (match registry_at (N.of_nat (List.length (agent_slots value)))
-     (agent_slots value ++ [Some (F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity)]) with
-     Some slot => slot | None => None end =
-     Some (F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity)).
+     (agent_slots value ++ [Some (Board.agent_parameters 0 source)]) with
+     Some slot => slot | None => None end = Some (Board.agent_parameters 0 source)).
    rewrite registry_lookup_at_appended_index. reflexivity.
- - change (live_count (agent_slots value ++ [Some (F.BoardAgent 0 name profile reasoning instructions (Board.retained settings (JObject [])) capacity)]) =
+ - change (live_count (agent_slots value ++ [Some (Board.agent_parameters 0 source)]) =
      S (live_count (agent_slots value))).
    unfold live_count. rewrite filter_app,app_length. cbn. lia.
 Qed.
 
-Theorem absent_agent_precedes_revision_and_ignores_capacity supplied id expected name profile reasoning instructions settings capacity caller value :
- String.eqb supplied "" = false -> text_id supplied = Some id ->
- Board.valid_agent (F.BoardAgent (N.succ expected) name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = true ->
+Theorem absent_agent_precedes_revision_and_ignores_capacity source id value :
+ Board.agent_identity source = Some id ->
+ Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
  Board.lookup_agent id value = None ->
- Board.handle_save_board_agent
-   (C.Build_save_board_agent supplied expected name profile reasoning instructions settings capacity) caller value =
- reject "agent_not_found" "The board agent no longer exists" value.
+ Board.save_agent source value = reject "agent_not_found" "The board agent no longer exists" value.
 Proof.
- intros Existing Identity Valid Missing.
- unfold_save_handler.
- rewrite Existing,Identity. cbn beta iota zeta. rewrite Valid,Missing. reflexivity.
+ intros Identity Valid Missing. unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
+ rewrite Valid,Missing. reflexivity.
 Qed.
 
-Theorem stale_agent_revision_rejects_even_at_capacity supplied id expected previous name profile reasoning instructions settings capacity caller value :
- String.eqb supplied "" = false -> text_id supplied = Some id ->
- Board.valid_agent (F.BoardAgent (N.succ expected) name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = true ->
- Board.lookup_agent id value = Some previous -> expected <> F.agent_revision previous ->
- Board.handle_save_board_agent
-   (C.Build_save_board_agent supplied expected name profile reasoning instructions settings capacity) caller value =
- reject "agent_conflict" "This board agent changed" value.
+Theorem stale_agent_revision_rejects_even_at_capacity source id previous value :
+ Board.agent_identity source = Some id ->
+ Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
+ Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source <> F.agent_revision previous ->
+ Board.save_agent source value = reject "agent_conflict" "This board agent changed" value.
 Proof.
- intros Existing Identity Valid Found Different.
- unfold_save_handler.
- rewrite Existing,Identity. cbn beta iota zeta. rewrite Valid,Found.
- apply N.eqb_neq in Different. rewrite Different. reflexivity.
+ intros Identity Valid Found Different. unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
+ rewrite Valid,Found. apply N.eqb_neq in Different. rewrite Different. reflexivity.
 Qed.
 
-Theorem current_agent_update_succeeds_without_a_capacity_precondition supplied id expected previous name profile reasoning instructions settings capacity caller value :
- String.eqb supplied "" = false -> text_id supplied = Some id ->
- Board.valid_agent (F.BoardAgent (N.succ expected) name profile reasoning instructions (Board.retained settings (JObject [])) capacity) value = true ->
- Board.lookup_agent id value = Some previous -> expected = F.agent_revision previous ->
- let saved := Board.handle_save_board_agent
-   (C.Build_save_board_agent supplied expected name profile reasoning instructions settings capacity) caller value in
- let agent := F.BoardAgent (N.succ expected) name profile reasoning instructions (Board.retained settings (JObject [])) capacity in
- decision_reply saved = success (JObject [("agent_id",number id);("revision",number (N.succ expected))]) /\
+Theorem current_agent_update_succeeds_without_a_capacity_precondition source id previous value :
+ Board.agent_identity source = Some id ->
+ Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
+ Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source = F.agent_revision previous ->
+ let saved := Board.save_agent source value in
+ let agent := Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source in
+ decision_reply saved = success (JObject [("agent_id",number id);("revision",number (N.succ (G.save_board_agent_revision source)))]) /\
  decision_effects saved = [] /\
  Board.lookup_agent id (decision_world saved) = Some agent /\
  agent_count (decision_world saved) = agent_count value /\
  List.length (agent_slots (decision_world saved)) = List.length (agent_slots value).
 Proof.
- intros Existing Identity Valid Found Current. cbn beta iota zeta.
+ intros Identity Valid Found Current. cbn beta iota zeta.
  pose proof (agent_lookup_has_a_present_slot id value previous Found) as Present.
- unfold_save_handler.
- rewrite Existing,Identity. cbn beta iota zeta. rewrite Valid,Found,Current,N.eqb_refl.
+ unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
+ rewrite Valid,Found,Current,N.eqb_refl.
  cbn beta iota zeta. repeat split; try reflexivity.
  - change (match registry_at id (replace id
-     (Some (F.BoardAgent (N.succ (F.agent_revision previous)) name profile reasoning instructions (Board.retained settings (JObject [])) capacity))
+     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
      (agent_slots value)) with Some slot=>slot | None=>None end =
-     Some (F.BoardAgent (N.succ (F.agent_revision previous)) name profile reasoning instructions (Board.retained settings (JObject [])) capacity)).
+     Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source)).
    rewrite (registry_replace_selected _ _ _ _ _ Present). reflexivity.
  - change (live_count (replace id
-     (Some (F.BoardAgent (N.succ (F.agent_revision previous)) name profile reasoning instructions (Board.retained settings (JObject [])) capacity))
+     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
      (agent_slots value)) = live_count (agent_slots value)).
    pose proof (replacing_present_slot_counts_the_actual_replacement _ _ _
-     (Some (F.BoardAgent (N.succ (F.agent_revision previous)) name profile reasoning instructions (Board.retained settings (JObject [])) capacity)) Present).
+     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source)) Present).
    cbn [occupied] in H. lia.
  - change (List.length (replace id
-     (Some (F.BoardAgent (N.succ (F.agent_revision previous)) name profile reasoning instructions (Board.retained settings (JObject [])) capacity))
+     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
      (agent_slots value)) = List.length (agent_slots value)).
    apply registry_replace_length.
 Qed.
 
-Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected previous caller value :
+Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected previous value :
  Board.lookup_agent id value = Some previous -> expected = F.agent_revision previous ->
  (forall card, In (Some card) (F.board_cards (Board.registry value)) ->
    F.draft_owner (F.card_contents card) <> F.AgentOwner id) ->
- let deleted := Board.handle_delete_board_agent (C.Build_delete_board_agent id expected) caller value in
+ let deleted := Board.delete_agent id expected value in
  decision_reply deleted = success (JObject [("agent_id",number id)]) /\
  decision_effects deleted = [] /\
  Board.lookup_agent id (decision_world deleted) = None /\
@@ -197,7 +161,7 @@ Proof.
    destruct slot as [card|]; [|discriminate].
    destruct (F.draft_owner (F.card_contents card)) eqn:Owner; try discriminate.
    apply N.eqb_eq in Used; subst. apply (Unassigned card Member). exact Owner. }
- unfold Board.handle_delete_board_agent; cbn [C.delete_board_agent_agent_id C.delete_board_agent_revision]; unfold Board.delete_agent; rewrite Found,Current,N.eqb_refl,Unused.
+ unfold Board.delete_agent; rewrite Found,Current,N.eqb_refl,Unused.
  cbn beta iota zeta. repeat split; try reflexivity.
  - change (match registry_at id (replace id None (agent_slots value)) with Some slot=>slot | None=>None end = None).
    rewrite (registry_replace_selected _ _ _ _ _ Present). reflexivity.

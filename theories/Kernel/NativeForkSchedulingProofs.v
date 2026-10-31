@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
-From Selvedge.Kernel Require Import Domain Codec Tasks State Scheduler WorldInvariant NativeTools.
+From Selvedge.Kernel Require Import Domain Codec Tasks State Scheduler NativeTools.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.

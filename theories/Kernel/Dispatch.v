@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Kernel Require Import Domain State Reasoning.
+From Selvedge.Kernel Require Import Domain State Reasoning RequestReceiver.
 From Selvedge.Features Require CompactionTypes.
 Import ListNotations.
 Module C := Selvedge.Features.CompactionTypes.
@@ -9,9 +9,11 @@ Definition request_coordinate (request : effect) := match request with
  | ObserveContext id ticket _
  | RequestReasoning id ticket _ | ExecuteTool id ticket _ _ _ _ _
  | RequestApproval id ticket _ _ _ | CheckTool id ticket _ _ _ => Some (id,ticket)
- | MaintainContext (C.Scope id ticket _)
- | MaintainContext (C.Measure id ticket _ _ _)
- | MaintainContext (C.Compact id ticket _ _ _ _) => Some (id,ticket)
+ | RequestFeature sent => match RequestTypes.request_lifetime (RequestTypes.definition sent) with
+   | RequestTypes.Independent => None
+   | RequestTypes.TaskBound => Some
+       (Receiver.address (RequestTypes.receiver (RequestTypes.definition sent)) (RequestTypes.request sent),
+        RequestEnvelope.identity (RequestTypes.request sent)) end
  | _ => None end.
 Definition cancelled (effects : list effect) (id ticket : N) :=
  existsb (fun request => match request with
@@ -32,7 +34,8 @@ Definition live_request (value : world) (effects : list effect) (request : effec
  | None => match request with
    | CheckResult id ticket operation _ _ _ _ => match find_task id value with
      | Some task => existsb (fun pending => N.eqb operation (operation_id pending) &&
-       match operation_stage pending with AwaitingAfterHook expected _ _ _ _ => N.eqb ticket expected | _ => false end)
+       match RequestReceiver.operation_receiver RequestReceiver.AfterReceiver pending with
+       | Some (expected,_) => N.eqb ticket expected | None => false end)
        (task_operations task)
      | None => false end
    | _ => true end end.
@@ -47,29 +50,28 @@ Definition side_task (id : N) (value : world) := match find_task id value with
 Definition capture_request (request : effect) (value : world) : world * effect :=
  match request with
  | ObserveContext id ticket original => match find_task id value with
-   | Some current => match task_activity current with
-     | ObservingContext expected _ => if N.eqb expected ticket then
+   | Some current => match RequestReceiver.pending_phase RequestReceiver.ContextReceiver ticket current with
+     | Some _ =>
        (put_task id (Reasoning.capture ticket current) value,
-        ObserveContext id ticket (with_history (task_history current) original)) else (value,request)
-     | _ => (value,request) end
+        ObserveContext id ticket (with_history (task_history current) original))
+     | None => (value,request) end
    | None => (value,request) end
  | RequestModel snapshot =>
    let id := ModelRequest.owner snapshot in
    let ticket := ModelRequest.ticket snapshot in
    match side_task id value with
-   | Some current => match task_activity current with
-     | AskingModel expected _ _ => if N.eqb expected ticket then
+   | Some current => match RequestReceiver.pending_phase RequestReceiver.ModelReceiver ticket current with
+     | Some _ =>
        (put_task id (with_model_cursor (List.length (task_history current)) current) value,
         RequestModel (ModelRequest.with_history (task_history current) snapshot))
-       else (value,request)
-     | _ => (value,request) end
+     | None => (value,request) end
    | None => (value,request) end
  | RequestReasoning id ticket original => match side_task id value with
-   | Some current => match task_activity current with
-     | EvaluatingReasoning expected _ => if N.eqb expected ticket then
+   | Some current => match RequestReceiver.pending_phase RequestReceiver.ReasoningReceiver ticket current with
+     | Some _ =>
        (put_task id (with_activity (EvaluatingReasoning ticket (List.length (task_history current))) current) value,
-        RequestReasoning id ticket (with_history (task_history current) original)) else (value,request)
-     | _ => (value,request) end
+        RequestReasoning id ticket (with_history (task_history current) original))
+     | None => (value,request) end
    | None => (value,request) end
  | _ => (value,request) end.
 Fixpoint capture_requests (effects : list effect) (value : world) :=

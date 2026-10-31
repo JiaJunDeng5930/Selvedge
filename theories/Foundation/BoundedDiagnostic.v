@@ -1,15 +1,9 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Foundation Require ArgumentDeclaration.
 Open Scope string_scope.
 
-(** Failure text is an external observation. Each receiver chooses its own
-    durable byte bound and whether an explanation must contain nonblank text. *)
-Record contract := Contract { byte_budget : nat; require_nonblank : bool }.
 Definition fallback := "External execution failed".
-Definition accepts (receiver : contract) (text : string) :=
-  Utf8.well_formed text && Utf8.no_nul text &&
-  Nat.leb (String.length text) receiver.(byte_budget) &&
-  (if receiver.(require_nonblank) then Utf8.nonblank text else true).
 
 (** Consume complete scalars after escaping. Invalid UTF-8 bytes are replaced
     individually, as these bytes cannot denote a scalar in the observation. *)
@@ -29,11 +23,13 @@ Fixpoint prefix_acc (fuel budget : nat) (source accepted : string) : string :=
   end.
 Definition prefix fuel budget source := prefix_acc fuel budget source "".
 
-(** The smart constructor checks the receiver's actual text contract. Blank
-    observations (including a prefix consisting only of whitespace) need the
-    fixed explanation for receivers requiring a reason. *)
-Definition make (receiver : contract) (source : string) : string :=
-  let candidate := prefix (String.length source) receiver.(byte_budget) source in
-  (* DEFENSE: External diagnostics can be blank or malformed; the durable
-     receiver requires an admitted explanation even when execution failed. *)
-  if accepts receiver candidate then candidate else fallback.
+(** The constructor returns the declared text value. A caller supplies a
+    fixed admitted explanation for external blank or malformed diagnostics. *)
+Definition make (constraints : ArgumentDeclaration.text_constraints)
+ (fallback : ArgumentDeclaration.text_value (ArgumentDeclaration.ConstrainedText constraints))
+ (source : string) : ArgumentDeclaration.text_value (ArgumentDeclaration.ConstrainedText constraints) :=
+ let candidate := prefix (String.length source) (N.to_nat (ArgumentDeclaration.maximum_bytes constraints)) source in
+ (* DEFENSE: External diagnostics can be blank or malformed; normalize these
+    observations before constructing the durable callback. *)
+ match ArgumentDeclaration.decode_text (ArgumentDeclaration.ConstrainedText constraints) candidate with
+ | Some value => value | None => fallback end.

@@ -13,9 +13,10 @@ Theorem creating_a_project_preserves_all_existing_tasks : forall name workspace 
   (CommandExecution.create_project name workspace guidance worktree resource value)) = world_tasks value.
 Proof.
  intros name workspace guidance worktree resource value; unfold CommandExecution.create_project.
- destruct (parse_workspace workspace) as [space|]; [|reflexivity].
- destruct (match resource with Some source => parse_workspace_binding source
+ destruct (workspace_of_values workspace) as [space|]; [|reflexivity].
+ destruct (match resource with Some source => Some (binding_of_values source)
   | None => WorkspaceBinding.select_resource space value end); [|reflexivity].
+ destruct (requested_guidance guidance); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
  end; reflexivity.
@@ -29,12 +30,14 @@ Proof.
  destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (match workspace with
-  | Some source => parse_workspace source | None => Some (project_workspace previous) end)
+  | Some source => workspace_of_values source | None => Some (project_workspace previous) end)
   as [space|]; [|reflexivity].
  destruct (match resource, workspace with
-  | Some source,_ => parse_workspace_binding source
+  | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|reflexivity].
+ destruct (match guidance with Some fields => Guidance.of_values fields
+   | None => Some (inherited_guidance space (Domain.project_guidance previous)) end); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
  end; reflexivity.
@@ -55,26 +58,18 @@ Proof.
  unfold CommandExecution.update_project in Accepted |- *; rewrite Found in Accepted |- *.
  destruct (project_deleted previous); [discriminate|].
  destruct (match workspace with
-  | Some source => parse_workspace source | None => Some (project_workspace previous) end)
+  | Some source => workspace_of_values source | None => Some (project_workspace previous) end)
   as [space|]; [|discriminate].
  destruct (match resource, workspace with
-  | Some source,_ => parse_workspace_binding source
+  | Some source,_ => Some (binding_of_values source)
   | None,Some _ => WorkspaceBinding.select_resource space value
   | None,None => Some (project_resource previous) end) as [owner|]; [|discriminate].
- destruct ((match resource, workspace with None,None => true
-  | _,_ => WorkspaceBinding.resource_ready space owner value end) &&
-  Workspace.valid_project_name
-   (match name with Some name => name | None => project_name previous end) &&
-  valid_guidance (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end) &&
-  guidance_member space (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end));
- [|discriminate].
- pose (updated := Project (match name with Some name => name | None => project_name previous end) space
-  (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end)
-  (match requested with Some selected => selected | None => project_worktree previous end)
-  (Workspace.next_project_order (world_projects value)) false owner).
- exists updated; split.
- - change (registry_at id (replace id updated (world_projects value)) = Some updated).
-   eapply registry_replace_selected; exact Found.
+ destruct (match guidance with Some fields => Guidance.of_values fields
+   | None => Some (inherited_guidance space (Domain.project_guidance previous)) end); [|discriminate].
+ match type of Accepted with context [if ?allowed then _ else _] =>
+   destruct allowed; [|discriminate] end.
+ eexists; split.
+ - eapply registry_replace_selected; exact Found.
  - reflexivity.
 Qed.
 
@@ -167,19 +162,18 @@ Proof. reflexivity. Qed.
 
 Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace owner,
  registry_at id (world_projects value) = Some project ->
- project_deleted project = false -> parse_workspace raw = Some workspace ->
+ project_deleted project = false -> workspace_of_values raw = Some workspace ->
  WorkspaceBinding.select_resource workspace value = Some owner ->
  WorkspaceBinding.resource_ready workspace owner value = true ->
- Workspace.valid_project_name (project_name project) = true ->
  guidance_member workspace (Domain.project_guidance project) = false ->
  let result := decision_reply (CommandExecution.update_project id None (Some raw) None None None value) in
  bool_default "ok" result false = true /\
  field "guidance" (value_or_null "result" result) = Some JNull.
 Proof.
- intros id value project raw workspace owner Found Live Parsed Selected Ready Name Unselected; cbn zeta.
+ intros id value project raw workspace owner Found Live Parsed Selected Ready Unselected; cbn zeta.
  unfold CommandExecution.update_project; rewrite Found, Live, Parsed, Selected.
  unfold inherited_guidance; rewrite Unselected.
- cbn [valid_guidance guidance_member]; rewrite Ready, Name; split; reflexivity.
+ rewrite Ready; split; reflexivity.
 Qed.
 
 Theorem project_query_reports_current_bindings : forall value id project,
@@ -199,9 +193,13 @@ Proof.
  - repeat split; reflexivity.
 Qed.
 
-Theorem reviewer_delegation_ignores_display_metadata : forall child parent child_metadata parent_metadata,
- Workspace.approval_bound
-  (ReviewWith (set profile_metadata (fun _ => child_metadata) child))
-  (ReviewWith (set profile_metadata (fun _ => parent_metadata) parent)) =
- Workspace.approval_bound (ReviewWith child) (ReviewWith parent).
-Proof. reflexivity. Qed.
+Theorem reviewer_delegation_ignores_display_metadata : forall child parent other_child other_parent,
+ profile_key child = profile_key other_child -> profile_key parent = profile_key other_parent ->
+ profile_provider child = profile_provider other_child -> profile_provider parent = profile_provider other_parent ->
+ profile_model child = profile_model other_child -> profile_model parent = profile_model other_parent ->
+ profile_reasoning child = profile_reasoning other_child -> profile_reasoning parent = profile_reasoning other_parent ->
+ profile_reasoning_options child = profile_reasoning_options other_child ->
+ profile_reasoning_options parent = profile_reasoning_options other_parent ->
+ Workspace.approval_bound (ReviewWith child) (ReviewWith parent) =
+ Workspace.approval_bound (ReviewWith other_child) (ReviewWith other_parent).
+Proof. intros; unfold Workspace.approval_bound, Workspace.same_reviewer_profile; congruence. Qed.

@@ -5,17 +5,19 @@ Import ListNotations.
 Open Scope string_scope.
 
 Definition phase_name (p : phase) := match p with
-| Idle => "idle" | KernelPending => "kernel_pending" | CommitPending => "commit_pending"
+| Idle => "idle" | KernelPending => "kernel_pending" | ReplayPending => "replay_pending"
+| CommitPending => "commit_pending"
 | Committed => "committed" | Retired => "retired" end.
 Definition state_json (s : state) := JObject [("phase",JString (phase_name (current s)));
-  ("generation",number (generation s)); ("replay",JBool (replaying s))].
+  ("generation",number (generation s))].
 Definition phase_of (s : string) :=
   if String.eqb s "idle" then Some Idle else if String.eqb s "kernel_pending" then Some KernelPending
+  else if String.eqb s "replay_pending" then Some ReplayPending
   else if String.eqb s "commit_pending" then Some CommitPending else if String.eqb s "committed" then Some Committed
   else if String.eqb s "retired" then Some Retired else None.
 Definition state_of (source : json) :=
-  match phase_of (str source "phase"), natural (get source "generation"), get source "replay" with
-  | Some p, Some g, JBool r => Some (State p g r) | _, _, _ => None end.
+  match phase_of (str source "phase"), natural (get source "generation") with
+  | Some p, Some g => Some (State p g) | _, _ => None end.
 Definition observation_of (source : json) :=
   let kind := str source "kind" in
   if String.eqb kind "begin" then Some (Begin (boolean_field source "replay"))

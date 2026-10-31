@@ -7,6 +7,15 @@ Open Scope N_scope.
 
 Definition mode_json terminal := JString (match terminal with Pipe => "pipe" | Pty => "pty" end).
 Definition mode_of source := if String.eqb (text source) "pty" then Pty else Pipe.
+Definition observed_dimension (source : json) :=
+ if is_null source then Some None else
+ option_map Some (ArgumentDeclaration.decode dimension_declaration source).
+Definition observed_size (columns rows : json) :=
+ match observed_dimension columns,observed_dimension rows with
+ | Some columns,Some rows => paired_size columns rows | _,_ => None end.
+Definition size_json (size : option terminal_size) := match size with
+ | None => (JNull,JNull)
+ | Some (columns,rows) => (number (proj1_sig columns),number (proj1_sig rows)) end.
 Definition failure_json reason := JObject [("code",JString reason.(failure_code));("message",JString reason.(failure_message))].
 Definition failure_of source := Failure (str source "code") (str source "message").
 Definition optional_failure source := if is_null source then None else Some (failure_of source).
@@ -112,9 +121,13 @@ Definition call operation source :=
   else if String.eqb operation "control.process.reserve_write" then
     match reserve_write current with inl reason => fail reason | inr next => success (state_json next) end
   else if String.eqb operation "control.process.admit_write" then
-    match admit_write current (mode_of (get source "mode")) (boolean_field source "eof")
-      (negb (is_null (get source "cols"))) (negb (is_null (get source "rows"))) with
-    | Some reason => fail reason | None => success JNull end
+    match observed_size (get source "cols") (get source "rows") with
+    | None => Json.failure "process_input_invalid" "Terminal columns and rows must be supplied together within 1..65535"
+    | Some size => match admit_write current (mode_of (get source "mode")) (boolean_field source "eof") size with
+      | Some reason => fail reason
+      | None => let '(columns,rows) := size_json size in
+        success (JObject [("cols",columns);("rows",rows)]) end
+    end
   else if String.eqb operation "control.process.tail_initial" then success (tail_json empty_tail)
   else if String.eqb operation "control.process.output_append" then
     let previous := tail_of (get source "tail") in let combined := tail_of (get source "combined") in

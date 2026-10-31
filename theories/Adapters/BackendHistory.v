@@ -167,7 +167,9 @@ Definition image_materialized source :=
      | _,_ => false end
   then success JNull else err "Image content no longer matches its committed asset".
 Definition image_request_budget source :=
-  let assets := items (get source "assets") in
-  if forallb Images.valid_image_asset assets &&
-    (fold_left (fun count asset => count + num asset "bytes") assets 0 <=? 20971520)
-  then success JNull else range_error "Image request exceeds the 20 MiB image byte limit".
+  let invalid := range_error "Image request exceeds the 20 MiB image byte limit" in
+  match ArgumentDeclaration.decode (ArgumentDeclaration.Array ContentDeclarations.asset_declaration) (get source "assets") with
+  | Some assets => if fold_left (fun count asset =>
+      count + Domain.image_bytes (Images.asset_of_values asset)) assets 0 <=? 20971520
+    then success JNull else invalid
+  | None => invalid end.

@@ -1,149 +1,56 @@
+From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
-From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol.
+From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Record decoder := Decoder {
- decoder_name : string;
- decoder_fields : schema;
- decoder_construct : fields decoder_fields -> option input
-}.
-Definition coordinates := [Field "task_id" KNatural; Field "ticket" KNatural].
-Definition parse_reason_decision := HookRules.parse_reason_decision.
-Definition parse_hook := HookRules.parse_hook.
-Definition parse_after := HookRules.parse_after.
-Definition parse_approval_outcome (source : json) : option approval_outcome :=
- match Schema.decode [Field "decision" KText; Field "reason" KText] source with
- | None => None
- | Some fields =>
-   let reason := head (tail fields) in
-   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason | "failed" => ApprovalFailed reason
-    | _ => ApprovalFailed "The review did not return a valid decision" end in
-   (* DEFENSE: Native approval callbacks can supply a blank reason. Reject that
-      malformed outcome; invalid text still settles as a failed review. *)
-   if ApprovalProtocol.valid_justification reason then
-     Some (ApprovalProtocol.normalize_outcome outcome)
-   else if ApprovalProtocol.valid_reason reason then None
-   else Some (ApprovalProtocol.normalize_outcome outcome)
- end.
+Definition decoder := InputRoute.t input.
+Definition Decoder (name : string) (description : schema) (construct : fields description -> option input)
+ `{DistinctNames ("kind" :: map field_name description)} : decoder :=
+ InputRoute.object name description construct.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
-Definition configure_decoder := Decoder "configure"
- [Field "profiles" (KArray KJson); Field "tools" (KArray KJson); Field "plugins" (KOptional (KArray KJson));
-  Field "max_fork" KNatural;Field "max_descendants" KNatural;Field "project" (KOptional KJson);Field "instructions" KJson]
- (fun values => option_map Configure (Configuration.parse_environment (Schema.encode _ values))).
-Definition context_decoder := Decoder "context_observed"
- (coordinates ++ [Field "ok" KBool;Field "observations" (KOptional (KArray KJson));Field "message" (KOptional KText)])
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let observations := head values in let diagnostic := head (tail values) in
-  if ok then match observations,diagnostic with
-  | Some observations,None => option_map (fun observations => ContextCompleted id ticket (Some observations) "") (Codec.traverse parse_observation observations)
-  | _,_ => None end
-  else match observations,diagnostic with
-  | None,Some text => if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
-  | _,_ => None end).
-Definition model_decoder := Decoder "model"
- (coordinates ++ [Field "ok" KBool;Field "items" (KOptional (KArray KJson));Field "message" (KOptional KText);Field "failure_kind" (KOptional (KEnum "context_limit" []))])
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let items := head values in let values := tail values in
-  let diagnostic := head values in let failure := head (tail values) in
-  if ok then match items with
-  | Some items => option_map (fun items => ModelCompleted id ticket (ModelSuccess items)) (Codec.traverse Codec.parse_model_item items)
-  | None => None end
-  else match diagnostic with
-  | Some text => Some (ModelCompleted id ticket (match failure with Some _ => ModelContextLimit | None => ModelFailure text end))
-  | None => None end).
-Definition reasoning_decoder := Decoder "reasoning"
- (coordinates ++ [Field "ok" KBool;Field "effort" (KOptional KText);Field "generations" (KOptional KNatural);Field "message" (KOptional KText)])
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  let ok := head values in let values := tail values in let effort := head values in let values := tail values in
-  let generations := head values in let diagnostic := head (tail values) in
-  if ok then match effort,generations,diagnostic with
-  | Some effort,Some generations,None =>
-      if Nat.leb (Utf8.byte_length effort) 64 then Some (ReasoningCompleted id ticket (Reasoning.Chosen effort generations)) else None
-  | _,_,_ => None end
-  else match effort,generations,diagnostic with
-  | None,None,Some reason =>
-      if Nat.leb (Utf8.byte_length reason) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed reason)) else None
-  | _,_,_ => None end).
-Definition tool_decoder := Decoder "tool"
- (coordinates ++ [Field "value" (KOptional KJson);Field "error" KBool])
- (fun values =>
-  let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  Some (ToolCompleted id ticket (match head values with Some value => value | None => JNull end) (head (tail values)))).
-Definition hook_decoder := Decoder "hook" (coordinates ++ [Field "outcome" KJson])
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  option_map (HookCompleted id ticket) (parse_hook (head (tail values)))).
-Definition after_decoder := Decoder "after_hook"
- (coordinates ++ [Field "operation_id" KNatural;Field "outcome" KJson])
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  let values := tail values in let operation := head values in
-  option_map (AfterCompleted id operation ticket) (parse_after (head (tail values)))).
-Definition approval_decoder := Decoder "approval" (coordinates ++ [Field "outcome" KJson])
- (fun values => let id := head values in let values := tail values in let ticket := head values in
-  option_map (ApprovalCompleted id ticket) (parse_approval_outcome (head (tail values)))).
-Definition decoders := [command_decoder;configure_decoder;context_decoder;model_decoder;reasoning_decoder;
- tool_decoder;hook_decoder;after_decoder;approval_decoder;
+Definition configure_decoder := Decoder "configure" Configuration.environment_schema
+ (fun values => option_map Configure (Configuration.environment_of_fields values)).
+(** The callback language chooses its result branch before exposing values.
+    Domain handlers receive exactly that branch's fields and never reconstruct
+    a relationship between independent optional payloads and a status flag. *)
+Definition CallbackDecoder (description : callback_kind)
+ (construct : forall ok, fields (CallbackDeclarations.coordinates description) ->
+   DeclarationFields.values (CallbackDeclarations.payload description ok) -> option input) : decoder :=
+ InputRoute.callback description (fun received =>
+   let '(existT _ ok (address,values)) := received in construct ok address values).
+Definition callback_kinds := [
+ CallbackDecoder Context (fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Context ok) -> option input then
+     fun values => option_map (fun observations => ContextCompleted id ticket (Some observations) "")
+       (Codec.traverse parse_observation (fst values))
+   else fun values => Some (ContextCompleted id ticket None (proj1_sig (fst values))));
+ CallbackDecoder Model (fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Model ok) -> option input then
+     fun values => Some (ModelCompleted id ticket (model_outcome_from_items (fst values)))
+   else fun values => Some (ModelCompleted id ticket
+     (match fst (snd values) with Some _ => ModelContextLimit | None => ModelFailure (proj1_sig (fst values)) end)));
+ CallbackDecoder Reasoning (fun ok address =>
+   let id := head address in let ticket := head (tail address) in
+   if ok as ok return DeclarationFields.values (CallbackDeclarations.payload Reasoning ok) -> option input then
+     fun values => Some (ReasoningCompleted id ticket (Reasoning.Chosen (proj1_sig (fst values)) (fst (snd values))))
+   else fun values => Some (ReasoningCompleted id ticket (EvaluationFailed (proj1_sig (fst values)))));
+ CallbackDecoder Tool (fun ok address values => Some (ToolCompleted (head address) (head (tail address))
+     (match fst values with Some value => value | None => JNull end) (negb ok)));
+ CallbackDecoder Hook (fun _ address values => Some (HookCompleted (head address) (head (tail address)) (HookRules.hook_from_fields (fst values))));
+ CallbackDecoder AfterHook (fun _ address values => Some
+     (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values))));
+ CallbackDecoder Approval (fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
+     (ApprovalProtocol.from_callback (fst values))))].
+Definition decoders := [command_decoder;configure_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
-(* DEFENSE: Native callbacks can supply the other variant's fields as explicit
-   nulls; optional decoding alone would conflate those keys with absence. *)
-Definition variant_fields_valid (kind : string) (source : json) :=
- match kind with
- | "context_observed" => match bool_field "ok" source with
-   | Some true => negb (has_field "message" source)
-   | Some false => negb (has_field "observations" source)
-   | None => true end
- | "reasoning" => match bool_field "ok" source with
-   | Some true => negb (has_field "message" source)
-   | Some false => negb (has_field "effort" source || has_field "generations" source)
-   | None => true end
- | _ => true end.
-Definition decode (source : json) : option input :=
- match source with
- | JObject fields => if Schema.unique_names (map fst fields) then
-   match lookup "kind" fields with
-   | Some (JString kind) => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
-     | None => None
-     | Some decoder => if variant_fields_valid kind (JObject fields) then
-       match Schema.decode (decoder_fields decoder) (JObject (remove_field "kind" fields)) with
-       | Some values => decoder_construct decoder values | None => None end else None
-     end
-   | _ => None end
-   else None
- | _ => None end.
-(** A decoded input remains tied to the exact source that admitted it. Internal
-    Inputs.input values are still available for notification and commit algebra;
-    the production packet accepts this indexed admission, not a free input. *)
-Definition admitted_input (source : json) := { value : option input | decode source = value }.
-Definition admit (source : json) : admitted_input source := exist _ (decode source) eq_refl.
-Definition admitted_value {source : json} (value : admitted_input source) := proj1_sig value.
-Theorem admitted_input_is_its_decoder_result : forall source (value : admitted_input source),
- admitted_value value = decode source.
-Proof. intros source [value Decoded]; cbn; symmetry; exact Decoded. Qed.
-Theorem admitted_public_command_retains_complete_declaration : forall values command,
- decoder_construct command_decoder values = Some (UserCommand command) ->
- exists admitted : Selvedge.Generated.Commands.admitted_command,
-   Selvedge.Generated.Commands.admitted_source admitted = head values /\
-   Selvedge.Generated.Commands.admitted_value admitted = command /\
-   CommandDeclarations.valid true (head values) = true.
-Proof.
- intros values command Decoded.
- change (option_map UserCommand (Selvedge.Generated.Commands.decode (head values)) =
-   Some (UserCommand command)) in Decoded.
- destruct (Selvedge.Generated.Commands.decode (head values)) as [decoded|] eqn:Parsed; [|discriminate].
- inversion Decoded; subst decoded.
- exists (Selvedge.Generated.Commands.AdmittedCommand (head values) command Parsed).
- split; [reflexivity|]; split; [reflexivity|].
- exact (Selvedge.Generated.Commands.admitted_command_has_complete_declaration
-   (Selvedge.Generated.Commands.AdmittedCommand (head values) command Parsed)).
-Qed.
-Definition owns_kind (source : json) :=
- match string_field "kind" source with Some kind => existsb (fun decoder => String.eqb kind (decoder_name decoder)) decoders | None => false end.
+Definition inputs := (callback_kinds ++ decoders)%list.
 
 Open Scope string_scope.
 Definition schema_diagnostic (label : string) (declaration : schema) (source : json) :=
@@ -173,17 +80,18 @@ Definition command_diagnostic (source : json) :=
    end
  | None => "Missing or invalid command 'op'; use describe for the executable vocabulary"
  end.
-Definition diagnostic (source : json) :=
- match string_field "kind" source with
- | Some kind => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
-   | Some decoder =>
-     let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
-     match Schema.decode (decoder_fields decoder) payload with
-     | None => schema_diagnostic ("input '" ++ kind ++ "'") (decoder_fields decoder) payload
-     | Some _ => if String.eqb kind "command" then command_diagnostic (value_or_null "command" payload)
-       else "Invalid domain values in input '" ++ kind ++ "'"
-     end
-   | None => "Unknown protocol input '" ++ kind ++ "'"
+Definition diagnostic {A} (entry : InputRoute.t A) (source : json) :=
+ match InputRoute.language entry with
+ | InputRoute.Callback callback =>
+   match CallbackDeclarations.read_status callback source with
+   | Some ok => "Invalid callback '" ++ callback_text callback ++ "'; expected " ++
+       TextJson.render_json (ArgumentDeclaration.schema (CallbackDeclarations.full_schema callback ok))
+   | None => "Missing or invalid callback result marker" end
+ | InputRoute.Object name declaration _ =>
+   let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
+   match Schema.decode declaration payload with
+   | None => schema_diagnostic ("input '" ++ name ++ "'") declaration payload
+   | Some _ => if String.eqb name "command" then command_diagnostic (value_or_null "command" payload)
+     else "Invalid domain values in input '" ++ name ++ "'"
    end
- | None => "Missing or invalid protocol 'kind'"
  end.

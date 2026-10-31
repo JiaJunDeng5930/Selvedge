@@ -47,6 +47,10 @@ Definition normalize (text : string) : string :=
    Utf8.render_chunks (firstn maximum_characters clean)
  end.
 Definition instruction_declaration := ArgumentDeclaration.bounded_text maximum_instruction_bytes.
+Definition instruction := ArgumentDeclaration.denote instruction_declaration.
+Definition instruction_text (value : instruction) := proj1_sig value.
+Definition default_instructions : instruction.
+Proof. refine (exist _ instructions _). vm_compute. reflexivity. Defined.
 Definition valid_instructions (text : string) :=
  ArgumentDeclaration.check instruction_declaration (JString text).
 
@@ -65,20 +69,20 @@ Definition output_schema (capture:bool) := Selvedge.Foundation.Json.JObject [
 Fixpoint bounded (parts:list (N*string)) (bytes:N) :string := match parts with
  | []=>"" | (_,chunk)::rest=>let length:=N.of_nat (String.length chunk) in
  if N.leb length bytes then String.append chunk (bounded rest (bytes-length)) else "" end.
-Definition prompt_with (instruction request:string) :=
+Definition prompt_with (instruction : instruction) (request : string) :=
  let budget:=prompt_bytes - N.of_nat (String.length (String.append instructions title_format)) in
  let text:=match Utf8.chunks request with Some chunks=>bounded (trim_both Utf8.whitespace chunks) budget | None=>"" end in
- String.append instruction (String.append title_format text).
+ String.append (instruction_text instruction) (String.append title_format text).
 Definition capture_format := "
 Return only a JSON object with exactly two string fields: title and description. Write a clear actionable description. Preserve the user's requirements, language and constraints. Do not invent requirements or claim completion.
 
 Title/request preview:
 ".
-Definition board_prompt (instruction title description:string) (retitle:bool) :=
+Definition board_prompt (instruction : instruction) (title description:string) (retitle:bool) :=
  if retitle then prompt_with instruction (String.append title (String.append "
 
 " description))
- else String.append instruction (String.append capture_format (String.append title (String.append "
+ else String.append (instruction_text instruction) (String.append capture_format (String.append title (String.append "
 
 Original user request:
 " description))).

@@ -36,32 +36,29 @@ Definition session_step (source : json) :=
   match observation with None => failure "TypeError" "Unknown audio session observation" | Some observation =>
     let '(next,effects) := AudioSession.step state (get observed "generation") observation in
     success (JObject [("state",AudioSession.state_json next);("actions",JArray (map (AudioSession.primitive_json next) effects))]) end.
-Definition connection_step (source : json) :=
-  let state := AudioConnection.state_of (get source "state") in let observed := get source "observation" in
+Definition connection_observation (message_field : string) (observed : json) :=
   let attempt := num observed "attempt" in let kind := str observed "kind" in
-  let observation := if String.eqb kind "open" then Some (AudioConnection.Opened attempt)
+  if String.eqb kind "open" then Some (AudioConnection.Opened attempt)
     else if String.eqb kind "upgrade" then Some (AudioConnection.UpgradeRejected attempt (num observed "status"))
     else if String.eqb kind "error" then Some (AudioConnection.SocketFailed attempt (str observed "message"))
     else if String.eqb kind "close" then Some (AudioConnection.SocketClosed attempt (num observed "code"))
-    else if String.eqb kind "message" then Some (AudioConnection.ProviderMessage attempt (get observed "raw"))
+    else if String.eqb kind "message" then Some (AudioConnection.ProviderMessage attempt (get observed message_field))
     else if String.eqb kind "retry" then Some (AudioConnection.RetryElapsed attempt)
-    else if String.eqb kind "stop" then Some AudioConnection.Stop else None in
-  match observation with None => failure "TypeError" "Unknown audio connection observation" | Some observation =>
+    else if String.eqb kind "stop" then Some AudioConnection.Stop else None.
+Definition connection_step (source : json) :=
+  let state := AudioConnection.state_of (get source "state") in
+  match connection_observation "raw" (get source "observation") with
+  | None => failure "TypeError" "Unknown audio connection observation" | Some observation =>
     let '(next,effects) := AudioConnection.step state observation in
     success (JObject [("state",AudioConnection.state_json next);("actions",JArray (map AudioConnection.primitive_json effects))]) end.
 Definition transport_step (source : json) :=
   let state := AudioTransport.state_of (get source "state") in let observed := get source "observation" in
-  let kind := str observed "kind" in let attempt := num observed "attempt" in
+  let kind := str observed "kind" in
   let observation := if String.eqb kind "ack" then Some (AudioTransport.EmitAck (num observed "token"))
     else if String.eqb kind "failed" then Some (AudioTransport.EmitFailed (num observed "token"))
     else if String.eqb kind "stop" then Some (AudioTransport.GracefulStop (str observed "message"))
     else if String.eqb kind "startup_timeout" then Some (AudioTransport.StartupTimeout (str observed "message"))
-    else if String.eqb kind "open" then Some (AudioTransport.Arrival (AudioConnection.Opened attempt))
-    else if String.eqb kind "upgrade" then Some (AudioTransport.Arrival (AudioConnection.UpgradeRejected attempt (num observed "status")))
-    else if String.eqb kind "error" then Some (AudioTransport.Arrival (AudioConnection.SocketFailed attempt (str observed "message")))
-    else if String.eqb kind "close" then Some (AudioTransport.Arrival (AudioConnection.SocketClosed attempt (num observed "code")))
-    else if String.eqb kind "message" then Some (AudioTransport.Arrival (AudioConnection.ProviderMessage attempt (get observed "value")))
-    else if String.eqb kind "retry" then Some (AudioTransport.Arrival (AudioConnection.RetryElapsed attempt)) else None in
+    else option_map AudioTransport.Arrival (connection_observation "value" observed) in
   match observation with None => failure "TypeError" "Unknown audio transport observation" | Some observation =>
     let '(next,actions) := AudioTransport.step state observation in
     success (JObject [("state",AudioTransport.state_json next);("actions",JArray actions)]) end.

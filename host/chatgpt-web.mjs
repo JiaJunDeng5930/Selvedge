@@ -99,7 +99,7 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
   const request = prepareModelRequest(effect);
   const options = boundary('web.options', { effect, profile, limits });
   const tools = toolsFor(request);
-  const contract = digest(boundary('web.contract', { effect, request, tools }));
+  const contract = digest(boundary('web.contract', { request, tools }));
   const { token, binding } = credential(profile);
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
   const owner = requestOwner(effect);
@@ -111,9 +111,8 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
     // NOTE: Independent approval and board effects acquire their history in
     // backend.prepare. Cursor selection and prefix hashes use that same input.
     const position = boundary('web.position', { effect: request });
-    const continuation = boundary('web.continuation', { effect: request, profile, limits, previous: previous ?? null,
-      request, tools, owner, store_identity: store.identity, contract, binding,
-      receipt_position: position.position,
+    const continuation = boundary('web.continuation', { request, previous: previous ?? null,
+      owner, store_identity: store.identity, contract, binding,
       history_digest: digest(request.history.slice(0, Number(position.input_count))) });
     let { body, deferred } = continuation;
     const output = [];
@@ -141,7 +140,7 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
       break;
     }
     if (options.receipt) output.push({ type: 'context', part: 2, value: boundary('web.receipt', {
-      effect: request, profile, resource: terminal, record: active, deferred,
+      effect: request, resource: terminal, record: active, deferred,
       input_hash: digest(request.history), output_count: output.length, contract, binding, store_identity: store.identity,
       tools,
     }) });

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Ascii.
 From MetaRocq.Template Require Import All.
-From Selvedge.Foundation Require Import Schema Numbers.
-From Selvedge.Kernel Require Import Commands.
+From Selvedge.Foundation Require Import Schema Numbers ArgumentProjection.
+From Selvedge.Kernel Require Import Commands CommandDeclarations.
 Import ListNotations MonadNotation.
 Local Open Scope string_scope.
 
@@ -33,109 +33,58 @@ Definition field_type_source (field : field_spec) :=
   let value := concat ["denote "; kind_source (field_kind field)] in
   if field_omittable field then concat ["option ("; value; ")"] else value.
 Definition getter_name (name : String.string) (field : field_spec) := concat [name; "_"; field_name field].
-Definition field_reference (index : nat) :=
-  append "(head " (append (Nat.iter index (fun x => append "(tail " (append x ")")) "values") ")").
+Definition argument_reference (index : nat) :=
+  concat ["(fst "; Nat.iter (S index) (fun source => concat ["(snd ";source;")"]) "values"; ")"].
+Definition admitted_getter_name (name : String.string) (field : field_spec) :=
+ concat [getter_name name field; "_admitted"].
 Definition payload_source (index : nat) (command : command_spec) : String.string :=
   let name := command_name command in
   let declarations := command_fields command in
   concat [
     line (concat ["Definition "; name; "_schema := command_fields (List.nth "; show_nat index;
       " Selvedge.Kernel.Commands.command_specs (Command """" []))."]);
-    line (concat ["Theorem "; name; "_schema_declaration : "; name; "_schema = [";
-      join "; " (map field_source declarations); "]."]);
-    line "Proof. reflexivity. Qed.";
-    match declarations with
-    | [] => line (concat ["Definition "; name; "_payload : Type := unit."])
-    | _ => line (concat ["Record "; name; "_payload : Type := Build_"; name; " { ";
-      join "; " (map (fun item => concat [getter_name name (snd item); " : "; field_type_source (snd item)])
-      (indexed 0 declarations)); " }."])
-    end;
-    line (concat ["Definition "; name; "_from_fields (values : fields "; name; "_schema) : "; name; "_payload := ";
-      match declarations with [] => "tt" | _ => concat ["Build_"; name; " ";
-        join " " (map (fun item => field_reference (fst item)) (indexed 0 declarations))] end; "."]);
-    line (concat ["Definition "; name; "_to_fields (payload : "; name; "_payload) : fields "; name; "_schema := ";
-      fold_right (fun field rest => concat ["(@FCons ("; field_source field; ") _ ("; getter_name name field; " payload) "; rest; ")"])
+    line (concat ["Definition "; name; "_input_declaration := CommandDeclarations.command_arguments true (List.nth "; show_nat index;
+      " Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand """" [])))."]);
+    line (concat ["Definition "; name; "_payload := CommandPayload.t "; name; "_schema "; name; "_input_declaration true."]);
+    line (concat ["Definition "; name; "_proposal := CommandPayload.t "; name; "_schema "; name; "_input_declaration false."]);
+    line (concat ["Definition Build_"; name; " "; join " " (map (fun field => concat ["(proposed_"; getter_name name field; " : "; field_type_source field; ")"]) declarations);
+      " : "; name; "_proposal := CommandPayload.propose ";
+      fold_right (fun field rest => concat ["(@FCons ("; field_source field; ") _ proposed_"; getter_name name field; " "; rest; ")"])
         "FNil" declarations; "."]);
-    line (concat ["Definition decode_"; name; " (source : json) : option "; name; "_payload := ";
-      "option_map "; name; "_from_fields (Schema.decode "; name; "_schema source)."]);
-    line (concat ["Definition encode_"; name; " (payload : "; name; "_payload) : json := ";
-      "Schema.encode "; name; "_schema ("; name; "_to_fields payload)."]);
-    line (concat ["Theorem "; name; "_payload_roundtrip : forall payload, "; name; "_from_fields (";
-      name; "_to_fields payload) = payload."]);
-    line "Proof. intros []; reflexivity. Qed.";
+    line (concat ["Definition Admit_"; name; " := @CommandPayload.admit "; name; "_schema "; name; "_input_declaration."]);
     concat (map (fun item => concat [
-      line (concat ["Theorem "; getter_name name (snd item); "_field : forall payload, lookup_field """;
-        field_name (snd item); """ ("; name; "_to_fields payload) = encode_field (List.nth ";
-        show_nat (fst item); " "; name; "_schema (Field """" KJson)) ("; getter_name name (snd item); " payload)."]);
-      line "Proof. intros; reflexivity. Qed."
-    ]) (indexed 0 declarations))
+      line (concat ["Definition "; admitted_getter_name name (snd item); " (payload : "; name; "_payload) := let values := proj1_sig (CommandPayload.values payload) in "; argument_reference (fst item); "."]);
+      line (concat ["Definition "; getter_name name (snd item); " (payload : "; name; "_payload) := ArgumentProjection.field ("; field_source (snd item);
+        ") (List.nth "; show_nat (S (fst item)); " "; name;
+        "_input_declaration (Arguments.Argument """" (Arguments.Scalar KJson) false """")) eq_refl (";
+        admitted_getter_name name (snd item); " payload)."])
+      ]) (indexed 0 declarations))
   ].
 Definition command_chunks (commands : list command_spec) : list String.string :=
-  [line "Inductive command : Type :="] ++
+  [line "Inductive command_value (admitted : bool) : Type :="] ++
   map (fun command => line (concat ["| Cmd_"; command_name command;
-    " (payload : "; command_name command; "_payload)"])) commands ++
-  [line ".";
-   line "Definition decode_named (name : string) (source : json) : option command :="] ++
-  map (fun command => line (concat ["if String.eqb name """; command_name command;
-    """ then option_map Cmd_"; command_name command; " (decode_"; command_name command; " source) else"])) commands ++
-  [line "None.";
-   line "Definition decode_admitted (source : json) : option command :=";
-   line "match source with JObject values => if unique_names (source_keys values) then";
-   line "match lookup ""op"" values with Some (JString name) => decode_named name (JObject (remove_field ""op"" values)) | _ => None end else None | _ => None end.";
-   line "Definition decode (source : json) : option command :=";
-   line "match CommandDeclarations.admit_observed source with";
-   line "| Some admitted => decode_admitted (CommandDeclarations.observed_source admitted) | None => None end.";
-   line "Lemma decode_observed_declaration : forall source, decode source = if CommandDeclarations.valid true source then decode_admitted source else None.";
-   line "Proof. intro source; unfold decode, CommandDeclarations.admit_observed; destruct (Bool.bool_dec (CommandDeclarations.valid true source) true) as [Accepted | Rejected]; cbn [CommandDeclarations.observed_source]; [rewrite Accepted; reflexivity | destruct (CommandDeclarations.valid true source); [contradiction | reflexivity]]. Qed.";
-   line "Record admitted_command := AdmittedCommand {";
-   line " admitted_source : json;";
-   line " admitted_value : command;";
-   line " admitted_decoding : decode admitted_source = Some admitted_value";
-   line "}.";
-   line "Definition admit_decoded (source : json) (decoded : option command)";
-   line " (Decoded : decode source = decoded) : option admitted_command :=";
-   line " match decoded as result return decode source = result -> option admitted_command with";
-   line " | Some value => fun Evidence => Some (AdmittedCommand source value Evidence)";
-   line " | None => fun _ => None end Decoded.";
-   line "Definition admit (source : json) : option admitted_command :=";
-   line " admit_decoded source (decode source) eq_refl.";
-   line "Theorem admit_decoded_projects : forall source decoded Decoded,";
-   line " option_map admitted_value (admit_decoded source decoded Decoded) = decoded.";
-   line "Proof. intros source [value|] Decoded; reflexivity. Qed.";
-   line "Theorem admit_projects_decode : forall source,";
-   line " option_map admitted_value (admit source) = decode source.";
-   line "Proof. intro source; apply admit_decoded_projects. Qed.";
-   line "Theorem admit_decoded_retains_source : forall source decoded Decoded admitted,";
-   line " admit_decoded source decoded Decoded = Some admitted -> admitted_source admitted = source.";
-   line "Proof. intros source [value|] Decoded admitted Accepted; inversion Accepted; reflexivity. Qed.";
-   line "Theorem admission_retains_source : forall source admitted,";
-   line " admit source = Some admitted -> admitted_source admitted = source.";
-   line "Proof. intros source admitted Accepted; eapply admit_decoded_retains_source; exact Accepted. Qed.";
-   line "Theorem admitted_command_has_complete_declaration : forall admitted,";
-   line " CommandDeclarations.valid true (admitted_source admitted) = true.";
-   line "Proof.";
-   line " intros [source value Decoded]; cbn.";
-   line " rewrite decode_observed_declaration in Decoded.";
-   line " destruct (CommandDeclarations.valid true source); [reflexivity | discriminate].";
-   line "Qed.";
-   line "Definition declared_command (value : command) : command_spec := match value with"] ++
+    " (payload : CommandPayload.t "; command_name command; "_schema "; command_name command; "_input_declaration admitted)"])) commands ++
+  [line "."] ++
+  map (fun command => line (concat ["Arguments Cmd_"; command_name command; " {admitted}."])) commands ++
+  [line "Definition command := command_value true.";
+   line "Definition proposal := command_value false.";
+   line "(** The generated interpretation consumes admitted fields directly. Its field";
+   line "    projections must typecheck against the owning declaration. *)";
+   line "Definition command_interpretations : CommandDeclarations.interpretations true Selvedge.Kernel.Commands.command_declarations command :=";
+   line (fold_right (fun command rest => concat ["((fun arguments => Cmd_"; command_name command;
+     " (Admit_"; command_name command; " arguments)), ";rest;")"]) "tt" commands ++ ".");
+   line "Definition admitted_command := CommandDeclarations.observed_command.";
+   line "Definition admit := CommandDeclarations.admit_observed.";
+   line "Definition admitted_value := CommandDeclarations.interpret true Selvedge.Kernel.Commands.command_declarations command_interpretations.";
+   line "Definition decode (source : json) : option command := option_map admitted_value (admit source).";
+   line "Theorem admit_projects_decode : forall source, option_map admitted_value (admit source) = decode source.";
+   line "Proof. reflexivity. Qed.";
+   line "Definition declared_command {admitted} (value : command_value admitted) : command_spec := match value with"] ++
   map (fun item => line (concat ["| Cmd_"; command_name (snd item);
     " _ => List.nth "; show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])"])) (indexed 0 commands) ++
   [line "end.";
-   line "Definition declared_payload (value : command) : list (string * json) := match value with"] ++
-  map (fun command => line (concat ["| Cmd_"; command_name command;
-    " payload => encode_fields ("; command_name command; "_to_fields payload)"])) commands ++
-  [line "end.";
-   line "Definition encode (value : command) : json := match value with"] ++
-  map (fun item => line (concat ["| Cmd_"; command_name (snd item); " payload => Schema.encode_declared (List.nth ";
-    show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])) ("; command_name (snd item); "_to_fields payload)"])) (indexed 0 commands) ++
-  [line "end.";
-   line "Theorem encode_declared_wire : forall value, encode value = JObject ((""op"", JString (command_name (declared_command value))) :: declared_payload value).";
-   line "Proof. intros []; reflexivity. Qed.";
-   line "Ltac command_payload_case handler := match goal with"] ++
-  map (fun command => line (concat ["| [payload : "; command_name command;
-    "_payload |- _] => handler "; command_name command; "_schema "; command_name command;
-    "_to_fields "; command_name command; "_from_fields Cmd_"; command_name command; " payload"])) commands ++
+   line "Definition encode {admitted} (value : command_value admitted) : json := match value with"] ++
+  map (fun item => line (concat ["| Cmd_"; command_name (snd item); " payload => CommandPayload.encode (List.nth "; show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])) payload"])) (indexed 0 commands) ++
   [line "end.";
    line "Record handler_table (A : Type) := Handlers {"] ++
   map (fun command => line (concat [" handle_"; command_name command; " : "; command_name command; "_payload -> A;"])) commands ++
@@ -176,7 +125,7 @@ Definition generate_commands : TemplateMonad unit :=
           commands <- tmEval all commands ;;
           tmMsg (bytestring.String.of_string "SELVDERIVE_BEGIN") ;;
           tmMsg (bytestring.String.of_string (concat [line "From Stdlib Require Import String List.";
-            line "From Selvedge.Foundation Require Import Json Schema.";
+            line "From Selvedge.Foundation Require Import Json Schema Arguments ArgumentProjection CommandPayload.";
             line "From Selvedge.Kernel Require Import Commands CommandDeclarations.";
             line "Import ListNotations."; line "Open Scope string_scope."])) ;;
           emit_payloads (indexed 0 commands) ;;

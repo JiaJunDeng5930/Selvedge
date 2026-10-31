@@ -1,6 +1,5 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Foundation Require Import NumbersProofs.
 From Selvedge.Adapters Require Import Common WebStream.
 Import ListNotations.
 Open Scope string_scope.
@@ -13,20 +12,6 @@ Theorem production_sse_scanner_is_independent_of_feed_boundaries : forall first 
 Proof.
  intros;unfold WebStream.scan;rewrite fold_left_app.
  destruct (fold_left (WebStream.scan_character maximum) first (reversed,bytes,work)) as [[r b] w];reflexivity.
-Qed.
-
-Theorem sse_chunk_state_serialization_preserves_every_field : forall state,
- WebStream.read_state (WebStream.write_state state) = state.
-Proof.
- intros [pending data bytes name after_cr].
- unfold WebStream.read_state,WebStream.write_state.
- cbn -[parse_natural show_natural].
- unfold Common.num,Common.nat_value,Common.natural,Common.number,Common.decimal.
- cbn -[parse_natural show_natural].
- rewrite natural_print_parse.
- assert (Data : map text (map JString data) = data).
- { rewrite map_map. change (map (fun item : string => item) data = data). apply map_id. }
- rewrite Data;reflexivity.
 Qed.
 
 Theorem production_sse_crlf_finishes_only_one_line : forall reversed bytes work maximum,
@@ -124,23 +109,22 @@ Proof.
  - discriminate.
 Qed.
 
-Theorem production_successful_sse_step_respects_line_byte_limit : forall source value,
- WebStream.sse_step source = success value ->
- boolean_field source "eof" = false -> get value "error" = JNull ->
- N.of_nat (String.length (str (get value "state") "pending")) <= num source "maximum".
+Theorem production_successful_sse_step_respects_line_byte_limit : forall state chunk maximum value,
+ WebStream.sse_step state chunk false maximum = success value -> get value "error" = JNull ->
+ N.of_nat (String.length (str (get value "state") "pending")) <= maximum.
 Proof.
- intros source value accepted eof no_error.
- unfold WebStream.sse_step in accepted;rewrite eof in accepted.
- destruct (Utf8.chunks (str source "chunk")) as [characters|] eqn:characters_valid;[|discriminate].
- pose proof (sse_initial_line_budget (WebStream.read_state (get source "state")) (num source "maximum")) as initial.
+ intros state chunk maximum value accepted no_error.
+ unfold WebStream.sse_step in accepted.
+ destruct (Utf8.chunks chunk) as [characters|] eqn:characters_valid;[|discriminate].
+ pose proof (sse_initial_line_budget state maximum) as initial.
  pose proof (sse_scan_preserves_line_budget characters _ _ _ _ initial) as scanned.
  destruct (WebStream.scan characters
-   (fold_left (fun result byte => byte :: result) (list_ascii_of_string (WebStream.pending (WebStream.read_state (get source "state")))) [])
-   (N.of_nat (String.length (WebStream.pending (WebStream.read_state (get source "state")))))
-   (if N.of_nat (String.length (WebStream.pending (WebStream.read_state (get source "state")))) <=? num source "maximum"
-     then WebStream.StreamWork (WebStream.read_state (get source "state")) [] ""
-     else WebStream.stream_fail (WebStream.StreamWork (WebStream.read_state (get source "state")) [] "") "SSE line exceeds the configured limit")
-   (num source "maximum")) as [[reversed bytes] work] eqn:scan_result.
+   (fold_left (fun result byte => byte :: result) (list_ascii_of_string (WebStream.pending state)) [])
+   (N.of_nat (String.length (WebStream.pending state)))
+   (if N.of_nat (String.length (WebStream.pending state)) <=? maximum
+     then WebStream.StreamWork state [] ""
+     else WebStream.stream_fail (WebStream.StreamWork state [] "") "SSE line exceeds the configured limit")
+   maximum) as [[reversed bytes] work] eqn:scan_result.
  unfold sse_buffer_within in scanned;destruct scanned as [consistent bounded].
  unfold WebStream.work_json in accepted;cbn in accepted.
  destruct (String.eqb (WebStream.stream_error work) "") eqn:empty_error.
@@ -150,4 +134,3 @@ Proof.
    now apply bounded.
  - inversion accepted;subst value;discriminate no_error.
 Qed.
-

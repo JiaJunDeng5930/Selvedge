@@ -5,22 +5,24 @@ From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
 Definition default_n (value : option N) (fallback : N) := match value with Some value => value | None => fallback end.
-Definition read_task (id after limit : N) (value : world) :=
+Definition read_task (id after : N) (size : Pagination.size Pagination.history_limit) (value : world) :=
+ let limit := proj1_sig size in
  match find_task id value with
  | None => State.failure "task_not_found" "The target task does not exist"
  | Some task =>
    let length := N.of_nat (List.length (task_history task)) in
-   if N.leb 1 limit && N.leb limit Pagination.history_limit && N.leb after length then
+   if N.leb after length then
    State.success (JObject [("task", task_summary id task (world_features value));
     ("after", number after); ("cursor", number length); ("has_more", JBool (N.ltb (after+limit)%N length));
     ("messages", JArray (map (public_message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
-   else State.failure "invalid_page" "History requires a valid cursor and a page size of 1..100"
+   else State.failure "invalid_page" "History cursor exceeds the current history"
  end.
 Definition describe := JObject [
- ("commands", JArray (map (fun command => JObject [("name", JString (command_name command));
- ("description", JString (match Selvedge.Kernel.Commands.command_description (command_name command) with
+ ("commands", JArray (map (fun command => let name := wire_name (Selvedge.Kernel.Commands.declared_wire command) in
+ JObject [("name", JString name);
+ ("description", JString (match Selvedge.Kernel.Commands.command_description name with
    | Some description => description | None => "" end));
- ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_specs));
+ ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_declarations));
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [
@@ -48,12 +50,12 @@ Definition handle_list (_payload : Selvedge.Generated.Commands.list_payload)
 
 Definition handle_read (request : Selvedge.Generated.Commands.read_payload)
  (_caller : option N) (value : world) : json :=
- read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) Pagination.history_limit) value.
+ read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (Pagination.selected (Selvedge.Generated.Commands.read_limit_admitted request) Pagination.history_default) value.
 
 Definition handle_search_history (request : Selvedge.Generated.Commands.search_history_payload)
  (_caller : option N) (value : world) : json :=
  Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
-   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) Search.default_limit) value.
+   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (Pagination.selected (Selvedge.Generated.Commands.search_history_limit_admitted request) Pagination.default_search_size) value.
 
 Definition handle_list_projects (_payload : Selvedge.Generated.Commands.list_projects_payload)
  (_caller : option N) (value : world) : json :=

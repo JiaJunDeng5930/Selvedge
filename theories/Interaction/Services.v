@@ -55,7 +55,7 @@ Definition decode_preparation j := d<-bind(field "draft" j)DraftCodec.decode_dra
  Some(Preparation d g layer trigger(if commit then CommitPrepared else PreviewContext)preference).
 Definition encode_directory_observation value:=JObject[("workspace",Selvedge.Kernel.Codec.workspace_json(observed_workspace value));("guidance",observed_guidance value)].
 Definition decode_directory_observation value:=workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;guidance<-field "guidance" value;;
- if Selvedge.Kernel.Codec.valid_guidance guidance && Selvedge.Kernel.Codec.guidance_member workspace guidance then Some(DirectoryObservation workspace guidance)else None.
+ match Selvedge.Kernel.Codec.parse_guidance workspace guidance with Some _=>Some(DirectoryObservation workspace guidance)|None=>None end.
 Definition encode_git_request (r:editor*string) := JObject[("editor",encode_editor(fst r));("primary",JString(snd r))].
 Definition decode_git_request j := e<-bind(field "editor" j)decode_editor;;p<-string_field "primary" j;;Some(e,p).
 Inductive connection_observation :=

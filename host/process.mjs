@@ -160,7 +160,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       (_, index) => arguments_.command.charCodeAt(index)) } }
     : arguments_;
   const options = { artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot };
-  const { timeout, maximum, mode, cols, rows } = boundary('effect.bash_arguments', { arguments: observedArguments, limits, options });
+  const { command: commandText, timeout, maximum, mode, cols, rows } = boundary('effect.bash_arguments', { arguments: observedArguments, limits, options });
   const combined = new UnicodeTail(maximum);
   const stdout = processOutput(maximum, combined);
   const stderr = processOutput(maximum, combined);
@@ -277,7 +277,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   async function execute() {
     try {
       launch = environment
-        ? await environment.prepareBash(arguments_, execution, { signal })
+        ? await environment.prepareBash({ command: commandText, mode }, execution, { signal })
         : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
         boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
@@ -291,8 +291,8 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       signal?.throwIfAborted();
       // The PTY foreground job owns signals; the sandbox supervisor stays outside its process group.
       const command = launch.command ?? (mode === 'pty'
-        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-i', '-c', arguments_.command]
-        : ['-c', arguments_.command]);
+        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-i', '-c', commandText]
+        : ['-c', commandText]);
       child = Bun.spawn([launch.file, ...launch.prefix, ...command], {
         cwd: launch.cwd, env: { ...launch.env, ...(mode === 'pty' ? { TERM: 'xterm-256color' } : {}) },
         detached: true, stdio: ['pipe', 'pipe', 'pipe', ...launch.descriptors],
@@ -387,8 +387,8 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       control = boundary('control.process.reserve_write', { state: control });
       try {
         await ready;
-        boundary('control.process.admit_write', { state: control, mode, eof, cols: nextCols, rows: nextRows });
-        if (nextCols !== null) child.terminal.resize(nextCols, nextRows);
+        const size = boundary('control.process.admit_write', { state: control, mode, eof, cols: nextCols, rows: nextRows });
+        if (size.cols !== null) child.terminal.resize(size.cols, size.rows);
         if (input) {
           if (mode === 'pty') {
             const flushed = new Promise((resolve, reject) => { terminalWrite = { resolve, reject }; });

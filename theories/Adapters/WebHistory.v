@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Kernel Require Import NativeTools.
-From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory.
+From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory BackendRequests.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -58,7 +58,7 @@ Arguments JSON:
   | Some HistoryRole.Provider => context_message (get item "content")
   | Some HistoryRole.Replacement | None => reject ("Unsupported ChatGPT Web history role: " ++ role) end.
 Definition history values := bind (traverse history_item values) (fun chunks => Accepted (List.concat chunks)).
-Definition messages source := render_outcome JArray (history (items (get source "history"))).
+Definition messages values := render_outcome JArray (history values).
 Definition flat_character character :=
   ProviderCatalog.env_letter character || ProviderCatalog.env_digit character ||
   existsb (Ascii.eqb character) ["$"%char;"."%char;"-"%char].
@@ -67,9 +67,15 @@ Definition flat_name value := nonempty value && Nat.leb (String.length (text val
 Fixpoint tool_names_valid values := match values with [] => true | item::rest =>
   flat_name (get item "name") && negb (contains_name rest "name" (get item "name")) &&
   is_object (get item "parameters") && tool_names_valid rest end.
-Definition tools source := let effect := get source "effect" in
-  if negb (eq effect "kind" "model") then success (JArray [])
-  else let values := items (get effect "tools") in
-    if tool_names_valid values then success (JArray (map (fun value => JObject
-      (("type",JString "function")::subset value ["name";"description";"parameters"])) (NativeTools.presentation_catalog values)))
-    else err "ChatGPT Web requires unique flat function names and JSON Schema parameters".
+Definition request_tools values : outcome (list json) :=
+ let values := NativeTools.presentation_catalog values in
+ if tool_names_valid values then Accepted (map (fun value => JObject
+   (("type",JString "function")::subset value ["name";"description";"parameters"])) values)
+ else reject "ChatGPT Web requires unique flat function names and JSON Schema parameters".
+Definition effect_tools kind values : outcome (list json) :=
+ if String.eqb kind "model" then match D.decode (D.Array D.Any) values with
+ | Some values => request_tools values
+ (* DEFENSE: A public model request must supply its declared tool array. *)
+ | None => reject "Invalid ChatGPT Web JSON source" end
+ else Accepted [].
+Definition tools effect := render_outcome JArray (effect_tools (member_text effect "kind") (member effect "tools")).

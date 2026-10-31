@@ -13,7 +13,25 @@ Inductive kind : Type :=
 | KOptional (element : kind)
 | KEnum (first : string) (rest : list string).
 
-Fixpoint denote (description : kind) : Type :=
+Fixpoint kind_schema (kind : kind) : list (string * json) :=
+  match kind with
+  | KText => [("type",JString "string")]
+  | KBool => [("type",JString "boolean")]
+  | KNatural => [("type",JString "integer");("minimum",JNumber "0")]
+  | KInteger => [("type",JString "integer")]
+  | KDecimal => [("type",JString "number")]
+  | KJson => []
+  | KArray element => [("type",JString "array");("items",JObject (kind_schema element))]
+  | KOptional element => [("anyOf",JArray [JObject (kind_schema element);JObject [("type",JString "null")]])]
+  | KEnum first rest => [("type",JString "string");("enum",JArray (map JString (first::rest)))]
+  end.
+Definition kind_eq_dec (left right : kind) : { left = right } + { left <> right }.
+Proof. decide equality; try apply string_dec; apply list_eq_dec; apply string_dec. Defined.
+
+Definition optional_kind description := match description with KOptional _ => true | _ => false end.
+Definition present_kind description := match description with KOptional value => value | _ => description end.
+
+Fixpoint denote (description : kind) : Set :=
   match description with
   | KText => string | KBool => bool | KNatural => N | KInteger => Z
   | KDecimal => decimal | KJson => json
@@ -30,6 +48,8 @@ Record field_spec := FieldSpec {
 Definition Field name description := FieldSpec name description false.
 (** An omitted field and a present nullable value are separate inputs. *)
 Definition OmittableField name description := FieldSpec name description true.
+Definition field_eq_dec (left right : field_spec) : {left = right} + {left <> right}.
+Proof. decide equality; first [apply string_dec | apply kind_eq_dec | apply Bool.bool_dec]. Defined.
 Definition field_representation (field : field_spec) :=
   if field_omittable field then KOptional (field_kind field) else field_kind field.
 Definition field_value (field : field_spec) := denote (field_representation field).
@@ -38,6 +58,16 @@ Inductive fields : schema -> Type :=
 | FNil : fields []
 | FCons : forall field rest, field_value field -> fields rest -> fields (field :: rest).
 Arguments FCons {field rest} _ _.
+
+(** Products give named records and variant cases a bidirectional construction
+    interface without repeating field names or dependent constructor indices. *)
+Fixpoint tuple (description : schema) : Type := match description with
+ | [] => unit | field :: rest => (field_value field * tuple rest)%type end.
+Fixpoint of_tuple (description : schema) : tuple description -> fields description :=
+ match description as description return tuple description -> fields description with
+ | [] => fun _ => FNil | field :: rest => fun values => FCons (fst values) (of_tuple rest (snd values)) end.
+Notation "'[!' '!]'" := tt.
+Notation "'[!' x ; .. ; y '!]'" := (x, .. (y, tt) ..).
 
 Fixpoint decode_list {A} (decode : json -> option A) (values : list json) : option (list A) :=
   match values with
@@ -111,6 +141,14 @@ Fixpoint unique_names (names : list string) : bool :=
   | [] => true
   | name :: rest => negb (existsb (String.eqb name) rest) && unique_names rest
   end.
+(** Concrete declarations discharge field uniqueness while they are elaborated;
+    consumers cannot construct a declaration with ambiguous wire coordinates. *)
+Class DistinctNames (names : list string) : Prop := {
+ names_distinct : unique_names names = true
+}.
+Arguments names_distinct {names} {_}.
+#[global] Hint Mode DistinctNames + : typeclass_instances.
+#[global] Hint Extern 0 (DistinctNames _) => constructor; reflexivity : typeclass_instances.
 Definition declared_names (description : schema) := map field_name description.
 Definition schema_valid (description : schema) := unique_names (declared_names description).
 Definition source_keys (source : list (string * json)) := map fst source.
@@ -205,15 +243,29 @@ Definition tail {field rest} (values : fields (field :: rest)) : fields rest :=
   | FNil => tt
   | FCons _ values => values
   end.
-Definition projection (description : schema) :=
-  { description_kind : kind & (string * (fields description -> denote description_kind))%type }.
+(** A field projection is a position in the source record. Its name and type
+    come from that position; a declaration cannot supply an unrelated getter. *)
+Inductive field_at : schema -> field_spec -> Set :=
+| AtHead : forall field rest, field_at (field :: rest) field
+| AtTail : forall first rest field, field_at rest field -> field_at (first :: rest) field.
+Arguments AtHead {field rest}.
+Arguments AtTail {first rest field} _.
+Fixpoint project {description field} (position : field_at description field)
+ : fields description -> field_value field :=
+ match position in field_at description field return fields description -> field_value field with
+ | AtHead => fun values => head values
+ | AtTail prior => fun values => project prior (tail values) end.
+Fixpoint extend_projection {description field} (position : field_at description field) (suffix : schema)
+ : field_at (description ++ suffix)%list field :=
+ match position in field_at description field return field_at (description ++ suffix)%list field with
+ | AtHead => AtHead | AtTail prior => AtTail (extend_projection prior suffix) end.
+Definition projection (description : schema) := { selected : field_spec & field_at description selected }.
 Fixpoint projections (description : schema) : list (projection description) :=
   match description as description return list (projection description) with
   | [] => []
   | field :: rest =>
-      existT _ (field_representation field) (field_name field, @head field rest) ::
+      existT _ field AtHead ::
       map (fun entry => match entry with
-        existT _ kind entry =>
-          existT _ kind (fst entry, fun values => snd entry (tail values))
+        existT _ selected position => existT _ selected (AtTail position)
       end) (projections rest)
   end.

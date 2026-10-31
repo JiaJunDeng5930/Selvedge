@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import ChatgptProtocol.
-From Selvedge.Adapters Require Import Common Observation Api Http HttpProofs Audio AudioProofs BrowserAdapters BrowserObservations BrowserAdaptersProofs
+From Selvedge.Adapters Require Import Common Observation Api Http
   PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -10,15 +10,6 @@ Open Scope N_scope.
 (** These statements constrain the actual extracted dispatch entry. Both
     successful behavior and admission requirements are stated, so rejecting
     every input cannot satisfy the public contract. *)
-Theorem public_http_body_requires_authorization : forall source target value,
-  Api.call "http.body" source = success (JObject [("action",JString target);("body",value)]) ->
-  Http.authorized source = true.
-Proof. intros;apply (http_body_requires_authorization source target value);exact H. Qed.
-Theorem public_http_body_requires_local_origin : forall source target value,
-  connection_path source = false ->
-  Api.call "http.body" source = success (JObject [("action",JString target);("body",value)]) ->
-  local_origin_valid source = true.
-Proof. intros;apply (http_body_requires_local_origin source target value);assumption. Qed.
 
 Theorem public_admitted_command_body_is_delivered : forall source original value,
   open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
@@ -34,37 +25,21 @@ Proof.
  { unfold connection_path;rewrite pathname;reflexivity. }
  assert (audio : audio_target source = "").
  { unfold audio_target,audio_kind;rewrite pathname,method;reflexivity. }
- assert (route : selected_route source = Some (Route "POST" "/api/commands" ModelResultDeclarations.Http_command true)).
+ assert (route : selected_route source = Some (Route "POST" "/api/commands" ModelResultDeclarations.Http_command)).
  { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
- assert (target : body_target source = "command").
+ assert (target : body_target source = ModelResultDeclarations.http_body_target_named "command").
  { unfold body_target;rewrite audio,route;reflexivity. }
  change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
  unfold Http.call;cbn;unfold request_guard,open_host_guard.
  rewrite opened,host,authorization,local,origin;cbn.
- unfold body_stage;rewrite target,selected;cbn.
+ unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
  rewrite mime;cbn;rewrite text,parsed;reflexivity.
 Qed.
 
-Theorem public_transcript_cannot_delegate : forall source result,
-  str (get source "value") "type" = "turn.done" ->
-  Api.call "audio.event" source = success result -> get result "type" <> JString "delegation".
-Proof. intros;apply (transcript_events_cannot_delegate_work source result);assumption. Qed.
-Theorem public_voice_session_requires_audio_authority : forall source result,
-  Api.call "audio.session_request" source = success result ->
-  boolean_field source "authorized" = true /\ str source "source" = "chatgpt_audio".
-Proof. intros;apply (accepted_voice_session_requires_audio_authority source result);exact H. Qed.
-Theorem public_safe_fragment_is_accepted : forall source,
-  raw_valid (get source "raw") = true -> starts (str source "raw") "#" = true ->
-  Api.call "browser.link" source = success (get source "raw").
-Proof. intros;change (success (link source) = success (get source "raw"));f_equal;now apply safe_fragment_navigation_is_not_rejected. Qed.
-Theorem public_link_has_admitted_scheme : forall source target,
-  Api.call "browser.link" source = success (JString target) ->
-  starts target "#" || allowed_target target = true.
-Proof. intros;apply (returned_link_has_an_admitted_scheme source target);now inversion H. Qed.
-Theorem public_browser_git_observation_uses_cwd_default : forall cwd,
+Theorem public_browser_git_observation_uses_cwd_default : forall (cwd : string),
   Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",cwd)]) =
-    success (JObject [("kind",JString "workspace-git");("primary",cwd)]).
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]) =
+    success (JObject [("kind",JString "workspace-git");("primary",JString cwd)]).
 Proof. reflexivity. Qed.
 Theorem public_browser_directory_observation_marks_empty_path_default :
   Api.call "browser.observation" (JObject [("phase",JString "plan");
@@ -104,12 +79,6 @@ Theorem public_exec_injects_authenticated_connection : forall connection args,
       ("timeout_ms",default_value (get args "timeout_ms") (number 120000));
       ("max_output_length",default_value (get args "max_output_length") (number 4096))])]).
 Proof. intros connection args accepted;change ((if keys args (client_keys Execute) then success (command_value connection Execute args) else type_error "Invalid ChatGPT tool arguments") = success (command_value connection Execute args));now rewrite accepted. Qed.
-Theorem public_unrelated_transcript_is_preserved : forall source,
-  is_text (get source "pending") = true -> is_text (get source "completed") = true ->
-  starts (str source "pending") (str source "completed") = false ->
-  starts (str source "completed") (str source "pending") = false ->
-  Api.call "audio.transcript_tail" source = success (JString (str source "pending")).
-Proof. intros;apply transcript_tail_preserves_unrelated_utterance;assumption. Qed.
 Theorem public_evaluator_authorizes_only_configured_decision : forall source reply value,
   str source "mode" <> "parsed" -> get source "reply" = reply ->
   Api.call "evaluator.decision" source = success value ->
@@ -137,15 +106,14 @@ Proof.
  destruct (String.eqb (str source "mode") "parsed") eqn:E;[apply String.eqb_eq in E;contradiction|].
  unfold decision_reply,checked;now rewrite identity,configured.
 Qed.
-Theorem public_evaluator_nonterminal_retry_preserves_provider_and_bound : forall source result,
+Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
   Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->
-  same_provider source = true /\ bounded_retry source = true.
+  bounded_retry source = true.
 Proof.
  intros source result H nonterminal;change (retry source = success result) in H;unfold retry in H.
  destruct (String.eqb (str (retry_calculation source) "action") "fail") eqn:terminal.
  - inversion H;subst;apply String.eqb_eq in terminal;contradiction.
- - unfold checked in H;destruct (same_provider source && bounded_retry source) eqn:admission;[|discriminate].
-   now apply andb_true_iff in admission.
+ - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
 Qed.
 
 Theorem public_parsed_evaluator_decision_requires_identity_and_configuration : forall source reply value,
@@ -265,10 +233,3 @@ Proof.
  - apply Forall_forall. intros pair Present. apply forallb_forall with (x:=pair) in Parts; assumption.
  - now apply N.leb_le in Budget.
 Qed.
-
-Theorem public_compaction_policy_has_ordered_thresholds : forall source result,
-  Api.call "config.compaction" source = success result ->
-  1 <= nat_value (get result "background_percent") /\
-  nat_value (get result "background_percent") < nat_value (get result "blocking_percent") /\
-  nat_value (get result "blocking_percent") < 100.
-Proof. intros;apply (successful_compaction_has_required_threshold_order Compaction.legal_budget source result);exact H. Qed.

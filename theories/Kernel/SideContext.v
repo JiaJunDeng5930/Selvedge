@@ -8,26 +8,17 @@ Definition parent_definition (id : N) := ContextDefinition "task_lifecycle"
  Global NativeState [IdentityField "task_id" (Constant (number_text id)) true]
  [ValueField "task_id" (IdentityValue "task_id") true;
   ValueField "status" (ObservationField "status") true;ValueField "phase" (ObservationField "phase") true].
-Definition parent_key (id : N) := ContextKey (parent_definition id) [("task_id",number_text id)].
-Definition changed_field (name before after : string) :=
- if String.eqb before after then [] else [FieldPatch name [TextEdit 0 before after]].
+Definition parent_key (id : N) := ContextKey (parent_definition id) (exist _ (tt,tt) eq_refl).
+Definition parent_status (parent : task) : text_value true.
+Proof. refine (exist _ (task_status parent) _); unfold task_status; destruct (task_lifecycle parent); reflexivity. Defined.
+Definition parent_phase (parent : task) : text_value true.
+Proof. refine (exist _ (Domain.activity_name (task_activity parent)) _); destruct (task_activity parent); reflexivity. Defined.
 Definition observe_parent (id : N) (parent value : task) :=
- let key := parent_key id in
- let previous := ContextUpdates.find_snapshot key (ContextUpdates.bindings (task_history value)) in
- let status := task_status parent in let phase := Domain.activity_name (task_activity parent) in
- let current := Snapshot key (number_text (N.succ (N.of_nat (List.length (task_history value)))))
-  [("task_id",number_text id);("status",status);("phase",phase)] in
- let change := match previous with
- | None => Some (Introduce current)
- | Some previous =>
-   let old_status := ContextUpdates.find_text "status" (snapshot_fields previous) in
-   let old_phase := ContextUpdates.find_text "phase" (snapshot_fields previous) in
-   match old_status,old_phase with
-   | Some before_status,Some before_phase =>
-     let patches := (changed_field "status" before_status status ++ changed_field "phase" before_phase phase)%list in
-     match patches with [] => None | _ => Some (Amend key (snapshot_revision previous) (snapshot_revision current) patches) end
-   | _,_ => Some (Introduce current) end
- end in match change with Some change => append_history [ContextObservation change] value | None => value end.
+ let current := Snapshot (parent_key id)
+   (counter_revision (N.succ (N.of_nat (List.length (task_history value)))))
+   (exist _ (tt,(parent_status parent,(parent_phase parent,tt))) eq_refl) in
+ match ContextUpdates.replace_snapshot current (ContextUpdates.bindings (task_history value)) with
+ | Some change => append_history [ContextObservation change] value | None => value end.
 Definition reconcile_task (parents : list task) (value : task) :=
  match task_lifecycle value, task_side_parent value with
  | Archived _,_ | _,None => value

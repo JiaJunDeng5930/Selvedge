@@ -88,3 +88,38 @@ Proof.
   - destruct (update_field name source values) eqn:updated; inversion changed; subst.
     simpl. destruct (String.eqb other (field_name field)); auto.
 Qed.
+
+Lemma decoded_object_fields : forall description source (values : fields description),
+ decode description source = Some values ->
+ exists members, source = JObject members /\ decode_fields description members = Some values.
+Proof.
+ intros description source values Decoded; destruct source as [|flag|number|text|items|members]; try discriminate.
+ unfold decode in Decoded.
+ destruct (schema_valid description && unique_names (source_keys members) && keys_declared description members);
+   [exists members; auto|discriminate].
+Qed.
+Lemma decoded_field_head : forall field rest source (values : fields (field :: rest)),
+ decode_fields (field :: rest) source = Some values ->
+ decode_field field (lookup (field_name field) source) = Some (head values).
+Proof.
+ intros field rest source values Decoded; cbn [decode_fields] in Decoded.
+ destruct (decode_field field (lookup (field_name field) source)); [|discriminate].
+ destruct (decode_fields rest source); [|discriminate].
+ inversion Decoded; reflexivity.
+Qed.
+Lemma decoded_field_tail : forall field rest source (values : fields (field :: rest)),
+ decode_fields (field :: rest) source = Some values ->
+ decode_fields rest source = Some (tail values).
+Proof.
+ intros field rest source values Decoded; cbn [decode_fields] in Decoded.
+ destruct (decode_field field (lookup (field_name field) source)); [|discriminate].
+ destruct (decode_fields rest source); [|discriminate].
+ inversion Decoded; reflexivity.
+Qed.
+
+Theorem fields_eta : forall description (values : fields description),
+ (match description as description return fields description -> Prop with
+  | [] => fun values => values = FNil
+  | field :: rest => fun values => values = FCons (head values) (tail values)
+  end) values.
+Proof. intros description values; destruct values; reflexivity. Qed.

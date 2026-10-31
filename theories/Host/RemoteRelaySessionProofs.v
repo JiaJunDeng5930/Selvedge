@@ -4,11 +4,11 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Lemma consumed_digest_absent digest tickets :
- find (fun entry=>String.eqb entry.(ticket_digest) digest)
- (filter (fun entry=>negb (String.eqb entry.(ticket_digest) digest)) tickets) = None.
+ find (fun entry=>String.eqb (ticket_digest entry) digest)
+ (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets) = None.
 Proof.
  induction tickets as [|entry rest IH]; cbn; auto.
- destruct (String.eqb entry.(ticket_digest) digest) eqn:Same; cbn; auto.
+ destruct (String.eqb (ticket_digest entry) digest) eqn:Same; cbn; auto.
  now rewrite Same.
 Qed.
 
@@ -16,7 +16,7 @@ Definition tickets_of current := match current with Ready _ tickets=>tickets|_=>
 
 (** Even a rejected attempt consumes every copy of the selected ticket identity. *)
 Theorem consumption_removes_ticket current now grants digest count :
- find (fun entry=>String.eqb entry.(ticket_digest) digest)
+ find (fun entry=>String.eqb (ticket_digest entry) digest)
  (tickets_of (fst (step current (ConsumeTicket now grants digest count)))) = None.
 Proof. destruct current; cbn; try reflexivity. apply consumed_digest_absent. Qed.
 

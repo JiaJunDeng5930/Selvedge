@@ -3,7 +3,6 @@ import {
   REMOTE_PROTOCOL_VERSION,
   REMOTE_TICKET_TTL_MS,
   parseRemoteFrame, encodeRemoteFrame, protocolError, RemoteProtocolError,
-  validateHostFrame, validateControllerRequest,
 } from '../../remote/protocol.mjs';
 
 const utf8 = new TextEncoder();
@@ -18,7 +17,9 @@ const bearer = (request, route) => {
 };
 const admitBody = (route, body) => {
   const admitted = admission('body', { route, body });
-  if (admitted !== true) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  // DEFENSE: Public request bodies may omit required fields or violate their declared token and label formats.
+  if (admitted.action === 'reject') throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  return admitted;
 };
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', utf8.encode(value)))
   ].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -88,8 +89,7 @@ export default {
         if (!sameDigest(await digest(supplied), await digest(env.RELAY_ENROLLMENT_TOKEN))) {
           return failure('unauthorized', 401);
         }
-        const body = await readJson(request);
-        admitBody('register', body);
+        const body = admitBody('register', await readJson(request));
         const stub = env.REMOTE_HOSTS.get(env.REMOTE_HOSTS.idFromName(body.host_id));
         return stub.fetch(new Request('https://relay.internal/register', {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -133,14 +133,13 @@ export class RemoteHostRelay {
 
   controllerCurrent(state) {
     return state.role === 'controller' && remoteControl('delivery', { connection: state,
-      generation: this.generation, grants: [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })),
+      generation: this.generation, grants: this.grantSnapshot(),
       host_ready: Boolean(this.host()) });
   }
 
-  step(state, event) {
-    return remoteControl('relay', { state, event: { now: Date.now(),
-      grants: [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })), ...event } });
-  }
+  grantSnapshot() { return [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })); }
+
+  step(state, event) { return remoteControl('relay', { state, event }); }
 
   async fetch(request) {
     try {
@@ -196,18 +195,17 @@ export class RemoteHostRelay {
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
     if (!host) return failure('host_offline', 503);
-    const body = await readJson(request);
-    admitBody('pair', body);
+    const body = admitBody('pair', await readJson(request));
     const supplied = bearer(request, 'pair');
     const suppliedDigest = await digest(supplied);
     const state = host.deserializeAttachment();
-    const consumed = this.step(state, { kind: 'pair_consume', digest: suppliedDigest });
+    const consumed = this.step(state, { kind: 'pair_consume', now: Date.now(), digest: suppliedDigest });
     if (!consumed.allowed) return failure('invalid_pairing_code', 401);
     host.serializeAttachment(consumed.state);
     const controllerId = await digest(body.controller_token);
     // DEFENSE: Hashing yields; a replacement host must not receive an already-consumed code from the prior generation.
     if (this.host() !== host) return failure('host_offline', 503);
-    const delivery = this.step(host.deserializeAttachment(), { kind: 'pair_delivery',
+    const delivery = this.step(host.deserializeAttachment(), { kind: 'pair_delivery', now: Date.now(),
       revision: state.pairing_revision, expires_at: state.pairing.expires_at });
     if (!delivery.allowed) return failure('invalid_pairing_code', 401);
     const requestId = crypto.randomUUID();
@@ -216,8 +214,7 @@ export class RemoteHostRelay {
   }
 
   async ticket(request) {
-    const body = await readJson(request);
-    admitBody('tickets', body);
+    admitBody('tickets', await readJson(request));
     const secret = bearer(request, 'tickets');
     const controllerId = await digest(secret);
     const grantEpoch = this.grants.get(controllerId);
@@ -231,7 +228,7 @@ export class RemoteHostRelay {
     // DEFENSE: Hashing yields; a ticket must belong to the still-current host connection.
     if (this.host() !== host) return failure('host_offline', 503);
     const expiresAt = Date.now() + REMOTE_TICKET_TTL_MS;
-    const issued = this.step(host.deserializeAttachment(), { kind: 'ticket_issue',
+    const issued = this.step(host.deserializeAttachment(), { kind: 'ticket_issue', now: Date.now(), grants: this.grantSnapshot(),
       ticket: { digest: ticketDigest, controller_id: controllerId, grant_epoch: grantEpoch, expires_at: expiresAt } });
     host.serializeAttachment(issued.state);
     if (!issued.allowed) return failure(issued.reason, issued.reason === 'host_offline' ? 503 : 429);
@@ -249,20 +246,20 @@ export class RemoteHostRelay {
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
     if (!host) return failure('host_offline', 503);
-    const consumed = this.step(host.deserializeAttachment(), { kind: 'ticket_consume',
+    const consumed = this.step(host.deserializeAttachment(), { kind: 'ticket_consume', now: Date.now(), grants: this.grantSnapshot(),
       digest: secretDigest, controller_count: this.controllers().length });
     // Consumption is published atomically before a socket or authorization is issued.
     host.serializeAttachment(consumed.state);
     if (!consumed.allowed) return failure(consumed.reason, consumed.reason === 'connection_limit' ? 429 : 401);
-    const { controller_id: controllerId, grant_epoch: grantEpoch } = consumed.ticket;
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const connectionId = crypto.randomUUID();
-    server.serializeAttachment({ role: 'controller', generation: this.generation,
-      connection_id: connectionId, controller_id: controllerId, grant_epoch: grantEpoch });
+    const installed = remoteControl('relay_controller', { generation: this.generation,
+      connection_id: connectionId, ticket: consumed.ticket });
+    server.serializeAttachment(installed.state);
     this.ctx.acceptWebSocket(server, ['controller']);
-    send(host, { type: 'controller_open', connection_id: connectionId, controller_id: controllerId, grant_epoch: grantEpoch });
-    send(server, { type: 'ready', version: REMOTE_PROTOCOL_VERSION, controller_id: controllerId, grant_epoch: grantEpoch });
+    send(host, installed.host_frame);
+    send(server, installed.controller_frame);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -275,17 +272,25 @@ export class RemoteHostRelay {
           socket.close(1012, 'Remote host connection replaced');
           return;
         }
-        const frame = parseRemoteFrame(message, validateHostFrame);
-        if (!remoteControl('relay_frame_allowed', { state, frame })) throw protocolError('Remote protocol negotiation required');
+        const frame = parseRemoteFrame(message, source => {
+          const admitted = remoteControl('relay_frame_allowed', { state, frame: source });
+          // DEFENSE: A host may send a malformed frame or send it before protocol negotiation.
+          if (admitted === null) throw protocolError('Host frame rejected by relay session');
+          return admitted;
+        });
         if (frame.type === 'hello') {
           socket.serializeAttachment(this.step(state, { kind: 'hello' }).state);
           return;
         }
         await this.hostFrame(socket, state, frame);
       } else if (this.controllerCurrent(state)) {
-        const request = parseRemoteFrame(message, validateControllerRequest);
-        send(this.host(), { type: 'request', connection_id: state.connection_id,
-          controller_id: state.controller_id, grant_epoch: state.grant_epoch, request });
+        const frame = parseRemoteFrame(message, request => {
+          const admitted = remoteControl('relay_request', { connection: state, request });
+          // DEFENSE: A controller may send an unknown method or malformed RPC parameters.
+          if (admitted === null) throw protocolError('Controller request rejected by relay session');
+          return admitted;
+        });
+        send(this.host(), frame);
       // DEFENSE: A queued controller frame may outlive its grant, host generation, or socket retirement.
       } else socket.close(1008, 'Remote grant unavailable');
     // DEFENSE: Malformed peer frames and failed storage/socket effects retire this connection without retrying the command.
@@ -306,7 +311,7 @@ export class RemoteHostRelay {
         if (this.host(false) !== socket) return;
         this.grants = next;
         const current = socket.deserializeAttachment();
-        socket.serializeAttachment(this.step(current, { kind: 'grants' }).state);
+        socket.serializeAttachment(this.step(current, { kind: 'grants', grants: this.grantSnapshot() }).state);
         for (const controller of this.controllers()) {
           const attachment = controller.deserializeAttachment();
           // DEFENSE: A grant update can revoke an already connected controller; close its socket immediately.
@@ -321,8 +326,8 @@ export class RemoteHostRelay {
         const codeDigest = await digest(frame.code);
         // DEFENSE: Hashing may complete after this socket was replaced.
         if (this.host(false) !== socket) return;
-        const installed = this.step(socket.deserializeAttachment(), { kind: 'pairing_install', revision,
-          expires_at: frame.expires_at, pairing: { digest: codeDigest, expires_at: frame.expires_at } });
+        const installed = this.step(socket.deserializeAttachment(), { kind: 'pairing_install', now: Date.now(), revision,
+          pairing: { digest: codeDigest, expires_at: frame.expires_at } });
         socket.serializeAttachment(installed.state);
         if (!installed.allowed && revision === installed.state.pairing_revision) throw protocolError('Remote pairing expiry rejected');
         break;

@@ -1,107 +1,56 @@
-From Stdlib Require Import String Ascii Bool NArith ZArith.
-From Selvedge.Foundation Require Import Numbers.
-Open Scope string_scope.
+From Stdlib Require Import String Bool NArith ZArith DecimalString.
+From Selvedge.Foundation Require Import Numbers Refinement.
 
-(* JSON wire integers denote mathematical values. Domain natural keys retain
-   their separate canonical-token contract in Numbers/Json. *)
 Definition safe_integer_limit : Z := 9007199254740991%Z.
 Definition within_safe_integer (value : Z) : bool :=
   ((- safe_integer_limit <=? value) && (value <=? safe_integer_limit))%Z.
-
-Fixpoint without_leading_zeroes (source : string) : string :=
-  match source with
-  | String c rest => if Ascii.eqb c "0" then without_leading_zeroes rest else source
-  | EmptyString => EmptyString
-  end.
-Definition take_digits (source : string) : string * string :=
-  let remaining := skip_digits source in
-  (substring 0 (String.length source - String.length remaining) source, remaining).
-Definition unsigned_text (source : string) : bool * string :=
-  match source with
-  | String c rest =>
-      if Ascii.eqb c "-" then (true,rest)
-      else if Ascii.eqb c "+" then (false,rest)
-      else (false,source)
-  | _ => (false,source)
-  end.
-Definition normalized_decimal (source : string) : bool * string :=
-  let '(negative,digits) := unsigned_text source in
-  let magnitude := without_leading_zeroes digits in
-  match magnitude with
-  | EmptyString => (false,"0")
-  | _ => (negative,magnitude)
-  end.
-Definition compare_magnitude (left right : string) : comparison :=
-  match Nat.compare (String.length left) (String.length right) with
-  | Eq => String.compare left right
-  | result => result
-  end.
-Definition compare_decimal (left right : bool * string) : comparison :=
-  let '(ln,lv) := left in let '(rn,rv) := right in
-  match ln,rn with
-  | true,false => Lt
-  | false,true => Gt
-  | false,false => compare_magnitude lv rv
-  | true,true => compare_magnitude rv lv
-  end.
-Definition decimal_in_interval (source : string) (lower upper : Z) : bool :=
-  let decimal := normalized_decimal source in
-  negb (match compare_decimal decimal (normalized_decimal (show_integer lower)) with Lt => true | _ => false end) &&
-  negb (match compare_decimal decimal (normalized_decimal (show_integer upper)) with Gt => true | _ => false end).
-Definition parse_bounded_exponent (source : string) (lower upper : Z) : option Z :=
-  (* Only an exponent between endpoints derived from input lengths reaches the
-     arbitrary-precision parser. Huge exponents never become powers or nats. *)
-  if decimal_in_interval source lower upper then
-    let '(negative,magnitude) := normalized_decimal source in
-    parse_integer (if negative then "-" ++ magnitude else magnitude)
+Definition safe_integer := Refinement.checked within_safe_integer.
+Definition integer_value (value : safe_integer) : Z := proj1_sig value.
+Definition signed_magnitude (negative : bool) (magnitude : Z) :=
+  if negative then (- magnitude)%Z else magnitude.
+Definition exponent_digit_limit (lower upper : Z) : nat :=
+  Nat.max (decimal_width (Decimal.abs (Z.to_int lower)))
+          (decimal_width (Decimal.abs (Z.to_int upper))).
+Definition parse_bounded_exponent (source : Decimal.int) (lower upper : Z) : option Z :=
+  let normal := Decimal.norm source in
+  (* DEFENSE: A wire exponent can contain an unbounded run of significant digits.
+     Its decimal width is limited before conversion to an arbitrary-precision integer. *)
+  if Nat.leb (decimal_width (Decimal.abs normal)) (exponent_digit_limit lower upper) then
+    let value := Z.of_int normal in
+    if ((lower <=? value) && (value <=? upper))%Z then Some value else None
   else None.
-Fixpoint zeroes (count : nat) : string :=
-  match count with O => EmptyString | S rest => String "0" (zeroes rest) end.
-Fixpoint only_zeroes (source : string) : bool :=
-  match source with
-  | EmptyString => true
-  | String c rest => if Ascii.eqb c "0" then only_zeroes rest else false
-  end.
-Definition integral_digits (coefficient : string) (shift : Z) : option string :=
+Definition decimal_zero (value : Decimal.uint) :=
+  match Decimal.nzhead value with Decimal.Nil => true | _ => false end.
+Definition integral_magnitude (coefficient : Decimal.uint) (shift : Z) : option Z :=
   if (shift <? 0)%Z then
-    let keep := (String.length coefficient - Z.to_nat (-shift))%nat in
-    let suffix := substring keep (String.length coefficient) coefficient in
-    if only_zeroes suffix then
-      Some (substring 0 keep coefficient)
-    else None
-  else Some (coefficient ++ zeroes (Z.to_nat shift)).
-Definition decode_coefficient (negative : bool) (coefficient : string)
-    (fraction_digits : nat) (exponent : string) : option Z :=
-  let significant := without_leading_zeroes coefficient in
+    let remove := Z.to_nat (-shift) in
+    if decimal_zero (Decimal.del_head (decimal_width coefficient - remove) coefficient)
+    then Some (Z.of_uint (Decimal.del_tail remove coefficient)) else None
+  else Some (Z.of_uint (Decimal.app coefficient (Nat.iter (Z.to_nat shift) Decimal.D0 Decimal.Nil))).
+Definition decode_coefficient (negative : bool) (coefficient : Decimal.uint)
+    (fraction_digits : nat) (exponent : Decimal.int) : option safe_integer :=
+  let significant := Decimal.nzhead coefficient in
   match significant with
-  | EmptyString => Some 0%Z
+  | Decimal.Nil => Some (exist _ 0%Z eq_refl)
   | _ =>
       let fractional := Z.of_nat fraction_digits in
-      let width := Z.of_nat (String.length significant) in
+      let width := Z.of_nat (decimal_width significant) in
       match parse_bounded_exponent exponent (fractional + 1 - width) (fractional + 16 - width) with
       | None => None
-      | Some power =>
-          match integral_digits significant (power - fractional) with
-          | None => None
-          | Some digits =>
-              match parse_integer (if negative then "-" ++ digits else digits) with
-              | Some value => if within_safe_integer value then Some value else None
-              | None => None
-              end
-          end
+      | Some power => match integral_magnitude significant (power - fractional) with
+        | None => None
+        | Some magnitude => let value := signed_magnitude negative magnitude in
+          Refinement.admit within_safe_integer value end
       end
   end.
-Definition decode_safe_integer (source : string) : option Z :=
-  (* DEFENSE: JsonNumber is externally constructible, so its token must satisfy
-     JSON grammar before the mathematical-value decoder is entered. *)
-  if number_lexeme source then
-    let '(negative,unsigned) := unsigned_text source in
-    let '(whole,rest) := take_digits unsigned in
-    let '(fraction,after_fraction) :=
-      match rest with
-      | String c digits => if Ascii.eqb c "." then take_digits digits else ("",rest)
-      | _ => ("",rest)
-      end in
-    let exponent := match after_fraction with String _ digits => digits | _ => "0" end in
-    decode_coefficient negative (whole ++ fraction) (String.length fraction) exponent
-  else None.
+Definition decimal_components (value : Decimal.decimal) :=
+  let '(whole,fraction,exponent) := match value with
+    | Decimal.Decimal whole fraction => (whole,fraction,Decimal.Pos Decimal.Nil)
+    | Decimal.DecimalExp whole fraction exponent => (whole,fraction,exponent) end in
+  ((match whole with Decimal.Neg _ => true | _ => false end),
+   Decimal.app (Decimal.abs whole) fraction, decimal_width fraction, exponent).
+Definition decode_safe_integer (source : string) : option safe_integer :=
+  match parse_decimal source with
+  | Some decimal => let '(negative,coefficient,fraction,exponent) := decimal_components decimal in
+    decode_coefficient negative coefficient fraction exponent
+  | None => None end.

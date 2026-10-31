@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json RequestEnvelope.
+From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Import Domain Compaction ContextSelection.
 Import ListNotations.
 Open Scope N_scope.
@@ -16,15 +17,25 @@ Record target := Target {
  target_method : method
 }.
 Definition target_key (value : target) := let '(head, tail) := target_profile value in String head tail.
+Module TargetEntries.
+ Definition t := target.
+ Definition key := string.
+ Definition key_of := target_key.
+ Definition key_eq_dec := String.string_dec.
+End TargetEntries.
+Module Targets := KeyedCollection.Make TargetEntries.
 Record policy := Policy {
  policy_enabled : bool;
  policy_background : N;
  policy_blocking : N;
  policy_idle_lead : N;
- policy_targets : list target;
+ policy_target_collection : Targets.t;
  policy_thresholds : ((0 <? policy_background) && (policy_background <? policy_blocking) && (policy_blocking <=? 100)) = true
 }.
-Definition initial_policy := Policy false 65 90 60000 [] eq_refl.
+Definition policy_targets value := Targets.values (policy_target_collection value).
+Definition with_targets targets value := Policy (policy_enabled value) (policy_background value)
+ (policy_blocking value) (policy_idle_lead value) targets (policy_thresholds value).
+Definition initial_policy := Policy false 65 90 60000 Targets.empty eq_refl.
 
 (* A lease owns the complete pure request input, including the catalog-dependent
    callable names. A later catalog change must not validate an earlier count. *)
@@ -36,9 +47,30 @@ Record capture := Capture {
  captured_callable : list string
 }.
 Inductive inspection_stage := InspectScope | InspectCount (scope : string).
+Record inspection_input (continuation : Type) := InspectInput {
+ inspection_capture : capture;
+ inspection_continuation : continuation;
+ inspection_step : inspection_stage
+}.
+Arguments InspectInput {continuation}.
+Arguments inspection_capture {continuation}.
+Arguments inspection_continuation {continuation}.
+Arguments inspection_step {continuation}.
+Record validation := Candidate {
+ candidate_reason : reason;
+ candidate_artifact : artifact;
+ candidate_preview : list message
+}.
+Record compaction_input := CompactInput {
+ compact_capture : capture;
+ compact_reason : reason;
+ compact_target : target;
+ compact_progress : compaction_state;
+ compact_scope : string
+}.
 Inductive measurement :=
 | Unmeasured
-| Measuring (ticket : N) (input : capture) (stage : inspection_stage)
+| Measuring (request : RequestEnvelope.t (inspection_input unit))
 | Measured (input : capture) (scope : string) (tokens : N) (budget : token_budget)
 | Oversized (input : capture) (scope : string) (budget : token_budget)
 | MeasurementFailed (input : capture).
@@ -47,10 +79,9 @@ Inductive job :=
 | WaitingForResource (purpose : option reason)
 | AwaitingContext (ticket : N) (purpose : option reason) (resume_model : bool)
 | Resuming (input : capture) (purpose : reason)
-| Preparing (ticket : N) (input : capture) (purpose : reason) (stage : inspection_stage)
-| Compacting (ticket : N) (input : capture) (purpose : reason) (progress : compaction_state) (scope : string)
-| Validating (ticket : N) (input : capture) (purpose : reason) (candidate : artifact)
-    (preview : list message) (stage : inspection_stage).
+| Preparing (request : RequestEnvelope.t (inspection_input reason))
+| Compacting (request : RequestEnvelope.t compaction_input)
+| Validating (request : RequestEnvelope.t (inspection_input validation)).
 Record entry := Entry {
  (* This is the actual completed workspace observation. It is not reconstructed
     from the existence of a compaction job or a current task snapshot. *)
@@ -75,9 +106,6 @@ Record state := MaintenanceState {
 Definition initial := MaintenanceState initial_policy [] 0 0.
 
 Inductive effect :=
-| Scope (task_id ticket : N) (input : capture)
-| Measure (task_id ticket : N) (input : capture) (scope : string) (validating : bool)
-| Compact (task_id ticket : N) (input : capture) (target : target) (progress : compaction_state) (scope : string)
 | ArmClock (deadline : N)
 | Cancel (task_id ticket : N).
 Inductive inspection :=

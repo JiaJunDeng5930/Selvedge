@@ -1,5 +1,8 @@
+From Selvedge.Kernel Require InputRoute.
+From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json Schema Utf8 Completion.
+From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Worktree WorkspaceBinding.
@@ -9,15 +12,12 @@ Open Scope string_scope.
 Open Scope N_scope.
 Open Scope list_scope.
 
-Definition registry value := Selvedge.Features.Domain.feature_sharing (world_features value).
+Definition registry := FeatureRequestAdmission.sharing_registry.
 Definition store replacement value := with_features (Selvedge.Features.State.with_sharing replacement (world_features value)) value.
-Definition grant connection state := find (fun grant=>N.eqb connection (Selvedge.Features.Domain.connection_id grant)) (Selvedge.Features.Domain.sharing_grants state).
+Definition grant := FeatureRequestAdmission.connection_grant.
 Definition find_job id state := option_map snd (find (fun item=>N.eqb id (fst item)) (Selvedge.Features.Domain.sharing_jobs state)).
-Definition project id value := match registry_at id (world_projects value) with
- | Some project=>if project_deleted project then None else Some project | None=>None end.
-Definition member id values := existsb (N.eqb id) values.
-Definition authority connection project state := match grant connection state with
- | Some grant=>if member project (Selvedge.Features.Domain.connection_projects grant) then Some grant else None | None=>None end.
+Definition project := FeatureRequestAdmission.connection_project.
+Definition authority := FeatureRequestAdmission.connection_authority.
 Definition owned connection project job := N.eqb connection (Selvedge.Features.Domain.job_connection job) && N.eqb project (Selvedge.Features.Domain.job_project job).
 Definition pending job := match Selvedge.Features.Domain.job_state job with Selvedge.Features.Domain.JobRunning=>true | _=>false end.
 Definition with_outcome outcome job := set Selvedge.Features.Domain.job_state (fun _=>outcome) job.
@@ -50,82 +50,73 @@ Definition jobs connection project value := match authority connection project (
  | None=>forbidden
  | Some _=>Selvedge.Kernel.State.success (JArray (fold_right (fun item rest=>let '(id,job):=item in
      if owned connection project job then summary id job::rest else rest) [] (Selvedge.Features.Domain.sharing_jobs (registry value)))) end.
-Definition ids_valid ids := forallb (fun id=>id <=? ChatgptArguments.identity_maximum) ids.
-Definition valid_query ids reply := if ids_valid ids then reply else Selvedge.Kernel.State.failure "invalid_input" "ChatGPT identities must be unsigned 32-bit integers".
 Definition handle_chatgpt_projects (p : Selvedge.Generated.Commands.chatgpt_projects_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_projects_connection_id p] (projects (Selvedge.Generated.Commands.chatgpt_projects_connection_id p) value).
+ projects (Selvedge.Generated.Commands.chatgpt_projects_connection_id p) value.
 
 Definition handle_chatgpt_project (p : Selvedge.Generated.Commands.chatgpt_project_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_project_connection_id p;Selvedge.Generated.Commands.chatgpt_project_project_id p]
-   (read_project (Selvedge.Generated.Commands.chatgpt_project_connection_id p) (Selvedge.Generated.Commands.chatgpt_project_project_id p) value).
+ read_project (Selvedge.Generated.Commands.chatgpt_project_connection_id p) (Selvedge.Generated.Commands.chatgpt_project_project_id p) value.
 
 Definition handle_chatgpt_operation (p : Selvedge.Generated.Commands.chatgpt_operation_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_operation_connection_id p;Selvedge.Generated.Commands.chatgpt_operation_project_id p;Selvedge.Generated.Commands.chatgpt_operation_operation_id p]
-   (read_job (Selvedge.Generated.Commands.chatgpt_operation_connection_id p) (Selvedge.Generated.Commands.chatgpt_operation_project_id p) (Selvedge.Generated.Commands.chatgpt_operation_operation_id p) value).
+ read_job (Selvedge.Generated.Commands.chatgpt_operation_connection_id p) (Selvedge.Generated.Commands.chatgpt_operation_project_id p) (Selvedge.Generated.Commands.chatgpt_operation_operation_id p) value.
 
 Definition handle_chatgpt_operations (p : Selvedge.Generated.Commands.chatgpt_operations_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
- valid_query [Selvedge.Generated.Commands.chatgpt_operations_connection_id p;Selvedge.Generated.Commands.chatgpt_operations_project_id p]
-   (jobs (Selvedge.Generated.Commands.chatgpt_operations_connection_id p) (Selvedge.Generated.Commands.chatgpt_operations_project_id p) value).
+ jobs (Selvedge.Generated.Commands.chatgpt_operations_connection_id p) (Selvedge.Generated.Commands.chatgpt_operations_project_id p) value.
 
-Definition grant_schema := ChatgptArguments.grant_declaration.
-Definition parse_grant source := match Schema.decode grant_schema source,natural_field "connection_id" source,
- array_field "project_ids" source,field "sandbox" source with
- | Some _,Some id,Some projects,Some sandbox=>match Schema.decode_list natural projects,parse_sandbox sandbox with
-   | Some projects,Some sandbox=>Some (Selvedge.Features.Domain.ConnectionGrant id projects sandbox) | _,_=>None end
- | _,_,_,_=>None end.
-Fixpoint distinct_ids ids := match ids with []=>true | id::rest=>negb (member id rest) && distinct_ids rest end.
-Definition valid_grant value grant := ids_valid [Selvedge.Features.Domain.connection_id grant] &&
- (N.of_nat (List.length (Selvedge.Features.Domain.connection_projects grant)) <=? 32) && ids_valid (Selvedge.Features.Domain.connection_projects grant) &&
- distinct_ids (Selvedge.Features.Domain.connection_projects grant) &&
+Definition grant_projects_exist value grant :=
  forallb (fun id=>match project id value with Some _=>true | None=>false end) (Selvedge.Features.Domain.connection_projects grant).
-Definition configure entries value := match Schema.decode_list parse_grant entries with
+Definition configure entries value := match ConnectionGrants.admit_grants entries with
  | None=>reject "invalid_connections" "Connections need distinct identities and existing project grants" value
- | Some entries=>if (N.of_nat (List.length entries) <=? 32) && distinct_ids (map Selvedge.Features.Domain.connection_id entries) && forallb (valid_grant value) entries then
-   accept (JObject []) (store (set Selvedge.Features.Domain.sharing_grants (fun _=>entries) (registry value)) value) []
+ | Some entries=>if forallb (grant_projects_exist value) (ConnectionGrants.Grants.values entries) then
+   accept (JObject []) (store (set Selvedge.Features.Domain.sharing_authorities (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
-Definition replace_job id job state := set Selvedge.Features.Domain.sharing_jobs
- (fun previous=>(id,job)::filter (fun item=>negb (N.eqb id (fst item))) previous) state.
-Definition retry connection request state := find (fun item=>let job:=snd item in
- N.eqb connection (Selvedge.Features.Domain.job_connection job) && String.eqb request (Selvedge.Features.Domain.job_request job)) (Selvedge.Features.Domain.sharing_jobs state).
-Definition bounded_text maximum text := negb (String.eqb text "") && Utf8.well_formed text &&
- (N.of_nat (String.length text) <=? maximum).
-Definition start connection project_id request arguments granted target value :=
- let state:=registry value in
- match retry connection request state with
- | Some (id,job)=>if owned connection project_id job && Json.equal (Schema.encode ChatgptArguments.argument_declaration arguments) (Selvedge.Features.Domain.job_arguments_json job) then
-   accept (receipt id job) value []
-   else reject "request_conflict" "This request_id already names a different command; do not retry with new arguments" value
- | None=>
- (* DEFENSE: Projects can retain a managed root while its owner is archiving;
-    only a new physical execution needs an available workspace. *)
- if negb (Worktree.workspace_available (project_workspace target) value &&
-    WorkspaceBinding.resource_ready (project_workspace target) (project_resource target) value) then
- reject "worktree_unavailable" "The Project workspace belongs to an unavailable managed worktree" value
- else if (N.of_nat (List.length (Selvedge.Features.Domain.sharing_jobs state)) <? 128) && (Selvedge.Features.Domain.sharing_next state <? ChatgptArguments.identity_maximum) then
-   let job:=Selvedge.Features.Domain.ConnectionJob connection project_id request arguments (project_workspace target) (project_resource target) (Selvedge.Features.Domain.connection_sandbox granted) Selvedge.Features.Domain.JobRunning in
-   TicketedRequest.Scoped.feature_with_reply
-     (success (receipt (TicketedRequest.next_identity TicketedRequest.ConnectionIdentity value) job))
-     (TicketedRequest.Scoped.ConnectionRequest job) value
-   else reject "operation_capacity" "Forget a completed operation before starting more work" value end.
+Definition replace_job id job := Receiver.install TicketedRequest.Scoped.connection_jobs (id,job).
+Definition retry := FeatureRequestAdmission.connection_retry.
+Definition storage (features : Selvedge.Features.Domain.state) :=
+ Receiver.At.field features Selvedge.Features.Domain.feature_sharing
+   (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_jobs
+     (Receiver.At.keyed (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing features))
+       (@fst N Selvedge.Features.Domain.connection_job))).
+Definition protocol (features : Selvedge.Features.Domain.state)
+ : RequestTypes.located Selvedge.Features.Domain.connection_job features :=
+ RequestTypes.Protocol
+   (Receiver.At.inject RequestEnvelope.as_pair (storage features))
+   ModelDeclarations.chatgpt_exec_request
+   (fun job features => Schema.of_tuple (ModelDeclarations.request_body_fields ModelDeclarations.chatgpt_exec_request)
+     [!Selvedge.Features.Domain.job_arguments_json job;JObject [
+       ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));
+       ("resource",Selvedge.Features.Domain.reference_execution (Selvedge.Features.Domain.job_resource job) features);
+       ("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));("access",JString "sandboxed");("scope",JString "project")]!]).
+Definition channel identity project request
+ : TicketedRequest.Scoped.feature_channel
+     (fun before => FeatureRequestAdmission.resolved_connection before identity project request)
+     Selvedge.Features.Domain.connection_job :=
+ TicketedRequest.Scoped.FeatureChannel TicketedRequest.ConnectionIdentity
+   (fun _ source => FeatureRequestAdmission.resolved_job source)
+   (fun before _ => protocol (world_features (snd (TicketedRequest.allocate_identity TicketedRequest.ConnectionIdentity before)))).
+Definition plan {before identity project request}
+ (source : FeatureRequestAdmission.resolved_connection before identity project request) :=
+ TicketedRequest.Scoped.FeaturePlan (channel identity project request) source.
+Definition resolved_connection_change {value identity project request_id}
+ (resolved : FeatureRequestAdmission.connection_resolution value identity project request_id) :=
+ match resolved with
+ | FeatureRequestAdmission.ExistingConnection id job => CommandResult.Change (receipt id job) value []
+ | FeatureRequestAdmission.NewConnection request =>
+   let job := FeatureRequestAdmission.resolved_job request in
+   let issued := TicketedRequest.Scoped.feature_issue_change (plan request) in
+   CommandResult.Change (receipt (TicketedRequest.next_identity TicketedRequest.ConnectionIdentity value) job)
+     (CommandResult.change_world issued) (CommandResult.change_effects issued)
+ end.
+Definition run_result connection project_id request arguments value :=
+ CommandResult.map resolved_connection_change
+   (FeatureRequestAdmission.resolve_connection connection project_id request arguments value).
 Definition run connection project_id request arguments value :=
- if negb (ids_valid [connection;project_id] && bounded_text 128 request) then
- reject "invalid_command" "A bounded request_id and valid Bash arguments are required" value
- else match ChatgptArguments.admit_args arguments with
- | None=>reject "invalid_command" "A bounded request_id and valid Bash arguments are required" value
- | Some arguments=>match authority connection project_id (registry value) with
-   | None=>reject "project_forbidden" "This connection has no grant for that project" value
-   | Some grant=>match project project_id value with
-     | None=>reject "project_not_found" "The project is unavailable" value
-     | Some target=>match workspace_primary (project_workspace target) with
-       | None=>reject "empty_workspace" "The project needs a primary Workspace root" value
-       | Some _=>start connection project_id request arguments grant target value end end end end.
+ CommandResult.decide value (run_result connection project_id request arguments value).
 Definition edit (remove:bool) connection project id value :=
- if negb (ids_valid [connection;project;id]) then reject "invalid_input" "ChatGPT identities must be unsigned 32-bit integers" value
- else match authority connection project (registry value) with
+ match authority connection project (registry value) with
  | None=>reject "project_forbidden" "This connection has no grant for that project" value
  | Some _=>match find_job id (registry value) with
    | None=>Decision value missing_operation []
@@ -141,13 +132,16 @@ Definition edit (remove:bool) connection project id value :=
 Definition handle_configure_chatgpt_connections (p : Selvedge.Generated.Commands.configure_chatgpt_connections_payload)
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  match caller with
-   | None=>configure (Selvedge.Generated.Commands.configure_chatgpt_connections_connections p) value
+   | None=>configure (Selvedge.Generated.Commands.configure_chatgpt_connections_connections_admitted p) value
    | Some _=>reject "local_only" "Connection grants can only be configured by the local owner" value end.
 
+Definition handle_chatgpt_exec_result (p : Selvedge.Generated.Commands.chatgpt_exec_payload)
+ (_caller : option N) (value : Selvedge.Kernel.State.world) :=
+ run_result (Selvedge.Generated.Commands.chatgpt_exec_connection_id p) (Selvedge.Generated.Commands.chatgpt_exec_project_id p)
+   (Selvedge.Generated.Commands.chatgpt_exec_request_id_admitted p) (Selvedge.Generated.Commands.chatgpt_exec_arguments_admitted p) value.
 Definition handle_chatgpt_exec (p : Selvedge.Generated.Commands.chatgpt_exec_payload)
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
- run (Selvedge.Generated.Commands.chatgpt_exec_connection_id p) (Selvedge.Generated.Commands.chatgpt_exec_project_id p)
-   (Selvedge.Generated.Commands.chatgpt_exec_request_id p) (Selvedge.Generated.Commands.chatgpt_exec_arguments p) value.
+ CommandResult.decide value (handle_chatgpt_exec_result p caller value).
 
 Definition handle_chatgpt_cancel (p : Selvedge.Generated.Commands.chatgpt_cancel_payload)
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
@@ -157,28 +151,20 @@ Definition handle_chatgpt_forget (p : Selvedge.Generated.Commands.chatgpt_forget
  (caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  edit true (Selvedge.Generated.Commands.chatgpt_forget_connection_id p) (Selvedge.Generated.Commands.chatgpt_forget_project_id p) (Selvedge.Generated.Commands.chatgpt_forget_operation_id p) value.
 
-Definition settle id result error value :bool*bool*decision := match find_job id (registry value) with
- | Some job=>if pending job then
-   let finished:=with_outcome (Selvedge.Features.Domain.JobFinished result error) job in
-   (true,true,accept (JObject [("accepted",JBool true)]) (store (replace_job id finished (registry value)) value) [])
-   else (false,false,accept (JObject [("accepted",JBool false)]) value [])
- | None=>(false,false,accept (JObject [("accepted",JBool false)]) value []) end.
-Definition completion source value :option (bool*bool*decision) := match string_field "kind" source with
- | Some kind=>if String.eqb kind "chatgpt_result" then Some (
-   match Schema.decode [Field "kind" KText;Field "operation_id" KNatural;Field "error" KBool;Field "value" KJson] source,
-     natural_field "operation_id" source,bool_field "error" source,field "value" source with
-   | Some _,Some id,Some error,Some result=>
-     (* DEFENSE: External job callbacks must retain the unsigned identity and
-        object-result contract of the execution protocol. *)
-     if ids_valid [id] && (match result with JObject _=>true | _=>false end)
-     then settle id result error value
-     else (false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value)
-   | _,_,_,_=>(false,false,reject "invalid_input" "Malformed ChatGPT operation completion" value) end) else None
- | None=>None end.
+Definition reception features id := Completion.field
+ (Receiver.inject (@pair N Selvedge.Features.Domain.connection_job id)
+   (Receiver.field world_features (Receiver.path (storage features)))) Selvedge.Features.Domain.job_state.
+Definition running (_ : unit) := Selvedge.Features.Domain.JobRunning.
+Definition settle id result error value :bool*bool*decision :=
+ let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
+   (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
+ (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
+Definition completion (received : CallbackDeclarations.decoded ModelDeclarations.ChatgptExec) value :=
+ let '(existT _ ok (address,fields)) := received in
+ settle (Schema.head address) (JObject (fst fields)) (negb ok) value.
+Definition completion_inputs := [InputRoute.callback ModelDeclarations.ChatgptExec
+ (fun received => Some (completion received))].
 Definition recover_job job := match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning=>with_outcome (Selvedge.Features.Domain.JobInterrupted "Service restarted; execution may have happened and will not be replayed") job
  | _=>job end.
 Definition recover value := store (set Selvedge.Features.Domain.sharing_jobs (map (fun item=>(fst item,recover_job (snd item)))) (registry value)) value.
-Definition project_used id value :=
- existsb (fun grant=>member id (Selvedge.Features.Domain.connection_projects grant)) (Selvedge.Features.Domain.sharing_grants (registry value)) ||
- existsb (fun item=>N.eqb id (Selvedge.Features.Domain.job_project (snd item))) (Selvedge.Features.Domain.sharing_jobs (registry value)).

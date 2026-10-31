@@ -53,15 +53,16 @@ Definition observation_of (source : json) :=
   else if String.eqb kind "settlement" then
     match natural (get source "generation"), outcome_of (str source "outcome") with Some (N.pos generation), Some outcome => Some (Settlement (N.pos generation) outcome) | _, _ => None end
   else if String.eqb kind "shutdown" then Some Shutdown else None.
-Definition primitive_json (p : primitive) := match p with
-| Start generation => ModelDeclarations.encode ModelResultDeclarations.dispatch_start (Schema.FCons (field:=Schema.Field "generation" Schema.KNatural) generation Schema.FNil)
-| RollbackWorkspace => ModelDeclarations.encode ModelResultDeclarations.dispatch_rollback_workspace Schema.FNil
-| RetainWorkspace => ModelDeclarations.encode ModelResultDeclarations.dispatch_retain_workspace Schema.FNil
-| Await generation => ModelDeclarations.encode ModelResultDeclarations.dispatch_await (Schema.FCons (field:=Schema.Field "generation" Schema.KNatural) generation Schema.FNil)
-| Cancel generation provider => ModelDeclarations.encode ModelResultDeclarations.dispatch_cancel (Schema.FCons (field:=Schema.Field "generation" Schema.KNatural) generation (Schema.FCons (field:=Schema.Field "provider" Schema.KBool) provider Schema.FNil))
-| RetryFailure => ModelDeclarations.encode ModelResultDeclarations.dispatch_retry_failure Schema.FNil
-| Settled => ModelDeclarations.encode ModelResultDeclarations.dispatch_settled Schema.FNil
-| Retire => ModelDeclarations.encode ModelResultDeclarations.dispatch_retire Schema.FNil end.
+Definition primitive_packet (p : primitive) := match p with
+| Start generation => ModelDeclarations.pack ModelResultDeclarations.dispatch_start [!generation!]
+| RollbackWorkspace => ModelDeclarations.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
+| RetainWorkspace => ModelDeclarations.pack ModelResultDeclarations.dispatch_retain_workspace [!!]
+| Await generation => ModelDeclarations.pack ModelResultDeclarations.dispatch_await [!generation!]
+| Cancel generation provider => ModelDeclarations.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
+| RetryFailure => ModelDeclarations.pack ModelResultDeclarations.dispatch_retry_failure [!!]
+| Settled => ModelDeclarations.pack ModelResultDeclarations.dispatch_settled [!!]
+| Retire => ModelDeclarations.pack ModelResultDeclarations.dispatch_retire [!!] end.
+Definition primitive_json p := ModelDeclarations.encode_packet (primitive_packet p).
 
 Definition call (operation : string) (source : json) : json :=
   if String.eqb operation "control.dispatch.initial" then success (state_json initial)

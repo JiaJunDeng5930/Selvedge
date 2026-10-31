@@ -1,8 +1,9 @@
+From Selvedge.Foundation Require Import SequenceProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Callbacks
- LifecycleProofs WorldInvariant WorldInvariantProofs TaskWakeProofs.
+ LifecycleProofs RequestReceiver TaskWakeProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -50,8 +51,9 @@ Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
 Proof.
  intros id ticket result error value task operation Found Owned Hooks.
  rewrite !tool_completed_expression; rewrite Found, Owned.
- unfold Callbacks.begin_result_plan; rewrite Hooks.
- change (Tasks.apply_result id task (Callbacks.settle_operation_plan operation result error) value)
+ unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
+ unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
+ change (Tasks.apply_result id task (OperationEvent.settle operation result error) value)
    with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
  cbn [decision_effects decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
@@ -73,28 +75,15 @@ Proof.
    cbn; rewrite <- app_assoc; reflexivity.
 Qed.
 
-Lemma distinct_ticket_prefix_and_suffix : forall (left right : list N),
- NoDup (left ++ right) ->
- NoDup left /\ NoDup right /\
- (forall ticket, In ticket left -> ~ In ticket right).
-Proof.
- intros left; induction left as [|first rest IH]; intros right Unique.
- - cbn in *; repeat split; auto; constructor.
- - cbn in Unique; inversion Unique as [|? ? Fresh Tail]; subst.
-   destruct (IH right Tail) as [Prefix [Suffix Disjoint]].
-   split; [constructor; [intro Member; apply Fresh; apply in_or_app; auto|exact Prefix]|].
-   split; [exact Suffix|]. intros ticket [Same|Member] Later.
-   + subst ticket; apply Fresh; apply in_or_app; right; exact Later.
-   + exact (Disjoint ticket Member Later).
-Qed.
+Definition distinct_ticket_prefix_and_suffix := SequenceProofs.distinct_app_parts N.
 
 Lemma executing_ticket_belongs_to_the_operation : forall ticket operation,
  Callbacks.operation_executing ticket operation = true ->
- In ticket (WorldInvariant.operation_tickets operation).
+ In ticket (RequestReceiver.operation_tickets operation).
 Proof.
  intros ticket operation Executing.
- unfold Callbacks.operation_executing in Executing.
- unfold WorldInvariant.operation_tickets.
+ unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver in Executing.
+ unfold RequestReceiver.operation_tickets.
  destruct (operation_stage operation) as [expected|expected actor|actor|expected actor|pending result error|expected plugin pending result error];
    try discriminate;
  apply N.eqb_eq in Executing; subst expected;
@@ -106,7 +95,7 @@ Proof.
 Qed.
 
 Lemma no_execution_after_removing_the_ticket_owner : forall operations ticket operation,
- NoDup (flat_map WorldInvariant.operation_tickets operations) ->
+ NoDup (flat_map RequestReceiver.operation_tickets operations) ->
  find (Callbacks.operation_executing ticket) operations = Some operation ->
  find (Callbacks.operation_executing ticket)
    (Callbacks.remove_operation (operation_id operation) operations) = None.
@@ -129,45 +118,9 @@ Proof.
    try rewrite Executes; apply IH; assumption.
 Qed.
 
-Lemma a_registry_lookup_is_a_member : forall (A : Type) (values : list A) index selected,
- registry_at index values = Some selected -> In selected values.
-Proof.
- intros A values; induction values as [|first rest IH]; intros index selected Found;
-   cbn in Found; [discriminate|].
- destruct (N.eqb index 0); [inversion Found; subst; left; reflexivity|].
- right; eapply IH; exact Found.
-Qed.
-
-Lemma distinct_flattened_tickets_include_each_owner : forall (A : Type)
- (tickets : A -> list N) owners owner,
- NoDup (flat_map tickets owners) -> In owner owners -> NoDup (tickets owner).
-Proof.
- intros A tickets owners; induction owners as [|first rest IH]; intros owner Unique Member;
-   [contradiction|].
- cbn [flat_map] in Unique.
- destruct (distinct_ticket_prefix_and_suffix _ _ Unique) as [First [Tail _]].
- destruct Member as [Same|Later]; [subst; exact First|].
- apply IH; assumption.
-Qed.
-
-Lemma valid_world_execution_tickets_are_unique : forall id value task,
- WorldInvariant.tickets_valid value = true -> find_task id value = Some task ->
- NoDup (flat_map WorldInvariant.operation_tickets (task_operations task)).
-Proof.
- intros id value task Valid Found.
- pose proof (a_valid_ticket_supply_has_unique_allocated_owners value Valid) as [Unique _].
- destruct (distinct_ticket_prefix_and_suffix _ _ Unique) as [Tasks _].
- assert (NoDup (WorldInvariant.task_tickets task)) as TaskTickets.
- { eapply distinct_flattened_tickets_include_each_owner; [exact Tasks|].
-   eapply a_registry_lookup_is_a_member; exact Found. }
- unfold WorldInvariant.task_tickets in TaskTickets.
- destruct (distinct_ticket_prefix_and_suffix _ _ TaskTickets) as [_ [Operations _]].
- exact Operations.
-Qed.
-
 Theorem an_owned_tool_completion_is_consumed_once_without_after_hooks :
  forall id ticket result error value task operation,
- WorldInvariant.tickets_valid value = true ->
+ NoDup (flat_map RequestReceiver.operation_tickets (task_operations task)) ->
  find_task id value = Some task ->
  find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
  Callbacks.after_plugins task = [] ->
@@ -184,7 +137,7 @@ Proof.
  unfold completed; rewrite tool_completed_expression at 1; rewrite Updated, Operations.
  rewrite no_execution_after_removing_the_ticket_owner with (operation := operation).
  - reflexivity.
- - eapply valid_world_execution_tickets_are_unique; eauto.
+ - exact Valid.
  - exact Owned.
 Qed.
 
@@ -196,8 +149,8 @@ Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  task_lifecycle (Tasks.wake_after_result task) = Frozen WantsModel operations /\
  task_operations (Tasks.wake_after_result task) = operations.
 Proof.
- intros task operations Frozen. rewrite waking_result_expression, Frozen.
- split; reflexivity.
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed] operations Frozen.
+ cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.
 
 Theorem freezing_settling_and_unfreezing_preserves_the_result_demand :
@@ -228,8 +181,9 @@ Theorem an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand :
 Proof.
  intros id ticket result error value task operations operation Found Frozen Owned Hooks.
  rewrite !tool_completed_expression; rewrite Found, Owned.
- unfold Callbacks.begin_result_plan; rewrite Hooks.
- change (Tasks.apply_result id task (Callbacks.settle_operation_plan operation result error) value)
+ unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
+ unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
+ change (Tasks.apply_result id task (OperationEvent.settle operation result error) value)
    with (Tasks.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
  cbn [decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup.
@@ -253,6 +207,7 @@ Theorem an_owned_cancellation_while_frozen_keeps_the_unfreeze_demand :
 Proof.
  intros id identity value task operations operation Found Frozen Owned.
  rewrite TaskChangesProofs.cancel_operation_expression, Found, Owned.
+ apply find_some in Owned as [_ Identity]; apply N.eqb_eq in Identity; subst identity.
  cbn [decision_world accept]. rewrite context_wake_preserves_every_task_lookup.
  eexists; split; [apply find_put_task with task; exact Found|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].

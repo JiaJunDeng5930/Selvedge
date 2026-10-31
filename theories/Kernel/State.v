@@ -1,8 +1,8 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json RequestEnvelope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend ModelRequest.
-From Selvedge.Features Require Import Domain CompactionTypes.
+From Selvedge.Features Require Import Domain CompactionTypes RequestTypes.
 Import ListNotations.
 
 Record world := World {
@@ -50,9 +50,7 @@ Inductive effect :=
 | ContinueScheduling
 | CreateWorktree (task_id : N) (source_root : string) (workspace : workspace) (backend : WorkspaceBackend.backend)
 | ArchiveWorktree (task_id : N) (source_root root : string) (backend : WorkspaceBackend.backend)
-| SuggestTitle (task_id ticket : N) (profile : profile) (prompt : string)
-| SuggestCard (card_id ticket revision : N) (profile : profile) (prompt : string) (draft : Selvedge.Features.Domain.card_draft) (retitle : bool)
-| RunConnectionJob (operation_id : N) (job : Selvedge.Features.Domain.connection_job)
+| RequestFeature (request : RequestTypes.packet)
 | CancelConnectionJob (operation_id : N)
 | MaintainContext (request : Selvedge.Features.CompactionTypes.effect).
 

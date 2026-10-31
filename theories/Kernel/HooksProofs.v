@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Tasks Capabilities Inputs Callbacks Scheduler HookCallbacks TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import Domain Codec State Tasks Capabilities Inputs Callbacks Scheduler HookCallbacks TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -30,9 +30,11 @@ Theorem before_hook_dispatches_the_first_pending_plugin :
 Proof.
  intros execute id tool invocation plugin rest remaining task value Found ExecuteAllowed Ready Known Available.
  unfold Scheduler.before_hook_step; rewrite Available.
- rewrite (ScopedRequestProofs.authorizing_uses_the_current_call id value task plugin tool invocation rest remaining Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
- reflexivity.
+ destruct (authorizing_selects_the_current_call id value task plugin tool invocation rest remaining Found
+   ltac:(unfold TicketedRequest.Scoped.call_action; now rewrite ExecuteAllowed,Ready,Known))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.
+ unfold TicketedRequest.Scoped.build; rewrite Intent,Owner; reflexivity.
 Qed.
 
 Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
@@ -48,8 +50,10 @@ Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
 Proof.
  intros id operation task value plugin pending result error Stage Found Owned Available.
  unfold Scheduler.after_hooks_step; rewrite Stage, Available.
- rewrite (ScopedRequestProofs.after_uses_the_current_operation id value task operation plugin pending result error Found Owned Stage).
- reflexivity.
+ destruct (after_selects_the_current_operation id value task operation plugin pending result error Found Owned Stage)
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.
+ unfold TicketedRequest.Scoped.build; rewrite Intent,Owner; reflexivity.
 Qed.
 
 Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
@@ -67,7 +71,8 @@ Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
 Proof.
  intros id ticket result error value task current plugin rest Found Owned Hooks.
  rewrite !tool_completed_expression; rewrite Found, Owned.
- unfold Callbacks.begin_result_plan; rewrite Hooks; reflexivity.
+ unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
+ unfold Callbacks.after_plugins in Hooks; rewrite Hooks; reflexivity.
 Qed.
 
 Theorem allowed_before_hook_resumes_the_same_call_before_its_suffix :

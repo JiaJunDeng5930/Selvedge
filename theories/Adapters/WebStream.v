@@ -8,8 +8,6 @@ Record stream_state := StreamState {
   pending : string; event_data : list string; event_bytes : N; event_name : string;
   after_cr : bool }.
 Record stream_work := StreamWork { current : stream_state; frames : list json; stream_error : string }.
-Definition read_state value := StreamState (str value "pending") (map text (items (get value "data")))
-  (num value "size") (str value "name") (boolean_field value "after_cr").
 Definition write_state state := JObject [("pending",JString state.(pending));
   ("data",JArray (map JString state.(event_data)));("size",number state.(event_bytes));
   ("name",JString state.(event_name));("after_cr",JBool state.(after_cr))].
@@ -74,15 +72,13 @@ Definition scan_character maximum (buffer : (list ascii * N) * stream_work) (cha
 Definition scan chunk reversed bytes work maximum :=
   fold_left (scan_character maximum) chunk (reversed,bytes,work).
 
-Definition sse_step source := let state := read_state (get source "state") in
-  let chunk := str source "chunk" in
-  if boolean_field source "eof" then
+Definition sse_step (state : stream_state) (chunk : string) (eof : bool) (maximum : N) :=
+  if eof then
     let pending := state.(pending) ++ chunk in
     work_json (StreamWork (StreamState pending state.(event_data) state.(event_bytes) state.(event_name) state.(after_cr)) []
       (if String.eqb pending "" && Nat.eqb (List.length state.(event_data)) 0
        then "" else "The SSE stream ended inside an event"))
   else let initial := StreamWork state [] "" in
-    let maximum := num source "maximum" in
     let initial := if N.of_nat (String.length state.(pending)) <=? maximum then initial
       else stream_fail initial "SSE line exceeds the configured limit" in
     let reversed := fold_left (fun result byte => byte::result) (list_ascii_of_string state.(pending)) [] in
@@ -101,10 +97,10 @@ Definition trim_header value := match Utf8.chunks value with
   | None => value end.
 Fixpoint content_type_prefix source := match source with EmptyString => EmptyString
   | String first rest => if Ascii.eqb first ";"%char then EmptyString else String first (content_type_prefix rest) end.
-Definition headers source :=
-  if negb (is_null (get source "version") || eq source "version" "chatgpt-web.v1")
+Definition headers version content_type :=
+  if negb (is_null version || String.eqb (text version) "chatgpt-web.v1")
   then err "ChatGPT Web protocol version does not match v1"
-  else if is_null (get source "content_type") then success (JString "sse")
-  else match ProviderCatalog.lower_ascii (trim_header (content_type_prefix (str source "content_type"))) with
+  else if is_null content_type then success (JString "sse")
+  else match ProviderCatalog.lower_ascii (trim_header (content_type_prefix (text content_type))) with
     | "application/json" => success (JString "json") | "text/event-stream" => success (JString "sse")
     | _ => err "ChatGPT Web did not return JSON or SSE" end.

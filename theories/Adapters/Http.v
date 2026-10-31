@@ -9,42 +9,39 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Record route := Route { route_method : string; route_path : string;
-  route_target : ModelResultDeclarations.http_action; route_body : bool }.
+  route_target : ModelResultDeclarations.http_action }.
 (** One route declaration drives both target selection and body admission. *)
 Definition routes := [
-  Route "POST" "/api/accounts/refresh" ModelResultDeclarations.Http_account_refresh true;
-  Route "POST" "/api/browser/command" ModelResultDeclarations.Http_browser_command true;
-  Route "POST" "/api/browser/observation" ModelResultDeclarations.Http_browser_observation true;
-  Route "POST" "/api/commands" ModelResultDeclarations.Http_command true;
-  Route "POST" "/api/assess" ModelResultDeclarations.Http_assess true;
-  Route "GET" "/api/browser/state" ModelResultDeclarations.Http_browser_state false;
-  Route "GET" "/api/describe" ModelResultDeclarations.Http_describe false;
-  Route "GET" "/api/events" ModelResultDeclarations.Http_events false;
-  Route "GET" "/api/event-page" ModelResultDeclarations.Http_event_page false;
-  Route "GET" "/api/health" ModelResultDeclarations.Http_health false;
-  Route "POST" "/api/remote/enable" ModelResultDeclarations.Http_remote_enable true;
-  Route "POST" "/api/remote/disable" ModelResultDeclarations.Http_remote_disable true;
-  Route "POST" "/api/remote/pair" ModelResultDeclarations.Http_remote_pair true;
-  Route "POST" "/api/remote/approve" ModelResultDeclarations.Http_remote_approve true;
-  Route "POST" "/api/remote/revoke" ModelResultDeclarations.Http_remote_revoke true;
-  Route "GET" "/api/remote/status" ModelResultDeclarations.Http_remote_status false;
-  Route "GET" "/api/remote/pending" ModelResultDeclarations.Http_remote_pending false].
+  Route "POST" "/api/accounts/refresh" ModelResultDeclarations.Http_account_refresh;
+  Route "POST" "/api/browser/command" ModelResultDeclarations.Http_browser_command;
+  Route "POST" "/api/browser/observation" ModelResultDeclarations.Http_browser_observation;
+  Route "POST" "/api/commands" ModelResultDeclarations.Http_command;
+  Route "POST" "/api/assess" ModelResultDeclarations.Http_assess;
+  Route "GET" "/api/browser/state" ModelResultDeclarations.Http_browser_state;
+  Route "GET" "/api/describe" ModelResultDeclarations.Http_describe;
+  Route "GET" "/api/events" ModelResultDeclarations.Http_events;
+  Route "GET" "/api/event-page" ModelResultDeclarations.Http_event_page;
+  Route "GET" "/api/health" ModelResultDeclarations.Http_health;
+  Route "POST" "/api/remote/enable" ModelResultDeclarations.Http_remote_enable;
+  Route "POST" "/api/remote/disable" ModelResultDeclarations.Http_remote_disable;
+  Route "POST" "/api/remote/pair" ModelResultDeclarations.Http_remote_pair;
+  Route "POST" "/api/remote/approve" ModelResultDeclarations.Http_remote_approve;
+  Route "POST" "/api/remote/revoke" ModelResultDeclarations.Http_remote_revoke;
+  Route "GET" "/api/remote/status" ModelResultDeclarations.Http_remote_status;
+  Route "GET" "/api/remote/pending" ModelResultDeclarations.Http_remote_pending].
 Definition matches_route (source : json) (route : route) :=
   String.eqb (str source "method") route.(route_method) &&
   String.eqb (str source "pathname") route.(route_path) &&
   (negb (starts (ModelResultDeclarations.http_action_name route.(route_target)) "remote_") || String.eqb (str source "search") "").
 Definition selected_route (source : json) := find (matches_route source) routes.
 Definition action (kind : ModelResultDeclarations.http_action) :=
- JObject [ModelResultDeclarations.tag (ModelResultDeclarations.http_action_declaration kind)].
+ ModelDeclarations.encode_packet (ModelResultDeclarations.http_action_packet kind).
 Definition rejection (status : N) (code message : string) :=
- ModelDeclarations.encode ModelResultDeclarations.http_respond
- (FCons (field:=Field "status" KNatural) status
- (FCons (field:=Field "value" KJson) (JObject [("ok",JBool false);
- ("error",JObject [("code",JString code);("message",JString message)])]) FNil)).
+ ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_respond
+ [!status;JObject [("ok",JBool false);("error",JObject [("code",JString code);("message",JString message)])]!]).
 Definition exception (kind : ModelResultDeclarations.exception_kind) (message : string) :=
- ModelDeclarations.encode ModelResultDeclarations.http_throw
- (FCons (field:=Field "kind" (KEnum "TypeError" ["RangeError"])) (ModelResultDeclarations.exception_value kind)
- (FCons (field:=Field "message" KText) message FNil)).
+ ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_throw
+ [!ModelResultDeclarations.exception_value kind;message!]).
 Definition unknown_route := rejection 404 "not_found" "Unknown local endpoint".
 Definition action_named (target : string) :=
  match ModelResultDeclarations.http_action_of_name target with
@@ -97,7 +94,7 @@ Definition audio_kind (source : json) :=
     if existsb (String.eqb kind) ["capabilities";"transcribe";"sessions";"login"]
     then if String.eqb kind "sessions" then "create" else kind else ""
   | ["";"api";"audio";"sessions";id;kind] =>
-    if negb (String.eqb id "") && existsb (String.eqb kind) [(ModelResultDeclarations.name ModelResultDeclarations.http_events);"stop"] then kind else ""
+    if negb (String.eqb id "") && existsb (String.eqb kind) [(ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_events);"stop"] then kind else ""
   | _ => ""
   end.
 Definition audio_target (source : json) :=
@@ -113,20 +110,22 @@ Definition audio_target (source : json) :=
    else None in
  match action with Some action => ModelResultDeclarations.http_action_name action | None => "" end.
 Definition body_target (source : json) :=
-  let audio := audio_target source in
-  if existsb (String.eqb audio) [(ModelResultDeclarations.name ModelResultDeclarations.http_audio_create);(ModelResultDeclarations.name ModelResultDeclarations.http_audio_login)] then audio
-  else match selected_route source with
-    | Some route => if route.(route_body) then (ModelResultDeclarations.http_action_name route.(route_target)) else ""
+  match ModelResultDeclarations.http_body_target_named (audio_target source) with
+  | Some target => Some target
+  | None => match selected_route source with
+    | Some route => ModelResultDeclarations.http_body_target_named (ModelResultDeclarations.http_action_name route.(route_target))
     | None => if connection_path source && String.eqb (str source "method") "POST"
-              then (ModelResultDeclarations.name ModelResultDeclarations.http_connection_command) else ""
-    end.
+              then ModelResultDeclarations.http_body_target_named
+                (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_connection_command) else None
+    end end.
 Definition local_target (source : json) :=
   if String.eqb (str source "method") "POST" && String.eqb (str source "pathname") "/api/board/attachments"
-  then (ModelResultDeclarations.name ModelResultDeclarations.http_attachment_upload)
+  then (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_upload)
   else if String.eqb (str source "method") "GET" && starts (str source "pathname") "/api/board/attachments/"
-  then (ModelResultDeclarations.name ModelResultDeclarations.http_attachment_download)
+  then (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_download)
   else match selected_route source with Some route => (ModelResultDeclarations.http_action_name route.(route_target)) | None => audio_target source end.
-Definition content_target (target : string) := JObject [ModelResultDeclarations.tag ModelResultDeclarations.http_observe_content_type;("target",JString target)].
+Definition content_target (target : ModelResultDeclarations.http_body_target) :=
+ ModelDeclarations.encode_packet (ModelDeclarations.pack ModelResultDeclarations.http_observe_content_type [!target!]).
 Definition remote_path (source : json) := existsb (fun route =>
   starts (ModelResultDeclarations.http_action_name route.(route_target)) "remote_" && String.eqb (str source "pathname") route.(route_path)) routes.
 Definition unknown_local (source : json) :=
@@ -148,58 +147,61 @@ Definition upload (source : json) :=
   end.
 Definition local_route (source : json) :=
   let target := local_target source in
-  if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_attachment_upload) then upload source
+  if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_upload) then upload source
   else if String.eqb target "" then unknown_local source
-  else if negb (String.eqb (body_target source) "") then content_target (body_target source)
-  else action_named target.
+  else match body_target source with Some body => content_target body | None => action_named target end.
 Definition nonempty_text (value : json) := is_text value && negb (String.eqb (text value) "").
 Definition permissions (body : json) :=
  match Schema.decode ModelResultDeclarations.http_permissions_fields body with
  | Some _ => true | None => false end.
 Definition body_shape (target : string) (body : json) :=
-  if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_remote_approve) then
-    exact_fields ["request_id";"permissions"] body && nonempty_text (get body "request_id") && permissions (get body "permissions")
-  else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_remote_revoke) then exact_fields ["controller_id"] body && nonempty_text (get body "controller_id")
-  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_account_refresh) then exact_fields [] body
-  else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_browser_command) then exact_fields ["command"] body
-  else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
+  if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_approve) then
+    match Schema.decode ModelResultDeclarations.http_remote_approval_fields body with
+    | Some values => negb (String.eqb (Schema.head values) "") && permissions (Schema.head (Schema.tail values)) | None => false end
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_revoke) then
+    match Schema.decode ModelResultDeclarations.http_remote_revoke_fields body with
+    | Some values => negb (String.eqb (Schema.head values) "") | None => false end
+  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then exact_fields [] body
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then
+    match Schema.decode ModelResultDeclarations.http_browser_command_fields body with
+    | Some _ => true | None => false end
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
-  else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_audio_login) then exact_fields ["browser_id"] body && nonempty_text (get body "browser_id")
-  else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_audio_create) then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields ["browser_id"] body && nonempty_text (get body "browser_id")
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]
   else true.
 Definition body_error (target : string) := exception ModelResultDeclarations.TypeErrorKind
-  (if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_audio_login) then "Voice sign-in contains only browser_id"
-   else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
+  (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in contains only browser_id"
+   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
    else if starts target "remote_" then "Invalid remote management request body"
-   else if String.eqb target (ModelResultDeclarations.name ModelResultDeclarations.http_account_refresh) then "Account refresh takes an empty object"
+   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then "Account refresh takes an empty object"
    else "A browser command contains only command").
-Definition body_action (target : string) (value : json) :=
- match ModelResultDeclarations.http_action_of_name target with
- | Some action_id => JObject [ModelResultDeclarations.tag (ModelResultDeclarations.http_action_declaration action_id);("body",value)]
- | None => unknown_route end.
+Definition body_action (target : ModelResultDeclarations.http_body_target) (value : option json) :=
+ ModelDeclarations.encode_packet
+   (ModelDeclarations.pack (ModelResultDeclarations.http_body_declaration (proj1_sig target)) [!value!]).
 Definition body_stage (body : bool) (source : json) :=
-  let target := body_target source in
-  if String.eqb target "" || negb (String.eqb (str source "target") target) then unknown_route
+  match body_target source with
+  | None => unknown_route
+  | Some selected => let target := proj1_sig selected in
+  if negb (String.eqb (str source "target") target) then unknown_route
   else if negb (starts (str source "content_type") "application/json")
     then rejection 415 "content_type" "Send application/json"
-  else if negb body then action_named target
+  else if negb body then body_action selected None
   else match as_string (get source "text") with
   | None => body_error target
   | Some original =>
     match TextJson.parse_input_json original with
-    | TextJson.InputAccepted value => if body_shape target value then body_action target value else body_error target
+    | TextJson.InputAccepted value => if body_shape target value then body_action selected (Some value) else body_error target
     | TextJson.InputInvalid => body_error target
     | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
     end
-  end.
-Definition audio_limits := ModelDeclarations.encode ModelDeclarations.audio_allowed
-  (FCons (field:=ModelDeclarations.audio_max_bytes) Audio.asr_max_bytes
-    (FCons (field:=ModelDeclarations.audio_timeout_ms) Audio.request_timeout_ms
-    (FCons (field:=ModelDeclarations.audio_connect_timeout_ms) Audio.connect_timeout_ms
-    (FCons (field:=ModelDeclarations.audio_session_max_ms) Audio.session_max_ms FNil)))).
-Definition audio_reject (message : string) := ModelDeclarations.encode ModelDeclarations.audio_rejected (FCons (field:=ModelDeclarations.audio_message) message FNil).
+  end end.
+Definition audio_limits := ModelDeclarations.encode_packet (ModelDeclarations.pack ModelDeclarations.audio_allowed
+ [!Audio.asr_max_bytes;Audio.request_timeout_ms;Audio.connect_timeout_ms;Audio.session_max_ms!]).
+Definition audio_reject (message : string) := ModelDeclarations.encode_packet
+ (ModelDeclarations.pack ModelDeclarations.audio_rejected [!message!]).
 Definition audio_admission (source : json) :=
   let kind := str source "kind" in
   if String.eqb kind "create" then
@@ -236,7 +238,8 @@ Definition call (operation : string) (source : json) :=
       if authorized source then action (if connection_path source then ModelResultDeclarations.Http_connection_method_origin else ModelResultDeclarations.Http_local_origin)
       else authorization_rejection source))
   else if String.eqb operation "http.connection_method_origin" || String.eqb operation "http.local_origin"
-    then success (request_guard source local_route (fun source => content_target (body_target source)))
+    then success (request_guard source local_route (fun source =>
+      match body_target source with Some target => content_target target | None => unknown_route end))
   else if String.eqb operation "http.content_type" || String.eqb operation "http.body"
     then success (request_guard source (body_stage (String.eqb operation "http.body")) (body_stage (String.eqb operation "http.body")))
   else if String.eqb operation "http.error" then success (request_error_response source)

@@ -18,7 +18,7 @@ Proof.
  destruct phase; try discriminate; intros _; eauto.
 Qed.
 
-Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count messages requested value parent:
+Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id (count : TaskConstraints.fork_count) messages requested value parent:
  find_task id value=Some parent ->
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
@@ -31,7 +31,8 @@ Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count m
 Proof.
  intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
- destruct invoked; unfold Tasks.fork_refusal; unfold Tasks.ancestors_fit; rewrite ?Capacity; reflexivity.
+ destruct invoked; unfold Tasks.fork_refusal,Tasks.fork_refusal_reason,Tasks.ancestors_fit;
+ rewrite ?Capacity; try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
@@ -56,24 +57,23 @@ Theorem stopped_idle_receive_reactivates : forall contents task,
  task_lifecycle task = Stopped Idle [] ->
  task_lifecycle (Tasks.receive contents task) = Running WantsModel [].
 Proof.
- intros contents task Hstopped.
- assert (Hget : forall state value,
-   task_lifecycle (Domain.with_lifecycle state value) = state).
- { intros state value. unfold Domain.with_lifecycle.
-   exact (@set_get Domain.task Domain.lifecycle task_lifecycle _ (fun _ => state) value). }
- rewrite TaskChangesProofs.receive_expression; cbv beta zeta. rewrite Hstopped, Hget. reflexivity.
+ intros contents [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+ cbn [task_lifecycle] in Stopped; subst lifecycle; reflexivity.
 Qed.
 
 Theorem interrupt_task_is_idempotent : forall task,
  Tasks.control_task Tasks.Interrupt (Tasks.control_task Tasks.Interrupt task) =
  Tasks.control_task Tasks.Interrupt task.
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor].
- destruct lifecycle;
- repeat rewrite TaskChangesProofs.control_task_expression; cbv beta zeta; unfold Tasks.control_target, Tasks.control_transition, Tasks.unknown_operations,
-   with_lifecycle, append_history, with_history;
- cbn [task_lifecycle task_activity task_operations History.interrupted_phase];
- try rewrite app_nil_r; reflexivity.
+ assert (Stable : forall current, task_lifecycle current = Stopped Idle [] ->
+   Tasks.control_task Tasks.Interrupt current = current).
+ { intros [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+   cbn [task_lifecycle] in Stopped; subst lifecycle.
+   change (Task contract profile settings (Stopped Idle []) (history ++ []) queued lineage parent cursor consumed =
+     Task contract profile settings (Stopped Idle []) history queued lineage parent cursor consumed).
+   now rewrite app_nil_r. }
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ destruct lifecycle; first [apply Stable; reflexivity | reflexivity].
 Qed.
 
 Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side,
@@ -103,7 +103,7 @@ Proof.
  intros settings parent history.
  unfold Tasks.selected_context_history.
  destruct (Json.equal (settings_json settings) (settings_json (task_current_settings parent)) &&
-   Json.equal (settings_guidance settings) (settings_guidance (task_current_settings parent))) eqn:Hsame.
+   Guidance.same (settings_guidance settings) (settings_guidance (task_current_settings parent))) eqn:Hsame.
  - exists []. rewrite app_nil_r. reflexivity.
  - remember (fold_right (fun snapshot rest =>
      if Tasks.context_selected (settings_workspace settings) (snapshot_key snapshot) then rest
@@ -162,8 +162,9 @@ Qed.
 
 Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining origin id count messages requested value parent selected selection,
  find_task id value = Some parent ->
+ WorkspaceBinding.input_available parent value = true ->
  (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
-   TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
+   TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count value) = true ->
  Tasks.resolve_settings (task_current_profile parent) requested
@@ -173,8 +174,8 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining 
  Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value =
    Tasks.refuse_start Tasks.NativeForkEntry Tasks.AuthorityExpansion value.
 Proof.
- intros invocation remaining origin id count messages requested value parent selected selection Hfind Heligible Hresolved Hselection Hdelegate.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection.
+ intros invocation remaining origin id count messages requested value parent selected selection Hfind Available Heligible Hresolved Hselection Hdelegate.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection, Available.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 
@@ -202,24 +203,6 @@ Proof.
    + repeat split; reflexivity.
    + exact IH.
 Qed.
-
-Theorem accepted_model_success_uses_origin_scoped_messages : forall owner ticket allowed mode items task,
- Callbacks.permitted_items items allowed task [] [] = true ->
- Callbacks.model_result owner ticket allowed mode (ModelSuccess items) task =
-   match Callbacks.item_calls items with
-   | [] => Callbacks.settle_model
-       (Domain.append_history (Callbacks.item_messages owner ticket mode items) task)
-   | calls => Domain.with_activity (PendingCalls calls)
-       (Domain.append_history (Callbacks.item_messages owner ticket mode items) task)
-   end /\
- Forall (model_output_has_origin owner ticket mode)
-   (Callbacks.item_messages owner ticket mode items).
-Proof.
- intros owner ticket allowed mode items task Hpermitted. split.
- - rewrite CallbackChangesProofs.model_result_expression. rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
- - apply model_item_messages_preserve_output_origin.
-Qed.
-
 
 (** Presence is the public fork contract. Even an explicitly empty content is a
     child instruction; only an omitted list element is absent. *)

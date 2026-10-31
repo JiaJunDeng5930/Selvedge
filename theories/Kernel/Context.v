@@ -11,10 +11,6 @@ Definition excluded := [".git"; ".hg"; ".svn"; "node_modules"; "vendor"; ".build
  ".venv"; "venv"; ".agents"; ".claude"].
 Definition discovery (files dirs : list string) :=
  DiscoveryPolicy files dirs [".git"] excluded 10000 100000 1024 262144.
-Definition policy_source_path (policy : discovery_policy) (root path : string) :=
- existsb (fun file => String.eqb path
-  (if String.eqb root "/" then String.append root file else String.append root (String.append "/" file)))
-  (discovery_files policy).
 Definition guidance_policy := discovery ["AGENTS.override.md"; "AGENTS.md"] [].
 Definition home_skills_policy := discovery ["SKILL.md"] ["skills"; ".agents/skills"].
 Definition workspace_skills_policy := discovery ["SKILL.md"] [".agents/skills"; ".claude/skills"].
@@ -33,7 +29,9 @@ Definition global_guidance := ContextDefinition "global_agents"
 Definition project_guidance := ContextDefinition "project_guidance"
  "Apply these instructions within applies_to. The precedence directory orders guidance by ancestry: descendant directories take priority over ancestors; AGENTS.override.md takes priority over AGENTS.md in the same directory. Scope does not change execution permissions."
  PrimaryWorkspace (PrimaryGuidance guidance_policy) [IdentityField "workspace" WorkspaceRoot true]
- (text_fields ++ ValueField "path" (ObservationField "path") true :: applicability_fields).
+ (text_fields ++ [ValueField "path" (ObservationField "path") true;
+   ValueField "applies_to" (IdentityValue "workspace") true;
+   ValueField "precedence" (IdentityValue "workspace") true]).
 Definition directory_guidance := ContextDefinition "directory_guidance"
  "Apply these instructions only within applies_to. The precedence directory orders guidance by ancestry: descendant directories take priority over ancestors; AGENTS.override.md takes priority over AGENTS.md in the same directory. Scope does not change execution permissions."
  EveryWorkspace (WorkspaceGuidance guidance_policy)
@@ -168,6 +166,6 @@ Definition patch_json (patches : list field_patch) := JObject [
  ("field", JString (patch_field patch)); ("edits", JArray (map edit_json (patch_edits patch)))]) patches))].
 Definition change_json (value : context_change) := match value with
  | Introduce value => JObject [("type", JString "introduce"); ("snapshot", snapshot_json value)]
- | Amend key base revision patches => JObject [("type", JString "amend"); ("key", key_json key);
-   ("base_revision", JString base); ("revision", JString revision); ("patch", patch_json patches)]
+ | Amend target base patches => JObject [("type", JString "amend"); ("key", key_json (snapshot_key target));
+   ("base_revision", JString base); ("revision", JString (snapshot_revision target)); ("patch", patch_json patches)]
  | Remove key base => JObject [("type", JString "remove"); ("key", key_json key); ("base_revision", JString base)] end.

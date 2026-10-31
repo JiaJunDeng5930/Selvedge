@@ -15,9 +15,9 @@ Theorem completion_closes_stdin current :
   stdin_open (observe current Failed) = false.
 Proof. reflexivity. Qed.
 
-Theorem exit_rejects_write current terminal eof cols rows :
+Theorem exit_rejects_write current terminal eof resize :
   process_phase current = Running ->
-  admit_write (observe current ShellExited) terminal eof cols rows =
+  admit_write (observe current ShellExited) terminal eof resize =
     Some (Failure "process_stdin_closed" "The process input is closed").
 Proof. destruct current; cbn; intros; subst; reflexivity. Qed.
 

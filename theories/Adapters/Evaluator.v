@@ -5,9 +5,9 @@ Import ListNotations.
 Open Scope string_scope.
 Definition handlers : list (string * (json -> json)) := [
   ("evaluator.contract",fun _ => success contract);
-  ("evaluator.budget_plan",budget_plan);("evaluator.budget_finish",budget_finish);
-  ("evaluator.preview_start",preview_start);("evaluator.preview_step",preview_step);
-  ("evaluator.context_select",context_select);("evaluator.context_finish",context_finish);
+  ("evaluator.budget_plan",budget_plan);
+  ("evaluator.preview",preview);
+  ("evaluator.context_select",context_select);
   ("evaluator.request",request);("evaluator.request_admission",request_admission);
   ("evaluator.decision",decision);("evaluator.retry",retry)].
 Definition call operation source := match find (fun entry => String.eqb operation (fst entry)) handlers with

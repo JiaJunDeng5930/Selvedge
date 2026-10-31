@@ -1,6 +1,10 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers EnrollmentCredential.
-From Selvedge.Host Require Import RemoteProtocol RemoteRelaySession.
+From Selvedge.Foundation Require Import Json Numbers Schema EnrollmentCredential.
+From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Host Require Import RemoteProtocol.
+Module RP := RemoteProtocol.
+Module D := ArgumentDeclaration.
+Module F := DeclarationFields.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -12,9 +16,6 @@ Inductive observation :=
  | Authorization (destination : route) (header : string)
  | JsonBody (destination : route) (body : json)
  | Content (media declared : string) (received : N).
-Inductive action := Reject (status : N) (code : string) | Dispatch (destination : route) (host_id : string)
- | Credential (value : string) | BodyAccepted | ContentAccepted.
-
 Definition route_name value := match value with Health=>"health" | Enrollment=>"register"
  | Host=>"host" | Pairing=>"pair" | Tickets=>"tickets" | Control=>"control" end.
 Definition read_route value := match value with "health"=>Some Health | "register"=>Some Enrollment
@@ -37,24 +38,46 @@ Definition pairing_code text := (20 <=? N.of_nat (String.length text)) &&
  (N.of_nat (String.length text) <=? 128) && EnrollmentCredential.visible_ascii text.
 Definition whitespace scalar := existsb (N.eqb scalar)
  [9;10;11;12;13;32;160;5760;8192;8193;8194;8195;8196;8197;8198;8199;8200;8201;8202;8232;8233;8239;8287;12288;65279].
-Definition label_valid body := match get body "label" with
- | JString text => bounded (JString text) 80 &&
- (match Utf8.decode text with Some scalars=>existsb (fun scalar=>negb (whitespace scalar)) scalars|None=>false end)
- | _=>false end.
-Definition body_valid destination body := match destination with
- | Enrollment=>shape body ["host_id";"host_token"] && host_id_valid (str body "host_id") && wire_token (str body "host_token")
- | Pairing=>shape body ["controller_token";"label"] && wire_token (str body "controller_token") && label_valid body
- | Tickets=>shape body [] | _=>false end.
+Definition label_nonblank (value : D.denote RP.label_declaration) :=
+ match Utf8.decode (proj1_sig value) with
+ | Some scalars => existsb (fun scalar=>negb (whitespace scalar)) scalars | None=>false end.
+Definition registration_fields := [F.required "host_id" (D.Value KText);F.required "host_token" (D.Value KText)].
+Definition pairing_fields := [F.required "controller_token" (D.Value KText);F.required "label" RP.label_declaration].
+Definition body_value destination : Type := match destination with
+ | Enrollment => (D.checked host_id_valid * D.checked wire_token)%type
+ | Pairing => (D.checked wire_token * D.checked label_nonblank)%type
+ | Tickets => unit | _ => Empty_set end.
+Definition decode_body destination source : option (body_value destination) := match destination with
+ | Enrollment => match F.decode registration_fields source with
+   | Some (id,(token,_)) => match D.admit host_id_valid id,D.admit wire_token token with
+     | Some id,Some token => Some (id,token) | _,_ => None end
+   | None => None end
+ | Pairing => match F.decode pairing_fields source with
+   | Some (token,(label,_)) => match D.admit wire_token token,D.admit label_nonblank label with
+     | Some token,Some label => Some (token,label) | _,_ => None end
+   | None => None end
+ | Tickets => option_map (fun _ => tt) (F.decode [] source)
+ | _ => None end.
+Definition body_json destination : body_value destination -> json := match destination with
+ | Enrollment => fun '(id,token) => D.encode (D.Object registration_fields)
+     (F.construct registration_fields [!proj1_sig id;proj1_sig token!])
+ | Pairing => fun '(token,label) => D.encode (D.Object pairing_fields)
+     (F.construct pairing_fields [!proj1_sig token;proj1_sig label!])
+ | Tickets => fun _ => JObject [] | _ => fun impossible => match impossible with end end.
 Definition credential_valid destination credential := match destination with
  | Enrollment=>EnrollmentCredential.valid credential
  | Host | Tickets | Control=>wire_token credential
  | Pairing=>pairing_code credential | Health=>false end.
 Definition credential_error destination := match destination with
  | Pairing=>"invalid_pairing_code" | Control=>"invalid_ticket" | _=>"unauthorized" end.
+Inductive action := Reject (status : N) (code : string) | Dispatch (destination : route) (host_id : string)
+ | Credential (destination : route) (value : D.checked (credential_valid destination)) | BodyAccepted (destination : route) (value : body_value destination) | ContentAccepted.
+
 Definition authorize destination header :=
  if String.eqb (substring 0 7 header) "Bearer " then
  let value:=substring 7 (String.length header) header in
- if credential_valid destination value then Credential value else Reject 401 (credential_error destination)
+ match D.admit (credential_valid destination) value with
+ | Some value => Credential destination value | None => Reject 401 (credential_error destination) end
  else Reject 401 (credential_error destination).
 Fixpoint split_path text reversed := match text with
  | EmptyString=>[string_of_list_ascii (rev reversed)]
@@ -104,8 +127,9 @@ Definition step current event : state * list action :=
    let chosen:=route_admission protocol hostname path method local_test query in
    match chosen with Dispatch destination host_id=>(Routed destination host_id,[chosen]) | _=>(current,[chosen]) end
  | Authorization destination header=>(current,[authorize destination header])
- | JsonBody destination body=>(current,[if body_valid destination body then BodyAccepted else
-   Reject 400 (match destination with Enrollment=>"invalid_registration"|Pairing=>"invalid_pairing_request"|_=>"invalid_ticket_request" end)])
+ | JsonBody destination body=>(current,[match decode_body destination body with
+   | Some value => BodyAccepted destination value
+   | None => Reject 400 (match destination with Enrollment=>"invalid_registration"|Pairing=>"invalid_pairing_request"|_=>"invalid_ticket_request" end) end])
  | Content media declared received=>(current,[if negb (json_content media) then Reject 415 "invalid_request" else
    if (maximum_body_bytes <? received) || (match parse_natural declared with Some size=>maximum_body_bytes <? size|None=>false end)
    then Reject 413 "invalid_request" else ContentAccepted])
@@ -114,8 +138,8 @@ Definition step current event : state * list action :=
 Definition action_json chosen := match chosen with
  | Reject status code=>JObject [("action",JString "reject");("status",number status);("code",JString code)]
  | Dispatch destination host_id=>JObject [("action",JString (route_name destination));("host_id",JString host_id)]
- | Credential value=>JObject [("accepted",JBool true);("credential",JString value)]
- | BodyAccepted=>JBool true | ContentAccepted=>number 0
+ | Credential _ value=>JObject [("accepted",JBool true);("credential",JString (proj1_sig value))]
+ | BodyAccepted destination value=>body_json destination value | ContentAccepted=>number 0
  end.
 
 Definition execute current event := match snd (step current event) with chosen::_=>action_json chosen | _=>JNull end.
@@ -127,7 +151,6 @@ Definition call operation source :=
  (equal (get source "local_test") (JBool true)) (items (get source "query")))
  else if String.eqb operation "control.remote.relay_content" then execute AwaitRequest
  (Content (str source "content_type") (str source "content_length") (num source "received_bytes"))
- else if String.eqb operation "control.remote.relay_disconnect" then RemoteRelaySession.disconnect source
  else match read_route (str source "route") with
  | None=>action_json (Reject 404 "not_found")
  | Some destination=>

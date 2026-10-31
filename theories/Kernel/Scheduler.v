@@ -1,4 +1,4 @@
-From Selvedge.Kernel Require Import TaskScope TaskChange.
+From Selvedge.Kernel Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search TicketedRequest.
@@ -15,9 +15,7 @@ Definition commit_changes (id : N) (changes : task -> list TaskChange.edit) (val
  | Some target => TaskChange.interpret
    (TaskChange.Plan value target (changes (TaskScope.selected target)))
  end.
-Definition call_result_changes (invocation : call) (result : json) (error : bool) (remaining : list call) :=
- [TaskChange.AppendHistory [FunctionOutput (call_id invocation) result error];
-  TaskChange.ChangePhase (PendingCalls remaining)].
+Definition call_result_changes := OperationEvent.call_result.
 Definition call_result (invocation : call) (result : json) (error : bool) (remaining : list call) (task : task) :=
  TaskChange.apply (call_result_changes invocation result error remaining) task.
 Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (task : task) (value : world) :=
@@ -73,14 +71,10 @@ Definition internal_result_available (task : task) :=
  end.
 Definition internal_result (id : N) (invocation : call) (remaining : list call)
  (result : json) (error : bool) (task : task) (value : world) :=
- match Callbacks.after_plugins task with
- | [] => acknowledged (commit_changes id (fun _ => call_result_changes invocation result error remaining) value)
- | _ =>
-   let '(ticket, value) := allocate_ticket value in
-   let operation := Operation ticket invocation false (Executing ticket) in
-   Callbacks.tool_completed id ticket result error
-     (commit_changes id (fun _ => [TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)]) value)
- end.
+ acknowledged (put_task id
+   (OperationEvent.native_result id (world_next_ticket value) invocation remaining result error task)
+   (match Callbacks.after_plugins task with
+    | [] => value | _ => with_ticket (N.succ (world_next_ticket value)) value end)).
 Definition call_admission (tool : tool) (invocation : call) (value : world) :=
  if negb (Capabilities.available (environment_tools (world_environment value)) tool) then
    Some ("tool_unavailable", "The task's frozen tool route is unavailable")
@@ -91,6 +85,13 @@ Definition retry_safe (tool : tool) := match tool_origin tool with
  | NativeToolSource _ program => match field "kind" program with
    | Some (JString "Command") | Some (JString "Discover") => true | _ => false end
  | _ => false end.
+Definition finish_call (id : N) (invocation : call) (remaining : list call)
+ (value : json) (failed : bool) (result : decision) :=
+ match find_task id (decision_world result) with
+ | Some caller =>
+   DecisionComposition.follow result
+     (internal_result id invocation remaining value failed caller (decision_world result))
+ | None => result end.
 Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (invocation : call)
  (remaining : list call) (task : task) (value : world) :=
  match call_admission tool invocation value with
@@ -103,16 +104,10 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
       remaining calls, but must not also close this executing call as pending. *)
    let started := commit_changes id (fun _ => [TaskChange.ChangePhase (PendingCalls remaining)]) value in
    let result := execute command (Some (Tasks.NativeCall id invocation remaining)) started in
-   let updated := decision_world result in
-   let result_value := if String.eqb (call_name invocation) "fork_task" && bool_default "ok" (decision_reply result) false
+   let accepted := bool_default "ok" (decision_reply result) false in
+   let result_value := if String.eqb (call_name invocation) "fork_task" && accepted
      then number 0 else decision_reply result in
-   match find_task id updated with
-   | Some caller =>
-     let settled := internal_result id invocation remaining result_value
-       (negb (bool_default "ok" (decision_reply result) false)) caller updated in
-     Decision (decision_world settled) (decision_reply result)
-       (decision_effects result ++ decision_effects settled)
-   | None => result end
+   finish_call id invocation remaining result_value (negb accepted) result
    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
  | None =>
    if String.eqb (call_name invocation) "discover_tools" then
@@ -160,12 +155,8 @@ Definition after_hooks_step (id : N) (operation : operation) (task : task) (valu
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) value)
-   else acknowledged (Tasks.commit_result id (fun task =>
-     let receipt := TaskChange.AppendHistory [AfterReceipt id (operation_id operation) plugin
-       (Inputs.after_json (Inputs.AfterFailure "The frozen result-processing plugin revision is unavailable"))] in
-     Tasks.prefix_result [receipt] (Callbacks.settle_operation_plan operation
-       (State.failure "after_hook_unavailable" "The frozen result-processing plugin revision is unavailable; the tool has already completed") true
-       )) value)
+   else acknowledged (Tasks.commit_result id
+     (OperationEvent.plan id (OperationEvent.AfterUnavailable operation plugin)) value)
  | _ => acknowledged value
  end.
 Definition ready_operation (operations : list operation) := find (fun operation =>
@@ -317,11 +308,12 @@ Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
    end
  end end.
 Definition schedule := schedule_with unrestricted.
-Definition run_with (advance : advancement) (execute : executor)
- (permitted : N -> world -> bool) (decision : decision) :=
+Definition scheduling_with (advance : advancement) (execute : executor)
+ (permitted : N -> world -> bool) : DecisionComposition.transformation := fun _ value effects =>
  let '(value,effects) := schedule_with advance Limits.schedule_steps execute permitted
-   (decision_world decision) (decision_effects decision) in
- let '(value,effects) := Dispatch.prepare value effects in
- Decision value (decision_reply decision) effects.
+   value effects in
+ Dispatch.prepare value effects.
+Definition run_with (advance : advancement) (execute : executor) (permitted : N -> world -> bool) :=
+ DecisionComposition.transform (scheduling_with advance execute permitted).
 Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
  run_with unrestricted execute permitted decision.

@@ -3,7 +3,7 @@ From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks History Recovery Inputs Callbacks.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks History Recovery RecoveryProofs Inputs Callbacks.
 Import ListNotations.
 
 Definition registry_replace_selected := @Selvedge.Foundation.RegistryProofs.registry_replace_selected.
@@ -25,16 +25,13 @@ Proof.
 Qed.
 Theorem restart_removes_all_old_operation_rights : forall id value,
  task_operations (Recovery.recover_task id value) = [].
-Proof. intros id [contract profile settings lifecycle history queued lineage parent cursor]; destruct lifecycle; reflexivity. Qed.
+Proof. apply recovery_retires_every_operation. Qed.
 Theorem restart_emits_no_old_external_request : forall value,
  decision_effects (Recovery.recover value) = [].
 Proof. reflexivity. Qed.
 Theorem restart_retains_committed_history : forall id value,
  exists suffix, task_history (Recovery.recover_task id value) = task_history value ++ suffix.
-Proof.
- intros id [contract profile settings lifecycle history queued lineage parent cursor]; destruct lifecycle; cbn [Recovery.recover_task History.close_operations with_lifecycle with_history task_history task_operations task_activity];
- eexists; rewrite app_assoc; reflexivity.
-Qed.
+Proof. apply recovery_retains_committed_history. Qed.
 Theorem fork_snapshot_includes_original_history : forall id value,
  exists suffix, History.snapshot_history id value = task_history value ++ suffix.
 Proof. intros; unfold History.snapshot_history, History.close_operations; eexists; rewrite app_assoc; reflexivity. Qed.
@@ -62,7 +59,7 @@ Proof.
  rewrite CallbackChangesProofs.tool_completed_expression; rewrite Hfind.
  assert (Hnone : find (Callbacks.operation_executing ticket) (task_operations task) = None).
  { apply find_none_when_rejected. intros operation Hinside.
-   specialize (Howned operation Hinside). unfold Callbacks.operation_executing.
+   specialize (Howned operation Hinside). unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
    destruct (operation_stage operation); try reflexivity; apply N.eqb_neq; exact Howned. }
  rewrite Hnone; reflexivity.
 Qed.

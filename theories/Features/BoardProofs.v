@@ -1,69 +1,85 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs.
-From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree WorktreeProofs Titles TitleRuntime FeatureScopeProofs.
+From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8 CompletionProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs FeatureAdmissionProofs.
+From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree WorktreeProofs Titles TitleRuntime.
 Import ListNotations.
 Open Scope list_scope.
 Module F:=Selvedge.Features.Domain.
 
+Lemma selecting_a_card_retains_the_observed_value : forall id revision value,
+ Board.select_card id revision value = match Board.lookup id value with
+ | Some card => if N.eqb revision (F.card_revision card) then CommandResult.Accepted card
+   else CommandResult.refuse "card_conflict" "The card changed in another view or during execution. Refresh its current values before applying this edit."
+ | None => CommandResult.refuse "card_not_found" "The board card does not exist" end.
+Proof.
+ intros id revision value; destruct (Board.lookup id value) as [card|] eqn:Found;
+ unfold Board.select_card,Board.select_card_reference.
+ - eapply observe_present; [exact Found|]; intros Observed.
+   destruct (N.eqb revision (F.card_revision card)); reflexivity.
+ - eapply observe_absent; [exact Found|]; intros Missing; reflexivity.
+Qed.
+
 Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
  match F.card_enrichment card with
- | F.Enriching expected revision _ =>
+ | F.Enriching (RequestEnvelope.Envelope expected (revision, _)) =>
      ticket=expected /\ revision=F.card_revision card /\ F.card_archived card=false
  | _ => False
  end.
 
 (** A well-formed callback with no current card lease is acknowledged as
     ignored, without changing the board or dispatching another turn. *)
-Theorem board_text_without_current_lease_is_ignored : forall source value id ticket ok,
- string_field "kind" source=Some "board_text" ->
- natural_field "card_id" source=Some id ->
- natural_field "ticket" source=Some ticket ->
- bool_field "ok" source=Some ok ->
- Board.valid_completion_payload source ok=true ->
- (forall card, Board.lookup id value=Some card -> ~ current_board_lease ticket card) ->
+Theorem board_text_without_current_lease_is_ignored : forall ok
+ (address : Schema.fields (CallbackDeclarations.coordinates ModelDeclarations.BoardText))
+ (fields : DeclarationFields.values (CallbackDeclarations.payload ModelDeclarations.BoardText ok)) value,
+ (forall card, Board.lookup (head address) value=Some card ->
+   ~ current_board_lease (head (tail address)) card) ->
  exists result,
-   Board.completion source value=Some (false,false,result) /\
+   Board.completion (existT _ ok (address,fields)) value=(false,false,result) /\
    decision_reply result=success (JObject [("accepted"%string,JBool false)]) /\
    decision_world result=value /\ decision_effects result=[] /\
-   Board.lookup id (decision_world result)=Board.lookup id value.
+   Board.lookup (head address) (decision_world result)=Board.lookup (head address) value.
 Proof.
- intros source value id ticket ok kind identity issued outcome payload_valid no_lease.
- unfold Board.completion. rewrite kind,identity,issued,outcome.
- cbn zeta. rewrite payload_valid.
- destruct (Board.lookup id value) as [card|] eqn:found.
- - destruct (F.card_enrichment card) as [|expected revision retitle|reason] eqn:lease.
-   + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-     repeat split; try reflexivity. exact found.
-   + destruct (N.eqb ticket expected && N.eqb revision (F.card_revision card) && negb (F.card_archived card)) eqn:matches.
-     * exfalso. specialize (no_lease card eq_refl). apply no_lease.
-       unfold current_board_lease. rewrite lease. simpl.
-       apply Bool.andb_true_iff in matches as [ticket_revision not_archived].
-       apply Bool.andb_true_iff in ticket_revision as [ticket_matches version_matches].
-       apply N.eqb_eq in ticket_matches. apply N.eqb_eq in version_matches.
-       apply Bool.negb_true_iff in not_archived. repeat split; assumption.
-     * cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-       repeat split; try reflexivity. exact found.
-   + cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-     repeat split; try reflexivity. exact found.
- - cbn. exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
-   repeat split; try reflexivity. exact found.
+ intros ok address fields value no_lease.
+ set (id:=head address) in *; set (ticket:=head (tail address)) in *.
+ unfold Board.completion; cbn zeta; fold id ticket.
+ destruct (Completion.Row.consume (Board.completion_path id) F.card_enrichment F.Enriching Completion.Ticket ticket
+   (Board.completion_choice (existT _ ok fields) value) value) as [received|].
+ - exfalso; pose proof (Completion.Row.observed received) as Found.
+   cbn in Found.
+   assert (Located : Board.lookup id value=Some (Completion.Row.previous received)).
+   { unfold Board.lookup,Board.registry.
+     destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[card|]|]; exact Found. }
+   apply (no_lease _ Located).
+   destruct (CompletionProofs.candidate_spec _ _ _ _ _ _ _ _ (Completion.Row.admitted received))
+     as [Pending Matches].
+   pose proof (Constructor.project_case _ _ Pending) as Phase.
+   pose proof (Completion.Row.selected received) as Relevant.
+   destruct (Completion.Row.request received) as [expected [revision retitle]] eqn:Request.
+   unfold Board.completion_choice in Relevant; cbn in Relevant.
+   lazymatch type of Relevant with (if ?condition then _ else _) = _ =>
+     destruct condition eqn:Current in Relevant end; [|discriminate].
+   apply andb_true_iff in Current as [Revision Archived].
+   apply N.eqb_eq in Revision; apply negb_true_iff in Archived.
+   unfold current_board_lease; rewrite <-Phase; cbn.
+   repeat split; try assumption. now apply N.eqb_eq in Matches.
+ - exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
+   repeat split; reflexivity.
 Qed.
 
 (** Launch writes the identifier allocated by the shared Task creator and
     forwards that creator's complete effect list unchanged. *)
-Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent now
+Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent
  (birth : Worktree.start_transition value value),
  Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
  revision=F.card_revision card ->
  Board.runnable card value=true ->
  Board.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
  let settings:=Board.launch_settings agent (F.card_contents card) in
  Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
-   (Some settings) false caller None value = Worktree.Created birth ->
+   (Some settings) false caller None value = CommandResult.Accepted birth ->
  let launched:=Board.run id revision observed caller value in
  exists updated,
    Board.lookup id (decision_world launched)=Some updated /\
@@ -73,15 +89,19 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
    world_tasks (decision_world launched)=world_tasks (Worktree.transition_world birth) /\
    decision_effects launched=Worktree.transition_effects birth.
 Proof.
- intros id revision observed caller value card agent now birth found clock current runnable assigned settings Created launched.
+ intros id revision observed caller value card agent birth found current runnable assigned settings Created launched.
  subst revision.
- unfold launched, Board.run, Board.at_clock. rewrite clock. unfold Board.with_card.
- rewrite found,N.eqb_refl,runnable,assigned. fold settings. rewrite Created. cbn zeta.
+ unfold launched, Board.run, Board.run_result.
+ rewrite selecting_a_card_retains_the_observed_value.
+ rewrite found,N.eqb_refl. cbn [CommandResult.bind].
+ rewrite runnable,assigned. fold settings. rewrite Created.
+ cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
+   CommandResult.change_world CommandResult.change_value CommandResult.change_effects accept decision_world decision_effects].
  assert (created_keeps_card : Board.lookup id (Worktree.transition_world birth)=Some card).
  { unfold Board.lookup,Board.registry. rewrite Worktree.transition_preserves_board. exact found. }
  exists (F.Card (N.succ (F.card_revision card))
    (Board.with_stage F.InProgress (F.card_contents card))
-   (Some (Worktree.transition_identity birth)) false (F.card_created card) now
+   (Some (Worktree.transition_identity birth)) false (F.card_created_at card) observed
    F.NoEnrichment "" (F.card_pinned card)).
  split.
  - eapply BoardRelations.board_lookup_after_put_selected. exact created_keeps_card.
@@ -113,26 +133,25 @@ Lemma interrupt_preserves_task_authority : forall task,
  Selvedge.Kernel.Domain.task_current_settings (Tasks.control_task Tasks.Interrupt task)=
    Selvedge.Kernel.Domain.task_current_settings task.
 Proof.
- intros task. rewrite TaskChangesProofs.control_task_expression.
- unfold Tasks.control_target, Tasks.control_transition,
-   Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.append_history,
-   Selvedge.Kernel.Domain.with_history.
- cbv [set]. destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl; repeat split; reflexivity.
+ intros task; unfold Tasks.control_task.
+ pose proof (TaskChangeProofs.field_changes_keep_the_immutable_task_identity
+   (Tasks.control_changes Tasks.Interrupt task) task) as Identity.
+ pose proof (TaskChangeProofs.field_changes_keep_execution_configuration
+   (Tasks.control_changes Tasks.Interrupt task) task) as Configuration.
+ tauto.
 Qed.
 
 (** Archiving a busy linked card keeps the association and the Task's frozen
-    authority while the real Interrupt transition emits its cancellation. The
-    resource admission premise is the same one required by public Interrupt. *)
-Theorem archive_busy_card_retains_task_authority : forall id revision observed value card target task now,
+    authority while the real Interrupt transition emits its cancellation. Its
+    resource preparation does not prevent cancelling the linked task. *)
+Theorem archive_busy_card_retains_task_authority : forall id revision observed value card target task,
  Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
  revision=F.card_revision card ->
  Board.pending card=false ->
  F.card_task card=Some target ->
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
  Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.control_guard Tasks.Interrupt target value=None ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\
@@ -148,17 +167,17 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
      Selvedge.Kernel.Domain.task_current_settings task /\
    decision_effects archived=[Selvedge.Kernel.State.CancelTask target].
 Proof.
- intros id revision observed value card target task now found clock current pending linked task_found busy not_archived admitted archived.
+ intros id revision observed value card target task found current pending linked task_found busy not_archived archived.
  subst revision.
- unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
- unfold Board.with_card. rewrite found, N.eqb_refl.
+ unfold archived, Board.archive_card, CommandResult.resolve.
+ unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
  unfold Board.archive_interrupt_target.
- rewrite linked, task_found, busy, not_archived. cbn [andb negb]. rewrite admitted. cbn zeta.
+ rewrite linked, task_found, busy, not_archived. cbn [andb negb]. cbn zeta.
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
-   (F.card_contents card) (Some target) true (F.card_created card) now
+   (F.card_contents card) (Some target) true (F.card_created_at card) observed
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
  exists updated.
  assert (interrupt : Tasks.control_command target Tasks.Interrupt
@@ -181,55 +200,10 @@ Proof.
  - exact (proj2 (proj2 (interrupt_preserves_task_authority task))).
 Qed.
 
-(** Every resource refusal is returned before saving the card, rather than
-    converting an invalid Interrupt into a saved card with a success reply. *)
-Theorem archive_card_control_refusal_is_atomic : forall id revision observed value card target task now refused,
- Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
- revision=F.card_revision card ->
- Board.pending card=false ->
- F.card_task card=Some target ->
- Selvedge.Kernel.State.find_task target value=Some task ->
- Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.control_guard Tasks.Interrupt target value=Some refused ->
- Board.archive_card id revision observed true value=refused.
-Proof.
- intros id revision observed value card target task now refused found clock current pending linked task_found busy not_archived rejected.
- subst revision.
- unfold Board.archive_card, Board.at_clock. rewrite clock.
- unfold Board.with_card. rewrite found, N.eqb_refl, pending.
- unfold Board.archive_interrupt_target.
- rewrite linked, task_found, busy, not_archived. cbn [andb negb].
- rewrite rejected. reflexivity.
-Qed.
-
-Theorem archive_card_pending_owner_rejected : forall id revision observed value card target task now tree,
- Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
- revision=F.card_revision card ->
- Board.pending card=false ->
- F.card_task card=Some target ->
- Selvedge.Kernel.State.find_task target value=Some task ->
- Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_archived task=false ->
- Worktree.execution_allowed target value=true ->
- Worktree.lookup target value=Some tree ->
- Worktree.pending tree=true ->
- Board.archive_card id revision observed true value=
-   reject "worktree_pending"%string
-     "Wait for worktree creation or archive the task before changing its execution"%string value.
-Proof.
- intros id revision observed value card target task now tree found clock current pending linked task_found busy not_archived executable owned preparing.
- eapply archive_card_control_refusal_is_atomic; try eassumption.
- eapply interrupt_pending_resource_is_rejected; eassumption.
-Qed.
-
 (** An already archived linked Task can retain pending operation records. The
     card archive must not turn those records into renewed interrupt authority. *)
-Theorem archive_busy_archived_task_retains_task : forall id revision observed value card target task now,
+Theorem archive_busy_archived_task_retains_task : forall id revision observed value card target task,
  Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
  revision=F.card_revision card ->
  Board.pending card=false ->
  F.card_task card=Some target ->
@@ -245,17 +219,17 @@ Theorem archive_busy_archived_task_retains_task : forall id revision observed va
    world_tasks (decision_world archived)=world_tasks value /\
    decision_effects archived=[].
 Proof.
- intros id revision observed value card target task now found clock current pending linked task_found busy archived_lifecycle archived.
+ intros id revision observed value card target task found current pending linked task_found busy archived_lifecycle archived.
  subst revision.
- unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
- unfold Board.with_card. rewrite found, N.eqb_refl.
+ unfold archived, Board.archive_card, CommandResult.resolve.
+ unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
  unfold Board.archive_interrupt_target.
  rewrite linked, task_found, busy, archived_lifecycle. cbn [andb negb].
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
-   (F.card_contents card) (Some target) true (F.card_created card) now
+   (F.card_contents card) (Some target) true (F.card_created_at card) observed
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
  exists updated.
  cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.decision_effects
@@ -267,9 +241,8 @@ Qed.
 
 (** Archiving an idle linked card retains the existing Task verbatim and
     emits no lifecycle effect. *)
-Theorem archive_idle_card_retains_task : forall id revision observed value card target task now,
+Theorem archive_idle_card_retains_task : forall id revision observed value card target task,
  Board.lookup id value=Some card ->
- Board.clock observed=Some now ->
  revision=F.card_revision card ->
  Board.pending card=false ->
  F.card_task card=Some target ->
@@ -284,17 +257,17 @@ Theorem archive_idle_card_retains_task : forall id revision observed value card 
    world_tasks (decision_world archived)=world_tasks value /\
    decision_effects archived=[].
 Proof.
- intros id revision observed value card target task now found clock current pending linked task_found idle archived.
+ intros id revision observed value card target task found current pending linked task_found idle archived.
  subst revision.
- unfold archived, Board.archive_card, Board.at_clock. rewrite clock.
- unfold Board.with_card. rewrite found, N.eqb_refl.
+ unfold archived, Board.archive_card, CommandResult.resolve.
+ unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found, N.eqb_refl.
  unfold Board.pending, BoardFacts.pending in pending |- *. rewrite pending.
  unfold Board.archive_interrupt_target.
  rewrite linked, task_found, idle. cbn [andb negb].
  cbn [andb Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
  unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
-   (F.card_contents card) (Some target) true (F.card_created card) now
+   (F.card_contents card) (Some target) true (F.card_created_at card) observed
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
  exists updated.
  repeat split.
@@ -308,72 +281,58 @@ Theorem stale_card_is_atomic : forall id expected value card run,
  reject "card_conflict"%string "The card changed in another view or during execution. Refresh its current values before applying this edit."%string value.
 Proof.
  intros id expected value card run found different.
- unfold Board.with_card. rewrite found. apply N.eqb_neq in different. rewrite different. reflexivity.
+ unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found. apply N.eqb_neq in different. rewrite different. reflexivity.
 Qed.
 
 (** Wiring to the shared drafting policy does not depend on linkage. Profile
     admission and the actual positive request are established separately. *)
-Lemma idle_regeneration_uses_drafting_policy : forall id value card profile now observed,
- Board.lookup id value=Some card ->
- Board.clock observed=Some now -> Board.mutable card value=true ->
- Board.regenerate id (F.card_revision card) observed profile value=
-   Board.request_text id (Board.revised (F.card_contents card) now card) profile true value.
+Lemma idle_regeneration_uses_drafting_policy : forall id value card profile observed
+ (Found : Board.lookup id value=Some card)
+ (Mutable : Board.mutable card value=true),
+ Board.regenerate id (F.card_revision card) observed profile value =
+ Board.request_text (BoardDrafting.revised_target value id (BoardDrafting.CardReference card Found)
+   observed Mutable) profile.
 Proof.
- intros id value card profile now observed found clock idle.
- unfold Board.regenerate,Board.at_clock. rewrite clock.
- unfold Board.with_card. rewrite found,N.eqb_refl,idle. reflexivity.
+ intros id value card profile observed Found Mutable.
+ unfold Board.regenerate,Board.regenerate_result.
+ unfold Board.select_card_reference.
+ eapply observe_present; [exact Found|]; intros ObservedCard.
+ rewrite N.eqb_refl; cbn [CommandResult.bind].
+ eapply require_satisfied; [exact Mutable|]; intros Editable.
+ reflexivity.
 Qed.
-
-Lemma observed_board_clock_is_bounded : forall observed now,
- Board.clock observed = Some now -> N.leb now 4294967295 = true.
-Proof.
- intros [text|] now Clock; unfold Board.clock in Clock.
- - destruct (BoardParameters.text_id text) as [found|]; [|discriminate].
-   destruct (N.leb found 4294967295) eqn:Bound; [|discriminate].
-   inversion Clock; subst now; exact Bound.
- - inversion Clock; reflexivity.
-Qed.
-
 (** An existing ordinary endpoint and a current editable card suffice to emit
     the real request. The effect freezes identity, lease, profile, prompt and
     draft; model success or request acceptance is not assumed. *)
-Theorem admitted_regeneration_emits_frozen_request : forall id revision value card profile_name selected now observed,
+Theorem admitted_regeneration_emits_frozen_request : forall id revision value card profile_name selected observed,
  Board.lookup id value=Some card -> revision=F.card_revision card ->
- Board.clock observed=Some now -> BoardFacts.mutable card value=true ->
+ BoardFacts.mutable card value=true ->
  Tasks.find_profile
    (if String.eqb profile_name "" then F.board_draft_profile (Board.registry value) else profile_name)
    (environment_profiles (world_environment value))=Some selected ->
  TitleRuntime.ordinary selected=true ->
- decision_effects (Board.regenerate id revision observed profile_name value)=
- [SuggestCard id (world_next_ticket value) (N.succ (F.card_revision card)) selected
-   (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
-     (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true)
-   (F.card_contents card) true].
+ exists request : BoardDrafting.drafting_request value,
+ decision_effects (Board.regenerate id revision observed profile_name value) =
+   [RequestFeature (TicketedRequest.Scoped.feature_request
+     (TicketedRequest.Scoped.FeaturePlan BoardDrafting.channel request))] /\
+ BoardDrafting.target_id (BoardDrafting.requested_target request) = id /\
+ BoardDrafting.target_card (BoardDrafting.requested_target request) =
+   BoardFacts.revised (F.card_contents card) observed card /\
+ BoardDrafting.target_retitle (BoardDrafting.requested_target request) = true /\
+ BoardDrafting.requested_profile request = selected.
 Proof.
- intros id revision value card profile_name selected now observed found current clock editable available ordinary.
- subst revision. rewrite idle_regeneration_uses_drafting_policy with (card:=card) (now:=now);
- [|exact found|exact clock|exact editable].
- assert (N.leb id (N.of_nat (List.length (F.board_cards (Board.registry value)))) = true) as Within.
- { apply N.leb_le. unfold Board.lookup in found.
-   destruct (registry_at id (F.board_cards (Board.registry value))) as [[existing|]|] eqn:At; try discriminate.
-   pose proof (registry_lookup_implies_position_bound _ _ _ _ At); lia. }
- assert (Slot : registry_at id (F.board_cards (F.feature_board (world_features value))) = Some (Some card)).
- { unfold Board.lookup in found.
-   destruct (registry_at id (F.board_cards (Board.registry value))) as [[stored|]|] eqn:At; try discriminate.
-   inversion found; subst stored; exact At. }
- assert (Member : In selected (environment_profiles (world_environment value))).
- { pose proof available as Registered; unfold Tasks.find_profile in Registered; apply find_some in Registered; tauto. }
- pose proof (retitle_scope_from_current_card id card value selected now Slot editable Member ordinary
-   (observed_board_clock_is_bounded observed now clock)) as Scope.
- unfold Board.request_text. rewrite available,ordinary.
- unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
- destruct (Bool.bool_dec _ true) as [Valid|Invalid]; [reflexivity|].
- exfalso; apply Invalid. apply andb_true_iff; split; [exact Within|exact Scope].
+ intros id revision value card profile_name selected observed Found Current Mutable Available Ordinary.
+ subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name observed Found Mutable).
+ unfold Board.request_text,Board.request_text_result.
+ eapply observe_present; [exact Available|]; intros Selected.
+ eapply require_satisfied; [exact Ordinary|]; intros Capable.
+ eexists; repeat split; reflexivity.
 Qed.
 
 (** A title result retains the linked Task identifier in the saved card. *)
 Theorem card_title_result_preserves_conversation : forall value card ok title description reason,
- F.card_task (Board.suggestion ok true title description reason card value)=F.card_task card.
+ F.card_task (Completion.Row.finish F.card_enrichment
+   (Board.suggestion ok true title description reason card value) card)=F.card_task card.
 Proof. reflexivity. Qed.
 
 (** The same card store used by completion cannot overwrite conversations or
@@ -389,9 +348,8 @@ Theorem linked_execution_inputs_are_immutable : forall id expected value card ta
  decision_world (Board.update_card id expected observed input value) = value.
 Proof.
  intros id expected value card target observed input found linked changed.
- unfold Board.update_card, Board.at_clock. destruct (Board.clock observed); [|reflexivity].
- unfold Board.with_card. rewrite found. destruct (N.eqb expected (F.card_revision card)); [|reflexivity].
- destruct (Board.parse_patch input (F.card_contents card)); [|reflexivity].
+ unfold Board.update_card, CommandResult.resolve.
+ unfold Board.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found. destruct (N.eqb expected (F.card_revision card)); [|reflexivity].
  unfold Board.unlinked, BoardFacts.unlinked. rewrite linked, changed. simpl.
  rewrite Bool.andb_false_r. reflexivity.
 Qed.
@@ -411,114 +369,27 @@ Proof.
  split; [exact locked|]. unfold BoardFacts.runnable. now rewrite locked.
 Qed.
 
-(** Each bounded batch is composed from the real one-attempt operation.  A
-    stalled batch remains stalled; splitting the budget cannot lose a launch. *)
-Lemma pump_stalled : forall fuel result,
- Board.next (decision_world result)=None -> Board.pump fuel result=result.
-Proof. intros fuel result idle. destruct fuel; [reflexivity|]. cbn [Board.pump]. now rewrite idle. Qed.
-
-Lemma pump_missing_selection : forall fuel result id,
- Board.next (decision_world result)=Some id ->
- Board.lookup id (decision_world result)=None -> Board.pump fuel result=result.
-Proof.
- intros fuel result id selected missing. destruct fuel; [reflexivity|].
- cbn [Board.pump]. now rewrite selected,missing.
-Qed.
-
-Theorem pump_batches_compose : forall first remaining result,
- Board.pump (first+remaining) result=Board.pump remaining (Board.pump first result).
-Proof.
- induction first as [|first IH]; intros remaining result; [reflexivity|].
- cbn [Nat.add Board.pump].
- destruct (Board.next (decision_world result)) as [id|] eqn:selected.
- - destruct (Board.lookup id (decision_world result)) as [card|] eqn:found.
-   + apply IH.
-   + symmetry. eapply pump_missing_selection; eauto.
- - symmetry. now apply pump_stalled.
-Qed.
-
-(** An accepted launch appends its complete effect list in order.  A rejected
-    launch contributes no effects; its selected card is blocked instead. *)
-Theorem pump_one_success_effects : forall result id card,
- Board.next (decision_world result)=Some id ->
- Board.lookup id (decision_world result)=Some card ->
- let advanced:=Board.run id (F.card_revision card)
-   (Some (F.decimal_text (F.card_updated card))) None (decision_world result) in
- bool_default "ok" (decision_reply advanced) false=true ->
- decision_effects (Board.pump 1 result)=decision_effects result++decision_effects advanced.
-Proof.
- intros result id card selected found advanced accepted.
- cbn [Board.pump]. rewrite selected,found. fold advanced. rewrite accepted. reflexivity.
-Qed.
-
-Theorem pump_retains_reply_and_effects : forall fuel result,
- decision_reply (Board.pump fuel result)=decision_reply result /\
- exists appended, decision_effects (Board.pump fuel result)=decision_effects result++appended.
-Proof.
- induction fuel as [|fuel IH]; intros result.
- - split; [reflexivity|]. exists []. now rewrite app_nil_r.
- - cbn [Board.pump].
-   destruct (Board.next (decision_world result)) as [id|] eqn:selected;
-     [destruct (Board.lookup id (decision_world result)) as [card|] eqn:found|].
-   + destruct (bool_default "ok" (decision_reply
-       (Board.run id (F.card_revision card) (Some (F.decimal_text (F.card_updated card))) None (decision_world result))) false) eqn:accepted.
-     * match goal with
-       | |- decision_reply (Board.pump fuel ?current)=_ /\ _ =>
-           destruct (IH current) as [reply [appended effects]]
-       end. cbn in reply,effects.
-       split; [exact reply|]. eexists. rewrite effects,app_assoc. reflexivity.
-     * match goal with
-       | |- decision_reply (Board.pump fuel ?current)=_ /\ _ =>
-           destruct (IH current) as [reply [appended effects]]
-       end. cbn in reply,effects.
-       split; [exact reply|]. eauto.
-   + split; [reflexivity|]. exists []. now rewrite app_nil_r.
-   + split; [reflexivity|]. exists []. now rewrite app_nil_r.
-Qed.
-
-(** Finishing never drops an earlier effect.  A continuation is appended only
-    for runnable remaining work and only when none has already been emitted. *)
-Theorem finish_effects : forall result,
- decision_reply (Board.finish result)=decision_reply result /\
- (decision_effects (Board.finish result)=decision_effects result \/
-  decision_effects (Board.finish result)=decision_effects result++[ContinueScheduling]).
-Proof.
- intros result. unfold Board.finish. split; [reflexivity|].
- destruct (match Board.next (Board.synchronize (decision_world result)) with Some _=>true | None=>false end &&
-   negb (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end) (decision_effects result))) eqn:more;
-   [right|left]; reflexivity.
-Qed.
-
 Theorem finish_schedules_remaining_work : forall result id,
  Board.next (Board.synchronize (decision_world result))=Some id ->
- In ContinueScheduling (decision_effects (Board.finish result)).
+ In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).
 Proof.
- intros result id remaining. unfold Board.finish. rewrite remaining. cbn.
+ intros result id remaining. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite remaining. cbn.
  destruct (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)) eqn:continuing; cbn.
  - apply existsb_exists in continuing. destruct continuing as [effect [present is_continue]].
-   destruct effect; cbn in is_continue; try discriminate. exact present.
+   destruct effect; cbn in is_continue; try discriminate. apply in_or_app; now left.
  - apply in_or_app. right. now left.
 Qed.
 
 Theorem finish_retains_existing_continuation : forall result,
  In ContinueScheduling (decision_effects result) ->
- decision_effects (Board.finish result)=decision_effects result.
+ decision_effects (DecisionComposition.run Board.finish result)=decision_effects result.
 Proof.
- intros result continuing. unfold Board.finish.
+ intros result continuing. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
  assert (present:existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)=true).
  { apply existsb_exists. exists ContinueScheduling. now split. }
- rewrite present. cbn. now rewrite Bool.andb_false_r.
-Qed.
-
-Theorem after_transition_retains_reply_and_effects : forall before result,
- decision_reply (Board.after_transition before result)=decision_reply result /\
- exists appended, decision_effects (Board.after_transition before result)=decision_effects result++appended.
-Proof.
- intros before result. unfold Board.after_transition.
- exact (pump_retains_reply_and_effects 8
-   (Decision (Board.synchronize (decision_world result)) (decision_reply result) (decision_effects result))).
+ rewrite present. cbn. rewrite Bool.andb_false_r. apply app_nil_r.
 Qed.
 
 Lemma successful_run_links_selected_card : forall id revision observed caller value card,
@@ -529,10 +400,11 @@ Lemma successful_run_links_selected_card : forall id revision observed caller va
  F.card_task updated=Some (Selvedge.Kernel.State.next_task value).
 Proof.
  intros id revision observed caller value card found accepted.
- unfold Board.run,Board.at_clock in accepted |- *.
- destruct (Board.clock observed) as [now|]; [|discriminate].
- unfold Board.with_card in accepted |- *. rewrite found in accepted |- *.
+ unfold Board.run,Board.run_result in accepted |- *.
+ rewrite selecting_a_card_retains_the_observed_value in accepted |- *.
+ cbn [CommandResult.bind] in accepted |- *. rewrite found in accepted |- *.
  destruct (N.eqb revision (F.card_revision card)); [|discriminate].
+ cbn [CommandResult.bind] in accepted |- *.
  destruct (negb (Board.runnable card value)); [discriminate|].
  destruct (Board.owner_agent (F.draft_owner (F.card_contents card)) value) as [agent|]; [|discriminate].
  cbn zeta in accepted |- *.
@@ -540,12 +412,12 @@ Proof.
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
    (Some (Board.launch_settings agent (F.card_contents card))) false caller None value)
    as [birth|reply] eqn:Created.
- - cbn [decision_world Worktree.transition_decision accept]. eexists. split.
+ - cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
+     CommandResult.change_value CommandResult.change_world CommandResult.change_effects decision_world accept]. eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected.
      unfold Board.lookup,Board.registry. rewrite Worktree.transition_preserves_board. exact found.
    + cbn. rewrite Worktree.transition_identity_is_fresh. reflexivity.
- - apply rejected_selected_creation_has_a_failure_reply in Created.
-   cbn [decision_reply] in accepted. congruence.
+ - discriminate.
 Qed.
 
 (** A real one-attempt batch removes its selected card from the runnable
@@ -554,16 +426,20 @@ Theorem pump_one_resolves_selected_card : forall result id card,
  Board.next (decision_world result)=Some id ->
  Board.lookup id (decision_world result)=Some card ->
  exists updated,
- Board.lookup id (decision_world (Board.pump 1 result))=Some updated /\
- Board.ready updated (decision_world (Board.pump 1 result))=false.
+ Board.lookup id (decision_world (DecisionComposition.run (Board.pump 1) result))=Some updated /\
+ Board.ready updated (decision_world (DecisionComposition.run (Board.pump 1) result))=false.
 Proof.
- intros result id card selected found. cbn [Board.pump]. rewrite selected,found.
- set (advanced:=Board.run id (F.card_revision card)
-   (Some (F.decimal_text (F.card_updated card))) None (decision_world result)).
- destruct (bool_default "ok" (decision_reply advanced) false) eqn:accepted; cbn [decision_world].
- - destruct (successful_run_links_selected_card id (F.card_revision card)
-     (Some (F.decimal_text (F.card_updated card))) None (decision_world result) card found accepted)
+ intros result id card selected found. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain; cbn [decision_world Board.pump]. rewrite selected,found.
+ destruct (Board.run_result id (F.card_revision card)
+   (F.card_updated_at card) None (decision_world result))
+   as [advanced|reason] eqn:Outcome; cbn [DecisionComposition.and_then DecisionComposition.unchanged DecisionComposition.from_decision DecisionComposition.updated_world DecisionComposition.appended_effects decision_world].
+ - assert (Accepted : bool_default "ok" (decision_reply
+     (Board.run id (F.card_revision card) (F.card_updated_at card) None (decision_world result))) false = true).
+   { unfold Board.run; rewrite Outcome; reflexivity. }
+   destruct (successful_run_links_selected_card id (F.card_revision card)
+     (F.card_updated_at card) None (decision_world result) card found Accepted)
      as [updated [linked task_id]].
+   unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
    unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.unlinked,Board.unlinked.
    rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
@@ -571,19 +447,4 @@ Proof.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
    + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
      now repeat rewrite Bool.andb_false_r.
-Qed.
-
-Theorem completed_board_batch_retains_reply_and_effects : forall before result,
- let completed:=Board.finish (Board.after_transition before result) in
- decision_reply completed=decision_reply result /\
- exists appended, decision_effects completed=decision_effects result++appended.
-Proof.
- intros before result completed.
- destruct (after_transition_retains_reply_and_effects before result) as [reply [appended effects]].
- destruct (finish_effects (Board.after_transition before result)) as [finished_reply finished_effects].
- unfold completed. split.
- - now rewrite finished_reply,reply.
- - destruct finished_effects as [unchanged|continued].
-   + exists appended. now rewrite unchanged,effects.
-   + exists (appended++[ContinueScheduling]). rewrite continued,effects. symmetry. apply app_assoc.
 Qed.

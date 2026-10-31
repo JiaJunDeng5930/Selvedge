@@ -1,38 +1,15 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs TaskChangeProofs SchedulerChangesProofs TaskChangesProofs.
 Import ListNotations.
-
-Local Lemma lifecycle_after_with_lifecycle : forall state task,
- task_lifecycle (Domain.with_lifecycle state task) = state.
-Proof.
- intros state task; unfold Domain.with_lifecycle.
- exact (@set_get Domain.task Domain.lifecycle task_lifecycle _ (fun _ => state) task).
-Qed.
-
-Local Lemma operations_after_running_lifecycle : forall phase operations task,
- task_operations (Domain.with_lifecycle (Running phase operations) task) = operations.
-Proof.
- intros; unfold Domain.task_operations; rewrite lifecycle_after_with_lifecycle; reflexivity.
-Qed.
-
-Local Lemma lifecycle_after_history_append : forall messages task,
- task_lifecycle (Domain.append_history messages task) = task_lifecycle task.
-Proof.
- intros messages [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; reflexivity.
-Qed.
 
 Theorem publishing_live_operations_only_marks_them_announced :
  forall task phase operations,
  task_lifecycle task = Running phase operations ->
  task_operations (Scheduler.publish_operations task) = map Scheduler.announce_operation operations.
 Proof.
- intros task phase operations RunningTask.
- unfold Scheduler.publish_operations, TicketedRequest.publish_operations, Domain.with_operations.
- rewrite lifecycle_after_history_append, RunningTask.
- rewrite operations_after_running_lifecycle.
- unfold Domain.task_operations; rewrite RunningTask; reflexivity.
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+   phase operations RunningTask.
+ cbn in RunningTask; subst lifecycle; reflexivity.
 Qed.
 
 Theorem operation_publication_preserves_its_completion_owner :
@@ -126,9 +103,12 @@ Theorem an_admitted_task_cancellation_uses_the_dispatch_commit_boundary :
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current owner Present.
- unfold Scheduler.run_with.
+ unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite task_cancellation_commits_before_further_scheduler_changes with (owner:=owner) by exact Present.
- reflexivity.
+ unfold Scheduler.continue_runnable.
+ destruct (Dispatch.prepare (decision_world current)
+   (if Scheduler.has_runnable_work permitted (decision_world current)
+    then decision_effects current ++ [ContinueScheduling] else decision_effects current)) as [value effects]; reflexivity.
 Qed.
 
 Theorem a_pending_model_request_commits_before_further_scheduler_changes :
@@ -182,9 +162,12 @@ Theorem an_admitted_frozen_request_uses_the_dispatch_commit_boundary :
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current Frozen.
- unfold Scheduler.run_with.
+ unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
- reflexivity.
+ unfold Scheduler.continue_runnable.
+ destruct (Dispatch.prepare (decision_world current)
+   (if Scheduler.has_runnable_work permitted (decision_world current)
+    then decision_effects current ++ [ContinueScheduling] else decision_effects current)) as [value effects]; reflexivity.
 Qed.
 
 Theorem a_refused_scheduler_step_keeps_the_complete_accepted_prefix :
@@ -214,10 +197,11 @@ Proof.
  intros task operations operation Pending Member NeedsModel.
  assert (Promoted : task_lifecycle (Tasks.promote task) = Running WantsModel operations \/
    task_lifecycle (Tasks.promote task) = Running (PendingCalls []) operations).
- { rewrite promotion_expression, Pending.
+ { unfold Tasks.promote, Tasks.promote_changes; rewrite Pending.
    destruct (task_queued task) as [|first rest].
    - right; exact Pending.
-   - left; apply lifecycle_after_with_lifecycle. }
+   - left; change (change_activity WantsModel (task_lifecycle task) = Running WantsModel operations).
+     now rewrite Pending. }
  assert (PromotedOperations : task_operations (Tasks.promote task) = operations).
  { destruct Promoted as [Promoted|Promoted];
      unfold Domain.task_operations; rewrite Promoted; reflexivity. }
@@ -228,11 +212,10 @@ Proof.
  rewrite SomeWork, Bool.orb_true_r.
  assert (NextPhase : task_lifecycle (Domain.with_activity WantsModel (Tasks.promote task)) =
    Running WantsModel operations).
- { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];
-     rewrite Promoted; apply lifecycle_after_with_lifecycle. }
+ { change (change_activity WantsModel (task_lifecycle (Tasks.promote task)) = Running WantsModel operations).
+   destruct Promoted as [Promoted|Promoted]; now rewrite Promoted. }
  assert (NextOperations : task_operations (Domain.with_activity WantsModel (Tasks.promote task)) = operations).
- { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];
-     rewrite Promoted; apply operations_after_running_lifecycle. }
+ { unfold task_operations; now rewrite NextPhase. }
  rewrite NextPhase, NextOperations; split; [reflexivity|exact Member].
 Qed.
 
@@ -246,19 +229,4 @@ Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
  unfold Scheduler.next_runnable_step; rewrite Blocked.
  unfold task_operations; rewrite ArchivedTask, Pending; reflexivity.
-Qed.
-Theorem archived_after_hook_dispatches_its_retained_result :
- forall owner task value operations pending plugin remaining result error,
- find_task owner value = Some task ->
- TicketedRequest.Scoped.operation_at (operation_id pending) task = Some pending ->
- task_lifecycle task = Archived operations ->
- operation_stage pending = AfterHooksReady (plugin :: remaining) result error ->
- Capabilities.hook_available Capabilities.AfterTool plugin
-   (environment_plugins (world_environment value)) = true ->
- Scheduler.after_hooks_step owner pending task value =
- TicketedRequest.issue owner (TicketedRequest.After pending plugin remaining result error task) value.
-Proof.
- intros owner task value operations pending plugin remaining result error Found Owned ArchivedTask Stage Available.
- unfold Scheduler.after_hooks_step; rewrite Stage, Available.
- now apply ScopedRequestProofs.after_uses_the_current_operation.
 Qed.

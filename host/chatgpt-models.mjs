@@ -94,8 +94,7 @@ export async function discoverAccount(profile, home, { signal, force = false, no
     }
     boundary('account.catalog_failure', { status: response.status });
   }
-  const models = accountModels(response.value);
-  boundary('account.catalog_selectable', { models });
+  const models = boundary('account.discovery_catalog', { value: response.value });
   await writeAtomic(modelCacheFile(profile, home), boundary('account.cache_record', {
     profile, home, force, account: authorization.account_id, connection: connectionIdentity(profile), now, now_date: dateObservation(now, true), models,
   }));
@@ -136,10 +135,8 @@ export async function withAccountModels(config, home, { signal, force = false, o
     try {
       result = await discoverAccount(profile, home, { signal, force });
       namespace = boundary('account.account_namespace', { config, home, force, profile, result, hash: hash(boundary('account.candidate_identity', { resolved: result.account_id, connection: connectionIdentity(profile) })) });
-      profiles = boundary('account.materialize', { config, home, force, profile, result, namespace,
-        connection: accountConnection(profile), auth_path: filename, configured_auth_paths: configuredAuthPaths });
-      summary = boundary('account.account_summary', { config, home, force, profile, result });
-      diagnostic = boundary('account.materialization_diagnostic', { config, home, force, profile, result });
+      ({ profiles, summary, diagnostic } = boundary('account.materialize', { config, home, force, profile, result, namespace,
+        connection: accountConnection(profile), auth_path: filename, configured_auth_paths: configuredAuthPaths }));
     } catch (error) {
       signal?.throwIfAborted();
       const decision = boundary('account.materialization_failure', { config, home, profile, force, message: error.message });

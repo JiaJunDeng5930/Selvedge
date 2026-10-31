@@ -7,8 +7,8 @@ From Selvedge.Features Require Import Compaction.
 (* Checkpoint admission owns this transaction. Scheduling may begin new work
    only after its replacement record or observation request is durable. *)
 Definition candidate (request : Commands.compact_payload) (before : world) :=
- DeferredCommit.continue (Compaction.handle_compact request None before).
+ DeferredCommit.continue_result before (Compaction.handle_compact_result request None before).
 
 Definition packet (raw : json) (request : Commands.compact_payload) (before : world) :=
- DeferredCommit.packet (Some (UserCommand (Commands.Cmd_compact request))) raw before
+ DeferredCommit.packet (Some (UserCommand (Commands.Cmd_compact request))) before
    (candidate request before).

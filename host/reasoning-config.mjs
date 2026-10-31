@@ -67,22 +67,8 @@ export function evaluatorConnections(value = {}) {
 export function adaptivePolicy(value) {
   const observer = configurationObserver();
   const source = observer.observe(value);
-  const efforts = source.kind === 'object' ? value.efforts : undefined;
-  const bytes = Array.isArray(efforts) ? efforts.map(effort =>
-    typeof effort === 'string' ? Buffer.byteLength(effort) : null) : [];
-  const plan = observer.execute('config.adaptive_policy', { value: source, bytes });
+  const plan = observer.execute('config.adaptive_policy', { value: source });
   const policy = observer.materialize(plan);
   if (policy === null) return null;
   return Object.freeze({ ...policy, efforts: Object.freeze(policy.efforts) });
-}
-
-/** Ordinary profile configuration: no task policy is implemented in discovery. */
-export function accountAutoPreset(profile, descriptor) {
-  const observer = configurationObserver();
-  const plan = observer.execute('config.auto_preset', {
-    profile: observer.observe(profile), descriptor: observer.observe(descriptor),
-  });
-  const selection = observer.materialize(plan);
-  if (selection === undefined) return undefined;
-  return Object.freeze({ ...profile, adaptive_reasoning: adaptivePolicy(selection) });
 }

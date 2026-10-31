@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson ModelWire DeclarationFields.
 From Selvedge.Kernel Require Import Context Conversation.
 From Selvedge.Adapters Require Import Common.
+From Selvedge.Adapters Require ProviderCatalog OutputObservations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -90,14 +91,18 @@ Definition summary_result (source : json) := success (JObject [
 Definition scope (source : json) := success (JString (TextJson.render_json (JArray [
   get (get source "profile") "provider"; get (get source "profile") "endpoint";
   get source "model"; get source "account_id"]))).
-Definition bind_item (scope item : json) :=
-  if String.eqb (str item "type") "context" then
-    JObject [("type",JString "context"); ("part",get item "part"); ("value",JObject [
-      ("type",JString "provider_receipt"); ("scope",scope); ("item",get item "value");
-      ("markdown_fences",get item "markdown_fences")])]
-  else item.
-Definition bind_output (source : json) := success (JArray
-  (map (bind_item (get source "scope")) (items (get source "items")))).
+Definition bind_item (scope item : json) : ProviderCatalog.outcome ModelWire.value :=
+ if String.eqb (str item "type") "context" then
+   match DeclarationFields.decode OutputObservations.provider_fields item with
+   | Some fields => ProviderCatalog.Accepted (ModelWire.context (fst (snd fields)) [
+       ("type",JString "provider_receipt");("scope",scope);("item",JObject (fst (snd (snd fields))));
+       ("markdown_fences",OutputObservations.encode_fences (fst (snd (snd (snd fields)))))])
+   | None => ProviderCatalog.reject "Provider context observation is malformed" end
+ else match ModelWire.decode item with
+   | Some result => ProviderCatalog.Accepted result
+   | None => ProviderCatalog.reject "Model output is malformed" end.
+Definition bind_output (source : json) := ProviderCatalog.render_outcome ModelWire.encode_items
+ (ProviderCatalog.traverse (bind_item (get source "scope")) (items (get source "items"))).
 Definition headers (source : json) := success (JString
   (if equal (get source "status") (number 401) && boolean_field source "authorization" &&
       negb (boolean_field source "refreshed") then "refresh"
@@ -120,7 +125,7 @@ Definition measurement_plan (source : json) :=
   (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
   if negb (is_object request) then err "Context measurement requires the complete encoded request"
   else let content := classify_content request in let images := N.ltb 0 (image_count content) in
-  if String.eqb (str (get source "profile") "provider") "chatgpt" && images then
+  if ProviderCatalog.account (get source "profile") && images then
     (* The account transport does not promise the public token-count endpoint.
        Keep image requests usable with an encrypted continuation as well: the
        estimate includes the complete encoded request and each image. *)

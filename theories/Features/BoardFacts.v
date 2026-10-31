@@ -13,15 +13,15 @@ Definition valid_draft (draft:Selvedge.Features.Domain.card_draft) (value:world)
  Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4 &&
  (match Selvedge.Features.Domain.draft_owner draft with Selvedge.Features.Domain.AgentOwner id=>match lookup_agent id value with Some _=>true | None=>false end | _=>true end) &&
  (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).
-Definition revised (draft:Selvedge.Features.Domain.card_draft) (now:N) (card:Selvedge.Features.Domain.card) := (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_contents (fun _=>draft) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card)))).
+Definition revised (draft:Selvedge.Features.Domain.card_draft) (now:BoardClock.t) (card:Selvedge.Features.Domain.card) := (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_contents (fun _=>draft) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card)))).
 Definition linked_task (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_task card with Some id=>Selvedge.Kernel.State.find_task id value | None=>None end.
 Definition busy_task := Selvedge.Kernel.Domain.task_busy.
 Definition busy (card:Selvedge.Features.Domain.card) (value:world) := match linked_task card value with Some task=>busy_task task | None=>false end.
-Definition pending (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.Enriching _ _ _=>true | _=>false end.
+Definition pending (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope _ (_, _))=>true | _=>false end.
 Definition mutable (card:Selvedge.Features.Domain.card) (value:world) := negb (Selvedge.Features.Domain.card_archived card || pending card || busy card value).
 Definition unlinked (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_task card with None=>true | _=>false end.
 Definition owner_agent (owner:Selvedge.Features.Domain.owner) (value:world) := match owner with
- | Selvedge.Features.Domain.ProfileOwner key=>Some (Selvedge.Features.Domain.BoardAgent 0 key key "default" "" (JObject []) 1)
+ | Selvedge.Features.Domain.ProfileOwner key=>Some (Selvedge.Features.Domain.BoardAgent 0 key key "default" "" Codec.empty_settings_request 1)
  | Selvedge.Features.Domain.AgentOwner id=>lookup_agent id value | _=>None end.
 Definition active_for (owner:Selvedge.Features.Domain.owner) (value:world) := N.of_nat (List.length (filter
  (fun candidate=>match candidate with Some card=>String.eqb (Selvedge.Features.Domain.owner_name owner) (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) && busy card value | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)))).
@@ -37,7 +37,7 @@ Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
  (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true|_=>false end) &&
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.ProfileOwner _|Selvedge.Features.Domain.AgentOwner _=>true|_=>false end.
 Definition activity (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_enrichment card with
- | Selvedge.Features.Domain.Enriching _ _ _=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
+ | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope _ (_, _))=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
  | Some task=>match task_lifecycle task with Archived _=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"
  | Running (EvaluatingReasoning _ _) _=>"evaluating" | _=>if existsb (fun operation=>match operation_stage operation with AwaitingApproval _ _=>true | _=>false end) (task_operations task) then "awaiting_approval" else if busy_task task then "working" else if latest_failure task then "failed" else "completed" end
  | None=>if Selvedge.Features.Domain.board_automatic (registry value) && queued_candidate card then "queued" else "not_started" end end.

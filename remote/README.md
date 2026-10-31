@@ -4,9 +4,10 @@
 envelope schema shared by the host connector and the Cloudflare relay.
 [protocol.mjs](protocol.mjs) interprets UTF-8 transport bounds and endpoint URL
 rules and invokes the generated schema. Run `bun run build` before bundling the
-relay so both peers include the same generated host model. Validators return the original
-value or throw `RemoteProtocolError`; parsing and encoding apply the same UTF-8
-bound. Remote business authorization and durable request receipts belong to the
+relay so both peers include the same generated host model. Validators return values constructed by the shared declaration or throw
+`RemoteProtocolError`; parsing and encoding apply the same UTF-8 bound. The
+constructor canonicalizes envelope integers while opaque commands, results and
+events retain their number tokens. Remote business authorization and durable request receipts belong to the
 native remote feature, not this transport module.
 
 `connection_id` and RPC `id` correlate one live transport session. A command's

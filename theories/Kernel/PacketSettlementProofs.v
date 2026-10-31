@@ -2,28 +2,13 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs InputDecoder
  Scheduler SideContext Dispatch Limits Observation Notifications Delivery Packet.
-From Selvedge.Kernel Require Import TicketedRequest Capabilities WorldInvariant WorldInvariantProofs
- AfterHookPreservation AfterHookAuthorizationProofs PacketBusinessProofs CommitAdmission ScopedRequestProofs
- TerminalSettlement TerminalSettlementPacketProofs.
+From Selvedge.Kernel Require Import TicketedRequest Capabilities
+ PacketBusinessProofs ScopedRequestProofs
+ TerminalSettlement TerminalSettlementPlanProofs TerminalSettlementPacketProofs.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit BoardCommit ConnectionCommit TitleCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
-
-Lemma a_current_after_operation_uses_the_before_indexed_request :
- forall owner task before original plugin pending result error,
- find_task owner before = Some task ->
- TicketedRequest.Scoped.operation_at (operation_id original) task = Some original ->
- operation_stage original = AfterHooksReady (plugin :: pending) result error ->
- Capabilities.hook_available Capabilities.AfterTool plugin
-   (environment_plugins (world_environment before)) = true ->
- Scheduler.after_hooks_step owner original task before =
- TicketedRequest.issue owner (TicketedRequest.After original plugin pending result error task) before.
-Proof.
- intros owner task before original plugin pending result error Found Owned Stage Available.
- unfold Scheduler.after_hooks_step; rewrite Stage, Available.
- apply after_uses_the_current_operation; assumption.
-Qed.
 
 Lemma a_quiet_task_prefix_is_skipped :
  forall execute permitted prefix suffix value first,
@@ -137,10 +122,8 @@ Proof.
      (Scheduler.operation_step (N.of_nat (List.length prefix)) issued task before)) effects)).
  { rewrite Registry, a_quiet_task_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.find_step]. rewrite Selected, Interpreted; reflexivity. }
- unfold Scheduler.run, Scheduler.run_with. cbn [decision_world decision_reply decision_effects].
- change ((let '(value,effects) := Scheduler.schedule (S (Nat.pred Limits.schedule_steps)) execute permitted before [] in
-   let '(value,effects) := Dispatch.prepare value effects in Decision value reply effects) =
-   Decision after reply effects).
+ unfold Scheduler.run, Scheduler.run_with, DecisionComposition.transform, Scheduler.scheduling_with. cbn [decision_world decision_reply decision_effects].
+ change Limits.schedule_steps with (S (Nat.pred Limits.schedule_steps)).
  assert (NoFork : Scheduler.first_native_fork permitted 0 (world_tasks before) before = None).
  { rewrite Registry, a_quiet_native_fork_prefix_is_skipped by exact Prefix.
    cbn [N.add Scheduler.first_native_fork]. rewrite Selected; reflexivity. }
@@ -155,64 +138,55 @@ Qed.
    continuation retains normal task and feature progress after that commit. *)
 Theorem an_archived_result_is_committed_by_the_exported_packet :
  forall raw before (accepted : TerminalSettlement.plan before),
- InputDecoder.decode raw = Some (TerminalSettlement.source accepted) ->
+ Packet.decode raw = Some (inl (TerminalSettlement.source accepted)) ->
  TerminalSettlement.resolve (TerminalSettlement.source accepted) before = Some accepted ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
- WorldInvariant.well_formed before ->
  Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
  Packet.packet raw before =
  (with_sequence (N.succ (world_sequence before)) (decision_world (TerminalSettlement.candidate accepted)),
   Notifications.envelope true true (Some (TerminalSettlement.source accepted)) before
     (TerminalSettlement.candidate accepted)).
 Proof.
- intros raw before accepted Decoded Resolved InputBudget Valid OutputBudget.
- unfold Packet.packet, Packet.packet_admitted.
- rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ intros raw before accepted Decoded Resolved InputBudget OutputBudget.
+ unfold Packet.packet, Packet.select.
  rewrite InputBudget; cbv beta zeta; rewrite Decoded.
- cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
+ cbn [Packet.select_change Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].
  rewrite Resolved.
- apply a_terminal_settlement_commits_before_independent_runtime_work; assumption.
+ exact (a_terminal_settlement_commits_before_independent_runtime_work before accepted raw OutputBudget).
 Qed.
 
-(* The public result follows from the real callback ownership and the output
-   budget. Neither the constructor, the executor nor an admission bit is an
-   assumed successful result. Other tasks and feature registries are arbitrary. *)
+(* The public result follows from callback ownership, decoded input and the
+   frame budgets. Other tasks and feature registries are arbitrary. *)
 Theorem every_owned_terminal_callback_commits_at_the_public_packet :
  forall raw before payload current,
  let input := AfterCompleted (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
    (TerminalSettlement.ticket payload) (TerminalSettlement.outcome payload) in
- let result := DeferredCommit.continue (HookCallbacks.after_completed
-   (TerminalSettlement.owner payload) (TerminalSettlement.operation payload)
-   (TerminalSettlement.ticket payload) (TerminalSettlement.outcome payload) before) in
- InputDecoder.decode raw = Some input ->
+ Packet.decode raw = Some (inl input) ->
  find_task (TerminalSettlement.owner payload) before = Some current ->
  TerminalSettlement.eligible payload current = true ->
  N.leb (N.of_nat (String.length (TextJson.render_json raw))) Limits.frame_bytes = true ->
- WorldInvariant.well_formed before -> Delivery.fits true result = true ->
- Packet.packet raw before =
- (with_sequence (N.succ (world_sequence before)) (decision_world result),
-  Notifications.envelope true true (Some input) before result) /\
- decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
- decision_effects result = [ContinueScheduling].
+ exists accepted, TerminalSettlement.resolve_request payload before = Some accepted /\
+ (Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
+  let result := TerminalSettlement.candidate accepted in
+  Packet.packet raw before =
+  (with_sequence (N.succ (world_sequence before)) (decision_world result),
+   Notifications.envelope true true (Some input) before result) /\
+  decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
+  decision_effects result = [ContinueScheduling]).
 Proof.
- intros raw before payload current input result Decoded Found Eligible InputBudget Valid OutputBudget.
+ intros raw before payload current input Decoded Found Eligible InputBudget.
  destruct (every_owned_terminal_callback_resolves_its_finite_transaction payload before current Found Eligible)
   as [accepted Resolved].
  pose proof (resolution_retains_the_callback_payload payload before accepted Resolved) as Payload.
  assert (Source : TerminalSettlement.source accepted = input).
  { unfold TerminalSettlement.source; rewrite Payload; reflexivity. }
- assert (Candidate : TerminalSettlement.candidate accepted = result).
- { unfold TerminalSettlement.candidate, TerminalSettlement.interpret; rewrite Payload; reflexivity. }
- split.
- - rewrite <- Candidate, <- Source.
+ exists accepted; split; [exact Resolved|]; intro OutputBudget; cbn beta zeta; split.
+ - rewrite <- Source.
    apply an_archived_result_is_committed_by_the_exported_packet; try assumption.
    + rewrite Source; exact Decoded.
    + rewrite Source; unfold input, TerminalSettlement.resolve.
      destruct payload; exact Resolved.
-   + rewrite Candidate; exact OutputBudget.
- - destruct (every_terminal_plan_constructs_its_exact_successful_settlement before accepted)
-   as [operations [original [plugin [previous [failed [_ [_ [_ [_ Exact]]]]]]]]].
-   rewrite <- Candidate, Exact; split; reflexivity.
+ - split; reflexivity.
 Qed.

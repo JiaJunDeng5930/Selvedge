@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery.
+From Selvedge.Foundation Require Import Json TextJson Schema.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery RequestReceiver.
 From Selvedge.Kernel Require ModelDeclarations.
 Import ListNotations.
 Open Scope string_scope.
@@ -76,15 +76,15 @@ Definition task_events (before : world) (id : N) (value : task) (after : world) 
    let '(seen,added) := history_event id value index message seen in (seen,added ++ events)) records ([],[]) in
  lifecycle ++ notices.
 Definition model_outcome_json (outcome : model_outcome) := match outcome with
- | ModelSuccess items => JObject [("ok",JBool true);("items",number (N.of_nat (List.length items)))]
+ | ModelSuccess items => JObject [("ok",JBool true);("items",number (N.of_nat (List.length (ModelWire.batch_values items))))]
  | ModelFailure reason => JObject [("ok",JBool false);("error",JString reason)]
  | ModelContextLimit => JObject [("ok",JBool false);("error",JString "context_limit")] end.
 Definition input_events (source : option input) (before after : world) := match source with
  | Some (ModelCompleted id ticket outcome) => match find_task id before with
-   | Some value => match task_activity value with
-     | AskingModel expected _ _ => if N.eqb expected ticket then task_event id value "model_completed" None
-       (JObject [("ticket",number ticket);("kind",JString "model");("outcome",model_outcome_json outcome)]) else []
-     | _ => [] end | None => [] end
+   | Some value => match RequestReceiver.pending_phase RequestReceiver.ModelReceiver ticket value with
+     | Some _ => task_event id value "model_completed" None
+       (JObject [("ticket",number ticket);("kind",JString "model");("outcome",model_outcome_json outcome)])
+     | None => [] end | None => [] end
  | Some Recover => event "recovered" None None JNull (environment_plugins (world_environment after))
  | Some (Configure _) => event "configured" None None (JArray (environment_plugins (world_environment after))) (environment_plugins (world_environment after))
  | _ => [] end.
@@ -108,7 +108,7 @@ Definition batch (source : option input) (before : world) (result : decision) :=
 Definition enriched_envelope (durable : bool) (result : decision) (notices : list json) :=
  Observation.envelope_with_effects durable (decision_reply result)
    (map (Observation.effect_json (decision_world result)) (decision_effects result) ++
-     [JObject [(ModelDeclarations.tag_field ModelDeclarations.plugin_events,ModelDeclarations.tag_value ModelDeclarations.plugin_events);("events",JArray notices)]]).
+     [ModelDeclarations.encode_packet (ModelDeclarations.pack ModelDeclarations.plugin_events [!notices!])]).
 (** Only the final public receipt can contain notifications. The admission flag
     records global rollback independently of a business reply's success flag. *)
 Definition envelope (durable admitted : bool) (source : option input) (before : world) (result : decision) :=

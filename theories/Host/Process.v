@@ -1,10 +1,28 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Foundation Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 
 Inductive phase := Starting | Running | Draining | Completed.
 Inductive mode := Pipe | Pty.
+Definition dimension_declaration := ArgumentDeclaration.Natural 1 65535.
+Definition dimension := ArgumentDeclaration.denote dimension_declaration.
+Definition terminal_size := (dimension * dimension)%type.
+Definition paired_size (columns rows : option dimension) : option (option terminal_size) :=
+ match columns,rows with
+ | None,None => Some None
+ | Some columns,Some rows => Some (Some (columns,rows))
+ | _,_ => None end.
+Definition size_for (terminal : mode) := match terminal with Pipe => unit | Pty => option terminal_size end.
+Record transport := Transport { transport_mode : mode; transport_size : size_for transport_mode }.
+Definition prepare_transport (terminal : mode) (size : option terminal_size) : option transport :=
+ match terminal,size with
+ | Pipe,None => Some (Transport Pipe tt)
+ | Pty,size => Some (Transport Pty size)
+ | Pipe,Some _ => None end.
+Definition selected_size (selected : transport) : option terminal_size :=
+ match selected with Transport Pipe _ => None | Transport Pty size => size end.
 Record failure := Failure { failure_code : string; failure_message : string }.
 Record state := State {
   process_phase : phase;
@@ -42,16 +60,15 @@ Definition observe (current : state) (input : event) :=
 Definition reserve_write (current : state) : failure + state :=
   if current.(write_busy) then inl (Failure "process_input_busy" "Another input write is still pending for this process")
   else inr (State current.(process_phase) current.(stdin_open) true current.(output_drained) current.(process_reason)).
-Definition admit_write (current : state) (terminal : mode) (eof resize_cols resize_rows : bool) : option failure :=
+Definition admit_write (current : state) (terminal : mode) (eof : bool)
+ (resize : option terminal_size) : option failure :=
   match current.(process_phase) with
   | Running =>
     if negb current.(stdin_open) then Some (Failure "process_stdin_closed" "The process input is closed")
     else if match terminal with Pty => eof | Pipe => false end
       then Some (Failure "process_input_invalid" "PTY input cannot be closed; send a terminal control character instead")
-    else if match terminal with Pipe => resize_cols || resize_rows | Pty => false end
+    else if match terminal,resize with Pipe,Some _ => true | _,_ => false end
       then Some (Failure "process_input_invalid" "Pipe processes do not have a terminal size")
-    else if xorb resize_cols resize_rows
-      then Some (Failure "process_input_invalid" "Terminal columns and rows must be supplied together")
     else None
   | _ => Some (Failure "process_stdin_closed" "The process input is closed")
   end.

@@ -1,7 +1,7 @@
-From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs LifecycleProofs.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs TicketedRequestProofs LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -22,10 +22,15 @@ Theorem model_approval_captures_queued_requests : forall owner tool invocation t
  task_queued captured = [].
 Proof.
  intros owner tool invocation task value reviewer phase operations Found Ready Known Running Review Elevated Room.
- rewrite (ScopedRequestProofs.starting_uses_the_current_call owner value task tool invocation []
-   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action, TicketedRequest.Scoped.can_execute; rewrite Running; rewrite Ready, Known; reflexivity. }
- rewrite Room. unfold TicketedRequest.Scoped.external_authority_for; rewrite Review, Elevated.
+ destruct (starting_selects_the_current_call owner value task tool invocation []
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found
+   ltac:(unfold TicketedRequest.Scoped.call_action, TicketedRequest.Scoped.can_execute;
+     rewrite Running,Ready,Known; reflexivity))
+   as [request [Selected [Owner [Current Intent]]]].
+ unfold Scheduler.start_external; rewrite Selected,Current,Room.
+ rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
+ unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
+ rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
  unfold Scheduler.append_operation, Tasks.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
@@ -51,7 +56,7 @@ Proof.
        selected (operation_id pending) ticket actor = true).
    { intro Tail; destruct (IH pending actor Tail) as [ticket [Member [Phase Chosen]]].
      exists ticket; split; [right; exact Member|auto]. }
-   cbn [Callbacks.find_pending_approval fold_right] in Found.
+   cbn [Callbacks.find_pending_approval RequestReceiver.find_approval RequestReceiver.operation_receiver fold_right] in Found.
    destruct (operation_stage first) as [ticket|ticket reviewer|reviewer|ticket reviewer|hooks value error|ticket plugin hooks value error] eqn:Phase;
      try (apply Later; exact Found).
    destruct (selected (operation_id first) ticket reviewer) eqn:Chosen.
@@ -60,77 +65,33 @@ Proof.
    + apply Later; exact Found.
 Qed.
 
-Local Lemma appended_history_keeps_its_prefix : forall messages task,
- task_history (append_history messages task) = task_history task ++ messages.
-Proof. intros; reflexivity. Qed.
-Local Lemma changing_operations_keeps_history : forall operations task,
- task_history (with_operations operations task) = task_history task.
-Proof.
- intros operations task; unfold with_operations; destruct (task_lifecycle task); reflexivity.
-Qed.
-Local Lemma waking_after_a_result_keeps_history : forall task,
- exists suffix, task_history (Tasks.wake_after_result task) = task_history task ++ suffix.
-Proof.
- intros task; rewrite waking_result_expression; rewrite !promotion_expression.
- destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|];
- try destruct phase; try destruct calls; destruct (task_queued task); cbn;
- try (exists []; rewrite app_nil_r; reflexivity);
- eexists; reflexivity.
-Qed.
-Local Lemma beginning_a_result_keeps_history : forall owner pending result error task,
- exists suffix,
- task_history (Callbacks.begin_result owner pending result error task) = task_history task ++ suffix.
-Proof.
- intros owner pending result error task; rewrite !begin_result_expression.
- destruct (Callbacks.after_plugins task) as [|plugin rest].
- - rewrite !settle_operation_expression.
-   destruct (waking_after_a_result_keeps_history
-     (with_operations (remove_operation (operation_id pending) (task_operations task))
-       (append_history [History.operation_result pending result error] task))) as [suffix Woken].
-   exists (History.operation_result pending result error :: suffix).
-   rewrite Woken, changing_operations_keeps_history, appended_history_keeps_its_prefix.
-   rewrite <- app_assoc; reflexivity.
- - exists [ToolReceipt owner (operation_id pending) (operation_call pending) result error].
-   rewrite changing_operations_keeps_history; reflexivity.
-Qed.
-
 Local Lemma a_decision_keeps_its_reviewer_record : forall owner pending actor outcome task,
  exists suffix,
  task_history (Callbacks.approval_decision owner pending actor outcome task) = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) actor
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
- intros owner pending actor outcome task; rewrite !approval_decision_expression.
- destruct (ApprovalProtocol.normalize_outcome outcome) as [reason|reason|reason]; cbn beta iota zeta.
- - exists []; rewrite changing_operations_keeps_history; reflexivity.
- - destruct (beginning_a_result_keeps_history owner pending
-     (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true
-     (append_history [ApprovalReceipt owner (operation_id pending) (operation_call pending) actor
-       (Inputs.approval_json (Denied reason))] task)) as [suffix Kept].
-   exists suffix; rewrite Kept, appended_history_keeps_its_prefix, <- app_assoc; reflexivity.
- - destruct (beginning_a_result_keeps_history owner pending
-     (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true
-     (append_history [ApprovalReceipt owner (operation_id pending) (operation_call pending) actor
-       (Inputs.approval_json (ApprovalFailed reason))] task)) as [suffix Kept].
-   exists suffix; rewrite Kept, appended_history_keeps_its_prefix, <- app_assoc; reflexivity.
+ intros owner pending actor outcome task.
+ unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
+ apply prefixed_results_retain_their_history_record.
 Qed.
 
 Theorem an_approval_denial_runs_the_frozen_result_chain :
  forall owner pending actor reason task plugin rest,
- ApprovalProtocol.normalize_outcome (Denied reason) = Denied reason ->
  Callbacks.after_plugins task = plugin :: rest ->
  task_operations (Callbacks.approval_decision owner pending actor (Denied reason) task) =
  map (fun current => if N.eqb (operation_id pending) (operation_id current)
    then Operation (operation_id current) (operation_call current) (operation_announced current)
      (AfterHooksReady (plugin :: rest)
-       (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true)
+       (State.failure "approval_denied" ("Bash was not started. " ++ proj1_sig reason)) true)
    else current) (task_operations task).
 Proof.
- intros owner pending actor reason task plugin rest Normal Hooks.
- rewrite approval_decision_expression, Normal. cbn beta iota zeta.
- rewrite begin_result_expression.
+ intros owner pending actor reason task plugin rest Hooks.
+ unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
+ rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
+ unfold OperationEvent.returned, OperationEvent.settle, Tasks.result_changes.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
- destruct lifecycle; unfold Callbacks.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
+ destruct lifecycle; unfold Callbacks.after_plugins, OperationEvent.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
 Qed.
 
 Theorem model_approval_completion_records_its_captured_reviewer :
@@ -147,7 +108,7 @@ Theorem model_approval_completion_records_its_captured_reviewer :
  find_task owner (decision_world (Callbacks.approval_completed owner ticket outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
  intros owner ticket pending profile outcome task value Found Selected.
  rewrite !approval_completed_expression; rewrite Found, Selected.
@@ -177,7 +138,7 @@ Theorem human_approval_command_records_its_actual_reviewer :
  find_task owner (decision_world (Callbacks.review_approval owner operation outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer
-   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
+   (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
  intros owner operation pending outcome task value Found Selected.
  rewrite !review_approval_expression; rewrite Found, Selected.
