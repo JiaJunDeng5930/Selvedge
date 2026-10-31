@@ -1,11 +1,11 @@
 # Assurance and runtime acceptance
 
-Choose construction and domain languages first, then types/proofs, then focused
-unit or component tests, and use end-to-end tests only for the remaining real
-boundary behavior. Every retained assertion identifies an independent failure
-that its earlier owner cannot exclude. A theorem must refer to the actual
-production operation before replacing a domain example. Pure host projections
-and codecs should use focused tests rather than a whole service.
+Choose construction and domain languages first, then types/proofs, then public
+end-to-end tests for the remaining observable behavior. Permanent assertions
+come from user or engineering requirements and exercise complete public
+operations. A theorem must refer to the actual production operation before
+replacing its public behavior check. Temporary component experiments belong in
+ignored .workpad/.
 
 The runtime suite exercises physical behavior through public service, HTTP,
 CLI, plugin and relay entry points. The automated suite uses local
@@ -16,8 +16,7 @@ The retained responsibilities include commit-before-effect ordering, replay
 without repeated external calls, SQLite ownership, credentials, filesystem
 integrity, process cleanup, network framing/backpressure and browser streaming.
 Gallina domain rules and structural guarantees belong to their executable
-constructions and checked proofs. Tests of the removed Bend compiler, runtime
-intrinsics and source-scanning gates are not part of this suite.
+constructions and checked proofs.
 
 Run `bun run build` before `bun run test`. Browser acceptance uses a real
 Chromium instance through Playwright and the application's HTTP entry. A passed

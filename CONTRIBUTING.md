@@ -29,19 +29,17 @@ maintaining repeated structural facts. Keep computational modules independent of
 MetaRocq and proof automation to preserve useful incremental checking.
 
 Assign every desired property one earliest sufficient assurance owner:
-construction and domain languages, then types and proofs, then unit/component
-tests, then end-to-end tests. Permanent unit tests are appropriate for pure
-boundary code that cannot be covered by the earlier mechanisms. Public
-end-to-end tests are reserved for faults that require real processes, storage,
-networking, extraction or several interacting boundaries. A theorem about a
-helper does not cover an unrelated public dispatcher; retain the boundary
-assertion until the theorem is bound to the operation the product executes.
+construction and domain languages, then types and proofs, then public end-to-end
+tests. Design permanent tests from the required external behavior and execute
+complete public operations. A theorem about a helper does not cover an unrelated
+public dispatcher; retain the boundary assertion until the theorem is bound to
+the operation the product executes.
 
 For an assertion, identify the property and its quantifier, the construction,
 type or theorem that already owns it, and any remaining independent boundary
 fault. Remove duplicate pure assertions after that binding is established.
 Do not retain tests that merely reproduce a function's branches. Temporary
-experiments, complete command logs and migration accounting belong in ignored
+experiments and complete command logs belong in ignored
 .workpad/. Tests use fresh temporary service homes where a service is needed.
 
 ## Persistent data
@@ -50,12 +48,21 @@ There is one current journal format. Reject incompatible data explicitly rather
 than adding fallback reads, migrations or old-runtime bridges. Never rewrite
 existing user data to make a development run succeed.
 
-## Reviews and decisions
+## Requirements and reviews
 
 Work on a focused branch; main is protected. Explain the resulting behavior,
 reason and relevant verification. Keep executable requirements authoritative.
-ADRs record the reason for architectural choices without duplicating definitions
-or freezing obsolete implementation mechanisms.
+Read [requirements/](requirements/README.md) for current user and engineering
+reasons beside their checked contracts. Reuse a named contract with selective
+Export; add a derivation only for a relationship not already established.
+Requirements import the actual domain definitions and proof providers, while
+production compilation cannot import requirements. New files are discovered by
+the existing build; there is no list of all requirement owners to maintain.
+
+When changing a rule, review its meaning, premises, actual execution binding and
+adjacent reason together. For an extension, compose the existing controlled
+operations before adding a new construction. Keep only the current reasons;
+version control records earlier designs.
 
 Use Conventional Commits: `type(scope): description`, with an English imperative
 description starting in lowercase. Allowed types are feat, fix, docs, refactor,

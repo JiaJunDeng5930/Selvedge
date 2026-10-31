@@ -29,6 +29,14 @@ Open Scope list_scope.
     computation. A new business combination inherits the shared guarantees;
     only its own additional behavior needs another proposition.
 
+    Rocq checks the stated relation under its premises. Requirement review
+    determines whether those premises and observations express the user's
+    task. The build audits the assumptions of the selected proof closure;
+    generated command source is checked by the same kernel. Standard extraction
+    and js_of_ocaml remain trusted translations, including the exact-number and
+    UTF-8 mappings. Public execution checks exercise those translations and
+    physical effects where pure contracts cannot establish the observation.
+
     ** A local update retains the rest of the state
 
     A focus decomposes a value into a writable part and a retained remainder.

@@ -21,16 +21,15 @@ connections, tools, compaction and voice conversations.
 [adaptive reasoning](docs/adaptive-reasoning.md) describe those user workflows.
 
 The current home is `~/.selvedge`. Choose a different location explicitly to keep
-services separate. The Rocq journal has one current format and rejects obsolete
-formats; there is no Bend journal migration or mixed-runtime mode.
+services separate. The journal has one current format and rejects incompatible
+formats. Keep an incompatible existing home separate.
 
 ## Change the program
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) and the owning domain's definitions and
-requirements before changing behavior. [ADR 0054](docs/adr/0054-rocq-semantic-source-and-extracted-runtime.md)
-records why the semantic source, extraction and IO boundaries changed. Historical
-ADRs remain available as earlier decisions. [Migration behavior changes](docs/migration.md)
-record deliberate differences at the public boundaries.
+requirements before changing behavior. [Requirements and design reasons](requirements/README.md)
+connect current user and engineering goals to the actual checked operations.
+They have a separate source root that production code cannot import.
 
 ```sh
 bun run check

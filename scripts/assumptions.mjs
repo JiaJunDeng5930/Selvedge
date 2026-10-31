@@ -21,7 +21,8 @@ export async function auditAssumptions({ prefixes = [], sources = null, entries 
     if (prefixes.length && !prefixes.some(prefix => moduleSelection(filename).startsWith(`${prefix}.`))) continue;
     const module = moduleName(filename);
     const source = withoutComments(await readFile(path.join(root, filename), 'utf8'));
-    if (/^\s*(?:Axiom|Axioms|Admitted)\b/m.test(source)) {
+    // A continued tactic may use Admitted as a hypothesis name; only Admitted. closes an unchecked proof.
+    if (/^\s*(?:Axioms?\s|Admitted\s*\.)/m.test(source)) {
       throw new Error(`Unchecked proof declaration in ${filename}`);
     }
     // Vendored RecordEta checks a theorem inside __test; its name includes that module.

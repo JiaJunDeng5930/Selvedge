@@ -168,9 +168,11 @@ Proof.
 Qed.
 
 (** The public dispatcher delivers the constructed request whenever its input
-    and reasoning admissions succeed. This rules out satisfying the authority
-    requirement merely by rejecting every independent request. The premises
-    describe the existing admission boundaries, not a second backend model. *)
+    and reasoning admissions succeed. It cannot reject such an admitted request
+    merely to preserve the authority requirement. The premises describe the
+    existing admission boundaries; this theorem does not establish admission
+    for arbitrary external JSON. [tests/title-request-settings.test.mjs] also
+    exercises successful admission and completed delivery through the service. *)
 Theorem admitted_independent_request_reaches_the_public_output : forall source input reasoning,
  independent_kind (str (get source "effect") "kind") = true ->
  BackendRequests.effect_input ContextSelection.target_messages
@@ -214,3 +216,21 @@ Proof.
  rewrite preparation_keeps_the_request_kind, Independent.
  intro request; apply BackendProofs.independent_requests_have_no_tool_authority.
 Qed.
+
+(** * Retained Web requests and continuation
+
+    Reconnecting an observer may reuse a retained request only when its body
+    and connection still agree. A receipt is bound to the actual Task,
+    connection and response. Continuing after tools requires the complete,
+    uniquely matched result batch; a partial batch cannot stand for completion.
+    Detaching an observer leaves retained work available, while explicit
+    cancellation has its own state and connection conditions.
+
+    These contracts constrain the interpreters used by the declared [web.*]
+    operations. HTTP delivery and durable store acknowledgements remain host
+    observations. *)
+From Selvedge.Adapters Require WebProofs.
+Export WebProofs(existing_request_reuse_requires_body_and_connection,
+  receipt_is_bound_to_actual_task_connection_and_response,
+  tool_continuation_requires_complete_unique_result_batch,
+  cancelled_request_cannot_reuse_a_different_connection).
