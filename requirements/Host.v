@@ -109,7 +109,7 @@ Export ProcessProofs(finished_requires_exit_and_drain,
     opened descriptor before and after the bounded read, not a prior path size. *)
 
 From Selvedge.Kernel Require SpeechProofs.
-From Selvedge.Host Require AudioProofs AudioSession AudioTransport.
+From Selvedge.Host Require AudioProofs AudioSession AudioTransport AudioConnection.
 Export SpeechProofs(a_new_transcript_changes_only_the_task_history,
   transcript_commands_never_request_scheduling,
   a_matching_delegation_receipt_is_not_delivered_twice,
@@ -121,6 +121,7 @@ Export AudioSession(stale_session_is_inert,
   delivering_progress_does_not_deliver_a_page_twice).
 Export AudioTransport(stale_ack_is_inert, begin_has_one_owner,
   draining_transport_rejects_new_arrivals).
+Export AudioConnection(step).
 
 (** ** Voice does not collapse speech into task execution
 
@@ -136,6 +137,13 @@ Export AudioTransport(stale_ack_is_inert, begin_has_one_owner,
     public inference authorization. Media signaling may finish before the control
     connection is ready; microphone admission waits for both connections and
     initialization. Raw audio and secrets never become journal inputs.
+
+    A control connection can observe HTTP 404 while the accepted media call is
+    activating. [AudioConnection.step] owns that bounded retry window and each
+    socket attempt's identity; an old close cannot terminate a replacement
+    attempt. [tests/audio-sessions.test.mjs] checks activation and exhaustion
+    through the service, retaining the finite outcome rather than a particular
+    retry count as the user requirement.
 
     The stream owns turns, partial transcript tails and unresolved delegation
     references. The session owns browser generation and pending journal receipts.

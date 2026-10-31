@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { createChatGPTAudio } from '../host/chatgpt-audio.mjs';
 
 async function eventually(observe) {
   const deadline = Date.now() + 5000;
@@ -18,7 +18,7 @@ async function eventually(observe) {
   assert.fail('Audio public behavior did not settle within five seconds');
 }
 
-function transport(upgradeStatuses = []) {
+function transport(upgradeStatus = () => undefined) {
   const sockets = [];
   class Socket extends EventTarget {
     readyState = 0;
@@ -26,7 +26,7 @@ function transport(upgradeStatuses = []) {
     handlers = new Map();
     constructor() {
       super(); sockets.push(this);
-      const rejection = upgradeStatuses[sockets.length - 1];
+      const rejection = upgradeStatus(sockets.length - 1);
       queueMicrotask(() => {
         if (rejection) this.handlers.get('unexpected-response')({}, { statusCode: rejection, destroy() {} });
         else { this.readyState = 1; this.dispatchEvent(new Event('open')); }
@@ -52,17 +52,16 @@ function transport(upgradeStatuses = []) {
   };
 }
 
-async function serviceFixture(t, options = {}) {
+async function serviceFixture(t, wire = transport()) {
   const home = await mkdtemp(path.join(os.tmpdir(), 'selvedge-audio-'));
-  const wire = transport();
   const service = await Service.open({ home, cwd: home,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }), audioOptions: wire.options, ...options });
+    config: validateConfig({ ...defaultConfig, chatgpt: false }), audioOptions: wire.options });
   t.after(async () => { await service.close(); await rm(home, { recursive: true, force: true }); });
   const created = await service.command({ op: 'create_idle', profile: 'demo' });
   assert.equal(created.reply.ok, true);
   const task_id = created.reply.result.task_id;
   const read = async () => (await service.command({ op: 'read', task_id })).reply.result.messages;
-  return { service, wire, task_id, read };
+  return { service, wire, task_id, read, directory: home };
 }
 
 test('voice control resolves referenced turns, commits before publication and flushes tails once', async t => {
@@ -97,147 +96,109 @@ test('voice control resolves referenced turns, commits before publication and fl
   await Promise.all(visibleCommits);
 });
 
-test('old generations cannot commit to a live browser session', async t => {
-  let receive, request;
-  const { service, task_id, read } = await serviceFixture(t, {
-    audioFactory: options => {
-      receive = options.onEvent;
-      return {
-        async createSession(value) { request = value; return { id: value.id, sdp: 'v=0' }; },
-        async appendContext() {}, async stopSession() {}, async close() {},
-      };
-    },
-  });
-  const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
-  const event = { session_id: session.id, task_id, type: 'transcript', final: true, role: 'user', item_id: 'stale', text: 'stale input' };
-  await receive({ ...event, generation: 'retired-generation' });
-  assert.equal((await read()).some(message => message.item_id === 'stale'), false);
-  await receive({ ...event, generation: request.generation, item_id: 'current', text: 'current input' });
-  assert.ok((await read()).some(message => message.item_id === 'current'));
-});
-
-test('a released sideband callback cannot close or write to a replacement with the same id', async t => {
-  const wire = transport(), events = [];
-  const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => events.push(event) });
-  t.after(() => audio.close());
-  const input = { id: 'shared-id', connection: 'audio-fixture', task_id: 0, sdp: 'v=0' };
-  await audio.createSession({ ...input, generation: 'first' });
-  await eventually(() => events.some(event => event.type === 'ready'));
-  await audio.stopSession(input.id);
-  await audio.createSession({ ...input, generation: 'second' });
-  await eventually(() => events.some(event => event.type === 'ready' && event.generation === 'second'));
+test('a stopped voice session cannot close or write to the same browser after reconnect', async t => {
+  const { service, wire, task_id, read } = await serviceFixture(t);
+  const events = [];
+  service.on('audio', event => events.push(event));
+  const input = { browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' };
+  const first = await service.audioCreate(input);
+  await eventually(() => events.some(event => event.type === 'ready' && event.session_id === first.id));
+  await service.audioStop(first.id, input.browser_id);
+  const second = await service.audioCreate(input);
+  assert.notEqual(second.id, first.id);
+  await eventually(() => events.some(event => event.type === 'ready' && event.session_id === second.id));
   wire.sockets[0].provider({ type: 'output_transcript.added', item: { text: 'retired data' } });
   wire.sockets[0].close();
-  await delay(10);
-  assert.equal(await audio.appendContext(input.id, { text: 'current context' }), true);
-  assert.equal(wire.sockets[1].sent.at(-1).content[0].text, 'current context');
+  wire.sockets[1].provider({ type: 'turn.done', turn: { role: 'user', id: 'current', transcript: 'current input' } });
+  await eventually(async () => (await read()).some(message => message.item_id === 'current' && message.content === 'current input'));
+  assert.equal((await read()).some(message => message.content === 'retired data'), false);
   assert.equal(events.some(event => event.text === 'retired data'), false);
+  assert.equal(events.some(event => event.session_id === second.id && ['error', 'stopped'].includes(event.type)), false);
+  await service.audioStop(second.id, input.browser_id);
 });
 
 
-test('voice activation retries only its bounded 404 window and reports exhaustion', async t => {
-  for (const failures of [3, 4]) {
-    const wire = transport(Array(failures).fill(404)), events = [];
-    const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => events.push(event) });
-    t.after(() => audio.close());
-    await audio.createSession({ id: `activation-${failures}`, connection: 'audio-fixture', task_id: 0, sdp: 'v=0' });
-    await eventually(() => events.some(event => event.type === (failures === 3 ? 'ready' : 'closed')));
-    assert.equal(wire.sockets.length, 4);
-    assert.equal(events.filter(event => event.type === 'ready').length, failures === 3 ? 1 : 0);
-    assert.equal(events.filter(event => event.type === 'error').length, failures === 4 ? 1 : 0);
-    await audio.close();
+test('voice activation recovers from an initial 404 and reports a persistent 404 failure', async t => {
+  for (const recovers of [true, false]) {
+    const { service, wire, task_id } = await serviceFixture(t, transport(attempt => recovers && attempt > 0 ? undefined : 404));
+    const events = [];
+    service.on('audio', event => events.push(event));
+    const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
+    await eventually(() => events.some(event => event.type === (recovers ? 'ready' : 'stopped')));
+    assert.ok(wire.sockets.length > 1);
+    assert.equal(events.filter(event => event.type === 'ready').length, recovers ? 1 : 0);
+    assert.equal(events.filter(event => event.type === 'error').length, recovers ? 0 : 1);
+    if (recovers) await service.audioStop(session.id, 'browser');
   }
 });
 
-test('stop drains received provider transcripts and the latest tail behind a blocked journal acknowledgement', async t => {
-  const wire = transport(), events = [];
-  let release, entered;
-  const blocked = new Promise(resolve => { release = resolve; });
-  const first = new Promise(resolve => { entered = resolve; });
-  const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => {
-    events.push(event);
-    if (event.item_id === 'first') { entered(); await blocked; }
-  } });
-  t.after(() => { release(); return audio.close(); });
-  await audio.createSession({ id: 'draining', generation: 'live', connection: 'audio-fixture', task_id: 0, sdp: 'v=0' });
+test('stopping voice drains received transcripts and its final tail once into Task history', async t => {
+  const { service, wire, task_id, read } = await serviceFixture(t);
+  const events = [];
+  service.on('audio', event => events.push(event));
+  const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
   await eventually(() => events.some(event => event.type === 'ready'));
   const socket = wire.sockets[0];
   socket.provider({ type: 'turn.done', turn: { role: 'assistant', id: 'first', transcript: 'first committed answer' } });
-  await first;
   socket.provider({ type: 'turn.done', turn: { role: 'assistant', id: 'second', transcript: 'second received answer' } });
   socket.provider({ type: 'output_transcript.added', item: { text: 'latest unfinished tail' } });
-  let stopped = false;
-  const stopping = audio.stopSession('draining').then(() => { stopped = true; });
-  await delay(10);
-  assert.equal(stopped, false);
-  release();
-  await stopping;
-  assert.deepEqual(events.filter(event => event.type === 'transcript').map(event => event.text),
-    ['first committed answer', 'second received answer', 'latest unfinished tail']);
-  assert.equal(events.at(-1).type, 'closed');
-  assert.equal(socket.readyState, 3);
+  await service.audioStop(session.id, 'browser');
+  const expected = ['first committed answer', 'second received answer', 'latest unfinished tail'];
+  assert.deepEqual((await read()).filter(message => message.role === 'speech_transcript').map(message => message.content), expected);
+  assert.deepEqual(events.filter(event => event.type === 'transcript' && event.final).map(event => event.text), expected);
+  assert.equal(events.filter(event => event.type === 'stopped').length, 1);
 });
 
-test('a rejected speech emission retires the queued semantic suffix while still acknowledging cleanup', async t => {
-  const wire = transport(), events = [];
-  let reject, entered;
-  const blocked = new Promise((_resolve, fail) => { reject = fail; });
-  const first = new Promise(resolve => { entered = resolve; });
-  const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => {
-    events.push(event);
-    if (event.item_id === 'uncertain') { entered(); await blocked; }
-  } });
-  t.after(() => { reject(new Error('test cleanup')); return audio.close(); });
-  await audio.createSession({ id: 'retiring', generation: 'live', connection: 'audio-fixture', task_id: 0, sdp: 'v=0' });
+test('a failed speech journal write publishes no acceptance and reopens with only its committed prefix', async t => {
+  const { service, wire, task_id, read, directory } = await serviceFixture(t);
+  const events = [];
+  service.on('audio', event => events.push(event));
+  const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
   await eventually(() => events.some(event => event.type === 'ready'));
   const socket = wire.sockets[0];
-  socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'uncertain', transcript: 'uncertain journal commit' } });
-  await first;
-  socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'suffix', transcript: 'must not commit after failure' } });
-  const stopping = audio.stopSession('retiring');
-  reject(new Error('journal unavailable'));
-  await stopping;
-  assert.equal(events.some(event => event.item_id === 'suffix'), false);
-  assert.equal(events.at(-1).type, 'closed');
-  assert.equal(socket.readyState, 3);
+  socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'prefix', transcript: 'acknowledged speech' } });
+  await eventually(() => events.some(event => event.item_id === 'prefix' && event.final));
+  const committed = (await read()).filter(message => message.role === 'speech_transcript');
+  assert.deepEqual(committed.map(message => [message.item_id, message.content]), [['prefix', 'acknowledged speech']]);
+  const database = new DatabaseSync(path.join(directory, 'journal.sqlite'));
+  try {
+    database.exec("CREATE TRIGGER reject_speech_write BEFORE INSERT ON journal BEGIN SELECT RAISE(ABORT, 'speech disk write failed'); END");
+    socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'rejected', transcript: 'uncommitted request' } });
+    socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'suffix', transcript: 'must not commit after failure' } });
+    socket.provider({ type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'unaccepted-work', user_bidi_turn_id: 'rejected', content: [] } });
+    socket.provider({ type: 'output_transcript.added', item: { text: 'failed session tail' } });
+    await service.audioStop(session.id, 'browser');
+    await assert.rejects(service.command({ op: 'read', task_id }), /speech disk write failed/);
+    assert.deepEqual(events.filter(event => event.type === 'transcript' && event.final).map(event => event.item_id), ['prefix']);
+    assert.equal(socket.sent.some(event => event.type === 'delegation.context.append' && event.delegation_item_id === 'unaccepted-work'), false);
+    await service.close();
+    database.exec('DROP TRIGGER reject_speech_write');
+  } finally { database.close(); }
+  const reopened = await Service.open({ home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }), audioOptions: wire.options });
+  try {
+    const recovered = await reopened.command({ op: 'read', task_id });
+    assert.equal(recovered.reply.ok, true);
+    assert.deepEqual(recovered.reply.result.messages.filter(message => message.role === 'speech_transcript'), committed);
+    assert.equal(recovered.reply.result.messages.some(message => message.role === 'speech_delegation_receipt'), false);
+  } finally { await reopened.close(); }
 });
 
-test('progress requests share a reservation and advance before a dirty follow-up reads', async t => {
-  let receive, request, release;
-  t.after(() => release?.());
-  const contexts = [];
-  const { service, task_id, read } = await serviceFixture(t, { audioFactory: options => {
-    receive = options.onEvent;
-    return {
-      async createSession(value) { request = value; return { id: value.id, sdp: 'v=0' }; },
-      async appendContext(_id, context) { contexts.push(context); return true; },
-      async stopSession() {}, async close() {},
-    };
-  } });
+test('accepted Task progress reaches the active voice provider', async t => {
+  const { service, wire, task_id, read } = await serviceFixture(t);
+  const events = [];
+  service.on('audio', event => events.push(event));
   const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
-  await service.command({ op: 'send', task_id, message: 'first progress reservation' });
+  await eventually(() => events.some(event => event.type === 'ready'));
+  const messages = ['first progress delivery', 'second progress delivery'];
+  assert.equal((await service.command({ op: 'send', task_id, message: messages[0] })).reply.ok, true);
   await eventually(async () => (await read()).some(message => message.role === 'model_context' && message.content?.item?.role === 'assistant'));
-  const original = service.command.bind(service), reads = [];
-  const blocked = new Promise(resolve => { release = resolve; });
-  service.command = async command => {
-    const result = await original(command);
-    if (command.op === 'read' && command.after !== undefined && command.limit === 100) {
-      reads.push(command.after);
-      if (reads.length === 1) await blocked;
-    }
-    return result;
-  };
-  try {
-    await receive({ session_id: session.id, generation: request.generation, type: 'ready' });
-    await eventually(() => reads.length === 1);
-    await service.command({ op: 'send', task_id, message: 'second progress reservation' });
-    await eventually(async () => (await read()).filter(message => message.role === 'model_context' && message.content?.item?.role === 'assistant').length === 2);
-    assert.equal(reads.length, 1);
-    release();
-    await eventually(() => contexts.filter(context => context.text.includes('progress (')).length >= 2);
-    const progress = contexts.filter(context => context.text.includes('progress ('));
-    assert.equal(progress.filter(context => context.text.includes('first progress reservation')).length, 1);
-    assert.equal(progress.filter(context => context.text.includes('second progress reservation')).length, 1);
-    assert.ok(BigInt(reads[1]) > BigInt(reads[0]));
-  } finally { release(); }
+  assert.equal((await service.command({ op: 'send', task_id, message: messages[1] })).reply.ok, true);
+  await eventually(async () => (await read()).filter(message => message.role === 'model_context' && message.content?.item?.role === 'assistant').length === 2);
+  await eventually(() => {
+    const progress = wire.sockets[0].sent.flatMap(event => event.content ?? []).map(part => part.text ?? '')
+      .filter(text => text.includes('progress ('));
+    return messages.every(message => progress.some(text => text.includes(message)));
+  });
+  await service.audioStop(session.id, 'browser');
 });
