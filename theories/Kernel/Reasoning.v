@@ -1,6 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskResult TaskScope.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State TaskChange Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates ReasoningPlan TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain Codec State.
+From Selvedge.Programming Require Import TaskChange.
+From Selvedge.Kernel Require Import Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates ReasoningPlan.
+From Selvedge.Programming Require Import TicketedRequest.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -33,7 +37,7 @@ Inductive outcome := Chosen (effort : string) (generations : N) | EvaluationFail
 Definition failed_changes (reason : string) (task : task) :=
  let messages := [FailureMessage ("Automatic reasoning: " ++ reason)] in
  TaskChange.AppendHistory messages :: TaskChange.ChangePhase Idle ::
- Tasks.promote_changes (with_activity Idle (append_history messages task)).
+ TaskResult.promote_changes (with_activity Idle (append_history messages task)).
 Definition failed (reason : string) (task : task) :=
  TaskChange.apply (failed_changes reason task) task.
 Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
@@ -47,7 +51,7 @@ Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
      if allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations
      then let messages := [ReasoningRecord owner effort generations false] in
        TaskChange.AppendHistory messages :: TaskChange.ChangePhase ReadyForModel ::
-       Tasks.promote_changes (with_activity ReadyForModel (append_history messages task))
+       TaskResult.promote_changes (with_activity ReadyForModel (append_history messages task))
      else failed_changes "the evaluator selected an unsupported effort or lease; no model request was sent" task
    | EvaluationFailed reason => failed_changes reason task
    end

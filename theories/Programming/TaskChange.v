@@ -1,6 +1,8 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Programming Require Import Focus.
-From Selvedge.Kernel Require Import Domain State TaskScope History.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import History.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope list_scope.

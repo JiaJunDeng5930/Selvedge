@@ -1,4 +1,5 @@
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require DecisionComposition.
+From Selvedge.Programming Require CommandResult.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.

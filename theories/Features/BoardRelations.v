@@ -1,3 +1,4 @@
+From Selvedge.Programming Require TicketedRequest.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List NArith Lia.

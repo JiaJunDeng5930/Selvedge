@@ -1,3 +1,4 @@
+From Selvedge.Programming Require RequestTypes.
 From Selvedge.Programming Require Callback Variant.
 From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
@@ -5,8 +6,10 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Import Completion.
-From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
-From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments TicketedRequest.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Kernel Require FeatureRequestAdmission.
+From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments.
+From Selvedge.Programming Require Import TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Worktree WorkspaceBinding.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.

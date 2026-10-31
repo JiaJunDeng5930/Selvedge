@@ -1,7 +1,11 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require DecisionComposition.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskChange ModelRequest
- Dispatch Scheduler Delivery DeferredCommit HookCallbacks RequestReceiver.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope TaskChange.
+From Selvedge.Kernel Require Import ModelRequest Dispatch Scheduler Delivery.
+From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import HookCallbacks RequestReceiver.
 From Selvedge.Features Require Runtime.
 Import ListNotations.
 Open Scope string_scope.

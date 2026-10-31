@@ -1,5 +1,7 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Kernel Require Import Domain TaskChangeProofs OperationEvent Recovery.
+From Selvedge.Kernel Require Import Domain.
+From Selvedge.Programming Require Import TaskChangeProofs OperationEvent.
+From Selvedge.Kernel Require Import Recovery.
 Import ListNotations.
 Open Scope list_scope.
 

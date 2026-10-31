@@ -1,10 +1,11 @@
 From Selvedge.Programming Require Callback.
 From Selvedge.Programming Require InputRoute.
-From Selvedge.Kernel Require CommandResult DecisionComposition.
+From Selvedge.Programming Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
-From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
+From Selvedge.Programming Require Import TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
 From Selvedge.Features Require Import BoardParameters BoardDrafting.
@@ -76,7 +77,7 @@ Definition request_text_result {value} (target:BD.drafting_target value) (profil
  let name:=if String.eqb profile_name "" then Selvedge.Features.Domain.board_draft_profile (registry value) else profile_name in
  FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
  (fun profile Selected =>
-   FRA.require (TitleRuntime.ordinary profile) (fun Ordinary =>
+   CommandResult.require (TitleRuntime.ordinary profile) (fun Ordinary =>
      let request:=BD.plan target name profile Selected Ordinary in
      let issued:=TicketedRequest.Scoped.feature_issue_change request in
      CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
@@ -108,7 +109,7 @@ Proof.
 Defined.
 Definition create_card_result (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world) :=
  let parsed:=apply_patch input empty_draft in let draft:=normalized_draft assisted parsed in
- FRA.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
+ CommandResult.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
  (fun Valid => if assisted then request_text_result
    (parsed_drafting_target parsed assisted value observed Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
@@ -241,7 +242,7 @@ Definition settings (automatic:bool) (profile:string) (value:world) :=
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
 Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.bind (select_card_reference id revision value) (fun reference =>
- FRA.require (mutable (BD.selected_card reference) value) (fun Mutable =>
+ CommandResult.require (mutable (BD.selected_card reference) value) (fun Mutable =>
    request_text_result (BD.revised_target value id reference observed Mutable) profile)
  "card_locked" "A running, archived or already-generating card cannot start another title request").
 Definition regenerate (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=

@@ -1,4 +1,5 @@
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require DecisionComposition.
+From Selvedge.Programming Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.

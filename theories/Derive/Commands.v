@@ -3,7 +3,8 @@ From MetaRocq.Template Require Import All.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Numbers.
 From Selvedge.Programming Require Import ArgumentProjection.
-From Selvedge.Kernel Require Import Commands CommandDeclarations.
+From Selvedge.Kernel Require Import Commands.
+From Selvedge.Programming Require Import CommandDeclarations.
 Import ListNotations MonadNotation.
 Local Open Scope string_scope.
 
@@ -129,7 +130,8 @@ Definition generate_commands : TemplateMonad unit :=
           tmMsg (bytestring.String.of_string (concat [line "From Stdlib Require Import String List.";
             line "From Selvedge.Foundation Require Import Json.";
             line "From Selvedge.Programming Require Import Schema Arguments ArgumentProjection CommandPayload CommandFields.";
-            line "From Selvedge.Kernel Require Import Commands CommandDeclarations.";
+            line "From Selvedge.Kernel Require Import Commands.";
+            line "From Selvedge.Programming Require Import CommandDeclarations.";
             line "Import ListNotations."; line "Open Scope string_scope."])) ;;
           emit_payloads (indexed 0 commands) ;;
           emit_chunks (command_chunks commands) ;;

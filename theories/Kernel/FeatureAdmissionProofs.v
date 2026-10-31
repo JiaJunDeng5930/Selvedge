@@ -1,24 +1,16 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskScope.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Registry.
 From Selvedge.Programming Require Import OptionObservationProofs.
 From Selvedge.Kernel Require Import Domain State FeatureRequestAdmission ChatgptArguments.
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require CommandResult.
 Import ListNotations.
 
-Lemma require_satisfied : forall A condition accepted code message (P : CommandResult.result A -> Prop),
- condition = true -> (forall evidence, P (accepted evidence)) ->
- P (require condition accepted code message).
-Proof. intros A [] accepted code message P Enabled Satisfied; [apply Satisfied|discriminate]. Qed.
 Definition observe_present := @OptionObservationProofs.observe_present.
 Definition observe_absent := @OptionObservationProofs.observe_absent.
 Definition observe_cases := @OptionObservationProofs.observe_cases.
-Lemma require_cases : forall A condition accepted code message (P : CommandResult.result A -> Prop),
- (forall evidence, P (accepted evidence)) -> P (CommandResult.refuse code message) ->
- P (require condition accepted code message).
-Proof. intros A [] accepted code message P Accepted Rejected; [apply Accepted|exact Rejected]. Qed.
-
 Theorem admitted_title_resolves_without_rechecking : forall owner current before selected,
  find_task owner before = Some current -> title_entry owner before = None ->
  title_accepts current = true ->
@@ -59,9 +51,9 @@ Proof.
  unfold resolve_connection.
  eapply observe_present; [exact Authority|]; intros Granted.
  eapply observe_present; [exact Project|]; intros Existing.
- apply require_satisfied; [exact Primary|]; intros HasPrimary.
+ apply CommandResult.require_satisfied; [exact Primary|]; intros HasPrimary.
  eapply observe_absent; [exact Retry|]; intros Fresh.
- apply require_satisfied; [exact Workspace|]; intros Ready.
- apply require_satisfied; [exact Capacity|]; intros Room.
+ apply CommandResult.require_satisfied; [exact Workspace|]; intros Ready.
+ apply CommandResult.require_satisfied; [exact Capacity|]; intros Room.
  eexists; split; reflexivity.
 Qed.

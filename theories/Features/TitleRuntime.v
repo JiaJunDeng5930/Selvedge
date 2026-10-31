@@ -1,9 +1,13 @@
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require CommandResult TaskScope.
 From Selvedge.Programming Require Callback Variant.
 From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest DecisionComposition FeatureRequestAdmission.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks.
+From Selvedge.Programming Require Import TicketedRequest DecisionComposition.
+From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.

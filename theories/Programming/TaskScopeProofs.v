@@ -1,5 +1,6 @@
 From Stdlib Require Import NArith.
-From Selvedge.Kernel Require Import Domain State TaskScope.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope.
 
 (* Erase the lookup witness before using an observed equality. This keeps
    computation proofs independent of equality-proof representations. *)

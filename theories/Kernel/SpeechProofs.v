@@ -1,3 +1,4 @@
+From Selvedge.Programming Require CommandResult.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs Utf8.

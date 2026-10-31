@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith Lia.
+From Selvedge.Programming Require TaskScope.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.Programming Require Import OptionObservationProofs ReceiverProofs.
-From Selvedge.Kernel Require Import Domain State TicketedRequest TaskScopeProofs.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TicketedRequest TaskScopeProofs.
 From Selvedge.Features Require Import CompactionRequest.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.

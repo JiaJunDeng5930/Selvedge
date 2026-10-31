@@ -1,3 +1,5 @@
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require TaskScope.
 From Selvedge.Programming Require Import CompletionProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Kernel Require Import Domain State FeatureAdmissionProofs.

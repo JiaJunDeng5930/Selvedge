@@ -3,7 +3,8 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import RequestEnvelope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend ModelRequest.
-From Selvedge.Features Require Import Domain CompactionTypes RequestTypes.
+From Selvedge.Features Require Import Domain CompactionTypes.
+From Selvedge.Programming Require Import RequestTypes.
 Import ListNotations.
 
 Record world := World {

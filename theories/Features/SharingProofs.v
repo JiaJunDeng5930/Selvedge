@@ -1,5 +1,8 @@
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require TicketedRequest.
 From Selvedge.Kernel Require Import FeatureAdmissionProofs.
-From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Kernel Require FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.

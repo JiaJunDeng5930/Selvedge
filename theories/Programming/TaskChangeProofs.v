@@ -1,6 +1,7 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Foundation Require Import RegistryProofs.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskChange.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope TaskChange.
 Import ListNotations.
 
 Lemma apply_app : forall first rest current,

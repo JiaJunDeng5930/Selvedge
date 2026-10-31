@@ -3,7 +3,9 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import SchemaJson Utf8.
 From Selvedge.Programming Require Import Arguments.
-From Selvedge.Kernel Require Import Commands CommandDeclarations ChatgptArguments.
+From Selvedge.Kernel Require Import Commands.
+From Selvedge.Programming Require Import CommandDeclarations.
+From Selvedge.Kernel Require Import ChatgptArguments.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

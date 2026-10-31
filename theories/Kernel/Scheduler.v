@@ -1,9 +1,11 @@
-From Selvedge.Kernel Require Import TaskScope TaskChange DecisionComposition.
+From Selvedge.Programming Require OperationEvent TaskResult.
+From Selvedge.Programming Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search.
+From Selvedge.Programming Require Import TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
@@ -32,8 +34,8 @@ Definition process_needs_model (value : operation) := negb (operation_announced 
  String.eqb (call_name (operation_call value)) "bash" &&
  match operation_stage value with Executing _ | Elevated _ _ => true | _ => false end.
 Definition continue_after_calls_changes (task : task) :=
- let promoted := Tasks.promote task in
- Tasks.promote_changes task ++ [TaskChange.ChangePhase
+ let promoted := TaskResult.promote task in
+ TaskResult.promote_changes task ++ [TaskChange.ChangePhase
   (if unseen_model_input promoted || existsb process_needs_model (task_operations promoted) then WantsModel else Idle)].
 Definition continue_after_calls (task : task) := TaskChange.apply (continue_after_calls_changes task) task.
 Definition start_external (id : N) (value : world) :=
@@ -142,8 +144,8 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
  | Granted reviewer, Some tool =>
    if Capabilities.available (environment_tools (world_environment value)) tool then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.resume id (operation_id operation) value)
-   else acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
- | Granted _, None => acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
+   else acknowledged (TaskResult.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
+ | Granted _, None => acknowledged (TaskResult.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
  | _,_ => acknowledged value
  end.
 Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pending : list json) (remaining : list call) (task : task) (value : world) :=
@@ -153,11 +155,11 @@ Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pendin
  end.
 Definition after_hooks_step (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation with
- | AfterHooksReady [] result error => acknowledged (Tasks.commit_result id (fun _ => Callbacks.settle_operation_plan operation result error) value)
+ | AfterHooksReady [] result error => acknowledged (TaskResult.commit_result id (fun _ => Callbacks.settle_operation_plan operation result error) value)
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) value)
-   else acknowledged (Tasks.commit_result id
+   else acknowledged (TaskResult.commit_result id
      (OperationEvent.plan id (OperationEvent.AfterUnavailable operation plugin)) value)
  | _ => acknowledged value
  end.
@@ -181,7 +183,7 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
      | PendingCalls [] => Some (acknowledged (commit_changes id continue_after_calls_changes value))
      | Idle => match task_queued task with
        | [] => None
-       | _ => Some (acknowledged (commit_changes id Tasks.promote_changes value)) end
+       | _ => Some (acknowledged (commit_changes id TaskResult.promote_changes value)) end
      | _ => None end
    end
  | Stopped phase operations => match ready_settlement operations with
@@ -189,7 +191,7 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
    | None => match phase with
      | PendingCalls (first :: rest) => Some (start_call execute id first rest task value)
      | ReadyForHooks invocation pending remaining => Some (ready_hooks execute id invocation pending remaining task value)
-     | PendingCalls [] | WantsModel | ReadyForModel => Some (acknowledged (commit_changes id (fun task => Tasks.promote_changes task ++ [TaskChange.ChangePhase Idle]) value))
+     | PendingCalls [] | WantsModel | ReadyForModel => Some (acknowledged (commit_changes id (fun task => TaskResult.promote_changes task ++ [TaskChange.ChangePhase Idle]) value))
      | _ => None end end
  | Frozen _ operations | Archived operations => match ready_settlement operations with
    | Some operation => Some (operation_step id operation task value) | None => None end

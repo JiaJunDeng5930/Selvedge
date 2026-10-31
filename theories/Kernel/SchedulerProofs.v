@@ -1,5 +1,8 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs TaskChangeProofs SchedulerChangesProofs TaskChangesProofs.
+From Selvedge.Programming Require DecisionComposition TaskResult.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
+From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TaskChangeProofs.
+From Selvedge.Kernel Require Import SchedulerChangesProofs TaskChangesProofs.
 Import ListNotations.
 
 Theorem publishing_live_operations_only_marks_them_announced :
@@ -195,26 +198,26 @@ Theorem unfinished_bash_keeps_its_completion_owner_across_inference :
  In operation (task_operations (Scheduler.continue_after_calls task)).
 Proof.
  intros task operations operation Pending Member NeedsModel.
- assert (Promoted : task_lifecycle (Tasks.promote task) = Running WantsModel operations \/
-   task_lifecycle (Tasks.promote task) = Running (PendingCalls []) operations).
- { unfold Tasks.promote, Tasks.promote_changes; rewrite Pending.
+ assert (Promoted : task_lifecycle (TaskResult.promote task) = Running WantsModel operations \/
+   task_lifecycle (TaskResult.promote task) = Running (PendingCalls []) operations).
+ { unfold TaskResult.promote, TaskResult.promote_changes; rewrite Pending.
    destruct (task_queued task) as [|first rest].
    - right; exact Pending.
    - left; change (change_activity WantsModel (task_lifecycle task) = Running WantsModel operations).
      now rewrite Pending. }
- assert (PromotedOperations : task_operations (Tasks.promote task) = operations).
+ assert (PromotedOperations : task_operations (TaskResult.promote task) = operations).
  { destruct Promoted as [Promoted|Promoted];
      unfold Domain.task_operations; rewrite Promoted; reflexivity. }
  assert (SomeWork : existsb Scheduler.process_needs_model
-   (task_operations (Tasks.promote task)) = true).
+   (task_operations (TaskResult.promote task)) = true).
  { rewrite PromotedOperations. apply existsb_exists; exists operation; split; assumption. }
  rewrite !continue_after_calls_expression; cbv zeta.
  rewrite SomeWork, Bool.orb_true_r.
- assert (NextPhase : task_lifecycle (Domain.with_activity WantsModel (Tasks.promote task)) =
+ assert (NextPhase : task_lifecycle (Domain.with_activity WantsModel (TaskResult.promote task)) =
    Running WantsModel operations).
- { change (change_activity WantsModel (task_lifecycle (Tasks.promote task)) = Running WantsModel operations).
+ { change (change_activity WantsModel (task_lifecycle (TaskResult.promote task)) = Running WantsModel operations).
    destruct Promoted as [Promoted|Promoted]; now rewrite Promoted. }
- assert (NextOperations : task_operations (Domain.with_activity WantsModel (Tasks.promote task)) = operations).
+ assert (NextOperations : task_operations (Domain.with_activity WantsModel (TaskResult.promote task)) = operations).
  { unfold task_operations; now rewrite NextPhase. }
  rewrite NextPhase, NextOperations; split; [reflexivity|exact Member].
 Qed.

@@ -221,7 +221,7 @@ export async function build(options = {}) {
       requested.push(...(graph.get(filename) ?? []));
     }
     if (allModules || reachable.has('theories/Generated/Commands.v')) {
-      const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v'];
+      const generatorDependencies = ['theories/Programming/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v'];
       await settleIndependent(generatorDependencies.map(compile), 'Command generator dependencies failed');
       const generator = 'theories/Derive/Commands.v';
       const generatorSource = (await readInput(generator)).toString('utf8');

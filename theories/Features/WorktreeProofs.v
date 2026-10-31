@@ -1,4 +1,5 @@
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require TaskBirth TaskChangeProofs TaskResult.
+From Selvedge.Programming Require CommandResult.
 From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List Bool NArith Lia.
@@ -79,14 +80,14 @@ Lemma completed_task_contract_settings : forall space guidance task,
    (Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task)).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- unfold Tasks.promote. rewrite (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity _ _)); reflexivity.
+ unfold TaskResult.promote. rewrite (proj1 (TaskChangeProofs.field_changes_keep_the_immutable_task_identity _ _)); reflexivity.
 Qed.
 Lemma completed_task_current_settings : forall space guidance task,
  Selvedge.Kernel.Domain.task_current_settings (Worktree.completed_task space guidance task) =
  Worktree.selected_settings space guidance (Selvedge.Kernel.Domain.task_current_settings task).
 Proof.
  intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
- unfold Tasks.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
+ unfold TaskResult.promote. rewrite (proj2 (TaskChangeProofs.field_changes_keep_execution_configuration _ _)); reflexivity.
 Qed.
 (** Host jobs hold local roots. A frozen cloud selection is a different resource
     even when its path text is identical. *)
@@ -261,7 +262,7 @@ Proof.
  pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start)) as Birth.
  cbv zeta in Birth |- *.
  destruct backend; cbn [Worktree.consume_planned_start Worktree.interpret_planned_birth Worktree.born_decision Worktree.born_world Worktree.born_effects Worktree.born_identity Worktree.planned_task Worktree.planned_resource
-   Tasks.birth_prepared Tasks.birth_world Selvedge.Kernel.State.accept decision_world] in *.
+   TaskBirth.birth_prepared TaskBirth.birth_world Selvedge.Kernel.State.accept decision_world] in *.
  all: destruct Birth as [Owned [Bound Ready]]; eexists; repeat split; eauto.
 Qed.
 
@@ -344,7 +345,7 @@ Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.pl
 Proof.
  intros before [intent start resource admitted] current.
  destruct resource; unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity;
- cbn [Worktree.planned_task Worktree.planned_resource Tasks.birth_prepared Tasks.birth_world
+ cbn [Worktree.planned_task Worktree.planned_resource TaskBirth.birth_prepared TaskBirth.birth_world
    Selvedge.Kernel.State.accept decision_world]; eexists; reflexivity.
 Qed.
 Theorem planned_birth_preserves_existing_tasks : forall before (plan:Worktree.planned_start before) current id task,

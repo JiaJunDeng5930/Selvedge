@@ -2,7 +2,8 @@ From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Import Commands Workspace CommandDeclarations.
+From Selvedge.Kernel Require Import Commands Workspace.
+From Selvedge.Programming Require Import CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
 From Selvedge.Host Require Import LocalResources.
 Import ListNotations.

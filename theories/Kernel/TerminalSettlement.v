@@ -1,9 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskChange TaskResult.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import OptionObservation.
-From Selvedge.Kernel Require CommandResult RequestReceiver Tasks.
-From Selvedge.Kernel Require Import Domain State TaskScope Inputs HookRules HookCallbacks.
-From Selvedge.Kernel Require DeferredCommit.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Kernel Require RequestReceiver Tasks.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import Inputs HookRules HookCallbacks.
+From Selvedge.Programming Require DeferredCommit.
 Import ListNotations.
 
 Record after_request := AfterRequest {
@@ -20,8 +24,8 @@ Definition resolved_update (request : after_request) (current : task) : option (
  | Archived _ => match RequestReceiver.pending_after (operation request) (ticket request) current with
    | Some (pending,plugin,remaining,previous,failed) =>
      match HookCallbacks.after_result_plan (owner request) pending plugin remaining previous failed (outcome request) with
-     | Tasks.WakeDemand changes => Some changes
-     | Tasks.KeepDemand _ => None end
+     | TaskResult.WakeDemand changes => Some changes
+     | TaskResult.KeepDemand _ => None end
    | None => None end
  | _ => None end.
 Definition eligible request current := match resolved_update request current with Some _ => true | None => false end.
@@ -53,7 +57,7 @@ Definition resolve (input : input) (before : world) := match input with
 
 Definition interpret_change {before : world} (accepted : plan before) :=
  CommandResult.Change (JObject [("accepted"%string,JBool true)])
-   (Tasks.interpret_result (target accepted) (Tasks.WakeDemand (update accepted))) [].
+   (TaskResult.interpret_result (target accepted) (TaskResult.WakeDemand (update accepted))) [].
 (* The settled callback commits before independent runtime maintenance. The
    selected plan is an accepted settlement even when its hook result failed. *)
 Definition candidate {before : world} (accepted : plan before) :=

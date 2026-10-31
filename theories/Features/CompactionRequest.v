@@ -2,8 +2,13 @@ From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Programming Require Import OptionObservation Receiver Schema.
-From Selvedge.Kernel Require Import Domain State Tasks TaskScope Capabilities Codec ContextSelection TicketedRequest CompactionPlan.
-From Selvedge.Features Require Import State CompactionTypes CompactionCodec RequestTypes.
+From Selvedge.Kernel Require Import Domain State Tasks.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import Capabilities Codec ContextSelection.
+From Selvedge.Programming Require Import TicketedRequest.
+From Selvedge.Kernel Require Import CompactionPlan.
+From Selvedge.Features Require Import State CompactionTypes CompactionCodec.
+From Selvedge.Programming Require Import RequestTypes.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.

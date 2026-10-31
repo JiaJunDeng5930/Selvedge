@@ -1,5 +1,6 @@
+From Selvedge.Programming Require DecisionComposition TaskChangeProofs TicketedRequest.
 From Selvedge.Programming Require Callback.
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import RegistryProofs Json.
@@ -302,7 +303,7 @@ Proof.
  unfold Board.select_card_reference.
  eapply observe_present; [exact Found|]; intros ObservedCard.
  rewrite N.eqb_refl; cbn [CommandResult.bind].
- eapply require_satisfied; [exact Mutable|]; intros Editable.
+ eapply CommandResult.require_satisfied; [exact Mutable|]; intros Editable.
  reflexivity.
 Qed.
 (** An existing ordinary endpoint and a current editable card suffice to emit
@@ -329,7 +330,7 @@ Proof.
  subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name observed Found Mutable).
  unfold Board.request_text,Board.request_text_result.
  eapply observe_present; [exact Available|]; intros Selected.
- eapply require_satisfied; [exact Ordinary|]; intros Capable.
+ eapply CommandResult.require_satisfied; [exact Ordinary|]; intros Capable.
  eexists; repeat split; reflexivity.
 Qed.
 

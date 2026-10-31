@@ -1,7 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require CommandResult TaskChange.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs Scheduler TaskScope
- CommandExecution ForkCommit DeferredCommit.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs Scheduler.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import CommandExecution ForkCommit.
+From Selvedge.Programming Require Import DeferredCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 

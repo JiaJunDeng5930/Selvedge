@@ -68,7 +68,9 @@ Export TaskGraphProofs(resolved_installation_succeeds,
     or establish termination of an entire conversation. *)
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
-From Selvedge.Kernel Require FeatureAdmissionProofs FeatureRequestProofs TitleCommit.
+From Selvedge.Kernel Require FeatureAdmissionProofs.
+From Selvedge.Programming Require FeatureRequestProofs.
+From Selvedge.Kernel Require TitleCommit.
 Export BoardProofs(stale_card_is_atomic,
   linked_execution_inputs_are_immutable,
   archive_busy_card_retains_task_authority,

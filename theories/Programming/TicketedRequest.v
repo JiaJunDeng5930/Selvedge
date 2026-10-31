@@ -1,5 +1,8 @@
-From Selvedge.Kernel Require Import TaskScope RequestReceiver.
-From Selvedge.Kernel Require CommandResult.
+From Selvedge.Programming Require RequestTypes.
+From Selvedge.Programming Require TaskChange TaskResult.
+From Selvedge.Programming Require Import TaskScope.
+From Selvedge.Kernel Require Import RequestReceiver.
+From Selvedge.Programming Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects OptionList.
 From Selvedge.Programming Require Import Receiver Schema.
@@ -135,8 +138,8 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
  let current := selected target in
  match intent value with
  | ObserveTask publish =>
-   let prepared := if publish then Tasks.promote_changes current ++
-     publication_changes (Tasks.promote current) else [] in
+   let prepared := if publish then TaskResult.promote_changes current ++
+     publication_changes (TaskResult.promote current) else [] in
    let captured := TaskChange.apply prepared current in
    (prepared ++ [TaskChange.ChangePhase (ObservingContext ticket (List.length (task_history captured)))],
     [ObserveContext owner ticket captured])
@@ -155,7 +158,7 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
  | StartCall tool invocation remaining authority =>
    let begin stage := opening_changes (Operation ticket invocation false stage) remaining in
    let wait actor := let changes := begin (AwaitingApproval ticket actor) in
-     changes ++ Tasks.promote_changes (TaskChange.apply changes current) in
+     changes ++ TaskResult.promote_changes (TaskChange.apply changes current) in
    match authority with
    | Ordinary => (begin (Executing ticket),
      [ExecuteTool owner ticket ticket tool invocation (task_current_settings current) DefaultAccess])
@@ -167,7 +170,7 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
    end
  | ResumeOperation operation tool reviewer =>
    let changes := [TaskChange.ChangeOperationStage (operation_id operation) (Elevated ticket reviewer)] in
-   (changes ++ Tasks.wake_after_result_changes (TaskChange.apply changes current),
+   (changes ++ TaskResult.wake_after_result_changes (TaskChange.apply changes current),
     [ExecuteTool owner ticket (operation_id operation) tool (operation_call operation)
       (task_current_settings current) ElevatedAccess])
  | AfterOperation operation plugin pending result error =>
@@ -181,7 +184,7 @@ Definition issue {before} (value : plan before) :=
  let '(changes,effects) := build value ticket in
  let installed := put_task (owner target) (TaskChange.apply changes (selected target)) allocated in
  let installed := match intent value with
- | ResumeOperation _ _ _ => Tasks.mark_context_wake (owner target) (selected target) installed
+ | ResumeOperation _ _ _ => TaskResult.mark_context_wake (owner target) (selected target) installed
  | _ => installed end in
  accept (JObject [("accepted",JBool true)]) installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)

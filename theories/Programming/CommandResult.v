@@ -12,6 +12,19 @@ Inductive result (A : Type) := Accepted (value : A) | Rejected (reason : refusal
 Arguments Accepted {A}.
 Arguments Rejected {A}.
 Definition refuse {A} (code message : string) : result A := Rejected (Refusal code message).
+Definition require {A : Type} (condition : bool) (accepted : condition = true -> result A)
+ (code message : string) : result A :=
+ match condition as found return condition = found -> result A with
+ | true => accepted | false => fun _ => refuse code message end eq_refl.
+Lemma require_satisfied : forall A condition accepted code message (P : result A -> Prop),
+ condition = true -> (forall evidence, P (accepted evidence)) ->
+ P (require condition accepted code message).
+Proof. intros A [] accepted code message P Enabled Satisfied; [apply Satisfied|discriminate]. Qed.
+Lemma require_cases : forall A condition accepted code message (P : result A -> Prop),
+ (forall evidence, P (accepted evidence)) -> P (refuse code message) ->
+ P (require condition accepted code message).
+Proof. intros A [] accepted code message P Accepted Rejected; [apply Accepted|exact Rejected]. Qed.
+
 Definition bind {A B} (value : result A) (next : A -> result B) : result B :=
  match value with Accepted value => next value | Rejected reason => Rejected reason end.
 Definition map {A B} (f : A -> B) (value : result A) : result B :=

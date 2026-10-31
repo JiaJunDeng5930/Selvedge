@@ -1,7 +1,9 @@
-From Selvedge.Kernel Require CommitPacket.
+From Selvedge.Programming Require CommandResult.
+From Selvedge.Programming Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Inputs Dispatch Delivery Notifications DecisionComposition.
+From Selvedge.Kernel Require Import Domain State Inputs Dispatch Delivery Notifications.
+From Selvedge.Programming Require Import DecisionComposition.
 Import ListNotations.
 
 (* An independent request is durable before the scheduler may change its owner.

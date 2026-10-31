@@ -1,6 +1,9 @@
 From Stdlib Require Import List NArith Bool.
+From Selvedge.Programming Require TaskResult.
 From Selvedge.Foundation Require Import RegistryProofs.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskChangesProofs Scheduler.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChange TaskChangeProofs.
+From Selvedge.Kernel Require Import Tasks TaskChangesProofs Scheduler.
 Import ListNotations.
 
 Definition commit_changes_expression (id : N) (changes : task -> list TaskChange.edit) (before : world) := ltac:(
@@ -15,7 +18,7 @@ Proof. intros; rewrite commit_changes_expression, H; reflexivity. Qed.
 
 Lemma continue_after_calls_expression : forall task,
  Scheduler.continue_after_calls task =
- let promoted := Tasks.promote task in
+ let promoted := TaskResult.promote task in
  with_activity (if unseen_model_input promoted ||
    existsb Scheduler.process_needs_model (task_operations promoted) then WantsModel else Idle) promoted.
 Proof.

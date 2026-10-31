@@ -16,6 +16,8 @@ For an extension, first use the existing controlled constructors and composition
 operations. Their quantified contracts supply the shared properties. Prove only
 the additional behavior required by the extension. `Engineering.v` covers local
 declaration extension without a list of all possible owners.
+The existing construction interfaces and their applicability are indexed in
+[theories/Programming](../theories/Programming/README.md).
 
 ## Checking and dependency direction
 

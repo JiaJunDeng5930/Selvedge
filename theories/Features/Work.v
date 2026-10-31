@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskBirth.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks.
 From Selvedge.Features Require Import Domain State WorkUIPatch.
@@ -88,12 +89,12 @@ Proof.
  unfold select_owner; apply Absent; exact Missing.
 Qed.
 Definition own_birth {origin before : world} (owner : owner_scope origin)
- (birth : Tasks.birth_result before) (value : world)
- (_tasks : world_tasks value = world_tasks (Tasks.birth_world birth))
+ (birth : TaskBirth.birth_result before) (value : world)
+ (_tasks : world_tasks value = world_tasks (TaskBirth.birth_world birth))
  (_works : Selvedge.Features.Domain.feature_works (world_features value) =
    Selvedge.Features.Domain.feature_works (world_features origin)) :=
  with_features (Selvedge.Features.State.with_task_owners
-   ((Tasks.birth_id birth,owner_identity owner)::Selvedge.Features.Domain.feature_task_owners (world_features value))
+   ((TaskBirth.birth_id birth,owner_identity owner)::Selvedge.Features.Domain.feature_task_owners (world_features value))
    (world_features value)) value.
 From Selvedge.Generated Require Import Commands.
 Definition handle_list_works (payload:Selvedge.Generated.Commands.list_works_payload) (caller:option N) (value:world) :json :=

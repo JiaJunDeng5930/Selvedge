@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require Import OptionObservationProofs.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TicketedRequest.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope TaskScopeProofs TicketedRequest.
 Module S := TicketedRequest.Scoped.
 
 (** Selection establishes availability. The returned plan itself retains the

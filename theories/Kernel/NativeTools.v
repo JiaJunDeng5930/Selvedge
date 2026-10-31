@@ -5,7 +5,7 @@ From Selvedge.Foundation Require Import SchemaJson.
 From Selvedge.Programming Require Import JsonSchema Arguments.
 From Selvedge.Foundation Require Import Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
-From Selvedge.Kernel Require Export CommandDeclarations.
+From Selvedge.Programming Require Export CommandDeclarations.
 From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
 From Selvedge.Features Require Import Titles BoardParameters.
 From Selvedge.Generated Require Import Commands.

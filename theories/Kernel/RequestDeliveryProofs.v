@@ -1,8 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require DecisionComposition OperationEvent TaskResult.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State StateProofs TaskScope TaskChange
- Dispatch Scheduler Delivery DeferredCommit Inputs Packet RequestDelivery
- CallbackChangesProofs CallbacksProofs LifecycleProofs TaskWakeProofs HookRules.
+From Selvedge.Kernel Require Import Domain State StateProofs.
+From Selvedge.Programming Require Import TaskScope TaskChange.
+From Selvedge.Kernel Require Import Dispatch Scheduler Delivery.
+From Selvedge.Programming Require Import DeferredCommit.
+From Selvedge.Kernel Require Import Inputs Packet RequestDelivery CallbackChangesProofs CallbacksProofs LifecycleProofs.
+From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import HookRules.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -138,7 +143,7 @@ Theorem an_after_budget_refusal_uses_the_owned_failure_settlement :
  operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
  decision_world (RequestDelivery.refuse_after
    (CheckResult owner ticket identity plugin invocation result error) current) =
- Tasks.apply_result owner task
+ TaskResult.apply_result owner task
    (HookCallbacks.after_result_plan owner operation plugin pending result error
      (AfterFailure RequestDelivery.after_failure_message)) (decision_world current).
 Proof.
@@ -171,14 +176,14 @@ Proof.
  rewrite an_after_budget_refusal_uses_the_owned_failure_settlement with
    (task:=task) (operation:=operation) (pending:=pending); try assumption.
  unfold HookCallbacks.after_result_plan, OperationEvent.after_checked, OperationEvent.after_result; cbn [HookRules.after_apply].
- change (Tasks.apply_result owner task
-   (Tasks.prefix_result [TaskChange.AppendHistory
+ change (TaskResult.apply_result owner task
+   (TaskResult.prefix_result [TaskChange.AppendHistory
      [AfterReceipt owner (operation_id operation) plugin
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))]]
      (OperationEvent.settle operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
-   (Tasks.mark_context_wake owner task (put_task owner
+   (TaskResult.mark_context_wake owner task (put_task owner
      (Callbacks.settle_operation operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true
        (append_history [AfterReceipt owner (operation_id operation) plugin
@@ -193,7 +198,7 @@ Proof.
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (Tasks.wake_after_result settled), released; split.
+ exists (TaskResult.wake_after_result settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].

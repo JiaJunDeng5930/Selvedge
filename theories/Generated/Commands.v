@@ -2,7 +2,8 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Arguments ArgumentProjection CommandPayload CommandFields.
-From Selvedge.Kernel Require Import Commands CommandDeclarations.
+From Selvedge.Kernel Require Import Commands.
+From Selvedge.Programming Require Import CommandDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 

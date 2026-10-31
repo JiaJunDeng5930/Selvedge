@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require TaskChange.
 From Selvedge.Foundation Require Import RegistryProofs.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskChangeProofs TaskWakeProofs
- TicketedRequest ModelRequestConstructionProofs.
+From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Programming Require Import TaskScope TaskChangeProofs TaskWakeProofs TicketedRequest.
+From Selvedge.Kernel Require Import ModelRequestConstructionProofs.
 Import ListNotations.
 Module S := TicketedRequest.Scoped.
 

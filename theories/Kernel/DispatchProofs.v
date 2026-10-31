@@ -1,4 +1,5 @@
 From Stdlib Require Import List Bool NArith.
+From Selvedge.Programming Require RequestTypes.
 From Selvedge.Kernel Require Import Domain State Dispatch.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 Import ListNotations.

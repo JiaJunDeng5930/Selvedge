@@ -1,3 +1,4 @@
+From Selvedge.Programming Require CommandDeclarations.
 From Selvedge.Programming Require CommandFields.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.

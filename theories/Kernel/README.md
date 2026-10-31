@@ -5,6 +5,10 @@ The host keeps the world opaque: it starts from `initial` and replays accepted
 input records through the packet entry. Constructors own the state properties
 needed by those operations.
 
+The reusable task and decision construction interfaces live in
+[Programming](../Programming/README.md). This directory owns the task vocabulary,
+admission policies and operations that compose those interfaces.
+
 `TaskChange` restricts ordinary edits to lifecycle, queued input and appended
 history. `OperationEvent` interprets each hook, approval or tool outcome into
 its receipt and continuation together. `TicketedRequest` allocates a request's

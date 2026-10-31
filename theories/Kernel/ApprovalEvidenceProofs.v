@@ -1,7 +1,11 @@
-From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
+From Selvedge.Programming Require OperationEvent TaskChange TaskChangeProofs TaskResult.
+From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Programming Require Import TaskWakeProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs TicketedRequestProofs LifecycleProofs.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits.
+From Selvedge.Programming Require Import TicketedRequest ScopedRequestProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -32,7 +36,7 @@ Proof.
  unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
- unfold Scheduler.append_operation, Tasks.promote.
+ unfold Scheduler.append_operation, TaskResult.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
@@ -89,7 +93,7 @@ Proof.
  intros owner pending actor reason task plugin rest Hooks.
  unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
  rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
- unfold OperationEvent.returned, OperationEvent.settle, Tasks.result_changes.
+ unfold OperationEvent.returned, OperationEvent.settle, TaskResult.result_changes.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  destruct lifecycle; unfold Callbacks.after_plugins, OperationEvent.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
 Qed.
@@ -103,8 +107,8 @@ Theorem model_approval_completion_records_its_captured_reviewer :
  exists updated,
  decision_world (Callbacks.approval_completed owner ticket outcome value) =
    (match Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task with
-    | Tasks.KeepDemand _ => put_task owner updated value
-    | Tasks.WakeDemand _ => Tasks.mark_context_wake owner task (put_task owner updated value) end) /\
+    | TaskResult.KeepDemand _ => put_task owner updated value
+    | TaskResult.WakeDemand _ => TaskResult.mark_context_wake owner task (put_task owner updated value) end) /\
  find_task owner (decision_world (Callbacks.approval_completed owner ticket outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
@@ -114,10 +118,10 @@ Proof.
  rewrite !approval_completed_expression; rewrite Found, Selected.
  exists (Callbacks.approval_decision owner pending (ModelReviewer profile) outcome task).
  cbn [Callbacks.acknowledged accept decision_world]. split.
- - unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+ - unfold TaskResult.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
    destruct (Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task); reflexivity.
  - split.
-   + unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+   + unfold TaskResult.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
      destruct (Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task);
        rewrite ?TaskWakeProofs.context_wake_preserves_every_task_lookup;
        eapply find_put_task; exact Found.
@@ -133,8 +137,8 @@ Theorem human_approval_command_records_its_actual_reviewer :
  exists updated,
  decision_world (Callbacks.review_approval owner operation outcome value) =
    (match Callbacks.approval_decision_plan owner pending HumanReviewer outcome task with
-    | Tasks.KeepDemand _ => put_task owner updated value
-    | Tasks.WakeDemand _ => Tasks.mark_context_wake owner task (put_task owner updated value) end) /\
+    | TaskResult.KeepDemand _ => put_task owner updated value
+    | TaskResult.WakeDemand _ => TaskResult.mark_context_wake owner task (put_task owner updated value) end) /\
  find_task owner (decision_world (Callbacks.review_approval owner operation outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer
@@ -144,10 +148,10 @@ Proof.
  rewrite !review_approval_expression; rewrite Found, Selected.
  exists (Callbacks.approval_decision owner pending HumanReviewer outcome task).
  cbn [Callbacks.acknowledged accept decision_world]. split.
- - unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+ - unfold TaskResult.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
    destruct (Callbacks.approval_decision_plan owner pending HumanReviewer outcome task); reflexivity.
  - split.
-   + unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+   + unfold TaskResult.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
      destruct (Callbacks.approval_decision_plan owner pending HumanReviewer outcome task);
        rewrite ?TaskWakeProofs.context_wake_preserves_every_task_lookup;
        eapply find_put_task; exact Found.

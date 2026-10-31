@@ -1,9 +1,11 @@
+From Selvedge.Programming Require RequestTypes.
 From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Receiver.
 From Selvedge.Foundation Require Import Registry.
-From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission TicketedRequest.
+From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission.
+From Selvedge.Programming Require Import TicketedRequest.
 From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
 Import ListNotations.
 Open Scope string_scope.

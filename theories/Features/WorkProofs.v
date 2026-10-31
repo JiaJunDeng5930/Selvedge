@@ -1,3 +1,4 @@
+From Selvedge.Programming Require TaskBirth.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
@@ -97,7 +98,7 @@ Theorem ui_requires_task_call : forall value patch expected,
  K.reject "task_call_required"%string "Edit the shared UI through a Task tool call."%string value.
 Proof. reflexivity. Qed.
 Theorem own_birth_changes_only_ownership : forall origin before
- (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works,
+ (owner : Work.owner_scope origin) (birth : TaskBirth.birth_result before) value tasks works,
  with_features (Selvedge.Features.State.with_task_owners
    (F.feature_task_owners (world_features value))
    (world_features (Work.own_birth owner birth value tasks works)))
@@ -107,23 +108,23 @@ Proof.
  destruct features; reflexivity.
 Qed.
 Theorem witnessed_root_birth_records_its_work : forall origin before
- (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works,
- F.association (Tasks.birth_id birth) (F.feature_task_owners
+ (owner : Work.owner_scope origin) (birth : TaskBirth.birth_result before) value tasks works,
+ F.association (TaskBirth.birth_id birth) (F.feature_task_owners
    (world_features (Work.own_birth owner birth value tasks works))) = Some (Work.owner_identity owner).
 Proof.
  intros; unfold Work.own_birth.
- change (F.association (Tasks.birth_id birth)
-   ((Tasks.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) = Some (Work.owner_identity owner)).
+ change (F.association (TaskBirth.birth_id birth)
+   ((TaskBirth.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) = Some (Work.owner_identity owner)).
  unfold F.association; cbn; now rewrite N.eqb_refl.
 Qed.
 Theorem new_root_ownership_preserves_existing_roots : forall origin before
- (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works other,
- other <> Tasks.birth_id birth ->
+ (owner : Work.owner_scope origin) (birth : TaskBirth.birth_result before) value tasks works other,
+ other <> TaskBirth.birth_id birth ->
  F.association other (F.feature_task_owners (world_features (Work.own_birth owner birth value tasks works))) =
  F.association other (F.feature_task_owners (world_features value)).
 Proof.
  intros origin before owner birth value tasks works other Different; unfold Work.own_birth.
- change (F.association other ((Tasks.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) =
+ change (F.association other ((TaskBirth.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) =
    F.association other (F.feature_task_owners (world_features value))).
  unfold F.association; cbn. apply N.eqb_neq in Different; now rewrite Different.
 Qed.

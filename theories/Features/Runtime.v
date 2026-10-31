@@ -1,7 +1,8 @@
 From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Scheduler TitleCommit DecisionComposition.
+From Selvedge.Kernel Require Import Domain State Scheduler TitleCommit.
+From Selvedge.Programming Require Import DecisionComposition.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime.
 Definition completion_inputs (execute : Scheduler.executor) :=

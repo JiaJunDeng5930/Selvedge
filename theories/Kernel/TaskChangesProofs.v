@@ -1,6 +1,11 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require CommandResult TaskResult.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskWakeProofs History.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State.
+From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChange TaskChangeProofs.
+From Selvedge.Kernel Require Import Tasks.
+From Selvedge.Programming Require Import TaskWakeProofs.
+From Selvedge.Kernel Require Import History.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -9,7 +14,7 @@ Open Scope list_scope.
    maintain another copy of each task command's control flow. *)
 Ltac reduce_task_plan expression :=
  eval cbv beta iota zeta delta [TaskChange.interpret TaskChange.configure TaskChange.target TaskChange.changes
-   TaskScope.owner TaskScope.selected Tasks.interpret_result
+   TaskScope.owner TaskScope.selected TaskResult.interpret_result
    Tasks.receive_input Tasks.perform_control Tasks.control_resource_available
    Tasks.input_admission Tasks.control_admission
    Tasks.input_effects Tasks.input_changes Tasks.admit_input Tasks.admit_control
@@ -34,7 +39,7 @@ Definition steer_expression (id : N) (contents : content) (value : world) := lta
 
 Ltac reduce_cancellation_plan expression :=
  let reduced := reduce_task_plan expression in
- eval cbv beta iota zeta delta [Tasks.apply_result Tasks.result_changes] in reduced.
+ eval cbv beta iota zeta delta [TaskResult.apply_result TaskResult.result_changes] in reduced.
 
 Definition cancel_operation_expression (id identity : N) (value : world) := ltac:(
  let body := eval unfold Tasks.cancel_operation in (Tasks.cancel_operation id identity value) in

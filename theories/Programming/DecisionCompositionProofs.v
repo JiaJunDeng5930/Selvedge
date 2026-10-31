@@ -1,5 +1,6 @@
 From Stdlib Require Import List.
-From Selvedge.Kernel Require Import State DecisionComposition.
+From Selvedge.Kernel Require Import State.
+From Selvedge.Programming Require Import DecisionComposition.
 Import ListNotations.
 
 Theorem transformation_retains_reply : forall change current,
