@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects OptionList Receiver Schema.
+From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Programming Require Import OptionObservation Receiver Schema.
 From Selvedge.Kernel Require Import Domain State Tasks TaskScope Capabilities Codec ContextSelection TicketedRequest CompactionPlan.
 From Selvedge.Features Require Import State CompactionTypes CompactionCodec RequestTypes.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -88,7 +89,7 @@ Definition maintenance_observed owner request before current
      maintenance_replacement_ready request)).
 Definition maintenance_selected owner request before current
  (Found : find_task owner before = Some current) : option (maintenance_reference before owner request) :=
- OptionList.observe (compaction_entry owner before)
+ OptionObservation.observe (compaction_entry owner before)
    (fun entry Stored => maintenance_observed owner request before current Found entry Stored) (fun _ => None).
 Definition compaction_entries owner (before : C.state) :=
  Receiver.At.field before C.maintenance_entries

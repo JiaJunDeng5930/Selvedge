@@ -1,5 +1,6 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Foundation Require Import Constructor Focus Registry.
+From Selvedge.Programming Require Import Constructor Focus.
+From Selvedge.Foundation Require Import Registry.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 

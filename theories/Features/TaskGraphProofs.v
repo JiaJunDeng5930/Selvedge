@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import TaskChangesProofs.
-From Selvedge.Foundation Require Import RegistryProofs ReceiverProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Programming Require Import ReceiverProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json OptionList.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import OptionObservation.
 From Selvedge.Kernel Require CommandResult RequestReceiver Tasks.
 From Selvedge.Kernel Require Import Domain State TaskScope Inputs HookRules HookCallbacks.
 From Selvedge.Kernel Require DeferredCommit.
@@ -38,11 +39,11 @@ Arguments update {before}.
 Arguments observed_update {before}.
 Definition resolve_observed (payload : after_request) (before : world) (current : task)
  (observed : find_task (owner payload) before = Some current) : option (plan before) :=
- OptionList.observe (resolved_update payload current)
+ OptionObservation.observe (resolved_update payload current)
    (fun update Final => Some (Plan before (TaskScope.TaskReference before (owner payload) current observed)
       payload eq_refl update Final)) (fun _ => None).
 Definition resolve_request (payload : after_request) (before : world) : option (plan before) :=
- OptionList.observe (find_task (owner payload) before)
+ OptionObservation.observe (find_task (owner payload) before)
    (fun current observed => resolve_observed payload before current observed) (fun _ => None).
 
 Definition resolve (input : input) (before : world) := match input with

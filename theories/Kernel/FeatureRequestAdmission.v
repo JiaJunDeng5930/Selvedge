@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Registry OptionList.
+From Selvedge.Foundation Require Import Json Utf8 Registry.
+From Selvedge.Programming Require Import OptionObservation.
 From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import Domain State Tasks TaskScope ChatgptArguments.
 From Selvedge.Features Require Import Domain Observation Titles WorkspaceBinding.
@@ -62,7 +63,7 @@ Definition resolved_job {before identity project request}
  connection_job identity project request (resolved_arguments resolved)
    (resolved_grant resolved) (resolved_target resolved).
 
-Definition observe := @OptionList.observe.
+Definition observe := @OptionObservation.observe.
 Arguments observe {A B}.
 Definition require {A : Type} (condition : bool) (accepted : condition = true -> CommandResult.result A)
  (code message : string) : CommandResult.result A :=

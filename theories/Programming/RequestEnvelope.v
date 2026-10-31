@@ -1,5 +1,5 @@
 From Stdlib Require Import NArith.
-From Selvedge.Foundation Require Import Constructor.
+From Selvedge.Programming Require Import Constructor.
 
 (** A pending receiver and its external request share this value.  The
     correlation identity and frozen input cannot be selected independently

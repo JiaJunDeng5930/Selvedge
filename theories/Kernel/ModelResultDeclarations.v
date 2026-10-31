@@ -1,5 +1,6 @@
 From Stdlib Require Import String List.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Selvedge.Features Require Import Domain.
 From Selvedge.Host Require RemoteTransport RemoteConnectorSession.

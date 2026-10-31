@@ -1,6 +1,11 @@
 From Stdlib Require Import String List Bool NArith ZArith Ascii.
-From Selvedge.Foundation Require OptionList EncodedObject BoundedInteger Refinement.
-From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
+From Selvedge.Foundation Require OptionList.
+From Selvedge.Programming Require EncodedObject.
+From Selvedge.Foundation Require BoundedInteger.
+From Selvedge.Programming Require Refinement.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

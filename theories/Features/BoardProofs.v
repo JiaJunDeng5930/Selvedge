@@ -1,7 +1,10 @@
 From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8 CompletionProofs.
+From Selvedge.Foundation Require Import RegistryProofs Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Import CompletionProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs FeatureAdmissionProofs.
 From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree WorktreeProofs Titles TitleRuntime.
 Import ListNotations.

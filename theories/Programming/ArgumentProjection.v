@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Schema Arguments.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema Arguments.
+From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 Module D := ArgumentDeclaration.
 

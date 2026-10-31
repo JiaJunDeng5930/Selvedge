@@ -1,7 +1,9 @@
 From Selvedge.Foundation Require Import RemoteIdentity.
 From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema JsonProofs JsonObjectsProofs.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Codec.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Remote.

@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Adapters Require Import Common Observation Audio.

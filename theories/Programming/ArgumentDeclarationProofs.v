@@ -1,6 +1,6 @@
 From Stdlib Require Import String Bool.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.
 Lemma admitted_value_retains_its_constraint : forall (A : Set) (condition : A -> bool) value,

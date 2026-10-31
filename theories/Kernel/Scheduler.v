@@ -1,6 +1,8 @@
 From Selvedge.Kernel Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.

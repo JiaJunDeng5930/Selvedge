@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson Schema.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Export Attachments Appearance.
 From Selvedge.Interaction Require Import Codec Identity Resource ModelSelection.
 From Selvedge.Interaction.Session Require Draft DraftCodec.

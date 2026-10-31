@@ -1,4 +1,5 @@
-From Selvedge.Foundation Require Import Json Schema Arguments.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema Arguments.
 
 (** A proposal retains the wire shape needed by editors; an admitted payload
     retains the declaration's values. Only admitted values reach execution. *)

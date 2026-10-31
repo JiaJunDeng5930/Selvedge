@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Local Sources Vocabulary Types.
 Import ListNotations.
 Open Scope string_scope.

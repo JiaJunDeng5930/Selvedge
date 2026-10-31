@@ -1,6 +1,6 @@
 From Stdlib Require Import String List.
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 
 (** An admitted name selects its domain value from the same declaration.

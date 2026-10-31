@@ -5,7 +5,7 @@ Module D := Selvedge.Kernel.Commands.
 
 Theorem task_excluded_commands_are_read_only_rejections_at_every_handler_entry :
  forall command caller invocation before,
- D.task_command_allowed (Selvedge.Foundation.Schema.command_name (G.declared_command command)) = false ->
+ D.task_command_allowed (Selvedge.Programming.Schema.command_name (G.declared_command command)) = false ->
  CommandHandlers.query command (Some caller) before = Some CommandHandlers.origin_failure /\
  CommandHandlers.execute command (Some invocation) before =
    Decision before CommandHandlers.origin_failure nil.

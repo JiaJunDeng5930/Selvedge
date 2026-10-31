@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Arguments.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema Arguments.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Kernel Require Export CommandArguments.
 Import ListNotations.

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson ModelWire DeclarationFields.
+From Selvedge.Foundation Require Import Json TextJson ModelWire.
+From Selvedge.Programming Require Import DeclarationFields.
 From Selvedge.Kernel Require Import Context Conversation.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Adapters Require ProviderCatalog OutputObservations.

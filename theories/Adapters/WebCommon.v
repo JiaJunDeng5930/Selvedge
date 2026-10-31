@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson Utf8 CallWire.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields ObjectMethod.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields ObjectMethod.
 From Selvedge.Adapters Require Export Common.
 Import ListNotations.
 Open Scope string_scope.

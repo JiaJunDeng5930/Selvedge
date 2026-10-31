@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json Utf8.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields KeyedCollection.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Codec Domain ChatgptArguments.
 From Selvedge.Features Require ConnectionGrants.
 From Selvedge.Adapters Require ProviderCatalog.

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
-From Selvedge.Foundation Require Import Json Schema RequestEnvelope FiniteChoice.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema RequestEnvelope FiniteChoice.
 From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
 From Selvedge.Foundation Require Export RemoteIdentity.

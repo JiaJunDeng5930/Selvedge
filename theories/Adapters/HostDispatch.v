@@ -2,7 +2,7 @@ From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Host Require Import Dispatch.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import ModelDeclarations.
 Import ListNotations.
 Open Scope string_scope.

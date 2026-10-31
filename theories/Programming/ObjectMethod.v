@@ -1,5 +1,6 @@
 From Stdlib Require Import String List.
-From Selvedge.Foundation Require Import Json ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import ArgumentDeclaration.
 Import ListNotations.
 Module D := ArgumentDeclaration.
 

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Host Require Import RemoteTransport.
 From Selvedge.Kernel Require Import ModelDeclarations ModelResultDeclarations.
 Import ListNotations.

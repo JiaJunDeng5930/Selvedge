@@ -1,7 +1,9 @@
 From Selvedge.Kernel Require CommandResult.
-From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs ReceiverProofs.
+From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
+From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json JsonProofs Schema SchemaProofs.
+From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Programming Require Import Schema SchemaProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs Tasks.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.

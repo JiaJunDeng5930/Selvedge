@@ -2,7 +2,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
 From Selvedge.Adapters Require ProviderCatalog.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Foundation Require Schema ArgumentDeclaration DeclarationFields OptionList KeyedCollection.
+From Selvedge.Programming Require Schema ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require OptionList KeyedCollection.
 From Selvedge.Features Require CompactionTypes CompactionCodec.
 From Selvedge.Kernel Require Import Context.
 From Selvedge.Kernel Require Domain.

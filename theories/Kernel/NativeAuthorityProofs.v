@@ -168,12 +168,12 @@ Proof. intros maximum; vm_compute. repeat (apply NoDup_cons; [simpl; intuition d
 Theorem production_native_bindings_are_registered : forall binding,
  In binding Selvedge.Kernel.NativeTools.bindings ->
  exists specification, In specification Selvedge.Kernel.Commands.command_specs /\
- Selvedge.Foundation.Schema.command_name specification = Selvedge.Kernel.NativeTools.binding_command binding.
+ Selvedge.Programming.Schema.command_name specification = Selvedge.Kernel.NativeTools.binding_command binding.
 Proof.
  intros binding member.
  assert (registered:forallb (fun binding=>existsb
    (fun specification=>String.eqb (Selvedge.Kernel.NativeTools.binding_command binding)
-     (Selvedge.Foundation.Schema.command_name specification))
+     (Selvedge.Programming.Schema.command_name specification))
    Selvedge.Kernel.Commands.command_specs) Selvedge.Kernel.NativeTools.bindings=true) by (vm_compute;reflexivity).
  apply forallb_forall with (x:=binding) in registered; [|exact member].
  apply existsb_exists in registered as [specification [present equal]].

@@ -1,7 +1,10 @@
 From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8 Completion.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Import Completion.
 From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments TicketedRequest.
 From Selvedge.Generated Require Import Commands.

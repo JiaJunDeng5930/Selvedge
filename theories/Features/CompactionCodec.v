@@ -2,7 +2,8 @@ From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson Schema.
+From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require OptionList.
 From Selvedge.Kernel Require Import Numbers Codec Compaction CompactionPlan ContextSelection.
 From Selvedge.Features Require Import CompactionTypes.

@@ -1,5 +1,5 @@
 From Stdlib Require Import NArith.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 Module D := ArgumentDeclaration.
 
 Definition declaration := D.NaturalText 0 (Some D.maximum_natural).

@@ -1,7 +1,9 @@
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require OptionList.
-From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8 CallWire ModelWire.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema JsonSchema Arguments.
+From Selvedge.Foundation Require Import Utf8 CallWire ModelWire.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.

@@ -1,4 +1,4 @@
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.

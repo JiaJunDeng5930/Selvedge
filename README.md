@@ -30,6 +30,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and the owning domain's definitions and
 requirements before changing behavior. [Requirements and design reasons](requirements/README.md)
 connect current user and engineering goals to the actual checked operations.
 They have a separate source root that production code cannot import.
+The [programming constructions](theories/Programming/README.md) collect the
+existing reusable languages, controlled constructors and their shared laws.
 
 ```sh
 bun run check

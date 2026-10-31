@@ -1,6 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 Open Scope string_scope.
 
 Definition fallback := "External execution failed".

@@ -93,7 +93,7 @@ async function runBuildBenchmark({ provenance, requestedFiles }) {
   const changes = requestedFiles.length ? requestedFiles : [
     'theories/Browser/Layout.v',
     'theories/Kernel/Commands.v',
-    'theories/Foundation/Schema.v',
+    'theories/Programming/Schema.v',
     'theories/Browser/LayoutProof.v',
   ];
   for (const [index, filename] of changes.entries()) {

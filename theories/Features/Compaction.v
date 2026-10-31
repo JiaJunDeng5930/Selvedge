@@ -1,7 +1,8 @@
 From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects TextJson Completion.
+From Selvedge.Foundation Require Import Json JsonObjects TextJson.
+From Selvedge.Programming Require Import Completion.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning TicketedRequest.

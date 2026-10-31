@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Json Utf8 JsonObjects DeclarationRegistry.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjects.
+From Selvedge.Programming Require Import DeclarationRegistry.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.

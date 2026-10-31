@@ -1,5 +1,5 @@
 From Stdlib Require Import String Bool NArith.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require ArgumentDeclaration.
 Open Scope string_scope.
 
 Definition constraints := ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural

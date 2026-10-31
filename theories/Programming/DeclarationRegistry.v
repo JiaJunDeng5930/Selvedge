@@ -1,5 +1,5 @@
 From Stdlib Require Import String List.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 
 (** Public names select one declaration. Composition establishes uniqueness
     before any first-match lookup can run; each owner supplies only its value. *)

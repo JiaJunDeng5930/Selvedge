@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import Json Schema DeclarationRegistry.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema DeclarationRegistry.
 From Selvedge.Kernel Require CallbackDeclarations.
 Import ListNotations.
 Open Scope string_scope.

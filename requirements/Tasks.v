@@ -95,7 +95,7 @@ Export NotificationsProofs(notification_envelopes_preserve_all_business_effects,
 
 From Selvedge.Kernel Require CommandDeclarationsProofs CommandOriginProofs
   FeatureRequestProofs.
-From Selvedge.Foundation Require CompletionProofs.
+From Selvedge.Programming Require CompletionProofs.
 Export CommandDeclarationsProofs(malformed_commands_are_not_durable).
 Export CommandOriginProofs(task_excluded_commands_are_read_only_rejections_at_every_handler_entry).
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver,

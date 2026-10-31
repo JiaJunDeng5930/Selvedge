@@ -1,6 +1,8 @@
 From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8 RemoteIdentity.
+From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson Utf8 RemoteIdentity.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler Commands.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State.

@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Interaction Require Import Codec Graphics CodeSource CodeBlock DocumentPublication.
 From Selvedge.Interaction.Presentation Require Import Surface Roles Model Information.
 From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Local Vocabulary Registry Types State Sources Expand Plot Presentation.

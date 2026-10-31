@@ -1,5 +1,5 @@
 From Stdlib Require Import List NArith.
-From Selvedge.Foundation Require Import Constructor OptionList Receiver RequestEnvelope.
+From Selvedge.Programming Require Import Constructor OptionObservation Receiver RequestEnvelope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 
@@ -154,10 +154,10 @@ Definition consume {state row phase input} (path : Receiver.t state row) `{locat
  (mode : correlation input) (address : coordinate mode)
  (choose : row -> input -> option (amendment row pending)) (before : state)
  : option (receipt path get pending mode address choose before) :=
- OptionList.observe (Receiver.read_at path (@identity _ _ path location) before)
+ OptionObservation.observe (Receiver.read_at path (@identity _ _ path location) before)
    (fun current Observed =>
-     OptionList.observe (candidate pending mode address (get current))
-       (fun request Admitted => OptionList.observe (choose current request)
+     OptionObservation.observe (candidate pending mode address (get current))
+       (fun request Admitted => OptionObservation.observe (choose current request)
          (fun change Selected => Some
            (@Receipt state row phase input path location get setter pending view mode address choose before
              current request change Observed Admitted Selected)) (fun _ => None))

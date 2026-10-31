@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema RemoteIdentity.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields OptionList.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import RemoteIdentity.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Host Require Import RemoteProtocol.
 From Selvedge.Kernel Require ModelDeclarations.
 Module MD := Selvedge.Kernel.ModelDeclarations.

@@ -1,5 +1,7 @@
 From Stdlib Require Import List Bool NArith Lia.
-From Selvedge.Foundation Require Import Constructor Focus Registry RegistryProofs KeyedListProofs Receiver.
+From Selvedge.Programming Require Import Constructor Focus.
+From Selvedge.Foundation Require Import Registry RegistryProofs KeyedListProofs.
+From Selvedge.Programming Require Import Receiver.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 

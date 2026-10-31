@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith ZArith Ascii.
-From Selvedge.Foundation Require Import Schema TextMetrics BoundedInteger.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields KeyedCollection OptionList.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextMetrics BoundedInteger.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require KeyedCollection OptionList.
 From Selvedge.Adapters Require Export AccountFields.
 From Selvedge.Kernel Require Import ModelCapabilities AccountNamespace.
 Import ListNotations.

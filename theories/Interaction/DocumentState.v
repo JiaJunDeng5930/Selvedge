@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Import Codec Origin Identity.
 From Selvedge.Kernel Require Import Streams.
 From Selvedge.Interaction.Interactive Require Types Bounds.

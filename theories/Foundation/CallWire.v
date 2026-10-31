@@ -1,6 +1,9 @@
 From Stdlib Require Import String List Bool Arith NArith.
-From Selvedge.Foundation Require Import Json TextJson Schema Utf8 DeclarationFields EncodedObject.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Programming Require Import DeclarationFields EncodedObject.
+From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.

@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema DeclarationFields ModelWire BoundedDiagnostic.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema DeclarationFields.
+From Selvedge.Foundation Require Import ModelWire BoundedDiagnostic.
+From Selvedge.Programming Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import ApprovalProtocol.
 From Selvedge.Kernel Require Guidance WorkspacePath.
 Import ListNotations.

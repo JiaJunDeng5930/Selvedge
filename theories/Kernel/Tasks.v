@@ -3,7 +3,8 @@ From Selvedge.Kernel Require Import TaskScope TaskChange.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 FreshNames Refinement.
+From Selvedge.Foundation Require Import Json Utf8 FreshNames.
+From Selvedge.Programming Require Import Refinement.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 Import ListNotations.
 Open Scope string_scope.

@@ -1,5 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Registry OptionListProofs.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Registry.
+From Selvedge.Programming Require Import OptionObservationProofs.
 From Selvedge.Kernel Require Import Domain State FeatureRequestAdmission ChatgptArguments.
 From Selvedge.Kernel Require CommandResult.
 Import ListNotations.
@@ -8,9 +11,9 @@ Lemma require_satisfied : forall A condition accepted code message (P : CommandR
  condition = true -> (forall evidence, P (accepted evidence)) ->
  P (require condition accepted code message).
 Proof. intros A [] accepted code message P Enabled Satisfied; [apply Satisfied|discriminate]. Qed.
-Definition observe_present := @OptionListProofs.observe_present.
-Definition observe_absent := @OptionListProofs.observe_absent.
-Definition observe_cases := @OptionListProofs.observe_cases.
+Definition observe_present := @OptionObservationProofs.observe_present.
+Definition observe_absent := @OptionObservationProofs.observe_absent.
+Definition observe_cases := @OptionObservationProofs.observe_cases.
 Lemma require_cases : forall A condition accepted code message (P : CommandResult.result A -> Prop),
  (forall evidence, P (accepted evidence)) -> P (CommandResult.refuse code message) ->
  P (require condition accepted code message).

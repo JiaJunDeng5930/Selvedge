@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Commands Context State Observation NativeTools Limits Search Pagination.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.

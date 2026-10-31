@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Foundation Require ArgumentDeclaration ArgumentProjection.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require ArgumentDeclaration ArgumentProjection.
 Import ListNotations.
 
 Inductive program (source : schema) : schema -> Set :=

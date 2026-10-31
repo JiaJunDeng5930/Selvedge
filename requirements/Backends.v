@@ -67,7 +67,9 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     and settles that reservation once. The public media plan admits every part
     within one byte budget. JavaScript materialization and the physical protocol
     remain separate checks. *)
-From Selvedge.Foundation Require Import CallWire EncodedObject TextJsonRoundtrip.
+From Selvedge.Foundation Require Import CallWire.
+From Selvedge.Programming Require Import EncodedObject.
+From Selvedge.Foundation Require Import TextJsonRoundtrip.
 Export CallWire(callback_argument_nesting, admit_at, decode_at, encode, external).
 Export EncodedObject.Admitted(parsed_members, construct_members).
 Export TextJsonRoundtrip(parse_render_members_at).

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Workspace Codec LifecycleProofs.
 From Selvedge.Features Require Import Domain Worktree WorktreeProofs WorkspaceBinding.

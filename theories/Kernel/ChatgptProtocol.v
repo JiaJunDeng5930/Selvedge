@@ -1,5 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema SchemaJson Utf8 Arguments.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import SchemaJson Utf8.
+From Selvedge.Programming Require Import Arguments.
 From Selvedge.Kernel Require Import Commands CommandDeclarations ChatgptArguments.
 Import ListNotations.
 Open Scope string_scope.

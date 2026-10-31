@@ -1,5 +1,5 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require ModelDeclarations.
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Adapters Require Import Common.

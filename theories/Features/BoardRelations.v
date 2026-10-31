@@ -1,4 +1,5 @@
-From Selvedge.Foundation Require Import RegistryProofs ReceiverProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks CommandExecution.

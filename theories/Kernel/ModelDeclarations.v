@@ -1,6 +1,8 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Foundation Require DeclarationFields DeclarationRegistry SchemaProjection TextJson.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require DeclarationFields DeclarationRegistry SchemaProjection.
+From Selvedge.Foundation Require TextJson.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

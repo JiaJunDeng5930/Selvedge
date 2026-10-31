@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Arguments JsonSchema Schema Utf8.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Arguments JsonSchema Schema.
+From Selvedge.Foundation Require Import Utf8.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes.
 From Selvedge.Kernel Require Guidance.

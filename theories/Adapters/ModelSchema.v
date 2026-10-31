@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import ModelDeclarations Commands.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.

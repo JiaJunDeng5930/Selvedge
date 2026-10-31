@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Registry Receiver.
+From Selvedge.Foundation Require Import Json Registry.
+From Selvedge.Programming Require Import Receiver.
 From Selvedge.Kernel Require Import Numbers Domain State WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain.
 Import ListNotations.

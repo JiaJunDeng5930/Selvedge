@@ -92,7 +92,7 @@ Definition origin_failure := State.failure "access_denied" "This command is not 
 (* Every real interpretation is selected through the same origin policy that
    NativeTools uses to construct the advertised task capability surface. *)
 Definition interpret (command : G.command) (from_task : bool) :=
- if Declarations.origin_allowed from_task (Selvedge.Foundation.Schema.command_name (G.declared_command command))
+ if Declarations.origin_allowed from_task (Selvedge.Programming.Schema.command_name (G.declared_command command))
  then G.dispatch handlers command
  else Observation (fun _ _ => origin_failure).
 Definition query (command : G.command) (caller : option N) (value : world) :=

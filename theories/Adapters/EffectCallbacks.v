@@ -1,5 +1,5 @@
 From Selvedge.Kernel Require Import ModelDeclarations CallbackDeclarations.
-From Selvedge.Foundation Require Import Schema DeclarationFields.
+From Selvedge.Programming Require Import Schema DeclarationFields.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson BoundedDiagnostic.
 From Selvedge.Adapters Require Import Common Observation.

@@ -1,7 +1,8 @@
 From Selvedge.Kernel Require Import TaskScope RequestReceiver.
 From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects OptionList Receiver Schema.
+From Selvedge.Foundation Require Import Json JsonObjects OptionList.
+From Selvedge.Programming Require Import Receiver Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
 From Selvedge.Features Require Import WorkspaceBinding State.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.

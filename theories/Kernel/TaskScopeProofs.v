@@ -62,15 +62,6 @@ Proof.
  apply General.
 Qed.
 
-(* A selector may retain the equality just observed by computation. Clients
-   eliminate that observation through its builder, without writing a second,
-   unindexed copy of the selector's implementation. *)
-Lemma observed_value_elimination : forall (A B : Type) (observed : A)
- (build : forall selected, observed = selected -> B) (property : B -> Prop),
- (forall selected evidence, property (build selected evidence)) ->
- property (build observed eq_refl).
-Proof. intros A B observed build property Cases; apply Cases. Qed.
-
 (* Derive an ordinary lookup view from the single scoped implementation. The
    supplied reduction only interprets plans and projections. The equality below
    is always proved by selected_result_erases_its_lookup_witness; no business

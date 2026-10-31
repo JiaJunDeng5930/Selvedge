@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Receiver Registry.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema Receiver.
+From Selvedge.Foundation Require Import Registry.
 From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission TicketedRequest.
 From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
 Import ListNotations.

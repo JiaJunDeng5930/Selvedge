@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Programming Require Import OptionObservationProofs.
 From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TicketedRequest.
 Module S := TicketedRequest.Scoped.
 

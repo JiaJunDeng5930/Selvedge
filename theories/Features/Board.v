@@ -2,7 +2,8 @@ From Selvedge.Kernel Require InputRoute.
 From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8 Schema Completion.
+From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.

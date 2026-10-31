@@ -1,6 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson Arguments Numbers RemoteIdentity.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import SchemaJson.
+From Selvedge.Programming Require Import Arguments.
+From Selvedge.Foundation Require Import Numbers RemoteIdentity.
+From Selvedge.Programming Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Codec ContentDeclarations ChatgptArguments.
 From Selvedge.Features Require Import Titles BoardParameters TaskGraphDeclarations ConnectionGrants.
 From Selvedge.Features Require Domain.

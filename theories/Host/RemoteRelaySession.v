@@ -1,6 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema RemoteIdentity.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import RemoteIdentity.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Host Require Import RemoteProtocol.
 Module RP := RemoteProtocol.
 Module D := ArgumentDeclaration.

@@ -1,7 +1,9 @@
 From Selvedge.Kernel Require Import FeatureAdmissionProofs.
 From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema JsonProofs KeyedListProofs.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import JsonProofs KeyedListProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Codec ChatgptArguments.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Chatgpt.

@@ -1,5 +1,5 @@
 From Stdlib Require Import NArith.
-From Selvedge.Foundation Require Import Completion ReceiverProofs OptionListProofs.
+From Selvedge.Programming Require Import Completion ReceiverProofs OptionObservationProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 
 Lemma observed_write : forall state phase (selected : slot state phase) before current write,
@@ -136,8 +136,8 @@ Theorem receipt_rejects_repeated_completion :
  Row.consume path get pending mode address choose (Row.after received) = None.
 Proof.
  unfold Row.consume.
- eapply OptionListProofs.observe_present; [apply received_row_is_installed|].
- intro Found; eapply OptionListProofs.observe_absent; [apply received_candidate_is_retired|].
+ eapply OptionObservationProofs.observe_present; [apply received_row_is_installed|].
+ intro Found; eapply OptionObservationProofs.observe_absent; [apply received_candidate_is_retired|].
  intros; reflexivity.
 Qed.
 End Receipts.

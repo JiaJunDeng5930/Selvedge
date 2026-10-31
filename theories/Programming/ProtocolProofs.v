@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString Numbers.DecimalN.
-From Selvedge.Foundation Require Import Json Numbers NumbersProofs Schema SchemaProofs.
+From Selvedge.Foundation Require Import Json Numbers NumbersProofs.
+From Selvedge.Programming Require Import Schema SchemaProofs.
 Import ListNotations.
 
 Definition natural_print_parse := NumbersProofs.natural_print_parse.
@@ -71,7 +72,7 @@ Proof.
        rewrite Head, Tail, Wire, Wires. split; reflexivity.
      * exists (@FCons (FieldSpec name kind true) rest None tail).
        cbn [decode_fields encode_fields encode_field decode_field option_map field_name].
-       rewrite (Selvedge.Foundation.SchemaProofs.encoded_lookup_is_absent rest values name Absent).
+       rewrite (Selvedge.Programming.SchemaProofs.encoded_lookup_is_absent rest values name Absent).
        rewrite Tail, Wires. split; reflexivity.
    + destruct (typed_field_wire_is_decodable kind value HeadSupported) as [head [Head Wire]].
      exists (@FCons (FieldSpec name kind false) rest head tail).
@@ -84,7 +85,7 @@ Lemma encoded_keys_are_declared : forall description (values : fields descriptio
 Proof.
  intros description values. unfold keys_declared, source_keys.
  apply forallb_forall; intros name Inside. apply existsb_exists; exists name; split.
- - now apply (Selvedge.Foundation.SchemaProofs.encode_declared_fields description values).
+ - now apply (Selvedge.Programming.SchemaProofs.encode_declared_fields description values).
  - apply String.eqb_refl.
 Qed.
 Theorem schema_wire_roundtrip : forall description (values : fields description),
@@ -97,7 +98,7 @@ Proof.
  destruct (typed_fields_wire_is_decodable description values Unique Supported) as [canonical [Decoded Wire]].
  exists canonical. unfold Schema.decode, Schema.encode.
  unfold source_keys. rewrite encoded_keys_are_declared, Unique.
- rewrite (Selvedge.Foundation.SchemaProofs.encoded_names_are_unique description values Unique).
+ rewrite (Selvedge.Programming.SchemaProofs.encoded_names_are_unique description values Unique).
  cbn. rewrite Decoded, Wire. split; reflexivity.
 Qed.
 

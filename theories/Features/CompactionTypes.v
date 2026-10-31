@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json RequestEnvelope.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import RequestEnvelope.
 From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Import Domain Compaction ContextSelection.
 Import ListNotations.

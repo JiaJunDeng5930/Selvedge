@@ -1,7 +1,9 @@
 From Selvedge.Kernel Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
-From Selvedge.Foundation Require ArgumentDeclaration DeclarationFields.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import SchemaJson TextJson Utf8 Numbers.
+From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.

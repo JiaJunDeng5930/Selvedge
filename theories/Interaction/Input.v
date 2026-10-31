@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Interaction Require Import Codec Identity Services Speech SkillMention.
 From Selvedge.Interaction.Experience Require Import Model Activity.

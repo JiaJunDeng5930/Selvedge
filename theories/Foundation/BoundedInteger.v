@@ -1,5 +1,6 @@
 From Stdlib Require Import String Bool NArith ZArith DecimalString.
-From Selvedge.Foundation Require Import Numbers Refinement.
+From Selvedge.Foundation Require Import Numbers.
+From Selvedge.Programming Require Import Refinement.
 
 Definition safe_integer_limit : Z := 9007199254740991%Z.
 Definition within_safe_integer (value : Z) : bool :=

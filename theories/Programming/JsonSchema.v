@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Foundation Require ArgumentDeclaration ExtensionSchema.
+From Selvedge.Programming Require ArgumentDeclaration.
+From Selvedge.Foundation Require ExtensionSchema.
 
 (** Extension schemas use ExtensionSchema.parse: closed objects and bounded
     natural integers. Internal arguments use their own richer language directly.

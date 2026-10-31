@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 Import ListNotations.
 
 Theorem encode_declared_fields : forall description (values : fields description),

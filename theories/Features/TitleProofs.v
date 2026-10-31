@@ -1,4 +1,4 @@
-From Selvedge.Foundation Require Import CompletionProofs.
+From Selvedge.Programming Require Import CompletionProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Kernel Require Import Domain State FeatureAdmissionProofs.
 From Selvedge.Features Require Import Domain State TitleRuntime.

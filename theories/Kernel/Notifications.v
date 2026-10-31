@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson Schema.
+From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery RequestReceiver.
 From Selvedge.Kernel Require ModelDeclarations.
 Import ListNotations.

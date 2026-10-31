@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Import Codec CommandAssessment Application.
 From Selvedge.Interaction.Session Require Draft State Authoring.
 From Selvedge.Interaction.Experience Require Activity Model Observation.

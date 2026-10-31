@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Arith Bool.
-From Selvedge.Foundation Require Import Schema.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Browser Require Import Typography Enclosure.
 From Selvedge.Interaction.Presentation Require Import Composition.
 Import ListNotations.

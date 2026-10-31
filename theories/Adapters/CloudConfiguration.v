@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Schema.
-From Selvedge.Foundation Require ArgumentDeclaration.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.

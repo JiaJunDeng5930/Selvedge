@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Import Commands Streams Images.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities.
 From Selvedge.Features Require Domain BoardFilter Titles.

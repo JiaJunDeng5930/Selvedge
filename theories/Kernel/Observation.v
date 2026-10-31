@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain Observation CompactionCodec WorkspaceBinding.
 Import ListNotations.

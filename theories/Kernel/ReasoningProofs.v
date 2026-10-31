@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Programming Require OptionObservationProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
 From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs TicketedRequestProofs.
 Import ListNotations.
@@ -250,7 +251,7 @@ Proof.
  unfold Reasoning.context_retry; rewrite Selected.
  unfold TicketedRequest.Scoped.observe_selected.
  pattern (TicketedRequest.Scoped.observe_allowed false reference _ eq_refl).
- apply (@TaskScopeProofs.observed_value_elimination _ _ _
+ apply (@OptionObservationProofs.observed_value_elimination _ _ _
    (@TicketedRequest.Scoped.observe_allowed value false reference)); intros condition Evidence.
  assert (Unavailable : condition = false).
  { rewrite Current in Evidence; unfold TicketedRequest.Scoped.can_observe in Evidence.

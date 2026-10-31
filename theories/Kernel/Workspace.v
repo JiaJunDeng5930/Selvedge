@@ -1,5 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Schema Utf8 Numbers ArgumentDeclaration.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8 Numbers.
+From Selvedge.Programming Require Import ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Numbers.
 From Selvedge.Kernel Require WorkspacePath.
 Import ListNotations.
