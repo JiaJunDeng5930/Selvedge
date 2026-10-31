@@ -2,24 +2,14 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Arguments.
 From Selvedge.Kernel Require Import Commands.
-From Selvedge.Kernel Require Export CommandArguments.
 From Selvedge.Programming Require Import CommandFields.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition declaration_for (name : string) := find (fun declaration =>
- String.eqb name (wire_name (declared_wire declaration))) Commands.command_declarations.
-Definition refine_argument (observed : bool) (name : string) (argument : argument_spec) :=
- match declaration_for name with
- | Some declaration => match find (fun field =>
-   String.eqb (argument_name argument) (field_name (field_shape field)))
-   (wire_fields (declared_wire declaration)) with
-   | Some field => field_argument observed field argument
-   | None => argument end
- | None => argument end.
 (** The public and observed languages share one field declaration. A host
-    observation has no slot in the public interpretation. *)
+    observation has no slot in the public interpretation. Callers supply the
+    declarations and handlers interpreted below. *)
 Definition command_arguments (observed : bool) (declaration : Commands.command_declaration) :=
  let wire := Commands.declared_wire declaration in let name := wire_name wire in
  Commands.command_argument name (Field "op" (KEnum name [])) ::
@@ -40,10 +30,6 @@ Fixpoint decode_invocation (observed : bool) (declarations : list Commands.comma
    then option_map inl (Arguments.decode_arguments (command_arguments observed declaration) source)
    else option_map inr (decode_invocation observed rest name source)
  end.
-Definition admit (observed : bool) (source : json) :=
- match string_field "op" source with
- | Some name => decode_invocation observed Commands.command_declarations name source
- | None => None end.
 Fixpoint encode_invocation (observed : bool) (declarations : list Commands.command_declaration)
  : invocation observed declarations -> json :=
  match declarations as declarations return invocation observed declarations -> json with
@@ -63,9 +49,3 @@ Fixpoint interpret {A : Type} (observed : bool) (declarations : list Commands.co
  | declaration :: rest => fun handlers value => match value with
    | inl value => fst handlers value | inr value => interpret observed rest (snd handlers) value end
  end.
-Definition public_command := invocation false Commands.command_declarations.
-Definition observed_command := invocation true Commands.command_declarations.
-Definition admit_public := admit false.
-Definition admit_observed := admit true.
-Definition public_json := encode_invocation false Commands.command_declarations.
-Definition observed_json := encode_invocation true Commands.command_declarations.

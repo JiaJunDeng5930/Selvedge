@@ -4,6 +4,8 @@ From Selvedge.Foundation Require Import Numbers.
 Import ListNotations.
 Local Open Scope string_scope.
 
+(** Pure source construction for the Kernel command catalogue. Derive.Commands
+    supplies that catalogue; the generated declarations are checked by Rocq. *)
 Definition append := Stdlib.Strings.String.append.
 Definition newline := Stdlib.Strings.String.String (ascii_of_nat 10) Stdlib.Strings.String.EmptyString.
 Definition line (text : String.string) := append text newline.
@@ -42,7 +44,7 @@ Definition payload_source (index : nat) (command : command_spec) : String.string
   concat [
     line (concat ["Definition "; name; "_schema := command_fields (List.nth "; show_nat index;
       " Selvedge.Kernel.Commands.command_specs (Command """" []))."]);
-    line (concat ["Definition "; name; "_input_declaration := CommandDeclarations.command_arguments true (List.nth "; show_nat index;
+    line (concat ["Definition "; name; "_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth "; show_nat index;
       " Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand """" [])))."]);
     line (concat ["Definition "; name; "_payload := CommandPayload.t "; name; "_schema "; name; "_input_declaration true."]);
     line (concat ["Definition "; name; "_proposal := CommandPayload.t "; name; "_schema "; name; "_input_declaration false."]);
@@ -69,12 +71,12 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
    line "Definition proposal := command_value false.";
    line "(** The generated interpretation consumes admitted fields directly. Its field";
    line "    projections must typecheck against the owning declaration. *)";
-   line "Definition command_interpretations : CommandDeclarations.interpretations true Selvedge.Kernel.Commands.command_declarations command :=";
+   line "Definition command_interpretations : Selvedge.Programming.CommandDeclarations.interpretations true Selvedge.Kernel.Commands.command_declarations command :=";
    line (fold_right (fun command rest => concat ["((fun arguments => Cmd_"; command_name command;
      " (Admit_"; command_name command; " arguments)), ";rest;")"]) "tt" commands ++ ".");
-   line "Definition admitted_command := CommandDeclarations.observed_command.";
-   line "Definition admit := CommandDeclarations.admit_observed.";
-   line "Definition admitted_value := CommandDeclarations.interpret true Selvedge.Kernel.Commands.command_declarations command_interpretations.";
+   line "Definition admitted_command := Selvedge.Kernel.CommandDeclarations.observed_command.";
+   line "Definition admit := Selvedge.Kernel.CommandDeclarations.admit_observed.";
+   line "Definition admitted_value := Selvedge.Programming.CommandDeclarations.interpret true Selvedge.Kernel.Commands.command_declarations command_interpretations.";
    line "Definition decode (source : json) : option command := option_map admitted_value (admit source).";
    line "Theorem admit_projects_decode : forall source, option_map admitted_value (admit source) = decode source.";
    line "Proof. reflexivity. Qed.";

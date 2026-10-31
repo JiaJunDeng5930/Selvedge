@@ -222,7 +222,7 @@ export async function build(options = {}) {
     }
     const generatorInputs = new Set();
     if (allModules || reachable.has('theories/Generated/Commands.v')) {
-      const generatorDependencies = ['theories/Programming/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v', 'theories/Programming/CommandGeneration.v'];
+      const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v', 'theories/Derive/CommandGeneration.v'];
       const missingGeneratorDependencies = generatorDependencies.filter(filename => !graph.has(filename));
       if (missingGeneratorDependencies.length) {
         const generatorGraph = await dependencies(missingGeneratorDependencies, true, readInput);

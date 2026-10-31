@@ -25,7 +25,7 @@ Definition describe := JObject [
  JObject [("name", JString name);
  ("description", JString (match Selvedge.Kernel.Commands.command_description name with
    | Some description => description | None => "" end));
- ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_declarations));
+ ("schema", Selvedge.Programming.CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_declarations));
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [

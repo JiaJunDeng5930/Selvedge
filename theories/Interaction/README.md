@@ -10,8 +10,9 @@ Forms derive their heterogeneous value types, codecs and field edits from
 `Programming.Schema`. A draft has one editor owner and the value type selected by
 that owner. Invalid native text is retained separately from admitted values, so
 editing a large integer or an incomplete JSON value never changes a typed value
-into an unvalidated string. `Programming.CommandDeclarations` interprets the
-`Kernel.Commands` catalogue before commands can become pending requests or effects.
+into an unvalidated string. `Kernel.CommandDeclarations` instantiates the shared
+`Programming.CommandDeclarations` interpretation with the `Kernel.Commands`
+catalogue before commands can become pending requests or effects.
 
 The shared [presentation constructions](../Programming/README.md) live under
 `Programming.Presentation`. `Surface` owns the semantic tree and common event

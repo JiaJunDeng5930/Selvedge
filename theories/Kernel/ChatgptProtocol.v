@@ -4,7 +4,8 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import SchemaJson Utf8.
 From Selvedge.Programming Require Import Arguments.
 From Selvedge.Kernel Require Import Commands.
-From Selvedge.Programming Require Import CommandDeclarations.
+From Selvedge.Programming Require CommandDeclarations.
+From Selvedge.Kernel Require CommandDeclarations.
 From Selvedge.Kernel Require Import ChatgptArguments.
 Import ListNotations.
 Open Scope string_scope.
@@ -26,8 +27,8 @@ Definition readonly route := match route with Projects | Project | Operation | O
 Definition destructive route := negb (readonly route).
 Definition idempotent route := match route with Cancel => true | _ => readonly route end.
 Definition open_world route := match route with Execute => true | _ => false end.
-Definition native_arguments route := match CommandDeclarations.declaration_for (native_name route) with
- | Some declaration => CommandDeclarations.command_arguments false declaration | None => [] end.
+Definition native_arguments route := match Selvedge.Kernel.CommandDeclarations.declaration_for (native_name route) with
+ | Some declaration => Selvedge.Programming.CommandDeclarations.command_arguments false declaration | None => [] end.
 Definition client_arguments route := filter (fun argument => negb
  (existsb (String.eqb (argument_name argument)) ["op";"connection_id";"arguments"])) (native_arguments route).
 Definition client_argument (property : string * bool * ArgumentDeclaration.t) :=

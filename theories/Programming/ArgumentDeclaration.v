@@ -271,28 +271,3 @@ Definition refine_object (overrides : list (string * t)) (declaration : t) :=
    match find (fun entry => String.eqb (fst (fst property)) (fst entry)) overrides with
    | Some (_,replacement) => (fst property,replacement) | None => property end) properties)
  | _ => declaration end.
-
-(** External extension registration shares these JSON Schema observations;
-    internal declarations execute directly and never reparse their projection. *)
-Definition member (name : string) (names : list string) := existsb (String.eqb name) names.
-Definition object_keys (source : json) (names : list string) := match source with
- | JObject fields => unique_names (map fst fields) && forallb (fun entry => member (fst entry) names) fields
- | _ => false end.
-Definition natural (value : json) := match value with
- | JNumber source => parse_natural source | _ => None end.
-Definition bound_or (value : option json) (fallback : N) :=
- match value with Some value => match natural value with Some number => number | None => fallback end | None => fallback end.
-Definition optional_text (value : option json) := match value with None | Some (JString _) => true | _ => false end.
-Fixpoint strings (values : list json) : option (list string) := match values with
- | [] => Some [] | JString text :: rest => option_map (cons text) (strings rest) | _ => None end.
-Definition enum_choices (value : option json) : option (option (list string)) := match value with
- | None => Some None
- | Some (JArray ((_ :: _) as values)) => match strings values with Some names =>
-   if unique_names names && Nat.leb (List.length names) 256 then Some (Some names) else None | None => None end
- | _ => None end.
-Definition traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
- OptionList.traverse f values.
-Definition required_names (properties : list (string * json)) (source : option json) :=
- match source with None => Some [] | Some (JArray values) => match strings values with
- | Some names => if unique_names names && forallb (fun name => member name (map fst properties)) names
-   then Some names else None | None => None end | _ => None end.

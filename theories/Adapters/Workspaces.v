@@ -3,7 +3,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands Workspace.
-From Selvedge.Programming Require Import CommandDeclarations.
+From Selvedge.Kernel Require CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
 From Selvedge.Host Require Import LocalResources.
 Import ListNotations.
@@ -117,9 +117,9 @@ Definition workspace_command_observed (source : json) :=
 (* Raw command admission precedes every observation, including cloud and unknown-task paths.
    Service-owned observations have no constructors in this public declaration. *)
 Definition workspace_command_raw (source : json) :=
- match CommandDeclarations.admit_public (get source "command") with
+ match Selvedge.Kernel.CommandDeclarations.admit_public (get source "command") with
  | None => type_error "Command fields do not match their declared presence, shape or bounds"
- | Some admitted => success (CommandDeclarations.public_json admitted)
+ | Some admitted => success (Selvedge.Kernel.CommandDeclarations.public_json admitted)
  end.
 
 Definition child (parent leaf : string) :=
