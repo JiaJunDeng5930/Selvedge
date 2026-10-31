@@ -26,7 +26,7 @@ export async function auditAssumptions({ prefixes = [], sources = null, entries 
     }
     // Vendored RecordEta checks a theorem inside __test; its name includes that module.
     const scopes = [];
-    for (const match of source.matchAll(/^\s*(?:(Module|Section)\s+(?:(?:Import|Export|Type)\s+)?([A-Za-z_][A-Za-z_0-9']*)(?:\s*<:\s*[A-Za-z_][A-Za-z_0-9'.]*)?\s*\.|End\s+([A-Za-z_][A-Za-z_0-9']*)\s*\.|(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b)/gm)) {
+    for (const match of source.matchAll(/^\s*(?:(Module|Section)\s+(?:(?:Import|Export|Type)\s+)?([A-Za-z_][A-Za-z_0-9']*)(?:\s*<?:\s*[A-Za-z_][A-Za-z_0-9'.]*)?\s*\.|End\s+([A-Za-z_][A-Za-z_0-9']*)\s*\.|(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b)/gm)) {
       if (match[1]) scopes.push({ kind: match[1], name: match[2] });
       else if (match[3]) scopes.pop();
       else {

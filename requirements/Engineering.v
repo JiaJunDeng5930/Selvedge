@@ -1,7 +1,59 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Schema DeclarationRegistry.
+From Selvedge.Foundation Require Focus ArgumentDeclarationProofs
+  NumbersProofs BoundedIntegerCorrectness.
 Import ListNotations.
 Open Scope list_scope.
+
+(** * Engineering goals and their construction
+
+    A developer should be able to change one domain rule at its owner and use
+    its public meaning without reading unrelated representations. Gallina owns
+    the pure rules; extraction uses those same definitions. Host code supplies
+    observations and interprets effects. A second handwritten implementation of
+    a pure rule would introduce another choice to maintain.
+
+    Public vocabulary remains available for constructing commands, describing
+    results and stating requirements. Internal state is changed through the
+    owning operations. Computation, proof automation and requirement explanation
+    have distinct dependencies: ordinary production compilation cannot resolve
+    [SelvedgeRequirements], while this source can use checked production
+    contracts. [scripts/rocq-sources.mjs] supplies those load paths separately.
+    Source discovery and assumption checking include new requirement modules
+    without adding them to a registry. Runtime dependency fingerprints do not
+    include consumers in this directory.
+
+    Ordinary functions, indexed types and existing library theories provide the
+    shared construction first. MetaRocq is used where the declared structure
+    must generate code, such as command projections. It remains outside runtime
+    computation. A new business combination inherits the shared guarantees;
+    only its own additional behavior needs another proposition.
+
+    ** A local update retains the rest of the state
+
+    A focus decomposes a value into a writable part and a retained remainder.
+    Its interpreter reconstructs the result from both, so an arbitrary sequence
+    of local operations cannot replace the remainder. The quantified laws below
+    concern the actual shared interpreter, independently of a global state
+    enumeration or of the number of operations later supplied. *)
+Export Focus(modification_has_its_selected_value, modifications_compose,
+  modifications_keep_the_frame).
+
+(** ** Admission retains the established meaning
+
+    An external value is admitted once into the declared constrained type;
+    consumers use that value instead of serializing and parsing it again.
+    Internal types do not admit external JSON on the caller's behalf. The common
+    admission law connects the actual check to the declared condition. *)
+Export ArgumentDeclarationProofs(admitted_value_retains_its_constraint).
+
+(** Public bounded integer fields denote exact mathematical integers. Ordinary
+    internal naturals remain unrestricted; JSON transport does not silently
+    round them through JavaScript numbers. The separate bounded decoder is used
+    only where the field's contract requires that bound. UTF-8 and physical
+    byte interpretation are checked at their owning transport boundaries. *)
+Export NumbersProofs(natural_print_parse).
+Export BoundedIntegerCorrectness(decode_safe_integer_mathematical_iff).
 
 (** * Local extension without repeated shared obligations
 
