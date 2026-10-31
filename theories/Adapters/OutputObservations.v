@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 ModelWire.
 From Selvedge.Programming Require Import DeclarationFields.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.

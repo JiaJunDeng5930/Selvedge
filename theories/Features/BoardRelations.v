@@ -1,4 +1,4 @@
-From Selvedge.Programming Require TicketedRequest.
+From Selvedge.Programming Require TicketedRequest CardScope.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List NArith Lia.
@@ -9,27 +9,27 @@ Open Scope bool_scope.
 Open Scope string_scope.
 
 Lemma board_lookup_after_put_selected : forall id before replacement value,
- Board.lookup id value = Some before ->
- Board.lookup id (Board.put id replacement value) = Some replacement.
+ CardScope.lookup id value = Some before ->
+ CardScope.lookup id (Board.put id replacement value) = Some replacement.
 Proof.
  intros id before replacement value found.
- unfold Board.lookup in found.
- destruct (registry_at id (Selvedge.Features.Domain.board_cards (Board.registry value)))
+ unfold CardScope.lookup in found.
+ destruct (registry_at id (Selvedge.Features.Domain.board_cards (Selvedge.Features.Domain.feature_board (world_features value))))
    as [stored|] eqn:slot; cbn in found; try discriminate.
  inversion found; subst stored.
  pose proof (ReceiverProofs.installed (TicketedRequest.Scoped.card_slot id) replacement
    (world_features value) (or_intror (ex_intro _ (Some before) slot))) as Installed.
  change (match registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))) with
    | Some stored => Constructor.project (@Some card) stored | None => None end = Some replacement) in Installed.
- unfold Board.lookup,Board.registry.
+ unfold CardScope.lookup.
  destruct (registry_at id (board_cards (feature_board (world_features (Board.put id replacement value)))))
    as [[stored|]|]; exact Installed.
 Qed.
 
 Lemma board_lookup_after_task_put : forall card_id task_id task value,
- Board.lookup card_id (Selvedge.Kernel.State.put_task task_id task value) = Board.lookup card_id value.
+ CardScope.lookup card_id (Selvedge.Kernel.State.put_task task_id task value) = CardScope.lookup card_id value.
 Proof.
- intros. unfold Board.lookup, Board.registry, Selvedge.Kernel.State.put_task,
+ intros. unfold CardScope.lookup, Selvedge.Kernel.State.put_task,
    Selvedge.Kernel.State.with_tasks.
  cbv [set]. reflexivity.
 Qed.

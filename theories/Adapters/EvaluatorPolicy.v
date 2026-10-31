@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json TextJson JsonObjects.
 From Selvedge.Adapters Require Import Common EvaluatorBudget EvaluatorContext RetryAfter ProviderCatalog.
 From Selvedge.Kernel Require Import ReasoningProtocol.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

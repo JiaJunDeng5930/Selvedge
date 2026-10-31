@@ -71,8 +71,9 @@ From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
 From Selvedge.Kernel Require FeatureAdmissionProofs.
 From Selvedge.Programming Require FeatureRequestProofs.
 From Selvedge.Kernel Require TitleCommit.
-Export BoardProofs(stale_card_is_atomic,
-  linked_execution_inputs_are_immutable,
+From Selvedge.Programming Require CardScopeProofs.
+Export CardScopeProofs(stale_card_is_atomic).
+Export BoardProofs(linked_execution_inputs_are_immutable,
   archive_busy_card_retains_task_authority,
   card_title_result_preserves_conversation,
   saving_card_preserves_conversations_and_their_titles).

@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers Utf8.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import JsonObjects TextMetrics.
 From Selvedge.Adapters Require Export Common ProviderCatalog AccountContracts.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

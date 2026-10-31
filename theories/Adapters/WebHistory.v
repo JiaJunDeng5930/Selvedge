@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Kernel Require Import NativeTools.
 From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory BackendRequests.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

@@ -11,13 +11,13 @@ Definition with_stored source handler := match optional_stored source with
     cannot authorize reuse of a request or reset of its continuation. *)
  | None => err invalid_source end.
 Definition frame_fields := [required "data" (D.Value Schema.KText);raw "event"].
-Definition frame_value := project frame_fields (fun data event => (data,text (missing event))).
+Definition frame_value := O.project frame_fields (fun data event => (data,text (missing event))).
 Definition stream_fields := [required "pending" (D.Value Schema.KText);required "data" (D.Array (D.Value Schema.KText));
  required "size" safe_natural;required "name" (D.Value Schema.KText);required "after_cr" D.Boolean].
-Definition stream_value := project stream_fields (fun pending data size name after_cr =>
+Definition stream_value := O.project stream_fields (fun pending data size name after_cr =>
  StreamState pending data (proj1_sig size) name after_cr).
 Definition http_fields := [required "ok" D.Boolean].
-Definition http_value := project http_fields (fun ok => ok).
+Definition http_value := O.project http_fields (fun ok => ok).
 Definition options effect := let model := String.eqb (member_text effect "kind") "model" in
   success (JObject [("snapshots",JBool model);("receipt",JBool model);("stages",number 2)]).
 Definition contract request tools := success (JObject (("model",get (member request "model") "name")::
@@ -31,21 +31,9 @@ Definition receipt_entry effect response record deferred count hash store bindin
  WebContinuation.receipt history model task response record deferred count hash store
    (missing binding) (missing contract) (items (missing tools)).
 
-(** The declaration determines each handler's argument types. Invocation decodes
-    once and supplies those values; operations cannot reread an unchecked source. *)
-Record operation := Operation {
- operation_name : string;
- operation_fields : list (string * bool * D.t);
- operation_run : O.arguments operation_fields json;
- operation_error : string;
- operation_names : Schema.DistinctNames (map (fun field => fst (fst field)) operation_fields)
-}.
 Definition method name fields handler
  `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
- Operation name fields handler invalid_source H.
-Definition diagnostic_method name fields handler message
- `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
- Operation name fields handler message H.
+ O.Operation name fields handler invalid_source H.
 Definition operations := [
  method "web.messages" [required "history" (D.Array D.Any)] WebHistory.messages;
  method "web.tools" [required "effect" D.RawObject] WebHistory.tools;
@@ -80,7 +68,7 @@ Definition operations := [
    (fun body deferred limits => WebResources.request_bounds (missing body) (missing deferred) (num (missing limits) "frame_bytes"));
  method "web.owner" [required "effect" D.RawObject] WebCommon.owner;
  method "web.headers" [raw "version";raw "content_type"] (fun version content_type => WebStream.headers (missing version) (missing content_type));
- diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "profile";raw "record";raw "binding"])
+ O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "profile";raw "record";raw "binding"])
    (fun action confirm profile record binding => WebStore.recovery (recovery_action_value action) confirm (missing profile) (missing record) (missing binding))
    "Invalid ChatGPT Web recovery action";
  method "web.recovery_result" [raw "action";raw "value";raw "record"]
@@ -99,7 +87,7 @@ Definition operations := [
  method "web.frame" [required "frame" (D.OpenObject frame_fields)] (fun frame => WebResources.frame (fst (frame_value frame)));
  method "web.event_header" [required "frame" (D.OpenObject frame_fields)]
    (fun frame => let '(data,name) := frame_value frame in WebResources.event true name data JNull JNull [] JNull);
- diagnostic_method "web.recovery_shape" WebStore.recovery_fields (fun _ _ => success JNull) "Invalid ChatGPT Web recovery action";
+ O.diagnostic_method "web.recovery_shape" WebStore.recovery_fields (fun _ _ => success JNull) "Invalid ChatGPT Web recovery action";
  method "web.recovery_connection" [raw "profile";raw "record"] (fun profile record => WebStore.recovery_connection (missing profile) (missing record));
  method "web.options" [required "effect" D.RawObject] options;
  method "web.invocation" [required "effect" D.RawObject;required "profile" D.RawObject;required "body" D.RawObject;
@@ -113,14 +101,14 @@ Definition operations := [
  method "web.catch" [raw "record";raw "error"] (fun record error => WebStore.catch (missing record) (missing error));
  method "web.http_json" [required "response" (D.OpenObject http_fields);required "text" (D.Value Schema.KText)]
    (fun response text => WebResources.http_json (http_value response) text);
- diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "task_id" safe_natural]
+ O.diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "task_id" safe_natural]
    (fun rows records task => WebStore.reset_session rows records (proj1_sig task)) "Invalid ChatGPT Web reset source"
 ].
-Definition select_operation name := find (fun operation => String.eqb name operation.(operation_name)) operations.
+Definition select_operation name := find (fun operation => String.eqb name operation.(O.operation_name)) operations.
 Definition call name source := match select_operation name with
  | None => err ("Unknown Web model operation: " ++ name)
- | Some operation => match O.invoke operation.(operation_fields) operation.(operation_run) source with
+ | Some operation => match O.invoke operation.(O.operation_fields) operation.(O.operation_run) source with
    | Some result => result
    (* DEFENSE: Public operations can receive missing or incorrectly typed
       fields; the operation declaration rejects them before interpretation. *)
-   | None => err operation.(operation_error) end end.
+   | None => err operation.(O.operation_error) end end.

@@ -2,6 +2,7 @@ From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec HistoryRoleProofs.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory WebHistory.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 

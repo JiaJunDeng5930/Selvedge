@@ -5,6 +5,7 @@ From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Foundation Require KeyedCollection OptionList.
 From Selvedge.Adapters Require Export AccountFields.
 From Selvedge.Kernel Require Import ModelCapabilities AccountNamespace.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

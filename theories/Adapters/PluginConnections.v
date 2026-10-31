@@ -4,7 +4,7 @@ From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Foundation Require KeyedCollection.
 From Selvedge.Kernel Require Codec Domain ChatgptArguments.
 From Selvedge.Features Require ConnectionGrants.
-From Selvedge.Adapters Require ProviderCatalog.
+From Selvedge.Programming Require AdapterResult.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -12,7 +12,7 @@ Open Scope N_scope.
 Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
 Module G := ConnectionGrants.
-Module P := ProviderCatalog.
+Module P := AdapterResult.
 
 Definition keys source allowed := is_object source &&
   forallb (fun entry => existsb (String.eqb (fst entry)) allowed) (object_fields source) &&

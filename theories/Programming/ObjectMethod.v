@@ -1,6 +1,6 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Programming Require Import ArgumentDeclaration.
+From Selvedge.Programming Require Import ArgumentDeclaration Schema.
 Import ListNotations.
 Module D := ArgumentDeclaration.
 
@@ -21,3 +21,19 @@ Fixpoint apply {result : Set} (fields : list (string * bool * D.t))
  end.
 Definition invoke {result : Set} fields (handler : arguments fields result) source :=
  option_map (fun values => apply fields handler (proj1_sig values)) (D.decode (D.OpenObject fields) source).
+
+Definition project fields {result : Set} (handler : arguments fields result)
+ (values : D.denote (D.OpenObject fields)) := apply fields handler (proj1_sig values).
+
+(** The declaration determines each handler's argument types. Invocation decodes
+    once and supplies those values; operations cannot reread an unchecked source. *)
+Record operation := Operation {
+ operation_name : string;
+ operation_fields : list (string * bool * D.t);
+ operation_run : arguments operation_fields json;
+ operation_error : string;
+ operation_names : Schema.DistinctNames (map (fun field => fst (fst field)) operation_fields)
+}.
+Definition diagnostic_method name fields handler message
+ `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
+ Operation name fields handler message H.

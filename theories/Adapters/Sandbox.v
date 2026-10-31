@@ -1,13 +1,11 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import JsonObjects.
 From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy Seatbelt.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition next (previous continuation : json) :=
-  if boolean_field previous "ok" then continuation else previous.
-Definition admit (valid : bool) (message : string) := if valid then success JNull else err message.
 Definition plan_admission (source : json) :=
   let options := get source "options" in
   (* DEFENSE: Direct sandbox callers can supply a process mode outside the pipe/PTY contract. *)

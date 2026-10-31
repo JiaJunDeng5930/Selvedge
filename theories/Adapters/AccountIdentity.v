@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Adapters Require Export AccountFields.
+From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

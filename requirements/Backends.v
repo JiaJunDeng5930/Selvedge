@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import ContextSelection.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendRequests Api.
+From Selvedge.Programming Require Import AdapterResult.
 
 (** * Requests retain their admitted account and durable response
 
