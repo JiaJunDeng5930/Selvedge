@@ -10,9 +10,8 @@ Theorem selected_model_request_uses_the_measured_scope : forall value request,
    (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request))
    (ModelRequest.scope request))).
 Proof.
- intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
-   ticket callable mode history scope reserve] Positive.
- unfold Observation.effect_json, Observation.effect_fields; cbn in *; rewrite Positive, !map_id; reflexivity.
+ intros value request Positive.
+ unfold Observation.effect_json, Observation.effect_fields; cbn; rewrite Positive, !map_id; reflexivity.
 Qed.
 Theorem unselected_model_request_uses_portable_context : forall value request,
  ModelRequest.reserve request = 0%N ->
@@ -20,8 +19,8 @@ Theorem unselected_model_request_uses_portable_context : forall value request,
  Some (JArray (ContextSelection.portable_messages
    (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request)))).
 Proof.
- intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
-   ticket callable mode history scope reserve] Zero. cbn in Zero; subst reserve; cbn; rewrite map_id; reflexivity.
+ intros value request Zero.
+ unfold Observation.effect_json, Observation.effect_fields; cbn; rewrite Zero; cbn; rewrite map_id; reflexivity.
 Qed.
 Theorem model_request_preserves_the_frozen_reserve : forall value request,
  field "output_reserve_tokens" (Observation.effect_json value (RequestModel request)) =

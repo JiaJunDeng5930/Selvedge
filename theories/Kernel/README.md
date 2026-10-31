@@ -43,7 +43,8 @@ failure cannot partially commit that outcome.
 External manual forks and native forks commit their controlled task birth before
 independent scheduling. `ForkConstructionProofs` covers the unique ancestry and
 capacity requirements; `ForkCommitProofs` and `NativeForkCommitProofs` cover the
-durable continuation. See ADR 0065 for the commit boundary.
+durable continuation. The [task requirements](../../requirements/Tasks.v)
+explain the commit boundary.
 
 `JournalProofs` covers receipt order and input replay. Extraction, physical
 journal persistence and effect execution have their own external boundaries.

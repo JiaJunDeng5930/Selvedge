@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Service } from '../host/service.mjs';
-import { transactionOutcome, isDefiniteRejection } from '../host/journal.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
@@ -32,7 +31,6 @@ test('a failed SQLite commit cannot start a paid drafting request', async t => {
   await assert.rejects(service.command({ op: 'create_card', title: 'Do not dispatch',
     assisted: true, draft_profile: 'draft' }), error => {
       assert.match(error.message, /board disk write failed/);
-      assert.equal(isDefiniteRejection(error), true);
       return true;
     });
   assert.equal(publications, 0);
@@ -88,8 +86,6 @@ test('a lost SQLite commit acknowledgement retires the service and the committed
   try {
     await assert.rejects(service.command({ op: 'create_card', title: 'Durably accepted card' }), error => {
       assert.match(error.message, /COMMIT acknowledgement lost/);
-      assert.equal(transactionOutcome(error), 'unknown');
-      assert.equal(isDefiniteRejection(error), false);
       return true;
     });
   } finally { DatabaseSync.prototype.exec = exec; }

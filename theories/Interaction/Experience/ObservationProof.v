@@ -194,7 +194,10 @@ Proof.
  destruct(existsb(String.eqb path)(Selvedge.Kernel.Domain.workspace_roots workspace))eqn:Member;[|exact Valid].
  unfold Selvedge.Kernel.Workspace.valid_workspace in *.
  apply Bool.andb_true_iff in Valid as[Roots Previous].
- apply Bool.andb_true_iff. split;[exact Roots|exact Member].
+ apply Bool.andb_true_iff. split;[exact Roots|].
+ unfold Selvedge.Kernel.Workspace.valid_selection in *.
+ apply Bool.andb_true_iff in Previous as[Unique _].
+ apply Bool.andb_true_iff. split;[exact Unique|exact Member].
 Qed.
 
 Theorem existing_graph_draft_keeps_owner graph declaration parsed left_work right_work revision feedback entry selection :

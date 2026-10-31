@@ -233,7 +233,7 @@ does not block their own transport handlers for `beforeTool` or `afterTool`.
 Plugins execute with the user's OS permissions and inherited environment. Do not
 install untrusted executables expecting a sandbox. Kernel theorems constrain
 particular authorization, callback and history operations under their stated
-premises; [the proof boundary](proofs.md) describes their scope. Plugin policy,
+premises; [the task requirements](../requirements/Tasks.v) select those contracts. Plugin policy,
 physical process behavior and observer delivery remain external obligations.
 Public end-to-end tests use fixture processes and loopback providers to exercise
 commit-before-callback, denial/rewrite, internal fork, MCP, extension tools,

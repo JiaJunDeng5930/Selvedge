@@ -1,13 +1,8 @@
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { root, run, targets, jsonEntries } from './build-tools.mjs';
+import { dependencyFlags, moduleName, moduleSelection, sourceFiles } from './rocq-sources.mjs';
 
-async function files(directory) {
-  return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
-    const filename = `${directory}/${entry.name}`;
-    return entry.isDirectory() ? files(filename) : filename.endsWith('.v') ? [filename] : [];
-  }))).flat().sort();
-}
 // Comments are removed with nesting, so prose mentioning a theorem is not audited as a declaration.
 function withoutComments(source) {
   let result = '', depth = 0;
@@ -21,17 +16,18 @@ function withoutComments(source) {
 }
 export async function auditAssumptions({ prefixes = [], sources = null, entries = null } = {}) {
   const declarations = [];
-  for (const filename of sources ?? await files('theories')) {
+  for (const filename of sources ?? await sourceFiles()) {
     if (filename.startsWith('theories/Derive/')) continue;
-    if (prefixes.length && !prefixes.some(prefix => filename.startsWith(`theories/${prefix}/`))) continue;
-    const module = `Selvedge.${filename.slice('theories/'.length, -2).replaceAll('/', '.')}`;
+    if (prefixes.length && !prefixes.some(prefix => moduleSelection(filename).startsWith(`${prefix}.`))) continue;
+    const module = moduleName(filename);
     const source = withoutComments(await readFile(path.join(root, filename), 'utf8'));
-    if (/^\s*(?:Axiom|Axioms|Admitted)\b/m.test(source)) {
+    // A continued tactic may use Admitted as a hypothesis name; only Admitted. closes an unchecked proof.
+    if (/^\s*(?:Axioms?\s|Admitted\s*\.)/m.test(source)) {
       throw new Error(`Unchecked proof declaration in ${filename}`);
     }
     // Vendored RecordEta checks a theorem inside __test; its name includes that module.
     const scopes = [];
-    for (const match of source.matchAll(/^\s*(?:(Module|Section)\s+(?:(?:Import|Export|Type)\s+)?([A-Za-z_][A-Za-z_0-9']*)(?:\s*<:\s*[A-Za-z_][A-Za-z_0-9'.]*)?\s*\.|End\s+([A-Za-z_][A-Za-z_0-9']*)\s*\.|(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b)/gm)) {
+    for (const match of source.matchAll(/^\s*(?:(Module|Section)\s+(?:(?:Import|Export|Type)\s+)?([A-Za-z_][A-Za-z_0-9']*)(?:\s*<?:\s*[A-Za-z_][A-Za-z_0-9'.]*)?\s*\.|End\s+([A-Za-z_][A-Za-z_0-9']*)\s*\.|(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b)/gm)) {
       if (match[1]) scopes.push({ kind: match[1], name: match[2] });
       else if (match[3]) scopes.pop();
       else {
@@ -52,7 +48,7 @@ export async function auditAssumptions({ prefixes = [], sources = null, entries 
   const commands = declarations.map(item => `Print Assumptions ${item.name}.`).join('\n');
   await mkdir(path.join(root, '.build'), { recursive: true });
   await writeFile(path.join(root, '.build/Assumptions.v'), `${imports}\n${commands}\n`);
-  const output = await run('rocq', ['c', '-w', '-register-all', '-Q', 'theories', 'Selvedge', '.build/Assumptions.v']);
+  const output = await run('rocq', ['c', '-w', '-register-all', ...dependencyFlags, '.build/Assumptions.v']);
   await writeFile(path.join(root, '.build/assumptions.log'), output);
   if (/Axioms:|Assumptions:/.test(output)) throw new Error('Proof depends on axioms; inspect .build/assumptions.log');
   const closed = output.match(/Closed under the global context/g)?.length ?? 0;

@@ -77,6 +77,10 @@ Theorem deleting_a_project_preserves_all_existing_tasks : forall id value,
  world_tasks (decision_world (CommandExecution.delete_project id value)) = world_tasks value.
 Proof.
  intros; unfold CommandExecution.delete_project.
+ destruct (Selvedge.Features.Domain.board_card_uses_project id
+   (Selvedge.Features.Domain.feature_board (world_features value)) ||
+  Selvedge.Features.Domain.sharing_retains_project id
+   (Selvedge.Features.Domain.feature_sharing (world_features value))); [reflexivity|].
  destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (existsb (fun task => match settings_project (task_current_settings task) with
@@ -89,6 +93,10 @@ Theorem a_deleted_project_is_unavailable_to_the_public_query : forall id value,
  State.failure "project_not_found" "The project does not exist".
 Proof.
  intros id value Accepted; unfold CommandExecution.delete_project in Accepted |- *.
+ destruct (Selvedge.Features.Domain.board_card_uses_project id
+   (Selvedge.Features.Domain.feature_board (world_features value)) ||
+  Selvedge.Features.Domain.sharing_retains_project id
+   (Selvedge.Features.Domain.feature_sharing (world_features value))); [discriminate|].
  destruct (registry_at id (world_projects value)) as [previous|] eqn:Found; [|discriminate].
  destruct (project_deleted previous); [discriminate|].
  destruct (existsb (fun task => match settings_project (task_current_settings task) with

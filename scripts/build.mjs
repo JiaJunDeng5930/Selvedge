@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { root, run, targets, jsonEntries } from './build-tools.mjs';
 import { auditAssumptions } from './assumptions.mjs';
 import { generateModelSchema } from './generate-model-schema.mjs';
+import { productionFlags as flags, compilationFlags, dependencyFlags, moduleFile, sourceFiles } from './rocq-sources.mjs';
 export { root, run, targets, jsonEntries } from './build-tools.mjs';
 
 const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
-const flags = ['-w', '-register-all,-extraction-default-directory', '-Q', 'theories', 'Selvedge'];
 const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
 export async function compilerVersions() {
   return Promise.all([
@@ -41,19 +41,12 @@ async function writeChanged(filename, value) {
     }
   }
 }
-async function sourceFiles(directory = 'theories') {
-  const entries = await readdir(path.join(root, directory), { withFileTypes: true });
-  return (await Promise.all(entries.map(entry => {
-    const filename = `${directory}/${entry.name}`;
-    return entry.isDirectory() ? sourceFiles(filename) : filename.endsWith('.v') ? [filename] : [];
-  }))).flat().sort();
-}
 async function dependencies(files, recursive, readInput) {
   const graph = new Map();
   let pending = files;
   while (pending.length) {
     await Promise.all(pending.map(readInput));
-    const output = await run('coqdep', ['-Q', 'theories', 'Selvedge', ...pending]);
+    const output = await run('coqdep', [...dependencyFlags, ...pending]);
     for (const line of output.split('\n')) {
       const [left, right] = line.split(':');
       if (!left?.includes('.vo ') && !left?.endsWith('.vo')) continue;
@@ -95,7 +88,7 @@ export async function build(options = {}) {
   const allModules = !modules.length && (check || options.selected === undefined);
   const moduleFiles = modules.map(name => {
     if (!/^[A-Za-z_][A-Za-z_0-9']*(?:\.[A-Za-z_][A-Za-z_0-9']*)*$/.test(name)) throw new Error(`Invalid Rocq module: ${name}`);
-    return `theories/${name.replaceAll('.', '/')}.v`;
+    return moduleFile(name);
   });
   const roots = [...selected.map(name => {
     if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
@@ -169,9 +162,10 @@ export async function build(options = {}) {
   const buildScript = await readInput(path.relative(root, fileURLToPath(import.meta.url)));
   const extraction = await readInput('runtime/Extraction.v');
   const buildTools = await readInput('scripts/build-tools.mjs');
+  const sourceLayout = await readInput('scripts/rocq-sources.mjs');
   const assumptionAudit = await readInput('scripts/assumptions.mjs');
   if (selected.includes('schema')) await readInput('scripts/generate-model-schema.mjs');
-  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, buildScript, buildTools, assumptionAudit, extraction]));
+  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, buildScript, buildTools, sourceLayout, assumptionAudit, extraction]));
   const state = await exists('.build/build-state.json') ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
   const next = {};
   let compiled = 0;
@@ -200,14 +194,15 @@ export async function build(options = {}) {
         await Promise.all(imported.map(compile));
         const source = (await readInput(filename)).toString('utf8');
         // Rocq records imported object identities, including objects rebuilt outside this cache.
-        const key = digest(JSON.stringify([identity, source, imported.map(file => [
+        const moduleIdentity = digest(JSON.stringify([versions[0], compilationFlags(filename)]));
+        const key = digest(JSON.stringify([moduleIdentity, source, imported.map(file => [
           next[file], next[`artifact:${file.slice(0, -1)}vo`]
         ])]));
         const artifact = filename.slice(0, -1) + 'vo';
         const actual = await fingerprint(artifact);
         // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
         if (state[filename] !== key || actual === null || state[`artifact:${artifact}`] !== actual) {
-          await withModuleSlot(() => run('rocq', ['c', ...flags, filename]));
+          await withModuleSlot(() => run('rocq', ['c', ...compilationFlags(filename), filename]));
           compiled++;
         }
         next[filename] = key;
@@ -250,11 +245,11 @@ export async function build(options = {}) {
     const requestedChecks = (allModules ? [...graph.keys()] : roots).map(compile);
     await settleIndependent([...requestedChecks, ...pending.values()], 'Rocq checking failed');
 
-    if (selected.length) {
+    if (selected.length || roots.some(filename => filename.startsWith('requirements/'))) {
       await auditAssumptions({ sources: [...graph.keys()], entries: [
         ...(allModules ? Object.values(targets) : selected.map(name => targets[name]))
           .flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)),
-        ...Object.values(jsonEntries)
+        ...(selected.length ? Object.values(jsonEntries) : [])
       ] });
     }
     await assertInputsUnchanged();

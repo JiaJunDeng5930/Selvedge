@@ -19,8 +19,10 @@ No axioms, admitted obligations, unchecked recursion or fabricated observations.
 Read the existing domain model before adding a feature. Prefer reuse,
 composition, a justified common abstraction, or an extension inside the owning
 module before adding independent state or special cases. Keep requirements in
-executable definitions and propositions. Document reasons in ADRs rather than
-maintaining a second description of the architecture or transition tables.
+the existing executable definitions and propositions. Keep current user and
+engineering reasons beside their selected contracts under requirements/.
+Select existing contracts with Rocq Export rather than copying their formulas.
+Production code must remain independent of the requirements logical root.
 
 ## Changes and validation
 
@@ -29,14 +31,12 @@ Use Conventional Commits: type(scope): description, with type feat, fix, docs,
 refactor, test or chore and an English lowercase imperative description.
 
 Choose the earliest sufficient assurance owner for each property: domain
-construction and language design, then types and proofs, then focused unit or
-component tests, and finally public end-to-end tests when the property crosses
-real boundaries that a smaller check cannot cover. Record the property and its
-quantifier, its actual production binding, and the remaining boundary failure a
-test detects. Do not repeat a proved domain property in enumerated tests; do not
-remove an integration check merely because a helper proves a similar statement.
-Temporary experiments and the private migration file ledger belong in ignored
-.workpad/.
+construction and language design, then types and proofs, then public end-to-end
+tests for the remaining observable behavior. Permanent tests use complete public
+operations and requirements independent of the implementation. Do not repeat a
+proved domain property in enumerated tests; keep the public integration check
+when a helper theorem does not constrain that execution path. Temporary local
+experiments and complete command logs belong in ignored .workpad/.
 
 Keep one current persistent data format. Do not add obsolete-format fallbacks,
 migrations or old-runtime adapters without an explicit requirement.

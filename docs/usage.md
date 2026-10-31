@@ -298,8 +298,8 @@ again and remove any configured `client_id` or ChatGPT `backend-api` endpoint fr
 
 Manage app access and shared plan usage in
 [ChatGPT usage settings](https://chatgpt.com/settings/usage). Sign-in does not grant
-access to ChatGPT conversations. See [ADR 0027](adr/0027-official-chatgpt-sign-in.md)
-for the account integration choices.
+access to ChatGPT conversations. The [backend requirements](../requirements/Backends.v)
+explain the account identity and credential lifetimes.
 
 A Responses API profile uses `provider: "responses"`, `model`, and optionally
 `endpoint` and `api_key_env` (default `OPENAI_API_KEY`). A stdio MCP entry under
@@ -387,8 +387,8 @@ Back up the service home, including its journal, attachments and retained provid
 receipts. The journal commits admitted inputs and decisions before dispatching
 external effects. Restart checks its hash chain and replays those decisions with
 the current kernel; incompatible formats or decisions fail explicitly. An ordinary
-source update does not itself require a new home. The replacement does not read
-Bend-format journals; see [migration behavior](migration.md).
+source update does not itself require a new home. Only the current journal format
+is accepted; keep an incompatible existing home separate.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,
