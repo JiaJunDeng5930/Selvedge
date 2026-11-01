@@ -1,22 +1,13 @@
 import { parseJson, stringifyJson } from '../host/public/json-tokens.mjs';
-import { boundary } from '../host/public/model-boundary.mjs';
 
 export const REMOTE_PROTOCOL_VERSION = 1;
 // NOTE: The native complete decision is bounded to 4 MiB; encoded observations
 // and their surrounding wire envelope need additional room.
 export const MAX_REMOTE_FRAME_BYTES = 16 * 1024 * 1024;
-export const MAX_REMOTE_GRANTS = 64;
-export const MAX_REMOTE_CONTROLLERS = 32;
-// NOTE: Tickets share the host's 2 KiB WebSocket hibernation attachment.
-export const MAX_REMOTE_TICKETS = 8;
 export const REMOTE_TICKET_TTL_MS = 30_000;
 export const REMOTE_PAIRING_TTL_MS = 5 * 60_000;
 
 const encoder = new TextEncoder();
-export const isHostId = value => typeof value === 'string'
-  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-export const isRemoteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
-export const isControllerId = value => typeof value === 'string' && boundary('control.remote.controller_id', value);
 
 export class RemoteProtocolError extends Error {
   constructor(message, code = 'invalid_frame') {
@@ -27,19 +18,6 @@ export class RemoteProtocolError extends Error {
 }
 
 export function protocolError(message, code) { return new RemoteProtocolError(message, code); }
-
-// The native constructor canonicalizes envelope integers while preserving opaque payloads.
-function validate(kind, value) {
-  const admitted = boundary(`control.remote.${kind}`, value);
-  // DEFENSE: Untrusted peers may violate the schema shared by the host, relay and controller.
-  if (admitted === null) throw protocolError('Frame violates remote wire schema');
-  return admitted;
-}
-export const validateControllerRequest = value => validate('controller_request', value);
-export const validateRemoteResponse = value => validate('response', value);
-export const validateHostFrame = value => validate('host_frame', value);
-export const validateRelayFrame = value => validate('relay_frame', value);
-export const validateControllerFrame = value => validate('controller_frame', value);
 
 export function parseRemoteFrame(data, validator) {
   // DEFENSE: WebSocket peers can send binary frames or JSON larger than the transport budget.

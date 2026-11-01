@@ -15,12 +15,9 @@ Open Scope N_scope.
 Open Scope list_scope.
 
 Definition grant := RP.wire_authority.
-Definition controller := RP.authority_controller.
-Definition epoch := RP.authority_epoch.
 Record connection := Connection { connection_identity : RP.identifier; authority : grant; after_notice : option N }.
 Definition connection_id value := RP.identifier_text (connection_identity value).
 Definition pairing := RP.pairing_announcement.
-Definition code := RP.pairing_code.
 Definition expires := RP.pairing_expiry.
 Record queued := Queued { owner : string; bytes : N; queued_notice : option N }.
 Record session := Session { pairing_code : option pairing; grants : RP.grant_set;

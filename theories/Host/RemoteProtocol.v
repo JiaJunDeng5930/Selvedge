@@ -18,12 +18,6 @@ Definition str source name := match get source name with JString value => value 
 Definition num source name := match get source name with JNumber value => match parse_natural value with Some n=>n | None=>0 end | _=>0 end.
 Definition number value := JNumber (show_natural value).
 Definition items value := match value with JArray values=>values | _=>[] end.
-Definition set source name value := match source with JObject fields=>JObject (set_field name value fields) | _=>source end.
-Definition shape source names := D.check (D.Object (map (fun name => F.required name D.Any) names)) source.
-Definition printable := D.printable.
-Definition wire_length := D.utf16_length.
-Definition bounded value maximum := D.check (D.Textual (D.PrintableUtf16 1 maximum)) value.
-Definition controller value := D.check RemoteIdentity.controller_declaration value.
 
 Definition identifier_declaration := D.Textual (D.PrintableUtf16 1 128).
 Definition label_declaration := D.Textual (D.PrintableUtf16 1 80).
@@ -33,12 +27,8 @@ Definition version_declaration := D.SafeInteger 1 1.
 Definition rpc_id_declaration := D.Union [identifier_declaration;D.SafeInteger (-9007199254740991) 9007199254740991].
 Definition identifier := D.denote identifier_declaration.
 Definition identifier_text (value : identifier) := proj1_sig value.
-Definition receipt_id := D.denote receipt_id_declaration.
-Definition receipt_id_text (value : receipt_id) := proj1_sig value.
-Definition rpc_id := D.denote rpc_id_declaration.
 Definition epoch_value (value : D.denote epoch_declaration) := Z.to_N (proj1_sig value).
 Definition version_value : D.denote version_declaration := exist _ 1%Z eq_refl.
-Definition positive value := D.check epoch_declaration value.
 
 (** The two authority coordinates are admitted, stored, and forwarded together. *)
 Definition authority_fields := [F.required "controller_id" RemoteIdentity.controller_declaration;
@@ -52,8 +42,6 @@ Definition authority_epoch value := epoch_value (fst (snd (authority_to_fields v
 Definition same_authority first second := String.eqb (authority_controller first) (authority_controller second) &&
  N.eqb (authority_epoch first) (authority_epoch second).
 Definition authority_arguments (value : wire_authority) := value.
-Definition decode_authority := D.decode authority_declaration.
-Definition encode_authority := D.encode authority_declaration.
 
 Module AuthorityEntry <: KeyedCollection.Entry.
  Definition t := wire_authority.
@@ -72,9 +60,6 @@ Definition grants_declaration := D.Array authority_declaration.
 Definition grants_arguments values : D.denote grants_declaration := map authority_arguments (grant_values values).
 Definition grants_from_arguments (values : D.denote grants_declaration) :=
  admit_grants (map (fun value => authority_from_fields (proj1_sig value)) values).
-Definition decode_grants source := match D.decode grants_declaration source with
- | Some values => grants_from_arguments values | None => None end.
-Definition encode_grants value := D.encode grants_declaration (grants_arguments value).
 
 (** Commands remain opaque to the relay. The operation is admitted while every
     member and every number spelling remains owned by the command boundary. *)
@@ -96,9 +81,6 @@ Definition request_command_admitted (value : D.denote controller_request_declara
 Definition rpc_request := D.checked request_command_admitted.
 Definition controller_request_arguments (value : rpc_request) := proj1_sig value.
 Definition controller_request_from_arguments := D.admit request_command_admitted.
-Definition decode_controller_request source := match D.decode controller_request_declaration source with
- | Some values => controller_request_from_arguments values | None => None end.
-Definition encode_controller_request value := D.encode controller_request_declaration (controller_request_arguments value).
 
 Definition diagnostic_declaration := D.Textual (D.PrintableUtf16 1 1024).
 Definition error_fields := [F.required "code" label_declaration;F.required "message" diagnostic_declaration].
@@ -108,8 +90,6 @@ Definition response_declaration := D.Union [D.Object result_fields;D.Object fail
 Definition rpc_response := D.denote response_declaration.
 Definition response_arguments (value : rpc_response) := value.
 Definition response_from_arguments (value : D.denote response_declaration) := value.
-Definition decode_response := D.decode response_declaration.
-Definition encode_response := D.encode response_declaration.
 
 Definition pairing_code_declaration := D.Textual (D.PrintableUtf16 20 128).
 Definition pairing_fields := [F.required "code" pairing_code_declaration;F.required "expires_at" epoch_declaration].
@@ -121,8 +101,6 @@ Definition pairing_from_fields := F.branch_arguments pairing_branch.
 Definition pairing_code value := proj1_sig (fst (pairing_to_fields value)).
 Definition pairing_expiry value := epoch_value (fst (snd (pairing_to_fields value))).
 Definition pairing_arguments (value : pairing_announcement) := value.
-Definition decode_pairing := D.decode pairing_declaration.
-Definition encode_pairing := D.encode pairing_declaration.
 
 Definition pairing_request_fields := [F.required "request_id" identifier_declaration;
  F.required "controller_id" RemoteIdentity.controller_declaration;F.required "label" label_declaration].
@@ -131,11 +109,7 @@ Definition pairing_request := D.denote pairing_request_declaration.
 Definition pairing_request_to_fields (value : pairing_request) := proj1_sig value.
 Definition pairing_request_from_fields := F.construct pairing_request_fields.
 Definition pairing_request_id value := identifier_text (fst (pairing_request_to_fields value)).
-Definition pairing_request_controller value := proj1_sig (fst (snd (pairing_request_to_fields value))).
-Definition pairing_request_label value := proj1_sig (fst (snd (snd (pairing_request_to_fields value)))).
 Definition pairing_request_arguments (value : pairing_request) := value.
-Definition decode_pairing_request := D.decode pairing_request_declaration.
-Definition encode_pairing_request := D.encode pairing_request_declaration.
 
 Definition version_fields := [F.required "version" version_declaration].
 Definition routed_fields payload := F.required "connection_id" identifier_declaration :: payload.
@@ -169,8 +143,6 @@ Definition host_frame_from_arguments (value : D.denote host_frame_declaration) :
  | inr (inr (inr (inr (inl values)))) => let values := snd (proj1_sig values) in Some (HostEvent (fst values) (fst (snd values)))
  | inr (inr (inr (inr (inr (inl _))))) => Some HostPing
  | inr (inr (inr (inr (inr (inr impossible))))) => match impossible with end end.
-Definition decode_host_frame source := match D.decode host_frame_declaration source with
- | Some values => host_frame_from_arguments values | None => None end.
 Definition encode_host_frame value := D.encode host_frame_declaration (host_frame_arguments value).
 
 Definition relay_ready_branch := F.declare "type" (JString "ready") version_fields.
@@ -208,8 +180,6 @@ Definition relay_frame_from_arguments (value : D.denote relay_frame_declaration)
  | inr (inr (inr (inr (inl values)))) => Some (RelayControllerClose (fst (snd (proj1_sig values))))
  | inr (inr (inr (inr (inr (inl _))))) => Some RelayPong
  | inr (inr (inr (inr (inr (inr impossible))))) => match impossible with end end.
-Definition decode_relay_frame source := match D.decode relay_frame_declaration source with
- | Some values => relay_frame_from_arguments values | None => None end.
 Definition encode_relay_frame value := D.encode relay_frame_declaration (relay_frame_arguments value).
 
 Definition controller_ready_fields := version_fields ++ authority_fields.
@@ -218,6 +188,3 @@ Definition controller_ready_branch := F.declare "type" (JString "ready") control
 Definition controller_event_branch := F.declare "type" (JString "event") controller_event_fields.
 Definition controller_frame_declaration := D.Union [F.branch_declaration controller_ready_branch;
  F.branch_declaration controller_event_branch;response_declaration].
-Definition controller_frame := D.denote controller_frame_declaration.
-Definition decode_controller_frame := D.decode controller_frame_declaration.
-Definition encode_controller_frame := D.encode controller_frame_declaration.
