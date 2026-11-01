@@ -4,7 +4,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { imagesFixture } from './fixtures/images.mjs';
@@ -354,6 +354,60 @@ test('a failing project environment script prevents model execution, destroys th
   assert.equal(fixture_.upstream.requests.length, 0, 'Rejecting the failed resource must not start a task model request');
   assert.deepEqual(fixture_.upstream.failures, []);
   spotRequest(fixture_.requests);
+});
+
+for (const failSetup of [false, true]) test(failSetup
+  ? 'failed cloud setup still stops inference and reclaims its instance with an unwritable diagnostic log'
+  : 'an unwritable diagnostic log does not prevent cloud execution, recovery or archive', async t => {
+  let running;
+  let observed = false;
+  const fixture_ = await fixture(t, () => {
+    assert.equal(failSetup, false, 'A failed environment script must not start model execution');
+    observed = true;
+    return done;
+  }, { failSetup, onAllocation: async () => {
+    const root = path.join(running.state, 'cloud-workspaces');
+    const namespaces = await readdir(root);
+    assert.equal(namespaces.length, 1, 'The isolated service has one resource namespace');
+    const storage = path.join(root, namespaces[0]);
+    const logs = (await readdir(storage)).filter(name => /^task-[0-9]+\.log$/.test(name));
+    assert.equal(logs.length, 1, 'The allocated task has its own diagnostic log');
+    const logfile = path.join(storage, logs[0]);
+    await chmod(logfile, 0o400);
+    await assert.rejects(() => writeFile(logfile, 'permission probe', { flag: 'a' }), { code: 'EACCES' });
+  } });
+  running = fixture_;
+  const created = await fixture_.create();
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const id = created.reply.result.task_id;
+  const settled = await until(() => worktree(fixture_.service, id),
+    entry => entry.status === 'ready' || entry.status === 'create_failed',
+    'Workspace startup must settle independently of its diagnostic log');
+  assert.equal(settled.status, failSetup ? 'create_failed' : 'ready', JSON.stringify(settled));
+  spotRequest(fixture_.requests);
+  if (failSetup) {
+    assert.equal(observed, false);
+    assert.equal(fixture_.upstream.requests.length, 0);
+  } else {
+    await until(async () => {
+      const read = await fixture_.service.command({ op: 'read', task_id: id });
+      assert.equal(read.reply.ok, true, JSON.stringify(read.reply));
+      return read.reply.result.task;
+    }, task => observed && task.phase === 'idle' && task.operations.length === 0,
+    'The prepared workspace must execute the accepted task');
+    assert.equal(fixture_.instances.size, 1);
+    await fixture_.reopen();
+    assert.equal((await worktree(fixture_.service, id)).status, 'ready');
+    assert.equal(fixture_.requests.filter(request => request.action === 'RunInstances').length, 1,
+      'Recovery must reuse the committed resource');
+    const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+    assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
+    await until(() => worktree(fixture_.service, id), entry => entry.status === 'archived',
+      'Archive must reclaim the resource even while its diagnostic log is unwritable');
+  }
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(fixture_.requests.filter(request => request.action === 'TerminateInstances').length, 1);
+  assert.deepEqual(fixture_.upstream.failures, []);
 });
 
 test('a disconnected allocation response is reconciled and its instance is reclaimed', async t => {
