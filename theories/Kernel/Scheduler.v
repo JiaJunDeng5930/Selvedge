@@ -22,11 +22,8 @@ Definition commit_changes (id : N) (changes : task -> list TaskChange.edit) (val
    (TaskChange.Plan value target (changes (TaskScope.selected target)))
  end.
 Definition call_result_changes := OperationEvent.call_result.
-Definition call_result (invocation : call) (result : json) (error : bool) (remaining : list call) (task : task) :=
- TaskChange.apply (call_result_changes invocation result error remaining) task.
-Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (task : task) (value : world) :=
+Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (value : world) :=
  acknowledged (commit_changes id (fun _ => call_result_changes invocation (State.failure code reason) true remaining) value).
-Definition operation_notice := TicketedRequest.operation_notice.
 Definition announce_operation := TicketedRequest.announce_operation.
 Definition publish_operations := TicketedRequest.publish_operations.
 Definition append_operation := TicketedRequest.append_operation.
@@ -47,7 +44,7 @@ Definition start_external (id : N) (value : world) :=
    let task := TaskScope.selected (TicketedRequest.Scoped.target request) in
    if N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit then
      TicketedRequest.Scoped.issue request
-   else call_error id invocation "operation_limit" "This task has reached its in-flight operation limit; wait for results or cancel an operation" remaining task value
+   else call_error id invocation "operation_limit" "This task has reached its in-flight operation limit; wait for results or cancel an operation" remaining value
  end.
 Definition external_tool (tool : tool) :=
  match tool_origin tool with NativeToolSource _ _ => false | ExtensionToolSource _ _ _ | McpToolSource _ _ _ => true end.
@@ -101,7 +98,7 @@ Definition finish_call (id : N) (invocation : call) (remaining : list call)
 Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (invocation : call)
  (remaining : list call) (task : task) (value : world) :=
  match call_admission tool invocation value with
- | Some (code,reason) => call_error id invocation code reason remaining task value
+ | Some (code,reason) => call_error id invocation code reason remaining value
  | None => match NativeTools.admit_command id invocation with
  | Some admitted =>
    let command := Commands.admitted_value admitted in
@@ -114,12 +111,12 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
    let result_value := if String.eqb (call_name invocation) "fork_task" && accepted
      then number 0 else decision_reply result in
    finish_call id invocation remaining result_value (negb accepted) result
-   else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
+   else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining value
  | None =>
    if String.eqb (call_name invocation) "discover_tools" then
     if internal_result_available task then
      internal_result id invocation remaining (State.success (discover task (call_arguments invocation))) false task value
-    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
+    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining value
    else start_external id value
  end end.
 Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocation : call)
@@ -129,15 +126,15 @@ Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocat
  | plugin :: rest =>
    if Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.authorize id value)
-   else call_error id invocation "hook_unavailable" "A required frozen plugin revision is unavailable; the tool was not dispatched" remaining task value
+   else call_error id invocation "hook_unavailable" "A required frozen plugin revision is unavailable; the tool was not dispatched" remaining value
  end.
 Definition start_call (execute : executor) (id : N) (invocation : call) (remaining : list call) (task : task) (value : world) :=
  match find_tool (call_name invocation) (contract_tools (task_contract task)) with
- | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining task value
+ | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining value
  | Some tool => if match call_origin invocation with InitialAttempt => true | RecoveryAttempt => retry_safe tool end then
      before_hook_step execute id tool invocation (before_plugins task) remaining task value
      else call_error id invocation "outcome_unknown"
-       "The effect may already have happened; automatic repetition is forbidden" remaining task value
+       "The effect may already have happened; automatic repetition is forbidden" remaining value
  end.
 Definition ready_model (id : N) (value : world) :=
  TicketedRequest.Scoped.run (TicketedRequest.Scoped.model id value).
@@ -152,10 +149,10 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
  end.
 Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pending : list json) (remaining : list call) (task : task) (value : world) :=
  match find_tool (call_name invocation) (contract_tools (task_contract task)) with
- | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining task value
+ | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining value
  | Some tool => before_hook_step execute id tool invocation pending remaining task value
  end.
-Definition after_hooks_step (id : N) (operation : operation) (task : task) (value : world) :=
+Definition after_hooks_step (id : N) (operation : operation) (value : world) :=
  match operation_stage operation with
  | AfterHooksReady [] result error => acknowledged (TaskResult.commit_result id (fun _ => Callbacks.settle_operation_plan operation result error) value)
  | AfterHooksReady (plugin :: rest) result error =>
@@ -171,7 +168,7 @@ Definition ready_settlement (operations : list operation) := find (fun operation
  match operation_stage operation with AfterHooksReady _ _ _ => true | _ => false end) operations.
 Definition operation_step (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation with Granted _ => granted_operation id operation task value
- | _ => after_hooks_step id operation task value end.
+ | _ => after_hooks_step id operation value end.
 Definition task_step (execute : executor) (id : N) (task : task) (value : world) : option decision :=
  match task_lifecycle task with
  | Running phase operations =>

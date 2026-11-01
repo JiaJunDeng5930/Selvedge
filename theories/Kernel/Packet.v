@@ -103,7 +103,6 @@ Definition manual_fork_input (decoded : option Inputs.input) : option Selvedge.G
  | Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request)) => Some request
  | _ => None
  end.
-Definition manual_fork (source : json) := manual_fork_input (core_input (decode source)).
 Definition native_fork_input (decoded : option Inputs.input) (value : world) :=
  match decoded with Some input => NativeForkCommit.resolve input value | None => None end.
 Definition terminal_settlement_input (decoded : option Inputs.input) (value : world) :=

@@ -6,8 +6,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Recovery RecoveryProofs Inputs Callbacks.
 Import ListNotations.
 
-Definition registry_replace_selected := @Selvedge.Foundation.RegistryProofs.registry_replace_selected.
-Definition registry_replace_length := @Selvedge.Foundation.RegistryProofs.registry_replace_length.
+Export RegistryProofs(registry_replace_selected, registry_replace_length).
 Lemma find_put_task : forall id before after value,
  find_task id value = Some before -> find_task id (put_task id after value) = Some after.
 Proof. intros; unfold find_task, put_task, with_tasks; cbn; eapply registry_replace_selected; eauto. Qed.
@@ -23,15 +22,9 @@ Proof.
  destruct lifecycle; cbn [task_archived task_lifecycle] in Live; try discriminate;
  split; reflexivity.
 Qed.
-Theorem restart_removes_all_old_operation_rights : forall id value,
- task_operations (Recovery.recover_task id value) = [].
-Proof. apply recovery_retires_every_operation. Qed.
 Theorem restart_emits_no_old_external_request : forall value,
  decision_effects (Recovery.recover value) = [].
 Proof. reflexivity. Qed.
-Theorem restart_retains_committed_history : forall id value,
- exists suffix, task_history (Recovery.recover_task id value) = task_history value ++ suffix.
-Proof. apply recovery_retains_committed_history. Qed.
 Theorem fork_snapshot_includes_original_history : forall id value,
  exists suffix, History.snapshot_history id value = task_history value ++ suffix.
 Proof. intros; unfold History.snapshot_history, History.close_operations; eexists; rewrite app_assoc; reflexivity. Qed.

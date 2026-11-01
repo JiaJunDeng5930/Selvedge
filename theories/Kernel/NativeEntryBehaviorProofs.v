@@ -13,7 +13,7 @@ Theorem invalid_native_arguments_cannot_pass_final_dispatch_gate :
  Capabilities.available (environment_tools (world_environment value)) definition = true ->
  NativeTools.arguments_valid definition invocation = false ->
  Scheduler.before_hook_step execute id definition invocation [] remaining task value =
- Scheduler.call_error id invocation "invalid_arguments" "Tool arguments do not satisfy its frozen schema" remaining task value.
+ Scheduler.call_error id invocation "invalid_arguments" "Tool arguments do not satisfy its frozen schema" remaining value.
 Proof.
  intros execute id invocation remaining task value definition parameters program Native Available Invalid.
  unfold Scheduler.before_hook_step, Scheduler.execute_checked_call, Scheduler.call_admission.

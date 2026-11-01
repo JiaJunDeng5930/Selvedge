@@ -58,10 +58,6 @@ Definition ChangeOperationStage (identity : N) (stage : operation_state) := oper
  (map (fun operation => if N.eqb identity (operation_id operation)
    then Operation (operation_id operation) (operation_call operation) (operation_announced operation) stage
    else operation)).
-Definition AnnounceOperation (identity : N) := operation_change
- (map (fun operation => if N.eqb identity (operation_id operation)
-   then Operation (operation_id operation) (operation_call operation) true (operation_stage operation)
-   else operation)).
 Definition RemoveOperation (identity : N) := operation_change
  (filter (fun operation => negb (N.eqb identity (operation_id operation)))) .
 Definition ClearOperations := operation_change (fun _ => []).

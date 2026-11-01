@@ -112,7 +112,6 @@ Definition scheduling (execute : Scheduler.executor) (permitted : N -> world -> 
  | Some (next,emitted) => Scheduler.scheduling_with (advance reply) execute permitted reply next emitted
  | None => DeferredCommit.continuation reply value effects end in
  Selvedge.Features.Runtime.finalization reply value effects.
-Definition run execute permitted := DecisionComposition.transform (scheduling execute permitted).
 
 (* A physical completion and its feature consequences are durable before
    unrelated scheduling. The caller supplies the complete after_transition

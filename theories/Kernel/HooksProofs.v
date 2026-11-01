@@ -49,7 +49,7 @@ Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
  Capabilities.hook_available Capabilities.AfterTool plugin
    (environment_plugins (world_environment value)) = true ->
  let '(ticket, allocated) := allocate_ticket value in
- decision_effects (Scheduler.after_hooks_step id current task value) =
+ decision_effects (Scheduler.after_hooks_step id current value) =
    [CheckResult id ticket (operation_id current) plugin (operation_call current) result error].
 Proof.
  intros id operation task value plugin pending result error Stage Found Owned Available.

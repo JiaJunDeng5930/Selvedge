@@ -15,7 +15,6 @@ Definition find_profile (name : string) (catalog : list profile) :=
  find (fun profile => String.eqb name (profile_key profile)) catalog.
 Definition find_tool (name : string) (catalog : list tool) :=
  find (fun tool => String.eqb name (tool_name tool)) catalog.
-Definition content_text := Domain.content_text.
 Definition content_nonempty (parts : content) :=
  existsb (fun part => match part with TextPart text => Utf8.nonblank text | ImagePart _ => true end) parts.
 Definition input_required_message := "A task input needs text or an image".
@@ -169,8 +168,6 @@ Definition resolve_start (entry : creation_entry) (name : string) (reasoning : o
 Definition start_task (plan : resolved_start) :=
  make_task (start_profile plan) (start_settings plan) (start_contents plan)
    (start_idle plan) (start_environment plan).
-Definition queue (contents : content) (value : task) :=
- TaskChange.apply [TaskChange.AppendQueued contents] value.
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
  match task_lifecycle value with
  | Archived _ => []
@@ -223,7 +220,7 @@ Definition control_changes (command : control) (task : task) : list TaskChange.e
    end
  end.
 Definition control_task (command : control) (task : task) := TaskChange.apply (control_changes command task) task.
-Definition control_effects (id : N) (command : control) (task : task) :=
+Definition control_effects (id : N) (command : control) :=
  match command with
  | Freeze | Unfreeze => []
  | Stop => []
@@ -290,7 +287,7 @@ Definition perform_control (command : control) {before : world} (reference : Tas
  let current := TaskScope.selected reference in
  CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
    (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
-   (control_effects (TaskScope.owner reference) command current).
+   (control_effects (TaskScope.owner reference) command).
 Definition control_result (id : N) (command : control) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"
@@ -519,7 +516,6 @@ Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (val
 Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
  (messages : list content) (settings : option settings_request) (value : world) :=
  CommandResult.decide value (fork_result entry origin id count messages settings value).
-Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
  CommandResult.decide value
  (match TaskScope.select id value with

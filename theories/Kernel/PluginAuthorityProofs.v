@@ -102,15 +102,15 @@ Proof.
  all: apply current_hook_owner in Available; exact Available.
 Qed.
 
-Theorem actual_after_hook_requires_a_current_hook_owner : forall id operation task value plugin pending result error,
+Theorem actual_after_hook_requires_a_current_hook_owner : forall id operation value plugin pending result error,
  operation_stage operation = AfterHooksReady (plugin :: pending) result error ->
- decision_effects (Scheduler.after_hooks_step id operation task value) <> [] ->
+ decision_effects (Scheduler.after_hooks_step id operation value) <> [] ->
  exists owner, In owner (environment_plugins (world_environment value)) /\
  bool_field "after_tool" owner = Some true /\
  value_or_null "name" (value_or_null "reference" owner) = value_or_null "name" plugin /\
  value_or_null "revision" (value_or_null "reference" owner) = value_or_null "revision" plugin.
 Proof.
- intros id operation task value plugin pending result error Stage Emitted.
+ intros id operation value plugin pending result error Stage Emitted.
  unfold Scheduler.after_hooks_step in Emitted; rewrite Stage in Emitted.
  destruct (Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value))) eqn:Available; [|contradiction].
  apply current_hook_owner in Available; exact Available.
