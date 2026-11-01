@@ -152,7 +152,7 @@ export class Service extends EventEmitter {
     this.#failure = error;
     this.notify({ type: 'fatal', message: error.message });
     this.#cancelRunning({ kind: 'shutdown' }, error);
-    this.journal.kernel.abort(error);
+    this.journal.abort(error);
   }
 
   #configuration({ project = this.project, instructions = this.instructions } = {}) {

@@ -4,8 +4,9 @@ Status: accepted
 
 ## Context
 
-The Kernel host serializes requests to one Worker. Its pending promise, timeout,
-failure and closing fields govern that physical conversation. The Worker wrapper
+The Journal serializes requests to one Worker through the complete transaction.
+The Kernel host's pending promise, timeout, failure and closing fields govern
+that physical conversation. The Worker wrapper
 returns one response for each received request. A failed or timed-out Worker is
 retired permanently.
 
@@ -16,7 +17,7 @@ Worker admission and retirement.
 
 ## Decision
 
-Use the serialized promise and its pending response as the Worker request owner.
+Use the Journal's serialized invocation and its pending Worker response as the request owner.
 Remove the unused transaction transitions and generation round trip. Retain the
 failure check for responses arriving after timeout or journal retirement. A later
 request cannot start before the preceding response, and retirement prevents
@@ -36,12 +37,22 @@ stretch of that same invocation. Remove this controller and its adapter instead
 of maintaining a second account of the host's control flow. Keep the actual
 commit/publication/retirement requirements and their public IO acceptance.
 
+The complete caller trace also makes the Kernel's second promise queue
+redundant. Startup awaits initialization and each replay before the next
+request. Live mutations and assessments share the Journal queue, and close
+drains that queue before terminating the Worker. Make the connection a private
+Journal field so callers cannot bypass this ordering, and remove the duplicate
+queue. Return initialization observations directly instead of storing another
+description and initial projection in the connection. The runtime's
+[Worker.terminate promise](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html#workerterminate)
+already waits for exit, so close needs no second exit promise.
+
 Physical effects retain their independent handles because several operations
 can run concurrently and finish out of order.
 
 ## Consequences
 
-The Worker conversation and journal invocation each have one state owner and
+The Worker conversation and journal invocation share one serialization owner and
 carry no unused correlation identifier. Public service, journal recovery, input
 refusal and cancellation acceptance remain the evidence for the host's actual
 IO behavior. Node's Worker message delivery and the wrapper's one-response construction remain runtime

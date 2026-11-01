@@ -8,10 +8,9 @@ class KernelInputRangeError extends RangeError {}
 const inputErrors = { TypeError: KernelInputError, RangeError: KernelInputRangeError };
 export const isKernelInputRejection = error => error instanceof KernelInputError || error instanceof KernelInputRangeError;
 
-/** One serialized conversation with the extracted Rocq program worker. */
+/** The Journal's private conversation with the extracted Rocq program worker. */
 export class Kernel {
   #worker;
-  #tail = Promise.resolve();
   #pending;
   #failure;
   #closing = false;
@@ -34,27 +33,25 @@ export class Kernel {
         return;
       }
       try {
-        const { programText, ...result } = message;
-        const response = { ...result, value: parseJson(message.text),
+        const { text, programText } = message;
+        const response = { value: parseJson(text),
           ...(programText === undefined ? {} : { program: parseJson(programText) }) };
         pending.resolve(response);
       // DEFENSE: An invalid Worker result cannot establish the state of its already executed transition.
       } catch (error) { pending.reject(error); this.#fail(error); }
     });
     this.#worker.on('error', error => this.#fail(error));
-    this.exited = new Promise(resolve => this.#worker.once('exit', code => {
+    this.#worker.once('exit', code => {
       // DEFENSE: OS/runtime Worker termination outside close leaves the current world unavailable.
-      if (!this.#closing || this.#pending) this.#fail(new Error(`Rocq worker exited (${code})`));
-      resolve({ code, signal: null });
-    }));
+      if (!this.#closing) this.#fail(new Error(`Rocq worker exited (${code})`));
+    });
   }
 
   async initialize() {
     const { value, program } = await this.request({ kind: 'command', command: { op: 'describe' } });
-    this.initialProgram = program;
-    this.description = value.reply.result;
-    this.maximum = this.description.limits.frame_bytes;
-    return this.description;
+    const description = value.reply.result;
+    this.maximum = description.limits.frame_bytes;
+    return { description, program };
   }
 
   #fail(error) {
@@ -82,31 +79,21 @@ export class Kernel {
 
   #request(input, snapshot, operation = 'packet') {
     const text = encodeInput(input, this.maximum);
-    const result = this.#tail.then(() => {
-      // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
+    return new Promise((resolve, reject) => {
+      // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
-      if (this.#closing) throw new Error('Kernel is closed');
-      return new Promise((resolve, reject) => {
-        // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
-        const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
-        // The queue admits one request until this Worker returns its single response.
-        this.#pending = { resolve, reject, timer };
-        this.#worker.postMessage({ text, snapshot, operation });
-      });
+      // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
+      const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
+      // Journal owns request serialization through the complete SQLite transaction.
+      this.#pending = { resolve, reject, timer };
+      this.#worker.postMessage({ text, snapshot, operation });
     });
-    // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.
-    this.#tail = result.catch(() => {});
-    return result;
   }
 
-  abort(reason = new Error('Kernel transaction aborted')) { this.#fail(reason); }
+  abort(reason) { this.#fail(reason); }
 
-  async close() {
-    // DEFENSE: Startup cleanup and normal shutdown can both close the same Worker.
-    if (this.#closing) return this.exited;
+  close() {
     this.#closing = true;
-    await this.#tail;
-    await this.#worker.terminate();
-    return this.exited;
+    return this.#worker.terminate();
   }
 }

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
-import { mkdir, chmod } from 'node:fs/promises';
+import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
@@ -35,13 +35,13 @@ function closeJournalDatabase(database) {
 export class Journal extends EventEmitter {
   #database;
   #lock;
+  #kernel;
   #tail = Promise.resolve();
   #failure;
   #closing = false;
 
   static async open(filename, { kernelOptions } = {}) {
     const journal = new Journal();
-    journal.filename = filename;
     journal.sequence = 0;
     try {
       await durableDirectory(path.dirname(filename));
@@ -52,11 +52,12 @@ export class Journal extends EventEmitter {
       await chmod(filename, 0o600);
       journal.#openSchema();
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
-      journal.kernel = new Kernel(kernelOptions);
-      journal.description = await journal.kernel.initialize();
-      journal.program = journal.kernel.initialProgram;
+      journal.#kernel = new Kernel(kernelOptions);
+      const initial = await journal.#kernel.initialize();
+      journal.description = initial.description;
+      journal.program = initial.program;
       for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
-        const replayed = await journal.kernel.replay(parseJson(row.input));
+        const replayed = await journal.#kernel.replay(parseJson(row.input));
         // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
         if (!replayed.value.durable) {
           throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
@@ -64,7 +65,7 @@ export class Journal extends EventEmitter {
         journal.sequence = row.seq;
       }
       if (journal.sequence > 0) {
-        const snapshot = await journal.kernel.request({ kind: 'command', command: { op: 'describe' } });
+        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } });
         journal.program = snapshot.program;
       }
       return journal;
@@ -97,7 +98,7 @@ export class Journal extends EventEmitter {
   #poison(error, outcome = 'rejected') {
     rejected(error, outcome);
     this.#failure = error;
-    this.kernel?.abort(error);
+    this.#kernel.abort(error);
     this.emit('retired', error);
   }
 
@@ -107,7 +108,7 @@ export class Journal extends EventEmitter {
     const result = this.#tail.then(async () => {
       // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
       if (this.#failure) throw this.#failure;
-      const request = this.kernel.assess(candidate);
+      const request = this.#kernel.assess(candidate);
       try { return (await request).value; }
       // DEFENSE: A worker failure during assessment retires that world, so later journal commands must also fail.
       catch (error) { if (!isKernelInputRejection(error)) this.#poison(error); throw error; }
@@ -129,7 +130,7 @@ export class Journal extends EventEmitter {
       catch (error) { throw rejected(error, 'rejected'); }
       let response;
       let pending;
-      try { pending = this.kernel.request(input); }
+      try { pending = this.#kernel.request(input); }
       // DEFENSE: Encoding validates the input before the Worker receives its request.
       catch (error) {
         throw rejected(error, 'rejected');
@@ -183,12 +184,14 @@ export class Journal extends EventEmitter {
       .all(after, limit).map(row => ({ sequence: row.seq }));
   }
 
+  abort(error) { this.#kernel.abort(error); }
+
   async close() {
     // DEFENSE: Startup cleanup and server shutdown can both close this journal.
     if (this.#closing) return;
     this.#closing = true;
     await this.#tail;
-    await this.kernel?.close();
+    await this.#kernel?.close();
     try { closeJournalDatabase(this.#database); }
     finally { closeJournalDatabase(this.#lock); }
   }
