@@ -136,9 +136,10 @@ owner's instance, and an instance cannot be recycled while another task uses it.
 To use voice with a cloud task, create the task first, then start voice in its
 conversation.
 
-Failed setup reclaims its allocation and retains the setup log under
-`<service home>/cloud-workspaces/<journal namespace>/task-<id>.log`. If reclamation
-fails, the task retains the failure and resource association;
+Failed setup reclaims its allocation. Setup output is written under
+`<service home>/cloud-workspaces/<journal namespace>/task-<id>.log`; a log write
+failure is reported through service diagnostics without blocking preparation
+or cleanup. If reclamation fails, the task retains the failure and resource association;
 `retry_worktree_archive` retries cleanup. Restart recovery reconciles the
 persisted allocation receipt with the same task resource.
 Archiving the owning task recycles its cloud instance after active IO has settled.

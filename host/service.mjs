@@ -451,7 +451,8 @@ export class Service extends EventEmitter {
   }
 
   #workspaceOptions(signal) {
-    return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal };
+    return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal,
+      onDiagnostic: message => this.notify({ type: 'diagnostic', message }) };
   }
 
   #settleCompletion(input, failure, handle) {

@@ -23,6 +23,11 @@ it at startup. In a source checkout, launching an already built plugin invoked t
 compiler version commands and read every extraction input. The manifest was stored
 beside the executable assets and supplied no independently authenticated identity.
 
+Cloud preparation also required successful diagnostic log writes before allocation,
+before cloning, and after the setup script. Making only the log file unwritable
+could prevent creation or reclaim a successfully prepared instance, even when the
+recovery receipt remained writable. Readiness logging already ignored that failure.
+
 ## Decision
 
 Use Git and filesystem operation completion for managed checkout contents. Keep
@@ -42,6 +47,12 @@ pagination, candidate and failure lists, destroyed-instance history and the
 constant dispatch counter. Provider calls and resulting resource state supply the
 public acceptance observations. The cloud receipt format becomes
 `selvedge-cloud-workspace-4`, with no legacy decoder.
+
+Treat setup output as diagnostic data. Report a failed log write through the
+existing service diagnostic channel and continue the resource operation. Recovery
+records keep their independent persistence requirement. This follows the
+[OWASP logging failure guidance](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#event-collection):
+loss of diagnostic storage must not prevent the application from otherwise running.
 
 Build the plugin's generated files from the ordinary host build before packaging.
 Load those executable files through the standard module loader. Remove the runtime

@@ -101,6 +101,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     explicit archive retry. Allocation and destruction outcomes are observed
     at the provider.
 
+    Setup logs aid diagnosis; they do not establish allocation or readiness.
+    A log write failure is reported through service diagnostics without
+    preventing successful preparation or cleanup. The recovery receipt retains
+    its independent persistence requirement. [tests/cloud-workspaces.test.mjs]
+    exercises successful and failed setup with an unwritable diagnostic log.
+
     Closed phase constructors retain the evidence applicable to each resource
     state. Generated action unions and checked interpreters keep the host from
     choosing another continuation. SSH readiness retries follow observed
