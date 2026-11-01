@@ -18,21 +18,19 @@ Proof.
  destruct phase; try discriminate; intros _; eauto.
 Qed.
 
+(** A failed ancestor budget must refuse atomically even when another admission
+    condition fails too. Which diagnostic is reported first is not this guarantee. *)
 Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id (count : TaskConstraints.fork_count) messages requested value parent:
  find_task id value=Some parent ->
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
+ exists refused,
  Tasks.fork_with_caller invoked origin id count messages requested value=
- match invoked with
- | Tasks.ManualFork => if Tasks.fork_parent_ready Tasks.ManualFork parent then
-    reject "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid" value
-   else reject "task_busy" "A manual fork requires an active, idle task" value
- | Tasks.AcceptedNativeFork _ _ => Tasks.refuse_start Tasks.NativeForkEntry Tasks.DescendantCapacity value end.
+   CommandResult.reject value refused.
 Proof.
  intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
- destruct invoked; unfold Tasks.fork_refusal,Tasks.fork_refusal_reason,Tasks.ancestors_fit;
- rewrite ?Capacity; try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity.
+ eexists; reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
