@@ -26,7 +26,7 @@ export async function snapshotContextFile(filename, limits, { signal, filesystem
   if (filesystem) {
     let bytes;
     // The cloud reader pins and checks one regular-file descriptor throughout the read.
-    try { bytes = await filesystem.readFile(filename, { signal, maximum, noFollow: true }); }
+    try { bytes = await filesystem.readFile(filename, { maximum }); }
     catch (error) {
       // DEFENSE: Guidance is optional and can disappear before the remote descriptor is opened.
       if (error.code === 'ENOENT') return null;

@@ -34,7 +34,6 @@ export function tencentCvmBackend(settings) {
   }
 
   return {
-    kind: 'tencent_cvm',
     request(token, taskId) {
       return boundary('control.resource.request', { settings, token, task_id: taskId });
     },

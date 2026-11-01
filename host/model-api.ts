@@ -159,7 +159,6 @@ export function resolveBrowserPath(input: unknown, canonicalize: (value: JsonVal
 }
 export interface DispatchControlPrimitives {
   rollbackWorkspace(): void;
-  retainWorkspace(): void;
   await(generation: DomainNatural): void;
   state(state: JsonValue): void;
   start(generation: DomainNatural): void;
@@ -177,7 +176,6 @@ export function interpretDispatchControl(input: unknown, io: DispatchControlPrim
       case 'start': io.start(action.generation); break;
       case 'await': io.await(action.generation); break;
       case 'rollback_workspace': io.rollbackWorkspace(); break;
-      case 'retain_workspace': io.retainWorkspace(); break;
       case 'cancel': io.cancel(action.generation, action.provider); break;
       case 'retry_failure': io.retryFailure(); break;
       case 'settled': io.settled(); break;
@@ -224,7 +222,7 @@ export function dispatchControlResult(input: unknown) {
   const starts: DomainNatural[] = [], awaits: DomainNatural[] = [], cancellations: Array<{generation: DomainNatural; provider: boolean}> = [];
   let state: JsonValue = null, settled = false, retryFailure = false, retire = false, rollbackWorkspace = false;
   interpretDispatchControl(input, {
-    rollbackWorkspace: () => { rollbackWorkspace = true; }, retainWorkspace: () => {},
+    rollbackWorkspace: () => { rollbackWorkspace = true; },
     await: generation => { awaits.push(generation); },
     state: value => { state = value; }, start: generation => { starts.push(generation); },
     cancel: (generation, provider) => { cancellations.push({ generation, provider }); },

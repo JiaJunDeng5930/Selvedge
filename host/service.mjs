@@ -490,10 +490,6 @@ export class Service extends EventEmitter {
     return entry ? this.#resourceWorkspace({ task_id: entry.task_id, backend: entry.backend }, signal) : {};
   }
 
-  async #workspaceEnvironment(resource, signal) {
-    return (await this.#resourceWorkspace(resource, signal)).environment;
-  }
-
   async #observationEnvironment(observation) {
     return Object.hasOwn(observation, 'task_id') ? (await this.#taskWorkspace(observation.task_id)).environment : undefined;
   }

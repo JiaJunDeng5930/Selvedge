@@ -30,7 +30,7 @@ Inductive observation :=
 | Complete (generation : N) | CancelTask (task : N) | CancelKey (name : string)
 | Settlement (generation : N) (outcome : settlement) | Shutdown.
 Inductive primitive := Start (generation : N) | Cancel (generation : N) (provider : bool)
-| RollbackWorkspace | RetainWorkspace | Await (generation : N) | RetryFailure | Settled | Retire.
+| RollbackWorkspace | Await (generation : N) | RetryFailure | Settled | Retire.
 Definition cancel_entries (scope : cancellation_scope) (entries : list running) :=
   map (fun entry => Cancel (handle entry) (stop_provider scope (provider entry))) entries.
 Definition accept (s : state) generation :=
@@ -49,7 +49,7 @@ Definition step (s : state) (o : observation) : state * list primitive :=
   | Shutdown => (State true (next_handle s) (active s), cancel_entries NoProviderStop (active s))
   | _ => if retired s then (s, []) else
       match o with
-      | WorkspaceLimit create local success => (s, [if create && negb local && success then RollbackWorkspace else RetainWorkspace])
+      | WorkspaceLimit create local success => (s, if create && negb local && success then [RollbackWorkspace] else [])
       | AwaitWorkspace owner local entries => (s, map Await (workspace_barrier owner local entries))
       | Launch name task cancellable provider =>
           let generation := N.succ (next_handle s) in

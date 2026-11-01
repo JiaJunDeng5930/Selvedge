@@ -1,8 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import path from 'node:path';
 import { tencentCvmBackend } from './tencent-cvm.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { snapshotProject } from './project.mjs';
@@ -60,7 +59,7 @@ def request(value):
         with os.scandir(filename) as entries:
             return [dict(name=entry.name, **facts(entry.stat(follow_symlinks=False))) for entry in entries]
     if op == 'readFile':
-        flags = os.O_RDONLY | os.O_NONBLOCK | (os.O_NOFOLLOW if value.get('noFollow') else 0)
+        flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW
         with os.fdopen(os.open(filename, flags), 'rb') as file:
             before = os.fstat(file.fileno())
             if not stat.S_ISREG(before.st_mode): raise OSError(errno.EINVAL, 'Remote path must be a regular file', filename)
@@ -188,10 +187,9 @@ function remoteFilesystem(connection, signal) {
     realpath: filename => observation('realpath', filename),
     lstat: async filename => fileFacts(await observation('lstat', filename)),
     stat: async filename => fileFacts(await request('stat', filename)),
-    async readFile(filename, options = {}) {
-      const value = await request('readFile', filename, { maximum: options.maximum ?? 64 * 1024 * 1024, noFollow: Boolean(options.noFollow) });
-      const bytes = Buffer.from(value, 'base64');
-      return typeof options === 'string' ? bytes.toString(options) : options.encoding ? bytes.toString(options.encoding) : bytes;
+    async readFile(filename, { maximum }) {
+      const value = await request('readFile', filename, { maximum });
+      return Buffer.from(value, 'base64');
     },
     async readdir(filename, options = {}) {
       const entries = await observation('readdir', filename);
@@ -226,8 +224,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
   }
 
   return {
-    kind: 'cloud', backend: receipt.backend, task_id: receipt.task_id, root: receipt.root, filesystem, execute,
-    readFile: (filename, options) => filesystem.readFile(filename, options),
+    root: receipt.root, filesystem, execute,
     async ready({ signal, deadline }) {
       await awaitCloudSsh(deadline, {
         now: () => Date.now(),

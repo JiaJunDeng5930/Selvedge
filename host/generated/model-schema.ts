@@ -445,7 +445,6 @@ export function decodeBrowserObservationPlan(input: unknown): BrowserObservation
 export type DispatchAction =
   | {"kind": "start"; "generation": DomainNatural}
   | {"kind": "rollback_workspace"; }
-  | {"kind": "retain_workspace"; }
   | {"kind": "await"; "generation": DomainNatural}
   | {"kind": "cancel"; "generation": DomainNatural; "provider": boolean}
   | {"kind": "retry_failure"; }
@@ -456,7 +455,6 @@ export function decodeDispatchAction(input: unknown): DispatchAction {
   switch (source["kind"]) {
     case "start": exactFields(source, ["kind","generation"]); return {"kind": "start", "generation": decodeNatural(source["generation"])};
     case "rollback_workspace": exactFields(source, ["kind"]); return {"kind": "rollback_workspace"};
-    case "retain_workspace": exactFields(source, ["kind"]); return {"kind": "retain_workspace"};
     case "await": exactFields(source, ["kind","generation"]); return {"kind": "await", "generation": decodeNatural(source["generation"])};
     case "cancel": exactFields(source, ["kind","generation","provider"]); return {"kind": "cancel", "generation": decodeNatural(source["generation"]), "provider": decodeBoolean(source["provider"])};
     case "retry_failure": exactFields(source, ["kind"]); return {"kind": "retry_failure"};

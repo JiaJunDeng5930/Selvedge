@@ -33,8 +33,7 @@ export async function observeCloudRepository(primary, { signal } = {}) {
       const url = boundary('effect.cloud_repository', { remote });
       if (url === null) continue;
       const commit = await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal });
-      return { url, commit, repository,
-        relative_primary: path.relative(repository, await realpath(primary)) };
+      return { url, commit, repository };
     }
     return null;
   } catch (error) {

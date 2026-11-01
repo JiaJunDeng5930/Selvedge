@@ -98,7 +98,6 @@ Definition pairing_declaration := F.branch_declaration pairing_branch.
 Definition pairing_announcement := D.denote pairing_declaration.
 Definition pairing_to_fields (value : pairing_announcement) := snd (proj1_sig value).
 Definition pairing_from_fields := F.branch_arguments pairing_branch.
-Definition pairing_code value := proj1_sig (fst (pairing_to_fields value)).
 Definition pairing_expiry value := epoch_value (fst (snd (pairing_to_fields value))).
 Definition pairing_arguments (value : pairing_announcement) := value.
 

@@ -56,7 +56,6 @@ Definition observation_of (source : json) :=
 Definition primitive_packet (p : primitive) := match p with
 | Start generation => Variant.pack ModelResultDeclarations.dispatch_start [!generation!]
 | RollbackWorkspace => Variant.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
-| RetainWorkspace => Variant.pack ModelResultDeclarations.dispatch_retain_workspace [!!]
 | Await generation => Variant.pack ModelResultDeclarations.dispatch_await [!generation!]
 | Cancel generation provider => Variant.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
 | RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!]
