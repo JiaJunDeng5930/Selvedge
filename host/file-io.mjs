@@ -44,8 +44,6 @@ export async function durableDirectory(directory) {
  * prepare must settle every writer before returning; only this function owns publication.
  */
 export async function publishPreparedFile(filename, prepare, { mode = 'replace' } = {}) {
-  // DEFENSE: The publication contract supports only these two explicit overwrite policies.
-  if (mode !== 'replace' && mode !== 'create-if-absent') throw new TypeError('Unknown publication mode');
   const directory = path.dirname(filename);
   await durableDirectory(directory);
   const temporary = `${filename}.${randomUUID()}.tmp`;
@@ -80,9 +78,6 @@ function snapshotError(code, message) { return Object.assign(new Error(message),
 export async function readBoundedRegularSnapshot(filename, {
   maximumBytes, noFollow = true, admitMetadata = () => {}, signal, revision = 'stable',
 }) {
-  // DEFENSE: Callers may select only the stable snapshot contract or the
-  // temporary hard-link cleanup performed by this module's publication primitive.
-  if (!['stable', 'publication_cleanup'].includes(revision)) throw new TypeError('Unknown file revision policy');
   signal?.throwIfAborted();
   const file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | (noFollow ? constants.O_NOFOLLOW : 0));
   try {
