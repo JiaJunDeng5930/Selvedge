@@ -1,4 +1,5 @@
-import type { DomainNatural, Effect } from './generated/model-schema.ts';
+import type { DomainNatural } from './generated/model-schema.ts';
+import type { RunningEffect } from './effect-dispatch.ts';
 import { naturalKey } from './public/json-tokens.mjs';
 import type { dispatchControlResult } from './model-api.ts';
 
@@ -9,7 +10,7 @@ type Outcome = 'accepted' | 'input_limit' | 'output_limit' | 'rejected' | 'uncer
 type Control = (observation: unknown) => ControlResult;
 export interface ActiveEffect {
   task: DomainNatural | undefined;
-  effect: Effect;
+  effect: RunningEffect;
   controller: AbortController;
   handle: EffectHandle;
   promise: Promise<unknown>;
@@ -19,7 +20,7 @@ export interface CommitResult {
 }
 
 /** Install the complete active record before the interpreter can observe it. */
-export function launchEffect(control: Control, active: Map<string, ActiveEffect>, effect: Effect,
+export function launchEffect(control: Control, active: Map<string, ActiveEffect>, effect: RunningEffect,
   run: (handle: EffectHandle, signal: AbortSignal) => Promise<unknown>): Promise<unknown> {
   const generation = control({ kind: 'launch', effect }).starts[0];
   // DEFENSE: Startup reconciliation may reach a dispatcher retired by a journal failure.
