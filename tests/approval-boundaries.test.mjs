@@ -131,17 +131,35 @@ test('the configured reviewer receives the approval payload over HTTP before the
     model: '', body: null, reviewerAnswer: '{"decision":"deny","reason":"Inspect only."}',
     reviewerRequests: [], workerCalls: 0,
   };
+  let releaseReviewer;
+  const reviewerPending = new Promise(resolve => { releaseReviewer = resolve; });
   const fixture = await serviceFixture(t, async body => {
     state.model = body.model;
     state.body = body;
     if (body.model === reviewerModel) {
       await assert.rejects(readFile(fixture.marker), { code: 'ENOENT' });
+      await reviewerPending;
     }
     return toolResponse(fixture.marker, state);
   });
   const message = 'Inspect the directory “资料” 😀 without changing files.';
   const approval = { mode: 'approval-for-me', reviewer_profile: 'judge' };
   const { task_id } = await fixture.create(message, approval);
+  try {
+    const pending = await fixture.until(
+      () => fixture.read(task_id),
+      value => value.task.operations.some(operation => operation.status === 'awaiting_approval'),
+      'The configured model approval must become publicly pending',
+    );
+    const operation = pending.task.operations.find(value => value.status === 'awaiting_approval');
+    assert.equal(operation.reviewer.kind, 'model');
+    const stale = await fixture.command({ op: 'review_approval', task_id,
+      operation_id: operation.operation_id, decision: 'deny', reason: 'A human cannot impersonate the requested model.' });
+    assert.equal(stale.reply.ok, false);
+    assert.match(JSON.stringify(stale.reply.error), /approval_not_pending/);
+  } finally {
+    releaseReviewer();
+  }
   const page = await fixture.until(
     () => fixture.read(task_id),
     value => value.task.phase === 'idle' && value.task.operations.length === 0,
