@@ -67,8 +67,8 @@ function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audi
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release" {
- switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe"; case "local_sync_registration": return "local_sync_registration"; case "local_sync_ready": return "local_sync_ready"; case "local_sync_archive": return "local_sync_archive"; case "local_sync_release": return "local_sync_release";
+function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" {
+ switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
@@ -524,7 +524,7 @@ export function decodeCloudReadinessTransition(input: unknown): CloudReadinessTr
  const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
 }
 
-export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release">};
+export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe">};
 export function decodeResourceTransition(input: unknown): ResourceTransition {
  const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum3(item))};
 }
