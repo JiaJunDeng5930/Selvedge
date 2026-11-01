@@ -6,7 +6,6 @@ import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
-import { boundary } from './public/model-boundary.mjs';
 
 const outcomes = new WeakMap();
 export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
@@ -34,7 +33,6 @@ function closeJournalDatabase(database) {
 
 /** A serialized, durable input journal. It deliberately stores no task table. */
 export class Journal extends EventEmitter {
-  #control = boundary('control.transaction.initial', {});
   #database;
   #lock;
   #tail = Promise.resolve();
@@ -96,20 +94,11 @@ export class Journal extends EventEmitter {
     throw new Error('The database does not have the current Selvedge Rocq journal format');
   }
 
-  #advance(observation) {
-    const transition = boundary('control.transaction.step', { state: this.#control, observation });
-    this.#control = transition.state;
-    return transition.effects;
-  }
-
-  #poison(error, observation = 'worker_failed') {
-    const actions = this.#advance({ kind: observation });
-    rejected(error, observation === 'commit_unknown' ? 'unknown' : 'rejected');
+  #poison(error, outcome = 'rejected') {
+    rejected(error, outcome);
     this.#failure = error;
-    if (actions.some(action => action.kind === 'retire')) {
-      this.kernel?.abort(error);
-      this.emit('retired', error);
-    }
+    this.kernel?.abort(error);
+    this.emit('retired', error);
   }
 
   assess(candidate) {
@@ -138,28 +127,23 @@ export class Journal extends EventEmitter {
       try { inputText = stringifyJson(input); }
       // DEFENSE: Invalid external JSON is rejected before any kernel transition or durable write.
       catch (error) { throw rejected(error, 'rejected'); }
-      this.#advance({ kind: 'begin' });
       let response;
       let pending;
       try { pending = this.kernel.request(input); }
       // DEFENSE: Encoding validates the input before the Worker receives its request.
       catch (error) {
-        this.#advance({ kind: 'input_rejected' });
         throw rejected(error, 'rejected');
       }
       try { response = await pending; }
       catch (error) {
         if (isKernelInputRejection(error)) {
-          this.#advance({ kind: 'input_rejected' });
           rejected(error, 'rejected');
         } else this.#poison(error);
         // No journal write has started, including when the Worker failed after advancing its private world.
         throw error;
       }
-      const actions = this.#advance({ kind: 'worker_result', durable: response.value.durable });
-      if (!actions.some(action => action.kind === 'commit')) {
+      if (!response.value.durable) {
         this.program = response.program;
-        this.#advance({ kind: 'finish' });
         return { sequence: this.sequence, program: this.program, ...response.value };
       }
       const sequence = this.sequence + 1;
@@ -172,16 +156,14 @@ export class Journal extends EventEmitter {
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
       } catch (error) {
-        this.#poison(error, committing ? 'commit_unknown' : 'commit_rejected');
+        this.#poison(error, committing ? 'unknown' : 'rejected');
         throw error;
       }
-      const publication = this.#advance({ kind: 'commit_ack' });
       this.program = response.program;
       this.sequence = sequence;
       const committed = { sequence, input, program: this.program, ...response.value };
-      this.#advance({ kind: 'finish' });
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
-      for (const observer of publication.some(action => action.kind === 'publish') ? this.listeners('commit') : []) {
+      for (const observer of this.listeners('commit')) {
         try { observer(committed); }
         catch (error) { this.emit('observerFailure', error); }
       }

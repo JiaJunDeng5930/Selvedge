@@ -2,12 +2,11 @@ From Stdlib Require Import String.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Context Domain Compaction Conversation ContextSelection.
 From Selvedge.Adapters Require Import Common Rpc Configuration Http Effects Audio AccountTransport BrowserAdapters BrowserObservations Plugins Evaluator Accounts Web Backends.
-From Selvedge.Adapters Require Import HostTransaction HostDispatch HostResources HostRemote HostContext HostProcess HostAudio.
+From Selvedge.Adapters Require Import HostDispatch HostResources HostRemote HostContext HostProcess HostAudio.
 Open Scope string_scope.
 
 Definition call (operation : string) (source : json) : json :=
-  if starts operation "control.transaction" then HostTransaction.call operation source
-  else if starts operation "control.dispatch" then HostDispatch.call operation source
+  if starts operation "control.dispatch" then HostDispatch.call operation source
   else if starts operation "control.resource" then HostResources.call operation source
   else if starts operation "control.remote" then HostRemote.call operation source
   else if starts operation "control.context" then HostContext.call operation source

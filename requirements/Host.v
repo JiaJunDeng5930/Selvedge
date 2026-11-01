@@ -6,43 +6,31 @@
     media have their own lifetimes; they cannot silently replace domain policy. *)
 
 From Stdlib Require Import List NArith.
-From Selvedge.Host Require Import Transaction.
 From Selvedge.Kernel Require PacketProofs.
 Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
-Export Transaction(publication_requires_commit_ack).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
 
-    The Worker owns the opaque world initialized by the kernel. A journal stores
-    admitted inputs and restores it by replaying the same entry; replay does not
-    publish physical effects. Queries preserve the world, emit no effects and
-    require no journal row. [actual_query_preserves_world_and_emits_no_effect]
-    constrains that actual packet entry. Public restart tests cover the host's
-    ordered replay and retained state; SQLite supplies transaction durability.
+    A journal stores admitted inputs and restores the world by replaying the
+    same entry; replay does not publish physical effects. Queries preserve the
+    world, emit no effects and require no journal row.
+    [actual_query_preserves_world_and_emits_no_effect] constrains that actual
+    packet entry. Public restart tests cover ordered replay and retained state;
+    SQLite supplies transaction durability.
 
-    [publication_requires_commit_ack] is the safety direction. The positive
-    requirement below also rules out a controller that never publishes accepted
-    work. The expected primitives are stated independently of the transition's
-    implementation and concern [Transaction.step], the operation interpreted by
-    the host. *)
+    Publication and successful completion of durable mutations require
+    acknowledgement of the commit. A failure during COMMIT has an unknown outcome. It
+    retires the current world, so reopening establishes the durable result;
+    neither completion retry nor resource rollback is authorized by uncertainty.
+    A failure before COMMIT is a definite rejection.
 
-Theorem acknowledged_commit_publishes_and_resolves :
-  Transaction.step Transaction.CommitPending Transaction.CommitAck =
-  (Transaction.Committed,
-    [Transaction.Publish; Transaction.Resolve]).
-Proof. reflexivity. Qed.
-
-(** A failure during COMMIT has an unknown outcome. Retiring the current world
-    forces reopening to establish the durable result; neither completion retry
-    nor resource rollback is authorized by uncertainty. This differs from a
-    definite pre-commit rejection. *)
-
-Theorem uncertain_commit_retires_the_world : forall current,
-  Transaction.step current Transaction.CommitUnknown =
-  (Transaction.Retired,
-    [Transaction.RejectUnknown; Transaction.Retire]).
-Proof. intros; reflexivity. Qed.
+    These are requirements on the physical transaction, including its storage
+    call, returned promise and observers. [tests/journal.test.mjs] checks that
+    failed storage cannot publish or launch paid work, and that lost COMMIT
+    acknowledgement retires execution while reopening recovers the accepted
+    input once. [tests/service.test.mjs] covers successful publication through
+    the public service and event stream. *)
 
 From Selvedge.Host Require Dispatch.
 Export Dispatch(launch_installs_handle_before_run,
