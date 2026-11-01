@@ -12,7 +12,7 @@ const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
-export async function compilerVersions() {
+async function compilerVersions() {
   return Promise.all([
     run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
     run('opam', ['var', 'rocq-metarocq-template:version']),
@@ -97,9 +97,8 @@ export async function build(options = {}) {
   await mkdir(buildDirectory, { recursive: true });
   for (const filename of moduleFiles) if (!await exists(filename)) throw new Error(`Requested Rocq module is missing: ${filename}`);
   for (const name of selected) {
-    if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
     const filename = `theories/${targets[name].module.replaceAll('.', '/')}.v`;
-    if (name !== 'commands' && !await exists(filename)) {
+    if (!await exists(filename)) {
       throw new Error(`Production entry ${filename} is missing; the full migration build is incomplete`);
     }
   }
@@ -273,8 +272,7 @@ export async function build(options = {}) {
     await settleIndependent(selected.map(name => withTargetSlot(async () => {
       const target = targets[name];
       const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
-      const runtime = name === 'commands' ? (await readInput('runtime/commands_runtime.ml')).toString('utf8')
-        : name === 'kernel' ? (await readInput('runtime/kernel_runtime.ml')).toString('utf8')
+      const runtime = name === 'kernel' ? (await readInput('runtime/kernel_runtime.ml')).toString('utf8')
         : (await readInput('runtime/call_runtime.ml.in')).toString('utf8').replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
       const jsonIo = (await readInput('runtime/json_io.ml')).toString('utf8');
       const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo]));
@@ -322,7 +320,7 @@ export async function build(options = {}) {
       await run('js_of_ocaml', ['--target-env', 'browser', '-o', stagedRuntime, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
       const exports = name === 'kernel'
         ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
-        : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
+        : `export const ${target.exported} = runtime.call;\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
       // Keep each runtime and its exports in one atomically replaceable module.
       const bundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;
       publications.set(output, bundle);

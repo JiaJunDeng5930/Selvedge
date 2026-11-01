@@ -5,7 +5,6 @@ Open Scope N_scope.
 (* Enrollment is a deployment credential, separate from generated wire tokens. *)
 Definition minimum_length : N := 32.
 Definition maximum_length : N := 512.
-Definition authorization_maximum_length : N := maximum_length + 7.
 Fixpoint visible_ascii (text : string) : bool :=
   match text with
   | EmptyString => true

@@ -21,7 +21,6 @@ Definition remove (id : N) := Receiver.install (slot id) None.
 Definition resolve (key:string) (nodes:list Selvedge.Features.Domain.resolved_node) := option_map Selvedge.Features.Domain.node_task (find (fun node=>String.eqb key (Selvedge.Features.Domain.node_key node)) nodes).
 Definition maximum_message_depth := TaskGraphDeclarations.maximum_message_depth.
 Definition maximum_message_nodes := TaskGraphDeclarations.maximum_message_nodes.
-Definition maximum_rule_actions := TaskGraphDeclarations.maximum_rule_actions.
 Fixpoint message_of_fields (depth : nat) :
  ArgumentDeclaration.denote (TaskGraphDeclarations.message_declaration depth) -> Selvedge.Features.Domain.graph_message :=
  match depth as depth return ArgumentDeclaration.denote (TaskGraphDeclarations.message_declaration depth) -> _ with

@@ -29,8 +29,6 @@ Definition project_of_values (value : D.denote project_declaration) : option N :
  | inr (inr impossible) => match impossible with end end.
 Definition clock_declaration := BoardClock.declaration.
 Definition clock := BoardClock.t.
-Definition clock_value := BoardClock.value.
-Definition zero_clock := BoardClock.zero.
 Definition observed_clock := BoardClock.observed.
 
 (** Raw views are admitted once at snapshot and form boundaries. Command

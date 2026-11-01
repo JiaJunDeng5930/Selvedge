@@ -45,7 +45,6 @@ Inductive t :=
 Definition Any := Value KJson.
 Definition Boolean := Value KBool.
 Definition Integer := Value KInteger.
-Definition Decimal := Value KDecimal.
 Definition Text constraints := Textual (ConstrainedText constraints).
 Definition NaturalText minimum maximum := Textual (NaturalSpelling minimum maximum).
 Definition PrefixedText prefix suffix := Textual (PrefixedSpelling prefix suffix).
@@ -265,9 +264,3 @@ Fixpoint of_kind (description : kind) : t := match description with
 Definition of_schema (declaration : Schema.schema) := Object (map (fun field =>
  (field_name field,negb (field_omittable field || Schema.optional_kind (field_kind field)),
  of_kind (Schema.present_kind (field_kind field)))) declaration).
-
-Definition refine_object (overrides : list (string * t)) (declaration : t) :=
- match declaration with Object properties => Object (map (fun property =>
-   match find (fun entry => String.eqb (fst (fst property)) (fst entry)) overrides with
-   | Some (_,replacement) => (fst property,replacement) | None => property end) properties)
- | _ => declaration end.

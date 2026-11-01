@@ -31,9 +31,6 @@ Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.conf
    (Selvedge.Generated.Commands.configure_title_settings_agent_prompt_admitted p) value.
 
 Definition first_request := Observation.first_request.
-Definition split_slash := FeatureRequestAdmission.split_slash.
-Definition account_prefix := FeatureRequestAdmission.account_prefix.
-Definition capable := FeatureRequestAdmission.capable_profile.
 Definition ordinary := FeatureRequestAdmission.ordinary_profile.
 Definition selected_profile := FeatureRequestAdmission.selected_title_profile.
 Definition prompt := Titles.prompt_with.

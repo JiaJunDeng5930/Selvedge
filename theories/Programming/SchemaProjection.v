@@ -30,9 +30,6 @@ Arguments available {source target} {_}.
 Definition declare source target `{Available source target} :=
  ArgumentProjection.compiled (compile source target) available.
 
-Fixpoint apply {source target} (projection : program source target) (values : fields source) : fields target :=
- match projection in program _ target return fields target with
- | Empty => FNil | Column position rest => FCons (Schema.project position values) (apply rest values) end.
 Fixpoint prefix {source target} (suffix : schema) (projection : program source target)
  : program (source ++ suffix)%list target := match projection in program _ target return program (source ++ suffix)%list target with
  | Empty => Empty | Column position rest => Column (extend_projection position suffix) (prefix suffix rest) end.
