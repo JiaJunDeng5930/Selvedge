@@ -58,9 +58,7 @@ Definition recovery_authority (value : json) :=
   is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "") &&
   String.eqb (str scope "credential_reference") "service-environment:TENCENTCLOUD" &&
   equal (get (get value "request") "ClientToken") (get value "token") &&
-  equal (get value "dispatch_count") (number 1) &&
-  existsb (String.eqb (str value "status")) receipt_statuses &&
-  is_array (get value "instance_ids") && is_array (get value "candidate_ids").
+  existsb (String.eqb (str value "status")) receipt_statuses.
 Definition receipt_matches (source : json) :=
   let expected := get source "expected" in let value := get source "value" in
   is_object value && forallb (fun name => equal (get value name) (get expected name)) receipt_keys &&

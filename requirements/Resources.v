@@ -63,11 +63,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     [recovery_trace_never_regains_allocation] quantifies over a complete recovery
     trace. Together with [retired_allocation_cannot_return], it excludes
     allocation after intermediate observations as well as at startup.
-    Reconciliation visits
-    every management-tag page; empty, interrupted or unauthorized scans preserve
-    uncertainty. Only recorded matches enter cleanup. The reserved provider tag
-    namespace must not be altered by operators while an intent is open: mutable
-    tags are an operational assumption, not an unforgeable ownership proof.
+    Each request allocates one instance. Reconciliation admits the matching
+    instance under its unique management tag; empty, interrupted or unauthorized
+    observations preserve uncertainty. Only that match enters cleanup. The
+    reserved provider tag namespace must not be altered by operators while an
+    intent is open: mutable tags are an operational assumption, not an
+    unforgeable ownership proof.
 
     Recording a discovered identity precedes destruction where storage permits.
     A confirmed in-memory identity may authorize cleanup after a failed write,
@@ -84,35 +85,26 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     a path name alone is not deletion authority.
 
     [local_recovery_trace_never_repeats_mutation] forbids replaying checkout,
-    move or release. Recovery may observe completed work and finish its
-    durability barrier. Canonical Git backlinks admit both relative and
+    move or release. Recovery may observe completed work and record its
+    acknowledgement. Canonical Git backlinks admit both relative and
     absolute links before comparison with the owned checkout. *)
 
-Export ResourceProofs(git_registration_waits_for_physical_durability,
-  terminal_receipt_requires_matching_durable_ack,
-  receipt_ack_cannot_skip_physical_durability).
+(** ** Recovery records retain outstanding resource ownership
 
-(** ** Physical acknowledgement has a particular write set
+    Successful Git commands and completed file copies establish the observed
+    checkout outcome. Atomic control-record publication retains the reservation,
+    ownership and result needed for service restart. Reopening still checks the
+    actual path and Git registration before returning or deleting a resource.
 
-    Git command completion does not establish durability. Registration,
-    readiness, archive and release select their own file and directory barriers
-    before a durable terminal receipt is published.
-    [git_registration_waits_for_physical_durability],
-    [terminal_receipt_requires_matching_durable_ack] and
-    [receipt_ack_cannot_skip_physical_durability] constrain the extracted
-    controller. A failed barrier keeps uncertainty.
-
-    The shared publisher uses exclusive no-follow temporary files, file sync,
-    same-directory rename and parent sync. New service directories are synced
-    from stable ancestors. [host/worktrees.mjs] owns the concrete Git and path
-    write sets; [host/resource-runtime.ts] acknowledges only completed physical
-    barriers. These cover managed registration, path and initial-snapshot
-    operations, not arbitrary later writes or symlink targets outside the tree.
+    Cloud recovery records retain the outstanding instance or the fact that
+    allocation remains unresolved. Failed cleanup retains its instance for an
+    explicit archive retry. Allocation and destruction outcomes are observed
+    at the provider.
 
     Closed phase constructors retain the evidence applicable to each resource
     state. Generated action unions and checked interpreters keep the host from
     choosing another continuation. SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. SDK, SSH, Git, filesystem barriers, provider tags
-    and credential verification remain physical assumptions. Obsolete receipts
+    is a preparation failure. SDK, SSH, Git, filesystems, provider tags and
+    credential verification remain physical assumptions. Obsolete receipts
     cannot be upgraded into missing recovery authority by a fallback decoder. *)

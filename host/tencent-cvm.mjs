@@ -57,13 +57,13 @@ export function tencentCvmBackend(settings) {
           Array.isArray(response.InstanceIdSet) && response.InstanceIdSet.length === 1 &&
           typeof response.InstanceIdSet[0] === 'string' && response.InstanceIdSet[0].length > 0 };
     },
-    async scan(token, offset, { signal } = {}) {
+    async scan(token, { signal } = {}) {
       const response = await request('DescribeInstances', {
-        Filters: [{ Name: 'tag:selvedge-task', Values: [token] }], Offset: offset, Limit: 100,
+        Filters: [{ Name: 'tag:selvedge-task', Values: [token] }], Limit: 2,
       }, signal);
-      // DEFENSE: An interrupted or malformed page cannot establish the absence of a paid allocation.
+      // DEFENSE: A malformed provider response cannot establish the absence of a paid allocation.
       if (!Array.isArray(response.InstanceSet) || !Number.isSafeInteger(response.TotalCount) || response.TotalCount < 0) {
-        throw new Error('Tencent reconciliation returned an incomplete instance page');
+        throw new Error('Tencent reconciliation returned an incomplete instance response');
       }
       return { instances: response.InstanceSet, total: response.TotalCount };
     },

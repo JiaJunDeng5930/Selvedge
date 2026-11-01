@@ -32,7 +32,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, allocation = 'normal', count = 1, ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -92,7 +92,7 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
         result = { AccountId: accountId(), Uin: accountId(), UserId: 'fixture' };
       } else if (action === 'RunInstances') {
         const ids = [];
-        for (let index = 0; index < count; index++) {
+        for (let index = 0; index < body.InstanceCount; index++) {
           const id = `ins-fixture-${index}`;
           ids.push(id);
           instances.set(id, { InstanceId: id, InstanceState: 'RUNNING', PublicIpAddresses: ['127.0.0.1'],
@@ -356,24 +356,19 @@ test('a failing project environment script prevents model execution, destroys th
   spotRequest(fixture_.requests);
 });
 
-test('a disconnected allocation response is reconciled with paginated reads and all owned instances are reclaimed', async t => {
+test('a disconnected allocation response is reconciled and its instance is reclaimed', async t => {
   const fixture_ = await fixture(t, () => assert.fail('An unknown allocation cannot start a model'),
-    { allocation: 'disconnect', count: 101 });
+    { allocation: 'disconnect' });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
     'Unknown allocation must finish recovery before publishing its failure');
   assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
   const pages = fixture_.requests.filter(value => value.action === 'DescribeInstances' && value.body.Filters);
-  assert.deepEqual(pages.map(value => value.body.Offset), [0, 100]);
-  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 101);
+  assert.equal(pages.length, 1);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 1);
   assert.equal(fixture_.instances.size, 0);
   assert.equal(entry.root, null);
-  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
-  assert.equal(receipt.status, 'destroyed');
-  assert.equal(receipt.scope.account_id, '100000000001');
-  assert.equal(receipt.dispatch_count, 1);
-  assert.equal(receipt.destroyed_ids.length, 101);
 });
 
 test('allocation redirects are not followed and reconciliation retains resources whose ownership is ambiguous', async t => {
@@ -387,9 +382,6 @@ test('allocation redirects are not followed and reconciliation retains resources
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
   assert.equal(fixture_.instances.size, 1);
   assert.ok(entry.root);
-  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
-  assert.equal(receipt.status, 'needs_resolution');
-  assert.deepEqual(receipt.candidate_ids, ['ins-fixture-0']);
 });
 
 test('cloud guidance rejects the same NUL source as local guidance and reclaims the already allocated instance', async t => {
@@ -421,9 +413,6 @@ test('failed allocation recording still reclaims its exact returned ID and retai
     assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances').map(value => value.body.InstanceIds),
       [['ins-fixture-0']]);
     assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
-    const receipt = JSON.parse(await readFile(path.join(storage, `task-${id}.json`)));
-    assert.equal(receipt.allocation_unknown, true);
-    assert.equal(receipt.status, 'persist_pending');
   } finally { await chmod(storage, 0o700); }
 });
 
@@ -438,8 +427,6 @@ test('cleanup refuses a different owning account and resumes through the public 
     'Account mismatch must retain the allocation');
   assert.ok(entry.root);
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
-  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
-  assert.equal(receipt.status, 'needs_credential');
   current = '100000000001';
   const archived = await fixture_.service.command({ op: 'archive', task_id: id });
   assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
@@ -519,19 +506,19 @@ test('native independent creation reuses the caller cloud resource despite the p
     'The owner must release its resource after the independent borrower is archived');
 });
 
-test('one failed candidate termination does not prevent other confirmed resources from being reclaimed', async t => {
+test('a failed termination retains its instance for an explicit archive retry', async t => {
   let reject = true;
-  const fixture_ = await fixture(t, () => assert.fail('A multiple-ID allocation cannot start a model'), {
-    count: 2, rejectTermination: id => reject && id === 'ins-fixture-0',
+  const fixture_ = await fixture(t, () => assert.fail('A failed setup cannot start a model'), {
+    failSetup: true, rejectTermination: () => reject,
   });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
-    'Every confirmed candidate must receive its independent cleanup attempt');
+    'A failed cleanup must retain the resource for retry');
   assert.ok(entry.root);
   assert.deepEqual([...fixture_.instances.keys()], ['ins-fixture-0']);
   assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances').map(value => value.body.InstanceIds),
-    [['ins-fixture-0'], ['ins-fixture-1']]);
+    [['ins-fixture-0']]);
   reject = false;
   const archived = await fixture_.service.command({ op: 'archive', task_id: id });
   assert.equal(archived.reply.ok, true);

@@ -101,7 +101,7 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     Opening the intended loopback URL establishes an HttpOnly browser session so
     product JavaScript need not handle its secret. Origin and host admission
     remain necessary. CLI Bearer credentials and plugin grants retain their
-    separate lifetimes. Build provenance identifies an artifact; persisted
-    protocol compatibility identifies replayable work. Only the current
+    separate lifetimes. Persisted protocol compatibility identifies replayable
+    work. Only the current
     persisted formats are accepted, without manufacturing authority from older
     attachment or receipt shapes. *)

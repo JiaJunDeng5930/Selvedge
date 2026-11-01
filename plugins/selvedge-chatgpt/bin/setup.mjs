@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { settings } from '../src/client.mjs';
 import { publishBytes } from '../generated/file-io.mjs';
-import { requirePackagedModel, packagedModelFiles } from '../scripts/build-model.mjs';
+import { packagedModelFiles } from '../scripts/build-model.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 
@@ -44,7 +44,6 @@ export async function packageConnection(id, directory) {
   const source = await realpath(root);
   // DEFENSE: A destination inside the source plugin, including a symlinked parent, would mix deployment artifacts with source files.
   if (directory === source || directory.startsWith(source + path.sep)) throw new Error('The output must stay outside the source plugin');
-  await requirePackagedModel();
   await mkdir(directory, { mode: 0o700 });
   for (const relative of deploymentFiles) {
     const filename = path.join(root, relative);

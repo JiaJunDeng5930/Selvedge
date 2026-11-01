@@ -12,7 +12,7 @@ import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree
 import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from './cloud-environments.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-3';
+const receiptFormat = 'selvedge-cloud-workspace-4';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.
@@ -108,13 +108,13 @@ async function runResource(plan, { files, backend, signal, prepare, errors = [] 
       backend = recoveredBackend(state);
       return { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
     },
-    async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, state.scan_offset, { signal: cleanupSignal }) }; },
+    async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, { signal: cleanupSignal }) }; },
     async terminate(state) {
-      const id = state.instance_ids[0];
+      const id = state.instance_id;
       await backend.destroy(id, { signal: cleanupSignal });
-      return { kind: 'terminated', id };
+      return { kind: 'terminated' };
     },
-    async terminateFailure(state) { return { kind: 'termination_failed', id: state.instance_ids[0] }; },
+    async terminateFailure() { return { kind: 'termination_failed' }; },
   }, errors);
 }
 

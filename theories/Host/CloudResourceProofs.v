@@ -10,15 +10,13 @@ Lemma run_preserves_retirement value : allocation_authority value = false -> no_
 Proof. destruct value; unfold no_allocate; cbn; intros H; try discriminate; split; auto; intuition discriminate. Qed.
 Lemma termination_never_allocates source : no_allocate (terminate_or_finish source).
 Proof.
-  unfold terminate_or_finish, save, no_allocate. repeat match goal with
-  | |- context[if ?condition then _ else _] => destruct condition
-  end; cbn; intuition discriminate.
+  destruct source as [context [|[instance|]]]; cbn; unfold no_allocate; cbn; intuition discriminate.
 Qed.
-Lemma scan_never_allocates source offset instances total : no_allocate (scan_page source offset instances total).
+Lemma scan_never_allocates source instances total : no_allocate (scan_page source instances total).
 Proof.
-  unfold scan_page. repeat match goal with
-  | |- context[if ?condition then _ else _] => destruct condition
-  end; try apply termination_never_allocates; unfold save,no_allocate; cbn; intuition discriminate.
+  destruct instances as [|instance [|other rest]]; cbn [scan_page];
+  repeat match goal with | |- context[if ?condition then _ else _] => destruct condition end;
+  unfold save,no_allocate; cbn; intuition discriminate.
 Qed.
 Theorem retired_allocation_cannot_return value event :
   allocation_authority value = false -> no_allocate (step value event).

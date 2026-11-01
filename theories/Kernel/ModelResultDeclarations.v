@@ -191,8 +191,7 @@ Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition http_remote_revoke_fields := [Field "controller_id" KText].
 Definition http_browser_command_fields := [Field "command" KJson].
 Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
- "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe";
- "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].
+ "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
 Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
  ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);("CloudReadinessTransition",cloud_readiness_transition);

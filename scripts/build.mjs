@@ -338,31 +338,9 @@ export async function build(options = {}) {
     for (const [filename, bundle] of publications) await writeChanged(filename, bundle);
     if (selected.includes('schema')) await generateModelSchema(root);
     console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
-    const provenance = Object.fromEntries(selected.map(name => {
-      const target = targets[name];
-      const sources = new Set(['runtime/Extraction.v', 'theories/Foundation/TextJson.v',
-        `theories/${target.module.replaceAll('.', '/')}.v`]);
-      const pending = [...sources];
-      while (pending.length) {
-        for (const dependency of graph.get(pending.pop()) ?? []) {
-          if (!sources.has(dependency)) { sources.add(dependency); pending.push(dependency); }
-        }
-      }
-      if (sources.has('theories/Generated/Commands.v')) {
-        for (const filename of generatorInputs) sources.add(filename);
-      }
-      for (const filename of inputFingerprints.keys()) {
-        if (!filename.endsWith('.v')) sources.add(filename);
-      }
-      return [name, Object.freeze({ sourceRoot: root, target: name, compiler: Object.freeze([...versions]),
-        sources: Object.freeze([...sources].sort().map(filename => Object.freeze({
-          path: filename, sha256: inputFingerprints.get(filename)
-        }))), artifacts: Object.freeze([...next[`target:${name}:artifacts`]]) })];
-    }));
     const result = Object.freeze({
       checked: check && allModules && productionTargets.every(name => selected.includes(name)),
       targets: Object.freeze([...selected]),
-      provenance: Object.freeze(provenance),
     });
     return result;
   } finally {

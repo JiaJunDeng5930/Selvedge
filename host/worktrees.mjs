@@ -1,11 +1,10 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cp, lstat, mkdir, open, readFile, readdir, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { cp, lstat, mkdir, readFile, readdir, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { shellQuote } from './cloud-environments.mjs';
-import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory, syncDirectory } from './control-records.mjs';
+import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { snapshotProject } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
@@ -107,78 +106,6 @@ async function verifyTree(root, reservation) {
   return { administration, repositoryCommon, checkoutCommon };
 }
 
-async function syncRegular(filename, expected) {
-  const file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-  try {
-    const observed = await file.stat({ bigint: true });
-    // DEFENSE: A concurrent external writer can replace a staged file before its barrier.
-    if (!observed.isFile() || (expected && (observed.dev !== expected.dev || observed.ino !== expected.ino))) {
-      throw new Error('Managed Git storage changed before synchronization');
-    }
-    await file.sync();
-  } finally { await file.close(); }
-}
-
-/** Sync an owned initialization tree without following its symbolic links. */
-async function syncTree(directory) {
-  const before = await lstat(directory, { bigint: true });
-  // DEFENSE: An externally replaced staging directory must not redirect a recursive barrier.
-  if (!before.isDirectory() || await realpath(directory) !== directory) throw new Error('Managed Git storage is not a canonical directory');
-  for (const name of await readdir(directory)) {
-    const filename = path.join(directory, name);
-    const entry = await lstat(filename, { bigint: true });
-    if (entry.isDirectory()) await syncTree(filename);
-    else if (entry.isFile()) await syncRegular(filename, entry);
-    // Symlink contents and entries are published by their containing directory;
-    // their targets are outside this initialization write set.
-    else if (!entry.isSymbolicLink()) throw new Error('Managed Git storage contains an unsupported special file');
-  }
-  const after = await lstat(directory, { bigint: true });
-  // DEFENSE: An external rename during traversal invalidates the captured directory identity.
-  if (after.dev !== before.dev || after.ino !== before.ino) throw new Error('Managed Git directory changed during synchronization');
-  await syncDirectory(directory);
-}
-
-async function syncAdministrationParent(repositoryCommon) {
-  const directory = path.join(repositoryCommon, 'worktrees');
-  try { await syncDirectory(directory); }
-  catch (error) {
-    // DEFENSE: Removing the final linked checkout can remove the worktrees directory itself.
-    if (error.code !== 'ENOENT') throw error;
-  }
-  await syncDirectory(repositoryCommon);
-}
-
-/** The model selects a write set; only this interpreter establishes its physical barrier. */
-function gitDurability(files) {
-  async function registered(state) {
-    const observed = await verifyTree(state.root, state.reservation);
-    await syncRegular(path.join(state.root, '.git'));
-    await syncTree(observed.administration);
-    await syncDirectory(state.root);
-    await syncAdministrationParent(observed.repositoryCommon);
-    return observed;
-  }
-  return {
-    async local_sync_registration(state) { await registered(state); },
-    async local_sync_ready(state) {
-      await registered(state);
-      await syncTree(state.root);
-      await syncDirectory(path.dirname(state.root));
-    },
-    async local_sync_archive(state) {
-      await registered(state);
-      await syncDirectory(path.dirname(files.active));
-      await syncDirectory(path.dirname(files.archived));
-    },
-    async local_sync_release(state) {
-      await syncDirectory(path.dirname(files.active));
-      await syncDirectory(path.dirname(files.archived));
-      await syncAdministrationParent(await commonDirectory(state.reservation.repository));
-    },
-  };
-}
-
 function completion(effect, result) {
   return boundary('effect.completion', { effect, result });
 }
@@ -265,6 +192,8 @@ function localOwnership(files, released = () => {}) {
   };
 }
 
+// KNOWN LIMITATION: Checkout writes use normal filesystem durability; recovery
+// after a host power loss does not reconstruct lost project contents.
 /** The durable resource step grants the one physical checkout attempt. */
 export async function createManagedWorktree(effect, { home, limits, signal } = {}) {
   let root, repository, files;
@@ -286,12 +215,10 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
     const result = await runLocalResource(control('local', { operation: 'create', receipt }), files, {
       reserved: () => reserved,
       ...localOwnership(files, () => { root = null; }),
-      ...gitDurability(files),
       async local_reserve() {
         await mkdir(root, { mode: 0o700 });
         reserved = true;
         const entry = await lstat(root, { bigint: true });
-        await syncDirectory(path.dirname(root));
         return { kind: 'local_reserved', reservation: { id: randomUUID(), canonical_root: await realpath(root),
           dev: String(entry.dev), ino: String(entry.ino), repository } };
       },
@@ -341,7 +268,6 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
     const receipt = await readReceipt(files, effect.task_id, effect.source_root);
     const result = await runLocalResource(control('local', { operation: 'archive', receipt }), files, {
       ...localOwnership(files),
-      ...gitDurability(files),
       async local_archive(state) {
         let currentRoot = effect.root;
         try { await lstat(currentRoot); }
@@ -375,7 +301,6 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
     const receipt = await readReceipt(files, entry.task_id, entry.source_root);
     const result = await runLocalResource(control('local', { operation: 'recover', receipt, creating }), files, {
       ...localOwnership(files),
-      ...gitDurability(files),
       async local_observe(state) {
         let observedRoot = state.root;
         // DEFENSE: A move can complete immediately before the archived receipt reaches disk.

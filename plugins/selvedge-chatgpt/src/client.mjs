@@ -4,9 +4,6 @@ import { interpretCredential } from '../generated/opaque-credentials.mjs';
 import { parseJson } from '../generated/json-tokens.mjs';
 import { readBoundedRegularSnapshot } from '../generated/file-io.mjs';
 import path from 'node:path';
-import { requirePackagedModel } from '../scripts/build-model.mjs';
-
-await requirePackagedModel();
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** Installed clients supply PLUGIN_DATA instead of inheriting arbitrary credentials. */
