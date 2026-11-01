@@ -61,9 +61,7 @@ export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLo
     if (error.code !== 'remote_identity_missing') throw error;
     const proposed = { format: identityFormat, host_id: randomUUID(), host_token: randomBytes(32).toString('base64url'), relay_url };
     const filename = path.join(home, identityName);
-    await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), {
-      mode: 'create-if-absent', permissions: 0o600,
-    });
+    await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), { mode: 'create-if-absent' });
     // A concurrent initializer can win publication. Always admit the completed
     // winner from disk before registering this installation's identity.
     identity = await readIdentity(home, relay_url);

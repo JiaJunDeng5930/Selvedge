@@ -41,7 +41,7 @@ function ancestors(root, includeSelf) {
   }
 }
 
-export function seccompFilter(architecture, networkAccess) {
+function seccompFilter(architecture, networkAccess) {
   const program = boundary('effect.seccomp', { architecture, networkAccess });
   const bytes = Buffer.alloc(program.length * 8);
   program.forEach(({ code, jt, jf, k }, index) => {

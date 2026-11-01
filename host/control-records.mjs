@@ -1,6 +1,6 @@
 import { parseJson, stringifyJson } from './codec.mjs';
 import { publishBytes, readBoundedRegularSnapshot } from './file-io.mjs';
-export { durableDirectory, syncDirectory } from './file-io.mjs';
+export { durableDirectory } from './file-io.mjs';
 
 export async function writeControlRecord(filename, value) {
   await publishBytes(filename, stringifyJson(value));

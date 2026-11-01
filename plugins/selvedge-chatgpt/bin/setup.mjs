@@ -30,7 +30,7 @@ export async function saveConnection(directory, env = process.env) {
 }
 
 /** Registered app IDs are deployment data; build a separate package without a second local tool route. */
-export async function packageConnection(id, directory) {
+async function packageConnection(id, directory) {
   // DEFENSE: Deployment IDs come from CLI arguments and must identify a registered ChatGPT connection.
   if (!/^plugin_asdk_app_[A-Za-z0-9_-]+$/.test(id)) throw new Error('Use the registered plugin_asdk_app ID from ChatGPT');
   directory = path.resolve(directory);

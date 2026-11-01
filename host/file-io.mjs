@@ -43,14 +43,14 @@ export async function durableDirectory(directory) {
 /** Build one private inode, then publish its closed contents and directory entry durably.
  * prepare must settle every writer before returning; only this function owns publication.
  */
-export async function publishPreparedFile(filename, prepare, { mode = 'replace', permissions = 0o600 } = {}) {
+export async function publishPreparedFile(filename, prepare, { mode = 'replace' } = {}) {
   // DEFENSE: The publication contract supports only these two explicit overwrite policies.
   if (mode !== 'replace' && mode !== 'create-if-absent') throw new TypeError('Unknown publication mode');
   const directory = path.dirname(filename);
   await durableDirectory(directory);
   const temporary = `${filename}.${randomUUID()}.tmp`;
   try {
-    const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, permissions);
+    const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try { await prepare({ filename: temporary, file }); await file.sync(); }
     finally { await file.close(); }
     let result = 'created';
@@ -108,6 +108,6 @@ export async function readBoundedRegularSnapshot(filename, {
         after.mode !== before.mode || after.uid !== before.uid || after.gid !== before.gid) {
       throw snapshotError('CHANGED', 'Storage changed while being read');
     }
-    return { bytes: buffer.subarray(0, length), before, after };
+    return { bytes: buffer.subarray(0, length) };
   } finally { await file.close(); }
 }
