@@ -16,8 +16,6 @@ Definition work_json work := success (JObject ([("state",write_state work.(curre
 Definition stream_fail work message := StreamWork work.(current) work.(frames) message.
 Definition leading_space value := match value with String character rest =>
   if Ascii.eqb character " "%char then rest else value | _ => value end.
-Fixpoint reverse_string source result := match source with EmptyString => result
-  | String first rest => reverse_string rest (String first result) end.
 (* SSE fields end at the first colon. A field without a colon has an empty
    value; this includes the bare "event" and "data" fields. *)
 Fixpoint field_parts (line : string) : string * string := match line with

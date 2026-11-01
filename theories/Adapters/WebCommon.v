@@ -12,7 +12,6 @@ Definition nonempty value := is_text value && negb (String.eqb (text value) "").
 Definition natural := canonical_natural.
 Definition check (accepted : bool) value message := if accepted then success value else err message.
 Definition name_or_number value := if is_text value then text value else TextJson.render_json value.
-Definition array_count source := N.of_nat (List.length (items source)).
 Definition subset value keys := fold_right (fun key rest =>
   if has value key then (key,get value key)::rest else rest) [] keys.
 Definition contains_name values key value := existsb (fun item => same (get item key) value) values.

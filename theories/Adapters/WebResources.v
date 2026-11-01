@@ -99,7 +99,6 @@ Definition event (header : bool) name data body model tools index :=
       else if has value "type" && negb (eq value "type" (event_kind name value))
       then err "ChatGPT Web returned conflicting SSE event names"
       else if header then event_action "identify" value [] else event_dispatch name value body model tools index.
-Definition frame data := if String.eqb data "[DONE]" then success JNull else decode_provider_text data.
 Definition http_json (response_ok : bool) source := match TextJson.parse_json_members source with
   | Some value => success (JObject [("present",JBool true);("value",value)])
   | None => if response_ok then failure "http_json_parse" "The service returned invalid JSON"

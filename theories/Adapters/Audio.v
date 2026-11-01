@@ -150,12 +150,9 @@ Definition call (transport : json -> json) (assistant : json -> bool) (content :
   else if String.eqb operation "audio.asr_response" then asr_response source
   else if String.eqb operation "audio.session_request" then session_request source
   else if String.eqb operation "audio.session_response" then session_response source
-  else if String.eqb operation "audio.event" then event source
   else if String.eqb operation "audio.context" then context source
   else if String.eqb operation "audio.initial_context_plan" then initial_context_plan source
   else if String.eqb operation "audio.initial_context" then initial_context assistant content source
-  else if String.eqb operation "audio.task_progress" then task_progress assistant content source
-  else if String.eqb operation "audio.transcript_tail" then transcript_tail source
   else if String.eqb operation "audio.login_target" then login_target source
   else if String.eqb operation "audio.transport" then transport source
   else err "Unknown audio operation".

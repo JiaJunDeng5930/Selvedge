@@ -122,7 +122,6 @@ Definition http_response source := let content_type := lowercase (str source "co
 Definition handlers : list (string * (json -> json)) := [
  ("plugin.command",command);("plugin.connection_config",connection_config);("plugin.connection_grants",connection_grants);
  ("plugin.credential_plan",fun _ => success credential_plan);("plugin.client_settings",client_settings);("plugin.settings_file",settings_file);
- ("plugin.valid_name",fun s => success (JBool (valid_name (str s "name"))));
  ("plugin.matches",fun s => success (JBool (matching (get s "reference") (get s "expected"))));
  ("plugin.enqueue",enqueue);("plugin.initialize_request",fun s => success (initialize_request s));
  ("plugin.mcp_initialize_request",fun _ => success mcp_initialize_request);

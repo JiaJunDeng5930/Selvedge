@@ -34,7 +34,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.cache_fallback",AccountCatalog.cache_fallback);
   ("account.cache_fresh",AccountCatalog.cache_fresh);
   ("account.cache_record",AccountCatalog.cache_record);
-  ("account.cache_size",AccountCatalog.cache_size);
   ("account.callback",AccountOAuth.callback);
   ("account.candidate_identity",AccountCatalog.candidate_identity);
   ("account.candidate_paths",AccountMaterialization.candidate_paths);
@@ -56,7 +55,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.discovery_failure",discovery_failure);
   ("account.grant_failure",grant_failure);
   ("account.hash_prefix",AccountCatalog.hash_prefix);
-  ("account.host_registration",AccountOAuth.host_registration);
   ("account.host_registration_record",AccountOAuth.host_registration_record);
   ("account.host_saved",AccountOAuth.host_saved);
   ("account.http",AccountOAuth.http);
@@ -70,7 +68,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.models_url",AccountCatalog.models_url);
   ("account.optional_registration",AccountOAuth.optional_registration);
   ("account.profile_connection",AccountFields.profile_connection);
-  ("account.record_parse_failure",AccountOAuth.record_parse_failure);
   ("account.record_read_failure",AccountOAuth.record_read_failure);
   ("account.refresh",AccountIdentity.refresh);
   ("account.refresh_initial",AccountIdentity.refresh_initial);

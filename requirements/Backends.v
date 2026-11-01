@@ -15,8 +15,16 @@ From Selvedge.Programming Require Import AdapterResult.
     [AccountsProofs] binds these refresh, callback and credential rules to the
     public account operations. [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
+    The account transport can omit output from its terminal response after
+    reporting finalized items separately. Those items must survive until that
+    terminal response, in provider index order, including their coordinates.
+    A finalized coordinate names one item; conflicting contents cannot authorize
+    a completed answer.
     Transient stream items do not acquire durable-output authority merely by
     arriving before a terminal response.
+    An HTTP context-limit failure permits automatic recovery only before output;
+    replaying a request after visible output would
+    execute the same turn twice.
 
     These are requirements on the extracted decisions from supplied observations.
     Issuer signature verification, atomic credential replacement, live account
@@ -31,8 +39,12 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_malformed_encoded_cache_is_disposable).
 Export BackendProofs(public_frozen_account_rejects_another_identity,
  public_matching_account_is_usable,
+ public_finalized_output_retains_every_item,
+ public_conflicting_finalized_output_fails,
  public_completed_response_preserves_durable_output,
+ public_completed_response_retains_finalized_output,
  public_nonterminal_events_cannot_release_durable_output,
+ public_http_context_limit_recovers_before_output,
  independent_requests_have_no_tool_authority).
 
 (** * Exact retry decisions precede timer conversion

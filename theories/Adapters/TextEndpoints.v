@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson.
-From Selvedge.Kernel Require Import Conversation ApprovalProtocol.
+From Selvedge.Kernel Require Import Conversation ApprovalProtocol Limits.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
@@ -31,17 +31,15 @@ Fixpoint extract_all (items : list json) : option (list json) :=
     end
   end.
 Definition response_text (approval : bool) (source : json) :=
-  let limit := get source "limit" in
-  if negb (bound limit 1 9007199254740991) then type_error
-    (if approval then "Missing approval reason byte bound" else "Missing board response byte bound")
-  else if negb (is_array (get source "items")) then type_error
+  if negb (is_array (get source "items")) then type_error
     (if approval then "The approval reviewer returned no output" else "The drafting endpoint returned no output")
   else match extract_all (items (get source "items")) with
     | None => type_error (if approval then "The approval reviewer must return text without tool calls"
                          else "The drafting endpoint must return text without tool calls")
     | Some [JString text] =>
       if Utf8.well_formed text &&
-        (N.of_nat (String.length text) <=? nat_value limit + if approval then 256 else 0)
+        (N.of_nat (String.length text) <=?
+          if approval then ApprovalProtocol.reason_bytes + 256 else Limits.frame_bytes)
       then success (JString text)
       else type_error (if approval then "The approval reviewer exceeded its response bound"
                        else "The drafting endpoint must return one bounded JSON response")
@@ -71,9 +69,3 @@ Definition task_text_outcome (source : json) :=
       else success (JObject [("title",JString title);("description",JString (str value "description"))])
     else type_error "The task text endpoint returned invalid title or description fields"
   end.
-Definition request_task_text (source : json) :=
-  let effect := get source "effect" in
-  if existsb (String.eqb (str effect "kind")) ["board_text";"task_title"] && is_text (get effect "prompt") then
-    if truthy (get (get effect "model") "adaptive_reasoning")
-    then type_error "Task text generation requires an ordinary model profile" else success JNull
-  else type_error "Expected a committed task text effect".

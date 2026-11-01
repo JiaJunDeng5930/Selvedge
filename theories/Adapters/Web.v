@@ -35,7 +35,6 @@ Definition method name fields handler
  `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
  O.Operation name fields handler invalid_source H.
 Definition operations := [
- method "web.messages" [required "history" (D.Array D.Any)] WebHistory.messages;
  method "web.tools" [required "effect" D.RawObject] WebHistory.tools;
  method "web.resource" [raw "value";raw "model";raw "body";raw "tools"]
    (fun value model body tools => WebResources.resource (missing value) (missing model) (missing body) (items (missing tools)));
@@ -84,7 +83,6 @@ Definition operations := [
    (fun effect => let effect := history_value effect in WebCommon.position effect.(effect_kind) effect.(effect_history));
  method "web.contract" [required "request" D.RawObject;required "tools" (D.Array D.Any)] contract;
  method "web.store_metadata" [required "rows" (D.Array D.Any);required "new_identity" (D.Value Schema.KText);required "created" D.Boolean] WebStore.store_metadata;
- method "web.frame" [required "frame" (D.OpenObject frame_fields)] (fun frame => WebResources.frame (fst (frame_value frame)));
  method "web.event_header" [required "frame" (D.OpenObject frame_fields)]
    (fun frame => let '(data,name) := frame_value frame in WebResources.event true name data JNull JNull [] JNull);
  O.diagnostic_method "web.recovery_shape" WebStore.recovery_fields (fun _ _ => success JNull) "Invalid ChatGPT Web recovery action";

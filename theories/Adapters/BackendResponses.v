@@ -61,7 +61,6 @@ Definition output source :=
 
 Record completed_item := CompletedItem { completed_index : N; completed_value : json }.
 Record response_stream := ResponseStream { output_started : bool; completed_items : list completed_item }.
-Definition initial_stream := ResponseStream false [].
 Definition decode_completed value := CompletedItem (num value "index") (get value "item").
 Definition decode_stream value := ResponseStream (boolean_field value "output_started")
   (map decode_completed (items (get value "completed_items"))).

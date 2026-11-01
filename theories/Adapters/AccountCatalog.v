@@ -141,7 +141,6 @@ Definition cache_fallback source := success (JBool (negb (boolean_field source "
 Definition cache_record source := if is_object (get source "now_date") then success (JObject [
   ("format",JString cache_format);("account_id",get source "account");("connection",get source "connection");
   ("fetched_at",get (get source "now_date") "iso");("models",get source "models")]) else range_error "Invalid time value".
-Definition cache_size source := success (JBool (between (get source "size") 0 1048576)).
 (* DEFENSE: Missing, malformed, special, oversized or concurrently edited cache
    files are disposable; permission and actual IO failures stay visible. *)
 Definition cache_error source := if same (get source "code") (JString "ENOENT") ||

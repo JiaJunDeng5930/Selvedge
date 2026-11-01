@@ -14,7 +14,6 @@ const contract = boundary('account.contract', {});
 const chatgptOAuthResource = contract.resource;
 const chatgptScopes = contract.scopes;
 export const defaultChatGPTAccount = Object.freeze(contract.default);
-export const chatgptAccountFields = Object.freeze(Object.keys(defaultChatGPTAccount));
 
 export function chatgptAccountIdentity(issuer, clientId, subject) {
   return createHash('sha256').update(`${issuer}\0${clientId}\0${subject}`).digest('hex');

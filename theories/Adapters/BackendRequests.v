@@ -47,9 +47,6 @@ Definition construct_authority (independent : bool) effect : request_authority i
  | false => let names := items (get effect "callable") in
      map (fun entry => (entry,contains names (get entry "name")))
        (NativeTools.presentation_catalog (items (get effect "tools"))) end.
-Definition declared_tools {independent} : request_authority independent -> list json :=
- match independent as independent return request_authority independent -> list json with
- | true => fun _ => [] | false => authority_tools end.
 
 (** Independent text requests cannot contain tool authority. Every Responses
     backend uses this constructor and encoder, including account transports. *)
@@ -102,7 +99,6 @@ Definition text_format_fields kind retitle :=
 Definition text_format effect := text_format_fields (str effect "kind") (boolean_field effect "retitle").
 Definition structured_text_fields body kind retitle := match text_format_fields kind retitle with
  | Some format => set body "text" format | None => body end.
-Definition structured_text body effect := structured_text_fields body (str effect "kind") (boolean_field effect "retitle").
 Definition reasoning_value effect profile := JObject [
  ("effort",if account profile then effective_effort effect else request_effort effect)].
 Definition admit_reasoning effect profile : outcome (option json) :=
@@ -146,7 +142,3 @@ Definition measurement_request (select_history : list json -> string -> list jso
   render_outcome (fun input => encode_request profile
     (construct_request effect input (Some (reasoning_value effect profile)) None))
     (effect_input select_history effect profile).
-Definition input (select_history : list json -> string -> list json) source :=
-  let profile := get source "profile" in let history := items (get source "history") in
-  render_outcome JArray (input_items
-    (if is_text (get profile "scope") then select_history history (str profile "scope") else history) profile).
