@@ -50,10 +50,6 @@ Definition resolve_settings (model : profile) (source : option settings_request)
      option_map (fun settings => WorkspaceBinding.normalize_settings settings value) selected
    | None => None end
  | None => None end end.
-Definition resolve_for_profile (name : string) (source : option settings_request) (fallback : task_settings) (value : world) :=
- match find_profile name (environment_profiles (world_environment value)) with
- | Some model => resolve_settings model source fallback value | None => None end.
-
 (* Native commands cannot perform realpath or observe guidance. Only roots
    from committed caller, environment or project observations may be reused. *)
 Definition observed_creation_roots (selected caller : task_settings) (value : world) :=

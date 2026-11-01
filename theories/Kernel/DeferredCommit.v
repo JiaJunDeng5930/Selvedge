@@ -10,8 +10,6 @@ Import ListNotations.
    The existing continuation performs ordinary scheduling in the next turn. *)
 Definition continuation : DecisionComposition.transformation := fun reply value effects =>
  (value,if Codec.bool_default "ok"%string reply false then effects ++ [ContinueScheduling] else effects).
-Definition continue := DecisionComposition.transform continuation.
-
 Definition continue_result (before : world) (result : CommandResult.result CommandResult.change) :=
  CommandResult.commit before (CommandResult.append_effects [ContinueScheduling]) result.
 

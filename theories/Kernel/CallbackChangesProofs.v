@@ -7,7 +7,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State.
 From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChange TaskChangeProofs.
 From Selvedge.Kernel Require Import Tasks TaskChangesProofs.
 From Selvedge.Kernel Require Import TaskWakeProofs.
-From Selvedge.Kernel Require Import History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs ApprovalProtocol Scheduler HookRules RequestReceiver.
+From Selvedge.Kernel Require Import History Context ContextUpdates Callbacks HookCallbacks Reasoning Inputs Scheduler HookRules RequestReceiver.
 From Selvedge.Kernel Require Import ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -50,14 +50,6 @@ Qed.
 Definition tool_completed_expression (id ticket : N) (result : json) (error : bool) (value : world) := ltac:(
  let body := eval unfold Callbacks.tool_completed in (Callbacks.tool_completed id ticket result error value) in
  derive_callback_view constr:(Callbacks.tool_completed id ticket result error value) body id value).
-
-Definition approval_completed_expression (id ticket : N) (outcome : approval_outcome) (value : world) := ltac:(
- let body := eval unfold Callbacks.approval_completed in (Callbacks.approval_completed id ticket outcome value) in
- derive_callback_view constr:(Callbacks.approval_completed id ticket outcome value) body id value).
-
-Definition review_approval_expression (id operation : N) (outcome : approval_outcome) (value : world) := ltac:(
- let body := eval unfold Callbacks.review_approval in (Callbacks.review_approval id operation outcome value) in
- derive_callback_view constr:(Callbacks.review_approval id operation outcome value) body id value).
 
 Definition reasoning_completed_expression (id ticket : N) (outcome : Reasoning.outcome) (value : world) := ltac:(
  let body := eval unfold Callbacks.reasoning_completed in (Callbacks.reasoning_completed id ticket outcome value) in

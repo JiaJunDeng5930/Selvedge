@@ -28,15 +28,6 @@ Definition creation_base (options : option settings_request) (caller : task_sett
      else defaults
    | None => defaults end
  | _, _, _ => defaults end.
-Definition resolve_creation (name : string) (settings : option settings_request) (caller : option N) (value : world) :=
- let defaults := creation_defaults (world_environment value) in
- match caller with
- | None => resolve_for_profile name settings defaults value
- | Some id => match find_task id value with
-   | None => None
-   | Some caller => resolve_for_profile name settings (creation_base settings (task_current_settings caller) value) value
-   end
- end.
 Definition creation_allowed (settings : option settings_request) (selected : task_settings) (caller : option N) (value : world) :=
  match caller with
  | None => true
