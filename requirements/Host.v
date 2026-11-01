@@ -7,20 +7,19 @@
 
 From Stdlib Require Import List NArith.
 From Selvedge.Host Require Import Transaction.
-From Selvedge.Kernel Require JournalProofs.
-Export JournalProofs(batches_preserve_input_and_receipt_order,
-  replay_projects_the_actual_trace,
-  every_input_retains_one_complete_receipt,
-  extending_a_trace_never_rewrites_prior_receipts).
+From Selvedge.Kernel Require PacketProofs.
+Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
 Export Transaction(publication_requires_commit_ack).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
 
     The Worker owns the opaque world initialized by the kernel. A journal stores
-    admitted inputs and complete receipts and restores it by replaying the same
-    entry; replay does not publish physical effects. [JournalProofs] establishes
-    input/receipt order and retained earlier receipts, not SQLite durability.
+    admitted inputs and restores it by replaying the same entry; replay does not
+    publish physical effects. Queries preserve the world, emit no effects and
+    require no journal row. [actual_query_preserves_world_and_emits_no_effect]
+    constrains that actual packet entry. Public restart tests cover the host's
+    ordered replay and retained state; SQLite supplies transaction durability.
 
     [publication_requires_commit_ack] is the safety direction. The positive
     requirement below also rules out a controller that never publishes accepted

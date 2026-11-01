@@ -1,9 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
@@ -17,17 +16,12 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-12';
+export const journalFormat = 'selvedge-rocq-journal-13';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
-  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, decision TEXT NOT NULL, previous TEXT NOT NULL, digest TEXT NOT NULL) STRICT',
+  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL) STRICT',
 };
-const normalize = sql => sql.replace(/\s+/g, ' ').trim();
-const genesis = namespace => createHash('sha256').update(journalFormat).update('\0').update(namespace).digest('hex');
-const digest = (previous, sequence, input, decision) => createHash('sha256')
-  .update(previous).update('\0').update(String(sequence)).update('\0')
-  .update(input).update('\0').update(decision).digest('hex');
 
 function closeJournalDatabase(database) {
   // DEFENSE: Failed startup can reach cleanup before either SQLite handle was opened.
@@ -46,7 +40,6 @@ export class Journal extends EventEmitter {
   #tail = Promise.resolve();
   #failure;
   #closing = false;
-  #previous;
 
   static async open(filename, { kernelOptions } = {}) {
     const journal = new Journal();
@@ -60,27 +53,20 @@ export class Journal extends EventEmitter {
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       await chmod(filename, 0o600);
       journal.#openSchema();
-      journal.#previous = genesis(journal.namespace);
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
       journal.kernel = new Kernel(kernelOptions);
       journal.description = await journal.kernel.initialize();
       journal.program = journal.kernel.initialProgram;
-      for (const row of journal.#database.prepare('SELECT * FROM journal ORDER BY seq').iterate()) {
-        // DEFENSE: Persisted rows can be truncated, reordered or edited outside the service; reject a broken hash chain before replay.
-        if (row.seq !== journal.sequence + 1 || row.previous !== journal.#previous ||
-            row.digest !== digest(row.previous, row.seq, row.input, row.decision)) {
-          throw new Error(`Journal integrity failure at sequence ${row.seq}`);
-        }
+      for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
         const [request] = journal.#advance({ kind: 'begin', replay: true });
         const replayed = await journal.kernel.replay(parseJson(row.input));
         journal.#advance({ kind: 'worker_result', generation: request.generation, durable: true });
         journal.#advance({ kind: 'finish' });
-        // DEFENSE: Saved decisions from a different kernel contract must fail reopen without executing their effects.
-        if (!replayed.value.durable || !isDeepStrictEqual(replayed.value, parseJson(row.decision))) {
-          throw new Error(`Committed decision incompatibility at sequence ${row.seq}: current kernel replay disagrees with the saved decision`);
+        // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
+        if (!replayed.value.durable) {
+          throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
         }
         journal.sequence = row.seq;
-        journal.#previous = row.digest;
       }
       if (journal.sequence > 0) {
         const snapshot = await journal.kernel.request({ kind: 'command', command: { op: 'describe' } });
@@ -95,16 +81,13 @@ export class Journal extends EventEmitter {
   }
 
   #openSchema() {
-    const objects = this.#database.prepare("SELECT name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name").all();
-    if (objects.length === 0) {
+    const existing = this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+    if (!existing) {
       this.#database.exec('BEGIN IMMEDIATE');
       for (const sql of Object.values(schema)) this.#database.exec(sql);
       this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
       this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('namespace', randomBytes(16).toString('hex'));
       this.#database.exec('COMMIT');
-    // DEFENSE: A nonempty database can have an obsolete or foreign schema; accept only the current journal schema.
-    } else if (objects.length !== Object.keys(schema).length || objects.some(row => normalize(row.sql) !== normalize(schema[row.name] ?? ''))) {
-      throw new Error('The database does not have the current Selvedge Rocq journal schema');
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     // DEFENSE: Existing databases can have unknown formats or damaged namespace metadata; they must fail without conversion.
@@ -182,12 +165,11 @@ export class Journal extends EventEmitter {
         return { sequence: this.sequence, program: this.program, ...response.value };
       }
       const sequence = this.sequence + 1;
-      const hash = digest(this.#previous, sequence, inputText, response.text);
       let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
-        this.#database.prepare('INSERT INTO journal (seq, input, decision, previous, digest) VALUES (?, ?, ?, ?, ?)')
-          .run(sequence, inputText, response.text, this.#previous, hash);
+        this.#database.prepare('INSERT INTO journal (seq, input) VALUES (?, ?)')
+          .run(sequence, inputText);
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
@@ -199,7 +181,6 @@ export class Journal extends EventEmitter {
       const publication = this.#advance({ kind: 'commit_ack' });
       this.program = response.program;
       this.sequence = sequence;
-      this.#previous = hash;
       const committed = { sequence, input, program: this.program, ...response.value };
       this.#advance({ kind: 'finish' });
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.

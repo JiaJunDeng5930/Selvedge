@@ -10,7 +10,7 @@ import { home, responsesServer, shellQuote, taskIdle } from './support.mjs';
 
 const probe = fileURLToPath(new URL('./fixtures/approved-tool.mjs', import.meta.url));
 
-test('a real process sees its committed grant and intent, and journal reopen never executes it again', async t => {
+test('an approved process uses its workspace and granted access, and restart never executes it again', async t => {
   const base = await realpath(await home(t));
   const workspace = path.join(base, 'workspace');
   const state = path.join(base, 'state');
@@ -20,7 +20,7 @@ test('a real process sees its committed grant and intent, and journal reopen nev
   const previous = process.env[key];
   process.env[key] = 'local-fixture-only';
   t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-  const command = [process.execPath, probe, path.join(state, 'journal.sqlite'), marker, 'approval-shell']
+  const command = [process.execPath, probe, marker, workspace]
     .map(shellQuote).join(' ');
   const upstream = await responsesServer(t, (_, index) => index === 0 ? [
     { type: 'function_call', call_id: 'approval-shell', name: 'bash', arguments: JSON.stringify({ command,

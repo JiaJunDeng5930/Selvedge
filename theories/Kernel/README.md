@@ -57,8 +57,8 @@ capacity requirements; `ForkCommitProofs` and `NativeForkCommitProofs` cover the
 durable continuation. The [task requirements](../../requirements/Tasks.v)
 explain the commit boundary.
 
-`JournalProofs` covers receipt order and input replay. Extraction, physical
-journal persistence and effect execution have their own external boundaries.
+`PacketProofs` covers query purity at the exported entry. Physical journal
+persistence, ordered replay and effect execution have their own external boundaries.
 Generic construction properties belong with their interpreter; feature proofs
 cover the additional behavior required by that feature.
 

@@ -384,11 +384,11 @@ provide the ChatGPT audio connection.
 ## Persistence
 
 Back up the service home, including its journal, attachments and retained provider
-receipts. The journal commits admitted inputs and decisions before dispatching
-external effects. Restart checks its hash chain and replays those decisions with
-the current kernel; incompatible formats or decisions fail explicitly. An ordinary
-source update does not itself require a new home. Only the current journal format
-is accepted; keep an incompatible existing home separate.
+receipts. The journal commits admitted inputs before dispatching external effects.
+Restart replays those inputs with the current kernel without executing their
+effects. Only the current journal format is accepted; keep an incompatible
+existing home separate. A source update that changes the meaning of stored
+inputs requires a new journal format.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,
