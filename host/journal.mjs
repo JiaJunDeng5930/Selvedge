@@ -58,10 +58,7 @@ export class Journal extends EventEmitter {
       journal.description = await journal.kernel.initialize();
       journal.program = journal.kernel.initialProgram;
       for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
-        const [request] = journal.#advance({ kind: 'begin', replay: true });
         const replayed = await journal.kernel.replay(parseJson(row.input));
-        journal.#advance({ kind: 'worker_result', generation: request.generation, durable: true });
-        journal.#advance({ kind: 'finish' });
         // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
         if (!replayed.value.durable) {
           throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
@@ -141,24 +138,25 @@ export class Journal extends EventEmitter {
       try { inputText = stringifyJson(input); }
       // DEFENSE: Invalid external JSON is rejected before any kernel transition or durable write.
       catch (error) { throw rejected(error, 'rejected'); }
-      const [request] = this.#advance({ kind: 'begin', replay: false });
+      this.#advance({ kind: 'begin' });
       let response;
       let pending;
       try { pending = this.kernel.request(input); }
       // DEFENSE: Encoding validates the input before the Worker receives its request.
       catch (error) {
-        this.#advance({ kind: 'input_rejected', generation: request.generation });
+        this.#advance({ kind: 'input_rejected' });
         throw rejected(error, 'rejected');
       }
       try { response = await pending; }
       catch (error) {
         if (isKernelInputRejection(error)) {
-          this.#advance({ kind: 'input_rejected', generation: request.generation });
+          this.#advance({ kind: 'input_rejected' });
+          rejected(error, 'rejected');
         } else this.#poison(error);
         // No journal write has started, including when the Worker failed after advancing its private world.
-        throw rejected(error, 'rejected');
+        throw error;
       }
-      const actions = this.#advance({ kind: 'worker_result', generation: request.generation, durable: response.value.durable });
+      const actions = this.#advance({ kind: 'worker_result', durable: response.value.durable });
       if (!actions.some(action => action.kind === 'commit')) {
         this.program = response.program;
         this.#advance({ kind: 'finish' });
@@ -174,9 +172,8 @@ export class Journal extends EventEmitter {
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
       } catch (error) {
-        const outcome = committing ? 'unknown' : 'rejected';
         this.#poison(error, committing ? 'commit_unknown' : 'commit_rejected');
-        throw rejected(error, outcome);
+        throw error;
       }
       const publication = this.#advance({ kind: 'commit_ack' });
       this.program = response.program;
@@ -209,7 +206,6 @@ export class Journal extends EventEmitter {
     if (this.#closing) return;
     this.#closing = true;
     await this.#tail;
-    this.#advance({ kind: 'close' });
     await this.kernel?.close();
     try { closeJournalDatabase(this.#database); }
     finally { closeJournalDatabase(this.#lock); }

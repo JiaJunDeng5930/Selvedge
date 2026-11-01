@@ -23,8 +23,13 @@ request cannot start before the preceding response, and retirement prevents
 another request from using an uncertain world.
 
 The Journal retains its transaction controller: its actions select durable
-commit, publication and retirement. Physical effects retain their independent
-handles because several operations can run concurrently and finish out of order.
+commit, publication and retirement. It also serializes requests, so the controller
+keeps only its phase. Its former generation was returned and fed back within one
+`execute` invocation; no response carried a request identity to compare with it.
+Replay and close do not consult controller actions; their physical paths own
+those operations without advancing unused control state. Physical effects retain
+their independent handles because several operations can run concurrently and
+finish out of order.
 
 ## Consequences
 

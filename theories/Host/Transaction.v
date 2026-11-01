@@ -1,60 +1,49 @@
-From Stdlib Require Import List Bool NArith.
+From Stdlib Require Import List Bool.
 Import ListNotations.
-Open Scope N_scope.
 
-Inductive phase := Idle | KernelPending | ReplayPending | CommitPending | Committed | Retired.
-Record state := State { current : phase; generation : N }.
-Definition initial := State Idle 0.
+Inductive state := Idle | KernelPending | CommitPending | Committed | Retired.
+Definition initial := Idle.
 Inductive observation :=
-| Begin (replay : bool) | WorkerResult (request : N) (durable : bool)
-| InputRejected (request : N) | WorkerFailed | CommitAck | CommitRejected
-| CommitUnknown | Finish | Close.
-Inductive primitive := Request (request : N) | Replay (request : N)
-| Commit | Publish | Resolve | RejectDefinite | RejectUnknown | Retire.
+| Begin | WorkerResult (durable : bool)
+| InputRejected | WorkerFailed | CommitAck | CommitRejected
+| CommitUnknown | Finish.
+Inductive primitive := Commit | Publish | Resolve | RejectDefinite | RejectUnknown | Retire.
 Definition step (s : state) (o : observation) : state * list primitive :=
   match o with
-  | Begin replay =>
-      match current s with
-      | Idle => let next := N.succ (generation s) in
-          (State (if replay then ReplayPending else KernelPending) next,
-            [if replay then Replay next else Request next])
+  | Begin =>
+      match s with
+      | Idle => (KernelPending, [])
       | _ => (s, [RejectDefinite])
       end
-  | WorkerResult request durable =>
-      if N.eqb request (generation s) then
-        match current s with
-        | KernelPending => if durable then (State CommitPending (generation s), [Commit])
-            else (State Committed (generation s), [Resolve])
-        | ReplayPending => (State Committed (generation s), [Resolve])
-        | _ => (s, []) end
-      else (s, [])
-  | InputRejected request =>
-      match current s with
-      | KernelPending | ReplayPending => if N.eqb request (generation s) then
-          (State Idle (generation s), [RejectDefinite]) else (s, [])
+  | WorkerResult durable =>
+      match s with
+      | KernelPending => if durable then (CommitPending, [Commit])
+          else (Committed, [Resolve])
+      | _ => (s, []) end
+  | InputRejected =>
+      match s with
+      | KernelPending => (Idle, [RejectDefinite])
       | _ => (s, [])
       end
   | CommitAck =>
-      match current s with
-      | CommitPending => (State Committed (generation s), [Publish; Resolve])
+      match s with
+      | CommitPending => (Committed, [Publish; Resolve])
       | _ => (s, [])
       end
   | Finish =>
-      match current s with
-      | Committed => (State Idle (generation s), [])
+      match s with
+      | Committed => (Idle, [])
       | _ => (s, [])
       end
-  | CommitRejected => (State Retired (generation s), [RejectDefinite; Retire])
-  | CommitUnknown => (State Retired (generation s), [RejectUnknown; Retire])
-  | WorkerFailed => (State Retired (generation s), [RejectDefinite; Retire])
-  | Close => (State Retired (generation s), [Retire])
+  | CommitRejected => (Retired, [RejectDefinite; Retire])
+  | CommitUnknown => (Retired, [RejectUnknown; Retire])
+  | WorkerFailed => (Retired, [RejectDefinite; Retire])
   end.
 
 Theorem publication_requires_commit_ack s o :
-  In Publish (snd (step s o)) -> o = CommitAck /\ current s = CommitPending.
+  In Publish (snd (step s o)) -> o = CommitAck /\ s = CommitPending.
 Proof.
-  destruct s as [p g]; destruct o; destruct p;
+  destruct s; destruct o;
     repeat match goal with b : bool |- _ => destruct b end;
-    simpl; repeat match goal with |- context [N.eqb ?x ?y] => destruct (N.eqb x y) end;
     simpl; intuition discriminate.
 Qed.

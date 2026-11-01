@@ -27,22 +27,20 @@ Import ListNotations.
     implementation and concern [Transaction.step], the operation interpreted by
     the host. *)
 
-Theorem acknowledged_commit_publishes_and_resolves : forall generation,
-  Transaction.step
-    (Transaction.State Transaction.CommitPending generation)
-    Transaction.CommitAck =
-  (Transaction.State Transaction.Committed generation,
+Theorem acknowledged_commit_publishes_and_resolves :
+  Transaction.step Transaction.CommitPending Transaction.CommitAck =
+  (Transaction.Committed,
     [Transaction.Publish; Transaction.Resolve]).
-Proof. intros; reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 (** A failure during COMMIT has an unknown outcome. Retiring the current world
     forces reopening to establish the durable result; neither completion retry
     nor resource rollback is authorized by uncertainty. This differs from a
     definite pre-commit rejection. *)
 
-Theorem uncertain_commit_retires_the_world : forall current generation,
-  Transaction.step (Transaction.State current generation) Transaction.CommitUnknown =
-  (Transaction.State Transaction.Retired generation,
+Theorem uncertain_commit_retires_the_world : forall current,
+  Transaction.step current Transaction.CommitUnknown =
+  (Transaction.Retired,
     [Transaction.RejectUnknown; Transaction.Retire]).
 Proof. intros; reflexivity. Qed.
 
