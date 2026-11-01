@@ -4,7 +4,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { chmod, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, realpath, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { imagesFixture } from './fixtures/images.mjs';
@@ -32,7 +32,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -55,12 +55,14 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
   await writeFile(path.join(source, 'AGENTS.md'), guidance);
   if (overrideGuidance !== undefined) await writeFile(path.join(source, 'AGENTS.override.md'), overrideGuidance);
   await writeFile(path.join(source, 'marker.txt'), 'CLOUD-COMMITTED-FILE\n');
+  await prepareSnapshot(source);
   await git('add', '.');
   await git('commit', '-m', 'Pushed task snapshot');
   // A clone of the remote default branch cannot substitute for the selected pushed commit.
   await execute(realGit, ['clone', '--bare', source, repository]);
   await execute(realGit, ['--git-dir', repository, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
   await git('remote', 'add', 'origin', 'https://github.com/selvedge-fixture/project.git');
+  await unlink(path.join(source, 'AGENTS.md'));
   await writeFile(path.join(source, 'AGENTS.md'), 'LOCAL-DIRTY-GUIDANCE\n');
   await writeFile(path.join(source, 'marker.txt'), 'LOCAL-DIRTY-FILE\n');
   await writeFile(path.join(source, 'image.png'), 'LOCAL-DIRTY-IMAGE');
@@ -449,6 +451,33 @@ test('cloud guidance rejects the same NUL source as local guidance and reclaims 
   assert.equal(fixture_.instances.size, 0);
   assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 1);
+});
+
+for (const linked of [false, true]) test(linked
+  ? 'cloud guidance refuses a committed symbolic link and reclaims the allocated instance'
+  : 'cloud guidance refuses a file beyond the published byte budget and reclaims the allocated instance', async t => {
+  const guidance = linked ? 'LINK-TARGET-MUST-NOT-ENTER-CONTEXT\n' : 'x'.repeat(32769);
+  const fixture_ = await fixture(t, () => assert.fail('Rejected guidance cannot reach the model'), {
+    guidance,
+    prepareSnapshot: async source => {
+      if (linked) {
+        await rename(path.join(source, 'AGENTS.md'), path.join(source, 'actual-guidance.md'));
+        await symlink('actual-guidance.md', path.join(source, 'AGENTS.md'));
+      }
+    },
+  });
+  if (!linked) assert.ok(Buffer.byteLength(guidance) > fixture_.service.limits.project_context_bytes,
+    'The fixture must exceed the public guidance byte budget');
+  const created = await fixture_.create();
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const id = created.reply.result.task_id;
+  await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Rejected guidance must stop preparation and finish cleanup');
+  assert.equal(fixture_.upstream.requests.length, 0);
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances').map(value => value.body.InstanceIds),
+    [['ins-fixture-0']]);
 });
 
 test('failed allocation recording still reclaims its exact returned ID and retains the durable unknown intent', async t => {
