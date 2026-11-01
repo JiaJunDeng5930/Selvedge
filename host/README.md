@@ -1,7 +1,7 @@
 # IO host
 
-The Bun host accepts authenticated HTTP and CLI requests, records inputs and
-complete decisions in SQLite, and interprets committed effects. It does not own
+The Bun host accepts authenticated HTTP and CLI requests, records inputs in
+SQLite, and interprets committed effects. It does not own
 task policy. `kernel-worker.mjs` invokes the extracted Gallina entry through the
 JSON text API built in `.build/kernel-model.mjs`; the extracted world stays
 private to that worker.
