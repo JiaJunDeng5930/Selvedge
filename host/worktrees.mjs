@@ -111,7 +111,7 @@ function completion(effect, result) {
 }
 
 function failure(effect, error, root) {
-  return completion(effect, { ok: false, root: root ?? null,
+  return completion(effect, { ok: false, ...(root == null ? {} : { root }),
     message: `Managed worktree operation failed: ${String(error.message).toWellFormed()}` });
 }
 

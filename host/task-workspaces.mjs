@@ -81,7 +81,7 @@ async function log(files, message) {
 const completion = (effect, result) => boundary('effect.completion', { effect, result });
 
 function failed(effect, error, root, files) {
-  return completion(effect, { ok: false, root,
+  return completion(effect, { ok: false, ...(root == null ? {} : { root }),
     message: `Cloud workspace startup${effect.kind === 'worktree_archive' ? '/recycle' : ''} failed: ${String(error.message).toWellFormed()}` +
       (files ? `; log: ${files.log}` : '') });
 }
