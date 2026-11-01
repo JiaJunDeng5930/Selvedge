@@ -105,7 +105,6 @@ Definition binding_of_values (values : D.denote binding_declaration) : option N 
  match fst (proj1_sig values) with
  | inl owner => Some (proj1_sig owner) | inr (inl _) => None
  | inr (inr impossible) => match impossible with end end.
-Definition parse_workspace_binding source := option_map binding_of_values (D.decode binding_declaration source).
 Definition guidance_declaration := Guidance.declaration.
 Definition guidance_member (workspace : workspace) (guidance : Guidance.t) := match guidance with
  | None => true | Some observed => match workspace_primary workspace with

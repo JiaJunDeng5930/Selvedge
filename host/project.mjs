@@ -24,23 +24,16 @@ export async function snapshotContextFile(filename, limits, { signal, filesystem
   // DEFENSE: Configured skill paths and discovered guidance paths must fit the native source identity limit.
   if (Buffer.byteLength(filename) > 4096) throw new Error('Instruction path exceeds the model boundary');
   if (filesystem) {
-    let before;
-    try { before = await filesystem.lstat(filename); }
+    let bytes;
+    // The cloud reader pins and checks one regular-file descriptor throughout the read.
+    try { bytes = await filesystem.readFile(filename, { signal, maximum, noFollow: true }); }
     catch (error) {
-      // DEFENSE: Guidance is optional and can disappear during a cloud filesystem observation.
+      // DEFENSE: Guidance is optional and can disappear before the remote descriptor is opened.
       if (error.code === 'ENOENT') return null;
       throw error;
     }
-    // DEFENSE: Repository guidance may name a symbolic link, device or directory in the cloud environment.
-    if (!before.isFile() || before.isSymbolicLink()) throw new Error('The path must resolve to a regular file without symbolic links');
     // DEFENSE: Cloud guidance must obey the same model context byte budget as local files.
-    if (before.size > maximum) throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
-    const bytes = await filesystem.readFile(filename, { signal, maximum, noFollow: true });
-    const after = await filesystem.lstat(filename);
-    // DEFENSE: An editor or Bash operation can replace cloud guidance while it is being read.
-    if (bytes.length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
-      throw new Error('File changed while being read; read it again');
-    }
+    if (bytes.length > maximum) throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
     return contextSnapshot(filename, bytes);
   }
   let snapshot;

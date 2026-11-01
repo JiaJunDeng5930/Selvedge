@@ -92,7 +92,7 @@ function failed(effect, error, root, files) {
 const resource = (operation, source) => boundary(`control.resource.${operation}`, source);
 
 /** Interpret only physical operations; the extracted resource step chooses their order and outcome. */
-async function runResource(plan, { files, backend, signal, prepare, errors = [] }) {
+async function runResource(plan, { files, backend, signal, prepare }) {
   let cleanupSignal;
   return runCloudResourceController(plan, (state, observation) => resource('step', { state, observation }), {
     async persist(state) {
@@ -111,15 +111,15 @@ async function runResource(plan, { files, backend, signal, prepare, errors = [] 
       await backend.destroy(id, { signal: cleanupSignal });
       return { kind: 'terminated' };
     },
-  }, errors);
+  });
 }
 
 function recoveredBackend(receipt) {
   return cloudEnvironmentBackend({ backend: receipt.backend, [receipt.backend]: receipt.settings });
 }
 
-async function destroyReceipt(receipt, files, errors = []) {
-  const result = await runResource(resource('recover', receipt), { files, errors });
+async function destroyReceipt(receipt, files) {
+  const result = await runResource(resource('recover', receipt), { files });
   if (result.receipt.status !== 'destroyed') {
     result.errors.push(`Cloud resource retained for ${result.receipt.status}; no allocation request was repeated`);
   }
@@ -220,9 +220,8 @@ export async function archiveTaskWorkspace(effect, options = {}) {
     if (result.errors.length) return reportFailure(effect, result, files, options.onDiagnostic);
     return completion(effect, { ok: true, root: effect.root });
   } catch (error) {
-    const failures = [error.message];
     if (files) await log(files, `Recycle failed: ${error.message}`, options.onDiagnostic);
-    return failed(effect, new Error(failures.join('; ')), effect.root, files);
+    return failed(effect, error, effect.root, files);
   }
 }
 
@@ -259,9 +258,8 @@ export async function reconcileTaskWorkspace(entry, options = {}) {
     if (effect.kind === 'worktree_archive') return completion(effect, { ok: true, root: receipt.root });
     return reportFailure(effect, result, files, options.onDiagnostic, 'Cloud workspace preparation interrupted; environment destroyed');
   } catch (error) {
-    const failures = [error.message];
     if (files) await log(files, `Recovery failed: ${error.message}`, options.onDiagnostic);
-    return failed(effect, new Error(failures.join('; ')), receipt?.root ?? entry.root ?? files?.root ?? null, files);
+    return failed(effect, error, receipt?.root ?? entry.root ?? files?.root ?? null, files);
   } finally { environment?.filesystem.close(); }
 }
 

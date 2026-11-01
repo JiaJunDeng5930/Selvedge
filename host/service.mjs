@@ -466,7 +466,7 @@ export class Service extends EventEmitter {
     return this.#settleCompletion(completion, () =>
       this.#dispatchControl({ kind: 'workspace_limit', effect, completion }).rollbackWorkspace
         ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
-        : boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+        : boundary('effect.completion', { effect, result: { ok: false, root: completion.root,
           message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), handle);
   }
 
@@ -478,7 +478,7 @@ export class Service extends EventEmitter {
     if (!result.reply.ok) throw new Error(`Task resource lookup rejected: ${result.reply.error.message}`);
     const entry = result.reply.result.worktrees.find(entry => sameNatural(entry.task_id, resource.task_id));
     // DEFENSE: A frozen effect can race managed-resource archival; never substitute the host filesystem.
-    if (!entry || !sameNatural(entry.task_id, resource.task_id) || entry.backend !== resource.backend || entry.status !== 'ready') {
+    if (!entry || entry.backend !== resource.backend || entry.status !== 'ready') {
       throw new Error('The committed task workspace binding is unavailable');
     }
     return entry.backend === 'local' ? { managedWorktreeRoot: entry.root }

@@ -58,9 +58,9 @@ interface CloudPrimitives {
   scan(state: State): Promise<JsonValue>;
   terminate(state: State): Promise<JsonValue>;
 }
-export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives, initialErrors: string[] = []) {
+export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives) {
   let plan = decodeResourceTransition(initial);
-  const errors = initialErrors;
+  const errors: string[] = [];
   for (;;) {
     const { state, effects } = plan;
     const action = effects[0];
