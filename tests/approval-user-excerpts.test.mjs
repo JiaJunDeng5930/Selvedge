@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { approvalFixture } from './fixtures/approval-provenance-runtime.mjs';
+import { approvalFixture } from './fixtures/approval-runtime.mjs';
 
 for (const [description, reason] of [['an overlong UTF-8 reason', '界'.repeat(683)], ['a NUL in the reason', 'Allow\u0000trailing']]) {
   test(`a human approval with ${description} settles as failed without executing the command`, async t => {
-    const fixture = await approvalFixture(t, 'human');
+    const fixture = await approvalFixture(t);
     const pending = await fixture.pending();
     const operation = pending.task.operations.find(value => value.status === 'awaiting_approval');
     await fixture.successful({ op: 'review_approval', task_id: fixture.taskId,

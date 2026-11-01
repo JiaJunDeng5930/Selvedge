@@ -166,7 +166,9 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     obtains the authority needed for its requested execution. Approval grants
     one captured operation; it does not change the Task's persistent settings or
     authorize subsequent commands. A pending operation retains its reviewer and
-    ticket, so a later configuration change cannot choose who approved it.
+    ticket until settlement. Its completed history retains the actual command
+    and decision reason so the user can understand what was approved or denied;
+    the reviewer's complete profile is not a second historical configuration.
     Denial follows the same frozen result-hook chain as an execution result.
 
     The authority constructor and granted-operation interpreter bind the
@@ -180,5 +182,5 @@ Export OperationEvent(plan).
 Export Scheduler(granted_operation).
 Export NativeAuthorityProofs(actual_approval_uses_the_frozen_reviewer).
 Export ApprovalEvidenceProofs(pending_approval_selection_retains_the_frozen_actor,
-  human_approval_command_records_its_actual_reviewer,
+  approval_decision_retains_its_command_and_outcome,
   an_approval_denial_runs_the_frozen_result_chain).

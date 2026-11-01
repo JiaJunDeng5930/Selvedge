@@ -58,7 +58,7 @@ Definition plan (owner : N) (observation : event) (task : task) := match observa
  | Returned operation result error => returned owner operation result error task
  | Reviewed operation actor outcome =>
    let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
-     actor (ApprovalProtocol.encode_outcome outcome)] in
+     (ApprovalProtocol.encode_outcome outcome)] in
    TaskResult.prefix_result [TaskChange.AppendHistory receipt] (if ApprovalProtocol.allows outcome then TaskResult.KeepDemand
      [TaskChange.ChangeOperationStage (operation_id operation) (Granted actor)]
    else returned owner operation

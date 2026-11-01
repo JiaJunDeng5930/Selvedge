@@ -457,7 +457,7 @@ Definition admit_fork_selection (parent : task) (value : world) (selected : task
 Definition fork_message_call_ids (message : Domain.message) : list string :=
  match message with
  | FunctionCall invocation | OperationResult _ invocation _ _
- | HookReceipt _ invocation _ _ | ApprovalReceipt _ _ invocation _ _
+ | HookReceipt _ invocation _ _ | ApprovalReceipt _ _ invocation _
  | ToolReceipt _ _ invocation _ _ | ForkReceipt _ invocation _ => [call_id invocation]
  | FunctionOutput identity _ _ => [identity]
  | _ => [] end.

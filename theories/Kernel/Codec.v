@@ -269,7 +269,7 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
  | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
- | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
+ | ApprovalReceipt owner operation call outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",project_call invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]
