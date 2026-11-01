@@ -72,14 +72,21 @@ Proof.
    + apply Later; exact Found.
 Qed.
 
-Theorem approval_decision_retains_its_command_and_outcome : forall owner pending actor outcome task,
- exists suffix,
- task_history (Callbacks.approval_decision owner pending actor outcome task) = task_history task ++
- ApprovalReceipt owner (operation_id pending) (operation_call pending)
+Theorem approval_decision_retains_its_command_and_outcome :
+ forall before (target : TaskScope.task_reference before) pending actor outcome,
+ exists updated,
+ find_task (TaskScope.owner target)
+   (TaskResult.interpret_result target
+     (Callbacks.approval_decision_plan (TaskScope.owner target) pending actor outcome
+       (TaskScope.selected target))) = Some updated /\
+ exists suffix, task_history updated = task_history (TaskScope.selected target) ++
+ ApprovalReceipt (TaskScope.owner target) (operation_id pending) (operation_call pending)
    (ApprovalProtocol.encode_outcome outcome) :: suffix.
 Proof.
- intros owner pending actor outcome task.
- unfold Callbacks.approval_decision, Callbacks.approval_decision_changes, Callbacks.approval_decision_plan, OperationEvent.plan.
+ intros before target pending actor outcome.
+ rewrite interpreted_results_keep_their_exact_task_update.
+ eexists; split; [reflexivity|].
+ unfold Callbacks.approval_decision_plan, OperationEvent.plan.
  apply prefixed_results_retain_their_history_record.
 Qed.
 
