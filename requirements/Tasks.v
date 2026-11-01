@@ -148,7 +148,10 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     not imply an empty operation list.
 
     The existing control and input definitions give these operations their
-    meaning. Their changes use the same frame-preserving Task construction. *)
+    meaning. Their changes use the same frame-preserving Task construction.
+    [steering_replaces_inference_and_preserves_independent_work] additionally
+    constrains the actual admitted steering transition, including its new input
+    and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
   TasksProofs NativeAuthorityProofs.
 Export Selvedge.Kernel.Tasks(control_transition, input_changes, input_effects).
@@ -157,7 +160,8 @@ Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_s
   stopped_tasks_can_finish_an_already_accepted_call).
 Export CallbacksProofs(an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand).
 Export TasksProofs(stopped_idle_receive_reactivates,
-  archived_send_rejects_without_changing_world).
+  archived_send_rejects_without_changing_world,
+  steering_replaces_inference_and_preserves_independent_work).
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
 
 (** ** Approval concerns one captured operation

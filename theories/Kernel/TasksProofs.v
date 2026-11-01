@@ -61,6 +61,40 @@ Proof.
  cbn [task_lifecycle] in Stopped; subst lifecycle; reflexivity.
 Qed.
 
+Theorem steering_replaces_inference_and_preserves_independent_work :
+ forall id contents value current,
+ find_task id value = Some current ->
+ task_archived current = false ->
+ Tasks.content_nonempty contents = true ->
+ WorkspaceBinding.input_available current value = true ->
+ exists updated,
+ find_task id (decision_world (Tasks.steer id contents value)) = Some updated /\
+ task_lifecycle updated =
+   (match task_lifecycle current with
+    | Frozen _ operations => Frozen WantsModel operations
+    | _ => Running WantsModel (task_operations current) end) /\
+ task_queued updated = task_queued current /\
+ task_history updated = task_history current ++
+   (History.interrupted_phase (task_activity current) ++ [UserMessage contents]) /\
+ decision_effects (Tasks.steer id contents value) =
+   (match task_activity current with
+    | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
+    | CheckingHook ticket _ _ _ _ => [CancelTicket id ticket]
+    | _ => [] end).
+Proof.
+ intros id contents value current Found Live Nonempty Available.
+ rewrite TaskChangesProofs.steer_expression; cbv beta zeta; rewrite Found.
+ destruct current as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
+ destruct lifecycle as [phase operations|phase operations|phase operations|operations];
+   cbn [task_archived task_lifecycle] in Live |- *; try discriminate.
+ all: rewrite Nonempty; destruct (Bool.bool_dec _ _) as [Admitted|Refused];
+   [|contradiction].
+ all: eexists; split;
+   [ unfold find_task,put_task,with_tasks; cbn;
+     eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected; exact Found
+   | repeat split; reflexivity ].
+Qed.
+
 Theorem interrupt_task_is_idempotent : forall task,
  Tasks.control_task Tasks.Interrupt (Tasks.control_task Tasks.Interrupt task) =
  Tasks.control_task Tasks.Interrupt task.
