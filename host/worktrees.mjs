@@ -103,7 +103,7 @@ async function verifyTree(root, reservation) {
     git_link_file: link.isFile(), backlink: await realpath(path.resolve(administration, backlink)),
     dev: String(entry.dev), ino: String(entry.ino), reservation,
     repository_common_dir: repositoryCommon, checkout_common_dir: checkoutCommon });
-  return { administration, repositoryCommon, checkoutCommon };
+  return { repositoryCommon, checkoutCommon };
 }
 
 function completion(effect, result) {
@@ -213,7 +213,6 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
     const receipt = { task_id: effect.task_id, source_root: effect.source_root, root,
       workspace: { roots: [root], primary_root: root } };
     const result = await runLocalResource(control('local', { operation: 'create', receipt }), files, {
-      reserved: () => reserved,
       ...localOwnership(files, () => { root = null; }),
       async local_reserve() {
         await mkdir(root, { mode: 0o700 });
@@ -250,7 +249,6 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
         const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
         return { kind: 'local_created', root, workspace, guidance, status: 'ready' };
       },
-
     });
     if (result.errors.length || result.receipt.status !== 'ready') {
       const retainedRoot = reserved && result.receipt.status !== 'released' ? root ?? files.active : null;
@@ -328,7 +326,7 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
       return completion(effect, archiveOutcome(result.receipt));
     }
     return completion(effect, { ok: true, root: result.receipt.root,
-      ...(creating ? { workspace: result.receipt.workspace, guidance: result.receipt.guidance } : {}) });
+      workspace: result.receipt.workspace, guidance: result.receipt.guidance });
   } catch (error) {
     // DEFENSE: Recovery retains existing owned paths; only ENOENT establishes absence.
     if (root) {

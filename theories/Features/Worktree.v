@@ -27,7 +27,6 @@ Definition primary (space:workspace) := match workspace_primary space with Some 
 Definition archived := WorkspaceBinding.archived.
 Definition inside := WorkspaceBinding.inside.
 Definition any_inside := WorkspaceBinding.any_inside.
-Definition task_uses_root := WorkspaceBinding.task_uses_root.
 Definition job_uses_root := WorkspaceBinding.job_uses_root.
 Definition job_uses_resource := WorkspaceBinding.job_uses_resource.
 Definition root_unused := WorkspaceBinding.root_unused.
@@ -434,8 +433,6 @@ Definition configure_task_execution (payload : Selvedge.Generated.Commands.confi
    (Selvedge.Generated.Commands.configure_task_execution_reasoning payload)
    (Selvedge.Generated.Commands.configure_task_execution_sandbox_admitted payload)
    (Selvedge.Generated.Commands.configure_task_execution_approval_admitted payload) value.
-Definition handle_configure_task_execution (payload:Selvedge.Generated.Commands.configure_task_execution_payload) (caller:option N) (value:world) :decision :=
- configure_task_execution payload value.
 Definition handle_create_result (payload:Selvedge.Generated.Commands.create_payload) (caller:option N) (value:world) :=
  CommandResult.bind (CommandExecution.content_result (Selvedge.Generated.Commands.create_message_admitted payload)
    (Selvedge.Generated.Commands.create_images_admitted payload))
@@ -621,4 +618,3 @@ Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComp
  | _=>DecisionComposition.unchanged value end else DecisionComposition.unchanged value | None=>DecisionComposition.unchanged value end.
 Definition after_transition (_before:world) : DecisionComposition.step := fun value effects =>
  DecisionComposition.each (Selvedge.Features.Domain.feature_worktrees (world_features value)) archive_after value effects.
-Definition recover (value:world) := value.

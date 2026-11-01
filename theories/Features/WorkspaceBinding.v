@@ -75,12 +75,6 @@ Definition normalize_settings (settings : task_settings) (value : world) :=
   | None => settings
   end.
 
-Definition cloud_task (id : N) (value : world) :=
-  match for_task id value with
-  | Some tree => WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)
-  | None => false
-  end.
-
 Definition resource_json := Selvedge.Features.Domain.resource_json.
 
 Definition execution (settings : task_settings) (value : world) :=

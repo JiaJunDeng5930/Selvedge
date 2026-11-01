@@ -74,7 +74,7 @@ async function readReceipt(files, entry) {
 
 async function log(files, message) {
   const file = await open(files.log, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
-  try { await file.writeFile(`${new Date().toISOString()} ${message}\n`); await file.sync(); }
+  try { await file.writeFile(`${new Date().toISOString()} ${message}\n`); }
   finally { await file.close(); }
 }
 
@@ -114,7 +114,6 @@ async function runResource(plan, { files, backend, signal, prepare, errors = [] 
       await backend.destroy(id, { signal: cleanupSignal });
       return { kind: 'terminated' };
     },
-    async terminateFailure() { return { kind: 'termination_failed' }; },
   }, errors);
 }
 
@@ -127,7 +126,6 @@ async function destroyReceipt(receipt, files, errors = []) {
   if (result.receipt.status !== 'destroyed') {
     result.errors.push(`Cloud resource retained for ${result.receipt.status}; no allocation request was repeated`);
   }
-  if (result.receipt.recording_failed && !result.errors.length) result.errors.push('Cloud cleanup completion was not durably recorded');
   return result;
 }
 
@@ -275,6 +273,6 @@ export async function taskWorkspaceEnvironment(entry, options = {}) {
   if (entry.backend === 'local') return undefined;
   const files = await locations(options, entry.task_id);
   const receipt = await readReceipt(files, entry);
-  if (receipt.status !== 'ready' || !receipt.host || !receipt.instance_id) throw new Error('Cloud workspace is not ready');
+  if (receipt.status !== 'ready') throw new Error('Cloud workspace is not ready');
   return cloudExecutionEnvironment(receipt, { ...files, signal: options.signal });
 }

@@ -57,7 +57,6 @@ interface CloudPrimitives {
   credentials(state: State): Promise<JsonValue>;
   scan(state: State): Promise<JsonValue>;
   terminate(state: State): Promise<JsonValue>;
-  terminateFailure(state: State): Promise<JsonValue>;
 }
 export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives, initialErrors: string[] = []) {
   let plan = decodeResourceTransition(initial);
@@ -89,7 +88,7 @@ export async function runCloudResourceController(initial: unknown, transition: T
         case 'prepare': errors.push(`Cloud preparation failed: ${message}`); observation = { kind: 'preparation_failed' }; break;
         case 'credentials': errors.push(`Cloud recovery needs credentials: ${message}`); observation = { kind: 'credentials_failed' }; break;
         case 'scan': errors.push(`Cloud allocation reconciliation incomplete: ${message}`); observation = { kind: 'scan_failed' }; break;
-        case 'terminate': errors.push(`Cloud destruction failed: ${message}`); observation = await io.terminateFailure(state); break;
+        case 'terminate': errors.push(`Cloud destruction failed: ${message}`); observation = { kind: 'termination_failed' }; break;
         default: throw error;
       }
     }
