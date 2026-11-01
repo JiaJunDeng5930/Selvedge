@@ -59,12 +59,6 @@ Proof.
  apply TaskGraphProofs.resolved_installation_follows_the_typed_plan.
 Qed.
 
-Lemma failed_installation_is_atomic : forall original caller
- (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original),
- bool_default "ok" (decision_reply (TaskGraph.install_cached id owner checked)) false = false ->
- decision_world (TaskGraph.install_cached id owner checked) = original /\
- decision_effects (TaskGraph.install_cached id owner checked) = [].
-Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
 Theorem every_failed_graph_declaration_is_atomic : forall creating id owner source caller before,
  let result := TaskGraph.declare creating id owner source caller before in
  bool_default "ok" (decision_reply result) false = false ->
@@ -112,16 +106,6 @@ Theorem an_ordinary_start_failure_retains_its_declared_error : forall owner call
  CommandResult.Rejected (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
    (Tasks.failure_message cause)).
 Proof. reflexivity. Qed.
-Theorem the_first_refused_node_prevents_every_birth : forall owner caller original node rest reason,
- TaskGraph.prepare_node owner caller original node = CommandResult.Rejected reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
-Proof. intros; now apply CommandResult.traverse_refuses_first. Qed.
-Theorem later_refusal_prevents_every_birth : forall owner caller original node rest plan reason,
- TaskGraph.prepare_node owner caller original node = CommandResult.Accepted plan ->
- TaskGraph.prepare_nodes owner caller original rest = CommandResult.Rejected reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
-Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
-
 Theorem public_idle_missing_work_follows_successful_profile_resolution : forall request before start owner,
  G.create_idle_work_id request = Some owner ->
  CommandExecution.resolve_context_start
