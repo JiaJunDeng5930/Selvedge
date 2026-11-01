@@ -33,7 +33,6 @@ Definition publication_changes (task : task) :=
   FunctionOutput (call_id (operation_call operation)) (operation_notice operation) false :: rest) [] (task_operations task) in
  [TaskChange.AppendHistory notices; TaskChange.operation_change (map announce_operation)].
 Definition publish_operations current := TaskChange.apply (publication_changes current) current.
-Definition last_configuration := ReasoningPlan.last_configuration.
 Definition trailing_configuration := ReasoningPlan.trailing_configuration.
 Definition generation := ReasoningPlan.generation.
 

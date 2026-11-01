@@ -238,28 +238,28 @@ Theorem public_aborted_connection_does_not_retry : forall source,
   Api.call "backend.retry" source = retry_action "abort" false.
 Proof. intros source error aborted;change (retry source = retry_action "abort" false);unfold retry;now rewrite error,aborted. Qed.
 Theorem public_exhausted_response_retry_stops : forall source,
-  boolean_field source "error_present" = false -> boolean_field source "response_present" = true ->
+  boolean_field source "error_present" = false ->
   attempt_available source = false -> Api.call "backend.retry" source = retry_action "stop" false.
-Proof. intros source error response exhausted;change (retry source = retry_action "stop" false);unfold retry;
- rewrite error,response,exhausted;cbn;now rewrite andb_false_r. Qed.
+Proof. intros source error exhausted;change (retry source = retry_action "stop" false);unfold retry;
+ rewrite error,exhausted;cbn;now rewrite andb_false_r. Qed.
 Theorem public_excessive_retry_after_cancels_response : forall source delay,
-  boolean_field source "error_present" = false -> boolean_field source "response_present" = true ->
+  boolean_field source "error_present" = false ->
   contains (items (get (get source "policy") "statuses")) (get source "status") = true ->
   attempt_available source = true -> header_delay source = Some delay ->
   delay_exceeds_integer delay (num (get source "policy") "max_retry_after_ms") = true ->
   Api.call "backend.retry" source = retry_failure
     ("Model request failed with HTTP " ++ display_field source "status" ++ "; Retry-After exceeds the retry budget") true false.
-Proof. intros source delay error response status available header budget;change (retry source = retry_failure
+Proof. intros source delay error status available header budget;change (retry source = retry_failure
     ("Model request failed with HTTP " ++ display_field source "status" ++ "; Retry-After exceeds the retry budget") true false);
- unfold retry;now rewrite error,response,status,available,header,budget. Qed.
+ unfold retry;now rewrite error,status,available,header,budget. Qed.
 Theorem public_admitted_retry_keeps_the_header_minimum : forall source delay,
-  boolean_field source "error_present" = false -> boolean_field source "response_present" = true ->
+  boolean_field source "error_present" = false ->
   contains (items (get (get source "policy") "statuses")) (get source "status") = true ->
   attempt_available source = true -> header_delay source = Some delay ->
   delay_exceeds_integer delay (num (get source "policy") "max_retry_after_ms") = false ->
   Api.call "backend.retry" source = continue source true (maximum_delay (base_delay source) delay).
-Proof. intros source delay error response status available header budget;change (retry source = continue source true (maximum_delay (base_delay source) delay));
- unfold retry,chosen_delay;now rewrite error,response,status,available,header,budget. Qed.
+Proof. intros source delay error status available header budget;change (retry source = continue source true (maximum_delay (base_delay source) delay));
+ unfold retry,chosen_delay;now rewrite error,status,available,header,budget. Qed.
 Definition account_function_output arguments namespace := JObject [
   ("profile",JObject [("provider",JString "chatgpt")]);
   ("markdown_observations",JArray [JArray []]);

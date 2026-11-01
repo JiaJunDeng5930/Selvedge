@@ -106,7 +106,6 @@ Definition codex_auto_review model := String.eqb (model_id model) ModelCapabilit
 Definition selectable := Models.select (fun model =>
  (match model.(model_visibility) with Listed => true | _ => false end) && negb (codex_auto_review model)).
 Definition review_models := Models.select codex_auto_review.
-Definition catalog source := render_outcome encode_models (admit_catalog (get source "value")).
 Definition discovery_catalog source := render_outcome encode_models (bind (admit_catalog (get source "value")) (fun values =>
  if Nat.eqb (Models.size (selectable values)) 0 then reject "This ChatGPT account advertised no selectable models" else Accepted values)).
 Definition models_url source := let url := get source "url" in let path := str url "pathname" in

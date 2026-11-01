@@ -194,8 +194,6 @@ Definition task_text_model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString "default")].
 Definition with_reasoning := Domain.with_reasoning.
-Definition parse_reasoning_policy := Domain.parse_reasoning_policy.
-Definition profile_options := Domain.profile_options.
 Definition parse_profile := Domain.parse_profile.
 Definition tool_json (value : tool) := JObject [
  ("name", JString (tool_name value)); ("description", JString (tool_description value));

@@ -12,9 +12,6 @@ Open Scope list_scope.
 
 Definition indexed {A B : Type} := @Selvedge.Foundation.Registry.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
-(* Auxiliary text generation reuses the connection, without the Task's effort
-   or adaptive evaluator. The provider resolves its ordinary default effort. *)
-Definition task_text_model_json := Codec.task_text_model_json.
 Definition task_owner (id : N) (value : task) (features : Selvedge.Features.Domain.state) := Selvedge.Features.Domain.owner_id id (task_lineage value) features.
 Definition operation_status (value : operation) := match operation_stage value with
  | Executing _ | Elevated _ _ => "running"
@@ -155,7 +152,6 @@ Definition world_json (value : world) :=
  ("board", Selvedge.Features.Observation.board_json_in_world value);
  ("worktrees", JArray (map worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
-Definition history_json (id : N) (task : task) := JArray (map (public_message_json id) (task_history task)).
 Definition effect_packet (state : world) (value : effect) := match value with
  | ObserveContext id ticket task => Variant.pack ModelDeclarations.observe_context
    [!id;ticket;settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;

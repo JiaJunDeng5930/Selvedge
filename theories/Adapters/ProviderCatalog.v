@@ -22,7 +22,6 @@ Definition connection_endpoint connection := match connection with
   | EnvironmentSSE _ endpoint _ | WebConnection endpoint _ => endpoint | _ => "" end.
 Definition connection_credential connection := match connection with
   | EnvironmentSSE _ _ credential | WebConnection _ credential => credential | _ => "" end.
-Definition connection_stream connection := match connection with AccountSSE => "chatgpt" | _ => "responses" end.
 Definition connection_account connection := match connection with AccountSSE => true | _ => false end.
 Definition connection_web connection := match connection with WebConnection _ _ => true | _ => false end.
 Definition connection_live connection := match connection with Offline => false | _ => true end.
@@ -46,15 +45,8 @@ Definition registered := declare_providers [Offline;
   responses_backend "responses" "https://api.openai.com/v1/responses" "OPENAI_API_KEY";
   account_backend;
   web_backend "http://127.0.0.1:8787/v1/responses" "CHATGPT_WEB_TOKEN"].
-Definition providers := DeclarationRegistry.values registered.
 Definition descriptor provider := JObject [
-  ("provider",JString (provider_name provider));
-  ("protocol",JString (if connection_live provider then "responses" else "echo"));
-  ("stream_kind",JString (connection_stream provider)); ("conversation",JBool true);
-  ("tools",JBool (connection_live provider)); ("independent_text",JBool (connection_live provider));
-  ("auth",JString (authentication provider)); ("transport",JString (connection_transport provider));
-  ("endpoint",JString (connection_endpoint provider)); ("api_key_env",JString (connection_credential provider))].
-Definition catalog := map descriptor providers.
+  ("auth",JString (authentication provider)); ("transport",JString (connection_transport provider))].
 Definition backend profile := match as_string (get profile "provider") with
   | Some name => DeclarationRegistry.lookup name registered
   | None => None end.

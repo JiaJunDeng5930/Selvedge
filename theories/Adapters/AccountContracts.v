@@ -1,5 +1,5 @@
 From Stdlib Require Import String List.
-From Selvedge.Adapters Require Import Common ProviderCatalog.
+From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 Definition defaults := JObject [
@@ -13,7 +13,6 @@ Definition audio_contract := JObject [
   ("refresh_interval_ms",JNumber "691200000")].
 Definition contract := JObject [
   ("login_timeout_ms",JNumber "600000");("maximum",JNumber "1048576");
-  ("namespace",JString ProviderCatalog.local_tool_namespace);
   ("resource",JString "https://api.openai.com/v1");
   ("scopes",JString "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct");
   ("default",defaults);("audio",audio_contract)].

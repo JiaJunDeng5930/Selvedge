@@ -27,7 +27,6 @@ Definition retry source :=
     else if boolean_field source "isTypeError" && attempt_available source
       then continue source false (integer_delay (base_delay source))
       else retry_failure "Model connection failed" false true
-  else if negb (boolean_field source "response_present") then continue source false (integer_delay (base_delay source))
   else if contains (items (get (get source "policy") "statuses")) (get source "status") && attempt_available source then
     (* DEFENSE: An explicit Retry-After can exceed the configured retry budget. *)
     if match header_delay source with Some value => delay_exceeds_integer value

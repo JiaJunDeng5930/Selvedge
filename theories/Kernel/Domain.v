@@ -102,10 +102,6 @@ Definition reasoning_allowed effort value :=
  | FixedReasoning => Utf8.nonblank effort && negb (String.eqb effort "auto") &&
      match profile_reasoning_options value with [] => true | options => existsb (String.eqb effort) options end
  end.
-Definition profile_reasoning_valid value :=
- if String.eqb (profile_reasoning value) "default"
- then String.eqb (profile_reasoning value) (profile_default value)
- else reasoning_allowed (profile_reasoning value) value.
 Definition same_profile (left right : profile) :=
  Json.equal (profile_metadata left) (profile_metadata right) &&
  String.eqb (profile_reasoning left) (profile_reasoning right).

@@ -12,7 +12,6 @@ import { boundary } from './public/model-boundary.mjs';
 
 const contract = boundary('account.contract', {});
 const chatgptOAuthResource = contract.resource;
-const chatgptScopes = contract.scopes;
 export const defaultChatGPTAccount = Object.freeze(contract.default);
 
 export function chatgptAccountIdentity(issuer, clientId, subject) {
@@ -33,8 +32,7 @@ function dateObservation(value, numeric = false) {
   const epoch = date.getTime();
   // DEFENSE: Credential timestamps and token lifetimes come from disk or OAuth; invalid or out-of-range dates must fail native admission.
   if (!Number.isFinite(epoch)) return null;
-  return { iso: date.toISOString(), epoch: String(epoch),
-    ordered_epoch: String(BigInt(epoch) + 8640000000000000n).padStart(17, '0') };
+  return { iso: date.toISOString(), ordered_epoch: String(BigInt(epoch) + 8640000000000000n).padStart(17, '0') };
 }
 function credentialObservations(value, audio = false) {
   return { value, audio, identity: chatgptAccountIdentity(value?.issuer, value?.client_id, value?.subject),
@@ -49,7 +47,7 @@ export function accountConfig(value = {}) {
 }
 export function accountConnection(profile) {
   const connection = boundary('account.profile_connection', { profile });
-  return Object.freeze(boundary('account.connection', { profile, ...connectionObservations(connection) }));
+  return Object.freeze(boundary('account.connection', connectionObservations(connection)));
 }
 const locks = new Map();
 
@@ -61,8 +59,8 @@ async function readRecord(filename, optional = false) {
   let contents;
   try { contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(filename)); }
   // DEFENSE: First login has no host/registration record; only ENOENT for an optional record means absence.
-  catch (error) { if (boundary('account.record_read_failure', { filename, optional, code: error.code })) return null; throw error; }
-  return boundary('account.record_decode', { text: contents, filename, optional });
+  catch (error) { if (boundary('account.record_read_failure', { optional, code: error.code })) return null; throw error; }
+  return boundary('account.record_decode', { text: contents });
 }
 
 function registration(value, issuer) {
@@ -111,9 +109,9 @@ function operationFetch(signal, audio = false) {
 
 function configuration(metadata, clientId, profile, signal, audio = false) {
   const config = new oidc.Configuration(metadata, clientId);
-  config.timeout = boundary('account.sdk_timeout', { metadata, clientId, profile }) / 1000;
+  config.timeout = boundary('account.sdk_timeout', { profile }) / 1000;
   config[oidc.customFetch] = operationFetch(signal, audio);
-  if (boundary('account.http', { metadata, clientId, profile, url: urlObservation(metadata.issuer) })) oidc.allowInsecureRequests(config);
+  if (boundary('account.http', { url: urlObservation(metadata.issuer) })) oidc.allowInsecureRequests(config);
   // Token endpoint TLS alone does not authenticate an ID-token signature.
   oidc.enableNonRepudiationChecks(config);
   return config;
@@ -123,16 +121,16 @@ async function discovery(profile, signal, audio = false) {
   // DEFENSE: OpenID discovery can reject network, metadata or signing-configuration errors; SDK diagnostics must not enter durable task errors.
   try {
     const issuer = new URL(profile.issuer);
-    const insecure = boundary('account.insecure', { profile, url: urlObservation(issuer.href) });
+    const insecure = boundary('account.insecure', { url: urlObservation(issuer.href) });
     const discovered = await oidc.discovery(issuer, audio ? contract.audio.client_id : 'dynamic_agent_client', undefined, undefined, {
       [oidc.customFetch]: operationFetch(signal), timeout: boundary('account.sdk_timeout', { profile }) / 1000,
       execute: insecure ? [oidc.allowInsecureRequests] : [],
     });
     const metadata = discovered.serverMetadata();
-    return boundary('account.discovery', { profile, audio, value: metadata, issuer: profile.issuer,
+    return boundary('account.discovery', { audio, value: metadata, issuer: profile.issuer,
       issuer_url: urlObservation(profile.issuer), urls: Object.fromEntries(
         ['authorization_endpoint', 'token_endpoint', 'jwks_uri'].map(key => [key, urlObservation(metadata[key])])) });
-  } catch { signal?.throwIfAborted(); return boundary('account.discovery_failure', { profile }); }
+  } catch { signal?.throwIfAborted(); return boundary('account.discovery_failure', {}); }
 }
 
 async function grant(action, signal) {
@@ -160,37 +158,35 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
   }
   const expires = dateObservation(expiration, true);
   // Expiry admission precedes refresh parsing and the final clock observation.
-  boundary('account.token_expiration', { ...source, claims, identity, expiresNow, expires });
+  boundary('account.token_expiration', { expires });
   const earliestValue = tokens.earliest_refresh_at;
   const earliest = dateObservation(typeof earliestValue === 'number' ? earliestValue * 1000 : earliestValue, typeof earliestValue === 'number');
-  boundary('account.token_times', { ...source, claims, identity, expiresNow, expires, earliest });
+  boundary('account.token_times', { tokens: source.tokens, expires, earliest });
   const now = Date.now();
-  return boundary('account.token', { ...source, claims: claims ?? null, identity, expiresNow, expires, earliest,
-    now, now_date: dateObservation(now, true) });
+  return boundary('account.token', { ...source, claims: claims ?? null, identity, expires, earliest,
+    now_date: dateObservation(now, true) });
 }
 
 async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential, audio = false } = {}) {
   const filename = path.resolve(home, profile.auth_file);
   return locked(filename, async () => {
     const current = validateCredential(await readRecord(filename), audio);
-    boundary('account.issuer_admission', { profile, home, value: current, issuer: profile.issuer });
+    boundary('account.issuer_admission', { value: current, issuer: profile.issuer });
     const registered = audio ? { client_id: contract.audio.client_id, subject: current.subject }
       : registration(await readRecord(`${filename}.registration.json`), profile.issuer);
-    const binding = { profile, home, value: current, registered,
+    const binding = { value: current, registered,
       ...(requestCredential === undefined ? {} : { requestCredential }),
       ...(rejectedToken === undefined ? {} : { rejectedToken }) };
-    // DEFENSE: A sign-in can replace the account while an earlier HTTP request
-    // is awaiting its 401. Admit its captured identity before reusing or
-    // refreshing the newly read credential.
-    boundary('account.refresh_registration', binding);
     const staleNow = Date.now();
     const source = { ...binding, ...credentialObservations(current, audio), issuer: profile.issuer,
-      staleNow, threshold: dateObservation(staleNow + 300_000, true) };
+      threshold: dateObservation(staleNow + 300_000, true) };
+    // DEFENSE: A sign-in can replace the account while an earlier request awaits
+    // its 401. Admit that request's principal before deciding reuse or refresh.
     const initial = boundary('account.refresh_initial', source);
     if (initial === 'keep') return current;
     if (initial === 'earliest') {
       const now = Date.now();
-      if (boundary('account.refresh', { ...source, now, now_date: dateObservation(now, true) })) return current;
+      if (boundary('account.refresh', { ...source, now_date: dateObservation(now, true) })) return current;
     }
     const metadata = await discovery(profile, signal, audio);
     const config = configuration(metadata, current.client_id, profile, signal, audio);
@@ -202,7 +198,7 @@ async function resolveCredential(profile, home, { signal, rejectedToken, request
 }
 
 function authorizationView(credential, connection, home, audio = false) {
-  const view = boundary('account.authorization_view', { credential, connection, home, audio });
+  const view = boundary('account.authorization_view', { credential, audio });
   return Object.freeze({
     ...view, headers: Object.freeze(view.headers),
     async refreshAfterRejection({ signal } = {}) {
@@ -225,10 +221,10 @@ async function hostIdentity(home) {
   const filename = path.resolve(home, 'auth/chatgpt-host.json');
   return locked(filename, async () => {
     const saved = await readRecord(filename, true);
-    const existing = boundary('account.host_saved', { home, filename, saved, value: saved });
+    const existing = boundary('account.host_saved', { value: saved });
     if (existing !== null) return existing;
     const ext_agent_host_id = `urn:uuid:${randomUUID()}`;
-    await writeAtomic(filename, boundary('account.host_registration_record', { home, filename, saved, ext_agent_host_id }));
+    await writeAtomic(filename, boundary('account.host_registration_record', { ext_agent_host_id }));
     return ext_agent_host_id;
   });
 }
@@ -242,7 +238,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
   return locked(filename, async () => {
     lifetime.throwIfAborted();
     let registered = audio ? { client_id: contract.audio.client_id, subject: null }
-      : boundary('account.optional_registration', { profile, home, value: await readRecord(`${filename}.registration.json`, true), issuer: profile.issuer });
+      : boundary('account.optional_registration', { value: await readRecord(`${filename}.registration.json`, true), issuer: profile.issuer });
     const state = oidc.randomState();
     const nonce = oidc.randomNonce();
     const verifier = oidc.randomPKCECodeVerifier();
@@ -257,7 +253,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
       // DEFENSE: The loopback HTTP listener also receives malformed request targets; native callback admission responds without accepting a grant.
       try { url = new URL(request.url, redirectUri); } catch { url = null; }
       const redirect = new URL(redirectUri);
-      const decision = boundary('account.callback', { profile, home, audio, redirectUri, request: { url: request.url, method: request.method, headers: { host: request.headers.host }, host: request.headers.host },
+      const decision = boundary('account.callback', { audio, request: { method: request.method, host: request.headers.host },
         url: url ? urlObservation(url.href) : null, redirect: urlObservation(redirect.href), received, state, registered,
         parameters: Object.fromEntries(['code', 'state', 'client_id', 'error'].map(key => [key, url ? url.searchParams.getAll(key) : []])) });
       if (decision.received) received = true;
@@ -279,20 +275,20 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(audio ? contract.audio.callback_port : 0, '127.0.0.1', resolve); });
       redirectUri = `http://127.0.0.1:${server.address().port}/auth/callback`;
       lifetime.throwIfAborted();
-      const parameters = boundary('account.auth_parameters', { profile, home, audio, registered, redirectUri, state, nonce, verifier,
+      const parameters = boundary('account.auth_parameters', { audio, registered, redirectUri, state, nonce,
         challenge: await oidc.calculatePKCECodeChallenge(verifier), ext_agent_host_id });
       const authorize = oidc.buildAuthorizationUrl(configuration(metadata, parameters.client_id, profile, lifetime, audio), parameters);
-      await onAuthorize(boundary('account.authorize_prompt', { profile, home, url: authorize.href, redirectUri }));
+      await onAuthorize(boundary('account.authorize_prompt', { url: authorize.href, redirectUri }));
       const { url, clientId } = await callback;
-      registered = boundary('account.registration_record', { profile, home, issuer: profile.issuer, clientId, registered });
+      registered = boundary('account.registration_record', { issuer: profile.issuer, clientId, registered });
       // The issued client survives a failed exchange; registration cannot be replayed with the placeholder.
       if (!audio) await writeAtomic(`${filename}.registration.json`, registered);
       const config = configuration(metadata, clientId, profile, lifetime, audio);
-      const tokens = await grant(() => oidc.authorizationCodeGrant(config, url, boundary('account.code_grant_checks', { profile, home, nonce, state, verifier, clientId }), audio ? undefined : { resource: chatgptOAuthResource }), lifetime);
+      const tokens = await grant(() => oidc.authorizationCodeGrant(config, url, boundary('account.code_grant_checks', { nonce, state, verifier }), audio ? undefined : { resource: chatgptOAuthResource }), lifetime);
       const saved = tokenCredential(tokens, metadata, clientId, { subject: registered.subject ?? undefined, audio });
-      if (!audio) await writeAtomic(`${filename}.registration.json`, boundary('account.registration_subject', { profile, home, registered, saved }));
+      if (!audio) await writeAtomic(`${filename}.registration.json`, boundary('account.registration_subject', { registered, saved }));
       await writeAtomic(filename, saved);
-      return boundary('account.login_result', { profile, home, saved, filename });
+      return boundary('account.login_result', { saved, filename });
     } finally {
       lifetime.removeEventListener('abort', abort);
       server.closeAllConnections();

@@ -71,13 +71,13 @@ Definition retire_candidates records owner ticket := fold_right (fun record sele
 Definition retire_writes records := map (fun record => JObject [("record",record);("request_key",get record "request_key");
   ("updates",JObject [("retired",retirement_code Cancelled)])]) records.
 Definition current_format := "selvedge-chatgpt-web-3".
-Definition metadata_reply create identity := success (JObject [("create",JBool create);
+Definition metadata_reply identity := success (JObject [
   ("identity",identity);("format",JString current_format)]).
 Definition metadata_error := err "ChatGPT Web receipts are not in the current format".
 Definition store_metadata rows new_identity (created : bool) := match rows with
-  | [] => if created then metadata_reply true (JString new_identity) else metadata_error
+  | [] => if created then metadata_reply (JString new_identity) else metadata_error
   | [row] => if is_text (get row "format") && eq row "format" current_format && WebCommon.nonempty (get row "identity")
-      then metadata_reply false (get row "identity") else metadata_error
+      then metadata_reply (get row "identity") else metadata_error
   | _ => metadata_error end.
 Definition retire_existing rows records owner ticket := let result := store_metadata rows "" false in
   if boolean_field result "ok" then success (JArray (retire_writes (retire_candidates records owner ticket))) else result.

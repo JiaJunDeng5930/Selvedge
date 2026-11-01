@@ -5,7 +5,7 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Theorem public_backend_timer_respects_header_and_budget : forall source exact,
-  boolean_field source "error_present" = false -> boolean_field source "response_present" = true ->
+  boolean_field source "error_present" = false ->
   contains (items (get (get source "policy") "statuses")) (get source "status") = true ->
   attempt_available source = true -> header_delay source = Some exact ->
   delay_exceeds_integer exact (num (get source "policy") "max_retry_after_ms") = false ->
@@ -15,8 +15,8 @@ Theorem public_backend_timer_respects_header_and_budget : forall source exact,
     delay_numerator exact <= milliseconds * decimal_denominator exact /\
     base_delay source <= milliseconds <= num (get source "policy") "max_retry_after_ms".
 Proof.
-  intros source exact error response status available header cap floor.
-  rewrite (public_admitted_retry_keeps_the_header_minimum source exact error response status available header cap).
+  intros source exact error status available header cap floor.
+  rewrite (public_admitted_retry_keeps_the_header_minimum source exact error status available header cap).
   exists (timer_milliseconds (maximum_delay (base_delay source) exact)). split; [reflexivity|].
   now apply integer_timer_meets_floor_and_exact_cap.
 Qed.

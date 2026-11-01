@@ -39,7 +39,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.candidate_paths",AccountMaterialization.candidate_paths);
   ("account.candidate_read",AccountOAuth.candidate_read);
   ("account.candidates",AccountMaterialization.candidates);
-  ("account.catalog",AccountCatalog.catalog);
   ("account.catalog_failure",catalog_failure);
   ("account.catalog_fetch_failure",catalog_fetch_failure);
   ("account.catalog_result",AccountCatalog.catalog_result);
@@ -71,7 +70,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.record_read_failure",AccountOAuth.record_read_failure);
   ("account.refresh",AccountIdentity.refresh);
   ("account.refresh_initial",AccountIdentity.refresh_initial);
-  ("account.refresh_registration",AccountIdentity.refresh_registration);
   ("account.registration",AccountIdentity.registration);
   ("account.registration_record",AccountIdentity.registration_record);
   ("account.registration_subject",AccountIdentity.registration_subject);

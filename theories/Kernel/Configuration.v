@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema JsonSchema.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Workspace NativeTools Limits State Capabilities PluginProtocol ContextUpdates.
+From Selvedge.Kernel Require Import Numbers Domain Codec Workspace NativeTools Limits Capabilities PluginProtocol ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -64,8 +64,3 @@ Definition parse_environment source := match source with
  | JObject source => match Schema.decode_fields environment_schema source with
    | Some values => environment_of_fields values | None => None end
  | _ => None end.
-Definition configure (source : json) (value : world) :=
- match parse_environment source with
- | Some environment => accept (JObject [("configured",JBool true)]) (with_environment environment value) []
-  | None => reject "invalid_input" "Malformed environment: profiles and tool routes must be unique, tool contracts valid, plugins valid, and limits positive" value
- end.

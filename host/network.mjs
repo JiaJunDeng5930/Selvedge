@@ -23,9 +23,7 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  const source = { response: { status: response.status, ok: response.ok, status_text: response.statusText,
-    url: response.url, type: response.type, redirected: response.redirected,
-    headers: [...response.headers] }, text };
+  const source = { response: { ok: response.ok }, text };
   let decoded;
   try { decoded = boundary('web.http_json', source); }
   catch (error) {
@@ -36,7 +34,7 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     throw error;
   }
   const value = decoded.present ? decoded.value : undefined;
-  return { status: response.status, ok: response.ok, value, text, headers: response.headers };
+  return { status: response.status, ok: response.ok, value, text };
 }
 
 /** SSE framing is independent of HTTP chunks, including UTF-8 and CRLF splits. */
