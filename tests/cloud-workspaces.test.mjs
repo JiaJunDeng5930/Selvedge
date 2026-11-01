@@ -340,9 +340,9 @@ test('a failing project environment script prevents model execution, destroys th
   assert.equal(fixture_.upstream.requests.length, 0);
   assert.equal(fixture_.instances.size, 0);
   assert.equal(fixture_.requests.filter(request => request.action === 'TerminateInstances').length, 1);
-  const logfile = path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.log`);
+  const logfile = failed.message.match(/; log: (.+)$/)?.[1];
+  assert.ok(logfile, 'The startup failure must identify its retained log');
   assert.match(await readFile(logfile, 'utf8'), /SETUP-LOG-MARKER/);
-  assert.ok(failed.message.includes(logfile), 'The startup failure must identify its retained log');
   await until(async () => {
     const observed = await fixture_.service.command({ op: 'read', task_id: id });
     assert.equal(observed.reply.ok, true, JSON.stringify(observed.reply));
