@@ -113,12 +113,6 @@ Definition ring_slices capacity current :=
 Definition artifact_persisted capture_complete file_synced batch_synced parent_synced :=
   capture_complete && file_synced && batch_synced && parent_synced.
 
-Inductive cleanup_step := TerminateEnvironment | TerminateGroup | TerminateSession | CloseInput | ArmDrainDeadline.
-Definition cleanup_plan := [TerminateEnvironment; TerminateGroup; TerminateSession; CloseInput; ArmDrainDeadline].
-Inductive drain_step := CleanupProcess | WaitSession | WaitEnvironment | WaitOutput | WaitOutputClose | WaitInput | MarkDrained | ClearDrainDeadline.
-Definition drain_plan := [CleanupProcess; WaitSession; WaitEnvironment; WaitOutput; WaitOutputClose; WaitInput; MarkDrained; ClearDrainDeadline].
-Definition drain_deadline_ms : N := 2000.
-
 Record registry_entry := Entry { entry_key : string; entry_mode : mode; entry_failure : option failure }.
 Record registry := Registry { entries : list registry_entry; completed : list string }.
 Definition empty_registry := Registry [] [].

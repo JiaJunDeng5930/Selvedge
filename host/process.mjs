@@ -219,32 +219,19 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     terminalResolve();
   }
   function cleanupGroup() {
-    const plan = boundary('control.process.cleanup_plan', {});
-    for (const step of plan.steps) {
-      switch (step) {
-        case 'terminate_environment':
-          if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
-            // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
-            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
-          });
-          break;
-        case 'terminate_group':
-          try { killGroup(child); }
-          // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
-          catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
-          break;
-        case 'terminate_session':
-          sessionClose ??= killSession(child.pid).catch(error => {
-            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
-          });
-          break;
-        case 'close_input': closeInput(); break;
-        case 'arm_deadline':
-          // DEFENSE: Descendants can leave their session while retaining inherited output handles.
-          forcedClose ??= setTimeout(forceOutputClose, plan.deadline_ms);
-          break;
-      }
-    }
+    if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
+      // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
+      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
+    });
+    try { killGroup(child); }
+    // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
+    catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
+    sessionClose ??= killSession(child.pid).catch(error => {
+      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
+    });
+    closeInput();
+    // DEFENSE: Descendants can leave their session while retaining inherited output handles.
+    forcedClose ??= setTimeout(forceOutputClose, 2_000);
   }
 
   function stop(reason, event) {
@@ -316,18 +303,14 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
       observe('exited');
-      for (const step of boundary('control.process.drain_plan', {})) {
-        switch (step) {
-          case 'cleanup': cleanupGroup(); break;
-          case 'wait_session': await sessionClose; break;
-          case 'wait_environment': await environmentClose; break;
-          case 'wait_output': await Promise.all(outputTasks); break;
-          case 'wait_output_close': await outputClose; break;
-          case 'wait_input': await inputClose; break;
-          case 'mark_drained': observe('drained'); break;
-          case 'clear_deadline': clearTimeout(forcedClose); break;
-        }
-      }
+      cleanupGroup();
+      await sessionClose;
+      await environmentClose;
+      await Promise.all(outputTasks);
+      await outputClose;
+      await inputClose;
+      observe('drained');
+      clearTimeout(forcedClose);
       const candidates = await Promise.all(artifacts.map(async artifact => {
         try { return await artifact.finish(); }
         // DEFENSE: Real artifact sync/close failures must not publish a successfully persisted artifact.

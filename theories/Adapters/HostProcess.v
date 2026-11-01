@@ -78,13 +78,6 @@ Definition ring_of source := ByteRing (N.to_nat (num source "position"))
   (N.to_nat (num source "length")) (num source "total").
 Definition slice_json slice := JObject [("start",number (N.of_nat slice.(slice_start)));
   ("count",number (N.of_nat slice.(slice_count)));("offset",number (N.of_nat slice.(slice_offset)))].
-Definition cleanup_step_json step := JString (match step with
-  | TerminateEnvironment => "terminate_environment" | TerminateGroup => "terminate_group"
-  | TerminateSession => "terminate_session" | CloseInput => "close_input" | ArmDrainDeadline => "arm_deadline" end).
-Definition drain_step_json step := JString (match step with
-  | CleanupProcess => "cleanup" | WaitSession => "wait_session" | WaitEnvironment => "wait_environment" | WaitOutput => "wait_output"
-  | WaitOutputClose => "wait_output_close" | WaitInput => "wait_input"
-  | MarkDrained => "mark_drained" | ClearDrainDeadline => "clear_deadline" end).
 Definition artifact_metadata source :=
   let ring := ring_of (get source "ring") in JObject
     [("path",get source "path");("bytes",number (N.of_nat ring.(ring_length)));
@@ -104,9 +97,6 @@ Definition call operation source :=
   else if String.eqb operation "control.process.ring_finish" then
     success (JArray (map slice_json (ring_slices (N.to_nat (num source "capacity")) (ring_of (get source "ring")))))
   else if String.eqb operation "control.process.artifact_metadata" then success (artifact_metadata source)
-  else if String.eqb operation "control.process.cleanup_plan" then success (JObject
-    [("steps",JArray (map cleanup_step_json cleanup_plan));("deadline_ms",number drain_deadline_ms)])
-  else if String.eqb operation "control.process.drain_plan" then success (JArray (map drain_step_json drain_plan))
   else if String.eqb operation "control.process.registry_initial" then success (registry_json empty_registry)
   else if String.eqb operation "control.process.initial" then success (state_json initial)
   else if String.eqb operation "control.process.observe" then success (state_json (observe current (event_of (str source "event"))))
@@ -117,7 +107,6 @@ Definition call operation source :=
       else failure_of (get source "reason") in
     success (JObject [("state",state_json (with_reason current reason));("cleanup",JBool (active current))])
   else if String.eqb operation "control.process.reason" then success (state_json (with_reason current (failure_of (get source "reason"))))
-  else if String.eqb operation "control.process.status" then success (JString (public_status current.(process_phase)))
   else if String.eqb operation "control.process.reserve_write" then
     match reserve_write current with inl reason => fail reason | inr next => success (state_json next) end
   else if String.eqb operation "control.process.admit_write" then
