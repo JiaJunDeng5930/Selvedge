@@ -1,19 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { approvalFixture } from './fixtures/approval-runtime.mjs';
+import { approvalFixture, denialReason } from './fixtures/approval-runtime.mjs';
 
 for (const [description, reason] of [['an overlong UTF-8 reason', '界'.repeat(683)], ['a NUL in the reason', 'Allow\u0000trailing']]) {
-  test(`a human approval with ${description} settles as failed without executing the command`, async t => {
+  test(`a human approval with ${description} is rejected without consuming the pending review`, async t => {
     const fixture = await approvalFixture(t);
     const pending = await fixture.pending();
     const operation = pending.task.operations.find(value => value.status === 'awaiting_approval');
-    await fixture.successful({ op: 'review_approval', task_id: fixture.taskId,
+    const rejected = await fixture.command({ op: 'review_approval', task_id: fixture.taskId,
       operation_id: operation.operation_id, decision: 'allow', reason });
-    const page = await fixture.idle();
-    const records = page.messages.filter(value => value.role === 'approval_record' && value.operation_id === operation.operation_id);
-    assert.equal(records.length, 1);
-    assert.deepEqual(records[0].content, { decision: 'failed', reason: 'The review response exceeded its bounded decision contract' });
-    assert.ok(JSON.stringify(page.messages).includes('approval_denied'), 'The original pending tool receives a denial result');
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.reply.ok, false);
+    const page = await fixture.read();
+    assert.equal(page.task.operations.find(value => value.operation_id === operation.operation_id)?.status, 'awaiting_approval');
+    await fixture.markerAbsent();
+    await fixture.successful({ op: 'review_approval', task_id: fixture.taskId,
+      operation_id: operation.operation_id, decision: 'deny', reason: denialReason });
+    await fixture.idle();
     await fixture.markerAbsent();
     assert.deepEqual(fixture.upstream.failures, []);
   });
