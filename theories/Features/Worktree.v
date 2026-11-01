@@ -26,11 +26,7 @@ Definition ignored value := Selvedge.Kernel.State.accept (JObject [("accepted",J
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
 Definition archived := WorkspaceBinding.archived.
 Definition inside := WorkspaceBinding.inside.
-Definition any_inside := WorkspaceBinding.any_inside.
-Definition job_uses_root := WorkspaceBinding.job_uses_root.
-Definition job_uses_resource := WorkspaceBinding.job_uses_resource.
 Definition root_unused := WorkspaceBinding.root_unused.
-Definition bound_tasks_unused := WorkspaceBinding.bound_tasks_unused.
 Definition archive_allowed := WorkspaceBinding.archive_allowed.
 Definition execution_ready := WorkspaceBinding.execution_ready.
 Definition workspace_available := WorkspaceBinding.workspace_available.
