@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith PeanoNat Lia.
+From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Adapters Require Import WebStreamProofs Common WebCommon WebResources WebStore WebContinuation Web.
 Import ListNotations.
@@ -82,25 +82,4 @@ Proof.
    inversion accepted;subst;split;[reflexivity|].
    intros item member;cbn in member;destruct member as [<-|[]].
    now apply andb_true_iff in admitted as [admitted _];apply andb_true_iff in admitted as [_ admitted].
-Qed.
-Theorem successful_sse_eof_has_no_unfinished_line_or_data : forall state chunk maximum value,
-  WebStream.sse_step state chunk true maximum = success value -> get value "error" = JNull ->
-  state.(WebStream.pending) ++ chunk = "" /\ state.(WebStream.event_data) = [].
-Proof.
- intros state chunk maximum value accepted clean;unfold WebStream.sse_step in accepted.
- destruct (String.eqb (state.(WebStream.pending) ++ chunk) "" && Nat.eqb (List.length state.(WebStream.event_data)) 0) eqn:complete.
- - apply andb_true_iff in complete as [pending data];apply String.eqb_eq in pending;apply Nat.eqb_eq in data.
-   split;[exact pending|now apply length_zero_iff_nil].
- - unfold WebStream.work_json in accepted;cbn in accepted;inversion accepted;subst value;discriminate clean.
-Qed.
-Theorem sse_eof_rejects_unfinished_event : forall state chunk maximum value,
-  WebStream.sse_step state chunk true maximum = success value ->
-  (state.(WebStream.pending) ++ chunk <> "" \/ state.(WebStream.event_data) <> []) ->
-  get value "error" = JString "The SSE stream ended inside an event".
-Proof.
- intros state chunk maximum value accepted unfinished;unfold WebStream.sse_step in accepted.
- destruct (String.eqb (state.(WebStream.pending) ++ chunk) "" && Nat.eqb (List.length state.(WebStream.event_data)) 0) eqn:complete.
- - apply andb_true_iff in complete as [pending data];apply String.eqb_eq in pending;apply Nat.eqb_eq in data.
-   apply length_zero_iff_nil in data;tauto.
- - inversion accepted;subst value;reflexivity.
 Qed.

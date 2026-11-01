@@ -22,6 +22,9 @@ From Selvedge.Programming Require Import AdapterResult.
     a completed answer.
     Transient stream items do not acquire durable-output authority merely by
     arriving before a terminal response.
+    SSE framing dispatches only complete events and discards unfinished data at
+    EOF, as required by the HTML event-stream protocol. Provider completion still
+    requires its own terminal response; framing does not invent that completion.
     An HTTP context-limit failure permits automatic recovery only before output;
     replaying a request after visible output would
     execute the same turn twice.

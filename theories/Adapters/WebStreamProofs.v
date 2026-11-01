@@ -110,7 +110,7 @@ Proof.
 Qed.
 
 Theorem production_successful_sse_step_respects_line_byte_limit : forall state chunk maximum value,
- WebStream.sse_step state chunk false maximum = success value -> get value "error" = JNull ->
+ WebStream.sse_step state chunk maximum = success value -> get value "error" = JNull ->
  N.of_nat (String.length (str (get value "state") "pending")) <= maximum.
 Proof.
  intros state chunk maximum value accepted no_error.

@@ -70,13 +70,8 @@ Definition scan_character maximum (buffer : (list ascii * N) * stream_work) (cha
 Definition scan chunk reversed bytes work maximum :=
   fold_left (scan_character maximum) chunk (reversed,bytes,work).
 
-Definition sse_step (state : stream_state) (chunk : string) (eof : bool) (maximum : N) :=
-  if eof then
-    let pending := state.(pending) ++ chunk in
-    work_json (StreamWork (StreamState pending state.(event_data) state.(event_bytes) state.(event_name) state.(after_cr)) []
-      (if String.eqb pending "" && Nat.eqb (List.length state.(event_data)) 0
-       then "" else "The SSE stream ended inside an event"))
-  else let initial := StreamWork state [] "" in
+Definition sse_step (state : stream_state) (chunk : string) (maximum : N) :=
+  let initial := StreamWork state [] "" in
     let initial := if N.of_nat (String.length state.(pending)) <=? maximum then initial
       else stream_fail initial "SSE line exceeds the configured limit" in
     let reversed := fold_left (fun result byte => byte::result) (list_ascii_of_string state.(pending)) [] in

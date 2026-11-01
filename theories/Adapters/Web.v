@@ -58,8 +58,8 @@ Definition operations := [
    required "deferred" (D.Array D.Any);required "output_count" positive_natural;required "input_hash" nonempty_text;
    required "store_identity" nonempty_text;raw "binding";raw "contract";raw "tools"] receipt_entry;
  method "web.sse_step" [required "state" (D.OpenObject stream_fields);required "chunk" (D.Value Schema.KText);
-   required "eof" D.Boolean;required "maximum" safe_natural]
-   (fun state chunk eof maximum => WebStream.sse_step (stream_value state) chunk eof (proj1_sig maximum));
+   required "maximum" safe_natural]
+   (fun state chunk maximum => WebStream.sse_step (stream_value state) chunk (proj1_sig maximum));
  method "web.http" [required "record" D.RawObject;required "status" safe_natural]
    (fun record status => WebResources.http record (proj1_sig status));
  method "web.commit" [raw "resource"] (fun resource => WebResources.commit (missing resource));

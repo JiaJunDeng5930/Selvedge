@@ -51,14 +51,13 @@ export async function* sseEvents(body, maximum) {
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let state = { pending: '', data: [], size: 0, name: 'message', after_cr: false };
   for await (const chunk of body) {
-    const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum, eof: false });
+    const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum });
     state = transition.state;
     for (const frame of transition.frames) yield frame;
     // DEFENSE: An SSE peer can exceed the frame byte budget before terminating a frame.
     if (transition.error) throw new RangeError(transition.error);
   }
-  const transition = boundary('web.sse_step', { state, chunk: decoder.decode(), maximum, eof: true });
-  for (const frame of transition.frames) yield frame;
-  // DEFENSE: EOF can truncate an SSE frame; surface the framing failure instead of returning incomplete event data.
-  if (transition.error) throw new Error(transition.error);
+  // SSE discards an unfinished event at EOF; each provider owns its terminal response check.
+  // DEFENSE: The peer can stop inside a UTF-8 sequence; flushing must still reject those incomplete bytes.
+  decoder.decode();
 }
