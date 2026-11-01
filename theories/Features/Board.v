@@ -51,10 +51,8 @@ Definition unlinked := BoardFacts.unlinked.
 Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
 Definition owner_agent := BoardFacts.owner_agent.
-Definition active_for := BoardFacts.active_for.
 Definition runnable := BoardFacts.runnable.
 Definition latest_failure := BoardFacts.latest_failure.
-Definition activity := BoardFacts.activity.
 Definition card_json (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Observation.card_json_in_world value id card.
 Definition visible_cards (value:world) := fold_right (fun id rest=>match CardScope.lookup id value with Some card=>card_json id card value::rest | None=>rest end) [] (Selvedge.Features.Domain.board_order (registry value)).
 Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) (caller:option N) (value:world) :json :=
@@ -104,8 +102,6 @@ Definition create_card_result (input:patch) (observed:BoardParameters.clock) (as
    (parsed_drafting_target parsed assisted value observed Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
  "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.".
-Definition create_card (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world) :=
- CommandResult.decide value (create_card_result input observed assisted profile value).
 Definition changes_execution (input:patch) :=
  match patch_title input,patch_description input,patch_owner input,patch_project input,patch_attachments input with None,None,None,None,None=>false | _,_,_,_,_=>true end.
 Definition update_card (id revision:N) (observed:BoardParameters.clock) (input:patch) (value:world) :=
@@ -126,7 +122,7 @@ Definition move_card (id revision:N) (observed:BoardParameters.clock)
 Definition pin (id revision:N) (observed:BoardParameters.clock) (pinned:bool) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
  if mutable card value then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
- save id ((set Selvedge.Features.Domain.card_pinned (fun _=>pinned) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_contents (fun _=>(Selvedge.Features.Domain.card_contents updated)) (set Selvedge.Features.Domain.card_revision (fun _=>(Selvedge.Features.Domain.card_revision updated)) (card)))))) value
+ save id (set Selvedge.Features.Domain.card_pinned (fun _=>pinned) updated) value
  else Selvedge.Kernel.State.reject "card_locked" "A running, archived or generating card cannot be pinned or unpinned" value).
 Definition link (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
@@ -169,8 +165,9 @@ Definition launch_settings (agent:Selvedge.Features.Domain.board_agent) (draft:S
    (Selvedge.Features.Domain.agent_settings_request agent).
 Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  let now:=observed in CommandResult.bind (CardScope.select_card id revision value) (fun card=>
- if negb (runnable card value) then CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit" else
- match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with None=>CommandResult.refuse "agent_required" "Assign a configured endpoint or board agent before starting this card" | Some agent=>
+ match BoardFacts.runnable_agent card value with
+ | None=>CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit"
+ | Some agent=>
  let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
  CommandResult.map (fun birth=>
  let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card)))))))) in

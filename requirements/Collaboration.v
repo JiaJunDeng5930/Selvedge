@@ -73,7 +73,9 @@ From Selvedge.Programming Require FeatureRequestProofs.
 From Selvedge.Kernel Require TitleCommit.
 From Selvedge.Programming Require CardScopeProofs.
 Export CardScopeProofs(stale_card_is_atomic).
-Export BoardProofs(linked_execution_inputs_are_immutable,
+Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
+  automatic_queue_follows_pin_priority_and_board_order,
+  linked_execution_inputs_are_immutable,
   archive_busy_card_retains_task_authority,
   card_title_result_preserves_conversation,
   saving_card_preserves_conversations_and_their_titles).
@@ -94,7 +96,11 @@ Export TitleProofs(title_configuration_preserves_generation_entries,
     remain immutable. Archival may request the ordinary Task interruption but
     cannot invent new cancellation authority from old receipt data.
 
-    Board eligibility, concurrency and ordering belong to [Board]. Filtering
+    Ordinary creation retains the requested draft. Automatic execution selects
+    pinned cards first, then urgent through unprioritized cards, retaining manual
+    board order within each group; only runnable cards enter this selection.
+    [automatic_queue_follows_pin_priority_and_board_order] constrains that actual
+    queue. Board eligibility and concurrency belong to [Board]. Filtering
     changes the view, not the stored card. The bounded scheduler requests a
     continuation when work remains. Automatic title selection uses
     [FeatureRequestAdmission.resolve_title]. Its admission theorem retains the
@@ -123,9 +129,13 @@ Export TitleProofs(title_configuration_preserves_generation_entries,
     Closing the supporting presentation only changes the view.
 
     The birth theorem establishes the captured guidance and initial cursor.
-    [return_side] and [returned_content] are the executable definitions of return
-    and content selection; the birth theorem does not establish return delivery. *)
+    A successful return advances that cursor to the observed history length;
+    repeating it without new history cannot resend the same content. Refusal
+    preserves the complete world and emits no effects. These guarantees apply
+    to the actual [return_side] transition. *)
 From Selvedge.Kernel Require SideConversationProofs CommandExecution History.
-Export SideConversationProofs(successful_open_side_records_private_birth_guidance).
+Export SideConversationProofs(successful_open_side_records_private_birth_guidance,
+  successful_side_return_consumes_the_observed_suffix,
+  a_refused_side_return_keeps_the_world_and_effects).
 Export CommandExecution(return_side).
 Export History(returned_content).

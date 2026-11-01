@@ -4,6 +4,8 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State.
 From Selvedge.Programming Require Import TaskScopeProofs.
 From Selvedge.Kernel Require Import Tasks History Codec.
+From Selvedge.Kernel Require Import CommandExecution LifecycleProofs.
+From Selvedge.Programming Require TaskChangeProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -60,4 +62,87 @@ Proof.
              simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
           ++ split; [reflexivity|reflexivity].
  - intros Missing successful. discriminate.
+Qed.
+
+Local Lemma accepted_input_preserves_other_tasks : forall mode target contents before delivered other,
+ target <> other ->
+ Tasks.input_result mode target contents before = CommandResult.Accepted delivered ->
+ find_task other (CommandResult.change_world delivered) = find_task other before.
+Proof.
+ intros mode target contents before delivered other Different.
+ unfold Tasks.input_result.
+ pattern (TaskScope.select target before).
+ apply TaskScopeProofs.selected_reference_elimination.
+ - intros reference Owner.
+   destruct (task_lifecycle (TaskScope.selected reference)); try discriminate;
+   destruct (Tasks.content_nonempty contents); try discriminate;
+   destruct (Tasks.admit_input reference) as [admitted|reason]; try discriminate;
+   cbn [CommandResult.map CommandResult.bind]; intro Accepted;
+   inversion Accepted; subst delivered;
+   apply TaskChangeProofs.a_field_plan_preserves_every_other_task;
+   cbn [TaskChange.target]; congruence.
+ - intros Missing; discriminate.
+Qed.
+
+(** The source cursor consumes a suffix only after ordinary parent admission.
+    A second return without new history cannot send that suffix again. *)
+Theorem successful_side_return_consumes_the_observed_suffix : forall id value side parent,
+ find_task id value = Some side ->
+ task_side_parent side = Some parent ->
+ id <> parent ->
+ bool_default "ok" (decision_reply (CommandExecution.return_side id value)) false = true ->
+ let after := decision_world (CommandExecution.return_side id value) in
+ find_task id after = Some (with_side_cursor (N.of_nat (List.length (task_history side))) side) /\
+ CommandExecution.return_side id after =
+   reject "no_side_content" "This side conversation has no new content to return" after.
+Proof.
+ intros id value side parent Found Parent Different Successful.
+ remember (CommandExecution.return_side id value) as returned eqn:Returned in *.
+ pose proof Returned as Computed.
+ unfold CommandExecution.return_side in Computed; rewrite Found in Computed.
+ destruct (task_lifecycle side) eqn:Life;
+   try (rewrite Computed in Successful; discriminate).
+ all: rewrite Parent in Computed; cbn zeta in Computed.
+ all: destruct (filter History.returned_content
+   (skipn (N.to_nat (task_side_cursor side)) (task_history side)))
+   as [|first rest] eqn:Content in Computed;
+   try (rewrite Computed in Successful; discriminate).
+ all: lazymatch type of Computed with
+   | _ = CommandResult.commit _ _ ?result =>
+     destruct result as [delivered|reason] eqn:Delivered in Computed
+   end.
+ all: cbn [CommandResult.commit CommandResult.map CommandResult.bind
+   CommandResult.decide CommandResult.resolve CommandResult.accept
+   CommandResult.change_value CommandResult.change_world CommandResult.change_effects
+   accept decision_reply decision_world] in Computed;
+   try (rewrite Computed in Successful; discriminate).
+ all: pose proof (accepted_input_preserves_other_tasks Tasks.AppendInput parent _
+   value delivered id ltac:(congruence) Delivered) as Retained.
+ all: rewrite Found in Retained.
+ all: rewrite Computed; cbn [CommandResult.accept CommandResult.change_world accept decision_world].
+ all: assert (Installed : find_task id
+   (put_task id (with_side_cursor (N.of_nat (List.length (task_history side))) side)
+     (CommandResult.change_world delivered)) =
+   Some (with_side_cursor (N.of_nat (List.length (task_history side))) side))
+   by (eapply find_put_task; exact Retained).
+ all: split; [exact Installed|].
+ all: unfold CommandExecution.return_side; rewrite Installed.
+ all: destruct side; cbn in Life, Parent |- *.
+ all: rewrite Life,Parent; cbn zeta; rewrite Nat2N.id,skipn_all; reflexivity.
+Qed.
+
+Theorem a_refused_side_return_keeps_the_world_and_effects : forall id value,
+ bool_default "ok" (decision_reply (CommandExecution.return_side id value)) false = false ->
+ decision_world (CommandExecution.return_side id value) = value /\
+ decision_effects (CommandExecution.return_side id value) = [].
+Proof.
+ intros id value.
+ unfold CommandExecution.return_side.
+ destruct (find_task id value) as [side|]; [|intros; split; reflexivity].
+ destruct (task_lifecycle side); try (intros; split; reflexivity).
+ all: destruct (task_side_parent side); try (intros; split; reflexivity).
+ all: cbn zeta; destruct (filter History.returned_content
+   (skipn (N.to_nat (task_side_cursor side)) (task_history side)));
+   try (intros; split; reflexivity).
+ all: apply CommandResult.a_failed_commit_is_atomic.
 Qed.

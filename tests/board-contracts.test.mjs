@@ -53,7 +53,7 @@ test('assisted cards trim the saved title and provider request before applying t
   const ordinary = await service.command({ op: 'create_card', title: '  Keep spacing  ' });
   assert.equal(ordinary.reply.ok, true);
   const id = ordinary.reply.result.card_id;
-  // Birth whitespace is owned by FeaturePacketProofs.every_public_board_birth_with_its_actual_budget_commits.
+  // Birth whitespace is owned by BoardProofs.ordinary_card_creation_installs_the_requested_draft.
   // Keep the update assertion until its actual entry has the corresponding universal proof.
   assert.equal((await service.command({ op: 'update_card', card_id: id, revision: 0, title: '  Updated title  ' })).reply.ok, true);
   assert.equal((await service.command({ op: 'read_card', card_id: id })).reply.result.title, '  Updated title  ');

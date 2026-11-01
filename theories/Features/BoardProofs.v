@@ -62,6 +62,19 @@ Proof.
    repeat split; reflexivity.
 Qed.
 
+Local Lemma runnable_selects_the_observed_agent : forall card value agent,
+ Board.runnable card value = true ->
+ Board.owner_agent (F.draft_owner (F.card_contents card)) value = Some agent ->
+ BoardFacts.runnable_agent card value = Some agent.
+Proof.
+ intros card value agent Ready Owner.
+ unfold Board.runnable,BoardFacts.runnable,BoardFacts.runnable_agent in Ready |- *.
+ destruct (BoardFacts.mutable card value && BoardFacts.unlinked card); [|discriminate].
+ unfold Board.owner_agent in Owner; rewrite Owner in Ready |- *.
+ destruct (N.ltb (BoardFacts.active_for (F.draft_owner (F.card_contents card)) value)
+   (F.agent_concurrency agent)); [reflexivity|discriminate].
+Qed.
+
 (** Launch writes the identifier allocated by the shared Task creator and
     forwards that creator's complete effect list unchanged. *)
 Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent
@@ -88,7 +101,7 @@ Proof.
  unfold launched, Board.run, Board.run_result.
  rewrite selecting_a_card_retains_the_observed_value.
  rewrite found,N.eqb_refl. cbn [CommandResult.bind].
- rewrite runnable,assigned. fold settings. rewrite Created.
+ rewrite (runnable_selects_the_observed_agent card value agent runnable assigned). fold settings. rewrite Created.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
    CommandResult.change_world CommandResult.change_value CommandResult.change_effects accept decision_world decision_effects].
  assert (created_keeps_card : CardScope.lookup id (Worktree.transition_world birth)=Some card).
@@ -351,7 +364,7 @@ Proof.
  { unfold BoardFacts.busy. rewrite linked. unfold BoardFacts.busy_task, Selvedge.Kernel.Domain.task_busy, Selvedge.Kernel.Domain.task_activity, Selvedge.Kernel.Domain.task_operations. rewrite stopped. apply Bool.orb_true_r. }
  assert (locked:BoardFacts.mutable card value=false).
  { unfold BoardFacts.mutable. rewrite busy. repeat rewrite Bool.orb_true_r. reflexivity. }
- split; [exact locked|]. unfold BoardFacts.runnable. now rewrite locked.
+ split; [exact locked|]. unfold BoardFacts.runnable,BoardFacts.runnable_agent. now rewrite locked.
 Qed.
 
 Theorem finish_schedules_remaining_work : forall result id,
@@ -390,8 +403,7 @@ Proof.
  cbn [CommandResult.bind] in accepted |- *. rewrite found in accepted |- *.
  destruct (N.eqb revision (F.card_revision card)); [|discriminate].
  cbn [CommandResult.bind] in accepted |- *.
- destruct (negb (Board.runnable card value)); [discriminate|].
- destruct (Board.owner_agent (F.draft_owner (F.card_contents card)) value) as [agent|]; [|discriminate].
+ destruct (BoardFacts.runnable_agent card value) as [agent|]; [|discriminate].
  cbn zeta in accepted |- *.
  destruct (Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
@@ -426,10 +438,78 @@ Proof.
      as [updated [linked task_id]].
    unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
-   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.unlinked,Board.unlinked.
+   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_agent,BoardFacts.unlinked,Board.unlinked.
    rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
    + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
      now repeat rewrite Bool.andb_false_r.
+Qed.
+
+(** A non-assisted creation keeps the supplied draft; normalization belongs to
+    the distinct assisted workflow. *)
+Theorem ordinary_card_creation_installs_the_requested_draft : forall input observed profile value,
+ let draft := Board.apply_patch input Board.empty_draft in
+ Board.valid_draft draft value = true ->
+ Nat.ltb (BoardDrafting.live_count value) 512 = true ->
+ N.ltb (BoardDrafting.fresh_id value) 4294967295 = true ->
+ let created := CommandResult.decide value (Board.create_card_result input observed false profile value) in
+ CardScope.lookup (BoardDrafting.fresh_id value) (decision_world created) =
+   Some (BoardDrafting.fresh_card draft observed) /\
+ world_tasks (decision_world created) = world_tasks value /\
+ decision_effects created = [].
+Proof.
+ intros input observed profile value draft Valid Capacity Identity created.
+ unfold created,Board.create_card_result; cbn [Board.normalized_draft]. fold draft.
+ rewrite Valid,Capacity,Identity; cbn [andb CommandResult.require].
+ cbn [CommandResult.decide CommandResult.resolve CommandResult.accept Board.save_change
+   CommandResult.change_value CommandResult.change_world CommandResult.change_effects accept decision_world decision_effects].
+ split.
+ - pose proof (ReceiverProofs.installed
+     (BoardDrafting.card_slot (BoardDrafting.fresh_id value))
+     (BoardDrafting.fresh_card draft observed) (world_features value) (or_introl eq_refl)) as Installed.
+   change (match registry_at (BoardDrafting.fresh_id value)
+     (F.board_cards (F.feature_board (world_features
+       (Board.put (BoardDrafting.fresh_id value) (BoardDrafting.fresh_card draft observed) value)))) with
+     | Some stored => Constructor.project (@Some F.card) stored | None => None end =
+     Some (BoardDrafting.fresh_card draft observed)) in Installed.
+   unfold CardScope.lookup.
+   destruct (registry_at (BoardDrafting.fresh_id value) (F.board_cards (F.feature_board
+     (world_features (Board.put (BoardDrafting.fresh_id value) (BoardDrafting.fresh_card draft observed) value)))))
+     as [[stored|]|]; exact Installed.
+ - split; reflexivity.
+Qed.
+
+(** Pin groups precede priority groups; each filter retains the manual board
+    order, and only runnable cards enter the automatic queue. *)
+Theorem automatic_queue_follows_pin_priority_and_board_order : forall value,
+ Board.queued value =
+ flat_map (fun pinned => flat_map (fun priority =>
+   filter (fun id => match CardScope.lookup id value with
+   | Some card => Bool.eqb pinned (F.card_pinned card) &&
+       String.eqb (F.priority_name priority) (F.priority_name (F.draft_priority (F.card_contents card))) &&
+       Board.ready card value
+   | None => false end) (F.board_order (Board.registry value)))
+   [F.Urgent;F.High;F.Medium;F.Low;F.NoPriority]) [true;false].
+Proof.
+ intro value.
+ assert (Band : forall pinned priority,
+   filter (fun id => match CardScope.lookup id value with
+   | Some card => Bool.eqb pinned (F.card_pinned card) &&
+       N.eqb (Board.priority_rank priority) (Board.priority_rank (F.draft_priority (F.card_contents card))) &&
+       Board.ready card value
+   | None => false end) (F.board_order (Board.registry value)) =
+   filter (fun id => match CardScope.lookup id value with
+   | Some card => Bool.eqb pinned (F.card_pinned card) &&
+       String.eqb (F.priority_name priority) (F.priority_name (F.draft_priority (F.card_contents card))) &&
+       Board.ready card value
+   | None => false end) (F.board_order (Board.registry value))).
+ { intros pinned priority; apply filter_ext; intro id.
+   destruct (CardScope.lookup id value) as [card|]; [|reflexivity].
+   destruct priority, (F.draft_priority (F.card_contents card)); reflexivity. }
+ unfold Board.queued; cbn [flat_map].
+ rewrite <- (Band true F.Urgent), <- (Band true F.High), <- (Band true F.Medium),
+   <- (Band true F.Low), <- (Band true F.NoPriority), <- (Band false F.Urgent),
+   <- (Band false F.High), <- (Band false F.Medium), <- (Band false F.Low), <- (Band false F.NoPriority).
+ reflexivity.
 Qed.

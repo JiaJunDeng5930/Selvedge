@@ -176,7 +176,9 @@ Definition return_side (id : N) (value : world) :=
    | None => reject "not_side_conversation" "The task has no side conversation parent" value
    | Some parent =>
      let through := N.of_nat (List.length (task_history side)) in
-     let after := N.min through (task_side_cursor side) in
+     (* Side history only grows; birth initializes this cursor, and accepted
+        return is the only operation that advances it. *)
+     let after := task_side_cursor side in
      let messages := filter History.returned_content (skipn (N.to_nat after) (task_history side)) in
      match messages with
      | [] => reject "no_side_content" "This side conversation has no new content to return" value
