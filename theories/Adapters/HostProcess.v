@@ -87,7 +87,7 @@ Definition drain_step_json step := JString (match step with
   | MarkDrained => "mark_drained" | ClearDrainDeadline => "clear_deadline" end).
 Definition artifact_metadata source :=
   let ring := ring_of (get source "ring") in JObject
-    [("path",get source "path");("revision",get source "revision");("bytes",number (N.of_nat ring.(ring_length)));
+    [("path",get source "path");("bytes",number (N.of_nat ring.(ring_length)));
      ("total_bytes",number ring.(ring_total));("truncated",JBool (N.ltb (N.of_nat ring.(ring_length)) ring.(ring_total)));
      ("persisted",JBool (artifact_persisted (boolean_field source "capture_complete")
        (boolean_field source "file_synced") (boolean_field source "batch_synced") (boolean_field source "parent_synced")))].

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -241,7 +241,6 @@ test('live reads drain both full pipes and retain the newest valid Unicode with 
       assert.equal(artifact.truncated, true);
       assert.equal(artifact.total_bytes, payloadBytes + Buffer.byteLength(tail));
       assert.ok(bytes.length <= service.limits.artifact_bytes);
-      assert.equal(artifact.revision, createHash('sha256').update(bytes).digest('hex'));
       const original = Buffer.concat([Buffer.from((stream === 'stdout' ? '🙂' : '界').repeat(3 * 1048576)), Buffer.from(tail)]);
       assert.equal(Buffer.compare(bytes, original.subarray(original.length - service.limits.artifact_bytes)), 0,
         'The artifact must retain the exact byte suffix, including an initial partial UTF-8 sequence');

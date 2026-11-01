@@ -2,7 +2,6 @@ import { boundary } from './public/model-boundary.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtemp, open, readdir, readFile } from 'node:fs/promises';
 import { readSync, writeSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { prepareSandbox } from './sandbox.mjs';
@@ -141,8 +140,7 @@ function outputArtifact(file, filename, limit) {
         writeAll(retained, 0);
         await file.sync();
         // Directory barriers publish both output names together after both files finish.
-        return { path: filename, revision: createHash('sha256').update(retained).digest('hex'),
-          ring, capture_complete: !failed, file_synced: true };
+        return { path: filename, ring, capture_complete: !failed, file_synced: true };
       } finally { await file.close(); }
     },
     close: () => file.close(),
