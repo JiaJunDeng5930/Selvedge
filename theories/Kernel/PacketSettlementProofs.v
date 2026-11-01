@@ -6,7 +6,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs Inpu
 From Selvedge.Kernel Require Import TicketedRequest.
 From Selvedge.Kernel Require Import Capabilities PacketBusinessProofs.
 From Selvedge.Kernel Require Import ScopedRequestProofs.
-From Selvedge.Kernel Require Import TerminalSettlement TerminalSettlementPlanProofs TerminalSettlementPacketProofs.
+From Selvedge.Kernel Require Import TerminalSettlement TerminalSettlementPlanProofs DeferredCommitProofs.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit BoardCommit ConnectionCommit TitleCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
@@ -156,7 +156,8 @@ Proof.
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].
  rewrite Resolved.
- exact (a_terminal_settlement_commits_before_independent_runtime_work before accepted raw OutputBudget).
+ apply a_constructed_candidate_with_its_actual_budget_is_committed; [|exact OutputBudget].
+ reflexivity.
 Qed.
 
 (* The public result follows from callback ownership, decoded input and the

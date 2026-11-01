@@ -379,9 +379,8 @@ Definition consume_start_resolution (intent:creation_intent) (settings:option Co
 Definition create_intent_result (intent:creation_intent) (name:string) (effort:option string)
  (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
- let entry:=creation_entry intent caller in
  resolve_start_birth intent settings caller managed backend
- (CommandExecution.resolve_context_start entry name effort contents settings idle caller value) value.
+ (CommandExecution.resolve_context_start name effort contents settings idle caller value) value.
 Definition create_intent (intent:creation_intent) (name:string) (effort:option string)
  (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
@@ -412,7 +411,7 @@ Definition create_owned_cached (owner:N) (intent:creation_intent) (settings:opti
 Definition create_idle_owned (owner:option N) (name:string) (effort:option string)
  (settings:option Codec.settings_request) (caller:option N) (managed:option bool) (value:world) :=
  let entry:=creation_entry IdleTaskCreation caller in
- let cached:=CommandExecution.resolve_context_start entry name effort [] settings true caller value in
+ let cached:=CommandExecution.resolve_context_start name effort [] settings true caller value in
  match cached with
  | Tasks.StartRefused cause=>Tasks.refuse_start entry cause value
  | Tasks.StartResolved start=>
@@ -446,7 +445,7 @@ Definition handle_create_workspace_task (payload:Selvedge.Generated.Commands.cre
  CommandExecution.with_content
    (Selvedge.Generated.Commands.create_workspace_task_message_admitted payload) (Selvedge.Generated.Commands.create_workspace_task_images_admitted payload)
    (fun contents=>let settings:=option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_workspace_task_settings_admitted payload) in
-     let cached:=CommandExecution.resolve_context_start (creation_entry WorkspaceTaskCreation caller)
+     let cached:=CommandExecution.resolve_context_start
        (Selvedge.Generated.Commands.create_workspace_task_profile payload) (Selvedge.Generated.Commands.create_workspace_task_reasoning payload)
        contents settings false caller value in
      if start_allowed settings caller value cached then
@@ -462,7 +461,7 @@ Definition handle_create_work_task (payload:Selvedge.Generated.Commands.create_w
    (fun contents=>let settings:=option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_work_task_settings_admitted payload) in
    create_owned_cached (Selvedge.Generated.Commands.create_work_task_work_id payload) WorkTaskCreation settings caller
    (Selvedge.Generated.Commands.create_work_task_create_worktree payload) None
-   (CommandExecution.resolve_context_start (creation_entry WorkTaskCreation caller)
+   (CommandExecution.resolve_context_start
      (Selvedge.Generated.Commands.create_work_task_profile payload) (Selvedge.Generated.Commands.create_work_task_reasoning payload)
      contents settings false caller value) value) value.
 Definition handle_retry_worktree_archive (payload:Selvedge.Generated.Commands.retry_worktree_archive_payload) (caller:option N) (value:world) :decision :=

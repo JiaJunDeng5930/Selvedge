@@ -23,7 +23,7 @@ Proof.
  unfold TaskGraph.cached_allowed,TaskGraph.cache_node.
  unfold Worktree.start_allowed.
  destruct (CommandExecution.resolve_context_start
-   (Worktree.creation_entry Worktree.GraphTaskCreation None) name (Some effort) contents
+   name (Some effort) contents
    (Some settings) false None before); reflexivity.
 Qed.
 
@@ -124,7 +124,7 @@ Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
 
 Theorem public_idle_missing_work_follows_successful_profile_resolution : forall request before start owner,
  G.create_idle_work_id request = Some owner ->
- CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
+ CommandExecution.resolve_context_start
    (G.create_idle_profile request) (G.create_idle_reasoning request) []
    (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartResolved start ->
  Work.lookup owner before = None ->

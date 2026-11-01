@@ -65,5 +65,3 @@ Definition candidate {before : world} (accepted : plan before) :=
 Definition source {before : world} (accepted : plan before) :=
  let payload := request accepted in
  AfterCompleted (owner payload) (operation payload) (ticket payload) (outcome payload).
-Definition packet {before : world} (accepted : plan before) (raw : Json.json) :=
- DeferredCommit.packet (Some (source accepted)) before (candidate accepted).

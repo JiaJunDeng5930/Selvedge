@@ -151,7 +151,7 @@ Record resolved_start := ResolvedStart {
 }.
 Inductive start_resolution := StartRefused (cause : failure_cause)
  | StartResolved (plan : resolved_start).
-Definition resolve_start (entry : creation_entry) (name : string) (reasoning : option string)
+Definition resolve_start (name : string) (reasoning : option string)
  (contents : content) (settings : option settings_request) (idle : bool) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | None => StartRefused UnknownProfile

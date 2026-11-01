@@ -43,7 +43,7 @@ Definition creation_allowed (settings : option settings_request) (selected : tas
  | Some id => match find_task id value with
    | None => false
    | Some task => native_creation_allowed settings selected (task_current_settings task) value end end.
-Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
+Definition resolve_context_start (name : string)
  (effort : option string) (contents : content) (settings : option settings_request) (idle : bool)
  (caller : option N) (value : world) : Tasks.start_resolution :=
  let defaults := creation_defaults (world_environment value) in
@@ -52,7 +52,7 @@ Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
  | Some id => match find_task id value with
    | None => defaults
    | Some task => creation_base settings (task_current_settings task) value end end in
- Tasks.resolve_start entry name effort contents settings idle base value.
+ Tasks.resolve_start name effort contents settings idle base value.
 Definition create_project (name : D.denote Workspace.project_name_declaration) (source : D.denote workspace_declaration)
  (guidance : option (D.denote guidance_declaration)) (worktree : option bool)
  (resource : option (D.denote binding_declaration)) (value : world) :=

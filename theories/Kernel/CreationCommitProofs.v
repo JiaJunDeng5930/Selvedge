@@ -11,7 +11,7 @@ Open Scope string_scope.
 Module G := Selvedge.Generated.Commands.
 
 Definition requested_start (request : G.create_payload) contents before :=
- CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.ImplicitCreation None)
+ CommandExecution.resolve_context_start
    (G.create_profile request) (G.create_reasoning request) contents
    (option_map (settings_request_of_values true) (G.create_settings_admitted request)) false None before.
 Definition planned_decision {before : world} (plan : Worktree.planned_start before) :=

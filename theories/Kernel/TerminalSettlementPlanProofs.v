@@ -31,3 +31,15 @@ Proof.
  - intros current Found; apply observed_resolution_retains_the_callback_payload.
  - intros Missing Equal; discriminate.
 Qed.
+
+Theorem every_owned_terminal_callback_resolves_its_finite_transaction :
+ forall payload before current,
+ find_task (TerminalSettlement.owner payload) before = Some current ->
+ TerminalSettlement.eligible payload current = true ->
+ exists accepted, TerminalSettlement.resolve_request payload before = Some accepted.
+Proof.
+ intros payload before current Found Eligible.
+ pose proof (terminal_resolution_tracks_the_real_eligibility payload before) as Resolves.
+ rewrite Found, Eligible in Resolves.
+ destruct (TerminalSettlement.resolve_request payload before) as [accepted|]; [eauto|discriminate].
+Qed.

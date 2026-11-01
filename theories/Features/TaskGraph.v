@@ -96,7 +96,6 @@ Definition cache_node (caller:option N) (original:world) (node:Selvedge.Features
  | Selvedge.Features.Domain.ExistingNode key id=>CachedExisting key id
  | Selvedge.Features.Domain.SpawnNode key profile effort contents settings=>
    CachedSpawn key settings (CommandExecution.resolve_context_start
-     (Worktree.creation_entry Worktree.GraphTaskCreation caller)
      profile (Some effort) contents (Some settings) false caller original) end.
 Definition cached_allowed (caller:option N) (original:world) (node:cached_node) :=
  match node with CachedExisting _ _=>true
