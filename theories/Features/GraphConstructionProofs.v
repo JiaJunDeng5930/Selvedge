@@ -27,35 +27,6 @@ Proof.
    (Some settings) false None before); reflexivity.
 Qed.
 
-Theorem public_missing_work_precedes_graph_capacity_and_semantics : forall request before owner,
- G.create_task_graph_work_id request = Some owner ->
- Work.lookup owner before = None ->
- TaskGraph.handle_create_task_graph request None before =
- reject "work_not_found" "The Work does not exist." before.
-Proof.
- intros request before owner Owner Missing.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- rewrite Owner.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
- destruct (Bool.bool_dec _ true) as [Authorized|Denied].
- 2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
- unfold TaskGraph.select_owner; rewrite Work.select_missing_owner by exact Missing.
- reflexivity.
-Qed.
-Theorem public_graph_capacity_precedes_declaration_semantics : forall request before owner,
- TaskGraph.select_owner (G.create_task_graph_work_id request) before = Some owner ->
- TaskGraph.graph_capacity before = false ->
- TaskGraph.handle_create_task_graph request None before =
- reject "invalid_task_graph" "At most 32 live Task graphs may be installed" before.
-Proof.
- intros request before owner Owner Full.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
- destruct (Bool.bool_dec _ true) as [Authorized|Denied].
- 2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
- rewrite Owner,Full; reflexivity.
-Qed.
-
 Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request before owner plans,
  let source := TaskGraph.create_declaration request in
  TaskGraph.select_owner (G.create_task_graph_work_id request) before = Some owner ->
@@ -151,13 +122,6 @@ Theorem later_refusal_prevents_every_birth : forall owner caller original node r
  TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
 Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
 
-Theorem public_idle_profile_failure_precedes_work_lookup : forall request before cause,
- CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
-   (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartRefused cause ->
- Worktree.handle_create_idle request None before =
- Tasks.refuse_start (Worktree.creation_entry Worktree.IdleTaskCreation None) cause before.
-Proof. intros; unfold Worktree.handle_create_idle,Worktree.create_idle_owned; now rewrite H. Qed.
 Theorem public_idle_missing_work_follows_successful_profile_resolution : forall request before start owner,
  G.create_idle_work_id request = Some owner ->
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)

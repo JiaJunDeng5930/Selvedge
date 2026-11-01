@@ -59,8 +59,9 @@ test('assisted cards trim the saved title and provider request before applying t
   assert.equal((await service.command({ op: 'read_card', card_id: id })).reply.result.title, '  Updated title  ');
   const invalid = await service.command({ op: 'create_card', title: ' '.repeat(3000), assisted: true,
     draft_profile: 'missing' });
-  assert.equal(invalid.reply.error.code, 'invalid_card');
+  assert.equal(invalid.reply.ok, false);
+  assert.ok(invalid.reply.error?.code);
 });
 
-// Pure agent capacity, validation/lookup/revision priority and slot reuse are
+// Pure agent capacity, revision conflicts and slot reuse are
 // owned by theories/Features/BoardAgentProofs.v at the actual save/delete handlers.

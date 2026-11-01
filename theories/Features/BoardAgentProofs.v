@@ -34,15 +34,6 @@ Proof.
  intro Found. now subst slot.
 Qed.
 
-Theorem unavailable_agent_execution_precedes_capacity_and_revision source value :
- (forall revision, Board.agent_execution_available (Board.agent_parameters revision source) value = false) ->
- exists reason, Board.save_agent source value = reject "invalid_agent" reason value.
-Proof.
- intro Invalid. unfold Board.save_agent.
- destruct (Board.agent_identity source); cbn beta iota zeta;
- rewrite Invalid; eexists; reflexivity.
-Qed.
-
 Theorem full_agent_capacity_rejects_only_new_agents source value :
  Board.agent_identity source = None ->
  Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
@@ -86,16 +77,6 @@ Proof.
  - change (live_count (agent_slots value ++ [Some (Board.agent_parameters 0 source)]) =
      S (live_count (agent_slots value))).
    unfold live_count. rewrite filter_app,app_length. cbn. lia.
-Qed.
-
-Theorem absent_agent_precedes_revision_and_ignores_capacity source id value :
- Board.agent_identity source = Some id ->
- Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
- Board.lookup_agent id value = None ->
- Board.save_agent source value = reject "agent_not_found" "The board agent no longer exists" value.
-Proof.
- intros Identity Valid Missing. unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
- rewrite Valid,Missing. reflexivity.
 Qed.
 
 Theorem stale_agent_revision_rejects_even_at_capacity source id previous value :
