@@ -74,5 +74,4 @@ Definition self_snapshot (source : json) :=
    then admit_snapshot key revision fields else None
  | _,_,_ => None end.
 Definition patch := ContextUpdates.parse_patch.
-Definition ordered_edits := ContextUpdates.ordered_edits.
 Definition valid_patch := ContextUpdates.valid_patch.

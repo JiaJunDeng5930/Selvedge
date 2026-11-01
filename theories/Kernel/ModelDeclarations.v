@@ -75,7 +75,6 @@ Definition context_measure_request := declare_request "context_measure" (OwnedTi
 Definition context_measure := request_variant_view context_measure_request.
 Definition context_compaction_body := [model] ++ output ++
  [Field "method" KText;Field "window_tokens" KNatural;Field "output_reserve_tokens" KNatural].
-Definition context_compaction_metadata := identity ++ context_compaction_body.
 Definition context_compaction_request := declare_request "context_compaction" (OwnedTicket "task_id")
  (context_compaction_body ++ [Field "plan" KJson]) (Compaction true).
 Definition context_compaction := request_variant_view context_compaction_request.

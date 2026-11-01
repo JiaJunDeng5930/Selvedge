@@ -13,8 +13,6 @@ Definition lower (s : string) := String.string_of_list_ascii
 Fixpoint contains (query text : string) :=
  if String.prefix query text then true else
  match text with EmptyString => false | String _ rest => contains query rest end.
-Definition searchable (message : json) :=
- match json_message_role message with Some "user" | Some "assistant" => true | _ => false end.
 Definition take_text (limit : nat) (text : string) :=
  match Utf8.take limit text with Some value => value | None => "" end.
 Fixpoint match_offset (query text : string) (offset : nat) : nat :=

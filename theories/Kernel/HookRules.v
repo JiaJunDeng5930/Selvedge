@@ -23,8 +23,6 @@ Definition after_from_fields (value : ArgumentDeclaration.denote CallbackDeclara
  | inr (inr (inr (inr impossible))) => match impossible with end end.
 Definition parse_hook source := option_map hook_from_fields
  (ArgumentDeclaration.decode CallbackDeclarations.hook_schema source).
-Definition parse_after source := option_map after_from_fields
- (ArgumentDeclaration.decode CallbackDeclarations.after_schema source).
 Inductive before_action := Proceed (invocation : call) | Refuse (code reason : string).
 Definition before_apply (invocation : call) (outcome : hook_outcome) := match outcome with
  | HookAllow => Proceed invocation

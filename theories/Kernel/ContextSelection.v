@@ -48,7 +48,6 @@ Definition artifact_format (value : artifact) :=
 Definition artifact_json (value : artifact) := JObject [
  ("format", JString (artifact_format value)); ("scope", JString (artifact_scope value));
  ("items", JArray (artifact_items value)); ("usage", artifact_usage value)].
-Definition artifact_valid (value : json) := match decode_artifact value with Some _ => true | None => false end.
 Definition consumes (value : artifact) (scope : string) :=
  match value with PortableArtifact _ _ _ => true | NativeArtifact head tail _ _ _ => String.eqb (String head tail) scope end.
 Definition compatible (value : json) (scope : string) :=

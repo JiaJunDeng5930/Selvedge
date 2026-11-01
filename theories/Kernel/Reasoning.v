@@ -29,11 +29,6 @@ Definition context_retry (id : N) (value : world) :=
 
 
 Definition allowed := ReasoningPlan.allowed.
-Definition plan := ReasoningPlan.plan.
-Definition Fixed := ReasoningPlan.Fixed.
-Definition Reuse := ReasoningPlan.Reuse.
-Definition Evaluate := ReasoningPlan.Evaluate.
-Definition next := ReasoningPlan.next.
 Inductive outcome := Chosen (effort : string) (generations : N) | EvaluationFailed (reason : string).
 Definition failed_changes (reason : string) (task : task) :=
  let messages := [FailureMessage ("Automatic reasoning: " ++ reason)] in
@@ -59,7 +54,6 @@ Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
  end.
 Definition complete (owner : N) (outcome : outcome) (task : task) :=
  TaskChange.apply (complete_changes owner outcome task) task.
-Definition last_configuration := TicketedRequest.last_configuration.
 Definition trailing_configuration := TicketedRequest.trailing_configuration.
 Definition generation := TicketedRequest.generation.
 Definition sampling (model : profile) (requested : profile) :=

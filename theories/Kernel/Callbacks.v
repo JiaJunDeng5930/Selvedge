@@ -124,10 +124,6 @@ Definition settle_operation (operation : operation) (result : json) (error : boo
 Definition after_plugins := OperationEvent.after_plugins.
 Definition begin_result_plan (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  OperationEvent.plan owner (OperationEvent.Returned operation result error) task.
-Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskResult.result_changes (begin_result_plan owner operation result error task) task.
-Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskChange.apply (begin_result_changes owner operation result error task) task.
 Definition tool_completed (id ticket : N) (result : json) (error : bool) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_tool ticket)
    (fun target operation => acknowledged (TaskResult.interpret_result target
@@ -136,12 +132,6 @@ Definition find_pending_approval := RequestReceiver.find_approval.
 Definition approval_decision_plan (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  OperationEvent.plan owner (OperationEvent.Reviewed operation reviewed_by outcome) task.
-Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
- (outcome : approval_outcome) (task : task) :=
- TaskResult.result_changes (approval_decision_plan owner operation reviewed_by outcome task) task.
-Definition approval_decision (owner : N) (operation : operation) (reviewed_by : reviewer)
- (outcome : approval_outcome) (task : task) :=
- TaskChange.apply (approval_decision_changes owner operation reviewed_by outcome task) task.
 Definition approval_completed (id ticket : N) (outcome : approval_outcome) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_approval ticket)
    (fun target payload => let '(operation,actor) := payload in

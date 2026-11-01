@@ -81,8 +81,6 @@ Definition configure entries value := match ConnectionGrants.admit_grants entrie
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
 Definition connection_jobs := Receiver.field Selvedge.Features.Domain.sharing_jobs
  (Receiver.keyed (@fst N Selvedge.Features.Domain.connection_job)).
-Definition connection_slot := Receiver.field Selvedge.Features.Domain.feature_sharing connection_jobs.
-Definition put_connection identity job := FeatureRequest.install_feature connection_slot (identity,job).
 Definition replace_job id job := Receiver.install connection_jobs (id,job).
 Definition retry := FeatureRequestAdmission.connection_retry.
 Definition storage (features : Selvedge.Features.Domain.state) :=

@@ -55,10 +55,6 @@ Definition returned_content (value : message) :=
  | ContextObservation change => negb (parent_context change)
  | SideConversationBirth _ _ _ => false
  | _ => true end.
-Definition without_inherited_result (identity : string) (value : message) :=
- match value with
- | FunctionOutput actual _ _ => negb (String.eqb identity actual)
- | _ => true end.
 
 Definition message_images (value : message) := match value with
  | UserMessage parts => Images.only_images parts
