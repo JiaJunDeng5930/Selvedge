@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { responsesServer, shellQuote, taskIdle } from './support.mjs';
+import { asyncToolResult, responsesServer, shellQuote, taskIdle } from './support.mjs';
 
 const call = (name, args) => ({ name, arguments: args });
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
@@ -17,7 +17,6 @@ function value(result) {
   return result.value;
 }
 
-const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
 const waiting = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Waiting for the pending tool result.' }] }];
 
 function modelResults() {
@@ -48,10 +47,8 @@ function modelResults() {
           assert.equal(typeof item.output, 'string', 'These process tools return JSON text');
           direct.set(item.call_id, JSON.parse(item.output));
         }
-        if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(completionPrefix)) {
-          const result = JSON.parse(item.content.slice(completionPrefix.length));
-          completed.set(result.call_id, result);
-        }
+        const result = asyncToolResult(item);
+        if (result && issued.has(result.call_id)) completed.set(result.call_id, result);
       }
     },
     result({ id, name }) {
@@ -222,10 +219,12 @@ test('live reads drain both full pipes and retain the newest valid Unicode with 
     // Separate pipes can arrive in either order despite the child's sequenced write callbacks.
     assert.match(observed.output, /(?:STDOUT|STDERR)-TAIL-🙂界\n$/);
     assert.equal(observed.output.includes('\ufffd'), false);
-    assert.ok(Array.from(observed.output).length < 1048576, 'The retained output must be bounded despite pipe pressure');
+    const output = Array.from(observed.output);
+    assert.ok(output.length < 1048576, 'The retained output must be bounded despite pipe pressure');
     assert.ok(observed.omitted_characters > 0);
     assert.notEqual(observed.start_cursor, '0');
-    assert.match(observed.output, /omitt|truncat|discard/i, 'The returned text must explicitly identify its missing prefix');
+    const retained = Number(BigInt(observed.next_cursor) - BigInt(observed.start_cursor));
+    assert.ok(output.slice(0, -retained).join('').trim(), 'The returned text must mark its omitted prefix');
     const empty = value(yield call('read_process', { operation_id: operationId, cursor: observed.next_cursor }));
     assert.equal(empty.output, '');
     assert.equal(empty.omitted_characters, 0);

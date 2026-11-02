@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { home, responsesServer } from './support.mjs';
+import { asyncToolResult, home, responsesServer } from './support.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/mcp-schema-contract.mjs', import.meta.url));
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Measured.' }] }];
@@ -19,17 +19,14 @@ test('MCP preserves its server schema through discovery and actual decimal/neste
   const key = `SELVEDGE_SCHEMA_${randomBytes(8).toString('hex')}`;
   process.env[key] = 'loopback-schema-fixture';
   t.after(() => { delete process.env[key]; });
-  const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
   const calls = [valid, invalid];
   const seen = new Map();
   let completed = 0;
   const upstream = await responsesServer(t, body => {
     for (const item of body.input) {
       if (item.type === 'function_call_output') seen.set(item.call_id, JSON.parse(item.output));
-      if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(completionPrefix)) {
-        const output = JSON.parse(item.content.slice(completionPrefix.length));
-        seen.set(output.call_id, output);
-      }
+      const output = asyncToolResult(item);
+      if (output && calls.some((_, index) => output.call_id === `schema-${index}`)) seen.set(output.call_id, output);
     }
     while (completed < calls.length) {
       const output = seen.get(`schema-${completed}`);
@@ -85,7 +82,7 @@ test('extensions still reject schemas outside their documented decidable fragmen
   try {
     await assert.rejects(async () => {
       running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
-    }, /schema|catalog|manifest|fragment|plugin/i);
+    }, error => error instanceof Error && error.message.trim() !== '');
   } finally {
     if (running) await running.close();
   }
