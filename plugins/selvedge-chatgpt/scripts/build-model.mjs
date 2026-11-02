@@ -11,7 +11,7 @@ const sources = {
   'opaque-credentials.mjs': 'host/opaque-credentials.mjs',
   'file-io.mjs': 'host/file-io.mjs',
 };
-export const packagedModelFiles = Object.freeze(Object.keys(sources));
+export const packagedModelFiles = Object.keys(sources);
 
 /** Runtime packages contain the actual extracted definitions and no compiler dependency. */
 export async function buildModel({ buildResult } = {}) {

@@ -336,11 +336,10 @@ export async function build(options = {}) {
     for (const [filename, bundle] of publications) await writeChanged(filename, bundle);
     if (selected.includes('schema')) await generateModelSchema(root);
     console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
-    const result = Object.freeze({
+    return {
       checked: check && allModules && productionTargets.every(name => selected.includes(name)),
-      targets: Object.freeze([...selected]),
-    });
-    return result;
+      targets: [...selected],
+    };
   } finally {
     // DEFENSE: A failed dependency can reject its consumer while other scheduled checks are still running.
     await Promise.allSettled([...pending.values()]);
