@@ -13,6 +13,21 @@ import { asyncToolResult, home, shellQuote } from './support.mjs';
 const execute = promisify(execFile);
 const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1cAAAAASUVORK5CYII=';
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
+function assertEnvironmentNotice(page, request) {
+  const notices = page.messages.filter(message => message.role === 'task_context'
+    && message.type === 'environment_notice');
+  assert.ok(notices.length > 0, 'A cloud task must retain its environment notice in public history');
+  const contexts = [request.instructions, ...request.input
+    .filter(message => message.role === 'developer' || message.role === 'system')
+    .map(({ content }) => typeof content === 'string' ? content
+      : content.filter(part => part.type === 'input_text').map(part => part.text).join(''))];
+  for (const notice of notices) {
+    assert.ok(typeof notice.content === 'string' && notice.content.trim(), 'The environment notice must contain guidance');
+    assert.ok(contexts.some(content => typeof content === 'string' && content.includes(notice.content)),
+      'The provider must receive the recorded environment notice as trusted context');
+  }
+}
+
 function tool(body, id, name, arguments_) {
   const namespace = body.tools.find(scope => scope.type === 'namespace' && scope.tools.some(definition => definition.name === name));
   assert.ok(namespace, `The account request must advertise ${name} in its local tool namespace`);
@@ -238,8 +253,6 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
     if (step === 0) {
       assert.equal(await readFile(prepared, 'utf8'), 'ready', 'The project script must finish before the first model request');
       const context = JSON.stringify({ instructions: body.instructions, input: body.input });
-      assert.match(context, /bash[^.]*cloud|cloud[^.]*bash/i);
-      assert.match(context, /MCP[^.]*local|local[^.]*MCP/i);
       assert.match(context, /CLOUD-COMMITTED-GUIDANCE/);
       step++;
       return tool(body, 'cloud-start', 'bash', { command: "printf 'READY\\n'; IFS= read -r line; printf 'ECHO:%s\\n' \"$line\"; cat marker.txt; base64 image.png; printf '\\nCLOUD-IMAGE-PATH:%s/image.png\\n' \"$PWD\"" });
@@ -289,6 +302,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   finally { assert.deepEqual(fixture_.upstream.failures, []); }
   assert.equal(completed, true);
   const read = await fixture_.service.command({ op: 'read', task_id: id });
+  assertEnvironmentNotice(read.reply.result, fixture_.upstream.requests[0]);
   assert.equal(read.reply.result.task.settings.approval.mode, 'full-access');
   const entry = await worktree(fixture_.service, id);
   assert.equal(entry.backend, 'tencent_cvm');
@@ -540,15 +554,12 @@ test('cloud guidance uses the shared override priority and preserves the leading
 
 test('native independent creation reuses the caller cloud resource despite the project worktree preference and receives its environment notice', async t => {
   let owner;
-  let childObserved = false;
+  let childRequest;
   const fixture_ = await fixture(t, async body => {
-    const context = JSON.stringify({ instructions: body.instructions, input: body.input });
     if (body.input.some(item => item.role === 'user' && (typeof item.content === 'string'
       ? item.content
       : item.content.filter(part => part.type === 'input_text').map(part => part.text).join('')) === 'INDEPENDENT-CLOUD')) {
-      assert.match(context, /bash[^.]*cloud|cloud[^.]*bash/i);
-      assert.match(context, /full access/i);
-      childObserved = true;
+      childRequest = body;
       return done;
     }
     if (outputs(body).has('create-independent-cloud')) return done;
@@ -567,10 +578,12 @@ test('native independent creation reuses the caller cloud resource despite the p
   const tasks = await until(async () => {
     const listed = await fixture_.service.command({ op: 'list' });
     return listed.reply.result.tasks;
-  }, values => childObserved && values.length === 2 && values.every(value => value.phase === 'idle'),
+  }, values => childRequest && values.length === 2 && values.every(value => value.phase === 'idle'),
   'The independent cloud task must start with the retained environment context');
   const child = tasks.find(value => value.id !== owner);
   const read = await fixture_.service.command({ op: 'read', task_id: child.id });
+  assertEnvironmentNotice(read.reply.result, childRequest);
+  assert.equal(read.reply.result.task.settings.approval.mode, 'full-access');
   assert.equal(read.reply.result.task.parent, null);
   assert.equal(read.reply.result.task.side_parent, null);
   assert.equal(read.reply.result.task.settings.workspace_resource, owner);
