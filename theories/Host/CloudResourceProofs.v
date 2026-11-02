@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import JsonProofs.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Host Require Import CloudResources.
@@ -52,8 +52,30 @@ Qed.
 
 Theorem ssh_expiry_emits_no_probe deadline now :
   (deadline <=? now)%N = true ->
-  snd (ssh_probe deadline now) = [Reject deadline_message].
+  ssh_probe deadline now = Reject deadline_message.
 Proof. intros expired. unfold ssh_probe. rewrite expired. reflexivity. Qed.
+
+Theorem ssh_wait_fits_remaining_deadline deadline observed duration :
+  ssh_step deadline observed = Probe duration \/ ssh_step deadline observed = Delay duration ->
+  let now := match observed with SshCheck now | SshProbeResult now _ _ => now end in
+  (0 < duration /\ now + duration <= deadline)%N.
+Proof.
+  intros scheduled. destruct observed as [now | now code error].
+  - unfold ssh_step,ssh_probe in scheduled.
+    destruct (deadline <=? now)%N eqn:expired; [destruct scheduled; discriminate|].
+    destruct scheduled as [scheduled | scheduled]; [|discriminate].
+    inversion scheduled; subst duration. apply N.leb_gt in expired.
+    split; [apply N.min_glb_lt; lia|].
+    pose proof (N.le_min_r 15000 (deadline - now)); lia.
+  - cbn [ssh_step] in scheduled.
+    destruct (N.eqb code 0); [destruct scheduled; discriminate|].
+    destruct (N.eqb code 255); [|destruct scheduled; discriminate].
+    destruct (deadline <=? now)%N eqn:expired; [destruct scheduled; discriminate|].
+    destruct scheduled as [scheduled | scheduled]; [discriminate|].
+    inversion scheduled; subst duration. apply N.leb_gt in expired.
+    split; [apply N.min_glb_lt; lia|].
+    pose proof (N.le_min_r 2000 (deadline - now)); lia.
+Qed.
 
 Theorem durable_readiness_revalidation_keeps_connection source instance host guidance :
   step (Persisting (Ready source instance host guidance)) Resume =

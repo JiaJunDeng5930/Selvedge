@@ -88,7 +88,6 @@ Definition cloud_readiness_delay := variant "kind" "delay" [Field "milliseconds"
 Definition cloud_readiness_connected := variant "kind" "connected" [] [].
 Definition cloud_readiness_reject := variant "kind" "reject" [Field "message" KText] [].
 Definition cloud_readiness_actions := [cloud_readiness_probe;cloud_readiness_delay;cloud_readiness_connected;cloud_readiness_reject].
-Definition cloud_readiness_transition := [Field "state" KJson;Field "actions" (KArray KJson)].
 Definition dispatch_start := variant "kind" "start" [Field "generation" KNatural] [].
 Definition dispatch_rollback_workspace := variant "kind" "rollback_workspace" [] [].
 Definition dispatch_await := variant "kind" "await" [Field "generation" KNatural] [].
@@ -190,7 +189,7 @@ Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"creden
  "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
 Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
- ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);("CloudReadinessTransition",cloud_readiness_transition);
+ ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);
  ("ResourceTransition",resource_transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);

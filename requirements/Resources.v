@@ -55,6 +55,7 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
   retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
+  ssh_wait_fits_remaining_deadline,
   reconciled_termination_requires_the_unique_owned_instance).
 Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
   git_registration_requires_reservation_persisted_ack,
@@ -130,6 +131,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     observation and cleanup. A provider request ID only supports diagnostics
     and cannot establish allocation ownership.
 
+    Receipt admission preserves the supplied JSON spelling. Cloud configuration
+    decoding at backend use also normalizes valid integer spellings before host
+    arithmetic: a receipt may spell its startup timeout as [1e3]. That conversion
+    remains necessary even after receipt validation has established the settings
+    shape and bounds.
+
     Setup logs aid diagnosis; they do not establish allocation or readiness.
     A log write failure is reported through service diagnostics without
     preventing successful preparation or cleanup. The recovery receipt retains
@@ -144,7 +151,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Generated action unions and checked interpreters keep the host from
     choosing another continuation. SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. Project guidance can change while the service is
+    is a preparation failure. [ssh_wait_fits_remaining_deadline] requires each
+    probe timeout and retry delay to be positive and fit the deadline remaining
+    at its clock observation. Zero must not disable the physical probe timeout.
+    The awaited probe or delay already determines which observation comes next;
+    separate progress or terminal states would add no recovery information.
+    Project guidance can change while the service is
     stopped, so readiness revalidation observes it again rather than retaining
     the old contents. SDK, SSH, Git, filesystems, provider tags and
     credential verification remain physical assumptions. Obsolete receipts

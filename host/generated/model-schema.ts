@@ -507,11 +507,6 @@ export function decodeRemoteConnectorSessionTransition(input: unknown): RemoteCo
  const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeJson(source["action"])};
 }
 
-export type CloudReadinessTransition = {"state": JsonValue; "actions": Array<JsonValue>};
-export function decodeCloudReadinessTransition(input: unknown): CloudReadinessTransition {
- const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
-}
-
 export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe">};
 export function decodeResourceTransition(input: unknown): ResourceTransition {
  const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum3(item))};

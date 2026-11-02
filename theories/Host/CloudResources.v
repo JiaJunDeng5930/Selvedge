@@ -188,43 +188,27 @@ Definition call_step source observed := match decode_state source, decode_observ
 
 (** RUNNING precedes SSH readiness. Exit 255 permits another bounded probe;
     an image missing its required programs is a definite preparation failure. *)
-Inductive ssh_state := SshProbing (deadline : N) | SshWaiting (deadline : N)
-  | SshConnected | SshRejected (message : string).
-Inductive ssh_observation := SshBegin (now : N) | SshProbeResult (now exit_code : N) (error : string) | SshWake (now : N).
+Inductive ssh_observation := SshCheck (now : N) | SshProbeResult (now exit_code : N) (error : string).
 Inductive ssh_action := Probe (timeout : N) | Delay (milliseconds : N) | Connected | Reject (message : string).
 Definition deadline_message := "Cloud SSH startup deadline exceeded".
-Definition ssh_probe deadline now := if deadline <=? now then (SshRejected deadline_message,[Reject deadline_message])
-  else (SshProbing deadline,[Probe (N.min 15000 (deadline - now))]).
-Definition ssh_step value observed := match value, observed with
-  | SshProbing deadline, SshBegin now | SshWaiting deadline, SshWake now => ssh_probe deadline now
-  | SshProbing deadline, SshProbeResult now code error =>
-      if N.eqb code 0 then (SshConnected,[Connected]) else if N.eqb code 255 then
-        if deadline <=? now then (SshRejected deadline_message,[Reject deadline_message])
-        else (SshWaiting deadline,[Delay (N.min 2000 (deadline - now))])
-      else let message := "Cloud image requires bash, git and setsid: " ++ error in (SshRejected message,[Reject message])
-  | _, _ => (value,[]) end.
-Definition ssh_state_json value := match value with
-  | SshProbing deadline => JObject [("phase",JString "probe");("deadline",number deadline)]
-  | SshWaiting deadline => JObject [("phase",JString "wait");("deadline",number deadline)]
-  | SshConnected => JObject [("phase",JString "connected")]
-  | SshRejected message => JObject [("phase",JString "rejected");("message",JString message)] end.
+Definition ssh_probe deadline now := if deadline <=? now then Reject deadline_message
+  else Probe (N.min 15000 (deadline - now)).
+Definition ssh_step deadline observed := match observed with
+  | SshCheck now => ssh_probe deadline now
+  | SshProbeResult now code error =>
+      if N.eqb code 0 then Connected else if N.eqb code 255 then
+        if deadline <=? now then Reject deadline_message
+        else Delay (N.min 2000 (deadline - now))
+      else Reject ("Cloud image requires bash, git and setsid: " ++ error) end.
 Definition ssh_action_json value := match value with
   | Probe timeout => JObject [("kind",JString "probe");("timeout",number timeout)]
   | Delay milliseconds => JObject [("kind",JString "delay");("milliseconds",number milliseconds)]
   | Connected => JObject [("kind",JString "connected")]
   | Reject message => JObject [("kind",JString "reject");("message",JString message)] end.
 Definition ssh_call source :=
-  let current := get source "state" in let observed := get source "observation" in
-  let phase := str current "phase" in
-  let state := if String.eqb phase "probe" then Some (SshProbing (num current "deadline"))
-    else if String.eqb phase "wait" then Some (SshWaiting (num current "deadline"))
-    else if String.eqb phase "connected" then Some SshConnected
-    else if String.eqb phase "rejected" then Some (SshRejected (str current "message")) else None in
+  let observed := get source "observation" in
   let kind := str observed "kind" in
-  let observation := if String.eqb kind "begin" then Some (SshBegin (num observed "now"))
+  let observation := if String.eqb kind "check" then Some (SshCheck (num observed "now"))
     else if String.eqb kind "result" then Some (SshProbeResult (num observed "now") (num observed "exit_code") (str observed "stderr"))
-    else if String.eqb kind "wake" then Some (SshWake (num observed "now")) else None in
-  match state, observation with
-  | Some value, Some event => let '(next, actions) := ssh_step value event in Some (JObject [
-      ("state",ssh_state_json next);("actions",JArray (map ssh_action_json actions))])
-  | _, _ => None end.
+    else None in
+  option_map (fun event => ssh_action_json (ssh_step (num source "deadline") event)) observation.
