@@ -93,8 +93,9 @@ Theorem successful_side_return_consumes_the_observed_suffix : forall id value si
  bool_default "ok" (decision_reply (CommandExecution.return_side id value)) false = true ->
  let after := decision_world (CommandExecution.return_side id value) in
  find_task id after = Some (with_side_cursor (N.of_nat (List.length (task_history side))) side) /\
- CommandExecution.return_side id after =
-   reject "no_side_content" "This side conversation has no new content to return" after.
+ bool_default "ok" (decision_reply (CommandExecution.return_side id after)) true = false /\
+ decision_world (CommandExecution.return_side id after) = after /\
+ decision_effects (CommandExecution.return_side id after) = [].
 Proof.
  intros id value side parent Found Parent Different Successful.
  remember (CommandExecution.return_side id value) as returned eqn:Returned in *.
@@ -128,7 +129,7 @@ Proof.
  all: split; [exact Installed|].
  all: unfold CommandExecution.return_side; rewrite Installed.
  all: destruct side; cbn in Life, Parent |- *.
- all: rewrite Life,Parent; cbn zeta; rewrite Nat2N.id,skipn_all; reflexivity.
+ all: rewrite Life,Parent; cbn zeta; rewrite Nat2N.id,skipn_all; repeat split; reflexivity.
 Qed.
 
 Theorem a_refused_side_return_keeps_the_world_and_effects : forall id value,

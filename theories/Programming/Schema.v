@@ -168,7 +168,7 @@ Fixpoint decode_fields (description : schema) (source : list (string * json)) : 
 Definition decode (description : schema) (source : json) : option (fields description) :=
   match source with
   | JObject source =>
-      if schema_valid description && unique_names (source_keys source) && keys_declared description source
+      if unique_names (source_keys source) && keys_declared description source
       then decode_fields description source else None
   | _ => None
   end.

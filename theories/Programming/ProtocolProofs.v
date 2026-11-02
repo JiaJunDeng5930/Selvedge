@@ -97,7 +97,7 @@ Proof.
  intros description values Unique Supported.
  destruct (typed_fields_wire_is_decodable description values Unique Supported) as [canonical [Decoded Wire]].
  exists canonical. unfold Schema.decode, Schema.encode.
- unfold source_keys. rewrite encoded_keys_are_declared, Unique.
+ unfold source_keys. rewrite encoded_keys_are_declared.
  rewrite (Selvedge.Programming.SchemaProofs.encoded_names_are_unique description values Unique).
  cbn. rewrite Decoded, Wire. split; reflexivity.
 Qed.

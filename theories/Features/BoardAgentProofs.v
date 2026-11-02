@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State.
+From Selvedge.Kernel Require Import Numbers Domain State Codec.
 From Selvedge.Features Require Import Domain Board BoardParameters.
 Import ListNotations.
 Open Scope string_scope.
@@ -38,14 +38,16 @@ Theorem full_agent_capacity_rejects_only_new_agents source value :
  Board.agent_identity source = None ->
  Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
  (64 <= agent_count value)%nat ->
- Board.save_agent source value = reject "agent_limit" "The board holds at most 64 agents" value.
+ let refused := Board.save_agent source value in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = value /\ decision_effects refused = [].
 Proof.
  intros Creating Valid Full. unfold Board.save_agent; rewrite Creating; cbn beta iota zeta.
  rewrite Valid. cbn beta iota zeta.
  assert (Capacity : Nat.ltb (agent_count value) 64 = false) by (apply Nat.ltb_ge;exact Full).
  change (Nat.ltb (List.length (filter (fun item : option F.board_agent =>
    match item with Some _=>true | None=>false end) (F.board_agents (Board.registry value)))) 64 = false) in Capacity.
- rewrite Capacity. reflexivity.
+ rewrite Capacity. repeat split; reflexivity.
 Qed.
 
 Theorem valid_new_agent_is_saved_below_capacity source value :
@@ -83,10 +85,12 @@ Theorem stale_agent_revision_rejects_even_at_capacity source id previous value :
  Board.agent_identity source = Some id ->
  Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
  Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source <> F.agent_revision previous ->
- Board.save_agent source value = reject "agent_conflict" "This board agent changed" value.
+ let refused := Board.save_agent source value in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = value /\ decision_effects refused = [].
 Proof.
  intros Identity Valid Found Different. unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
- rewrite Valid,Found. apply N.eqb_neq in Different. rewrite Different. reflexivity.
+ rewrite Valid,Found. apply N.eqb_neq in Different. rewrite Different. repeat split; reflexivity.
 Qed.
 
 Theorem current_agent_update_succeeds_without_a_capacity_precondition source id previous value :

@@ -135,7 +135,8 @@ Export TitleProofs(admitted_title_issues_observed_request,
     A successful return advances that cursor to the observed history length;
     repeating it without new history cannot resend the same content. Refusal
     preserves the complete world and emits no effects. These guarantees apply
-    to the actual [return_side] transition. *)
+    to the actual [return_side] transition; diagnostic wording is not part of
+    the no-repeat contract. *)
 From Selvedge.Kernel Require SideConversationProofs CommandExecution History.
 Export SideConversationProofs(successful_open_side_records_private_birth_guidance,
   successful_side_return_consumes_the_observed_suffix,

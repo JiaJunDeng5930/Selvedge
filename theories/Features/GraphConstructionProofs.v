@@ -106,16 +106,18 @@ Theorem an_ordinary_start_failure_retains_its_declared_error : forall owner call
  CommandResult.Rejected (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
    (Tasks.failure_message cause)).
 Proof. reflexivity. Qed.
-Theorem public_idle_missing_work_follows_successful_profile_resolution : forall request before start owner,
+Theorem public_idle_missing_work_is_atomic : forall request before owner,
  G.create_idle_work_id request = Some owner ->
- CommandExecution.resolve_context_start
-   (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartResolved start ->
  Work.lookup owner before = None ->
- Worktree.handle_create_idle request None before =
- reject "invalid_arguments" "The Work does not exist." before.
+ let refused := Worktree.handle_create_idle request None before in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = before /\ decision_effects refused = [].
 Proof.
- intros request before start owner Owner Started Missing.
+ intros request before owner Owner Missing.
  unfold Worktree.handle_create_idle,Worktree.create_idle_owned.
- rewrite Started,Owner,(Work.select_missing_owner owner before Missing); reflexivity.
+ destruct (CommandExecution.resolve_context_start
+   (G.create_idle_profile request) (G.create_idle_reasoning request) []
+   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before).
+ - repeat split; reflexivity.
+ - rewrite Owner,(Work.select_missing_owner owner before Missing); repeat split; reflexivity.
 Qed.

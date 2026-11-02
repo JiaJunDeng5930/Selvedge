@@ -84,7 +84,12 @@ Export Focus(modification_has_its_selected_value, modifications_compose,
     An external value is admitted once into the declared constrained type;
     consumers use that value instead of serializing and parsing it again.
     Internal types do not admit external JSON on the caller's behalf. The common
-    admission law connects the actual check to the declared condition. *)
+    admission law connects the actual check to the declared condition.
+
+    Schema declarations originate in code; protocol and input-route constructors
+    establish field-name uniqueness. Rechecking those declarations on every
+    decode adds no external-input guarantee. Incoming object keys still require
+    duplicate-name and declared-field admission. *)
 Export ArgumentDeclarationProofs(admitted_value_retains_its_constraint).
 
 (** Public bounded integer fields denote exact mathematical integers. Ordinary

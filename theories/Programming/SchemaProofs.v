@@ -59,8 +59,4 @@ Proof. intros; unfold decode; rewrite H; now rewrite !Bool.andb_false_r. Qed.
 Theorem rejects_duplicate_fields : forall description source,
   unique_names (source_keys source) = false ->
   decode description (JObject source) = None.
-Proof. intros; unfold decode; rewrite H; now rewrite Bool.andb_false_r. Qed.
-
-Theorem rejects_duplicate_schema : forall description source,
-  schema_valid description = false -> decode description source = None.
-Proof. intros; destruct source; simpl; auto; now rewrite H. Qed.
+Proof. intros; unfold decode; now rewrite H. Qed.
