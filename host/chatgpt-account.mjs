@@ -136,12 +136,11 @@ async function grant(action, signal) {
 }
 
 function tokenCredential(tokens, metadata, clientId, { previous, subject, audio = false } = {}) {
-  const source = { audio, tokens: Object.fromEntries(Object.entries(tokens).filter(([, value]) => typeof value !== 'function')), metadata, clientId,
-    ...(previous === undefined ? {} : { previous }),
-    ...(subject === undefined ? {} : { subject }) };
-  const claims = tokens.claims();
-  const identitySubject = boundary('account.token_subject', { ...source, claims: claims ?? null });
-  const identity = audio ? boundary('account.audio_identity', { ...source, claims: claims ?? null })
+  const claims = tokens.claims() ?? null;
+  const source = { audio, tokens: Object.fromEntries(Object.entries(tokens).filter(([, value]) => typeof value !== 'function')), clientId, claims,
+    ...(previous === undefined ? {} : { previous }) };
+  const identitySubject = boundary('account.token_subject', { ...source, ...(subject === undefined ? {} : { subject }) });
+  const identity = audio ? boundary('account.audio_identity', { previous, claims })
     : chatgptAccountIdentity(metadata.issuer, clientId, identitySubject);
   const now = Date.now();
   let expiration = now + tokens.expires_in * 1000;
@@ -154,7 +153,7 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
   const expires = dateObservation(expiration, true);
   const earliestValue = tokens.earliest_refresh_at;
   const earliest = dateObservation(typeof earliestValue === 'number' ? earliestValue * 1000 : earliestValue, typeof earliestValue === 'number');
-  return boundary('account.token', { ...source, claims: claims ?? null, identity, expires, earliest,
+  return boundary('account.token', { ...source, metadata, identity, expires, earliest,
     now_date: dateObservation(now, true) });
 }
 

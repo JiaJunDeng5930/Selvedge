@@ -61,7 +61,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.issuer_admission",AccountIdentity.issuer_admission);
   ("account.login_account",AccountMaterialization.login_account);
   ("account.login_result",AccountIdentity.login_result);
-  ("account.materialization_failure",AccountMaterialization.materialization_failure);
   ("account.materialize",AccountMaterialization.materialize);
   ("account.model_cache_path",AccountCatalog.model_cache_path);
   ("account.models_url",AccountCatalog.models_url);

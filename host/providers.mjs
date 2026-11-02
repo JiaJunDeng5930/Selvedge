@@ -234,7 +234,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     }
   }
   // DEFENSE: A disconnected or truncated SSE stream may end without a terminal response; expose failure instead of returning partial output.
-  throw new Error(boundary('backend.stream_end', { state }).message);
+  throw new Error('Model stream ended without a completed response');
 }
 
 export { requestCompaction, observeModelRequest } from './compaction.mjs';

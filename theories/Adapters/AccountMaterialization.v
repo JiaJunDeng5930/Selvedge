@@ -124,4 +124,3 @@ Definition config_materialized source :=
     success (set config "profiles" merged)
   else failure "account_namespace_mismatch"
     "A configured ChatGPT account profile could not verify its account connection; use the original account connection or a new profile key".
-Definition materialization_failure source := success (JObject [("rethrow",get source "force");("message",get source "message")]).

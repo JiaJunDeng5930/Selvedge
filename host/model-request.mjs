@@ -44,7 +44,3 @@ export async function requestHeaders(send, policy, signal, onRetry) {
     }
   }
 }
-
-export function prepareModelRequest(effect) {
-  return boundary('backend.prepare', effect);
-}

@@ -17,8 +17,6 @@ Module C := CompactionTypes.
 Module CC := CompactionCodec.
 Definition default_policy := C.Policy true 65 90 60000 C.Targets.empty eq_refl.
 Definition compaction_defaults := CC.policy_json default_policy.
-Definition defaulted (source : json) (key : string) (fallback : json) :=
-  match field key source with Some value => value | None => fallback end.
 Definition supported_provider := ProviderCatalog.supports_compaction.
 Definition target_fields := [F.required "profile" (D.Value Schema.KText);F.required "window_tokens" (D.Natural 0 D.maximum_natural);
  F.optional "output_reserve_tokens" (D.Natural 0 D.maximum_natural);

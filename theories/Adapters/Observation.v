@@ -89,8 +89,6 @@ Definition same_units (left right : json) :=
     let a := items (get left "units") in let b := items (get right "units") in
     Nat.eqb (List.length a) (List.length b) &&
     forallb (fun pair => N.eqb (nat_value (fst pair)) (nat_value (snd pair))) (combine a b).
-Definition member_text (values : list json) (value : json) := existsb (fun x => same_units x value) values.
-
 Definition exact_fields (names : list string) (value : json) :=
   match value with
   | JObject fields => Nat.eqb (List.length names) (List.length fields) &&

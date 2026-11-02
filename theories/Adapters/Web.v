@@ -67,8 +67,8 @@ Definition operations := [
    (fun body deferred limits => WebResources.request_bounds (missing body) (missing deferred) (num (missing limits) "frame_bytes"));
  method "web.owner" [required "effect" D.RawObject] WebCommon.owner;
  method "web.headers" [raw "version";raw "content_type"] (fun version content_type => WebStream.headers (missing version) (missing content_type));
- O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "profile";raw "record";raw "binding"])
-   (fun action confirm profile record binding => WebStore.recovery (recovery_action_value action) confirm (missing profile) (missing record) (missing binding))
+ O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "record";raw "binding"])
+   (fun action confirm record binding => WebStore.recovery (recovery_action_value action) confirm (missing record) (missing binding))
    "Invalid ChatGPT Web recovery action";
  method "web.recovery_result" [raw "action";raw "value";raw "record"]
    (fun action value record => WebStore.recovery_result (missing action) (missing value) (missing record));
@@ -85,7 +85,6 @@ Definition operations := [
  method "web.store_metadata" [required "rows" (D.Array D.Any);required "new_identity" (D.Value Schema.KText);required "created" D.Boolean] WebStore.store_metadata;
  method "web.event_header" [required "frame" (D.OpenObject frame_fields)]
    (fun frame => let '(data,name) := frame_value frame in WebResources.event true name data JNull JNull [] JNull);
- O.diagnostic_method "web.recovery_shape" WebStore.recovery_fields (fun _ _ => success JNull) "Invalid ChatGPT Web recovery action";
  method "web.recovery_connection" [raw "profile";raw "record"] (fun profile record => WebStore.recovery_connection (missing profile) (missing record));
  method "web.options" [required "effect" D.RawObject] options;
  method "web.invocation" [required "effect" D.RawObject;required "profile" D.RawObject;required "body" D.RawObject;

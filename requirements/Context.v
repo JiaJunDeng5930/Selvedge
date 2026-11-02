@@ -39,6 +39,13 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     and provider translation. New uses of existing observation operations reuse
     that language; new physical observations still need an interpreter.
 
+    Discovery can produce many sources from one captured observer declaration.
+    Reinterpreting its unchanged descriptor supplies no new observation and
+    must not multiply boundary work by the source count. The host caches only
+    this pure descriptor; file contents and revisions are observed on each
+    requested refresh. Its single synchronous cache insertion per live observer
+    supplies this bound by construction, without a wall-clock threshold.
+
     [the_actual_scheduler_observes_before_preparing_a_model] binds this order
     to the scheduler. Model and evaluator requests capture current history and
     an admitted profile choice. [every_frozen_model_is_supported_by_its_frozen_profile]

@@ -23,14 +23,6 @@ function dateObservation(value, numeric = false) {
   if (!Number.isFinite(epoch)) return null;
   return { iso: date.toISOString() };
 }
-function freezeProfile(profile) {
-  if (profile.model_info) Object.freeze(profile.model_info);
-  if (profile.adaptive_reasoning) {
-    Object.freeze(profile.adaptive_reasoning.efforts);
-    Object.freeze(profile.adaptive_reasoning);
-  }
-  return Object.freeze(profile);
-}
 function connectionIdentity(profile) {
   return boundary('account.connection_identity', { profile, models_url: modelsURL(profile.endpoint) });
 }
@@ -121,12 +113,12 @@ export async function withAccountModels(config, home, { signal, force = false, o
       readFailure = error;
       read = { ok: false, error: { code: error.code } };
     }
-    const selected = boundary('account.candidate_read', { candidate, read });
+    const selected = boundary('account.candidate_read', { read });
     // DEFENSE: A connection without a credential file has not been signed in and contributes no discovered models.
-    if (selected.action === 'skip') continue;
+    if (selected === 'skip') continue;
     // DEFENSE: Credential access failures other than ENOENT must remain visible rather than acting like a signed-out connection.
-    if (selected.action === 'fail') throw readFailure;
-    const profile = selected.candidate;
+    if (selected === 'fail') throw readFailure;
+    const profile = candidate;
     let result, namespace, connection, profiles, summary, diagnostic;
     try {
       result = await discoverAccount(profile, home, { signal, force });
@@ -136,15 +128,14 @@ export async function withAccountModels(config, home, { signal, force = false, o
         connection, auth_path: filename, configured_auth_paths: configuredAuthPaths }));
     } catch (error) {
       signal?.throwIfAborted();
-      const decision = boundary('account.materialization_failure', { force, message: error.message });
       // DEFENSE: Explicit catalog refresh must fail on credential, network or catalog admission errors.
-      if (decision.rethrow) throw error;
+      if (force) throw error;
       // DEFENSE: Automatic account discovery reports unavailable accounts while leaving configured non-account profiles usable.
-      onDiagnostic(decision.message);
+      onDiagnostic(error.message);
       continue;
     }
     discoveries.push({ namespace, connection, auth_path: filename, result: { account_id: result.account_id } });
-    for (const [key, value] of Object.entries(profiles)) generated[key] = freezeProfile(value);
+    Object.assign(generated, profiles);
     accounts.push(summary);
     if (diagnostic !== null) onDiagnostic(diagnostic);
   }

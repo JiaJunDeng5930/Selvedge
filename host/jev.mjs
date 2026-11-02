@@ -14,7 +14,7 @@ function evaluatorOperation(operation, source) {
 }
 
 // This is a local tokenizer budget, not a claim about Jev's private tokenizer.
-export function outputTokens(text) {
+function outputTokens(text) {
   return text ? Math.max(countTokens(text, tokenizerOptions), countTokens(JSON.stringify(text), tokenizerOptions)) : 0;
 }
 
@@ -60,10 +60,7 @@ function contextConstruction(effect) {
   return { effect, budgeted: selected.recent_tool_calls.map(call => budgetObservations(call.outputs)) };
 }
 
-export function decisionRequest(effect, evaluator) {
-  const policy = adaptivePolicy(effect.model.adaptive_reasoning);
-  // Reject invalid adaptive policy before requesting tokenizer observations.
-  evaluatorOperation('request', { policy, phase: 'policy' });
+function decisionRequest(effect, evaluator, policy) {
   return evaluatorOperation('request', { evaluator, policy, construction: contextConstruction(effect) });
 }
 
@@ -80,19 +77,18 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
   const policy = adaptivePolicy(effect.model.adaptive_reasoning);
   const publicConfig = { reasoning_evaluators: config.reasoning_evaluators,
     profiles: Object.fromEntries(Object.entries(config.profiles).map(([name, profile]) => [name, { provider: profile.provider }])) };
-  const admitted = { effect, config: publicConfig, limits, policy };
-  const evaluator = evaluatorOperation('request_admission', { ...admitted, phase: 'lookup' });
+  const evaluator = evaluatorOperation('request_admission', { effect: { model: effect.model }, config: publicConfig, policy, phase: 'lookup' });
   const key = process.env[evaluator.api_key_env];
-  evaluatorOperation('request_admission', { ...admitted, evaluator, phase: 'credential',
+  evaluatorOperation('request_admission', { evaluator, phase: 'credential',
     observation: { present: Boolean(key), whitespace: /\s/.test(key ?? '') } });
   const deadline = signal ? AbortSignal.any([signal, AbortSignal.timeout(evaluator.timeout_ms)]) : AbortSignal.timeout(evaluator.timeout_ms);
-  const request = decisionRequest(effect, evaluator);
+  const request = decisionRequest(effect, evaluator, policy);
   const body = stringifyJson(request);
-  evaluatorOperation('request_admission', { ...admitted, evaluator, body, phase: 'bytes' });
-  evaluatorOperation('request_admission', { ...admitted, evaluator, body, phase: 'tokens', observation: { tokens: countTokens(body, tokenizerOptions) } });
+  evaluatorOperation('request_admission', { body, limits, phase: 'bytes' });
+  evaluatorOperation('request_admission', { phase: 'tokens', observation: { tokens: countTokens(body, tokenizerOptions) } });
   let attempt = 0;
   for (;;) {
-    const original = { ...admitted, evaluator, attempt };
+    const original = { evaluator, attempt };
     retryPlan({ ...original, phase: 'attempt' });
     deadline.throwIfAborted();
     let response;
@@ -121,6 +117,6 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
     }
     const text = await readText(response.body, evaluatorResponseBytes);
     deadline.throwIfAborted();
-    return evaluatorOperation('decision', { ...original, mode: 'parsed', text });
+    return evaluatorOperation('decision', { evaluator, policy, mode: 'parsed', text });
   }
 }

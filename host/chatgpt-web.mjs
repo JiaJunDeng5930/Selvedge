@@ -2,12 +2,11 @@ import { createHash } from 'node:crypto';
 import { stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { readText, sseEvents, requestJson } from './network.mjs';
-import { prepareModelRequest, requestHeaders } from './model-request.mjs';
+import { requestHeaders } from './model-request.mjs';
 import { WebRequestStore, retainedRequest } from './chatgpt-web-store.mjs';
 import { observeTextItems } from './public/markdown-fence-observation.mjs';
 
 const digest = value => createHash('sha256').update(stringifyJson(value)).digest('hex');
-const requestOwner = effect => boundary('web.owner', { effect });
 
 function nativeJson(text) {
   return boundary('web.decode', { text });
@@ -26,11 +25,6 @@ function credential(profile) {
   // DEFENSE: The configured API token environment variable can be unset; never dispatch an unauthenticated retained request.
   if (!token) throw new Error(`Set ${profile.api_key_env} to use this provider`);
   return { token, binding: digest([profile.endpoint, token]) };
-}
-
-function toolsFor(effect) { return boundary('web.tools', { effect }); }
-function validateResource(value, body, model, tools) {
-  return boundary('web.resource', { value, body, model, tools });
 }
 
 async function exchange(record, body, model, tools, token, store, limits, lifetime, { onSnapshot, onRetry }, index) {
@@ -69,7 +63,7 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
   } catch (error) { await response.body?.cancel(); throw error; }
   let terminal;
   if (contentType === 'json') {
-    terminal = validateResource(nativeJson(await readText(response.body, limits.frame_bytes)), body, model, tools);
+    terminal = boundary('web.resource', { value: nativeJson(await readText(response.body, limits.frame_bytes)), body, model, tools });
   } else if (contentType === 'sse') {
     for await (const frame of sseEvents(response.body, limits.frame_bytes)) {
       const header = boundary('web.event_header', { frame });
@@ -95,13 +89,13 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
 
 export async function requestChatGPTWeb(effect, profile, home, limits, { signal, onSnapshot = () => {}, onRetry = () => {} } = {}) {
   signal?.throwIfAborted();
-  const request = prepareModelRequest(effect);
+  const request = boundary('backend.prepare', effect);
   const options = boundary('web.options', { effect });
-  const tools = toolsFor(request);
+  const tools = boundary('web.tools', { effect: request });
   const contract = digest(boundary('web.contract', { request, tools }));
   const { token, binding } = credential(profile);
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
-  const owner = requestOwner(effect);
+  const owner = boundary('web.owner', { effect });
   const store = await WebRequestStore.open(home);
   let active;
   try {
@@ -158,7 +152,6 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
 // Explicit recovery never resends a browser prompt. An observer can then retry
 // the same committed effect/key to receive the retained response.
 export async function chatgptWebRequestAction(key, action, config, home, limits, { signal, confirm = false, timeout } = {}) {
-  boundary('web.recovery_shape', { action, confirm });
   const store = await WebRequestStore.open(home, { create: false });
   // DEFENSE: Recovery accepts a user-supplied key even when no provider request has ever created the receipt database.
   if (!store) throw new Error('No ChatGPT Web request receipts');
@@ -169,7 +162,7 @@ export async function chatgptWebRequestAction(key, action, config, home, limits,
     const profile = config.profiles[record.profile];
     boundary('web.recovery_connection', { record, profile });
     const { token, binding } = credential(profile);
-    const recovery = boundary('web.recovery', { action, confirm, record, profile, binding });
+    const recovery = boundary('web.recovery', { action, confirm, record, binding });
     if (recovery.retire) store.retire(record);
     // DEFENSE: Recovery cannot send a remote control request before the provider has supplied a response ID.
     if (recovery.retained) throw retainedRequest(record);

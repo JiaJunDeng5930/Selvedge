@@ -15,7 +15,6 @@ Fixpoint text_fields (value : list (string * json)) : option (list (string * str
  | _ => None end.
 Definition parse_fields (value : json) :=
  match value with JObject fields => text_fields fields | _ => None end.
-Definition find_text := ContextTypes.find_text.
 Definition construct_snapshot (definition : ContextTypes.definition)
  (identity : list (string * string)) (revision : string) (fields : list (string * string)) :=
  match admit_key definition identity with
@@ -97,7 +96,7 @@ Fixpoint replace_text (name value : string) (fields : list (string * string)) :=
 Fixpoint apply_fields (patches : list field_patch) (fields : list (string * string)) :=
  match patches with
  | [] => Some fields
- | patch :: rest => match find_text (patch_field patch) fields with
+ | patch :: rest => match ContextTypes.find_text (patch_field patch) fields with
    | None => None
    | Some text => match apply_text text (patch_edits patch) with
      | None => None | Some text => apply_fields rest (replace_text (patch_field patch) text fields) end end

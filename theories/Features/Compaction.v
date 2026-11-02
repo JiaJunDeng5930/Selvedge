@@ -39,7 +39,6 @@ Definition running (task : task) := match task_lifecycle task with Running _ _ =
 Definition alive (task : task) := match task_lifecycle task with Archived _ => false | _ => true end.
 Definition idle (task : task) := match task_activity task, task_operations task with Idle, [] => true | _, _ => false end.
 Definition capture_task := R.capture_task.
-Definition input_description := R.input_description.
 Definition same_description := R.same_description.
 Definition same_history (before after : list message) :=
  JsonObjects.equivalent (JArray (ContextSelection.history_json 0 before)) (JArray (ContextSelection.history_json 0 after)).

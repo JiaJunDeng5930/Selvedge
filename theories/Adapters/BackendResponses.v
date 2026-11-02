@@ -117,5 +117,3 @@ Definition stream_step source :=
   let '(state,action) := step (get source "event") (decode_stream (get source "state")) in
   encode_action state (if String.eqb (str (get source "effect") "kind") "context_compaction" then
     match action with TextDelta _ _ => Continue | _ => action end else action).
-Definition stream_end source := encode_action (decode_stream (get source "state"))
-  (StreamFailure "Model stream ended without a completed response" false).

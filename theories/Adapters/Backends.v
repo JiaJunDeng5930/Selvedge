@@ -22,7 +22,7 @@ Definition profile source :=
   let profile := if has original "timeout_ms" then original else set original "timeout_ms" (number 300000) in
   let adaptive := get source "adaptive" in let key := str source "key" in
   let web := ProviderCatalog.web profile in
-  if is_object adaptive && (match connection_of profile with Some Offline => true | _ => false end) then
+  if is_object adaptive && (match backend profile with Some Offline => true | _ => false end) then
     err "The offline echo provider cannot select model reasoning effort"
   else if web && negb (existsb (String.eqb (str profile "model"))
     ["chatgpt-web/light";"chatgpt-web/medium";"chatgpt-web/high";"chatgpt-web/xhigh";"chatgpt-web/pro"])
@@ -123,7 +123,6 @@ Definition call (select_history : list json -> string -> list json) operation so
   else if String.eqb operation "backend.http_headers" then http_headers source
   else if String.eqb operation "backend.http_failure" then http_failure source
   else if String.eqb operation "backend.stream_step" then BackendResponses.stream_step source
-  else if String.eqb operation "backend.stream_end" then BackendResponses.stream_end source
   else if String.eqb operation "backend.retry" then BackendRetry.retry source
   else if String.eqb operation "backend.support" then support source
   else if String.eqb operation "backend.echo" then echo source

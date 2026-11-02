@@ -86,14 +86,13 @@ Definition authorize_prompt source := success (JObject [("url",get source "url")
 Definition code_grant_checks source := success (JObject [
   ("expectedNonce",get source "nonce");("expectedState",get source "state");
   ("idTokenExpected",JBool true);("pkceCodeVerifier",get source "verifier")]).
-Definition read_failure source := success (JBool
+Definition record_read_failure source := success (JBool
   (boolean_field source "optional" && same (get source "code") (JString "ENOENT"))).
 Definition record_parse_failure (_ : json) := err "Invalid ChatGPT authentication record; sign in again".
-Definition record_read_failure := read_failure.
 Definition candidate_read source :=
   let read := get source "read" in
   let action := if boolean_field read "ok" then "accept"
     else if same (get (get read "error") "code") (JString "ENOENT") then "skip" else "fail" in
-  success (JObject [("action",JString action);("candidate",get source "candidate")]).
+  success (JString action).
 Definition optional_registration source := if is_null (get source "value") then success JNull else registration source.
 Definition host_saved source := if is_null (get source "value") then success JNull else host_registration source.

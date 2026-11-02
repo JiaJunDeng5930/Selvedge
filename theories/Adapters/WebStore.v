@@ -100,9 +100,10 @@ Definition recovery_fields := [required "action" recovery_declaration; required 
 Definition recovery_connected profile record := eq profile "provider" "chatgpt-web" &&
   same (get profile "endpoint") (get record "endpoint").
 Definition recovery_connection profile record := check (recovery_connected profile record) JNull "The ChatGPT Web connection is no longer configured".
-Definition recovery action confirm profile record binding :=
-  if negb (recovery_connected profile record) then err "The ChatGPT Web connection is no longer configured"
-  else if negb (same binding (get record "binding")) then err "The ChatGPT Web request belongs to a different connection"
+(* Connection admission precedes the host's credential read. Only the observed
+   binding is new evidence when this continuation constructs the recovery action. *)
+Definition recovery action confirm record binding :=
+  if negb (same binding (get record "binding")) then err "The ChatGPT Web request belongs to a different connection"
   else success (JObject [("retire",JBool (match action with Cancel => true | _ => false end));
     ("retained",JBool (negb (truthy (get record "response_id"))));
     ("method",JString (match action with Inspect => "GET" | _ => "POST" end));
