@@ -306,10 +306,7 @@ export type RemoteAuthorizationState =
   | {"phase": "first"; }
   | {"phase": "second"; }
   | {"phase": "third"; }
-  | {"phase": "last"; }
-  | {"phase": "authorized"; }
-  | {"phase": "denied"; }
-  | {"phase": "revision_changed"; };
+  | {"phase": "last"; };
 export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizationState {
   const source = decodeObject(input);
   switch (source["phase"]) {
@@ -317,9 +314,6 @@ export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizat
     case "second": exactFields(source, ["phase"]); return {"phase": "second"};
     case "third": exactFields(source, ["phase"]); return {"phase": "third"};
     case "last": exactFields(source, ["phase"]); return {"phase": "last"};
-    case "authorized": exactFields(source, ["phase"]); return {"phase": "authorized"};
-    case "denied": exactFields(source, ["phase"]); return {"phase": "denied"};
-    case "revision_changed": exactFields(source, ["phase"]); return {"phase": "revision_changed"};
     // DEFENSE: External boundary values must name a declared RemoteAuthorizationState variant.
     default: throw new TypeError('Unknown RemoteAuthorizationState discriminant');
   }
