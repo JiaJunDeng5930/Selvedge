@@ -138,7 +138,7 @@ Definition creation_entry (intent:creation_intent) (caller:option N) :=
  | GraphTaskCreation=>match caller with Some _=>Tasks.NativeFeatureCreation | None=>Tasks.ManagedCreation end
  | IdleTaskCreation=>Tasks.IdleCreation
  | ImplicitCreation=>match caller with Some _=>Tasks.NativeCreation | None=>Tasks.OrdinaryCreation end end.
-Definition resource_error (intent:creation_intent) (before:world)
+Definition resource_error (before:world)
  (selected:task_settings) (plan:creation_plan before selected) :option Tasks.failure_cause :=
  let backend:=match plan with ProvisionCloud=>Some WorkspaceBackend.TencentCvm
    | ProvisionLocal=>Some WorkspaceBackend.Local | _=>None end in
@@ -150,14 +150,12 @@ Definition resource_error (intent:creation_intent) (before:world)
  match workspace_primary (settings_workspace selected) with
  | None=>Some Tasks.MissingPrimaryWorkspace
  | Some _=>if Workspace.valid_workspace (settings_workspace selected) &&
-   Workspace.valid_path (primary (settings_workspace selected)) &&
    workspace_available (settings_workspace selected) before then None
    else Some Tasks.InvalidWorkspace end end.
 Record planned_start (before:world) := PlannedStart {
- planned_intent : creation_intent;
  planned_task : Tasks.resolved_start;
  planned_resource : creation_plan before (Tasks.start_settings planned_task);
- planned_admitted : resource_error planned_intent before (Tasks.start_settings planned_task) planned_resource = None
+ planned_admitted : resource_error before (Tasks.start_settings planned_task) planned_resource = None
 }.
 Arguments PlannedStart {before}.
 Arguments planned_task {before}.
@@ -168,9 +166,9 @@ Definition prepare_resolved (intent:creation_intent) (managed:option bool)
  :start_plan_result before.
 Proof.
  destruct (select_creation_plan before (Tasks.start_settings start) managed backend) as [plan|].
- - destruct (resource_error intent before (Tasks.start_settings start) plan) as [cause|] eqn:Admitted.
+ - destruct (resource_error before (Tasks.start_settings start) plan) as [cause|] eqn:Admitted.
    + exact (CommandResult.refuse (Tasks.failure_code (creation_entry intent None) cause) (Tasks.failure_message cause)).
-   + exact (CommandResult.Accepted (PlannedStart intent start plan Admitted)).
+   + exact (CommandResult.Accepted (PlannedStart start plan Admitted)).
  - exact (CommandResult.refuse (Tasks.failure_code (creation_entry intent None) Tasks.WorkspaceUnavailable)
      (Tasks.failure_message Tasks.WorkspaceUnavailable)).
 Defined.

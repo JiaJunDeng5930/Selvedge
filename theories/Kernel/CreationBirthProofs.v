@@ -10,7 +10,7 @@ Theorem each_planned_start_appends_exactly_its_one_fresh_task :
  world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan before)) =
    world_tasks before ++ [created].
 Proof.
- intros before [intent start resource admitted].
+ intros before [start resource admitted].
  unfold Worktree.interpret_planned_birth, Worktree.born_world; cbn [Worktree.planned_task Worktree.planned_resource].
  destruct resource; eexists; reflexivity.
 Qed.

@@ -137,6 +137,8 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Generated action unions and checked interpreters keep the host from
     choosing another continuation. SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. SDK, SSH, Git, filesystems, provider tags and
+    is a preparation failure. Project guidance can change while the service is
+    stopped, so readiness revalidation observes it again rather than retaining
+    the old contents. SDK, SSH, Git, filesystems, provider tags and
     credential verification remain physical assumptions. Obsolete receipts
     cannot be upgraded into missing recovery authority by a fallback decoder. *)

@@ -170,7 +170,7 @@ export async function createTaskWorkspace(effect, options = {}) {
         await environment.ready({ signal: options.signal, deadline });
         await log(files, 'Cloning GitHub repository and running .selvedge/env.sh', options.onDiagnostic);
         const setup = await environment.execute(`bash -c ${shellQuote(initializationScript(source, files.root))}`, {
-          cwd: '/', signal: options.signal, timeout: Math.max(1, deadline - Date.now()),
+          signal: options.signal, timeout: Math.max(1, deadline - Date.now()),
           input: process.env.GITHUB_TOKEN ? `${process.env.GITHUB_TOKEN}\n` : undefined,
         });
         await log(files, setup.stdout + setup.stderr, options.onDiagnostic);

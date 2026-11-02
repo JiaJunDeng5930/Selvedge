@@ -193,9 +193,9 @@ Proof.
  intros settings value tree bound backend.
  unfold WorkspaceBinding.normalize_settings. rewrite bound,backend. split;reflexivity.
 Qed.
-Theorem mismatched_cloud_project_is_rejected : forall before intent settings,
+Theorem mismatched_cloud_project_is_rejected : forall before settings,
  Worktree.project_primary_matches settings before=false ->
- Worktree.resource_error intent before settings Worktree.ProvisionCloud=Some Tasks.ProjectPrimaryMismatch.
+ Worktree.resource_error before settings Worktree.ProvisionCloud=Some Tasks.ProjectPrimaryMismatch.
 Proof. intros; unfold Worktree.resource_error; cbn [WorkspaceBackend.cloud]; now rewrite H. Qed.
 
 (** The scheduler predicate used by Kernel.Packet excludes all non-ready
@@ -245,11 +245,11 @@ Proof.
    WorkspaceBinding.settings_execution_ready. rewrite selected.
  unfold WorkspaceBinding.for_task in bound. rewrite selected in bound. rewrite bound. reflexivity.
 Qed.
-Theorem successful_initialization_binds_pending_owner : forall backend before intent start
- (admitted:Worktree.resource_error intent before (Tasks.start_settings start)
+Theorem successful_initialization_binds_pending_owner : forall backend before start
+ (admitted:Worktree.resource_error before (Tasks.start_settings start)
    (match backend with WorkspaceBackend.Local=>Worktree.ProvisionLocal
     | WorkspaceBackend.TencentCvm=>Worktree.ProvisionCloud end)=None),
- let plan:=Worktree.PlannedStart intent start
+ let plan:=Worktree.PlannedStart start
    (match backend with WorkspaceBackend.Local=>Worktree.ProvisionLocal
     | WorkspaceBackend.TencentCvm=>Worktree.ProvisionCloud end) admitted in
  let initialized:=Worktree.born_world (Worktree.interpret_planned_birth plan before) in
@@ -259,7 +259,7 @@ Theorem successful_initialization_binds_pending_owner : forall backend before in
  F.worktree_backend tree=backend /\ F.worktree_phase tree=F.TreeCreating (RequestEnvelope.Owned false) /\
  Runtime.can_schedule_task (next_task before) initialized=false.
 Proof.
- intros backend before intent start admitted.
+ intros backend before start admitted.
  pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start)) as Birth.
  cbv zeta in Birth |- *.
  destruct backend; cbn [Worktree.interpret_planned_birth Worktree.born_world Worktree.planned_task Worktree.planned_resource
@@ -315,9 +315,9 @@ Proof.
 Qed.
 
 Theorem reusing_a_binding_never_provisions_another_resource :
- forall before intent start owner tree observed admitted,
+ forall before start owner tree observed admitted,
  Worktree.born_effects (Worktree.interpret_planned_birth
-   (@Worktree.PlannedStart before intent start
+   (@Worktree.PlannedStart before start
      (@Worktree.ReuseBinding before (Tasks.start_settings start) owner tree observed) admitted) before) = [].
 Proof. intros; reflexivity. Qed.
 Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Worktree.planned_start before) current,
@@ -326,7 +326,7 @@ Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Wor
    (with_features (set F.feature_worktrees
      (fun _ => F.feature_worktrees (world_features current)) (world_features result)) result) = current.
 Proof.
- intros before [intent start resource admitted] current.
+ intros before [start resource admitted] current.
  destruct resource; destruct current as [sequence tasks ticket environment projects features];
  destruct features; reflexivity.
 Qed.
@@ -344,7 +344,7 @@ Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provi
 Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.planned_start before) current,
  exists created, world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan current)) = (world_tasks current ++ [created])%list.
 Proof.
- intros before [intent start resource admitted] current.
+ intros before [start resource admitted] current.
  destruct resource; unfold Worktree.interpret_planned_birth, Worktree.born_world;
  cbn [Worktree.planned_task Worktree.planned_resource TaskBirth.birth_prepared TaskBirth.birth_world]; eexists; reflexivity.
 Qed.

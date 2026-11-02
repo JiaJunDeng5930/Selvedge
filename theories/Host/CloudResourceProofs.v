@@ -57,7 +57,7 @@ Proof. intros expired. unfold ssh_probe. rewrite expired. reflexivity. Qed.
 
 Theorem durable_readiness_revalidation_keeps_connection source instance host guidance :
   step (Persisting (Ready source instance host guidance)) Resume =
-    (Revalidating source instance host guidance,[Prepare]).
+    (Revalidating source instance host,[Prepare]).
 Proof. reflexivity. Qed.
 
 Theorem reconciled_termination_requires_the_unique_owned_instance : forall source instances total next id,

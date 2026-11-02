@@ -9,17 +9,17 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   const { realpath, stat } = filesystem;
   boundary('effect.workspace_admit', { value });
   const canonical = async root => {
-    boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root), value });
+    boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root) });
     const resolved = await realpath(root);
     // DEFENSE: An explicitly selected external workspace path can name a file or change before stat.
     if (!(await stat(resolved)).isDirectory()) throw new TypeError('A workspace root must be a directory');
     return resolved;
   };
   const roots = await Promise.all(value.roots.map(canonical));
-  boundary('effect.workspace_distinct', { value, roots });
+  boundary('effect.workspace_distinct', { roots });
   const selected = boundary('effect.workspace_selection', { value, roots });
   const primary = selected.canonicalize ? await canonical(selected.root) : selected.root;
-  return boundary('effect.workspace_selected', { value, roots, primary });
+  return boundary('effect.workspace_selected', { roots, primary });
 }
 
 // These coordinates attest only standard path observations, never launch policy.
@@ -115,7 +115,7 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
     const preparation = boundary('effect.sandbox_prepare', context);
     signal?.throwIfAborted();
     if (platform === 'darwin') {
-      const file = await executable(boundary('effect.executable_candidates', { plan, options, platform }));
+      const file = await executable(boundary('effect.executable_candidates', { platform }));
       const runtimeObservations = projectOnly ? await runtimeReads(platform) : [];
       const input = boundary('effect.seatbelt_input', { ...context, runtimeReads: runtimeObservations });
       const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: runtimeObservations,
@@ -123,7 +123,7 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
         readAncestors: input.readableRoots ? [...input.readableRoots, scratch].map(root => ancestors(root, false)) : [] });
       return { file, ...terminal, env: environment(scratch, projectOnly), descriptors: [], cleanup };
     }
-    const file = await executable(boundary('effect.executable_candidates', { plan, options, platform }));
+    const file = await executable(boundary('effect.executable_candidates', { platform }));
     const policyPath = path.join(scratch, 'seccomp.bpf');
     await writeFile(policyPath, seccompFilter(architecture, plan.sandbox.network_access), { mode: 0o600, flag: 'wx' });
     handles.push(await open(policyPath, constants.O_RDONLY | constants.O_NOFOLLOW));

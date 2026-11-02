@@ -13,7 +13,7 @@ Inductive terminal := NoAttempt | Destroyed | DestroyFailed | NeedsCredential | 
 Inductive state :=
   | Allocating (source : context)
   | Preparing (source : context) (instance : string)
-  | Revalidating (source : context) (instance host : string) (guidance : json)
+  | Revalidating (source : context) (instance host : string)
   | Ready (source : context) (instance host : string) (guidance : json)
   | Authorizing (source : cleanup)
   | Scanning (source : context)
@@ -35,7 +35,7 @@ Definition terminal_name value := match value with NoAttempt => "no_attempt" | D
 Definition as_cleanup source instance := Cleanup source (KnownAllocation instance).
 Fixpoint resources (value : state) : cleanup := match value with
   | Allocating source | Scanning source => Cleanup source UnknownAllocation
-  | Preparing source instance | Revalidating source instance _ _ | Ready source instance _ _
+  | Preparing source instance | Revalidating source instance _ | Ready source instance _ _
   | Terminating source instance => as_cleanup source (Some instance)
   | Authorizing source | Finished source _ => source
   | Persisting next => resources next end.
@@ -67,7 +67,7 @@ Definition scan_page source instances total :=
   | _ => save (Finished (Cleanup source UnknownAllocation) NeedsResolution)
   end.
 Definition run value : state * list action := match value with
-  | Allocating _ => (value,[Allocate]) | Preparing _ _ | Revalidating _ _ _ _ => (value,[Prepare])
+  | Allocating _ => (value,[Allocate]) | Preparing _ _ | Revalidating _ _ _ => (value,[Prepare])
   | Authorizing _ => (value,[CredentialsLookup]) | Scanning _ => (value,[Scan])
   | Terminating _ _ => (value,[Terminate]) | Persisting _ => (value,[Persist])
   | Ready _ _ _ _ | Finished _ _ => (value,[Finish]) end.
@@ -86,9 +86,9 @@ Definition step (value : state) (observed : observation) : state * list action :
       | _ => next end)
   | Allocating source, Allocated instance => save (Preparing source instance)
   | Allocating source, AllocationFailed => save (Authorizing (Cleanup source UnknownAllocation))
-  | Preparing source instance, Prepared host guidance | Revalidating source instance _ _, Prepared host guidance => save (Ready source instance host guidance)
-  | Preparing source instance, PreparationFailed | Revalidating source instance _ _, PreparationFailed => save (Authorizing (as_cleanup source (Some instance)))
-  | Ready source instance host guidance, Resume | Persisting (Ready source instance host guidance), Resume => (Revalidating source instance host guidance,[Prepare])
+  | Preparing source instance, Prepared host guidance | Revalidating source instance _, Prepared host guidance => save (Ready source instance host guidance)
+  | Preparing source instance, PreparationFailed | Revalidating source instance _, PreparationFailed => save (Authorizing (as_cleanup source (Some instance)))
+  | Ready source instance host _, Resume | Persisting (Ready source instance host _), Resume => (Revalidating source instance host,[Prepare])
   | _, CleanupRequested => (Authorizing (resources value),[CredentialsLookup])
   | Authorizing source, Credentials scope =>
       if equal (get (metadata (cleanup_context source)) "scope") scope then
@@ -113,13 +113,13 @@ Definition cleanup_of source := Cleanup (context_of source)
   (if boolean_field source "allocation_unknown" then UnknownAllocation
    else KnownAllocation (nonempty_text (get source "instance_id"))).
 Fixpoint phase_name value := match value with
-  | Allocating _ => "allocation_unknown" | Preparing _ _ | Revalidating _ _ _ _ => "preparing" | Ready _ _ _ _ => "ready"
+  | Allocating _ => "allocation_unknown" | Preparing _ _ | Revalidating _ _ _ => "preparing" | Ready _ _ _ _ => "ready"
   | Authorizing _ | Scanning _ | Terminating _ _ => "destroy_pending" | Finished _ outcome => terminal_name outcome
   | Persisting next => match next with Allocating _ => "persist_pending" | Preparing _ _ => "allocated"
     | Authorizing _ => "needs_reconcile" | _ => phase_name next end end.
 Definition output_state value := match value with Persisting next => next | _ => value end.
 Definition phase_tag value := match value with
-  | Allocating _ => "allocate" | Preparing _ _ => "prepare" | Revalidating _ _ _ _ => "resume" | Ready _ _ _ _ => "ready"
+  | Allocating _ => "allocate" | Preparing _ _ => "prepare" | Revalidating _ _ _ => "resume" | Ready _ _ _ _ => "ready"
   | Authorizing _ => "credentials" | Scanning _ => "scan" | Terminating _ _ => "terminate"
   | Finished _ outcome => terminal_name outcome | Persisting _ => "invalid" end.
 Definition encode_state value :=
@@ -131,7 +131,8 @@ Definition encode_state value :=
     ("instance_id",match current with KnownAllocation (Some instance) => JString instance | _ => JNull end);
     ("recording_failed",JBool (recording_failed context))] in
   let specific := match output_state value with
-    | Ready _ _ host guidance | Revalidating _ _ host guidance => [("host",JString host);("guidance",guidance)]
+    | Ready _ _ host guidance => [("host",JString host);("guidance",guidance)]
+    | Revalidating _ _ host => [("host",JString host)]
     | _ => [] end in
   JObject (List.app (object_fields (metadata context)) (List.app fields specific)).
 Definition encode_result result := let '(next, actions) := result in JObject [
@@ -150,7 +151,7 @@ Definition decode_state source :=
   else if String.eqb name "terminate" then option_map (Terminating context) instance
   else if String.eqb name "ready" || String.eqb name "resume" then match instance, nonempty_text (get source "host") with
     | Some instance, Some host => Some (if String.eqb name "ready" then Ready context instance host (get source "guidance")
-      else Revalidating context instance host (get source "guidance")) | _, _ => None end
+      else Revalidating context instance host) | _, _ => None end
   else if String.eqb name "credentials" then Some (Authorizing cleanup)
   else option_map (Finished cleanup) (decode_terminal name) in
   if boolean_field source "controller_persisting" then option_map Persisting parsed else parsed.
