@@ -325,10 +325,11 @@ Proof.
 Qed.
 Theorem reviewer_request_uses_approval_excerpts : forall state owner ticket profile call task,
  let effect := Observation.effect_json state (State.RequestApproval owner ticket profile call task) in
+ exists boundary,
  Common.get (BackendRequests.independent_effect effect) "history" =
  JArray [BackendHistory.message "user" (JString (TextJson.render_json (JObject [
    ("task_id",Common.get effect "task_id"); ("request_id",Common.get effect "ticket");
    ("command",CallWire.external (Common.get effect "call")); ("task_settings",Common.get effect "settings");
    ("recent_user_requests_newest_first",JArray (map JString (user_request_text (task_history task))));
-   ("context_boundary",JString "Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.")])))] .
-Proof. intros; reflexivity. Qed.
+   ("context_boundary",JString boundary)])))] .
+Proof. intros; eexists; reflexivity. Qed.

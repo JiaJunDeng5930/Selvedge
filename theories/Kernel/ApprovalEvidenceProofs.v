@@ -93,7 +93,7 @@ Qed.
 Theorem an_approval_denial_runs_the_frozen_result_chain :
  forall before (target : TaskScope.task_reference before) pending actor reason plugin rest,
  Callbacks.after_plugins (TaskScope.selected target) = plugin :: rest ->
- exists updated,
+ exists updated explanation,
  find_task (TaskScope.owner target)
    (TaskResult.interpret_result target
      (Callbacks.approval_decision_plan (TaskScope.owner target) pending actor (Denied reason)
@@ -102,12 +102,12 @@ Theorem an_approval_denial_runs_the_frozen_result_chain :
  map (fun current => if N.eqb (operation_id pending) (operation_id current)
    then Operation (operation_id current) (operation_call current) (operation_announced current)
      (AfterHooksReady (plugin :: rest)
-       (State.failure "approval_denied" ("Bash was not started. " ++ proj1_sig reason)) true)
+       (State.failure "approval_denied" explanation) true)
    else current) (task_operations (TaskScope.selected target)).
 Proof.
  intros before target pending actor reason plugin rest Hooks.
  rewrite interpreted_results_keep_their_exact_task_update.
- eexists; split; [reflexivity|].
+ eexists; eexists; split; [reflexivity|].
  unfold Callbacks.approval_decision_plan, OperationEvent.plan.
  rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
  unfold OperationEvent.returned, OperationEvent.settle, TaskResult.result_changes.

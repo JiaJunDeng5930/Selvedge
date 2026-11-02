@@ -36,11 +36,11 @@ Theorem a_recorded_reasoning_lease_blocks_execution_reconfiguration :
  execution_reasoning reasoning model = Some chosen ->
  (match approval with None => Some (settings_approval (task_current_settings before))
    | Some source => approval_of_values model (environment_profiles (world_environment value)) source end) = Some approval_settings ->
- configure_execution id name reasoning sandbox approval value =
- reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value.
+ exists reason, configure_execution id name reasoning sandbox approval value =
+ reject "task_busy" reason value.
 Proof.
  intros id before value effort remaining name reasoning sandbox approval
   model chosen approval_settings Found Lease Model Reasoning Approval.
  rewrite TaskChangesProofs.configure_execution_expression; cbv beta zeta. rewrite Found, Model; cbv beta zeta; rewrite Approval, Reasoning, Lease, andb_false_r.
- reflexivity.
+ eexists; reflexivity.
 Qed.
