@@ -65,27 +65,20 @@ Definition refresh_admission source accepted :=
   else err identity_failure.
 Definition issuer_admission source := if same (get (get source "value") "issuer") (get source "issuer")
   then success (get source "value") else err "ChatGPT credential belongs to a different issuer; sign in again".
-Inductive refresh_action := Keep | AwaitEarliest | Refresh.
+Inductive refresh_action := Keep | Refresh.
 Definition rejected_current source := has source "rejectedToken" &&
   same (get source "rejectedToken") (get (get source "value") "access_token").
 Definition before_expiration source := epoch_greater (get (get source "dates") "expires_at") (get source "threshold").
-Definition initial_action source :=
-  if before_expiration source && negb (rejected_current source) then Keep
-  else if negb (is_null (get (get source "value") "earliest_refresh_at")) && negb (has source "rejectedToken")
-    then AwaitEarliest else Refresh.
+Definition refresh_action_for source :=
+  if (before_expiration source && negb (rejected_current source)) ||
+    (negb (is_null (get (get source "value") "earliest_refresh_at")) &&
+      epoch_greater (get (get source "dates") "earliest_refresh_at") (get source "now_date") &&
+      negb (has source "rejectedToken"))
+  then Keep else Refresh.
 Definition refresh_action_name action := match action with
-  | Keep => "keep" | AwaitEarliest => "earliest" | Refresh => "refresh" end.
-Definition refresh_initial source := refresh_admission source
-  (success (JString (refresh_action_name (initial_action source)))).
-Definition reusable source :=
-  (before_expiration source && negb (rejected_current source)) ||
-  (negb (is_null (get (get source "value") "earliest_refresh_at")) &&
-    epoch_greater (get (get source "dates") "earliest_refresh_at") (get source "now_date") &&
-    negb (has source "rejectedToken")).
-Definition refresh source :=
-  if negb (same (get (get source "value") "issuer") (get source "issuer"))
-  then err "ChatGPT credential belongs to a different issuer; sign in again"
-  else refresh_admission source (success (JBool (reusable source))).
+  | Keep => "keep" | Refresh => "refresh" end.
+Definition refresh source := refresh_admission source
+  (success (JString (refresh_action_name (refresh_action_for source)))).
 
 Fixpoint mantissa_nonzero source := match source with
   | EmptyString => false | String first rest =>

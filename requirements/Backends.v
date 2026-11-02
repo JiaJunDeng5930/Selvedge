@@ -13,7 +13,10 @@ From Selvedge.Programming Require Import AdapterResult.
     model and audio credentials retain their own grants. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
     [AccountsProofs] binds these refresh, callback and credential rules to the
-    public account operations. [BackendProofs] binds frozen-account checks and
+    public account operations. Refresh eligibility uses one admitted, locked
+    credential; its expiry margin and earliest refresh time are evaluated
+    against the same observed time.
+    [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
     The account transport can omit output from its terminal response after
     reporting finalized items separately. Those items must survive until that

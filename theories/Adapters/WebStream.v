@@ -72,8 +72,6 @@ Definition scan chunk reversed bytes work maximum :=
 
 Definition sse_step (state : stream_state) (chunk : string) (maximum : N) :=
   let initial := StreamWork state [] "" in
-    let initial := if N.of_nat (String.length state.(pending)) <=? maximum then initial
-      else stream_fail initial "SSE line exceeds the configured limit" in
     let reversed := fold_left (fun result byte => byte::result) (list_ascii_of_string state.(pending)) [] in
     match Utf8.chunks chunk with
     | None => err "Invalid ChatGPT Web JSON source"

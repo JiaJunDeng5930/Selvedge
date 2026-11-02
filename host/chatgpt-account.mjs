@@ -177,17 +177,12 @@ async function resolveCredential(profile, home, { signal, rejectedToken, request
     const binding = { value: current, registered,
       ...(requestCredential === undefined ? {} : { requestCredential }),
       ...(rejectedToken === undefined ? {} : { rejectedToken }) };
-    const staleNow = Date.now();
-    const source = { ...binding, ...credentialObservations(current, audio), issuer: profile.issuer,
-      threshold: dateObservation(staleNow + 300_000, true) };
+    const now = Date.now();
+    const source = { ...binding, ...credentialObservations(current, audio),
+      threshold: dateObservation(now + 300_000, true), now_date: dateObservation(now, true) };
     // DEFENSE: A sign-in can replace the account while an earlier request awaits
     // its 401. Admit that request's principal before deciding reuse or refresh.
-    const initial = boundary('account.refresh_initial', source);
-    if (initial === 'keep') return current;
-    if (initial === 'earliest') {
-      const now = Date.now();
-      if (boundary('account.refresh', { ...source, now_date: dateObservation(now, true) })) return current;
-    }
+    if (boundary('account.refresh', source) === 'keep') return current;
     const metadata = await discovery(profile, signal, audio);
     const config = configuration(metadata, current.client_id, profile, signal, audio);
     const tokens = await grant(() => oidc.refreshTokenGrant(config, current.refresh_token, audio ? undefined : { resource: chatgptOAuthResource }), signal);

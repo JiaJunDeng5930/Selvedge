@@ -69,7 +69,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.profile_connection",AccountFields.profile_connection);
   ("account.record_read_failure",AccountOAuth.record_read_failure);
   ("account.refresh",AccountIdentity.refresh);
-  ("account.refresh_initial",AccountIdentity.refresh_initial);
   ("account.registration",AccountIdentity.registration);
   ("account.registration_record",AccountIdentity.registration_record);
   ("account.registration_subject",AccountIdentity.registration_subject);
