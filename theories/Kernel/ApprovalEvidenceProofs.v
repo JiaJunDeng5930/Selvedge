@@ -39,7 +39,7 @@ Proof.
  unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
- unfold Scheduler.append_operation, TaskWake.promote.
+ unfold TicketedRequest.append_operation, TaskWake.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
@@ -50,20 +50,20 @@ Qed.
     reviewer for a nonpending operation. *)
 Theorem pending_approval_selection_retains_the_frozen_actor :
  forall selected operations pending actor,
- Callbacks.find_pending_approval selected operations = Some (pending,actor) ->
+ RequestReceiver.find_approval selected operations = Some (pending,actor) ->
  exists ticket,
  In pending operations /\ operation_stage pending = AwaitingApproval ticket actor /\
  selected (operation_id pending) ticket actor = true.
 Proof.
  intros selected operations; induction operations as [|first rest IH]; intros pending actor Found.
  - discriminate.
- - assert (Later : Callbacks.find_pending_approval selected rest = Some (pending,actor) ->
+ - assert (Later : RequestReceiver.find_approval selected rest = Some (pending,actor) ->
      exists ticket, In pending (first::rest) /\
        operation_stage pending = AwaitingApproval ticket actor /\
        selected (operation_id pending) ticket actor = true).
    { intro Tail; destruct (IH pending actor Tail) as [ticket [Member [Phase Chosen]]].
      exists ticket; split; [right; exact Member|auto]. }
-   cbn [Callbacks.find_pending_approval RequestReceiver.find_approval RequestReceiver.operation_receiver fold_right] in Found.
+   cbn [RequestReceiver.find_approval RequestReceiver.find_approval RequestReceiver.operation_receiver fold_right] in Found.
    destruct (operation_stage first) as [ticket|ticket reviewer|reviewer|ticket reviewer|hooks value error|ticket plugin hooks value error] eqn:Phase;
      try (apply Later; exact Found).
    destruct (selected (operation_id first) ticket reviewer) eqn:Chosen.

@@ -18,5 +18,3 @@ Definition candidate (request : Commands.fork_payload) (before : world) :=
 Definition select (request : Commands.fork_payload) (before : world) :=
  CommitPacket.choose true (Some (Inputs.UserCommand (Commands.Cmd_fork request)))
    (Delivery.deliver_with_status true (candidate request before) before).
-Definition packet (request : Commands.fork_payload) (before : world) : world * json :=
- CommitPacket.finalize before (select request before).

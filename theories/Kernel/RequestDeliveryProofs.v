@@ -41,10 +41,10 @@ Theorem a_refused_request_cannot_still_be_emitted :
  RequestDelivery.inference_coordinate request = Some (owner,ticket) ->
  TaskScope.select owner (decision_world result) = Some target ->
  RequestDelivery.owns_inference request (TaskScope.selected target) = true ->
- ~ In request (decision_effects (RequestDelivery.refuse request result)).
+ ~ In request (decision_effects (DecisionComposition.transform (RequestDelivery.refusal request) result)).
 Proof.
  intros result request owner ticket target Coordinate Selected Owned.
- unfold RequestDelivery.refuse,DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_effects].
+ unfold DecisionComposition.transform,RequestDelivery.refusal; rewrite Coordinate, Selected, Owned; cbn [decision_effects].
  intro Present; apply filter_In in Present; destruct Present as [_ Accepted].
  unfold RequestDelivery.same_inference in Accepted; rewrite Coordinate, !N.eqb_refl in Accepted.
  discriminate.
@@ -68,10 +68,10 @@ Qed.
 Theorem a_refused_after_request_cannot_still_be_emitted :
  forall current owner ticket identity plugin invocation result error,
  let request := CheckResult owner ticket identity plugin invocation result error in
- ~ In request (decision_effects (RequestDelivery.refuse_after request current)).
+ ~ In request (decision_effects (DecisionComposition.transform (RequestDelivery.after_refusal request) current)).
 Proof.
  intros current owner ticket identity plugin invocation result error; cbv zeta.
- cbn [RequestDelivery.refuse_after DecisionComposition.transform RequestDelivery.after_refusal decision_effects].
+ cbn [ DecisionComposition.transform RequestDelivery.after_refusal decision_effects].
  intro Present; apply filter_In in Present; destruct Present as [_ Accepted].
  cbn [RequestDelivery.same_after] in Accepted.
  rewrite !N.eqb_refl in Accepted; discriminate.
@@ -116,14 +116,14 @@ Qed.
 Theorem normalization_retires_every_individually_oversized_after_request :
  forall current owner ticket identity plugin invocation result error,
  let request := CheckResult owner ticket identity plugin invocation result error in
- let encoded := Selvedge.Features.Runtime.finish (RequestDelivery.capture current) in
+ let encoded := Selvedge.Features.Runtime.finish (DecisionComposition.transform RequestDelivery.capture_requests current) in
  In request (decision_effects encoded) ->
  RequestDelivery.request_fits (decision_world encoded) request = false ->
- ~ In request (decision_effects (RequestDelivery.normalize current)).
+ ~ In request (decision_effects (DecisionComposition.transform RequestDelivery.normalization current)).
 Proof.
  intros current owner ticket identity plugin invocation result error; cbv zeta.
  intros Present Oversized.
- unfold RequestDelivery.normalize,RequestDelivery.normalization,RequestDelivery.capture,
+ unfold RequestDelivery.normalization,
    RequestDelivery.capture_requests,Selvedge.Features.Runtime.finish,DecisionComposition.transform in *.
  destruct (Dispatch.prepare (decision_world current) (decision_effects current)) as [captured effects].
  cbn [decision_world decision_effects decision_reply fst snd] in Present,Oversized |- *.
@@ -143,14 +143,13 @@ Theorem an_after_budget_refusal_uses_the_owned_failure_settlement :
  find_task owner (decision_world current) = Some task ->
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
  operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
- decision_world (RequestDelivery.refuse_after
-   (CheckResult owner ticket identity plugin invocation result error) current) =
+ decision_world (DecisionComposition.transform (RequestDelivery.after_refusal (CheckResult owner ticket identity plugin invocation result error)) current) =
  TaskResult.apply_result owner task
    (HookCallbacks.after_result_plan owner operation plugin pending result error
      (AfterFailure RequestDelivery.after_failure_message)) (decision_world current).
 Proof.
  intros current owner ticket identity plugin invocation result error task operation pending Found Owned Waiting.
- unfold RequestDelivery.refuse_after,DecisionComposition.transform,RequestDelivery.after_refusal.
+ unfold DecisionComposition.transform,RequestDelivery.after_refusal.
  rewrite after_completed_expression, Found, Owned, Waiting, N.eqb_refl.
  reflexivity.
 Qed.
@@ -160,11 +159,10 @@ Theorem an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation :
  find_task owner (decision_world current) = Some task ->
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
  operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
- let refused := RequestDelivery.refuse_after
-   (CheckResult owner ticket identity plugin invocation result error) current in
+ let refused := (DecisionComposition.transform (RequestDelivery.after_refusal (CheckResult owner ticket identity plugin invocation result error)) current) in
  exists updated released,
  find_task owner (decision_world refused) = Some updated /\
- task_operations updated = Callbacks.remove_operation (operation_id operation) (task_operations task) /\
+ task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
    [AfterReceipt owner (operation_id operation) plugin
      (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] ++
@@ -186,26 +184,29 @@ Proof.
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
    (TaskWake.mark_context_wake owner task (put_task owner
-     (Callbacks.settle_operation operation
-       (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true
+     (TaskChange.apply (TaskResult.result_changes
+       (OperationEvent.settle operation (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true)
        (append_history [AfterReceipt owner (operation_id operation) plugin
+         (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task)) (append_history [AfterReceipt owner (operation_id operation) plugin
          (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))
      (decision_world current))).
  rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
- set (settled := with_operations
-   (Callbacks.remove_operation (operation_id operation) (task_operations task))
+ set (settled := with_lifecycle
+   (change_operations (filter (fun pending => negb (N.eqb (operation_id operation) (operation_id pending))))
+     (task_lifecycle (append_history [AfterReceipt owner (operation_id operation) plugin
+       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task)))
    (append_history [History.operation_result operation
      (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true]
      (append_history [AfterReceipt owner (operation_id operation) plugin
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (TaskWake.wake_after_result settled), released; split.
+ exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    destruct lifecycle;
-   cbn [task_operations task_history task_queued with_operations append_history
+   cbn [task_operations task_history task_queued change_operations append_history
      with_lifecycle with_history] in Operations, History, Released |- *;
    rewrite Operations, History; repeat split; try assumption; try reflexivity;
    cbn; rewrite <- !app_assoc; reflexivity.
@@ -217,11 +218,10 @@ Theorem a_stale_after_budget_refusal_cannot_change_the_current_operation :
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
  operation_stage operation = AwaitingAfterHook expected plugin pending result error ->
  ticket <> expected ->
- decision_world (RequestDelivery.refuse_after
-   (CheckResult owner ticket identity plugin invocation result error) current) = decision_world current.
+ decision_world (DecisionComposition.transform (RequestDelivery.after_refusal (CheckResult owner ticket identity plugin invocation result error)) current) = decision_world current.
 Proof.
  intros current owner ticket expected identity plugin invocation result error task operation pending Found Owned Waiting Stale.
- unfold RequestDelivery.refuse_after,DecisionComposition.transform,RequestDelivery.after_refusal.
+ unfold DecisionComposition.transform,RequestDelivery.after_refusal.
  rewrite after_completed_expression, Found, Owned, Waiting.
  assert (Mismatch : N.eqb expected ticket = false) by (apply N.eqb_neq; congruence).
  rewrite Mismatch; reflexivity.
@@ -253,13 +253,13 @@ Qed.
 Theorem context_completion_commits_before_following_scheduling : forall owner ticket observations diagnostic before,
  Packet.prepare true (Some (ContextCompleted owner ticket observations diagnostic))
    (Packet.core_transition (ContextCompleted owner ticket observations diagnostic) before) =
- RequestDelivery.defer (Selvedge.Features.Runtime.after_transition before
-   (Callbacks.context_completed owner ticket observations diagnostic before)).
+ (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_transition before
+   (Callbacks.context_completed owner ticket observations diagnostic before))).
 Proof. reflexivity. Qed.
 
 Theorem model_completion_keeps_its_feature_delta_before_deferral : forall owner ticket outcome before,
  Packet.prepare true (Some (ModelCompleted owner ticket outcome))
    (Packet.core_transition (ModelCompleted owner ticket outcome) before) =
- RequestDelivery.defer (Selvedge.Features.Runtime.after_transition before
-   (Callbacks.model_completed owner ticket outcome before)).
+ (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_transition before
+   (Callbacks.model_completed owner ticket outcome before))).
 Proof. reflexivity. Qed.

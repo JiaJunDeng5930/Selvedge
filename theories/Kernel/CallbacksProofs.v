@@ -14,9 +14,9 @@ Open Scope list_scope.
    result that woke it, or change the remaining operation rights. *)
 Lemma waking_a_result_preserves_operations_and_only_releases_queued_input :
  forall task,
- task_operations (TaskWake.wake_after_result task) = task_operations task /\
+ task_operations (TaskChange.apply (TaskWake.wake_after_result_changes task) task) = task_operations task /\
  exists released,
- task_history (TaskWake.wake_after_result task) =
+ task_history (TaskChange.apply (TaskWake.wake_after_result_changes task) task) =
    task_history task ++ map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
@@ -26,8 +26,8 @@ Proof.
    calls | invocation plugins calls | checking plugin invocation plugins calls ];
  try destruct calls as [|first_call other_calls];
  destruct queued as [|first rest];
- cbn [TaskWake.wake_after_result TaskWake.wake_after_result_changes TaskWake.promote TaskWake.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
-   with_lifecycle with_queued append_history with_history].
+ cbn [ TaskWake.wake_after_result_changes TaskWake.promote TaskWake.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
+ with_lifecycle append_history with_history].
  all: split.
  all: try reflexivity.
  all: first
@@ -38,13 +38,13 @@ Qed.
 Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
  forall id ticket result error value task operation,
  find_task id value = Some task ->
- find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
+ find (RequestReceiver.operation_executing ticket) (task_operations task) = Some operation ->
  Callbacks.after_plugins task = [] ->
  let completed := Callbacks.tool_completed id ticket result error value in
  decision_effects completed = [] /\
  exists updated released,
  find_task id (decision_world completed) = Some updated /\
- task_operations updated = Callbacks.remove_operation (operation_id operation) (task_operations task) /\
+ task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
    [if operation_announced operation
     then OperationResult (operation_id operation) (operation_call operation) result error
@@ -57,22 +57,23 @@ Proof.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
  change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
-   with (TaskWake.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+   with (TaskWake.mark_context_wake id task (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value)).
  cbn [decision_effects decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
  split; [reflexivity|].
- set (settled := with_operations
-   (Callbacks.remove_operation (operation_id operation) (task_operations task))
+ set (settled := with_lifecycle
+   (change_operations (filter (fun pending => negb (N.eqb (operation_id operation) (operation_id pending))))
+     (task_lifecycle task))
    (append_history [History.operation_result operation result error] task)).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (TaskWake.wake_after_result settled), released; split.
+ exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    destruct lifecycle as [phase operations|phase operations|phase operations|];
    cbn [task_operations] in Owned; try discriminate;
-   cbn [task_operations task_history task_queued with_operations append_history
+   cbn [task_operations task_history task_queued change_operations append_history
      with_lifecycle with_history] in Operations, History, Released |- *;
    rewrite Operations, History; repeat split; try assumption; try reflexivity;
    cbn; rewrite <- app_assoc; reflexivity.
@@ -80,13 +81,20 @@ Qed.
 
 Definition distinct_ticket_prefix_and_suffix := SequenceProofs.distinct_app_parts N.
 
+Definition operation_tickets (pending : operation) :=
+ operation_id pending :: match operation_stage pending with
+ | Executing ticket | AwaitingApproval ticket _ | Elevated ticket _
+ | AwaitingAfterHook ticket _ _ _ _ =>
+   if N.eqb ticket (operation_id pending) then nil else ticket :: nil
+ | Granted _ | AfterHooksReady _ _ _ => nil end.
+
 Lemma executing_ticket_belongs_to_the_operation : forall ticket operation,
- Callbacks.operation_executing ticket operation = true ->
- In ticket (RequestReceiver.operation_tickets operation).
+ RequestReceiver.operation_executing ticket operation = true ->
+ In ticket (operation_tickets operation).
 Proof.
  intros ticket operation Executing.
- unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver in Executing.
- unfold RequestReceiver.operation_tickets.
+ unfold RequestReceiver.operation_executing, RequestReceiver.operation_receiver in Executing.
+ unfold operation_tickets.
  destruct (operation_stage operation) as [expected|expected actor|actor|expected actor|pending result error|expected plugin pending result error];
    try discriminate;
  apply N.eqb_eq in Executing; subst expected;
@@ -98,34 +106,34 @@ Proof.
 Qed.
 
 Lemma no_execution_after_removing_the_ticket_owner : forall operations ticket operation,
- NoDup (flat_map RequestReceiver.operation_tickets operations) ->
- find (Callbacks.operation_executing ticket) operations = Some operation ->
- find (Callbacks.operation_executing ticket)
-   (Callbacks.remove_operation (operation_id operation) operations) = None.
+ NoDup (flat_map operation_tickets operations) ->
+ find (RequestReceiver.operation_executing ticket) operations = Some operation ->
+ find (RequestReceiver.operation_executing ticket)
+   (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations) = None.
 Proof.
  intros operations; induction operations as [|first rest IH]; intros ticket operation Unique Owned;
    cbn in Owned; [discriminate|].
  cbn [flat_map] in Unique.
  destruct (distinct_ticket_prefix_and_suffix _ _ Unique) as [_ [Tail Disjoint]].
- destruct (Callbacks.operation_executing ticket first) eqn:Executes.
+ destruct (RequestReceiver.operation_executing ticket first) eqn:Executes.
  - inversion Owned; subst operation.
-   cbn [Callbacks.remove_operation filter]; rewrite N.eqb_refl; cbn.
+   cbn [filter]; rewrite N.eqb_refl; cbn.
    apply find_none_when_rejected; intros other Member.
    apply filter_In in Member as [Member _].
-   destruct (Callbacks.operation_executing ticket other) eqn:Other; [|reflexivity].
+   destruct (RequestReceiver.operation_executing ticket other) eqn:Other; [|reflexivity].
    exfalso; apply (Disjoint ticket (executing_ticket_belongs_to_the_operation _ _ Executes)).
    apply in_flat_map; exists other; split; [exact Member|].
    exact (executing_ticket_belongs_to_the_operation _ _ Other).
- - cbn [Callbacks.remove_operation filter].
+ - cbn [filter].
    destruct (negb (N.eqb (operation_id operation) (operation_id first))); cbn;
    try rewrite Executes; apply IH; assumption.
 Qed.
 
 Theorem an_owned_tool_completion_is_consumed_once_without_after_hooks :
  forall id ticket result error value task operation,
- NoDup (flat_map RequestReceiver.operation_tickets (task_operations task)) ->
+ NoDup (flat_map operation_tickets (task_operations task)) ->
  find_task id value = Some task ->
- find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
+ find (RequestReceiver.operation_executing ticket) (task_operations task) = Some operation ->
  Callbacks.after_plugins task = [] ->
  let completed := Callbacks.tool_completed id ticket result error value in
  forall repeated_result repeated_error,
@@ -149,8 +157,8 @@ Qed.
 Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  forall task operations,
  task_lifecycle task = Frozen Idle operations ->
- task_lifecycle (TaskWake.wake_after_result task) = Frozen WantsModel operations /\
- task_operations (TaskWake.wake_after_result task) = operations.
+ task_lifecycle (TaskChange.apply (TaskWake.wake_after_result_changes task) task) = Frozen WantsModel operations /\
+ task_operations (TaskChange.apply (TaskWake.wake_after_result_changes task) task) = operations.
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed] operations Frozen.
  cbn in Frozen; subst lifecycle; split; reflexivity.
@@ -159,11 +167,12 @@ Qed.
 Theorem freezing_settling_and_unfreezing_preserves_the_result_demand :
  forall task operations operation result error,
  task_lifecycle task = Running Idle operations ->
- let settled := Callbacks.settle_operation operation result error
-   (Tasks.control_task Tasks.Freeze task) in
- task_lifecycle settled = Frozen WantsModel (Callbacks.remove_operation (operation_id operation) operations) /\
- task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) =
-   Running WantsModel (Callbacks.remove_operation (operation_id operation) operations).
+ let frozen := TaskChange.apply (Tasks.control_changes Tasks.Freeze task) task in
+ let settled := TaskChange.apply (TaskResult.result_changes
+   (OperationEvent.settle operation result error) frozen) frozen in
+ task_lifecycle settled = Frozen WantsModel (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations) /\
+ task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Unfreeze settled) settled) =
+   Running WantsModel (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations).
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
   operations operation result error Idle; cbn in Idle; subst lifecycle.
@@ -174,23 +183,23 @@ Theorem an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand :
  forall id ticket result error value task operations operation,
  find_task id value = Some task ->
  task_lifecycle task = Frozen Idle operations ->
- find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
+ find (RequestReceiver.operation_executing ticket) (task_operations task) = Some operation ->
  Callbacks.after_plugins task = [] ->
  exists settled,
  find_task id (decision_world (Callbacks.tool_completed id ticket result error value)) = Some settled /\
- task_lifecycle settled = Frozen WantsModel (Callbacks.remove_operation (operation_id operation) operations) /\
- task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) =
-   Running WantsModel (Callbacks.remove_operation (operation_id operation) operations).
+ task_lifecycle settled = Frozen WantsModel (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations) /\
+ task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Unfreeze settled) settled) =
+   Running WantsModel (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations).
 Proof.
  intros id ticket result error value task operations operation Found Frozen Owned Hooks.
  rewrite !tool_completed_expression; rewrite Found, Owned.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
  change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
-   with (TaskWake.mark_context_wake id task (put_task id (Callbacks.settle_operation operation result error task) value)).
+   with (TaskWake.mark_context_wake id task (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value)).
  cbn [decision_world acknowledged accept].
  rewrite context_wake_preserves_every_task_lookup.
- exists (Callbacks.settle_operation operation result error task); split.
+ exists (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task); split.
  - apply find_put_task with task; exact Found.
  - destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    cbn in Frozen; subst lifecycle; split; reflexivity.
@@ -205,7 +214,7 @@ Theorem an_owned_cancellation_while_frozen_keeps_the_unfreeze_demand :
  find_task id (decision_world (Tasks.cancel_operation id identity value)) = Some settled /\
  task_lifecycle settled = Frozen WantsModel
    (filter (fun pending => negb (N.eqb identity (operation_id pending))) operations) /\
- task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) = Running WantsModel
+ task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Unfreeze settled) settled) = Running WantsModel
    (filter (fun pending => negb (N.eqb identity (operation_id pending))) operations).
 Proof.
  intros id identity value task operations operation Found Frozen Owned.

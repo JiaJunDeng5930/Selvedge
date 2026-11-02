@@ -87,7 +87,6 @@ Definition transition_decoded (decoded : option input_route) (source : json) (va
       | Some entry => InputDecoder.diagnostic entry source
       | None => "Unknown input kind or malformed domain callback" end) value)
  end.
-Definition transition (source : json) (value : world) := transition_decoded (decode source) source value.
 Definition callback_input (source : option Inputs.input) :=
  match source with
  | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false

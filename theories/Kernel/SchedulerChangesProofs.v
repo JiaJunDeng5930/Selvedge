@@ -18,11 +18,11 @@ Lemma commit_changes_use_the_observed_owner : forall id changes before task,
 Proof. intros; rewrite commit_changes_expression, H; reflexivity. Qed.
 
 Lemma continue_after_calls_expression : forall task,
- Scheduler.continue_after_calls task =
+ (TaskChange.apply (Scheduler.continue_after_calls_changes task) task) =
  let promoted := TaskWake.promote task in
  with_activity (if unseen_model_input promoted ||
    existsb Scheduler.process_needs_model (task_operations promoted) then WantsModel else Idle) promoted.
 Proof.
- intros; unfold Scheduler.continue_after_calls, Scheduler.continue_after_calls_changes.
+ intros; unfold Scheduler.continue_after_calls_changes.
  rewrite apply_app; reflexivity.
 Qed.

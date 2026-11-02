@@ -15,8 +15,8 @@ Theorem task_creation_never_rewrites_existing_history : forall value created,
 Proof. reflexivity. Qed.
 Theorem archival_removes_all_execution_authority : forall value,
  task_archived value = false ->
- task_lifecycle (Tasks.control_task Tasks.Archive value) = Archived [] /\
- task_operations (Tasks.control_task Tasks.Archive value) = [].
+ task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = Archived [] /\
+ task_operations (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = [].
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor] Live.
  destruct lifecycle; cbn [task_archived task_lifecycle] in Live; try discriminate;
@@ -50,9 +50,9 @@ Theorem tool_completion_requires_owned_execution : forall id ticket result error
 Proof.
  intros id ticket result error value task Hfind Howned.
  rewrite CallbackChangesProofs.tool_completed_expression; rewrite Hfind.
- assert (Hnone : find (Callbacks.operation_executing ticket) (task_operations task) = None).
+ assert (Hnone : find (RequestReceiver.operation_executing ticket) (task_operations task) = None).
  { apply find_none_when_rejected. intros operation Hinside.
-   specialize (Howned operation Hinside). unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
+   specialize (Howned operation Hinside). unfold RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
    destruct (operation_stage operation); try reflexivity; apply N.eqb_neq; exact Howned. }
  rewrite Hnone; reflexivity.
 Qed.

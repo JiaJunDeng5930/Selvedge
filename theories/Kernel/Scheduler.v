@@ -24,9 +24,6 @@ Definition commit_changes (id : N) (changes : task -> list TaskChange.edit) (val
 Definition call_result_changes := OperationEvent.call_result.
 Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (value : world) :=
  acknowledged (commit_changes id (fun _ => call_result_changes invocation (State.failure code reason) true remaining) value).
-Definition announce_operation := TicketedRequest.announce_operation.
-Definition publish_operations := TicketedRequest.publish_operations.
-Definition append_operation := TicketedRequest.append_operation.
 (* Bash may need stdin before it can finish. Other pending external operations
    wait for completion unless another committed input already needs inference. *)
 Definition process_needs_model (value : operation) := negb (operation_announced value) &&
@@ -36,7 +33,6 @@ Definition continue_after_calls_changes (task : task) :=
  let promoted := TaskWake.promote task in
  TaskWake.promote_changes task ++ [TaskChange.ChangePhase
   (if unseen_model_input promoted || existsb process_needs_model (task_operations promoted) then WantsModel else Idle)].
-Definition continue_after_calls (task : task) := TaskChange.apply (continue_after_calls_changes task) task.
 Definition start_external (id : N) (value : world) :=
  match TicketedRequest.Scoped.start id value with
  | None => State.ignored value
@@ -286,7 +282,6 @@ Definition effect_requires_commit (request : effect) := match request with
    or adaptive selection that did not observe that input. The durable
    continuation runs the remaining work in the next ordinary transaction. *)
 Definition advancement := world -> list effect -> option (world * list effect).
-Definition unrestricted : advancement := fun value effects => Some (value,effects).
 (* Admission observes each proposed prefix before another step may depend on it.
    A refused next step stays runnable in the retained prefix; the durable
    continuation therefore advances a batch without discarding earlier work. *)
@@ -310,13 +305,8 @@ Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
      end
    end
  end end.
-Definition schedule := schedule_with unrestricted.
 Definition scheduling_with (advance : advancement) (execute : executor)
  (permitted : N -> world -> bool) : DecisionComposition.transformation := fun _ value effects =>
  let '(value,effects) := schedule_with advance Limits.schedule_steps execute permitted
    value effects in
  Dispatch.prepare value effects.
-Definition run_with (advance : advancement) (execute : executor) (permitted : N -> world -> bool) :=
- DecisionComposition.transform (scheduling_with advance execute permitted).
-Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
- run_with unrestricted execute permitted decision.

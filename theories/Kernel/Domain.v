@@ -289,7 +289,6 @@ Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cur
 Definition unseen_model_input (value : task) := existsb (fun item => match item with
  | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
  (skipn (task_model_cursor value) (task_history value)).
-Definition with_queued (queued : list content) (value : task) := set task_queued (fun _ => queued) value.
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=
  set task_current_settings (fun _ => settings) (set task_current_profile (fun _ => chosen) value).
 Definition with_side_cursor (cursor : N) (value : task) := set task_side_cursor (fun _ => cursor) value.
@@ -311,8 +310,6 @@ Definition change_operations (change : list operation -> list operation) (state 
   end.
 Definition with_activity (phase : activity) (value : task) :=
   with_lifecycle (change_activity phase (task_lifecycle value)) value.
-Definition with_operations (ops : list operation) (value : task) :=
-  with_lifecycle (change_operations (fun _ => ops) (task_lifecycle value)) value.
 Definition activity_busy (phase : activity) :=
   match phase with Idle => false | _ => true end.
 Definition task_busy (value : task) :=

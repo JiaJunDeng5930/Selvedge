@@ -12,7 +12,6 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Definition capture_requests : DecisionComposition.transformation := fun _ => Dispatch.prepare.
-Definition capture := DecisionComposition.transform capture_requests.
 (* This is the same finalization used by Packet. In particular, compaction's
    selected scope and reserve are attached before the actual wire is measured. *)
 Definition finish := Selvedge.Features.Runtime.finish.
@@ -58,7 +57,6 @@ Definition refusal (request : effect) : DecisionComposition.transformation := fu
          filter (fun effect => negb (same_inference request effect)) effects)
      else (value,effects) end
  end.
-Definition refuse request := DecisionComposition.transform (refusal request).
 Definition after_failure_message :=
  "The result-processing request exceeds the native transport budget; this hook was not sent and the original tool result remains available in task history".
 Definition oversized_after (value : world) (request : effect) :=
@@ -81,14 +79,12 @@ Definition after_refusal (request : effect) : DecisionComposition.transformation
      (Inputs.AfterFailure after_failure_message) value in
    (decision_world settled,filter (fun effect => negb (same_after request effect)) effects)
  | _ => (value,effects) end.
-Definition refuse_after request := DecisionComposition.transform (after_refusal request).
 Definition normalization : DecisionComposition.transformation := fun reply value effects =>
  let '(value,effects) := capture_requests reply value effects in
  let '(encoded,emitted) := Selvedge.Features.Runtime.finalization reply value effects in
  DecisionComposition.compose
    (DecisionComposition.fold (filter (oversized_inference encoded) emitted) refusal)
    (DecisionComposition.fold (filter (oversized_after encoded) emitted) after_refusal) reply value effects.
-Definition normalize := DecisionComposition.transform normalization.
 
 (* The accepted accumulator remains an unfinalized scheduler value. Previewing
    Runtime.finish never commits a feature fold or allocates a second receiver.
@@ -118,4 +114,3 @@ Definition scheduling (execute : Scheduler.executor) (permitted : N -> world -> 
    result, retaining its before/after delta for graph handoffs and maintenance. *)
 Definition deferral := DecisionComposition.compose normalization
  (DecisionComposition.compose DeferredCommit.continuation Selvedge.Features.Runtime.finalization).
-Definition defer := DecisionComposition.transform deferral.

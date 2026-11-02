@@ -60,7 +60,7 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     Creation, manual fork and owned final settlement do not require all
     background work to succeed atomically. Their business change is delivered
     with [ContinueScheduling]; the journal commits it before that continuation
-    can issue physical work. The manual-fork contract reaches [ForkCommit.packet]
+    can issue physical work. The manual-fork contract finalizes the actual [ForkCommit.select]
     with the admitted candidate and output budget. The native-fork contract
     reaches [Packet.packet] under the actual invocation selection and delivery
     budget. The terminal-settlement contract also reaches [Packet.packet], including

@@ -175,7 +175,6 @@ Definition receive_changes (contents : content) (value : task) : list TaskChange
  | Running _ _ => [TaskChange.AppendQueued contents]
  | Stopped _ _ => [TaskChange.ChangeStatus TaskChange.RunningStatus; TaskChange.AppendQueued contents]
  end.
-Definition receive (contents : content) (value : task) := TaskChange.apply (receive_changes contents value) value.
 Definition inference_effects (id : N) (task : task) :=
  match task_activity task with
  | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
@@ -215,7 +214,6 @@ Definition control_changes (command : control) (task : task) : list TaskChange.e
        TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
    end
  end.
-Definition control_task (command : control) (task : task) := TaskChange.apply (control_changes command task) task.
 Definition control_effects (id : N) (command : control) :=
  match command with
  | Freeze | Unfreeze => []
@@ -507,11 +505,6 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
     end)
    else CommandResult.Rejected (fork_refusal_reason entry id count task value)
  end.
-Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
- CommandResult.reject value (fork_refusal_reason entry id count parent value).
-Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
- (messages : list content) (settings : option settings_request) (value : world) :=
- CommandResult.decide value (fork_result entry origin id count messages settings value).
 Definition open_side (id : N) (contents : content) (value : world) :=
  CommandResult.decide value
  (match TaskScope.select id value with

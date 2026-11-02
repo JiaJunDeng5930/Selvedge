@@ -25,17 +25,17 @@ Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id (count 
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
  exists refused,
- Tasks.fork_with_caller invoked origin id count messages requested value=
+ (CommandResult.decide value (Tasks.fork_result invoked origin id count messages requested value))=
    CommandResult.reject value refused.
 Proof.
- intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
+ intros Found Capacity. rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta. rewrite Found.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
  eexists; reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
  task_lifecycle task = Archived operations ->
- Tasks.control_task Tasks.Archive task = task.
+ (TaskChange.apply (Tasks.control_changes Tasks.Archive task) task) = task.
 Proof.
  intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] operations H.
  cbn in H. subst lifecycle. reflexivity.
@@ -53,7 +53,7 @@ Qed.
 
 Theorem stopped_idle_receive_reactivates : forall contents task,
  task_lifecycle task = Stopped Idle [] ->
- task_lifecycle (Tasks.receive contents task) = Running WantsModel [].
+ task_lifecycle (TaskChange.apply (Tasks.receive_changes contents task) task) = Running WantsModel [].
 Proof.
  intros contents [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
  cbn [task_lifecycle] in Stopped; subst lifecycle; reflexivity.
@@ -94,11 +94,13 @@ Proof.
 Qed.
 
 Theorem interrupt_task_is_idempotent : forall task,
- Tasks.control_task Tasks.Interrupt (Tasks.control_task Tasks.Interrupt task) =
- Tasks.control_task Tasks.Interrupt task.
+ TaskChange.apply
+   (Tasks.control_changes Tasks.Interrupt (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task))
+   (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task) =
+ (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task).
 Proof.
  assert (Stable : forall current, task_lifecycle current = Stopped Idle [] ->
-   Tasks.control_task Tasks.Interrupt current = current).
+   (TaskChange.apply (Tasks.control_changes Tasks.Interrupt current) current) = current).
  { intros [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
    cbn [task_lifecycle] in Stopped; subst lifecycle.
    change (Task contract profile settings (Stopped Idle []) (history ++ []) queued lineage parent cursor consumed =
@@ -203,11 +205,11 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining 
    (Tasks.fork_settings_base origin parent value) value = Some selected ->
  Tasks.admit_fork_selection parent value selected = Some selection ->
  Workspace.may_delegate (Tasks.fork_selected parent value selection) (task_current_settings parent) = false ->
- Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value =
+ (CommandResult.decide value (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value)) =
    Tasks.refuse_start Tasks.NativeForkEntry Tasks.AuthorityExpansion value.
 Proof.
  intros invocation remaining origin id count messages requested value parent selected selection Hfind Available Heligible Hresolved Hselection Hdelegate.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection, Available.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection, Available.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 

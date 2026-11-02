@@ -124,19 +124,19 @@ Proof.
  destruct Member as [Mode|[Mode|Impossible]]; try contradiction; subst mode.
  - assert (Delivered : Tasks.send_result id [TextPart text] value =
      CommandResult.Accepted (CommandResult.Change (JObject [("task_id",Numbers.number id)])
-       (put_task id (Tasks.receive [TextPart text] task) value) [])).
+       (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) [])).
    { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
      change (Tasks.send id [TextPart text] value =
-       accept (JObject [("task_id",Numbers.number id)]) (put_task id (Tasks.receive [TextPart text] task) value) []).
+       accept (JObject [("task_id",Numbers.number id)]) (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) []).
      rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text,Available; reflexivity. }
    unfold CommandExecution.speech_delegation; cbn zeta; fold session identity text; rewrite Found, Fresh.
    cbn [proj1_sig].
    change (String.eqb "send" "steer") with false; cbn [andb]; rewrite Delivered.
    cbn [CommandResult.commit CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
      CommandResult.accept CommandResult.change_world CommandResult.change_value CommandResult.change_effects].
-   rewrite (find_put_task id task (Tasks.receive [TextPart text] task) value Found).
-   eexists; split; [apply find_put_task with (Tasks.receive [TextPart text] task); apply find_put_task with task; exact Found|].
-   unfold Tasks.receive,Tasks.receive_changes; rewrite IdleTask,NoQueued.
+   rewrite (find_put_task id task (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value Found).
+   eexists; split; [apply find_put_task with (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task); apply find_put_task with task; exact Found|].
+   unfold Tasks.receive_changes; rewrite IdleTask,NoQueued.
    repeat split; try reflexivity.
    change ((task_history task ++ [UserMessage [TextPart text]]) ++
      [SpeechDelegation id session identity "send" text] =

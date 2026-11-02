@@ -21,5 +21,3 @@ Definition admit_with_status (durable : bool) (before : world) (result : decisio
 
 Definition select (durable : bool) (source : option input) (before : world) (candidate : decision) :=
  CommitPacket.choose durable source (admit_with_status durable before candidate).
-Definition packet (source : option input) (before : world) (candidate : decision) : world * json :=
- CommitPacket.finalize before (select true source before candidate).

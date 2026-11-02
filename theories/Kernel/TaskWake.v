@@ -21,7 +21,6 @@ Definition wake_after_result_changes (task : task) : list TaskChange.edit :=
  match task_lifecycle task with
  | Running Idle _ | Frozen Idle _ => [TaskChange.ChangePhase WantsModel]
  | _ => promote_changes task end.
-Definition wake_after_result (task : task) := TaskChange.apply (wake_after_result_changes task) task.
 
 Definition wake_context_entry (owner ticket : N) (pair : N * Selvedge.Features.CompactionTypes.entry) :=
  let '(id,entry) := pair in
