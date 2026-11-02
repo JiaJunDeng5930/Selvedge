@@ -50,7 +50,6 @@ Definition action_named (target : string) :=
  | None => unknown_route end.
 Definition header (source : json) (key : string) := get (get source "headers") key.
 Definition host_valid (source : json) := boolean_field source "address_present" &&
-  is_text (get source "expected_host") && negb (String.eqb (str source "expected_host") "") &&
   equal (header source "host") (get source "expected_host").
 Definition open_valid (source : json) := equal (get source "closing") (JBool false).
 Definition open_host_guard (source : json) (next : json -> json) :=
@@ -59,12 +58,7 @@ Definition open_host_guard (source : json) (next : json -> json) :=
   else if negb (host_valid source) then rejection 400 "host" "Invalid local host"
   else next source.
 Definition connection_path (source : json) := starts (str source "pathname") "/api/chatgpt/".
-Definition credential_observed (source : json) :=
-  let authorization := get source "authorization" in
-  if boolean_field authorization "present" then String.eqb (str authorization "type") "string"
-  else negb (connection_path source) && boolean_field (get source "cookie") "present" &&
-    String.eqb (str (get source "cookie") "type") "string".
-Definition authorized (source : json) := boolean_field source "authorized" && credential_observed source.
+Definition authorized (source : json) := boolean_field source "authorized".
 Definition authorization_rejection (source : json) :=
   rejection 401 "unauthorized" (if connection_path source
     then "A connection credential is required" else "A local access token is required").

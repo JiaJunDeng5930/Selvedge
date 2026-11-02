@@ -55,18 +55,18 @@ async function killSession(session) {
   }
 }
 
-export function capture(limit) {
+function captureText(limit) {
   const chunks = [];
   let retained = 0;
-  let total = 0;
+  let truncated = false;
   return {
     add(chunk) {
-      total += chunk.length;
-      const keep = Math.min(chunk.length, Math.max(0, limit - retained));
+      const keep = Math.min(chunk.length, limit - retained);
+      truncated ||= keep < chunk.length;
       if (keep) { chunks.push(Buffer.from(chunk.subarray(0, keep))); retained += keep; }
     },
-    result() { return { text: new TextDecoder().decode(Buffer.concat(chunks, retained), { stream: total > retained }),
-      truncated: total > retained, total_bytes: total }; },
+    // A byte limit can cut a UTF-8 sequence; leave that incomplete suffix undecoded.
+    result() { return new TextDecoder().decode(Buffer.concat(chunks, retained), { stream: truncated }); },
   };
 }
 
@@ -103,7 +103,7 @@ function processOutput(limit, combined) {
     result() {
       const result = tail.read();
       return { text: result.output, truncated: result.omitted_characters > 0, total_bytes: bytes,
-        total_characters: Number(result.next_cursor), omitted_characters: result.omitted_characters };
+        omitted_characters: result.omitted_characters };
     },
   };
 }
@@ -397,7 +397,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
     ? await environment.prepareBash({ command }, execution, { signal })
     : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
   const chunks = [];
-  const stderr = capture(4096);
+  const stderr = captureText(4096);
   let bytes = 0;
   let child;
   let timer;
@@ -423,7 +423,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
       child.once('error', reject);
       child.once('close', code => {
         if (failure) reject(failure);
-        else if (code !== 0) reject(new Error(stderr.result().text.trim() || `Image read failed with exit code ${code}`));
+        else if (code !== 0) reject(new Error(stderr.result().trim() || `Image read failed with exit code ${code}`));
         else resolve();
       });
     });

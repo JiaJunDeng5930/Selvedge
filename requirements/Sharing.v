@@ -123,7 +123,10 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
 
     Opening the intended loopback URL establishes an HttpOnly browser session so
     product JavaScript need not handle its secret. Origin and host admission
-    remain necessary. CLI Bearer credentials and plugin grants retain their
+    remain necessary. The host compares credentials as byte buffers and reports
+    that authorization result; credential shape metadata adds no independent
+    authority. The expected Host comes from the actual listening address.
+    CLI Bearer credentials and plugin grants retain their
     separate lifetimes. Persisted protocol compatibility identifies replayable
     work. Only the current persisted formats are accepted, without manufacturing
     authority from older attachment or receipt shapes. *)

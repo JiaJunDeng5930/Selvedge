@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { parseJson, stringifyJson } from './codec.mjs';
-import { capture, killGroup } from './process.mjs';
+import { killGroup } from './process.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 /** Bounded, language-neutral transport. It has no agent or extension policy. */
@@ -45,12 +45,10 @@ export class StdioRpc extends EventEmitter {
   constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
     super();
     Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
-    this.stderr = capture(limits.tool_output_bytes);
     this.#child = spawn(config.command, config.args ?? [], {
-      cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'ignore'],
     });
     this.#child.stdout.on('data', chunk => this.#read(chunk));
-    this.#child.stderr.on('data', chunk => this.stderr.add(chunk));
     this.#child.on('error', error => this.#fail(error));
     this.#child.stdin.on('error', error => this.#fail(error));
     this.closed = new Promise(resolve => {
@@ -229,8 +227,8 @@ export class StdioRpc extends EventEmitter {
       pending.reject(error);
     }
     killGroup(this.#child);
-    // DEFENSE: Descendants can retain inherited stdout/stderr after the parent exits; bound shutdown's wait for those pipes.
-    const timer = setTimeout(() => { this.#child.stdout.destroy(); this.#child.stderr.destroy(); }, 2000);
+    // DEFENSE: Descendants can retain inherited stdout after the parent exits; bound shutdown's wait for that pipe.
+    const timer = setTimeout(() => this.#child.stdout.destroy(), 2000);
     await this.closed;
     clearTimeout(timer);
     // Already admitted staging work owns its physical promise even after its

@@ -92,10 +92,7 @@ export async function startServer(options) {
       if (name.trim() !== 'selvedge-session') continue;
       // DEFENSE: Forged Cookie headers can repeat, omit '=' from, or add whitespace to the session field; reject ambiguous credentials.
       if (name !== 'selvedge-session' || separator < 0 || session !== null) return null;
-      const value = cookie.slice(separator + 1);
-      // DEFENSE: An edited browser cookie can contain a value other than the server's 32-byte hexadecimal session token.
-      if (!/^[0-9a-f]{64}$/.test(value)) return null;
-      session = value;
+      session = cookie.slice(separator + 1);
     }
     return session;
   }
@@ -157,12 +154,7 @@ export async function startServer(options) {
     // Secrets stay opaque. Each observation is made only when the native plan
     // requests it, preserving rejection before later parsing or secret access.
     const headers = {};
-    for (const name of Object.keys(request.headers)) {
-      if (name === 'authorization') continue;
-      const value = request.headers[name];
-      headers[name] = ['host', 'origin', 'content-type', 'content-length', 'last-event-id'].includes(name)
-        ? value : { present: true, type: Array.isArray(value) ? 'array' : typeof value };
-    }
+    for (const name of ['host', 'origin', 'content-length']) headers[name] = request.headers[name];
     const source = {
       method: request.method, url: request.url, headers,
       closing: Boolean(closing), address_present: Boolean(address), address: address ?? null,
@@ -187,7 +179,6 @@ export async function startServer(options) {
         },
         observe_connection_authorization: () => {
           connectionId = url.pathname.slice('/api/chatgpt/'.length);
-          source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
           source.authorized = connectionAuthorized(connections, connectionId, request.headers.authorization);
           return decide('http.connection_authorization');
         },
@@ -195,8 +186,6 @@ export async function startServer(options) {
           return decide('http.connection_method_origin');
         },
         observe_local_authorization: () => {
-          source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
-          source.cookie = { present: request.headers.cookie !== undefined, type: typeof request.headers.cookie };
           source.authorized = authorized(request);
           return decide('http.local_authorization');
         },
