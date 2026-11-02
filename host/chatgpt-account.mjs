@@ -143,26 +143,21 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
   const source = { audio, tokens: Object.fromEntries(Object.entries(tokens).filter(([, value]) => typeof value !== 'function')), metadata, clientId,
     ...(previous === undefined ? {} : { previous }),
     ...(subject === undefined ? {} : { subject }) };
-  boundary('account.token', { ...source, phase: 'grant' });
   const claims = tokens.claims();
   const identitySubject = boundary('account.token_subject', { ...source, claims: claims ?? null });
   const identity = audio ? boundary('account.audio_identity', { ...source, claims: claims ?? null })
     : chatgptAccountIdentity(metadata.issuer, clientId, identitySubject);
-  const expiresNow = Date.now();
-  let expiration = expiresNow + tokens.expires_in * 1000;
+  const now = Date.now();
+  let expiration = now + tokens.expires_in * 1000;
   if (audio && tokens.expires_in === undefined) {
     let accessClaims;
     // DEFENSE: This grant can issue opaque access tokens; Codex schedules those for refresh after eight days.
     try { accessClaims = decodeJwt(tokens.access_token); } catch { accessClaims = null; }
-    expiration = typeof accessClaims?.exp === 'number' ? accessClaims.exp * 1000 : expiresNow + contract.audio.refresh_interval_ms;
+    expiration = typeof accessClaims?.exp === 'number' ? accessClaims.exp * 1000 : now + contract.audio.refresh_interval_ms;
   }
   const expires = dateObservation(expiration, true);
-  // Expiry admission precedes refresh parsing and the final clock observation.
-  boundary('account.token_expiration', { expires });
   const earliestValue = tokens.earliest_refresh_at;
   const earliest = dateObservation(typeof earliestValue === 'number' ? earliestValue * 1000 : earliestValue, typeof earliestValue === 'number');
-  boundary('account.token_times', { tokens: source.tokens, expires, earliest });
-  const now = Date.now();
   return boundary('account.token', { ...source, claims: claims ?? null, identity, expires, earliest,
     now_date: dateObservation(now, true) });
 }

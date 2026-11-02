@@ -74,9 +74,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.registration_subject",AccountIdentity.registration_subject);
   ("account.sdk_timeout",AccountOAuth.sdk_timeout);
   ("account.token",AccountIdentity.token);
-  ("account.token_expiration",AccountIdentity.token_expiration);
-  ("account.token_subject",AccountIdentity.token_subject);
-  ("account.token_times",AccountIdentity.token_times)
+  ("account.token_subject",AccountIdentity.token_subject)
 ].
 Definition call operation source := match find (fun handler => String.eqb operation (fst handler)) handlers with
   | Some (_,handler) => handler source

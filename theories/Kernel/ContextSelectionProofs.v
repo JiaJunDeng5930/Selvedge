@@ -137,19 +137,21 @@ Theorem a_replacement_record_is_not_an_additional_context_source : forall replac
 Proof. reflexivity. Qed.
 
 Theorem an_incompatible_replacement_preserves_the_selection : forall position scope entry previous,
- compatible (value_or_null "content" entry) scope = false ->
+ (forall candidate, decode_artifact (value_or_null "content" entry) = Some candidate ->
+   consumes candidate scope = false) ->
  select_event position scope entry previous = previous.
 Proof.
  intros position scope entry previous Incompatible.
- unfold compatible in Incompatible; unfold select_event.
+ unfold select_event.
  destruct (String.eqb (text_default "role" entry "") "context_replacement"); [|reflexivity].
- destruct (decode_artifact (value_or_null "content" entry)) as [candidate|] eqn:Candidate;
+ destruct (decode_artifact (value_or_null "content" entry)) as [candidate|];
  destruct (natural_field "source_length" (value_or_null "content" entry)); try reflexivity.
- rewrite Incompatible, andb_false_r; reflexivity.
+ rewrite (Incompatible candidate eq_refl), andb_false_r; reflexivity.
 Qed.
 
 Theorem the_history_scan_skips_an_incompatible_replacement : forall entry rest scope position previous,
- compatible (value_or_null "content" entry) scope = false ->
+ (forall candidate, decode_artifact (value_or_null "content" entry) = Some candidate ->
+   consumes candidate scope = false) ->
  latest (entry :: rest) scope position previous = latest rest scope (N.succ position) previous.
 Proof.
  intros; cbn [latest]; rewrite an_incompatible_replacement_preserves_the_selection by assumption.

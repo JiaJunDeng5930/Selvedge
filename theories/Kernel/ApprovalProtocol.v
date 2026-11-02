@@ -38,7 +38,6 @@ Definition user_request_text (history : list message) : list string :=
       | UserMessage parts => firstn request_limit (parts :: requests)
       | _ => requests
       end) history []).
-Definition user_requests history := map JString (user_request_text history).
 Definition reason_bytes : N := 2048%N.
 Definition reason_constraints := ArgumentDeclaration.TextConstraints
  0 ArgumentDeclaration.maximum_natural reason_bytes true false false None.

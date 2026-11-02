@@ -109,12 +109,6 @@ Definition token_subject source :=
   else if claims_valid source then success
     (if is_object (get source "claims") then get (get source "claims") "sub" else get (get source "previous") "subject")
   else err identity_message.
-Definition token_times source :=
-  if negb (is_object (get source "expires")) then range_error "Invalid time value"
-  else if is_null (get (get source "tokens") "earliest_refresh_at") || is_text (get (get source "earliest") "iso")
-    then success JNull else err "Invalid ChatGPT token refresh time".
-Definition token_expiration source := if is_object (get source "expires")
-  then success JNull else range_error "Invalid time value".
 Definition identity_field claims previous claim name :=
   if is_object claims then if nonempty (get claims claim) then get claims claim else JNull else get previous name.
 Definition token_record source :=
@@ -129,11 +123,11 @@ Definition token_record source :=
     ("scope",default (get tokens "scope") (get previous "scope"));
     ("expires_at",get (get source "expires") "iso");("earliest_refresh_at",get (get source "earliest") "iso");
     ("last_refresh",get (get source "now_date") "iso")].
+(* The host admits the grant and principal through [token_subject] before
+   deriving the account identity. This step admits the observed dates and
+   the constructed credential before it can be published. *)
 Definition token source :=
-  if negb (token_grant source) then err grant_message
-  else if String.eqb (str source "phase") "grant" then success JNull
-  else if negb (claims_valid source) then err identity_message
-  else if negb (is_object (get source "expires")) then range_error "Invalid time value"
+  if negb (is_object (get source "expires")) then range_error "Invalid time value"
   else if negb (is_null (get (get source "tokens") "earliest_refresh_at") || is_text (get (get source "earliest") "iso"))
     then err "Invalid ChatGPT token refresh time"
   else credential (JObject [("audio",JBool (is_audio (kind_of source)));("value",token_record source);

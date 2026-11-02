@@ -12,7 +12,7 @@ const maximum = boundary('account.contract', {}).maximum;
 const hash = text => boundary('account.hash_prefix', { digest: createHash('sha256').update(text).digest('hex') });
 function numberObservation(value) {
   // DEFENSE: Invalid persisted cache dates produce a non-finite age, which native cache admission must reject.
-  return Number.isFinite(value) ? { value, floor: Math.floor(value), ceil: Math.ceil(value) } : null;
+  return Number.isFinite(value) ? value : null;
 }
 function dateObservation(value, numeric = false) {
   // DEFENSE: An externally edited cache may contain a non-string fetched_at value; native cache admission must see an invalid date observation.
@@ -35,7 +35,7 @@ function connectionIdentity(profile) {
   return boundary('account.connection_identity', { profile, models_url: modelsURL(profile.endpoint) });
 }
 
-export function modelCacheFile(profile, home) {
+function modelCacheFile(profile, home) {
   return boundary('account.model_cache_path', { resolved: path.resolve(home, profile.auth_file), hash: hash(connectionIdentity(profile)) });
 }
 
@@ -47,21 +47,22 @@ async function readCache(profile, home, account, now) {
     contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(snapshot.bytes);
   } catch (error) {
     // DEFENSE: A missing cache causes discovery; other filesystem failures become a native cache-read error.
-    return boundary('account.cache_error', { code: error.code }) ?? undefined;
+    return boundary('account.cache_error', { code: error.code });
   }
   const cache = boundary('account.cache_decode', { text: contents });
   const fetched = dateObservation(cache?.fetched_at);
   return boundary('account.cache', { value: cache, account,
     elapsed: numberObservation(now - Date.parse(fetched?.iso)),
-    fetched, connection: connectionIdentity(profile) }) ?? undefined;
+    connection: connectionIdentity(profile) });
 }
 
 /** Discovery never performs interactive login and never reads a different app's credentials. */
-export async function discoverAccount(profile, home, { signal, force = false, now = Date.now() } = {}) {
+export async function discoverAccount(profile, home, { signal, force = false } = {}) {
+  const now = Date.now();
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
   let authorization = await authorize(profile, home, { signal: lifetime });
   const cached = await readCache(profile, home, authorization.account_id, now);
-  if (boundary('account.cache_fresh', { force, cached, age_measurement: numberObservation(cached?.age) })) return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, cached, cached_result: true, stale: false });
+  if (boundary('account.cache_fresh', { force, cached })) return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, cached, cached_result: true, stale: false });
   const fetchCatalog = () => requestJson(modelsURL(profile.endpoint), {
     method: 'GET', headers: authorization.headers, signal: lifetime, maximum,
   });
@@ -114,11 +115,11 @@ export async function withAccountModels(config, home, { signal, force = false, o
   for (const candidate of candidates) {
     const filename = path.resolve(home, candidate.auth_file);
     let read, readFailure;
-    try { await access(filename); read = { ok: true, path: filename }; }
+    try { await access(filename); read = { ok: true }; }
     // DEFENSE: Automatic discovery observes credentials that may be absent or unreadable; native admission distinguishes ENOENT from an access failure.
     catch (error) {
       readFailure = error;
-      read = { ok: false, error: { code: error.code, name: error.name, message: error.message } };
+      read = { ok: false, error: { code: error.code } };
     }
     const selected = boundary('account.candidate_read', { candidate, read });
     // DEFENSE: A connection without a credential file has not been signed in and contributes no discovered models.
@@ -126,12 +127,13 @@ export async function withAccountModels(config, home, { signal, force = false, o
     // DEFENSE: Credential access failures other than ENOENT must remain visible rather than acting like a signed-out connection.
     if (selected.action === 'fail') throw readFailure;
     const profile = selected.candidate;
-    let result, namespace, profiles, summary, diagnostic;
+    let result, namespace, connection, profiles, summary, diagnostic;
     try {
       result = await discoverAccount(profile, home, { signal, force });
       namespace = boundary('account.account_namespace', { hash: hash(boundary('account.candidate_identity', { resolved: result.account_id, connection: connectionIdentity(profile) })) });
+      connection = accountConnection(profile);
       ({ profiles, summary, diagnostic } = boundary('account.materialize', { config, result, namespace,
-        connection: accountConnection(profile), auth_path: filename, configured_auth_paths: configuredAuthPaths }));
+        connection, auth_path: filename, configured_auth_paths: configuredAuthPaths }));
     } catch (error) {
       signal?.throwIfAborted();
       const decision = boundary('account.materialization_failure', { force, message: error.message });
@@ -141,7 +143,7 @@ export async function withAccountModels(config, home, { signal, force = false, o
       onDiagnostic(decision.message);
       continue;
     }
-    discoveries.push({ namespace, connection: accountConnection(profile), auth_path: filename, result: { account_id: result.account_id } });
+    discoveries.push({ namespace, connection, auth_path: filename, result: { account_id: result.account_id } });
     for (const [key, value] of Object.entries(profiles)) generated[key] = freezeProfile(value);
     accounts.push(summary);
     if (diagnostic !== null) onDiagnostic(diagnostic);

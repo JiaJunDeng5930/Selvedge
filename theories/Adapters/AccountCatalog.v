@@ -126,14 +126,13 @@ Definition cache source :=
   let value := get source "value" in let elapsed := get source "elapsed" in
   if is_object value && same (get value "format") (JString cache_format) &&
     same (get value "account_id") (get source "account") && same (get value "connection") (get source "connection") &&
-    is_object (get source "fetched") && is_object elapsed && between (get elapsed "floor") 0 86400000 &&
-    between (get elapsed "ceil") 0 86400000
+    between elapsed 0 86400000
   then match admit_catalog value with
-    | Accepted models => success (JObject [("models",encode_models models);("age",get elapsed "value")])
+    | Accepted models => success (JObject [("models",encode_models models);("age",elapsed)])
     | Rejected _ _ => success JNull end
   else success JNull.
 Definition cache_fresh source := success (JBool (negb (boolean_field source "force") &&
-  is_object (get source "cached") && between (get (get source "age_measurement") "floor") 0 299999)).
+  is_object (get source "cached") && between (get (get source "cached") "age") 0 299999)).
 Definition cache_fallback source := success (JBool (negb (boolean_field source "force") && is_object (get source "cached") &&
   (boolean_field source "type_error" || same (get source "error_name") (JString "TimeoutError") ||
     same (get source "status") (number 429) || at_least (get source "status") 500))).

@@ -27,15 +27,7 @@ export class ContextLimitError extends Error {
   }
 }
 
-export class ContextScopeChangedError extends Error {
-  constructor(scope) {
-    super('The model context consumer changed before dispatch');
-    this.name = 'ContextScopeChangedError';
-    this.scope = scope;
-  }
-}
-
-export function providerOutput(output, profile = {}, output_indices = []) {
+function providerOutput(output, profile, output_indices) {
   const markdown_observations = Array.isArray(output) ? output.map(item => {
     if (item?.type !== 'message' || item.role !== 'assistant' || !Array.isArray(item.content)) return [];
     const text = item.content.map(part => {
@@ -48,7 +40,7 @@ export function providerOutput(output, profile = {}, output_indices = []) {
   return boundary('backend.output', { output, profile, output_indices, markdown_observations });
 }
 
-export function responseBody(effect, profile = { provider: effect.model.provider }) {
+export function responseBody(effect, profile) {
   return boundary('backend.request', { effect, profile });
 }
 
@@ -177,7 +169,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const { profile, scope } = session;
   const consumer = observeCompactionScope(effect, scope);
   // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
-  if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
+  if (consumer.scope_changed) throw new Error('The model context consumer changed before dispatch');
   const prepared = await prepareModelRequest(responseBody(effect, profile), home, limits);
   return requestProviderSSE(session, effect, prepared, limits, { onDelta, onRetry, onObservation });
 }

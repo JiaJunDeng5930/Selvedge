@@ -50,9 +50,6 @@ Definition artifact_json (value : artifact) := JObject [
  ("items", JArray (artifact_items value)); ("usage", artifact_usage value)].
 Definition consumes (value : artifact) (scope : string) :=
  match value with PortableArtifact _ _ _ => true | NativeArtifact head tail _ _ _ => String.eqb (String head tail) scope end.
-Definition compatible (value : json) (scope : string) :=
- match decode_artifact value with Some result => consumes result scope | None => false end.
-
 Inductive selection := Original | Replacement (source_length : N) (replacement : artifact).
 Definition select_event (position : N) (scope : string) (message : json) (previous : selection) :=
  if String.eqb (text_default "role" message "") "context_replacement" then

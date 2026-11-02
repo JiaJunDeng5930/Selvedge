@@ -190,7 +190,6 @@ Definition effect_packet (state : world) (value : effect) := match value with
  | CancelConnectionJob id => Variant.pack ModelDeclarations.chatgpt_cancel [!id!]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_packet request
  end.
-Definition effect_fields state value := Schema.encode_fields (Variant.packet_fields (effect_packet state value)).
 Definition effect_json state value := Variant.encode_packet (effect_packet state value).
 Definition envelope_with_effects (durable : bool) (reply : json) (effects : list json) := JObject [
  ("durable", JBool durable); ("reply", reply); ("effects", JArray effects)].

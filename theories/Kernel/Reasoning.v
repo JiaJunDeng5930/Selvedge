@@ -34,8 +34,6 @@ Definition failed_changes (reason : string) (task : task) :=
  let messages := [FailureMessage ("Automatic reasoning: " ++ reason)] in
  TaskChange.AppendHistory messages :: TaskChange.ChangePhase Idle ::
  TaskWake.promote_changes (with_activity Idle (append_history messages task)).
-Definition failed (reason : string) (task : task) :=
- TaskChange.apply (failed_changes reason task) task.
 Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
  match profile_policy (task_current_profile task) with
  | FixedReasoning => []
@@ -52,10 +50,6 @@ Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
    | EvaluationFailed reason => failed_changes reason task
    end
  end.
-Definition complete (owner : N) (outcome : outcome) (task : task) :=
- TaskChange.apply (complete_changes owner outcome task) task.
-Definition trailing_configuration := TicketedRequest.trailing_configuration.
-Definition generation := TicketedRequest.generation.
 Definition sampling (model : profile) (requested : profile) :=
  let effective := profile_reasoning model in
  JObject [("effective_effort",JString effective);
