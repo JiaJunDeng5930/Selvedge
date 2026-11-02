@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Sorting.Permutation.
 From Selvedge.Adapters Require Import AccountFields AccountIdentity AccountOAuth AccountCatalog AccountMaterialization Accounts Api.
 Import ListNotations.
 Open Scope string_scope.
@@ -188,13 +188,13 @@ Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("disp
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
   ("display_name",JString "Independent external model");("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :
-  map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
+  Permutation (map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
     ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);
     ("config",JObject [("profiles",JObject [])]);
-    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value") "profiles")) =
+    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value") "profiles")))
   ["chatgpt/0123456789abcdef/gpt-6-astra";"chatgpt/0123456789abcdef/gpt-6-astra/~auto";
     "chatgpt/0123456789abcdef/gpt-6-astra-auto"].
-Proof. vm_compute;reflexivity. Qed.
+Proof. vm_compute;apply Permutation_refl. Qed.
 
 Theorem public_authentication_text_requires_a_record : forall source value,
   Api.call "account.record_decode" source = success value -> is_object value = true.

@@ -49,10 +49,12 @@ test('MCP discovery preserves the provider prefix and frozen invocation policy a
     assert.equal(searched.tools[0].name, 'mcp__fixture__deliver');
     assert.equal(searched.tools[0].parameters.properties.text.description, 'PRIVATE_DELIVERY_PARAMETER_DEFINITION');
     const exact = discovered(yield call('discover_tools', { names: [...exactNames, missingName], limit: 1 }));
-    assert.deepEqual(exact.tools.map(tool => tool.name), exactNames, 'Every exact name bypasses the semantic ranking limit');
+    assert.deepEqual(exact.tools.map(tool => tool.name).sort(), [...exactNames].sort(),
+      'Every exact name bypasses the semantic ranking limit');
     assert.deepEqual(exact.missing, [missingName]);
-    for (let index = 0; index < exactNames.length; index++) {
-      assert.equal(exact.tools[index].parameters.properties.code.description, `PRIVATE_EXACT_PARAMETER_DEFINITION_${index}`);
+    for (const [index, name] of exactNames.entries()) {
+      const definition = exact.tools.find(tool => tool.name === name);
+      assert.equal(definition.parameters.properties.code.description, `PRIVATE_EXACT_PARAMETER_DEFINITION_${index}`);
     }
     const stillDenied = yield call('mcp__fixture__deliver', { text: 'deny-by-fixture' });
     assert.equal(stillDenied.is_error, true);

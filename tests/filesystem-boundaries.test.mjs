@@ -120,7 +120,7 @@ test('provider context respects a Git-file boundary and retains accepted guidanc
     respond: () => answer('Context received.'), config: { skills: [explicit] } });
   const { task_id } = await fixture.command({ op: 'create', profile: fixture.profile, message: 'Observe the workspace.',
     settings: { workspace: { roots: [primary, second], primary_root: primary } } });
-  await fixture.idle(task_id);
+  const accepted = await fixture.idle(task_id);
   assert.equal(fixture.upstream.requests.length, 1);
   const first = JSON.stringify(fixture.upstream.requests[0]);
   for (const text of ['REPOSITORY-ACCEPTED-GUIDANCE', 'NESTED-ACCEPTED-GUIDANCE',
@@ -140,7 +140,12 @@ test('provider context respects a Git-file boundary and retains accepted guidanc
     assert.ok(next.includes(text), `The actual next provider request must retain ${text}`);
   }
   assert.equal(next.includes('REPOSITORY-NOT-YET-ACCEPTED-GUIDANCE'), false);
-  assert.ok(next.includes('Context source observation failed:'));
+  const observed = await fixture.command({ op: 'read', task_id, after: accepted.cursor });
+  const diagnostic = observed.messages.find(message => message.role === 'error');
+  assert.ok(diagnostic?.content.trim(), 'The failed observation must remain visible in public task history');
+  assert.ok(fixture.upstream.requests[1].input.some(item => item.role === 'user'
+    && typeof item.content === 'string' && item.content.includes(diagnostic.content)),
+  'The next provider request must carry the observed failure');
   assert.equal(providerContextContent(fixture.upstream.requests[1], 'global_agents', global,
     'GLOBAL-ACCEPTED-GUIDANCE'), 'GLOBAL-INDEPENDENT-UPDATE');
 
