@@ -140,7 +140,7 @@ function outputArtifact(file, filename, limit) {
         writeAll(retained, 0);
         await file.sync();
         // Directory barriers publish both output names together after both files finish.
-        return { path: filename, ring, capture_complete: !failed, file_synced: true };
+        return { path: filename, ring, capture_complete: !failed };
       } finally { await file.close(); }
     },
     close: () => file.close(),
@@ -174,7 +174,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   let startupError;
   let timer;
   let forcedClose;
-  let inputCloseStarted = false;
   let inputClose = Promise.resolve();
   let outputClose = Promise.resolve();
   let sessionClose;
@@ -188,8 +187,8 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   let terminalResolve;
   const terminalEnded = new Promise(resolve => { terminalResolve = resolve; });
   function closeInput() {
-    if (inputCloseStarted) return;
-    inputCloseStarted = true;
+    // DEFENSE: Exit, cancellation and explicit EOF can converge on the same stdin close.
+    if (!control.stdin_open) return;
     observe('input_closed');
     terminalWrite?.reject(processInputError('process_exited', 'The process exited before input was flushed'));
     terminalWrite = undefined;
@@ -302,33 +301,29 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       if (signal?.aborted) onAbort();
       if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
-      observe('exited');
       cleanupGroup();
       await sessionClose;
       await environmentClose;
       await Promise.all(outputTasks);
       await outputClose;
       await inputClose;
-      observe('drained');
       clearTimeout(forcedClose);
       const candidates = await Promise.all(artifacts.map(async artifact => {
         try { return await artifact.finish(); }
         // DEFENSE: Real artifact sync/close failures must not publish a successfully persisted artifact.
         catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not finalize command output: ${error.message}` }); return undefined; }
       }));
-      let batchSynced = false;
-      let parentSynced = false;
+      let pathsPublished = false;
       if (artifactBatch) {
         try {
           await syncDirectory(artifactBatch);
-          batchSynced = true;
           await syncDirectory(artifactDirectory);
-          parentSynced = true;
+          pathsPublished = true;
         // DEFENSE: A failed directory barrier leaves the output names unconfirmed after successful file sync.
         } catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not publish command output: ${error.message}` }); }
       }
       const retained = candidates.map(candidate => candidate && boundary('control.process.artifact_metadata', {
-        ...candidate, batch_synced: batchSynced, parent_synced: parentSynced,
+        ...candidate, paths_published: pathsPublished,
       }));
       try { await launch.cleanup(); }
       // DEFENSE: Scratch-directory or sandbox-descriptor cleanup can fail after the process exits.
@@ -348,7 +343,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       await environmentClose;
       await outputClose;
       await Promise.allSettled([...artifacts.map(artifact => artifact.close()), launch?.cleanup()]);
-      observe('failed');
+      observe('finished');
       throw error;
     } finally {
       clearTimeout(timer);
@@ -382,7 +377,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
             await child.stdin.flush();
           }
         }
-        if (eof) { observe('input_closed'); inputCloseStarted = true; await child.stdin.end(); }
+        if (eof) { observe('input_closed'); await child.stdin.end(); }
         return boundary('control.process.write_result', { mode, input, eof, cols: nextCols, rows: nextRows });
       } finally { observe('write_finished'); }
     },

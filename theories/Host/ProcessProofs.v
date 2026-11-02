@@ -1,31 +1,22 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Host Require Import Process.
+From Selvedge.Adapters Require Common HostProcess.
 Import ListNotations.
 
-Theorem finished_requires_exit_and_drain current :
-  process_phase current <> Completed ->
-  process_phase (observe current Finished) = Completed ->
-  process_phase current = Draining /\ output_drained current = true.
-Proof.
-  destruct current as [phase input busy drained reason].
-  destruct phase, drained; cbn; intros; intuition discriminate.
-Qed.
-
 Theorem completion_closes_stdin current :
-  stdin_open (observe current Failed) = false.
+  stdin_open (observe current Finished) = false.
 Proof. reflexivity. Qed.
 
-Theorem exit_rejects_write current terminal eof resize :
-  process_phase current = Running ->
-  admit_write (observe current ShellExited) terminal eof resize =
+Theorem closed_input_rejects_write current terminal eof resize :
+  admit_write (observe current InputClosed) terminal eof resize =
     Some (Failure "process_stdin_closed" "The process input is closed").
-Proof. destruct current; cbn; intros; subst; reflexivity. Qed.
+Proof. destruct current as [[] input busy reason]; reflexivity. Qed.
 
 Theorem reserved_write_is_exclusive current next :
   reserve_write current = inr next ->
   reserve_write next = inl (Failure "process_input_busy" "Another input write is still pending for this process").
 Proof.
-  destruct current as [phase input busy drained reason]; destruct busy;
+  destruct current as [phase input busy reason]; destruct busy;
     cbn; intros; inversion H; reflexivity.
 Qed.
 
@@ -66,10 +57,17 @@ Theorem completed_retention_is_bounded current key :
   List.length (completed (complete current key)) <= 64.
 Proof. unfold complete; cbn; rewrite length_skipn; lia. Qed.
 
-Theorem artifact_publication_requires_all_barriers captured file batch parent :
-  artifact_persisted captured file batch parent = true ->
-  captured = true /\ file = true /\ batch = true /\ parent = true.
-Proof. unfold artifact_persisted; repeat rewrite andb_true_iff; intuition. Qed.
+Theorem artifact_metadata_requires_complete_published_capture source :
+  Common.boolean_field (HostProcess.artifact_metadata source) "persisted" = true ->
+  Common.boolean_field source "capture_complete" = true /\
+  Common.boolean_field source "paths_published" = true.
+Proof.
+  change (artifact_persisted (Common.boolean_field source "capture_complete")
+    (Common.boolean_field source "paths_published") = true ->
+    Common.boolean_field source "capture_complete" = true /\
+    Common.boolean_field source "paths_published" = true).
+  unfold artifact_persisted; apply andb_true_iff.
+Qed.
 
 Theorem byte_ring_is_bounded capacity current added :
   ring_length (append_ring capacity current added) <= capacity.

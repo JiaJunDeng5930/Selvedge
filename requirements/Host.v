@@ -72,19 +72,19 @@ Export Dispatch(launch_installs_handle_before_run,
     not only a declaration that a handwritten caller might misread. *)
 
 From Selvedge.Host Require ProcessProofs.
-Export ProcessProofs(finished_requires_exit_and_drain,
-  reserved_write_is_exclusive, append_tail_is_bounded,
+Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
   append_tail_preserves_absolute_cursor,
-  artifact_publication_requires_all_barriers).
+  artifact_metadata_requires_complete_published_capture).
 
 (** ** Process progress is bounded without copying its complete buffer
 
-    A process finishes after exit and output drain. Stdin reservations prevent
-    concurrent writes, and absolute output cursors survive bounded tail
-    retention. [finished_requires_exit_and_drain], [reserved_write_is_exclusive]
-    and [append_tail_preserves_absolute_cursor] bind those requirements to the
-    pure controller. The physical scalar buffer stays in the host; the model
-    controls counts and slice instructions. Sending the whole tail through
+    Successful completion follows actual exit and output drain. The private
+    execution's awaited IO establishes that order; [tests/process.test.mjs]
+    exercises the physical boundary. Stdin reservations prevent concurrent
+    writes, and absolute output cursors survive bounded tail retention.
+    [reserved_write_is_exclusive] and [append_tail_preserves_absolute_cursor]
+    bind those requirements to the pure controller. The physical scalar buffer
+    stays in the host; the model controls counts and slice instructions. Sending the whole tail through
     semantic JSON per chunk adds cost without stronger authority.
 
     PTY execution keeps its fresh terminal session and the admitted command as
@@ -92,8 +92,11 @@ Export ProcessProofs(finished_requires_exit_and_drain,
     has its own session behavior. Job-control wrapping passes the command as an
     argument rather than evaluating it again. Process groups, sandbox enforcement
     and terminal semantics require physical evidence. Durable output publication
-    waits for all selected file and parent barriers. Bounded readers observe the
-    opened descriptor before and after the bounded read, not a prior path size. *)
+    waits for all selected file and parent barriers.
+    [artifact_metadata_requires_complete_published_capture] constrains the
+    actual reported metadata from capture and path-publication observations;
+    the physical publisher supplies those observations after its awaited IO.
+    Bounded readers observe the opened descriptor before and after the bounded read, not a prior path size. *)
 
 From Selvedge.Kernel Require SpeechProofs.
 From Selvedge.Host Require AudioProofs AudioSession AudioTransport AudioConnection.

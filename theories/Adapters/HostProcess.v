@@ -21,20 +21,16 @@ Definition failure_of source := Failure (str source "code") (str source "message
 Definition optional_failure source := if is_null source then None else Some (failure_of source).
 Definition reason_json source := match source with None => JNull | Some reason => failure_json reason end.
 Definition fail reason := Json.failure reason.(failure_code) reason.(failure_message).
-Definition state_json current := JObject [("phase",JString
-  (match current.(process_phase) with Draining => "draining" | other => public_status other end));
+Definition state_json current := JObject [("phase",JString (public_status current.(process_phase)));
   ("stdin_open",JBool current.(stdin_open));("write_busy",JBool current.(write_busy));
-  ("output_drained",JBool current.(output_drained));
   ("reason",reason_json current.(process_reason))].
 Definition state_of source := State
   (if String.eqb (str source "phase") "starting" then Starting
-   else if String.eqb (str source "phase") "running" then Running
-   else if String.eqb (str source "phase") "draining" then Draining else Completed)
+   else if String.eqb (str source "phase") "running" then Running else Completed)
   (boolean_field source "stdin_open") (boolean_field source "write_busy")
-  (boolean_field source "output_drained") (optional_failure (get source "reason")).
+  (optional_failure (get source "reason")).
 Definition event_of name :=
-  if String.eqb name "started" then Started else if String.eqb name "exited" then ShellExited
-  else if String.eqb name "drained" then OutputDrained else if String.eqb name "failed" then Failed
+  if String.eqb name "started" then Started
   else if String.eqb name "input_closed" then InputClosed
   else if String.eqb name "write_finished" then WriteFinished else Finished.
 Definition tail_json current := JObject [("retained",number (N.of_nat current.(retained)));
@@ -83,7 +79,7 @@ Definition artifact_metadata source :=
     [("path",get source "path");("bytes",number (N.of_nat ring.(ring_length)));
      ("total_bytes",number ring.(ring_total));("truncated",JBool (N.ltb (N.of_nat ring.(ring_length)) ring.(ring_total)));
      ("persisted",JBool (artifact_persisted (boolean_field source "capture_complete")
-       (boolean_field source "file_synced") (boolean_field source "batch_synced") (boolean_field source "parent_synced")))].
+       (boolean_field source "paths_published")))].
 Definition call operation source :=
   let current := state_of (get source "state") in
   let registry := registry_of (get source "registry") in
