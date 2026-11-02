@@ -1,5 +1,5 @@
 From Stdlib Require Import String Ascii List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json Numbers Utf8.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Numbers Utf8.
 From Selvedge.Kernel Require Import Domain Inputs ApprovalProtocol Observation.
 From Selvedge.Adapters Require Import Common BackendHistory BackendRequests.
 Import ListNotations.
@@ -325,11 +325,12 @@ Proof.
 Qed.
 Theorem reviewer_request_uses_approval_excerpts : forall state owner ticket profile call task,
  let effect := Observation.effect_json state (State.RequestApproval owner ticket profile call task) in
- exists boundary,
- Common.get (BackendRequests.independent_effect effect) "history" =
- JArray [BackendHistory.message "user" (JString (TextJson.render_json (JObject [
+ exists boundary request,
+ JsonObjects.equivalent request (JObject [
    ("task_id",Common.get effect "task_id"); ("request_id",Common.get effect "ticket");
    ("command",CallWire.external (Common.get effect "call")); ("task_settings",Common.get effect "settings");
    ("recent_user_requests_newest_first",JArray (map JString (user_request_text (task_history task))));
-   ("context_boundary",JString boundary)])))] .
-Proof. intros; eexists; reflexivity. Qed.
+   ("context_boundary",JString boundary)]) = true /\
+ JsonObjects.equivalent (Common.get (BackendRequests.independent_effect effect) "history")
+   (JArray [BackendHistory.message "user" (JString (TextJson.render_json request))]) = true.
+Proof. intros; eexists; eexists; split; apply equivalent_is_reflexive. Qed.
