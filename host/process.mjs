@@ -283,7 +283,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         ...(mode === 'pty' ? { terminal: { cols, rows,
           data(terminal, chunk) { captureChunk(Buffer.from(chunk), stdout, artifacts[0]); },
           drain() { terminalWrite?.resolve(); terminalWrite = undefined; },
-          exit(terminal) {
+          exit() {
             terminalResolve();
             terminalWrite?.reject(processInputError('process_stdin_closed', 'The terminal closed before input was flushed'));
             terminalWrite = undefined;
@@ -388,7 +388,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
 export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
-export async function runReadImage(arguments_, limits, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
+export async function runReadImage(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
   signal?.throwIfAborted();
   const { path: filename, detail, timeout, maximum } = boundary('effect.image_arguments', { arguments: arguments_ });
   const quoted = "'" + filename.replaceAll("'", "'\"'\"'") + "'";

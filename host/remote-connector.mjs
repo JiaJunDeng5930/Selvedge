@@ -108,7 +108,7 @@ export class RemoteConnector {
       const frame = { type: 'grants', grants };
       this.#step('grants', { generation: session.generation, grants });
       const active = new Set(this.#control.connections.map(connection => connection.connection_id));
-      for (const [id, connection] of session.connections) {
+      for (const id of session.connections.keys()) {
         // DEFENSE: A grant update may revoke or replace a controller already connected to this transport.
         if (!active.has(id)) this.#forgetConnection(session, id);
       }

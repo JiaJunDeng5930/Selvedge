@@ -389,7 +389,7 @@ export class Service extends EventEmitter {
             if (effect.tool.source.program.kind === 'ReadImage') {
               const executionOptions = { signal, execution: effect.execution,
                 ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
-              return runReadImage(materializeCallArguments(effect.call), this.limits, executionOptions);
+              return runReadImage(materializeCallArguments(effect.call), executionOptions);
             }
             return this.#processTool(effect);
           }
