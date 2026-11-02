@@ -1,5 +1,5 @@
 From Selvedge.Programming Require Variant.
-From Selvedge.Kernel Require Import ModelResultDeclarations.
+From Selvedge.Kernel Require Import Images ModelResultDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool NArith Ascii.
@@ -141,7 +141,7 @@ Definition upload (source : json) :=
   | JArray [JArray [JString "name";JString _]] =>
     let length := header source "content-length" in
     let bounded := match length with JNull => true | JString value =>
-      match parse_natural value with Some n => n <=? 10485760 | None => false end | _ => false end in
+      match parse_natural value with Some n => n <=? Images.image_byte_limit | None => false end | _ => false end in
     if bounded then action ModelResultDeclarations.Http_attachment_upload
     else exception ModelResultDeclarations.RangeErrorKind "Each board attachment is limited to 10 MiB"
   | _ => exception ModelResultDeclarations.TypeErrorKind "An attachment upload needs exactly one filename"

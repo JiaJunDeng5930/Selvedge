@@ -6,7 +6,6 @@ import { parseJson, stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { durableDirectory, syncDirectory, readBoundedRegularSnapshot } from './file-io.mjs';
 
-export const BOARD_FILE_LIMIT = 10 * 1024 * 1024;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function filename(value) { return boundary('effect.filename', { value }); }
@@ -41,7 +40,8 @@ export async function readBoardAttachment(home, id) {
     throw new Error('Attachment directories cannot be symbolic links');
   }
   const record = parseJson((await regularFile(path.join(directory, 'metadata.json'), 2048)).toString('utf8'));
-  const data = await regularFile(path.join(directory, 'content'), BOARD_FILE_LIMIT);
+  const maximum = boundary('effect.attachment_budget', { size: record.bytes });
+  const data = await regularFile(path.join(directory, 'content'), maximum);
   const attachment = boundary('effect.attachment', { home, id, record, bytes: data.length,
     mime: mediaType(data), hash: hash(data), path: path.join(directory, 'content') });
   return { attachment, data };
