@@ -1,8 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cp, lstat, mkdir, readFile, readdir, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { shellQuote } from './cloud-environments.mjs';
 import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -103,7 +102,6 @@ async function verifyTree(root, reservation) {
     git_link_file: link.isFile(), backlink: await realpath(path.resolve(administration, backlink)),
     dev: String(entry.dev), ino: String(entry.ino), reservation,
     repository_common_dir: repositoryCommon, checkout_common_dir: checkoutCommon });
-  return { repositoryCommon, checkoutCommon };
 }
 
 function completion(effect, result) {
@@ -129,7 +127,7 @@ async function runLocalResource(plan, files, operations) {
 
 function archiveOutcome(receipt) {
   return { ok: true, outcome: receipt.status === 'released'
-    ? { kind: 'reservation_released', previous_root: receipt.reservation.canonical_root, reservation_id: receipt.reservation.id }
+    ? { kind: 'reservation_released', previous_root: receipt.reservation.canonical_root }
     : { kind: 'archived_at', root: receipt.root } };
 }
 
@@ -160,13 +158,7 @@ function localOwnership(files, released = () => {}) {
         if (error.code !== 'ENOENT') throw error;
       }
       observed.git_link = Boolean(linked);
-      if (linked) {
-        const registration = await verifyTree(candidate, reservation);
-        observed.repository_common_dir = registration.repositoryCommon;
-        observed.checkout_common_dir = registration.checkoutCommon;
-      } else {
-        observed.empty = (await readdir(candidate)).length === 0;
-      }
+      if (linked) await verifyTree(candidate, reservation);
     }
     return control('classify', { reservation, entries });
   }
@@ -176,8 +168,8 @@ function localOwnership(files, released = () => {}) {
       return { kind: 'local_classified', classification };
     },
     async local_release(state) {
-      // DEFENSE: An external writer can replace or populate a reservation after the first observation.
-      if (await classify(state) !== 'owned_empty') throw new Error('Managed reservation ownership changed before release');
+      // DEFENSE: An external writer can replace a reservation after the first observation.
+      if (await classify(state) !== 'owned_unregistered') throw new Error('Managed reservation ownership changed before release');
       await rmdir(files.active);
       released();
       return { kind: 'local_removed' };
@@ -218,7 +210,7 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
         await mkdir(root, { mode: 0o700 });
         reserved = true;
         const entry = await lstat(root, { bigint: true });
-        return { kind: 'local_reserved', reservation: { id: randomUUID(), canonical_root: await realpath(root),
+        return { kind: 'local_reserved', reservation: { canonical_root: await realpath(root),
           dev: String(entry.dev), ino: String(entry.ino), repository } };
       },
       async local_create(state) {
@@ -283,7 +275,7 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
       },
     });
     if (result.errors.length) throw result.errors[0];
-    if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root} (reservation ${result.receipt.reservation?.id ?? 'unrecorded'})`);
+    if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root}`);
     return completion(effect, archiveOutcome(result.receipt));
   } catch (error) { return failure(effect, error); }
 }
@@ -322,7 +314,7 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
     if (result.errors.length) throw result.errors[0];
     if (creating && result.receipt.status !== 'ready') throw new Error('Worktree preparation did not complete before restart');
     if (!creating) {
-      if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root} (reservation ${result.receipt.reservation?.id ?? 'unrecorded'})`);
+      if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root}`);
       return completion(effect, archiveOutcome(result.receipt));
     }
     return completion(effect, { ok: true, root: result.receipt.root,

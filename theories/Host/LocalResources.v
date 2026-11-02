@@ -3,15 +3,14 @@ From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 
-Record reservation := Reservation { reservation_id : string; reservation_root : string;
+Record reservation := Reservation { reservation_root : string;
  reservation_device : string; reservation_inode : string; reservation_repository : string }.
-Definition reservation_json value := JObject [("id",JString value.(reservation_id));
- ("canonical_root",JString value.(reservation_root));("dev",JString value.(reservation_device));
+Definition reservation_json value := JObject [("canonical_root",JString value.(reservation_root));("dev",JString value.(reservation_device));
  ("ino",JString value.(reservation_inode));("repository",JString value.(reservation_repository))].
 Definition parse_reservation value : option reservation :=
  if is_object value && forallb (fun key => is_text (get value key) && negb (String.eqb (str value key) ""))
-   ["id";"canonical_root";"dev";"ino";"repository"]
- then Some (Reservation (str value "id") (str value "canonical_root") (str value "dev") (str value "ino") (str value "repository"))
+   ["canonical_root";"dev";"ino";"repository"]
+ then Some (Reservation (str value "canonical_root") (str value "dev") (str value "ino") (str value "repository"))
  else None.
 
 (** The durable representation has one constructor per meaningful resource
@@ -35,7 +34,7 @@ Definition decode_receipt_stage (source : json) : option receipt_stage :=
      (String.eqb status "archiving" || String.eqb status "needs_resolution") then Some (UnresolvedReceipt owner)
    else None end.
 Inductive intent := Create | Archive | RecoverCreate | RecoverArchive.
-Inductive classification := Missing | OwnedEmpty | Registered | Conflict.
+Inductive classification := Missing | OwnedUnregistered | Registered | Conflict.
 Inductive terminal := Released | CheckoutReady | CheckoutArchived.
 Inductive action := Persist | Reserve | Register | Prepare | Classify | Release | Remove | Move | Observe
  | Finish.
@@ -104,7 +103,7 @@ Definition step (value : state) (event : observation) : plan :=
  | Preparing owner,Prepared root workspace guidance => acknowledge (install value root workspace guidance) owner CheckoutReady
  | Classifying owner,Classified Missing =>
    match owner with Some owner=>acknowledge value owner Released | None=>unresolved value end
- | Classifying (Some owner),Classified OwnedEmpty =>
+ | Classifying (Some owner),Classified OwnedUnregistered =>
    match value.(operation) with RecoverCreate | RecoverArchive=>unresolved value
    | _=>change value (Releasing owner) [Release] end
  | Classifying (Some owner),Classified Registered =>
@@ -185,7 +184,7 @@ Definition decode_observation source : option observation :=
  else if String.eqb kind "local_classified" then
    let tag := str source "classification" in
    option_map Classified (if String.eqb tag "released" then Some Missing
-     else if String.eqb tag "owned_empty" then Some OwnedEmpty
+     else if String.eqb tag "owned_unregistered" then Some OwnedUnregistered
      else if String.eqb tag "registered" then Some Registered
      else if String.eqb tag "conflict" then Some Conflict else None)
  else if String.eqb kind "local_failed" then Some Failed else None.
@@ -216,11 +215,10 @@ Definition local_classification (source : json) :=
     | [] => if Nat.eqb (List.length registrations) 0 then "released" else "conflict"
     | [entry] => if owned_entry entry then
         if boolean_field entry "git_link" then
-          if equal (get entry "repository_common_dir") (get entry "checkout_common_dir") &&
-             Nat.eqb (List.length registrations) 1 && registered_at entry then "registered" else "conflict"
+          if Nat.eqb (List.length registrations) 1 && registered_at entry then "registered" else "conflict"
         else if negb (Nat.eqb (List.length registrations) 0) then "conflict"
-        else if equal (get entry "root") (get reservation "canonical_root") && boolean_field entry "empty"
-          then "owned_empty" else "conflict"
+        else if equal (get entry "root") (get reservation "canonical_root")
+          then "owned_unregistered" else "conflict"
       else "conflict"
     | _ => "conflict"
     end).

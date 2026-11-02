@@ -25,12 +25,9 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.sandbox_prepare",Sandbox.sandbox_prepare);
   ("effect.sandbox_launch",Sandbox.sandbox_launch);
   ("effect.unrestricted_launch",Sandbox.unrestricted_launch);
-  ("effect.sandbox_bindings",fun source => success (SandboxPolicy.bindings source));
   ("effect.environment",fun source => success (SandboxPolicy.environment source));
-  ("effect.protected_workspace",SandboxPolicy.protected_workspace);
   ("effect.seccomp",SandboxPolicy.seccomp);
-  ("effect.seatbelt",Seatbelt.seatbelt);
-  ("effect.seatbelt_input",fun source => success (Seatbelt.seatbelt_input source));
+  ("effect.seatbelt_input",fun source => success (Seatbelt.seatbelt_input (Sandbox.launch_context source)));
   ("effect.runtime_candidates",fun source => success (SandboxPolicy.runtime_candidates (str source "platform")));
   ("effect.executable_candidates",fun source => success (SandboxPolicy.executable_candidates (str source "platform")));
   ("effect.workspace_command",fun source => success (Workspaces.plan_json (Workspaces.plan (get source "command"))));

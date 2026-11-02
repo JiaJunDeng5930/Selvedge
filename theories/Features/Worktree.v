@@ -526,22 +526,19 @@ Definition created (owner:N) (observed:creation_observation) (value:world) : dec
    | None => ignored value end
  | None => ignored value end.
 Inductive archive_outcome := ArchivedAt (root : string)
- | ReservationReleased (previous_root reservation_id : string).
-Definition reservation_id_declaration := ArgumentDeclaration.Text
- (ArgumentDeclaration.TextConstraints 1 ArgumentDeclaration.maximum_natural ArgumentDeclaration.maximum_natural false false false None).
+ | ReservationReleased (previous_root : string).
 Definition archive_outcome_decoders : list (DeclarationFields.decoder archive_outcome) := [
  DeclarationFields.Decoder (DeclarationFields.declare "kind" (JString "archived_at")
    [DeclarationFields.required "root" Workspace.path_declaration])
    (fun values=>let root:=proj1_sig (fst values) in
      if Workspace.canonical_path root then Some (ArchivedAt root) else None);
  DeclarationFields.Decoder (DeclarationFields.declare "kind" (JString "reservation_released")
-   [DeclarationFields.required "previous_root" Workspace.path_declaration;
-    DeclarationFields.required "reservation_id" reservation_id_declaration])
+   [DeclarationFields.required "previous_root" Workspace.path_declaration])
    (fun values=>let root:=proj1_sig (fst values) in
-     if Workspace.canonical_path root then Some (ReservationReleased root (proj1_sig (fst (snd values)))) else None)].
+     if Workspace.canonical_path root then Some (ReservationReleased root) else None)].
 Definition archive_outcome_of := DeclarationFields.decode_cases archive_outcome_decoders.
 Definition archived_root (outcome : archive_outcome) : option string :=
- match outcome with ArchivedAt root => Some root | ReservationReleased _ _ => None end.
+ match outcome with ArchivedAt root => Some root | ReservationReleased _ => None end.
 Record creation_completion := CreationCompletion {
  creation_owner : N; creation_observed : creation_observation
 }.
@@ -578,7 +575,7 @@ Definition archive_choice (observed:archive_observation) (contents:Selvedge.Feat
  let '(root,target):=RequestEnvelope.owned_input request in
  match observed with
  | ArchiveSucceeded outcome =>
-   if match outcome with ArchivedAt _=>true | ReservationReleased previous _=>
+   if match outcome with ArchivedAt _=>true | ReservationReleased previous=>
      negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.contents_backend contents)) && String.eqb previous root end
    then Some (Completion.Row.Amend [] (Completion.done (Selvedge.Features.Domain.TreeArchived (archived_root outcome) target)))
    else None

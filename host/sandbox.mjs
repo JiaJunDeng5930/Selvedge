@@ -111,14 +111,13 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
   try {
     const protectedRoots = await Promise.all(readOnlyPaths.map(root => realpath(root)));
     const managedRoot = managedWorktreeRoot === undefined ? null : await realpath(managedWorktreeRoot);
-    const context = { ...source, scratch, protectedRoots, managedWorktreeRoot: managedRoot, separator: path.sep };
-    boundary('effect.protected_workspace', { ...context, projectOnly });
+    const context = { ...source, scratch, protectedRoots, managedWorktreeRoot: managedRoot };
     const preparation = boundary('effect.sandbox_prepare', context);
     signal?.throwIfAborted();
     if (platform === 'darwin') {
       const file = await executable(boundary('effect.executable_candidates', { plan, options, platform }));
       const runtimeObservations = projectOnly ? await runtimeReads(platform) : [];
-      const input = boundary('effect.seatbelt_input', { ...context, ...preparation, runtimeReads: runtimeObservations });
+      const input = boundary('effect.seatbelt_input', { ...context, runtimeReads: runtimeObservations });
       const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: runtimeObservations,
         protectedAncestors: protectedRoots.map(root => ancestors(root, true)),
         readAncestors: input.readableRoots ? [...input.readableRoots, scratch].map(root => ancestors(root, false)) : [] });

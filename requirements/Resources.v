@@ -47,10 +47,13 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
 
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
-  retired_allocation_cannot_return, ssh_expiry_emits_no_probe).
+  retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
+  reconciled_termination_requires_the_unique_owned_instance).
 Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
   git_registration_requires_reservation_persisted_ack,
-  preparation_requires_git_registration_persisted_ack).
+  preparation_requires_git_registration_persisted_ack,
+  admitted_git_registration_matches_its_reservation,
+  unregistered_release_requires_its_observed_directory).
 
 (** ** A lost allocation response cannot authorize another allocation
 
@@ -66,7 +69,11 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Each request allocates one instance. Reconciliation admits the matching
     instance under its unique management tag; empty, interrupted or unauthorized
     observations preserve uncertainty. Only that match enters cleanup. The
-    reserved provider tag namespace must not be altered by operators while an
+    actual reconciliation transition also retains the requested image, instance
+    type, zone and virtual network, as
+    [reconciled_termination_requires_the_unique_owned_instance] requires.
+    Matching a tag alone cannot authorize deletion of another configured resource.
+    The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.
 
@@ -77,12 +84,19 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     from silently dispatching one allocation to another endpoint.
 
     Local creation first records an exclusive reservation with canonical path,
-    device, inode and fresh identity. Git registration and its acknowledgement
+    device and inode. A random label copied only into a receipt has no physical
+    anchor and adds no ownership authority. Git registration and its acknowledgement
     are later facts. [git_registration_requires_reservation_persisted_ack] and
     [preparation_requires_git_registration_persisted_ack] express that order.
     Archive preserves tracked and untracked work by moving the registered
-    checkout. Releasing an owned empty reservation uses nonrecursive removal;
-    a path name alone is not deletion authority.
+    checkout. [admitted_git_registration_matches_its_reservation] binds admission
+    to the observed root, Git backlink, repository, device and inode. A linked
+    checkout is admitted once before its independent registration is classified.
+    [unregistered_release_requires_its_observed_directory] requires the original
+    reserved directory without a Git registration before release. Nonrecursive
+    removal itself rejects a populated directory; a prior directory enumeration
+    cannot establish emptiness at the later removal. A path name alone is not
+    deletion authority.
 
     [local_recovery_trace_never_repeats_mutation] forbids replaying checkout,
     move or release. Recovery may observe completed work and record its

@@ -61,13 +61,9 @@ Fixpoint graph_selections (index : nat) (nodes : list json) : list selection :=
     (if is_object node && negb (has node "task_id")
      then select_settings (NodeWorkspace index) true (get node "settings") else []) ++
     graph_selections (S index) rest end.
-Definition known_command (operation : string) :=
-  existsb (fun spec => String.eqb operation spec.(command_name)) Commands.command_specs.
 Definition plan (command : json) : workspace_plan :=
   let op := str command "op" in
-  (* DEFENSE: Commands are observed before native admission; unknown operations must not trigger filesystem reads. *)
-  if negb (known_command op) then WorkspacePlan false false []
-  else if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
+  if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
     WorkspacePlan (Commands.root_task_creation command)
       (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))
@@ -143,10 +139,10 @@ Definition worktree_path (source : json) :=
        contains_path (str source "destination") (text root) && negb (equal (get source "destination") root))
   then success JNull else err "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository".
 Definition reservation_matches (owner : LocalResources.reservation) (value files : json) :=
-  plain_fields_only ["id";"canonical_root";"dev";"ino";"repository"] value &&
+  plain_fields_only ["canonical_root";"dev";"ino";"repository"] value &&
   equal (JString owner.(reservation_root)) (get files "active") &&
   path_valid (JString owner.(reservation_repository)).
-Definition worktree_receipt_format := "selvedge-local-workspace-2".
+Definition worktree_receipt_format := "selvedge-local-workspace-3".
 Definition worktree_receipt_fields := ["format";"task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
 Definition worktree_receipt_encode (source : json) :=
   let state := get source "state" in

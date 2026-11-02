@@ -1,4 +1,5 @@
-From Stdlib Require Import String List Bool.
+From Stdlib Require Import String List Bool PeanoNat.
+From Selvedge.Foundation Require Import JsonProofs.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -71,3 +72,63 @@ Theorem failed_ready_receipt_rechecks_ownership_before_rollback : forall metadat
    (LocalResources.State LocalResources.Create metadata (LocalResources.TerminalPersistence owner LocalResources.CheckoutReady))
    LocalResources.PersistenceFailed) = [LocalResources.Classify].
 Proof. reflexivity. Qed.
+
+Theorem admitted_git_registration_matches_its_reservation : forall source,
+ LocalResources.git_admitted source = true ->
+ get source "root" = get source "canonical_root" /\
+ get source "root" = get source "git_top_level" /\
+ boolean_field source "git_link_file" = true /\
+ get source "backlink" = JString (str source "root" ++ "/.git") /\
+ get source "dev" = get (get source "reservation") "dev" /\
+ get source "ino" = get (get source "reservation") "ino" /\
+ get source "repository_common_dir" = get source "checkout_common_dir".
+Proof.
+ intros source Admitted. unfold LocalResources.git_admitted in Admitted.
+ repeat rewrite andb_true_iff in Admitted.
+ repeat split; try (apply equal_reflects_equality; tauto); tauto.
+Qed.
+
+Theorem unregistered_release_requires_its_observed_directory : forall source,
+ LocalResources.local_classification source = JString "owned_unregistered" ->
+ exists entry,
+ filter (fun row => boolean_field row "present") (items (get source "entries")) = [entry] /\
+ boolean_field entry "directory" = true /\
+ get entry "root" = get entry "canonical_root" /\
+ get entry "root" = get (get source "reservation") "canonical_root" /\
+ get entry "dev" = get (get source "reservation") "dev" /\
+ get entry "ino" = get (get source "reservation") "ino" /\
+ boolean_field entry "git_link" = false /\
+ forall observed, In observed (items (get source "entries")) ->
+ forall registration, In registration (items (get observed "registrations")) ->
+ registration <> JString ("worktree " ++ str observed "root").
+Proof.
+ intros source Classified. unfold LocalResources.local_classification in Classified.
+ cbn zeta in Classified.
+ destruct (is_null (get source "reservation")); [discriminate|].
+ destruct (filter (fun entry => boolean_field entry "present") (items (get source "entries")))
+   as [|entry rest] eqn:Present.
+ - match type of Classified with context [if ?condition then _ else _] => destruct condition end;
+     discriminate.
+ - destruct rest as [|other rest]; [|discriminate].
+   destruct (boolean_field entry "directory" && equal (get entry "root") (get entry "canonical_root") &&
+     equal (get entry "dev") (get (get source "reservation") "dev") &&
+     equal (get entry "ino") (get (get source "reservation") "ino")) eqn:Owned; [|discriminate].
+   destruct (boolean_field entry "git_link") eqn:Link.
+   { match type of Classified with context [if ?condition then _ else _] => destruct condition end;
+       discriminate. }
+   match type of Classified with context [if negb ?condition then _ else _] =>
+     destruct condition eqn:Registrations end; cbn in Classified; [|discriminate].
+   destruct (equal (get entry "root") (get (get source "reservation") "canonical_root")) eqn:Root; [|discriminate].
+   repeat rewrite andb_true_iff in Owned.
+   apply Nat.eqb_eq in Registrations. apply length_zero_iff_nil in Registrations.
+   exists entry. repeat split; try reflexivity; try assumption;
+     try (apply equal_reflects_equality; tauto); try tauto.
+   intros observed Member registration Registered Same.
+   assert (Found : In observed (filter (fun row => existsb
+     (fun value => equal value (JString ("worktree " ++ str row "root")))
+     (items (get row "registrations"))) (items (get source "entries")))).
+   { apply filter_In. split; [exact Member|].
+     apply existsb_exists. exists registration. split; [exact Registered|].
+     rewrite Same. apply equal_is_reflexive. }
+   rewrite Registrations in Found. contradiction.
+Qed.

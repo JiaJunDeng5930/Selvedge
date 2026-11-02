@@ -101,20 +101,15 @@ async function runResource(plan, { files, backend, signal, prepare }) {
     async prepare(state) { return { kind: 'prepared', ...await prepare(state) }; },
     async credentials(state) {
       cleanupSignal = AbortSignal.timeout(120_000);
-      backend = recoveredBackend(state);
+      backend = cloudEnvironmentBackend({ backend: state.backend, [state.backend]: state.settings });
       return { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
     },
     async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, { signal: cleanupSignal }) }; },
     async terminate(state) {
-      const id = state.instance_id;
-      await backend.destroy(id, { signal: cleanupSignal });
+      await backend.destroy(state.instance_id, { signal: cleanupSignal });
       return { kind: 'terminated' };
     },
   });
-}
-
-function recoveredBackend(receipt) {
-  return cloudEnvironmentBackend({ backend: receipt.backend, [receipt.backend]: receipt.settings });
 }
 
 async function destroyReceipt(receipt, files) {
@@ -134,10 +129,6 @@ async function reportFailure(effect, result, files, onDiagnostic, message) {
   const retained = result.receipt.status === 'no_attempt' ||
     (result.receipt.status === 'destroyed' && !result.receipt.recording_failed) ? null : result.receipt.root;
   return failed(effect, new Error(failures.join('; ')), retained, files);
-}
-
-function cloudWorkspace(effect, source, root) {
-  return boundary('effect.cloud_workspace', { workspace: effect.workspace, repository: source.repository, root });
 }
 
 function initializationScript(source, root) {
@@ -163,7 +154,8 @@ export async function createTaskWorkspace(effect, options = {}) {
     await access(settings.ssh_private_key, constants.R_OK);
     const source = await observeCloudRepository(effect.source_root, options);
     if (!source) throw new Error('Cloud workspace requires a GitHub remote on the project primary workspace');
-    const workspace = cloudWorkspace(effect, source, files.root);
+    const workspace = boundary('effect.cloud_workspace', {
+      workspace: effect.workspace, repository: source.repository, root: files.root });
     const scope = await backend.scope({ signal: options.signal });
     const receipt = { format: receiptFormat, namespace: options.namespace, task_id: effect.task_id, backend: effect.backend,
       source_root: effect.source_root, root: files.root, workspace, token: files.token, settings, scope,
