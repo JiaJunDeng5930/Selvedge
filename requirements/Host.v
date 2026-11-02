@@ -49,7 +49,7 @@ Import ListNotations.
     input once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
-From Selvedge.Host Require Dispatch.
+From Selvedge.Host Require Dispatch DispatchAdapterProofs.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,
   uncertain_never_retries, reduced_callback_never_retries,
@@ -57,6 +57,7 @@ Export Dispatch(launch_installs_handle_before_run,
   shutdown_never_cancels_provider,
   ticket_provider_cancellation_keeps_registered_handle,
   task_provider_cancellation_only_stops_independent_entries).
+Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
 
 (** ** Each physical effect keeps its own generation
 
@@ -84,7 +85,11 @@ Export Dispatch(launch_installs_handle_before_run,
     [terminal_settlement_prevents_new_work] blocks new launches and reductions
     during that interval.
     Size-rejected callbacks may be reduced once; a further rejection retires
-    execution instead of retrying indefinitely.
+    execution instead of retrying indefinitely. The returned state must retain
+    that reduction, retirement and generation ownership when the next invocation
+    reads it. [dispatch_step_returns_its_next_state] binds the actual control
+    response, its effects and its decoded successor to the pure transition;
+    an independent codec law would not require the response to include state.
 
     Closing an observer is different from cancelling a provider invocation.
     [shutdown_never_cancels_provider] preserves remote work for recovery.
@@ -97,11 +102,12 @@ Export Dispatch(launch_installs_handle_before_run,
     effect. Strict checking includes the real runner and settlement consumer,
     not only a declaration that a handwritten caller might misread. *)
 
-From Selvedge.Host Require ProcessProofs.
+From Selvedge.Host Require ProcessProofs ProcessAdapterProofs.
 Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
   append_tail_preserves_absolute_cursor, completed_retention_is_bounded,
   completion_retains_exactly_unexpired_entries,
   artifact_metadata_requires_complete_published_capture).
+Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
 
 (** ** Process progress is bounded without copying its complete buffer
 
@@ -116,7 +122,11 @@ Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
     A completed process remains queryable within the retained completion window.
     Completion bounds that window and removes exactly its expired entries,
     preserving all other running and retained processes. Physical handles follow
-    the same returned retirement list.
+    the same returned retirement list. The actual completion response must
+    carry the retained registry, including the completion queue, into the next
+    invocation. [registry_completion_returns_its_retained_processes] connects
+    that response and its retirement list to the pure retention operation;
+    otherwise dropping the queue at the boundary would defeat the bound.
 
     PTY execution keeps its fresh terminal session and the admitted command as
     the foreground job so resize and keyboard signals reach it. Pipe execution
