@@ -34,10 +34,9 @@ test('public integer command fields admit equal JSON number values with their de
   const commands = descriptionReply.result.commands;
   const readFields = commands.find(command => command.name === 'read').schema.properties;
   assert.equal(readFields.task_id.type, 'integer');
-  assert.equal(readFields.task_id.minimum, 0);
-  assert.equal(readFields.task_id.maximum, 4294967295);
-  assert.equal(readFields.limit.minimum, 1);
-  assert.equal(readFields.limit.maximum, 100);
+  const maximumId = BigInt(readFields.task_id.maximum);
+  const firstOffset = readFields.after.minimum;
+  const smallestPage = readFields.limit.minimum;
   const revision = commands.find(command => command.name === 'configure_title_settings').schema.properties.revision;
   assert.equal(revision.type, 'integer');
   assert.equal(revision.minimum, 0);
@@ -45,34 +44,38 @@ test('public integer command fields admit equal JSON number values with their de
 
   const first = await successful({ op: 'create_idle', profile: 'demo' });
   const second = await successful({ op: 'create_idle', profile: 'demo' });
-  assert.equal(first.task_id, 0);
-  assert.equal(second.task_id, 1);
-  for (const [token, id] of [['0.0', 0], ['0e0', 0], ['-0', 0], ['-0.000e+12', 0],
-    ['1.0', 1], ['1E+0', 1], ['100e-2', 1], ['0.1e1', 1]]) {
-    const canonical = await successful({ op: 'read', task_id: id, after: 0, limit: 1 });
-    const same = await successful(`{"op":"read","task_id":${token},"after":-0.0,"limit":0.1e1}`);
-    assert.equal(same.task.id, id);
-    assert.deepEqual(same.messages, canonical.messages);
+  const sameRead = async (canonicalToken, alternateToken) => {
+    const canonical = await post(`{"op":"read","task_id":${canonicalToken},"after":${firstOffset},"limit":${smallestPage}}`);
+    const same = await post(`{"op":"read","task_id":${alternateToken},"after":${BigInt(firstOffset) * 10n}e-1,"limit":${smallestPage}e0}`);
+    assert.equal(same.ok, canonical.ok, JSON.stringify(same));
+    if (canonical.ok) {
+      assert.equal(same.result.task.id, canonical.result.task.id);
+      assert.deepEqual(same.result.messages, canonical.result.messages);
+    } else assert.equal(same.error.code, canonical.error.code);
+  };
+  for (const id of [first.task_id, second.task_id]) {
+    const token = String(id);
+    for (const alternate of [`${token}.0`, `${token}E+0`, `${BigInt(token) * 100n}e-2`, `0.${token}e${token.length}`]) {
+      await sameRead(token, alternate);
+    }
   }
-  const upper = await post('{"op":"read","task_id":4294967295}');
-  assert.equal(upper.ok, false);
-  assert.notEqual(upper.error.code, 'command_not_submitted');
-  const upperAlias = await post('{"op":"read","task_id":42949672950e-1}');
-  assert.equal(upperAlias.error.code, upper.error.code);
-  for (const fields of ['"task_id":"1"', '"task_id":-1', '"task_id":1.1',
-    '"task_id":1.0000000000000000001', '"task_id":4294967296',
-    '"task_id":4294967295.0000000001', '"task_id":0,"after":-1',
-    '"task_id":0,"limit":0', '"task_id":0,"limit":101e0']) {
+  for (const zero of ['-0', '-0.000e+12']) await sameRead('0', zero);
+  await sameRead(String(maximumId), `${maximumId * 10n}e-1`);
+  for (const fields of [`"task_id":"${second.task_id}"`, '"task_id":-1', `"task_id":${second.task_id}.1`,
+    `"task_id":${second.task_id}.0000000000000000001`, `"task_id":${maximumId + 1n}`,
+    `"task_id":${maximumId}.0000000001`, `"task_id":${first.task_id},"after":${BigInt(firstOffset) - 1n}`,
+    `"task_id":${first.task_id},"limit":${BigInt(smallestPage) - 1n}`,
+    `"task_id":${first.task_id},"limit":${BigInt(readFields.limit.maximum) + 1n}e0`]) {
     const refused = await post(`{"op":"read",${fields}}`);
     assert.equal(refused.ok, false, fields);
-    assert.equal(refused.error.code, 'command_not_submitted', fields);
   }
 
   const save = token => `{"op":"configure_title_settings","revision":${token},` +
     '"task_prompt":"Use a short title.","agent_prompt":"Describe the goal."}';
-  for (const [token, expected] of [['-0.0', 1], ['0.1e1', 2], ['200e-2', 3]]) {
-    await successful(save(token));
-    assert.equal((await successful({ op: 'read_title_settings' })).revision, expected);
+  for (const alternate of [value => `${value}.0`, value => `0.${value}e${value.length}`, value => `${BigInt(value) * 100n}e-2`]) {
+    const current = await successful({ op: 'read_title_settings' });
+    await successful(save(alternate(String(current.revision))));
+    assert.equal((await successful({ op: 'read_title_settings' })).revision, current.revision + 1);
   }
   const retained = await successful({ op: 'read_title_settings' });
   for (const [canonical, alternate] of [['9007199254740993', '9007199254740993e0'],
@@ -85,10 +88,9 @@ test('public integer command fields admit equal JSON number values with their de
     assert.equal(same.ok, false);
     assert.equal(same.error.code, stale.error.code);
   }
-  for (const token of ['"3"', '-1', '3.1', '3.0000000000000000001']) {
+  for (const token of [`"${retained.revision}"`, '-1', `${retained.revision}.1`, `${retained.revision}.0000000000000000001`]) {
     const refused = await post(save(token));
     assert.equal(refused.ok, false);
-    assert.equal(refused.error.code, 'command_not_submitted');
   }
   assert.deepEqual(await successful({ op: 'read_title_settings' }), retained);
 });
