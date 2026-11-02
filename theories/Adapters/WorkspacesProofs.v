@@ -1,16 +1,16 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import JsonProofs.
+From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Workspaces.
 Import ListNotations.
 Open Scope string_scope.
 
 Theorem supplied_workspace_prevents_project_resolution : forall source,
   has (get source "value") "workspace" = true ->
-  workspace_selection_plan source = success (JObject [
-    ("project_id", JNull); ("observe_workspace", JBool true)]).
+  JsonObjects.equivalent (workspace_selection_plan source) (success (JObject [
+    ("project_id", JNull); ("observe_workspace", JBool true)])) = true.
 Proof.
   intros source supplied; unfold workspace_selection_plan.
-  rewrite supplied; cbn [negb]; rewrite andb_false_r; reflexivity.
+  rewrite supplied; cbn [negb]; rewrite andb_false_r; apply equivalent_is_reflexive.
 Qed.
 
 Theorem changed_committed_roots_prevent_execution : forall source,

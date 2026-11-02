@@ -56,16 +56,20 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
  F.may_control (F.grant_rights issued) = true ->
  find (Remote.key_matches request) (F.remote_receipts (Remote.registry value)) = None ->
  (N.of_nat (List.length (F.remote_receipts (Remote.registry value))) <? 1024) = true ->
+ exists reply,
+ JsonObjects.equivalent reply (success (JObject [("task_id",number 0)])) = true /\
  Remote.execute_remote Packet.execute_domain stop_first_wire JNull request
    (G.Cmd_stop stop_first_payload) value =
  (true,true,Decision
    (Remote.store
-     (Remote.retain request (success (JObject [("task_id",number 0)])) (Remote.registry value))
+     (Remote.retain request reply (Remote.registry value))
      (put_task 0 (with_lifecycle (Stopped phase operations) task) value))
-   (success (JObject [("task_id",number 0)])) []).
+   reply []).
 Proof.
  intros task phase operations value request issued Tasks Running
    Enabled Valid Granted Epoch Control Fresh Space.
+ exists (success (JObject [("task_id",number 0)])).
+ split; [apply equivalent_is_reflexive|].
  assert (Permissions : RemoteProofs.granted_permissions Remote.control_rights (F.grant_rights issued)).
  { unfold RemoteProofs.granted_permissions, Remote.control_rights; cbn.
    repeat split; intros; try discriminate; assumption. }

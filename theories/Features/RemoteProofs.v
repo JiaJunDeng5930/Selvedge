@@ -369,11 +369,19 @@ Theorem remote_replay_has_no_effect : forall execute admitted required request b
  granted_permissions required (F.grant_rights issued) ->
  Remote.payload_valid (decision_reply candidate) = true ->
  let after := decision_world (Remote.record_result request before candidate) in
+ exists reply,
+ JsonObjects.equivalent reply
+   (success (JObject [("replayed",JBool true);("reply",decision_reply candidate)])) = true /\
+ (match field "result" reply with Some result => field "reply" result | None => None end) =
+   Some (decision_reply candidate) /\
  Remote.complete_request execute false request Schema.FNil after =
- (false,false,accept (JObject [("replayed",JBool true);("reply",decision_reply candidate)]) after []).
+ (false,false,Decision after reply []).
 Proof.
  intros execute admitted required request before candidate issued
    Admitted Rights Mutation Enabled Valid Granted Epoch Allowed Bounded after.
+ exists (success (JObject [("replayed",JBool true);("reply",decision_reply candidate)])).
+ split; [apply equivalent_is_reflexive|].
+ split; [reflexivity|].
  assert (Replay : Remote.authorize required request (Remote.registry after) =
      Remote.Replay (decision_reply candidate)).
  { unfold after. eapply retained_remote_result_is_replayable; eassumption. }

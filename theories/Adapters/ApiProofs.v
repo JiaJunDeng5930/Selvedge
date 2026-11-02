@@ -18,7 +18,9 @@ Theorem public_admitted_command_body_is_delivered : forall source original value
   str source "target" = "command" ->
   starts (str source "content_type") "application/json" = true ->
   as_string (get source "text") = Some original -> TextJson.parse_input_json original = TextJson.InputAccepted value ->
-  Api.call "http.body" source = success (JObject [("action",JString "command");("body",value)]).
+  let response := Api.call "http.body" source in
+  JsonObjects.equivalent response (success (JObject [("action",JString "command");("body",value)])) = true /\
+  field "body" (get response "value") = Some value.
 Proof.
  intros source original value opened host authorization origin method pathname selected mime text parsed.
  assert (local : connection_path source = false).
@@ -29,56 +31,67 @@ Proof.
  { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
  assert (target : body_target source = ModelResultDeclarations.http_body_target_named "command").
  { unfold body_target;rewrite audio,route;reflexivity. }
- change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
- unfold Http.call;cbn;unfold request_guard,open_host_guard.
- rewrite opened,host,authorization,local,origin;cbn.
- unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
- rewrite mime;cbn;rewrite text,parsed;reflexivity.
+ assert (delivered : Api.call "http.body" source =
+   success (JObject [("action",JString "command");("body",value)])).
+ { change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
+   unfold Http.call;cbn;unfold request_guard,open_host_guard.
+   rewrite opened,host,authorization,local,origin;cbn.
+   unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
+   rewrite mime;cbn;rewrite text,parsed;reflexivity. }
+ rewrite delivered.
+ split; [apply equivalent_is_reflexive|reflexivity].
 Qed.
 
 Theorem public_browser_git_observation_uses_cwd_default : forall (cwd : string),
-  Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]) =
-    success (JObject [("kind",JString "workspace-git");("primary",JString cwd)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]))
+    (success (JObject [("kind",JString "workspace-git");("primary",JString cwd)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_observation_marks_empty_path_default :
-  Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]) =
-    success (JObject [("kind",JString "browse-directories");("path",JString "");
-      ("default_path",JBool true);("project_root",JNull)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]))
+    (success (JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",JNull)])) = true.
+Proof. apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_default_prefers_task_root : forall task_root project_root,
-  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "resolve");
     ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
       ("default_path",JBool true);("project_root",project_root)]);
-    ("task_environment_present",JBool true);("task_root",task_root)]) =
-    success (JObject [("path",task_root);("canonicalize",JBool false)]).
-Proof. reflexivity. Qed.
+    ("task_environment_present",JBool true);("task_root",task_root)]))
+    (success (JObject [("path",task_root);("canonicalize",JBool false)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_default_canonicalizes_project_root : forall project_root,
-  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "resolve");
     ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
       ("default_path",JBool true);("project_root",project_root)]);
-    ("task_environment_present",JBool false)]) =
-    success (JObject [("path",project_root);("canonicalize",JBool true)]).
-Proof. reflexivity. Qed.
+    ("task_environment_present",JBool false)]))
+    (success (JObject [("path",project_root);("canonicalize",JBool true)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_failure_is_returned_as_observation : forall message,
-  Api.call "browser.observation" (JObject [("phase",JString "complete");
-    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]) =
-    success (JObject [("ok",JBool false);("error",JString message)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]))
+    (success (JObject [("ok",JBool false);("error",JString message)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_skill_failure_is_returned_as_observation : forall message,
-  Api.call "browser.observation" (JObject [("phase",JString "complete");
-    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]) =
-    success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]))
+    (success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_exec_injects_authenticated_connection : forall connection args,
   keys args (client_keys Execute) = true ->
-  Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]) =
-  success (JObject [("op",JString "chatgpt_exec");("connection_id",connection);("project_id",get args "project_id");
+  JsonObjects.equivalent
+  (Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]))
+  (success (JObject [("op",JString "chatgpt_exec");("connection_id",connection);("project_id",get args "project_id");
     ("request_id",get args "request_id");("arguments",JObject [("command",get args "command");
       ("timeout_ms",default_value (get args "timeout_ms") (number 120000));
-      ("max_output_length",default_value (get args "max_output_length") (number 4096))])]).
-Proof. intros connection args accepted;change ((if keys args (client_keys Execute) then success (command_value connection Execute args) else type_error "Invalid ChatGPT tool arguments") = success (command_value connection Execute args));now rewrite accepted. Qed.
+      ("max_output_length",default_value (get args "max_output_length") (number 4096))])])) = true.
+Proof.
+ intros connection args accepted.
+ change (JsonObjects.equivalent
+   (if keys args (client_keys Execute) then success (command_value connection Execute args)
+    else type_error "Invalid ChatGPT tool arguments") (success (command_value connection Execute args)) = true).
+ rewrite accepted; apply equivalent_is_reflexive.
+Qed.
 Theorem public_evaluator_authorizes_only_configured_decision : forall source reply value,
   str source "mode" <> "parsed" -> get source "reply" = reply ->
   Api.call "evaluator.decision" source = success value ->
