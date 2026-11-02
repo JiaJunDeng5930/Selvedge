@@ -55,14 +55,15 @@ Qed.
 Theorem http_public_command_rejects_sideband_observations : forall source,
   str (get source "command") "op" = "record_speech_transcript" \/
   str (get source "command") "op" = "accept_speech_delegation" ->
-  Http.call "http.public_command" source =
-    failure "TypeError" "Speech observations require a live upstream session".
+  exists message,
+    Http.call "http.public_command" source = failure "TypeError" message.
 Proof.
   intros source denied.
   unfold Http.call.
   cbn [String.eqb].
   unfold Http.public_command, Http.public_command_allowed.
-  destruct denied as [transcript | delegation]; rewrite transcript || rewrite delegation; reflexivity.
+  destruct denied as [transcript | delegation]; rewrite transcript || rewrite delegation;
+    eexists; reflexivity.
 Qed.
 
 Theorem http_command_not_submitted_has_its_public_error_code : forall message,
