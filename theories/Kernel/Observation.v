@@ -107,23 +107,11 @@ Definition project_summary_json (tasks : list task) (id : N) (value : project) :
  ("primary_root", optional_string (workspace_primary (project_workspace value)));
  ("task_count", number (project_task_count id tasks))]).
 Definition work_json := @Selvedge.Features.Observation.work_json.
-Definition stage_name := @Selvedge.Features.Observation.stage_name.
-Definition priority_name := @Selvedge.Features.Observation.priority_name.
-Definition owner_name := @Selvedge.Features.Observation.owner_name.
-Definition attachment_json := @Selvedge.Features.Observation.attachment_json.
-Definition card_json := @Selvedge.Features.Observation.card_json.
-Definition agent_json := @Selvedge.Features.Observation.agent_json.
 Definition present_values {A : Type} := @Selvedge.Features.Observation.present_values A.
-Definition board_json := @Selvedge.Features.Observation.board_json.
-Definition rights_json := @Selvedge.Features.Observation.rights_json.
-Definition grant_json := @Selvedge.Features.Observation.grant_json.
 Definition remote_json := @Selvedge.Features.Observation.remote_json.
 Definition projects_json (projects : list project) (tasks : list task) :=
  map (fun entry => project_summary_json tasks (fst entry) (snd entry)) (Workspace.ordered_projects projects).
 Definition worktree_json := @Selvedge.Features.Observation.worktree_json.
-Definition graph_message_json := @Selvedge.Features.Observation.graph_message_json.
-Definition graph_action_json := @Selvedge.Features.Observation.graph_action_json.
-Definition graph_rule_json := @Selvedge.Features.Observation.graph_rule_json.
 Definition graph_json := @Selvedge.Features.Observation.graph_json.
 Definition graph_snapshot id graph features :=
  match graph_json id graph with JObject fields=>JObject(fields++

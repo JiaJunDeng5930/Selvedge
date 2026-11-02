@@ -25,4 +25,3 @@ Definition candidate {before : world} (request : plan before) :=
  DeferredCommit.continue_result before (CommandResult.Accepted (TitleRuntime.issue request)).
 Definition enqueue_title : DecisionComposition.transformation := fun _ value effects =>
  (value,match resolve value with Some _ => effects ++ [ContinueScheduling] | None => effects end).
-Definition enqueue := DecisionComposition.transform enqueue_title.
