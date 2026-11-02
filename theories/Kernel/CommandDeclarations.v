@@ -30,5 +30,3 @@ Definition admit_public := admit false.
 Definition admit_observed := admit true.
 Definition public_json :=
  Selvedge.Programming.CommandDeclarations.encode_invocation false Commands.command_declarations.
-Definition observed_json :=
- Selvedge.Programming.CommandDeclarations.encode_invocation true Commands.command_declarations.
