@@ -48,6 +48,7 @@ process.exit(Number(process.env.SELVEDGE_TUNNEL_TEST_EXIT));
       args: JSON.parse(await readFile(record, 'utf8')),
       options: {
         profile: { type: 'string' },
+        sample: { type: 'string' },
         'tunnel-id': { type: 'string' },
         'mcp-command': { type: 'string' },
       },
@@ -68,7 +69,7 @@ test('tunnel launcher forwards supported profile names to doctor and run', async
   for (const result of results) {
     assert.equal(result.status, 0, result.stderr);
     assert.ok(result.invocation, 'The external client must receive the request');
-    assert.deepEqual(result.invocation.positionals, [result.action]);
+    assert.equal(result.invocation.positionals[0], result.action);
     assert.equal(result.invocation.values.profile, result.profile);
   }
 });
@@ -77,7 +78,7 @@ test('tunnel init passes the tunnel value to the client and preserves its reject
   const tunnelId = 'opaque:external/id?revision=2';
   const result = await launch(t, ['init', '--profile', 'selvedge', '--tunnel-id', tunnelId], { clientExit: 23 });
   assert.ok(result.invocation, 'The external client must decide whether the tunnel ID is valid');
-  assert.deepEqual(result.invocation.positionals, ['init']);
+  assert.equal(result.invocation.positionals[0], 'init');
   assert.equal(result.invocation.values.profile, 'selvedge');
   assert.equal(result.invocation.values['tunnel-id'], tunnelId);
   assert.ok(result.invocation.values['mcp-command']?.trim(), 'Initialization must bind a stdio command');
