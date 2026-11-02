@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json BoundedInteger.
 From Selvedge.Foundation Require Export Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -80,8 +80,8 @@ Fixpoint decode_value (description : kind) : json -> option (denote description)
   match description as description return json -> option (denote description) with
   | KText => as_string
   | KBool => as_bool
-  | KNatural => fun value => match as_number value with Some s => parse_natural s | None => None end
-  | KInteger => fun value => match as_number value with Some s => parse_integer s | None => None end
+  | KNatural => fun value => match as_number value with Some s => decode_unbounded_natural s | None => None end
+  | KInteger => fun value => match as_number value with Some s => decode_unbounded_integer s | None => None end
   | KDecimal => fun value => match value with
     | JNumber text => match number_lexeme text as valid return
         number_lexeme text = valid -> option decimal with

@@ -25,7 +25,8 @@ Proof.
  induction description as [| | | | | |element IH|element IH|first rest]; intros value Supported.
  - exists value; split; reflexivity.
  - exists value; split; reflexivity.
- - exists value; cbn. rewrite natural_print_parse; split; reflexivity.
+ - exists value; cbn [decode_value encode_value as_number].
+   unfold BoundedInteger.decode_unbounded_natural. rewrite natural_print_parse; split; reflexivity.
  - discriminate.
  - discriminate.
  - exists value; split; reflexivity.

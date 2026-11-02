@@ -34,7 +34,6 @@ Inductive t :=
 | Value (kind : Schema.kind)
 | Const (value : json)
 | Textual (format : text_format)
-| UnboundedNatural (minimum : N)
 | Natural (minimum maximum : N)
 | SafeInteger (minimum maximum : Z)
 | Array (element : t)
@@ -44,7 +43,6 @@ Inductive t :=
 | Union (alternatives : list t).
 Definition Any := Value KJson.
 Definition Boolean := Value KBool.
-Definition Integer := Value KInteger.
 Definition Text constraints := Textual (ConstrainedText constraints).
 Definition NaturalText minimum maximum := Textual (NaturalSpelling minimum maximum).
 Definition PrefixedText prefix suffix := Textual (PrefixedSpelling prefix suffix).
@@ -116,7 +114,6 @@ Fixpoint denote (declaration : t) : Set :=
  | EncodedObject nesting => EncodedObject.Admitted.t nesting
  | Null | Const _ => unit | Value kind => Schema.denote kind
  | Textual format => text_value format
- | UnboundedNatural minimum => checked (fun value => minimum <=? value)
  | Natural minimum maximum => checked (in_bounds minimum maximum)
  | SafeInteger minimum maximum => checked (signed_bounds minimum maximum)
  | Array element => list (denote element)
@@ -142,9 +139,8 @@ Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :
  | Null => match value with JNull => Some tt | _ => None end
  | Const expected => if Json.equal value expected then Some tt else None
  | Textual format => match value with JString source => decode_text format source | _ => None end
- | UnboundedNatural minimum => match as_number value with Some source => match parse_natural source with
-   Some number => admit (fun value => minimum <=? value) number | None => None end | None => None end
- | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
+ | Natural minimum maximum => match as_number value with Some source =>
+   match BoundedInteger.decode_natural (decimal_width (N.to_uint maximum)) source with
    Some number => admit (in_bounds minimum maximum) number | None => None end | None => None end
  | SafeInteger minimum maximum => match as_number value with Some source =>
    match BoundedInteger.decode_safe_integer source with
@@ -187,7 +183,7 @@ Fixpoint encode (declaration : t) : denote declaration -> json :=
  | Value kind => Schema.encode_value kind | RawObject => JObject
  | EncodedObject _ => fun value => JString (EncodedObject.spelling value)
  | Textual format => fun value => JString (encode_text format value)
- | UnboundedNatural _ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
+ | Natural _ _ => fun value => JNumber (show_natural (proj1_sig value))
  | SafeInteger _ _ => fun value => JNumber (show_integer (proj1_sig value))
  | Array element => fun values => JArray (map (encode element) values)
  | BoundedArray _ _ element => fun values => JArray (map (encode element) (proj1_sig values))
@@ -239,7 +235,6 @@ Fixpoint schema (declaration : t) : json :=
  | Const value => JObject [("const",value)]
  | Null => JObject [("type",JString "null")]
  | Textual format => text_schema format
- | UnboundedNatural minimum => JObject [("type",JString "integer");("minimum",JNumber (show_natural minimum))]
  | Natural minimum maximum => JObject ([("type",JString "integer")] ++ bound_fields minimum maximum)
  | SafeInteger minimum maximum => JObject [("type",JString "integer");
      ("minimum",JNumber (show_integer (Z.max minimum (- BoundedInteger.safe_integer_limit))));

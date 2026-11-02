@@ -74,7 +74,7 @@ Fixpoint decode_cases {A} (cases : list (decoder A)) source := match cases with
     opaque; runtime peers never own a second field-shape specification. *)
 Fixpoint shape_kind (description : D.t) : Schema.kind := match description with
  | D.Value kind => kind | D.Textual _ => Schema.KText
- | D.Natural _ _ | D.UnboundedNatural _ => Schema.KNatural
+ | D.Natural _ _ => Schema.KNatural
  | D.SafeInteger _ _ => Schema.KInteger
  | D.Array item | D.BoundedArray _ _ item => Schema.KArray (shape_kind item)
  | D.Const (JString text) => Schema.KEnum text []

@@ -1,13 +1,14 @@
 From Stdlib Require Import NArith.
-From Selvedge.Foundation Require Import Numbers NumbersProofs.
+From Selvedge.Foundation Require Import Numbers BoundedInteger BoundedIntegerCorrectness.
 From Selvedge.Adapters Require Import HostRemoteTransport.
 From Selvedge.Host Require Import RemoteTransport.
 
 Theorem transport_state_wire_roundtrips : forall value,
  state_of (state_json value) = Some value.
 Proof.
- destruct value; cbv beta iota zeta delta -[parse_natural show_natural].
- all: rewrite !natural_print_parse; reflexivity.
+ (* Unfolding symbolic fields expands an unused decimal fallback; use its shared roundtrip law. *)
+ destruct value; cbv beta iota zeta delta -[decode_unbounded_natural show_natural].
+ all: rewrite !unbounded_natural_print_parse; reflexivity.
 Qed.
 
 Theorem authorization_state_wire_roundtrips : forall value,

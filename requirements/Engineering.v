@@ -101,13 +101,22 @@ Export Focus(modification_has_its_selected_value, modifications_compose,
     duplicate-name and declared-field admission. *)
 Export ArgumentDeclarationProofs(admitted_value_retains_its_constraint).
 
-(** Public bounded integer fields denote exact mathematical integers. Ordinary
-    internal naturals remain unrestricted; JSON transport does not silently
-    round them through JavaScript numbers. The separate bounded decoder is used
-    only where the field's contract requires that bound. UTF-8 and physical
-    byte interpretation are checked at their owning transport boundaries. *)
+(** Public integer declarations admit exact mathematical values, including
+    decimal and exponent forms. Each bounded field supplies its own numerical
+    range; JSON transport must not silently round through JavaScript numbers.
+    The shared decimal conversion constrains its exponent before expanding it,
+    so a short external number cannot request astronomical allocation.
+
+    Ordinary internal naturals and canonical integer input remain unrestricted.
+    For unbounded fields, noncanonical exponent expansion has a deliberate
+    4096-digit-or-input-length budget. Representing still larger exponent forms
+    without expansion would add a second number model for no current user need.
+    Such inputs are rejected; they are never rounded or reported as admitted.
+    UTF-8 and physical byte interpretation belong to their transport boundaries. *)
 Export NumbersProofs(natural_print_parse).
-Export BoundedIntegerCorrectness(decode_safe_integer_mathematical_iff).
+Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
+  decode_safe_integer_mathematical_iff, decode_natural_mathematical_iff,
+  unbounded_natural_print_parse).
 
 (** * Local extension without repeated shared obligations
 

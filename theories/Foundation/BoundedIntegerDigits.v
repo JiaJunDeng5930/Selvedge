@@ -103,13 +103,13 @@ Qed.
 Lemma decimal_append_width left right :
   Decimal.nb_digits (Decimal.app left right) = (Decimal.nb_digits left + Decimal.nb_digits right)%nat.
 Proof. rewrite !DecimalFacts.nb_digits_spec, DecimalFacts.app_spec, List.length_app. reflexivity. Qed.
-Theorem integral_magnitude_digit_budget coefficient fractional exponent :
+Theorem integral_magnitude_digit_budget coefficient fractional exponent capacity :
   (1 <= Decimal.nb_digits coefficient)%nat ->
   fractional + 1 - Z.of_nat (Decimal.nb_digits coefficient) <= exponent <=
-    fractional + 16 - Z.of_nat (Decimal.nb_digits coefficient) ->
+    fractional + Z.of_nat capacity - Z.of_nat (Decimal.nb_digits coefficient) ->
   (if (exponent - fractional <? 0)%Z then
-     1 <= Decimal.nb_digits (Decimal.del_tail (Z.to_nat (fractional - exponent)) coefficient) <= 16
-   else 1 <= Decimal.nb_digits (Decimal.app coefficient (Nat.iter (Z.to_nat (exponent - fractional)) Decimal.D0 Decimal.Nil)) <= 16)%nat.
+     1 <= Decimal.nb_digits (Decimal.del_tail (Z.to_nat (fractional - exponent)) coefficient) <= capacity
+   else 1 <= Decimal.nb_digits (Decimal.app coefficient (Nat.iter (Z.to_nat (exponent - fractional)) Decimal.D0 Decimal.Nil)) <= capacity)%nat.
 Proof.
   intros width window. destruct (Z.ltb_spec (exponent - fractional) 0) as [negative|nonnegative].
   - assert (remove : (Z.to_nat (fractional - exponent) < Decimal.nb_digits coefficient)%nat).
