@@ -110,6 +110,10 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     retain their bounded sequence comparison; capture requires equality with
     the current committed sequence in that observation.
 
+    Each capture attempt retains only its pending check stage across native
+    observations. Capture, denial and disconnection end the awaited invocation;
+    they do not create a retained authorization state.
+
     New semantic state is installed before sending or accepting sockets. Ticket
     consumption precedes authorization. After asynchronous hashing, the relay
     rereads the current attachment instead of publishing an earlier snapshot.

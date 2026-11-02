@@ -161,12 +161,11 @@ Definition remote_observation_decoders : list (Variant.decoder RT.observation) :
  Variant.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
 Definition remote_transport_observations := map Variant.decoder_declaration remote_observation_decoders.
 Definition authorization_name state := match state with
- | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last"
- | RT.Authorized => "authorized" | RT.Denied => "denied" | RT.RevisionChanged => "revision_changed" end.
+ | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last" end.
 Definition remote_authorization_declaration state := variant "phase" (authorization_name state) [] [].
 Definition remote_authorization_decoders := map (fun state =>
  Variant.Decoder (remote_authorization_declaration state) (fun _ => Some state))
- [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck;RT.Authorized;RT.Denied;RT.RevisionChanged].
+ [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck].
 Definition remote_authorization_states := map Variant.decoder_declaration remote_authorization_decoders.
 Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.

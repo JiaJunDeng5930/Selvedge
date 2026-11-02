@@ -4,8 +4,7 @@ Import ListNotations.
 Open Scope N_scope.
 
 Definition remaining_checks state := match state with
- | FirstCheck => 4 | SecondCheck => 3 | ThirdCheck => 2 | LastCheck => 1
- | Authorized | Denied | RevisionChanged => 0 end.
+ | FirstCheck => 4 | SecondCheck => 3 | ThirdCheck => 2 | LastCheck => 1 end.
 
 (** The interpreter can request another native check only by consuming one of
     four successive states. A sequence-changing workload cannot sustain a loop. *)
@@ -16,11 +15,6 @@ Proof.
  destruct state, active, allowed; cbn; try discriminate;
  destruct (N.eqb checked current); cbn; intros; try discriminate; lia.
 Qed.
-
-Theorem completed_authorization_never_reissues_capture state active allowed checked current :
- remaining_checks state = 0 ->
- snd (authorize state (GrantChecked active allowed checked current)) <> Capture.
-Proof. destruct state; cbn; intros; try discriminate. Qed.
 
 (** Authentication failure is absorbing for every asynchronous observation.
     Only a new explicit Enable may start another physical attempt. *)
