@@ -45,6 +45,9 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     A remote receipt is reusable only under current authority. The independent
     access and request contracts in [RemoteProofs] derive fresh admission and
     replay from grants, componentwise permissions, bounds and stored receipts.
+    Refusal requires a failed admission condition. Diagnostic identifiers,
+    wording and the choice among simultaneous failures do not determine access
+    or replay, so these contracts leave them unspecified.
     [revoked_remote_controller_cannot_replay] prevents retained results from
     bypassing revocation. [remote_replay_has_no_effect] avoids repeated execution.
     Oversized complete replies roll back instead of partly committing a result.
