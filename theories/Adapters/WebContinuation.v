@@ -67,8 +67,7 @@ Definition continuation_suffix source receipt : option (list json) :=
       (skipn (N.to_nat position) history))
   else None.
 Definition continuation_result body deferred source := success (JObject [
-  ("body",body);("deferred",JArray deferred);("input_count",number (N.of_nat (List.length source.(continuation_effect).(effect_history))));
-  ("receipt_position",if is_null (selected_position source) then JNumber "-1" else selected_position source);
+  ("body",body);("deferred",JArray deferred);
   ("reset",JBool (page_reset source))]).
 Definition result_items values := filter (fun item => eq item "role" "function_output") values.
 Definition later_items values := filter (fun item => negb (eq item "role" "function_output")) values.

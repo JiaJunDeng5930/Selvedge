@@ -170,7 +170,7 @@ export class WebRequestStore {
   }
 
   retire(record) {
-    const { updates } = boundary('web.store_retire', { record });
+    const { updates } = boundary('web.store_retire', {});
     this.db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(updates.retired, record.request_key);
   }
 }

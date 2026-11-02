@@ -51,10 +51,6 @@ export function accountConnection(profile) {
 }
 const locks = new Map();
 
-function validateCredential(value, audio = false) {
-  return boundary('account.credential', credentialObservations(value, audio));
-}
-
 async function readRecord(filename, optional = false) {
   let contents;
   try { contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(filename)); }
@@ -165,7 +161,8 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
 async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential, audio = false } = {}) {
   const filename = path.resolve(home, profile.auth_file);
   return locked(filename, async () => {
-    const current = validateCredential(await readRecord(filename), audio);
+    const observed = credentialObservations(await readRecord(filename), audio);
+    const current = boundary('account.credential', observed);
     boundary('account.issuer_admission', { value: current, issuer: profile.issuer });
     const registered = audio ? { client_id: contract.audio.client_id, subject: current.subject }
       : registration(await readRecord(`${filename}.registration.json`), profile.issuer);
@@ -173,7 +170,7 @@ async function resolveCredential(profile, home, { signal, rejectedToken, request
       ...(requestCredential === undefined ? {} : { requestCredential }),
       ...(rejectedToken === undefined ? {} : { rejectedToken }) };
     const now = Date.now();
-    const source = { ...binding, ...credentialObservations(current, audio),
+    const source = { ...binding, dates: observed.dates,
       threshold: dateObservation(now + 300_000, true), now_date: dateObservation(now, true) };
     // DEFENSE: A sign-in can replace the account while an earlier request awaits
     // its 401. Admit that request's principal before deciding reuse or refresh.
@@ -242,7 +239,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
       // DEFENSE: The loopback HTTP listener also receives malformed request targets; native callback admission responds without accepting a grant.
       try { url = new URL(request.url, redirectUri); } catch { url = null; }
       const redirect = new URL(redirectUri);
-      const decision = boundary('account.callback', { audio, request: { method: request.method, host: request.headers.host },
+      const decision = boundary('account.callback', { request: { method: request.method, host: request.headers.host },
         url: url ? urlObservation(url.href) : null, redirect: urlObservation(redirect.href), state, registered,
         parameters: Object.fromEntries(['code', 'state', 'client_id', 'error'].map(key => [key, url ? url.searchParams.getAll(key) : []])) });
       // DEFENSE: Unparseable targets and unrelated paths do not supply an authorization response.
@@ -297,7 +294,7 @@ export function createAudioAccount({ home, onChange = () => {} }) {
       signal?.throwIfAborted();
       const value = await readRecord(filename, true);
       if (value === null) return [];
-      validateCredential(value, true);
+      boundary('account.credential', credentialObservations(value, true));
       return [{ id: 'chatgpt-voice', label: 'ChatGPT', source: 'chatgpt_audio', authorized: true }];
     },
     async authorize(connectionId, { signal } = {}) {

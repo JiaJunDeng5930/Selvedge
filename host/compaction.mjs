@@ -52,7 +52,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
     : boundary('backend.compaction_portable_request', { effect, request: encoded });
   const prepared = await prepareModelRequest(request, home, limits);
   const observation = await measured(session, prepared, limits, options, effect.plan.window_tokens);
-  if (boundary('backend.compaction_budget', { ...observation, plan: effect.plan }) === 'resize') {
+  if (boundary('backend.compaction_budget', { input_tokens: observation.input_tokens, plan: effect.plan }) === 'resize') {
     return { action: 'resize' };
   }
   if (effect.plan.method === 'native') {
@@ -74,5 +74,5 @@ export async function requestCompaction(effect, config, home, limits, options = 
   let usage;
   const items = await requestProviderSSE(session, call, prepared, limits,
     { ...options, onDelta: () => {}, onObservation: observation => { usage = observation.usage; } });
-  return boundary('backend.compaction_summary_result', { items, scope: session.scope, usage, plan: effect.plan });
+  return boundary('backend.compaction_summary_result', { items, scope: session.scope, usage });
 }
