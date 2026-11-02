@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
-import { parseJson, stringifyJson, integer } from './codec.mjs';
+import { parseJson, integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
 
 const outcomes = new WeakMap();
@@ -65,7 +65,7 @@ export class Journal extends EventEmitter {
         journal.sequence = row.seq;
       }
       if (journal.sequence > 0) {
-        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } });
+        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
         journal.program = snapshot.program;
       }
       return journal;
@@ -125,13 +125,14 @@ export class Journal extends EventEmitter {
       // DEFENSE: A prior SQLite/Worker failure leaves the in-memory world ahead of durable storage; never execute another input.
       if (this.#failure) throw this.#failure;
       let inputText;
-      try { inputText = stringifyJson(input); }
-      // DEFENSE: Invalid external JSON is rejected before any kernel transition or durable write.
-      catch (error) { throw rejected(error, 'rejected'); }
       let response;
       let pending;
-      try { pending = this.#kernel.request(input); }
-      // DEFENSE: Encoding validates the input before the Worker receives its request.
+      try {
+        const submitted = this.#kernel.request(input);
+        inputText = submitted.text;
+        pending = submitted.result;
+      }
+      // DEFENSE: Invalid or oversized external JSON fails before the Worker receives a frame or a journal write starts.
       catch (error) {
         throw rejected(error, 'rejected');
       }

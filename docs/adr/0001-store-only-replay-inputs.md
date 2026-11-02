@@ -23,11 +23,16 @@ and the existing distinction between rejected and uncertain commits. SQLite
 transactions and WAL with `synchronous=FULL` provide the physical durability
 boundary. Restart replays the inputs without dispatching effects.
 
+The Kernel request returns both the encoded input frame and its pending Worker
+response. The Journal retains that frame instead of independently serializing
+the original object again. One serialization owner makes the persisted replay
+input the same input evaluated by the Worker and avoids a second pass through
+the complete JSON value.
+
 Remove the decision copies, hash chain and unused Gallina trace model whose
-properties concerned the removed receipt collection. Use the actual packet's
-query-purity theorem and transaction controller's publication theorem for their
-respective guarantees; public restart and failed-commit tests cover physical
-storage and execution.
+properties concerned the removed receipt collection. The actual packet's
+query-purity theorem constrains observations; the host's awaited SQLite
+transaction and public restart/failed-commit tests cover physical publication.
 
 The current format is version 13. Changes that alter the interpretation of
 stored inputs must change that format; older formats are rejected without

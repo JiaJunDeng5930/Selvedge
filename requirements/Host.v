@@ -14,7 +14,9 @@ Import ListNotations.
 
     A journal stores admitted inputs and restores the world by replaying the
     same entry; replay does not publish physical effects. Queries preserve the
-    world, emit no effects and require no journal row.
+    world, emit no effects and require no journal row. A committed row must
+    retain the input evaluated by the Worker so recovery reconstructs that
+    execution.
     [actual_query_preserves_world_and_emits_no_effect] constrains that actual
     packet entry. Public restart tests cover ordered replay and retained state;
     SQLite supplies transaction durability.

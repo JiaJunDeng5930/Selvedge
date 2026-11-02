@@ -48,7 +48,7 @@ export class Kernel {
   }
 
   async initialize() {
-    const { value, program } = await this.request({ kind: 'command', command: { op: 'describe' } });
+    const { value, program } = await this.request({ kind: 'command', command: { op: 'describe' } }).result;
     const description = value.reply.result;
     this.maximum = description.limits.frame_bytes;
     return { description, program };
@@ -70,16 +70,16 @@ export class Kernel {
 
   // Replay checks admission without projecting intermediate worlds while the journal opens.
   replay(input) {
-    return this.#request(input, false);
+    return this.#request(input, false).result;
   }
 
   assess(candidate) {
-    return this.#request(candidate, false, 'assess');
+    return this.#request(candidate, false, 'assess').result;
   }
 
   #request(input, snapshot, operation = 'packet') {
     const text = encodeInput(input, this.maximum);
-    return new Promise((resolve, reject) => {
+    const result = new Promise((resolve, reject) => {
       // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
       // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
@@ -88,6 +88,8 @@ export class Kernel {
       this.#pending = { resolve, reject, timer };
       this.#worker.postMessage({ text, snapshot, operation });
     });
+    // Journal persists the same admitted frame that this Worker evaluates.
+    return { text, result };
   }
 
   abort(reason) { this.#fail(reason); }
