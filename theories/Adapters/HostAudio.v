@@ -32,8 +32,7 @@ Definition connection_observation (observed : json) :=
     else if String.eqb kind "error" then Some (AudioConnection.SocketFailed attempt (str observed "message"))
     else if String.eqb kind "close" then Some (AudioConnection.SocketClosed attempt (num observed "code"))
     else if String.eqb kind "message" then Some (AudioConnection.ProviderMessage attempt (get observed "value"))
-    else if String.eqb kind "retry" then Some (AudioConnection.RetryElapsed attempt)
-    else if String.eqb kind "stop" then Some AudioConnection.Stop else None.
+    else if String.eqb kind "retry" then Some (AudioConnection.RetryElapsed attempt) else None.
 Definition transport_step (source : json) :=
   let state := AudioTransport.state_of (get source "state") in let observed := get source "observation" in
   let kind := str observed "kind" in

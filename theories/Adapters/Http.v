@@ -156,19 +156,19 @@ Definition body_shape (target : string) (body : json) :=
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_revoke) then
     match Schema.decode ModelResultDeclarations.http_remote_revoke_fields body with
     | Some values => negb (String.eqb (Schema.head values) "") | None => false end
-  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then exact_fields [] body
+  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) ||
+    String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields [] body
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then
     match Schema.decode ModelResultDeclarations.http_browser_command_fields body with
     | Some _ => true | None => false end
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
-  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields ["browser_id"] body && nonempty_text (get body "browser_id")
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]
   else true.
 Definition body_error (target : string) := exception ModelResultDeclarations.TypeErrorKind
-  (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in contains only browser_id"
+  (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in takes an empty object"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
    else if starts target "remote_" then "Invalid remote management request body"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then "Account refresh takes an empty object"
@@ -203,7 +203,7 @@ Definition audio_admission (source : json) :=
     if nonempty_text (get source "browser_id") && boolean_field source "task_valid" && bound (get source "session_count") 0 0
     then audio_limits else audio_reject "Voice requires an existing Task and one session per browser"
   else if String.eqb kind "transcribe" then
-    if nonempty_text (get source "browser_id") && starts (str source "mime") "audio/" &&
+    if starts (str source "mime") "audio/" &&
        bound (get source "body_bytes") 0 Audio.asr_max_bytes && bound (get source "elapsed_ms") 0 Audio.request_timeout_ms
     then audio_limits else audio_reject "Audio upload requires audio MIME and is limited to 25 MiB and 120 seconds"
   else if nonempty_text (get source "browser_id") && equal (get source "browser_id") (get source "owner") &&

@@ -67,36 +67,35 @@ Definition failure_result record code status :=
     (if truthy status then "HTTP " ++ TextJson.render_json status ++ ", " else "") ++
     code ++ ". " ++ retained_message record)).
 Definition event_kind name event := if String.eqb name "message" then str event "type" else name.
-Definition event_action action event extras := success (JObject
-  (("action",JString action)::(optional (truthy (get event "response_id"))
-    "response_id" (get event "response_id") ++ extras))).
+Definition event_action action extras := success (JObject (("action",JString action)::extras)).
 Definition event_dispatch name event body model tools index :=
   match event_kind name event with
   | "response.in_progress" => if truthy (get event "response_id") && has event "previous_response_id" &&
       same (get event "previous_response_id") (get body "previous_response_id")
-      then event_action "continue" event [] else err "ChatGPT Web progress does not belong to this request"
+      then event_action "continue" [] else err "ChatGPT Web progress does not belong to this request"
   | "response.output_text.snapshot" => if truthy (get event "response_id") && boolean_field event "provisional" &&
-      is_text (get event "text") then event_action "snapshot" event [("text",get event "text");("index",index)]
+      is_text (get event "text") then event_action "snapshot" [("text",get event "text");("index",index)]
       else err "ChatGPT Web returned an invalid snapshot"
   | "response.completed" | "response.requires_action" =>
       let result := resource (get event "response") model body tools in
       if boolean_field result "ok" then
         if String.eqb (event_kind name event) ("response." ++ str (get result "value") "status")
-        then event_action "terminal" event [("resource",get result "value")]
+        then event_action "terminal" [("resource",get result "value")]
         else err "ChatGPT Web terminal event disagrees with its resource" else result
-  | "error" => event_action "failure" event [("code",get event "code")]
+  | "error" => event_action "failure" [("code",get event "code")]
   | _ => err "ChatGPT Web returned an unsupported SSE event" end.
 (* Event identity is derived by parsing the original frame. No host tokenization
    or separately normalized JSON value can grant authority to a different event. *)
 Definition event (header : bool) name data body model tools index :=
-  if String.eqb data "[DONE]" then event_action "stop" JNull []
+  if String.eqb data "[DONE]" then event_action "stop" []
   else let parsed := decode_provider_text data in
     if negb (boolean_field parsed "ok") then parsed
     else let value := get parsed "value" in
       if negb (is_object value) then err "ChatGPT Web returned an invalid SSE event"
       else if has value "type" && negb (eq value "type" (event_kind name value))
       then err "ChatGPT Web returned conflicting SSE event names"
-      else if header then event_action "identify" value [] else event_dispatch name value body model tools index.
+      else if header then event_action "identify" (optional (truthy (get value "response_id")) "response_id" (get value "response_id"))
+      else event_dispatch name value body model tools index.
 Definition http_json (response_ok : bool) source := match TextJson.parse_json_members source with
   | Some value => success (JObject [("present",JBool true);("value",value)])
   | None => if response_ok then failure "http_json_parse" "The service returned invalid JSON"

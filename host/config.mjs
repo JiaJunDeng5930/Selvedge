@@ -8,7 +8,6 @@ import { connectionConfig } from './chatgpt-plugin.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 export const defaultConfig = boundary('config.defaults', {});
-export const format = defaultConfig.format;
 const contextDefinitions = boundary('config.context_definitions', {});
 
 function contextSettings(definitions = contextDefinitions) {

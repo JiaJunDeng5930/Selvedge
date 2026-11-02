@@ -48,7 +48,7 @@ export interface HttpPrimitives {
   health(): Promise<void> | void;
   account_refresh(): Promise<void> | void;
   audio_create(body: JsonValue): Promise<void> | void;
-  audio_login(body: JsonValue): Promise<void> | void;
+  audio_login(): Promise<void> | void;
   remote_pair(): Promise<void> | void;
   remote_enable(): Promise<void> | void;
   remote_disable(): Promise<void> | void;
@@ -115,7 +115,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
       switch (plan.action) {
         case 'account_refresh': { await io.account_refresh(); return null; }
         case 'audio_create': { await io.audio_create(plan.body); return null; }
-        case 'audio_login': { await io.audio_login(plan.body); return null; }
+        case 'audio_login': { await io.audio_login(); return null; }
         case 'remote_pair': { await io.remote_pair(); return null; }
         case 'remote_enable': { await io.remote_enable(); return null; }
         case 'remote_disable': { await io.remote_disable(); return null; }

@@ -169,6 +169,9 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     the physical publisher supplies those observations after its awaited IO.
     Bounded readers observe the opened descriptor before and after the bounded read, not a prior path size. *)
 
+From Selvedge.Adapters Require AudioProofs.
+Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,
+  initial_context_constructs_protocol_messages).
 From Selvedge.Kernel Require SpeechProofs.
 From Selvedge.Host Require AudioProofs AudioSession AudioTransport AudioConnection.
 Export SpeechProofs(a_new_transcript_changes_only_the_task_history,
@@ -195,7 +198,21 @@ Export AudioConnection(step).
     state, while ordinary creation keeps its initial-message requirement.
 
     Account audio capability is distinct from the Task's model profile and from
-    public inference authorization. Media signaling may finish before the control
+    public inference authorization. [audio_capability_matches_account_authority]
+    constrains the selected connection's actual admission. The host then awaits
+    account authorization before sending media; copying a constant authorization
+    flag into a later body builder would add no authority. Discovery and sign-in
+    belong to the installation's audio account. Stateless transcription authorizes
+    its selected connection for one request and has no host browser owner. These
+    operations need no browser identity; local HTTP authentication still guards
+    them. Browser ownership begins when a voice session is created.
+
+    The Service admits the Task and creates the session identity before building
+    its request. [initial_context_constructs_protocol_messages] guarantees that
+    its committed history projection constructs valid voice messages. The request
+    retains those constructed values directly instead of revalidating them or
+    silently substituting empty history. The externally supplied SDP still needs
+    admission. Media signaling may finish before the control
     connection is ready; microphone admission waits for both connections and
     initialization. Raw audio and secrets never become journal inputs.
 

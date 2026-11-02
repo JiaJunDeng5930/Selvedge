@@ -716,14 +716,14 @@ export class Service extends EventEmitter {
     return this.audio.capabilities(options);
   }
 
-  audioLogin({ browser_id }, options) {
+  audioLogin(options) {
     // DEFENSE: A sign-in HTTP request can already be in flight when service shutdown starts.
     if (this.#closing || this.#failure) throw this.#failure ?? new Error('Service is stopping');
     return this.audio.startLogin(options);
   }
 
-  async audioTranscribe({ browser_id, connection, audio, mime, language, elapsed_ms, signal }) {
-    this.#audioAdmission('transcribe', { browser_id, body_bytes: audio.byteLength, elapsed_ms, mime });
+  async audioTranscribe({ connection, audio, mime, language, elapsed_ms, signal }) {
+    this.#audioAdmission('transcribe', { body_bytes: audio.byteLength, elapsed_ms, mime });
     return this.audio.transcribe({ connection, audio, mime, language, signal });
   }
 
@@ -742,7 +742,7 @@ export class Service extends EventEmitter {
       const observed = await this.command({ op: 'read', task_id, ...contextPlan });
       if (!observed.reply.ok) throw new Error(observed.reply.error.message);
       const page = observed.reply.result;
-      const initial_items = boundary('audio.initial_context', { messages: page.messages, task: page.task });
+      const initial_items = boundary('audio.initial_context', { messages: page.messages });
       await this.#applyAudio(session, { kind: 'cursor', page, generation });
       const result = await this.audio.createSession({ id, generation, connection, task_id, sdp, initial_items, signal });
       // DEFENSE: A page can disappear after receiving the SDP response but before opening its owner event stream.

@@ -127,11 +127,11 @@ export async function startServer(options) {
     } };
   }
 
-  async function readAudio(request, browser_id) {
+  async function readAudio(request) {
     const started = Date.now();
     const mime = request.headers['content-type'] ?? '';
     const admit = body_bytes => {
-      return requireAudioAdmission(boundary('http.audio', { kind: 'transcribe', browser_id, mime,
+      return requireAudioAdmission(boundary('http.audio', { kind: 'transcribe', mime,
         body_bytes, elapsed_ms: Date.now() - started }), 'range');
     };
     const plan = admit(Number(request.headers['content-length'] ?? 0));
@@ -221,9 +221,8 @@ export async function startServer(options) {
         audio_transcribe: async () => {
           const operation = requestSignal(request, response);
           try {
-            const browser_id = url.searchParams.get('browser_id');
-            const upload = await readAudio(request, browser_id);
-            json(response, 200, await service.audioTranscribe({ ...upload, browser_id,
+            const upload = await readAudio(request);
+            json(response, 200, await service.audioTranscribe({ ...upload,
               connection: url.searchParams.get('connection'), language: url.searchParams.get('language'), signal: operation.signal }));
           } finally { operation.close(); }
           return;
@@ -318,9 +317,9 @@ export async function startServer(options) {
           finally { operation.close(); }
           return;
         },
-        audio_login: async (body) => {
+        audio_login: async () => {
           const operation = requestSignal(request, response);
-          try { json(response, 200, await service.audioLogin(body, { signal: operation.signal })); }
+          try { json(response, 200, await service.audioLogin({ signal: operation.signal })); }
           finally { operation.close(); }
           return;
         },

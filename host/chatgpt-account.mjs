@@ -6,7 +6,6 @@ import path from 'node:path';
 import * as oidc from 'openid-client';
 import { decodeJwt } from 'jose';
 import { writeAtomic } from './files.mjs';
-import { modelsURL } from './chatgpt-contract.mjs';
 
 import { boundary } from './public/model-boundary.mjs';
 

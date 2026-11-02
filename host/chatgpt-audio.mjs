@@ -71,7 +71,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const selected = rows.find(item => item.id === id);
     const capability = boundary('audio.capability', selected ?? { id, authorized: false });
     const authorization = await authority.authorize(capability.id, { signal });
-    return { source: capability.source, authorization };
+    return { authorization };
   }
 
   async function capabilities({ signal } = {}) {
@@ -102,7 +102,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.request_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
     const bytes = audio instanceof Blob ? audio.size : audio.byteLength;
-    const plan = boundary('audio.asr_request', { connection: connectionId, source: selected.source, authorized: true, bytes, mime, language });
+    const plan = boundary('audio.asr_request', { bytes, mime, language });
     const body = new FormData();
     body.append('file', new Blob([audio], { type: plan.mime }), plan.filename);
     if (plan.language !== null) body.append('language', plan.language);
@@ -115,8 +115,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.connect_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
-    const body = boundary('audio.session_request', { connection: connectionId, source: selected.source, authorized: true,
-      task_id, sdp, id, initial_items });
+    const body = boundary('audio.session_request', { sdp, id, initial_items });
     const sessionHeaders = boundary('control.audio.headers', { task_id, id });
     const response = await authenticatedFetch(limits.calls_url, { method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
