@@ -34,8 +34,6 @@ Definition decode_receipt_stage (source : json) : option receipt_stage :=
    else if String.eqb phase "needs_resolution" &&
      (String.eqb status "archiving" || String.eqb status "needs_resolution") then Some (UnresolvedReceipt owner)
    else None end.
-Definition receipt_stage_valid source := match decode_receipt_stage source with Some _=>true | None=>false end.
-
 Inductive intent := Create | Archive | RecoverCreate | RecoverArchive.
 Inductive classification := Missing | OwnedEmpty | Registered | Conflict.
 Inductive terminal := Released | CheckoutReady | CheckoutArchived.
@@ -190,7 +188,7 @@ Definition decode_observation source : option observation :=
      else if String.eqb tag "owned_empty" then Some OwnedEmpty
      else if String.eqb tag "registered" then Some Registered
      else if String.eqb tag "conflict" then Some Conflict else None)
- else if String.eqb kind "local_failed" || String.eqb kind "local_remove_failed" then Some Failed else None.
+ else if String.eqb kind "local_failed" then Some Failed else None.
 Definition apply source event : option json :=
  match decode_state source,decode_observation event with
  | Some value,Some event=>Some (encode_plan (step value event)) | _,_=>None end.

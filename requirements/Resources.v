@@ -116,7 +116,11 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     exercises successful and failed setup with an unwritable diagnostic log.
 
     Closed phase constructors retain the evidence applicable to each resource
-    state. Generated action unions and checked interpreters keep the host from
+    state. Status labels alone establish neither ownership nor recovery
+    authority. Receipt admission uses the controller's decoded phase and adds
+    the expected task identity and owned path; workspace declarations already
+    admit the root text used by membership and containment checks.
+    Generated action unions and checked interpreters keep the host from
     choosing another continuation. SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
     is a preparation failure. SDK, SSH, Git, filesystems, provider tags and

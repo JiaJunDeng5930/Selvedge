@@ -43,8 +43,7 @@ export async function runLocalResourceController(initial: unknown, transition: T
       }
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
-      observation = { kind: action === 'persist' ? 'persistence_failed'
-        : action === 'local_remove' ? 'local_remove_failed' : 'local_failed' };
+      observation = { kind: action === 'persist' ? 'persistence_failed' : 'local_failed' };
     }
     plan = decodeResourceTransition(transition(state, observation));
   }

@@ -247,7 +247,7 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
           workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
         }));
         const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
-        return { kind: 'local_created', root, workspace, guidance, status: 'ready' };
+        return { kind: 'local_created', root, workspace, guidance };
       },
     });
     if (result.errors.length || result.receipt.status !== 'ready') {
@@ -279,7 +279,7 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
         const workspace = boundary('effect.worktree_workspace', {
           workspace: state.workspace, previous: effect.root, next: files.archived, descendants: true,
         });
-        return { kind: 'local_archived', root: files.archived, workspace, status: 'archived' };
+        return { kind: 'local_archived', root: files.archived, workspace };
       },
     });
     if (result.errors.length) throw result.errors[0];
@@ -312,11 +312,11 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
           const workspace = boundary('effect.worktree_workspace', {
             workspace: state.workspace, previous: state.root, next: observedRoot, descendants: true,
           });
-          return { kind: 'local_observed', root: observedRoot, workspace, status: 'archived' };
+          return { kind: 'local_observed', root: observedRoot, workspace };
         }
         const workspace = await canonicalWorkspace(state.workspace);
         return { kind: 'local_observed', root: state.root, workspace,
-          guidance: await snapshotProject(workspace.primary_root, limits), status: 'ready' };
+          guidance: await snapshotProject(workspace.primary_root, limits) };
       },
     });
     if (result.errors.length) throw result.errors[0];
