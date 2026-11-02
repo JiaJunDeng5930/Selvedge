@@ -195,8 +195,8 @@ Proof.
 Qed.
 Theorem mismatched_cloud_project_is_rejected : forall before settings,
  Worktree.project_primary_matches settings before=false ->
- Worktree.resource_error before settings Worktree.ProvisionCloud=Some Tasks.ProjectPrimaryMismatch.
-Proof. intros; unfold Worktree.resource_error; cbn [WorkspaceBackend.cloud]; now rewrite H. Qed.
+ Worktree.resource_error before settings Worktree.ProvisionCloud<>None.
+Proof. intros; unfold Worktree.resource_error; cbn [WorkspaceBackend.cloud]; rewrite H; discriminate. Qed.
 
 (** The scheduler predicate used by Kernel.Packet excludes all non-ready
     managed environments, including a borrower's inherited resource. *)

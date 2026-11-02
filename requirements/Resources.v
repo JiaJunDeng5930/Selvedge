@@ -8,7 +8,8 @@
 From Selvedge.Features Require WorktreeProofs WorktreeCompletionProofs.
 Export WorktreeProofs(reusing_a_binding_never_provisions_another_resource,
   admitted_scheduler_requires_ready_binding,
-  a_live_pending_binding_holds_its_owner).
+  a_live_pending_binding_holds_its_owner,
+  mismatched_cloud_project_is_rejected).
 Export WorktreeCompletionProofs(received_creation_binds_or_stops,
   successful_setup_commits_queued_input_before_request_capture).
 
@@ -38,6 +39,12 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     owner. Successful setup records its settings and every queued user input
     before the next request captures history, as
     [successful_setup_commits_queued_input_before_request_capture] requires.
+
+    When a Project is selected, its primary root must match the source selected
+    for cloud preparation. [mismatched_cloud_project_is_rejected] requires
+    refusal when they differ, because cloning another source would change the
+    Task's execution environment. Other invalid workspace fields may determine
+    the reported refusal cause.
 
     Cloud setup uses the pushed repository commit and project-owned
     [.selvedge/env.sh]. The harness owns cloning, ordering, failure and cleanup;
