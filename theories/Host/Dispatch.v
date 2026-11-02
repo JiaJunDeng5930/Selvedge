@@ -10,7 +10,7 @@ Definition stop_provider scope provider := match scope,provider with
 Record running := Running { handle : N; key : string; task : option N; cancellable : bool; provider : provider_scope; reduced : bool }.
 Record state := State { retired : bool; next_handle : N; active : list running }.
 Definition initial := State false 0 [].
-Inductive settlement := Accepted | InputLimit | OutputLimit | Rejected | Uncertain.
+Inductive settlement := InputLimit | OutputLimit | Rejected | Uncertain.
 Record workspace_running := WorkspaceRunning {
   workspace_handle : N;
   workspace_task : option N;
@@ -30,16 +30,11 @@ Inductive observation :=
 | Complete (generation : N) | CancelTask (task : N) | CancelKey (name : string)
 | Settlement (generation : N) (outcome : settlement) | Shutdown.
 Inductive primitive := Start (generation : N) | Cancel (generation : N) (provider : bool)
-| RollbackWorkspace | Await (generation : N) | RetryFailure | Settled | Retire.
+| RollbackWorkspace | Await (generation : N) | RetryFailure.
 Definition cancel_entries (scope : cancellation_scope) (entries : list running) :=
   map (fun entry => Cancel (handle entry) (stop_provider scope (provider entry))) entries.
-Definition accept (s : state) generation :=
-  match find (fun entry => N.eqb generation (handle entry)) (active s) with
-  | Some _ => (s, [Settled])
-  | None => (s, []) end.
 Definition step (s : state) (o : observation) : state * list primitive :=
   match o with
-  | Settlement generation Accepted => accept s generation
   | Complete generation =>
       (State (retired s) (next_handle s) (filter (fun entry => negb (N.eqb generation (handle entry))) (active s)), [])
   | Shutdown => (State true (next_handle s) (active s), cancel_entries NoProviderStop (active s))
@@ -57,18 +52,15 @@ Definition step (s : state) (o : observation) : state * list primitive :=
       | CancelKey name =>
           (s, cancel_entries AnyProviderStop (filter (fun entry => String.eqb name (key entry)) (active s)))
       | Settlement generation outcome =>
-          match find (fun entry => N.eqb generation (handle entry)) (active s) with
-          | None => (s, [])
-          | Some entry => match outcome with
-              | Accepted => accept s generation
-              | InputLimit | OutputLimit =>
-                  if reduced entry then (State true (next_handle s) (active s), [Retire])
+          match outcome with
+          | InputLimit | OutputLimit =>
+                  if existsb (fun entry => N.eqb generation (handle entry) && reduced entry) (active s)
+                  then (State true (next_handle s) (active s), [])
                   else (State false (next_handle s) (map (fun running =>
                     if N.eqb generation (handle running) then
                       Running (handle running) (key running) (task running) (cancellable running) (provider running) true
                     else running) (active s)), [RetryFailure])
-              | Rejected | Uncertain => (State true (next_handle s) (active s), [Retire])
-              end
+          | Rejected | Uncertain => (State true (next_handle s) (active s), [])
           end
       | _ => (s, [])
       end
@@ -82,18 +74,42 @@ Qed.
 Theorem uncertain_never_retries s generation :
   ~ In RetryFailure (snd (step s (Settlement generation Uncertain))).
 Proof.
-  destruct s as [r n a]; simpl. destruct r; simpl; try tauto.
-  destruct (find _ a); simpl; intuition discriminate.
+  unfold step. destruct (retired s); cbn; tauto.
 Qed.
 Theorem reduced_callback_never_retries s generation outcome entry :
   find (fun running => N.eqb generation (handle running)) (active s) = Some entry ->
   reduced entry = true ->
   ~ In RetryFailure (snd (step s (Settlement generation outcome))).
 Proof.
-  intros Hentry Hreduced. destruct outcome; unfold step, accept;
-    try solve [rewrite Hentry; cbn; intuition discriminate];
-    destruct (retired s); simpl; try tauto;
-    rewrite Hentry; simpl; rewrite ?Hreduced; simpl; intuition discriminate.
+  intros Hentry Hreduced.
+  apply find_some in Hentry as [Present Matches].
+  assert (Reduced : existsb (fun running => N.eqb generation (handle running) && reduced running) (active s) = true).
+  { apply existsb_exists. exists entry. split; [exact Present|]. now rewrite Matches,Hreduced. }
+  destruct outcome; unfold step; destruct (retired s); cbn;
+    rewrite ?Reduced; cbn; intuition discriminate.
+Qed.
+
+Local Lemma retirement_stops_starts_and_retries s observation generation :
+  retired s = true ->
+  ~ In (Start generation) (snd (step s observation)) /\
+  ~ In RetryFailure (snd (step s observation)).
+Proof.
+  intros Retired. destruct observation; cbn [step]; rewrite ?Retired; cbn;
+    try solve [split; tauto].
+  unfold cancel_entries. rewrite !in_map_iff. split;
+    intros [entry [Impossible _]]; discriminate.
+Qed.
+
+Theorem terminal_settlement_prevents_new_work s generation outcome observation next :
+  ~ In RetryFailure (snd (step s (Settlement generation outcome))) ->
+  ~ In (Start next) (snd (step (fst (step s (Settlement generation outcome))) observation)) /\
+  ~ In RetryFailure (snd (step (fst (step s (Settlement generation outcome))) observation)).
+Proof.
+  intros NoRetry. apply retirement_stops_starts_and_retries.
+  unfold step in *. destruct (retired s) eqn:Retired; [exact Retired|].
+  destruct outcome; cbn in *; try reflexivity;
+    destruct (existsb _ _); cbn in *; try reflexivity;
+    exfalso; apply NoRetry; now left.
 Qed.
 
 Theorem shutdown_never_cancels_provider s generation stop_provider :
@@ -136,12 +152,4 @@ Theorem launch_installs_handle_before_run s name owner cancellable provider :
     (active (fst (step s (Launch name owner cancellable provider)))).
 Proof.
   intros H. unfold step. rewrite H. simpl. auto.
-Qed.
-
-Theorem shutdown_preserves_an_accepted_callback s generation entry :
-  find (fun running => N.eqb generation (handle running)) (active s) = Some entry ->
-  snd (step (fst (step s Shutdown)) (Settlement generation Accepted)) = [Settled] /\
-  retired (fst (step (fst (step s Shutdown)) (Settlement generation Accepted))) = true.
-Proof.
-  intros Hentry. cbn. unfold accept. cbn. rewrite Hentry. cbn. auto.
 Qed.

@@ -164,8 +164,6 @@ export interface DispatchControlPrimitives {
   start(generation: DomainNatural): void;
   cancel(generation: DomainNatural, provider: boolean): void;
   retryFailure(): void;
-  settled(): void;
-  retire(): void;
 }
 export function interpretDispatchControl(input: unknown, io: DispatchControlPrimitives): void {
   const transition = decodeDispatchTransition(input);
@@ -178,8 +176,6 @@ export function interpretDispatchControl(input: unknown, io: DispatchControlPrim
       case 'rollback_workspace': io.rollbackWorkspace(); break;
       case 'cancel': io.cancel(action.generation, action.provider); break;
       case 'retry_failure': io.retryFailure(); break;
-      case 'settled': io.settled(); break;
-      case 'retire': io.retire(); break;
       default: { const unreachable: never = action; return unreachable; }
     }
   }
@@ -220,15 +216,15 @@ export async function interpretAudioControl(input: unknown, io: AudioControlPrim
 
 export function dispatchControlResult(input: unknown) {
   const starts: DomainNatural[] = [], awaits: DomainNatural[] = [], cancellations: Array<{generation: DomainNatural; provider: boolean}> = [];
-  let state: JsonValue = null, settled = false, retryFailure = false, retire = false, rollbackWorkspace = false;
+  let state: JsonValue = null, retryFailure = false, rollbackWorkspace = false;
   interpretDispatchControl(input, {
     rollbackWorkspace: () => { rollbackWorkspace = true; },
     await: generation => { awaits.push(generation); },
     state: value => { state = value; }, start: generation => { starts.push(generation); },
     cancel: (generation, provider) => { cancellations.push({ generation, provider }); },
-    settled: () => { settled = true; }, retryFailure: () => { retryFailure = true; }, retire: () => { retire = true; },
+    retryFailure: () => { retryFailure = true; },
   });
-  return { state, starts, awaits, cancellations, settled, retryFailure, retire, rollbackWorkspace };
+  return { state, starts, awaits, cancellations, retryFailure, rollbackWorkspace };
 }
 export function browseDirectoryLocation(plan: Extract<BrowserObservationPlan, {kind: 'browse-directories'}>,
   resolve: () => unknown, canonicalize: (value: JsonValue) => Promise<JsonValue>): Promise<JsonValue> {

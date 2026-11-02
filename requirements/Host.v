@@ -38,7 +38,7 @@ From Selvedge.Host Require Dispatch.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,
   uncertain_never_retries, reduced_callback_never_retries,
-  shutdown_preserves_an_accepted_callback,
+  terminal_settlement_prevents_new_work,
   shutdown_never_cancels_provider,
   ticket_provider_cancellation_keeps_registered_handle,
   task_provider_cancellation_only_stops_independent_entries).
@@ -54,9 +54,14 @@ Export Dispatch(launch_installs_handle_before_run,
     promise, so a failed recovery cannot become successful startup through a
     background error observer.
 
-    Dispatcher retirement blocks new launches and reductions, but does not undo
-    a commit already accepted while shutdown was starting.
-    [shutdown_preserves_an_accepted_callback] retains that acknowledgement.
+    A successful journal acknowledgement returns directly from the runner's
+    awaited execution, before consulting retirement control. Shutdown cannot
+    turn that accepted commit into a failure.
+
+    A terminal failure retires dispatch before its settlement promise rejects.
+    Other queued continuations can resume before the failure observer runs;
+    [terminal_settlement_prevents_new_work] blocks new launches and reductions
+    during that interval.
     Size-rejected callbacks may be reduced once; a further rejection retires
     execution instead of retrying indefinitely.
 

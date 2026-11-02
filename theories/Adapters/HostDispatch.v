@@ -27,8 +27,7 @@ Definition effect_key (effect : json) :=
   else if String.eqb kind "board_text" then "board:" ++ Common.decimal (num effect "card_id") ++ ":" ++ Common.decimal (num effect "ticket")
   else Common.decimal (num effect "task_id") ++ ":" ++ Common.decimal (num effect "ticket").
 Definition outcome_of (name : string) :=
-  if String.eqb name "accepted" then Some Accepted
-  else if String.eqb name "input_limit" then Some InputLimit
+  if String.eqb name "input_limit" then Some InputLimit
   else if String.eqb name "output_limit" then Some OutputLimit
   else if String.eqb name "rejected" then Some Rejected
   else if String.eqb name "uncertain" then Some Uncertain else None.
@@ -58,9 +57,7 @@ Definition primitive_packet (p : primitive) := match p with
 | RollbackWorkspace => Variant.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
 | Await generation => Variant.pack ModelResultDeclarations.dispatch_await [!generation!]
 | Cancel generation provider => Variant.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
-| RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!]
-| Settled => Variant.pack ModelResultDeclarations.dispatch_settled [!!]
-| Retire => Variant.pack ModelResultDeclarations.dispatch_retire [!!] end.
+| RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!] end.
 Definition primitive_json p := Variant.encode_packet (primitive_packet p).
 
 Definition call (operation : string) (source : json) : json :=

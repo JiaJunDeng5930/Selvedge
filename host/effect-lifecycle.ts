@@ -6,7 +6,7 @@ import type { dispatchControlResult } from './model-api.ts';
 const handleBrand: unique symbol = Symbol('running effect');
 export type EffectHandle = Readonly<{ generation: DomainNatural; [handleBrand]: true }>;
 type ControlResult = ReturnType<typeof dispatchControlResult>;
-type Outcome = 'accepted' | 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
+type Outcome = 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
 type Control = (observation: unknown) => ControlResult;
 export interface ActiveEffect {
   task: DomainNatural | undefined;
@@ -51,13 +51,14 @@ export async function settleEffect(control: Control, handle: EffectHandle, initi
     let outcome: Outcome;
     try {
       result = await execute(input);
-      outcome = result.reply.ok ? 'accepted' : result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
+      // A successful journal acknowledgement remains accepted even if shutdown has begun.
+      if (result.reply.ok) return result;
+      outcome = result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
     } catch (caught) {
       error = caught;
       outcome = classifyError(caught);
     }
     const actions = control({ kind: 'settlement', generation: handle.generation, outcome });
-    if (actions.settled && result !== undefined) return result;
     if (actions.retryFailure) {
       input = await failure();
       continue;

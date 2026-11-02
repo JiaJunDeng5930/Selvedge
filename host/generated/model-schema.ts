@@ -447,9 +447,7 @@ export type DispatchAction =
   | {"kind": "rollback_workspace"; }
   | {"kind": "await"; "generation": DomainNatural}
   | {"kind": "cancel"; "generation": DomainNatural; "provider": boolean}
-  | {"kind": "retry_failure"; }
-  | {"kind": "settled"; }
-  | {"kind": "retire"; };
+  | {"kind": "retry_failure"; };
 export function decodeDispatchAction(input: unknown): DispatchAction {
   const source = decodeObject(input);
   switch (source["kind"]) {
@@ -458,8 +456,6 @@ export function decodeDispatchAction(input: unknown): DispatchAction {
     case "await": exactFields(source, ["kind","generation"]); return {"kind": "await", "generation": decodeNatural(source["generation"])};
     case "cancel": exactFields(source, ["kind","generation","provider"]); return {"kind": "cancel", "generation": decodeNatural(source["generation"]), "provider": decodeBoolean(source["provider"])};
     case "retry_failure": exactFields(source, ["kind"]); return {"kind": "retry_failure"};
-    case "settled": exactFields(source, ["kind"]); return {"kind": "settled"};
-    case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     // DEFENSE: External boundary values must name a declared DispatchAction variant.
     default: throw new TypeError('Unknown DispatchAction discriminant');
   }

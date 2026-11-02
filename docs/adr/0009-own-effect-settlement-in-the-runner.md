@@ -21,8 +21,23 @@ provide the continuation ownership this path already uses.
 ## Decision
 
 Remove the duplicate settlement bit, its serialization and the theorem about
-repeated settlement after acceptance. An accepted journal callback keeps its
-acknowledgement during shutdown without updating a second completion state.
+repeated settlement after acceptance. Return an accepted journal callback
+directly from the runner, including during shutdown. An `Accepted` observation
+and `Settled` response would only echo the success already observed by that
+runner, without changing controller state or interpreting an effect.
+
+Failure settlement still retires the controller before rejecting its promise:
+another queued continuation can run before the service's failure observer.
+The retired state prevents new launches and reductions during that interval.
+There is no separate `Retire` action because no interpreter consumed that
+action; it merely duplicated the state already returned by the controller.
+
+The active handle remains installed throughout settlement. Cancellation also
+selects and visits its handles within one synchronous job; promise finalizers
+cannot remove a handle in the middle of that loop. Rechecking existence or
+silently skipping missing handles would only accommodate an impossible lifetime.
+The workspace barrier keeps its missing-handle case because it awaits resource
+observations after taking its running-effect snapshot.
 
 Keep the independent physical handle and reduced-callback state. Concurrent
 effects can finish out of order, and size rejection can actually resume the
