@@ -28,28 +28,27 @@ Definition callback_bound source :=
   same (first (parameters source "state")) (get source "state").
 Inductive callback_decision :=
   | IgnoreCallback (status : N)
-  | RejectCallback (received : bool) (message : string)
+  | RejectCallback (message : string)
   | AcceptCallback (client_id : json).
 Definition decide_callback source :=
   if negb (parsed (get source "url")) then IgnoreCallback 400
   else if negb (same (get (get source "url") "pathname") (JString "/auth/callback")) then IgnoreCallback 404
-  else if boolean_field source "received" then IgnoreCallback 409
-  else if negb (callback_bound source) then RejectCallback false "Invalid ChatGPT authorization callback"
+  else if negb (callback_bound source) then RejectCallback "Invalid ChatGPT authorization callback"
   else if negb (Nat.eqb (List.length (parameters source "error")) 0)
-    then RejectCallback true "ChatGPT authorization was declined or failed"
+    then RejectCallback "ChatGPT authorization was declined or failed"
   else let id := default (first (parameters source "client_id")) (get (get source "registered") "client_id") in
     if nonempty (first (parameters source "code")) && client id &&
       (negb (is_object (get source "registered")) || same id (get (get source "registered") "client_id"))
-    then AcceptCallback id else RejectCallback true "Invalid ChatGPT issued client".
+    then AcceptCallback id else RejectCallback "Invalid ChatGPT issued client".
 Definition encode_callback decision :=
-  let '(action,status,received,message,id,body,headers) := match decision with
-    | IgnoreCallback status => ("ignore",status,false,"",JNull,"",JObject [])
-    | RejectCallback received message => ("reject",400,received,message,JNull,
+  let '(action,status,message,id,body,headers) := match decision with
+    | IgnoreCallback status => ("ignore",status,"",JNull,"",JObject [])
+    | RejectCallback message => ("reject",400,message,JNull,
         "ChatGPT authorization failed. Return to the terminal.",JObject [])
-    | AcceptCallback id => ("accept",200,true,"",id,
+    | AcceptCallback id => ("accept",200,"",id,
         "ChatGPT authorization received. Return to the terminal.",
         JObject [("content-type",JString "text/plain");("cache-control",JString "no-store")]) end in
-  JObject [("action",JString action);("status",number status);("received",JBool received);
+  JObject [("action",JString action);("status",number status);
     ("message",JString message);("clientId",id);("body",JString body);("headers",headers)].
 Definition callback source := success (encode_callback (decide_callback source)).
 

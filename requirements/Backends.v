@@ -15,7 +15,9 @@ From Selvedge.Programming Require Import AdapterResult.
     [AccountsProofs] binds these refresh, callback and credential rules to the
     public account operations. Refresh eligibility uses one admitted, locked
     credential; its expiry margin and earliest refresh time are evaluated
-    against the same observed time.
+    against the same observed time. Callback admission binds the actual HTTP
+    request to the login; repeated browser callbacks must not replace its chosen
+    code or repeat the authorization exchange and credential publication.
     [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
     The account transport can omit output from its terminal response after

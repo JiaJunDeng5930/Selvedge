@@ -237,17 +237,15 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
     // DEFENSE: Timeout can reject the callback while onAuthorize is still displaying the URL; attach a handler until the callback is awaited below.
     callback.catch(() => {});
     let redirectUri;
-    let received = false;
     const server = http.createServer((request, response) => {
       let url;
       // DEFENSE: The loopback HTTP listener also receives malformed request targets; native callback admission responds without accepting a grant.
       try { url = new URL(request.url, redirectUri); } catch { url = null; }
       const redirect = new URL(redirectUri);
       const decision = boundary('account.callback', { audio, request: { method: request.method, host: request.headers.host },
-        url: url ? urlObservation(url.href) : null, redirect: urlObservation(redirect.href), received, state, registered,
+        url: url ? urlObservation(url.href) : null, redirect: urlObservation(redirect.href), state, registered,
         parameters: Object.fromEntries(['code', 'state', 'client_id', 'error'].map(key => [key, url ? url.searchParams.getAll(key) : []])) });
-      if (decision.received) received = true;
-      // DEFENSE: Wrong-path, wrong-host and duplicate HTTP callbacks must not settle the pending OAuth grant.
+      // DEFENSE: Unparseable targets and unrelated paths do not supply an authorization response.
       if (decision.action === 'ignore') { response.writeHead(decision.status, decision.headers); response.end(decision.body); return; }
       // DEFENSE: An OAuth error or invalid callback parameters reject this login rather than exchanging an untrusted code.
       if (decision.action === 'reject') {
@@ -269,6 +267,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
         challenge: await oidc.calculatePKCECodeChallenge(verifier), ext_agent_host_id });
       const authorize = oidc.buildAuthorizationUrl(configuration(metadata, parameters.client_id, profile, lifetime, audio), parameters);
       await onAuthorize(boundary('account.authorize_prompt', { url: authorize.href, redirectUri }));
+      // The single await owns settlement; repeated HTTP callbacks cannot start another exchange.
       const { url, clientId } = await callback;
       registered = boundary('account.registration_record', { issuer: profile.issuer, clientId, registered });
       // The issued client survives a failed exchange; registration cannot be replayed with the placeholder.

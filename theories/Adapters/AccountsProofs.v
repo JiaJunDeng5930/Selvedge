@@ -95,16 +95,8 @@ Proof.
  unfold callback,decide_callback.
  destruct (parsed (get source "url"));cbn;try discriminate.
  destruct (same (get (get source "url") "pathname") (JString "/auth/callback"));cbn;try discriminate.
- destruct (boolean_field source "received");cbn;try discriminate.
  unfold callback_bound;rewrite different;rewrite !andb_false_r;discriminate.
 Qed.
-Theorem public_completed_callback_is_not_consumed_again : forall source,
-  parsed (get source "url") = true ->
-  same (get (get source "url") "pathname") (JString "/auth/callback") = true ->
-  boolean_field source "received" = true ->
-  Api.call "account.callback" source = success (encode_callback (IgnoreCallback 409)).
-Proof. intros source parsed_url path received;change (callback source = success (encode_callback (IgnoreCallback 409))).
- unfold callback,decide_callback;now rewrite parsed_url,path,received. Qed.
 Theorem public_cache_cannot_cross_an_account : forall source,
   same (get (get source "value") "account_id") (get source "account") = false ->
   Api.call "account.cache" source = success JNull.
@@ -148,7 +140,6 @@ Proof. vm_compute;reflexivity. Qed.
 Theorem public_valid_callback_authorizes_its_client : forall source code state id,
   parsed (get source "url") = true ->
   get (get source "url") "pathname" = JString "/auth/callback" ->
-  boolean_field source "received" = false ->
   get (get source "request") "method" = JString "GET" ->
   same (get (get source "request") "host") (get (get source "redirect") "host") = true ->
   same (get (get source "url") "origin") (get (get source "redirect") "origin") = true ->
@@ -160,7 +151,7 @@ Theorem public_valid_callback_authorizes_its_client : forall source code state i
     same id (get (get source "registered") "client_id") = true) ->
   Api.call "account.callback" source = success (encode_callback (AcceptCallback id)).
 Proof.
- intros source code state id parsed_url path fresh method host origin codes code_present
+ intros source code state id parsed_url path method host origin codes code_present
    states state_matches clients valid_client errors registered.
  assert (exists issued, id = JString issued) as [issued ->].
  { unfold client,identity_text,nonempty in valid_client.
@@ -170,7 +161,7 @@ Proof.
    cbn [forallb]. rewrite codes,states,clients,errors.
    change (same state (get source "state") = true). exact state_matches. }
  change (callback source = success (encode_callback (AcceptCallback (JString issued)))).
- unfold callback,decide_callback. rewrite parsed_url,path,fresh,bound.
+ unfold callback,decide_callback. rewrite parsed_url,path,bound.
  rewrite errors,clients,codes. cbn [first default is_null List.length Nat.eqb hd].
  rewrite code_present,valid_client.
  destruct registered as [absent|matching]; rewrite absent || rewrite matching;
@@ -189,7 +180,6 @@ Proof.
  destruct (parsed (get source "url")); cbn in accepted; [|discriminate].
  destruct (same (get (get source "url") "pathname") (JString "/auth/callback"));
    cbn in accepted; [|discriminate].
- destruct (boolean_field source "received"); cbn in accepted; [discriminate|].
  destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
  unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
 Qed.
