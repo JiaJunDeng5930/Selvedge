@@ -103,7 +103,7 @@ Definition step (value : state) (observed : observation) : state * list action :
   | _, _ => (value,[])
   end.
 
-Definition policy_fields := ["controller_phase";"controller_persisting";"status";"continuation";"allocation_unknown";"instance_id";
+Definition policy_fields := ["controller_phase";"controller_persisting";"status";"allocation_unknown";"instance_id";
   "recording_failed";"host";"guidance"].
 Definition nonempty_text source := match source with
   | JString value => if String.eqb value "" then None else Some value | _ => None end.
@@ -117,9 +117,6 @@ Fixpoint phase_name value := match value with
   | Authorizing _ | Scanning _ | Terminating _ _ => "destroy_pending" | Finished _ outcome => terminal_name outcome
   | Persisting next => match next with Allocating _ => "persist_pending" | Preparing _ _ => "allocated"
     | Authorizing _ => "needs_reconcile" | _ => phase_name next end end.
-Definition continuation value := match value with
-  | Allocating _ => "allocate" | Preparing _ _ => "prepare" | Authorizing _ => "cleanup"
-  | Scanning _ => "scan" | Terminating _ _ => "terminate" | _ => "finish" end.
 Definition output_state value := match value with Persisting next => next | _ => value end.
 Definition phase_tag value := match value with
   | Allocating _ => "allocate" | Preparing _ _ => "prepare" | Revalidating _ _ _ _ => "resume" | Ready _ _ _ _ => "ready"
@@ -129,7 +126,7 @@ Definition encode_state value :=
   let source := resources value in let context := cleanup_context source in let current := evidence source in
   let fields := [("controller_phase",JString (phase_tag (output_state value)));
     ("controller_persisting",JBool (match value with Persisting _ => true | _ => false end));
-    ("status",JString (phase_name value));("continuation",JString (match value with Persisting next => continuation next | _ => "" end));
+    ("status",JString (phase_name value));
     ("allocation_unknown",JBool (match current with UnknownAllocation => true | _ => false end));
     ("instance_id",match current with KnownAllocation (Some instance) => JString instance | _ => JNull end);
     ("recording_failed",JBool (recording_failed context))] in
@@ -143,29 +140,19 @@ Definition decode_terminal name :=
   if String.eqb name "no_attempt" then Some NoAttempt else if String.eqb name "destroyed" then Some Destroyed
   else if String.eqb name "destroy_failed" then Some DestroyFailed else if String.eqb name "needs_credential" then Some NeedsCredential
   else if String.eqb name "needs_reconcile" then Some NeedsReconcile else if String.eqb name "needs_resolution" then Some NeedsResolution else None.
-Definition instance_of source :=
-  if boolean_field source "allocation_unknown" then None else nonempty_text (get source "instance_id").
-Definition decode_active source name :=
-  let context := context_of source in let cleanup := cleanup_of source in
-  if String.eqb name "allocate" then Some (Allocating context)
-  else if String.eqb name "prepare" then option_map (Preparing context) (instance_of source)
-  else if String.eqb name "cleanup" then Some (Authorizing cleanup)
-  else if String.eqb name "scan" then Some (Scanning context)
-  else if String.eqb name "terminate" then option_map (Terminating context) (instance_of source)
-  else if String.eqb name "finish" then
-    if String.eqb (str source "status") "ready" then match instance_of source, nonempty_text (get source "host") with
-      Some instance, Some host => Some (Ready context instance host (get source "guidance")) | _, _ => None end
-    else match decode_terminal (str source "status") with Some terminal => Some (Finished cleanup terminal) | None => None end
-  else None.
 Definition decode_state source :=
   let name := str source "controller_phase" in
-  let context := context_of source in let cleanup := cleanup_of source in
-  let parsed := if String.eqb name "ready" || String.eqb name "resume" then match instance_of source, nonempty_text (get source "host") with
+  let cleanup := cleanup_of source in let context := cleanup_context cleanup in
+  let instance := match evidence cleanup with KnownAllocation value => value | UnknownAllocation => None end in
+  let parsed := if String.eqb name "allocate" then Some (Allocating context)
+  else if String.eqb name "prepare" then option_map (Preparing context) instance
+  else if String.eqb name "scan" then Some (Scanning context)
+  else if String.eqb name "terminate" then option_map (Terminating context) instance
+  else if String.eqb name "ready" || String.eqb name "resume" then match instance, nonempty_text (get source "host") with
     | Some instance, Some host => Some (if String.eqb name "ready" then Ready context instance host (get source "guidance")
       else Revalidating context instance host (get source "guidance")) | _, _ => None end
   else if String.eqb name "credentials" then Some (Authorizing cleanup)
-  else match decode_terminal name with Some terminal => Some (Finished cleanup terminal)
-    | None => decode_active source name end in
+  else option_map (Finished cleanup) (decode_terminal name) in
   if boolean_field source "controller_persisting" then option_map Persisting parsed else parsed.
 Definition durable_state value := without (without (encode_state value) "guidance") "recording_failed".
 Definition receipt_state source := option_map durable_state (decode_state source).
