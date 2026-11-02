@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { access, lstat, open, realpath } from 'node:fs/promises';
+import { access, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -55,7 +55,7 @@ async function locations({ home, namespace }, taskId) {
   for (const directory of [path.dirname(storage), storage]) {
     await durableDirectory(directory);
     // DEFENSE: Replaced service storage must not redirect cloud receipts, logs or SSH host-key writes through a symlink.
-    if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) {
+    if (await realpath(directory) !== directory) {
       throw new Error('Cloud workspace storage must not contain symbolic links');
     }
   }

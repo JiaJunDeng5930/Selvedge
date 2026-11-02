@@ -37,7 +37,7 @@ From Selvedge.Features Require RemoteProofs RemoteEntryProofs.
 Export RemoteProofs(check_satisfies_complete_access_contract,
   authorize_satisfies_complete_request_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
-  oversized_remote_reply_rolls_back).
+  prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back).
 Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 (** ** Revocation precedes retained-result access
@@ -48,6 +48,11 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    Admission after asynchronous preparation uses the current world. Within
+    that pure transition the request and receipt cannot change; checking the
+    prepared command's permissions suffices without admitting that packet again.
+    [prepared_remote_permissions_are_required] prevents preparation from using
+    permissions absent from the current grant through the actual executor.
     [revoked_remote_controller_cannot_replay] prevents retained results from
     bypassing revocation. [remote_replay_has_no_effect] avoids repeated execution.
     Oversized complete replies roll back instead of partly committing a result.

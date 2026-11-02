@@ -197,7 +197,7 @@ Definition apply source event : option json :=
  | Some value,Some event=>Some (encode_plan (step value event)) | _,_=>None end.
 Definition git_admitted (source : json) :=
  let root := get source "root" in
- negb (boolean_field source "root_symlink") && equal root (get source "canonical_root") &&
+ equal root (get source "canonical_root") &&
  equal root (get source "git_top_level") && boolean_field source "git_link_file" &&
  equal (get source "backlink") (JString (str source "root" ++ "/.git")) &&
  equal (get source "dev") (get (get source "reservation") "dev") &&

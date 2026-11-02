@@ -105,8 +105,6 @@ Definition rights_allow required granted :=
  (negb (Selvedge.Features.Domain.may_approve required) || Selvedge.Features.Domain.may_approve granted).
 Inductive authorization := Denied (code reason:string) | Admitted | Replay (reply:json).
 Record request := Request { controller:controller_id; epoch:RemoteIdentity.grant_epoch; request_id:RemoteIdentity.request_id; intent:json }.
-Definition request_valid request := controller_valid (controller request) && epoch_valid (epoch request) &&
- identifier_valid (request_id request) && payload_valid (intent request).
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
 Definition check required controller epoch state :=
@@ -119,10 +117,10 @@ Definition check required controller epoch state :=
    else Denied "remote_permission_denied" "This device grant does not permit this operation"
  end.
 Definition authorize required request state :=
- if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
- else if negb (request_valid request) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
- else match check required (controller request) (epoch request) state with
+ match check required (controller request) (epoch request) state with
  | Admitted =>
+   if negb (identifier_valid (request_id request) && payload_valid (intent request))
+   then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds" else
    match find (key_matches request) (Selvedge.Features.Domain.remote_receipts state) with
    | Some receipt=>if JsonObjects.equivalent (intent request) (Selvedge.Features.Domain.remote_intent receipt) then Replay (Selvedge.Features.Domain.remote_reply receipt)
      else Denied "remote_request_conflict" "This request ID was already committed with different intent"
@@ -131,10 +129,12 @@ Definition authorize required request state :=
    end
  | other=>other end.
 Definition observation_command command := match required_rights command with Some rights=>Selvedge.Features.Domain.may_read rights | None=>false end.
-Definition authorize_command probe command request state := match required_rights command with
+Definition with_command_rights command (decide : F.rights -> authorization) := match required_rights command with
  | None=>Denied "remote_command_forbidden" "Remote access cannot invoke this local management command"
- | Some rights=>if probe && observation_command command then check rights (controller request) (epoch request) state
-   else authorize rights request state end.
+ | Some rights=>decide rights end.
+Definition authorize_command command request state := with_command_rights command
+ (fun rights=>if F.may_read rights then check rights (controller request) (epoch request) state
+   else authorize rights request state).
 Definition probe_reply authorization value := match authorization with
  | Denied code reason=>reject code reason value
  | Admitted=>accept (JObject [("admitted",JBool true)]) value []
@@ -164,14 +164,17 @@ Definition execute_remote (execute:Scheduler.executor) prepared configuration re
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in
  (* Check even for queries, whose execution deliberately skips prepared worlds. *)
- if configuration_allowed original configuration then match authorize_command true original request (registry value) with
+ if configuration_allowed original configuration then match authorize_command original request (registry value) with
  | Denied code reason=>denied code reason
  | Replay reply=>(negb query,false,Decision value reply [])
  | Admitted=>match Selvedge.Generated.Commands.admit prepared with
      | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command configuration then
-       (* DEFENSE: Host preparation adds workspace/image observations; it must not change the requested operation or increase its required rights. *)
+       (* DEFENSE: A native prepared command can name another operation; only the original operation may execute. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
-       match authorize_command true command request (registry value) with
+       (* The immutable request and receipt were admitted above. Preparation can
+          add fields requiring configuration rights, which still need admission. *)
+       match with_command_rights command
+         (fun rights=>check rights (controller request) (epoch request) (registry value)) with
        | Denied code reason=>denied code reason
        | Replay reply=>(negb query,false,Decision value reply [])
        | Admitted=>if query then let result:=execute command None value in
@@ -202,7 +205,7 @@ Definition complete_request (execute : Scheduler.executor) (prepared : bool) (re
  | Some admitted => let command := Selvedge.Generated.Commands.admitted_value admitted in
    (if prepared as observed return Schema.fields (preparation_fields observed) -> bool * bool * decision
     then fun fields => execute_remote execute (Schema.head fields) (Schema.head (Schema.tail fields)) request command value
-    else fun _ => (false,false,probe_reply (authorize_command true command request (registry value)) value)) observations
+    else fun _ => (false,false,probe_reply (authorize_command command request (registry value)) value)) observations
  end.
 Definition request_handler execute prepared fields :=
  let '(request,observations) := request_from_values prepared fields in

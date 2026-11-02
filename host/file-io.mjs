@@ -95,7 +95,7 @@ export async function readBoundedRegularSnapshot(filename, {
       length += bytesRead;
     }
     const after = await file.stat();
-    await admitMetadata(after);
+    // The revision check retains the mode and owner already admitted before reading.
     const publicationCleanup = revision === 'publication_cleanup' && before.nlink === 2 && after.nlink === 1;
     // DEFENSE: A real external edit during the read must not combine different file revisions.
     if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs ||

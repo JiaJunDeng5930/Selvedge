@@ -50,7 +50,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
  world_tasks value = [task] ->
  task_lifecycle task = Running phase operations ->
  F.remote_enabled (Remote.registry value) = true ->
- Remote.request_valid request = true ->
+ RemoteProofs.request_valid request = true ->
  Remote.find_grant (Remote.controller request) (Remote.registry value) = Some issued ->
  Remote.epoch request = F.grant_epoch issued ->
  F.may_control (F.grant_rights issued) = true ->
@@ -72,7 +72,12 @@ Proof.
  pose proof (RemoteProofs.current_grant_admits_fresh_remote_request
    Remote.control_rights request (Remote.registry value) issued
    Enabled Valid Granted Epoch Permissions Fresh Space) as Admitted.
- assert (Authorize : Remote.authorize_command true (G.Cmd_stop stop_first_payload)
+ assert (Checked : Remote.check Remote.control_rights (Remote.controller request)
+   (Remote.epoch request) (Remote.registry value) = Remote.Admitted).
+ { unfold Remote.authorize in Admitted.
+   destruct (Remote.check Remote.control_rights (Remote.controller request)
+     (Remote.epoch request) (Remote.registry value)); try discriminate; reflexivity. }
+ assert (Authorize : Remote.authorize_command (G.Cmd_stop stop_first_payload)
    request (Remote.registry value) = Remote.Admitted).
  { exact Admitted. }
  assert (Configuration : Remote.configuration_allowed
@@ -84,7 +89,8 @@ Proof.
  destruct (G.admit stop_first_wire) as [admitted|] eqn:PreparedAdmitted; [|discriminate].
  change (Some (G.admitted_value admitted) = Some (G.Cmd_stop stop_first_payload)) in Decoded.
  injection Decoded as Projected. rewrite Projected.
- cbn [G.declared_command]. rewrite Configuration, Authorize.
+ cbn [G.declared_command]. rewrite Configuration.
+ cbn [Remote.with_command_rights Remote.required_rights]. rewrite Checked.
  assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.
  rewrite Prepared.
  rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running).

@@ -74,7 +74,7 @@ async function locations(home, taskId) {
   for (const directory of [files.storage, path.dirname(files.archived), path.dirname(files.receipt)]) {
     await durableDirectory(directory);
     // DEFENSE: Replaced storage directories must not redirect managed worktree writes through symbolic links.
-    if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) {
+    if (await realpath(directory) !== directory) {
       throw new Error('Managed worktree storage must not contain symbolic links');
     }
   }
@@ -98,7 +98,7 @@ async function verifyTree(root, reservation) {
   const backlink = (await readFile(path.join(administration, 'gitdir'), 'utf8')).trim();
   const repositoryCommon = await commonDirectory(reservation.repository);
   const checkoutCommon = await commonDirectory(root);
-  control('git_admit', { root, root_symlink: entry.isSymbolicLink(), canonical_root: await realpath(root),
+  control('git_admit', { root, canonical_root: await realpath(root),
     git_top_level: await realpath((await git(root, ['rev-parse', '--show-toplevel'])).trim()),
     git_link_file: link.isFile(), backlink: await realpath(path.resolve(administration, backlink)),
     dev: String(entry.dev), ino: String(entry.ino), reservation,
