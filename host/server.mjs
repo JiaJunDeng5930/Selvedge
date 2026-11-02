@@ -308,7 +308,7 @@ export async function startServer(options) {
           json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
           return;
         },
-        account_refresh: async (body) => {
+        account_refresh: async () => {
           json(response, 200, { ok: true, result: await service.refreshAccounts() });
           return;
         },
@@ -324,15 +324,15 @@ export async function startServer(options) {
           finally { operation.close(); }
           return;
         },
-        remote_pair: async (body) => {
+        remote_pair: async () => {
           json(response, 200, { ok: true, result: await service.remote.pair() });
           return;
         },
-        remote_enable: async (body) => {
+        remote_enable: async () => {
           json(response, 200, { ok: true, result: await service.remote.enable() });
           return;
         },
-        remote_disable: async (body) => {
+        remote_disable: async () => {
           json(response, 200, { ok: true, result: await service.remote.disable() });
           return;
         },

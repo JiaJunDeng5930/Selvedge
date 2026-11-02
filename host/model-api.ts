@@ -46,12 +46,12 @@ export interface HttpPrimitives {
   events(): Promise<void> | void;
   event_page(): Promise<void> | void;
   health(): Promise<void> | void;
-  account_refresh(body: JsonValue): Promise<void> | void;
+  account_refresh(): Promise<void> | void;
   audio_create(body: JsonValue): Promise<void> | void;
   audio_login(body: JsonValue): Promise<void> | void;
-  remote_pair(body: JsonValue): Promise<void> | void;
-  remote_enable(body: JsonValue): Promise<void> | void;
-  remote_disable(body: JsonValue): Promise<void> | void;
+  remote_pair(): Promise<void> | void;
+  remote_enable(): Promise<void> | void;
+  remote_disable(): Promise<void> | void;
   browser_observation(body: JsonValue): Promise<void> | void;
   command(body: JsonValue): Promise<void> | void;
   assess(body: JsonValue): Promise<void> | void;
@@ -113,12 +113,12 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
         return io.readBody(plan.action, maximum);
       }
       switch (plan.action) {
-        case 'account_refresh': { await io.account_refresh(plan.body); return null; }
+        case 'account_refresh': { await io.account_refresh(); return null; }
         case 'audio_create': { await io.audio_create(plan.body); return null; }
         case 'audio_login': { await io.audio_login(plan.body); return null; }
-        case 'remote_pair': { await io.remote_pair(plan.body); return null; }
-        case 'remote_enable': { await io.remote_enable(plan.body); return null; }
-        case 'remote_disable': { await io.remote_disable(plan.body); return null; }
+        case 'remote_pair': { await io.remote_pair(); return null; }
+        case 'remote_enable': { await io.remote_enable(); return null; }
+        case 'remote_disable': { await io.remote_disable(); return null; }
         case 'remote_approve': { const body = decodeHttpRemoteApprovalBody(plan.body); await io.remote_approve(body.request_id, decodeHttpRemotePermissions(body.permissions)); return null; }
         case 'remote_revoke': { const body = decodeHttpRemoteRevokeBody(plan.body); await io.remote_revoke(body.controller_id); return null; }
         case 'browser_command': { const body = decodeHttpBrowserCommandBody(plan.body); await io.browser_command(body.command); return null; }

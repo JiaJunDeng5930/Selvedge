@@ -14,10 +14,6 @@ Coercion controller_text : controller_id >-> string.
 Coercion request_text : request_id >-> string.
 Coercion epoch_number : grant_epoch >-> N.
 
-Record authorization := Authorization {
- authorization_controller : controller_id;
- authorization_epoch : grant_epoch
-}.
 Definition controller_declaration := ArgumentDeclaration.exact_lower_hex 64.
 Definition controller_valid (value : string) := ArgumentDeclaration.check controller_declaration (Json.JString value).
 Definition request_valid (value : string) := negb (String.eqb value EmptyString) && Utf8.well_formed value &&
