@@ -6,6 +6,6 @@ Open Scope string_scope.
 
 Theorem process_state_roundtrip current : state_of (state_json current) = current.
 Proof.
-  destruct current as [phase input busy drained reason].
+  destruct current as [phase input busy reason].
   destruct phase, reason as [[code message]|]; reflexivity.
 Qed.

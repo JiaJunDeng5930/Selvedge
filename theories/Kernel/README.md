@@ -62,7 +62,7 @@ persistence, ordered replay and effect execution have their own external boundar
 Generic construction properties belong with their interpreter; feature proofs
 cover the additional behavior required by that feature.
 
-For reasoning policy, start with `Domain`, `Codec.parse_reasoning_policy`, and
+For reasoning policy, start with `Domain.parse_reasoning_policy`, and
 `Reasoning.next`. `ReasoningProofs` states the requirements on the actual
 scheduler, context callbacks, generation history, and public evaluator preview;
 `Features.CompactionProofs` connects manual summary cancellation to that same
