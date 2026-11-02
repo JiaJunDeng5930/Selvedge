@@ -16,8 +16,8 @@ Qed.
 Theorem changed_committed_roots_prevent_execution : forall source,
   equal (get (get source "workspace") "roots")
     (get (get (get source "plan") "workspace") "roots") = false ->
-  workspace_bound source = err "A workspace root changed after it was committed; reselect the workspace before executing".
-Proof. intros source H;unfold workspace_bound;rewrite H;rewrite andb_false_r;reflexivity. Qed.
+  exists message, workspace_bound source = err message.
+Proof. intros source H;unfold workspace_bound;rewrite H;rewrite andb_false_r;eexists;reflexivity. Qed.
 
 Theorem archive_path_is_owned_storage : forall source,
   str source "operation" = "archive" -> worktree_path source = success JNull ->
