@@ -34,9 +34,8 @@ test('side conversations receive trusted guidance and return only their new conv
   assert.equal(fixture.requests[0].closed, false,
     'The side provider request must start while the parent request remains in progress');
   const guidance = sideRequest.input.find(item => item.role === 'developer'
-    && typeof item.content === 'string' && /Side conversation context/.test(item.content));
+    && typeof item.content === 'string' && /parent[^.]*independen/i.test(item.content));
   assert.ok(guidance, 'The provider must receive the side context as trusted developer guidance');
-  assert.match(guidance.content, /parent[^.]*independen/i);
   assert.match(guidance.content, /clos[^.]*\b(?:no|nothing|never)\b[^.]*parent/i);
   assert.match(guidance.content, /user[^.]*explicit[^.]*return[^.]*parent/i);
   assert.ok(sideRequest.input.some(item => item.role === 'developer' && /task_lifecycle/.test(item.content)),
@@ -64,7 +63,6 @@ test('side conversations receive trusted guidance and return only their new conv
   assert.match(returnedText, /amber-29/);
   assert.match(returnedText, /Check the distinct side question/);
   assert.ok(!returnedText.includes(guidance.content), 'The side birth instructions must not return as conversation content');
-  assert.ok(!returnedText.includes('Side conversation context for task'), 'No copy of side birth guidance belongs in the parent request');
   assert.ok(!returnedText.includes('task_lifecycle'), 'Parent lifecycle observations must not return as side conversation content');
   fixture.finish(3, { text: 'Parent received both explicit side findings.' });
   await taskIdle(fixture.running.service, parent.task_id);

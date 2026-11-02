@@ -35,6 +35,21 @@ export async function taskIdle(service, taskId = 0, timeoutMs = 20_000) {
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
+export function asyncToolResult(item) {
+  if (item.role !== 'user' || typeof item.content !== 'string') return;
+  // The JSON result is observable data; the explanatory text before it is not a protocol marker.
+  for (const match of item.content.matchAll(/\{/g)) {
+    let result;
+    try { result = JSON.parse(item.content.slice(match.index)); }
+    catch (error) {
+      // DEFENSE: Ordinary user text and the explanatory prefix can contain braces without beginning the result JSON.
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+    if (typeof result.call_id === 'string' && typeof result.is_error === 'boolean') return result;
+  }
+}
+
 export async function responsesServer(t, respond, { measure, observeRequest } = {}) {
   const requests = [];
   const failures = [];
