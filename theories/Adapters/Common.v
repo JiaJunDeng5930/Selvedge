@@ -1,5 +1,6 @@
-From Stdlib Require Import String List Bool NArith Ascii DecimalString.
+From Stdlib Require Import String List Bool NArith ZArith Ascii DecimalString.
 From Selvedge.Foundation Require Export Json Numbers.
+From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -41,6 +42,11 @@ Definition canonical_natural (value : json) : bool :=
   | Some n, JNumber source => String.eqb source (decimal n) && (n <=? 9007199254740991)
   | _, _ => false
   end.
+(* External JSON integer fields denote values; decimal and exponent spellings
+   must reach the same internal natural without passing through a host float. *)
+Definition wire_natural (value : json) : option N :=
+  option_map (fun admitted => Z.to_N (proj1_sig admitted))
+    (ArgumentDeclaration.decode (ArgumentDeclaration.SafeInteger 0 9007199254740991) value).
 Definition starts (source prefix : string) := starts_with prefix source.
 Definition truthy (value : json) : bool :=
   match value with
