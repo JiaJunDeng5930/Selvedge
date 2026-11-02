@@ -210,12 +210,6 @@ Definition interpret_planned_birth {before : world} (plan : planned_start before
  | ProvisionLocal => (resource_task fresh WorkspaceBackend.Local task,Some WorkspaceBackend.Local)
  | ProvisionCloud => (resource_task fresh WorkspaceBackend.TencentCvm task,Some WorkspaceBackend.TencentCvm) end in
  BornStart (TaskBirth.birth_prepared prepared current) resource.
-Definition born_decision {before} (birth : born_start before) :=
- accept (JObject [("task_id",number (born_identity birth))]) (born_world birth) (born_effects birth).
-(** This pure interpreter is the shared meaning used by the closed batch
-    language below and by its proofs. Production consumes scoped plans. *)
-Definition consume_planned_start {before : world} (plan : planned_start before) (current : world) :=
- born_decision (interpret_planned_birth plan current).
 Lemma born_world_preserves_tasks : forall before (birth : born_start before),
  world_tasks (born_world birth) = world_tasks (TaskBirth.birth_world (born_task birth)).
 Proof. intros before [birth resource]; destruct resource; reflexivity. Qed.
@@ -388,8 +382,6 @@ Definition create_intent (intent:creation_intent) (name:string) (effort:option s
 Definition create_selected_result (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request)
  (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
  create_intent_result (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed None value.
-Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
- creation_decision (create_selected_result name effort contents settings idle caller managed value).
 Definition create (name:string) (effort:option string) (contents:content) (settings:option Codec.settings_request) (caller:option N) (managed:bool) (value:world) :=
  create_intent WorktreeTaskCreation name effort contents settings false caller (Some managed) None value.
 Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option Codec.settings_request)

@@ -52,7 +52,6 @@ Definition subscription data id after := Session (pairing_code data) (grants dat
 Definition notice_queued data id notice := existsb (fun job =>
  String.eqb (owner job) id && same_notice (queued_notice job) (Some notice)) (pending data).
 Definition frame := RP.relay_frame.
-Definition Request := RP.RelayRequest.
 Inductive observation := Retire | SetPairing (value : pairing) (now : N) | CurrentPairing (now : N)
  | Grants (values : RP.grant_set) | Enqueue (id : string) (size : N) (notice : option N)
  | Dequeue (id : string) (size : N) (notice : option N)

@@ -15,18 +15,9 @@ Definition requested_start (request : G.create_payload) contents before :=
    (G.create_profile request) (G.create_reasoning request) contents
    (option_map (settings_request_of_values true) (G.create_settings_admitted request)) false None before.
 Definition planned_decision {before : world} (plan : Worktree.planned_start before) :=
- let born := Worktree.consume_planned_start plan before in
- Decision (decision_world born) (success (JObject [("task_id",number (next_task before))]))
-   (decision_effects born ++ [ContinueScheduling]).
-
-Lemma every_planned_start_has_its_exact_positive_reply : forall before (plan : Worktree.planned_start before),
- decision_reply (Worktree.consume_planned_start plan before) =
-   success (JObject [("task_id",number (next_task before))]).
-Proof.
- intros before [intent start resource admitted].
- unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
- destruct resource; reflexivity.
-Qed.
+ let born := Worktree.interpret_planned_birth plan before in
+ Decision (Worktree.born_world born) (success (JObject [("task_id",number (next_task before))]))
+   (Worktree.born_effects born ++ [ContinueScheduling]).
 
 Theorem every_resolved_public_create_constructs_its_planned_result :
  forall request contents before start (plan : Worktree.planned_start before),
@@ -43,12 +34,11 @@ Proof.
  rewrite Resolved. cbn [Worktree.start_allowed CommandExecution.creation_allowed].
  unfold Worktree.prepare_selected_birth,Worktree.prepare_scoped. rewrite Prepared.
  cbn [Worktree.final_authority].
- change ((let born := Worktree.consume_planned_start plan before in
-   Decision (decision_world born) (decision_reply born)
-     (decision_effects born ++ [ContinueScheduling])) = planned_decision plan).
- cbv zeta.
- rewrite every_planned_start_has_its_exact_positive_reply.
- reflexivity.
+ change (Decision (Worktree.born_world (Worktree.interpret_planned_birth plan before))
+   (success (JObject [("task_id",number (Worktree.born_identity (Worktree.interpret_planned_birth plan before)))]))
+   (Worktree.born_effects (Worktree.interpret_planned_birth plan before) ++ [ContinueScheduling]) = planned_decision plan).
+ unfold planned_decision,Worktree.born_identity.
+ rewrite TaskBirth.birth_fresh. reflexivity.
 Qed.
 
 Theorem every_planned_creation_with_an_output_budget_is_delivered :
@@ -57,12 +47,12 @@ Theorem every_planned_creation_with_an_output_budget_is_delivered :
  requested_start request contents before = Tasks.StartResolved start ->
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
- CreationCommit.packet request before =
- (with_sequence (N.succ (world_sequence before)) (decision_world (Worktree.consume_planned_start plan before)),
+ CommitPacket.finalize before (CreationCommit.select request before) =
+ (with_sequence (N.succ (world_sequence before)) (Worktree.born_world (Worktree.interpret_planned_birth plan before)),
   Notifications.envelope true true (Some (UserCommand (G.Cmd_create request))) before (planned_decision plan)).
 Proof.
  intros request contents before start plan Parsed Resolved Prepared Fits.
- unfold CreationCommit.packet, CreationCommit.select, CommitPacket.choose.
+ unfold CreationCommit.select, CommitPacket.choose.
  rewrite (every_resolved_public_create_constructs_its_planned_result request contents before start plan Parsed Resolved Prepared).
  unfold Delivery.deliver_with_status; rewrite Fits; reflexivity.
 Qed.

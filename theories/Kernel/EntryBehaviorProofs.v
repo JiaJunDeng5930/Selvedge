@@ -44,7 +44,7 @@ Theorem every_resolved_exported_creation_commits_its_planned_result :
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
  Packet.packet source before =
- (with_sequence (N.succ (world_sequence before)) (decision_world (Worktree.consume_planned_start plan before)),
+ (with_sequence (N.succ (world_sequence before)) (Worktree.born_world (Worktree.interpret_planned_birth plan before)),
   Notifications.envelope true true (Some (UserCommand (Commands.Cmd_create request))) before (planned_decision plan)).
 Proof.
  intros source request contents before start plan Decoded InputFits Parsed Resolved Prepared OutputFits.

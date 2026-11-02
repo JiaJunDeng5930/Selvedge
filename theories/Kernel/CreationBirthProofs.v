@@ -7,18 +7,18 @@ Import ListNotations.
 Theorem each_planned_start_appends_exactly_its_one_fresh_task :
  forall before (plan : Worktree.planned_start before),
  exists created,
- world_tasks (decision_world (Worktree.consume_planned_start plan before)) =
+ world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan before)) =
    world_tasks before ++ [created].
 Proof.
  intros before [intent start resource admitted].
- unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
+ unfold Worktree.interpret_planned_birth, Worktree.born_world; cbn [Worktree.planned_task Worktree.planned_resource].
  destruct resource; eexists; reflexivity.
 Qed.
 
 Theorem each_planned_start_keeps_every_existing_task :
  forall before (plan : Worktree.planned_start before) owner existing,
  find_task owner before = Some existing ->
- find_task owner (decision_world (Worktree.consume_planned_start plan before)) = Some existing.
+ find_task owner (Worktree.born_world (Worktree.interpret_planned_birth plan before)) = Some existing.
 Proof.
  intros before plan owner existing Found.
  destruct (each_planned_start_appends_exactly_its_one_fresh_task before plan) as [created Registry].
@@ -29,8 +29,8 @@ Qed.
 Theorem each_planned_start_installs_its_reported_fresh_reference :
  forall before (plan : Worktree.planned_start before),
  exists created,
- find_task (next_task before) (decision_world (Worktree.consume_planned_start plan before)) = Some created /\
- List.length (world_tasks (decision_world (Worktree.consume_planned_start plan before))) =
+ find_task (next_task before) (Worktree.born_world (Worktree.interpret_planned_birth plan before)) = Some created /\
+ List.length (world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan before))) =
    S (List.length (world_tasks before)).
 Proof.
  intros before plan.
