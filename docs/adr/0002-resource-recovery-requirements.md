@@ -48,6 +48,12 @@ constant dispatch counter. Provider calls and resulting resource state supply th
 public acceptance observations. The cloud receipt format becomes
 `selvedge-cloud-workspace-4`, with no legacy decoder.
 
+Use the verified provider, account, region and endpoint to bind recovery authority.
+A constant label naming the credential source adds no identity information; the
+backend already owns that selection. Provider request IDs aid support diagnostics
+but do not identify an allocated resource. Admission retains the single instance
+ID needed for observation and cleanup, without depending on that diagnostic ID.
+
 Treat setup output as diagnostic data. Report a failed log write through the
 existing service diagnostic channel and continue the resource operation. Recovery
 records keep their independent persistence requirement. This follows the

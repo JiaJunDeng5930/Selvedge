@@ -44,17 +44,13 @@ export function tencentCvmBackend(settings) {
         throw new Error('Tencent identity did not return the owning AccountId');
       }
       return { provider: 'tencent_cvm', account_id: response.AccountId, region: settings.region,
-        endpoint: endpoint ? endpoint.origin : 'https://cvm.tencentcloudapi.com',
-        credential_reference: 'service-environment:TENCENTCLOUD' };
+        endpoint: endpoint ? endpoint.origin : 'https://cvm.tencentcloudapi.com' };
     },
     async create(parameters, { signal } = {}) {
       // Every exception after dispatch is unknown, including API and response-body errors.
       // Recovery uses only DescribeInstances; it never replays this request.
       const response = await request('RunInstances', parameters, signal);
-      return { ids: Array.isArray(response.InstanceIdSet) ? response.InstanceIdSet : [],
-        complete: typeof response.RequestId === 'string' && response.RequestId.length > 0 &&
-          Array.isArray(response.InstanceIdSet) && response.InstanceIdSet.length === 1 &&
-          typeof response.InstanceIdSet[0] === 'string' && response.InstanceIdSet[0].length > 0 };
+      return { ids: response.InstanceIdSet };
     },
     async scan(token, { signal } = {}) {
       const response = await request('DescribeInstances', {
@@ -73,7 +69,7 @@ export function tencentCvmBackend(settings) {
         const plan = boundary('control.resource.provider', {
           operation: 'ready', instance: instance ?? null, settings, now: Date.now(), deadline,
         });
-        if (plan.action === 'ready') return { instance_id: instanceId, host: plan.host };
+        if (plan.action === 'ready') return { host: plan.host };
         if (plan.action === 'failed') throw new Error(`Tencent CVM failed to start (${instance.InstanceState})`);
         if (plan.action === 'timeout') throw new Error('Tencent CVM startup deadline exceeded');
         await delay(Math.min(2000, Math.max(1, deadline - Date.now())), undefined, { signal });

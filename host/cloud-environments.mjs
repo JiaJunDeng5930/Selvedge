@@ -12,7 +12,7 @@ export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`
 
 export function cloudEnvironmentBackend(cloud) {
   const admitted = boundary('effect.cloud_backend', { cloud });
-  const settings = structuredClone(admitted.tencent_cvm);
+  const settings = admitted.tencent_cvm;
   return { ...tencentCvmBackend(settings), settings };
 }
 

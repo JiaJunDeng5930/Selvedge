@@ -56,7 +56,6 @@ Definition recovery_authority (value : json) :=
   String.eqb (str scope "provider") "tencent_cvm" &&
   equal (get scope "region") (get (get value "settings") "region") &&
   is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "") &&
-  String.eqb (str scope "credential_reference") "service-environment:TENCENTCLOUD" &&
   equal (get (get value "request") "ClientToken") (get value "token") &&
   existsb (String.eqb (str value "status")) receipt_statuses.
 Definition receipt_matches (source : json) :=

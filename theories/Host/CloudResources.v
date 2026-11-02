@@ -164,7 +164,7 @@ Definition decode_observation source :=
   let name := str source "kind" in
   if String.eqb name "persisted" then Some Persisted else if String.eqb name "persistence_failed" then Some PersistenceFailed
   else if String.eqb name "allocated" then match get source "ids" with
-    | JArray [JString instance] => if boolean_field source "complete" && negb (String.eqb instance "")
+    | JArray [JString instance] => if negb (String.eqb instance "")
         then Some (Allocated instance) else Some AllocationFailed
     | _ => Some AllocationFailed end
   else if String.eqb name "allocation_failed" then Some AllocationFailed
