@@ -306,7 +306,7 @@ Proof.
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
  { intros. unfold K.find_task. now rewrite recording_receipt_preserves_tasks. }
  rewrite tasks_same.
- exists (Tasks.receive [TextPart (TaskGraph.delivery_text item)] task).
+ exists (TaskChange.apply (Tasks.receive_changes [TextPart (TaskGraph.delivery_text item)] task) task).
  split; [now apply find_put_task with task|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
  cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.

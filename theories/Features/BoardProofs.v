@@ -122,7 +122,7 @@ Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
  Selvedge.Kernel.Domain.task_archived task=false ->
  Tasks.control_command target Tasks.Interrupt value=
    Selvedge.Kernel.State.accept (JObject [("task_id"%string,number target)])
-     (Selvedge.Kernel.State.put_task target (Tasks.control_task Tasks.Interrupt task) value)
+     (Selvedge.Kernel.State.put_task target (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task) value)
      [Selvedge.Kernel.State.CancelTask target].
 Proof.
  intros target task value found not_archived.
@@ -133,14 +133,14 @@ Proof.
 Qed.
 
 Lemma interrupt_preserves_task_authority : forall task,
- Selvedge.Kernel.Domain.task_contract (Tasks.control_task Tasks.Interrupt task)=
+ Selvedge.Kernel.Domain.task_contract (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
    Selvedge.Kernel.Domain.task_contract task /\
- Selvedge.Kernel.Domain.task_current_profile (Tasks.control_task Tasks.Interrupt task)=
+ Selvedge.Kernel.Domain.task_current_profile (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
    Selvedge.Kernel.Domain.task_current_profile task /\
- Selvedge.Kernel.Domain.task_current_settings (Tasks.control_task Tasks.Interrupt task)=
+ Selvedge.Kernel.Domain.task_current_settings (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
    Selvedge.Kernel.Domain.task_current_settings task.
 Proof.
- intros task; unfold Tasks.control_task.
+ intros task.
  pose proof (TaskChangeProofs.field_changes_keep_the_immutable_task_identity
    (Tasks.control_changes Tasks.Interrupt task) task) as Identity.
  pose proof (TaskChangeProofs.field_changes_keep_execution_configuration
@@ -165,12 +165,12 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
    F.card_archived updated=true /\
    F.card_task updated=Some target /\
    Selvedge.Kernel.State.find_task target (decision_world archived)=
-     Some (Tasks.control_task Tasks.Interrupt task) /\
-   Selvedge.Kernel.Domain.task_contract (Tasks.control_task Tasks.Interrupt task)=
+     Some (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task) /\
+   Selvedge.Kernel.Domain.task_contract (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
      Selvedge.Kernel.Domain.task_contract task /\
-   Selvedge.Kernel.Domain.task_current_profile (Tasks.control_task Tasks.Interrupt task)=
+   Selvedge.Kernel.Domain.task_current_profile (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
      Selvedge.Kernel.Domain.task_current_profile task /\
-   Selvedge.Kernel.Domain.task_current_settings (Tasks.control_task Tasks.Interrupt task)=
+   Selvedge.Kernel.Domain.task_current_settings (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
      Selvedge.Kernel.Domain.task_current_settings task /\
    decision_effects archived=[Selvedge.Kernel.State.CancelTask target].
 Proof.
@@ -190,7 +190,7 @@ Proof.
  assert (interrupt : Tasks.control_command target Tasks.Interrupt
    (Board.put id updated value)=
    Selvedge.Kernel.State.accept (JObject [("task_id"%string,number target)])
-     (Selvedge.Kernel.State.put_task target (Tasks.control_task Tasks.Interrupt task)
+     (Selvedge.Kernel.State.put_task target (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)
        (Board.put id updated value)) [Selvedge.Kernel.State.CancelTask target]).
  { eapply interrupt_is_authorized_for_nonarchived_task.
    - rewrite BoardRelations.task_lookup_after_board_put. exact task_found.
