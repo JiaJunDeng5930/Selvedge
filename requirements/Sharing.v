@@ -31,7 +31,12 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     private configuration; environment inheritance is not a portable package
     contract. Local stdio and deployed tunnel packaging choose their actual
     route without embedding credentials or a fabricated registered application
-    identity. The shared bounded descriptor reader establishes file kind,
+    identity. The tunnel launcher forwards profile names and tunnel identifiers
+    unchanged as arguments to the official client, which owns their validation
+    and profile-file selection. A second spelling or length policy here would
+    reject values the actual client supports without adding local authority.
+    The launcher still owns its supported options and propagates client failure.
+    The shared bounded descriptor reader establishes file kind,
     no-follow access and size; plugin admission adds the private file's owner,
     permissions and configuration fields. Each boundary consumes the
     observations already established by its owner.
