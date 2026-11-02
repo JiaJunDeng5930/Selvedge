@@ -8,12 +8,11 @@ import { chmod, mkdir, readFile, readdir, realpath, rename, symlink, unlink, wri
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { imagesFixture } from './fixtures/images.mjs';
-import { home, shellQuote } from './support.mjs';
+import { asyncToolResult, home, shellQuote } from './support.mjs';
 
 const execute = promisify(execFile);
 const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1cAAAAASUVORK5CYII=';
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
-const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
 function tool(body, id, name, arguments_) {
   const namespace = body.tools.find(scope => scope.type === 'namespace' && scope.tools.some(definition => definition.name === name));
   assert.ok(namespace, `The account request must advertise ${name} in its local tool namespace`);
@@ -169,10 +168,8 @@ function outputs(body) {
       const pendingIO = result.value?.status === 'running' && ['read_process', 'write_process'].includes(result.value?.tool);
       if (!pendingIO) results.set(item.call_id, result);
     }
-    if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(completionPrefix)) {
-      const result = JSON.parse(item.content.slice(completionPrefix.length));
-      results.set(result.call_id, result);
-    }
+    const completion = asyncToolResult(item);
+    if (completion) results.set(completion.call_id, completion);
   }
   return results;
 }
@@ -341,9 +338,13 @@ test('a failing project environment script prevents model execution, destroys th
   assert.equal(fixture_.upstream.requests.length, 0);
   assert.equal(fixture_.instances.size, 0);
   assert.equal(fixture_.requests.filter(request => request.action === 'TerminateInstances').length, 1);
-  const logfile = failed.message.match(/; log: (.+)$/)?.[1];
-  assert.ok(logfile, 'The startup failure must identify its retained log');
-  assert.match(await readFile(logfile, 'utf8'), /SETUP-LOG-MARKER/);
+  const files = (await readdir(fixture_.state, { recursive: true, withFileTypes: true }))
+    .filter(entry => entry.isFile())
+    .map(entry => path.join(entry.parentPath, entry.name))
+    .filter(filename => failed.message.includes(filename));
+  const logs = await Promise.all(files.map(filename => readFile(filename, 'utf8')));
+  assert.ok(logs.some(content => content.includes('SETUP-LOG-MARKER')),
+    'The public startup failure must identify a retained file containing the setup output');
   await until(async () => {
     const observed = await fixture_.service.command({ op: 'read', task_id: id });
     assert.equal(observed.reply.ok, true, JSON.stringify(observed.reply));
@@ -542,8 +543,9 @@ test('native independent creation reuses the caller cloud resource despite the p
   let childObserved = false;
   const fixture_ = await fixture(t, async body => {
     const context = JSON.stringify({ instructions: body.instructions, input: body.input });
-    if (body.input.some(item => item.role === 'user' && JSON.stringify(item.content).includes('INDEPENDENT-CLOUD') &&
-        !(typeof item.content === 'string' && item.content.startsWith(completionPrefix)))) {
+    if (body.input.some(item => item.role === 'user' && (typeof item.content === 'string'
+      ? item.content
+      : item.content.filter(part => part.type === 'input_text').map(part => part.text).join('')) === 'INDEPENDENT-CLOUD')) {
       assert.match(context, /bash[^.]*cloud|cloud[^.]*bash/i);
       assert.match(context, /full access/i);
       childObserved = true;

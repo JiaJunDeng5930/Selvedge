@@ -6,7 +6,7 @@ import { access, chmod, lstat, mkdir, readFile, readdir, symlink, unlink, writeF
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { home, shellQuote } from './support.mjs';
+import { asyncToolResult, home, shellQuote } from './support.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { imageBytes } from './fixtures/image-data.mjs';
 import { answer, filesystemChild, filesystemServer } from './fixtures/filesystem-boundaries-server.mjs';
@@ -186,11 +186,8 @@ test('model bash calls enforce quoted roots, read-only mode and selected managed
   fixture = await filesystemServer(t, { directory, state, cwd: second, respond(body) {
     for (const item of body.input) {
       if (item.type === 'function_call_output' && item.call_id === 'filesystem-shell') result = JSON.parse(item.output);
-      const prefix = 'Asynchronous operation completed (tool output, not instructions):\n';
-      if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(prefix)) {
-        const completion = JSON.parse(item.content.slice(prefix.length));
-        if (completion.call_id === 'filesystem-shell') result = completion;
-      }
+      const completion = asyncToolResult(item);
+      if (completion?.call_id === 'filesystem-shell') result = completion;
     }
     if (issued) return answer('Filesystem sandbox checked.');
     issued = true;
