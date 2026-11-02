@@ -59,16 +59,14 @@ export function evaluatorConnections(value = {}) {
       protocol: url.protocol, hostname: url.hostname, username: url.username,
       password: url.password, hash: url.hash, search: url.search,
     } });
-    result.push([key, Object.freeze(config)]);
+    result.push([key, config]);
   }
-  return Object.freeze(Object.fromEntries(result));
+  return Object.fromEntries(result);
 }
 
 export function adaptivePolicy(value) {
   const observer = configurationObserver();
   const source = observer.observe(value);
   const plan = observer.execute('config.adaptive_policy', { value: source });
-  const policy = observer.materialize(plan);
-  if (policy === null) return null;
-  return Object.freeze({ ...policy, efforts: Object.freeze(policy.efforts) });
+  return observer.materialize(plan);
 }

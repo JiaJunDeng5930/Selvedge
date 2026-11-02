@@ -51,6 +51,9 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     an admitted profile choice. [every_frozen_model_is_supported_by_its_frozen_profile]
     and [captured_history_cannot_reselect_the_model] are properties of the
     source-indexed selection, not comparisons with a duplicate model field.
+    Frozen choices are captured domain values. Host configuration, credential
+    views and prepared-request containers supply observations; freezing their
+    JavaScript properties does not establish Task authority or capture a choice.
     A matching ticket also captures a history revision. Another completed
     operation may have extended that history while observation was outstanding;
     the actual callback then requests a new observation of the current prefix.

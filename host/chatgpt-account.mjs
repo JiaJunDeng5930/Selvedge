@@ -12,7 +12,7 @@ import { boundary } from './public/model-boundary.mjs';
 
 const contract = boundary('account.contract', {});
 const chatgptOAuthResource = contract.resource;
-export const defaultChatGPTAccount = Object.freeze(contract.default);
+export const defaultChatGPTAccount = contract.default;
 
 export function chatgptAccountIdentity(issuer, clientId, subject) {
   return createHash('sha256').update(`${issuer}\0${clientId}\0${subject}`).digest('hex');
@@ -43,11 +43,11 @@ function connectionObservations(value) {
     issuer: urlObservation(value?.issuer ?? defaultChatGPTAccount.issuer) } };
 }
 export function accountConfig(value = {}) {
-  return Object.freeze(boundary('account.connection', connectionObservations(value)));
+  return boundary('account.connection', connectionObservations(value));
 }
 export function accountConnection(profile) {
   const connection = boundary('account.profile_connection', { profile });
-  return Object.freeze(boundary('account.connection', connectionObservations(connection)));
+  return boundary('account.connection', connectionObservations(connection));
 }
 const locks = new Map();
 
@@ -185,8 +185,8 @@ async function resolveCredential(profile, home, { signal, rejectedToken, request
 
 function authorizationView(credential, connection, home, audio = false) {
   const view = boundary('account.authorization_view', { credential, audio });
-  return Object.freeze({
-    ...view, headers: Object.freeze(view.headers),
+  return {
+    ...view,
     async refreshAfterRejection({ signal } = {}) {
       // Reuse a concurrent token rotation only for this request's principal.
       const next = await resolveCredential(connection, home, {
@@ -194,7 +194,7 @@ function authorizationView(credential, connection, home, audio = false) {
       });
       return authorizationView(next, connection, home, audio);
     },
-  });
+  };
 }
 
 export async function authorize(profile, home, { signal, audio = false } = {}) {
@@ -284,7 +284,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
 
 
 export function createAudioAccount({ home, onChange = () => {} }) {
-  const profile = Object.freeze({ ...defaultChatGPTAccount, auth_file: contract.audio.auth_file });
+  const profile = { ...defaultChatGPTAccount, auth_file: contract.audio.auth_file };
   const filename = path.resolve(home, profile.auth_file);
   let pending;
   let closed = false;

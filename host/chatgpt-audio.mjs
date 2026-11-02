@@ -124,7 +124,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
     const activation = boundary('control.audio.transport_initial', { id, task_id, generation });
     let finish;
-    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id,
+    const record = { socket: null, retryTimer: null,
       state: activation.state, finished: new Promise(resolve => { finish = resolve; }) };
     Object.defineProperties(record, {
       closed: { get: () => record.state.phase !== 'live' },
@@ -245,7 +245,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       for (const operation of pending) operation.controller.abort(new Error('Audio host is closed'));
       const released = await Promise.allSettled([
         authority.close(),
-        ...[...sessions.values()].map(record => stopSession(record.id)),
+        ...[...sessions.keys()].map(id => stopSession(id)),
         ...pending.map(operation => operation.promise.then(() => {}, error => {
           // The owner close cancelled these operations; their callers already receive the cancellation rejection.
           if (!operation.controller.signal.aborted) throw error;

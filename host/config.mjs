@@ -100,7 +100,7 @@ export function validateConfig(value) {
     });
     const backend = boundary('backend.support', { profile, effect: { model: { provider: profile.provider } } });
     if (backend.auth === 'account') Object.assign(profile, accountConnection(profile));
-    return [key, Object.freeze(profile)];
+    return [key, profile];
   }));
   config.compaction = profileBoundary('config.compaction', { config: { compaction: value.compaction }, profiles: compactionProfiles(config.profiles) });
   observer.execute('config.configuration_extensions', {

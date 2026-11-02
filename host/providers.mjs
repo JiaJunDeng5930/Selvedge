@@ -76,7 +76,7 @@ export async function prepareModelRequest(request, home, limits) {
   const body = slots.length ? stringifyJson({ ...request, input }) : planned;
   // Keep the admitted bytes beside the value observed by the native meter.
   // Dispatch sends this body directly without reconstructing the request.
-  const prepared = Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
+  const prepared = { request, body, bytes: Buffer.byteLength(body) };
   // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
   boundary('backend.request_size', { bytes: prepared.bytes, limits, request: { input: request.input } });
   return prepared;

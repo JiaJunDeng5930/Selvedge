@@ -10,18 +10,12 @@ import { modelsURL } from './chatgpt-contract.mjs';
 
 const maximum = boundary('account.contract', {}).maximum;
 const hash = text => boundary('account.hash_prefix', { digest: createHash('sha256').update(text).digest('hex') });
-function numberObservation(value) {
-  // DEFENSE: Invalid persisted cache dates produce a non-finite age, which native cache admission must reject.
-  return Number.isFinite(value) ? value : null;
-}
-function dateObservation(value, numeric = false) {
-  // DEFENSE: An externally edited cache may contain a non-string fetched_at value; native cache admission must see an invalid date observation.
-  if (typeof value !== (numeric ? 'number' : 'string')) return null;
-  const date = new Date(numeric ? value : Date.parse(value));
-  const epoch = date.getTime();
+function cacheAge(value, now) {
+  // DEFENSE: An externally edited cache may contain a non-string fetched_at value; native cache admission must see an invalid age.
+  if (typeof value !== 'string') return null;
+  const elapsed = now - Date.parse(value);
   // DEFENSE: A persisted cache timestamp can be invalid; null lets native cache admission discard that record.
-  if (!Number.isFinite(epoch)) return null;
-  return { iso: date.toISOString() };
+  return Number.isFinite(elapsed) ? elapsed : null;
 }
 function connectionIdentity(profile) {
   return boundary('account.connection_identity', { profile, models_url: modelsURL(profile.endpoint) });
@@ -42,9 +36,8 @@ async function readCache(profile, home, account, now) {
     return boundary('account.cache_error', { code: error.code });
   }
   const cache = boundary('account.cache_decode', { text: contents });
-  const fetched = dateObservation(cache?.fetched_at);
   return boundary('account.cache', { value: cache, account,
-    elapsed: numberObservation(now - Date.parse(fetched?.iso)),
+    elapsed: cacheAge(cache?.fetched_at, now),
     connection: connectionIdentity(profile) });
 }
 
@@ -84,7 +77,7 @@ export async function discoverAccount(profile, home, { signal, force = false } =
   }
   const models = boundary('account.discovery_catalog', { value: response.value });
   await writeAtomic(modelCacheFile(profile, home), boundary('account.cache_record', {
-    account: authorization.account_id, connection: connectionIdentity(profile), now_date: dateObservation(now, true), models,
+    account: authorization.account_id, connection: connectionIdentity(profile), fetched_at: new Date(now).toISOString(), models,
   }));
   return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, models, cached_result: false, stale: false });
 }

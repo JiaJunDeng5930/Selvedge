@@ -137,9 +137,9 @@ Definition cache_fresh source := success (JBool (negb (boolean_field source "for
 Definition cache_fallback source := success (JBool (negb (boolean_field source "force") && is_object (get source "cached") &&
   (boolean_field source "type_error" || same (get source "error_name") (JString "TimeoutError") ||
     same (get source "status") (number 429) || at_least (get source "status") 500))).
-Definition cache_record source := if is_object (get source "now_date") then success (JObject [
+Definition cache_record source := success (JObject [
   ("format",JString cache_format);("account_id",get source "account");("connection",get source "connection");
-  ("fetched_at",get (get source "now_date") "iso");("models",get source "models")]) else range_error "Invalid time value".
+  ("fetched_at",get source "fetched_at");("models",get source "models")]).
 (* DEFENSE: Missing, malformed, special, oversized or concurrently edited cache
    files are disposable; permission and actual IO failures stay visible. *)
 Definition cache_error source := if same (get source "code") (JString "ENOENT") ||
