@@ -50,7 +50,6 @@ Definition mutable := BoardFacts.mutable.
 Definition unlinked := BoardFacts.unlinked.
 Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
-Definition owner_agent := BoardFacts.owner_agent.
 Definition runnable := BoardFacts.runnable.
 Definition latest_failure := BoardFacts.latest_failure.
 Definition card_json (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Observation.card_json_in_world value id card.
@@ -72,8 +71,6 @@ Definition request_text_result {value} (target:BD.drafting_target value) (profil
        (CommandResult.change_world issued) (CommandResult.change_effects issued)))
    "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
  (fun _ => CommandResult.refuse "draft_profile_required" "Choose a configured ordinary drafting endpoint").
-Definition request_text {value} (target:BD.drafting_target value) (profile_name:string) :=
- CommandResult.decide value (request_text_result target profile_name).
 Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card_draft) := if assisted then
    match Utf8.chunks (Selvedge.Features.Domain.draft_title draft) with
    | None=>draft

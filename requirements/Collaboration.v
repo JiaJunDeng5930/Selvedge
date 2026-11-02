@@ -84,7 +84,8 @@ Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
 Export TitleRuntime(issue).
 Export TitleCommit(candidate).
-Export TitleProofs(title_configuration_preserves_generation_entries,
+Export TitleProofs(admitted_title_issues_observed_request,
+  title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
 
@@ -107,7 +108,9 @@ Export TitleProofs(title_configuration_preserves_generation_entries,
     actually observed Task and selected profile; a pending entry prevents
     another selection. [TitleCommit.candidate] calls [TitleRuntime.issue], which
     constructs the shared feature-request plan containing the frozen profile
-    and prompt. The shared receiver theorem governs that construction.
+    and prompt. [admitted_title_issues_observed_request] binds its emitted request
+    to the observed owner, selected profile and prompt. The shared receiver
+    theorem governs installation of the receiver.
     [tests/title-request-settings.test.mjs] exercises the automatic request's
     frozen settings and its completed title through public read. The selected
     theorems constrain admission and receiver construction; the public test

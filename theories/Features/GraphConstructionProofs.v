@@ -38,7 +38,7 @@ Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request bef
  TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) = source /\
  TaskGraph.graph_plans plan = plans /\
  TaskGraph.handle_create_task_graph request None before =
-   TaskGraph.install_plan (N.of_nat (List.length (TaskGraph.registry before))) plan.
+   CommandResult.accept (TaskGraph.install_change (N.of_nat (List.length (TaskGraph.registry before))) plan).
 Proof.
  intros request before owner plans source Owner Capacity Valid Prepared.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.

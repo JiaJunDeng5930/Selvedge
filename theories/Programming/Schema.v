@@ -172,22 +172,6 @@ Definition decode (description : schema) (source : json) : option (fields descri
       then decode_fields description source else None
   | _ => None
   end.
-Fixpoint lookup_field {description} (name : string) (values : fields description) : option json :=
-  match values with
-  | FNil => None
-  | @FCons field rest value values =>
-      if String.eqb name (field_name field) then encode_field field value
-      else lookup_field name values
-  end.
-Fixpoint update_field {description} (name : string) (source : json) (values : fields description) : option (fields description) :=
-  match values in fields description return option (fields description) with
-  | FNil => None
-  | @FCons field rest value values =>
-      if String.eqb name (field_name field) then
-        option_map (fun value => FCons value values) (decode_field field (Some source))
-      else option_map (fun values => FCons value values) (update_field name source values)
-  end.
-
 Record command_spec := Command { command_name : string; command_fields : schema }.
 Inductive command_value : list command_spec -> Type :=
 | CFirst : forall command rest, fields (command_fields command) -> command_value (command :: rest)

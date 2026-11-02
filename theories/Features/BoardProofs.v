@@ -64,13 +64,13 @@ Qed.
 
 Local Lemma runnable_selects_the_observed_agent : forall card value agent,
  Board.runnable card value = true ->
- Board.owner_agent (F.draft_owner (F.card_contents card)) value = Some agent ->
+ BoardFacts.owner_agent (F.draft_owner (F.card_contents card)) value = Some agent ->
  BoardFacts.runnable_agent card value = Some agent.
 Proof.
  intros card value agent Ready Owner.
  unfold Board.runnable,BoardFacts.runnable,BoardFacts.runnable_agent in Ready |- *.
  destruct (BoardFacts.mutable card value && BoardFacts.unlinked card); [|discriminate].
- unfold Board.owner_agent in Owner; rewrite Owner in Ready |- *.
+ rewrite Owner in Ready |- *.
  destruct (N.ltb (BoardFacts.active_for (F.draft_owner (F.card_contents card)) value)
    (F.agent_concurrency agent)); [reflexivity|discriminate].
 Qed.
@@ -82,7 +82,7 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
  CardScope.lookup id value=Some card ->
  revision=F.card_revision card ->
  Board.runnable card value=true ->
- Board.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
+ BoardFacts.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
  let settings:=Board.launch_settings agent (F.card_contents card) in
  Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
@@ -288,8 +288,8 @@ Lemma idle_regeneration_uses_drafting_policy : forall id value card profile obse
  (Found : CardScope.lookup id value=Some card)
  (Mutable : Board.mutable card value=true),
  Board.regenerate id (F.card_revision card) observed profile value =
- Board.request_text (BoardDrafting.revised_target value id (CardScope.CardReference card Found)
-   observed Mutable) profile.
+ CommandResult.decide value (Board.request_text_result
+   (BoardDrafting.revised_target value id (CardScope.CardReference card Found) observed Mutable) profile).
 Proof.
  intros id value card profile observed Found Mutable.
  unfold Board.regenerate,Board.regenerate_result.
@@ -321,7 +321,7 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
 Proof.
  intros id revision value card profile_name selected observed Found Current Mutable Available Ordinary.
  subst revision. rewrite (idle_regeneration_uses_drafting_policy id value card profile_name observed Found Mutable).
- unfold Board.request_text,Board.request_text_result.
+ unfold Board.request_text_result.
  eapply observe_present; [exact Available|]; intros Selected.
  eapply CommandResult.require_satisfied; [exact Ordinary|]; intros Capable.
  eexists; repeat split; reflexivity.

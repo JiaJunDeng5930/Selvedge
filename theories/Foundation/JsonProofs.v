@@ -31,9 +31,3 @@ Proof.
   - induction fields as [|[key value] rest IH]; cbn; [reflexivity|].
     rewrite String.eqb_refl,recur,IH. reflexivity.
 Qed.
-
-Theorem equal_specification : forall left right, equal left right = true <-> left = right.
-Proof.
-  split; [apply equal_reflects_equality|].
-  intro H; subst. apply equal_is_reflexive.
-Qed.

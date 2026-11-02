@@ -207,8 +207,6 @@ Definition install_change (id : N) {original caller owner} (plan : graph_plan or
      (Selvedge.Features.Domain.feature_graph_owners (world_features installed)))
    (world_features installed)) installed end in
  CommandResult.Change (Observation.graph_json id graph) owned (born_effects progress).
-Definition install_plan (id : N) {original caller owner} (plan : graph_plan original caller owner) :=
- CommandResult.accept (install_change id plan).
 Definition install_resolution (id : N) {caller original}
  (owner : option (Work.owner_scope original)) (checked : checked_cached caller original)
  (resolved : nodes_resolution original (scope_identity owner))
@@ -224,8 +222,6 @@ Definition install_cached_result (id : N) {caller original} (owner : option (Wor
  (checked : checked_cached caller original) :=
  install_resolution id owner checked
    (prepare_nodes (scope_identity owner) caller original (cached_nodes (checked_cache checked))) eq_refl.
-Definition install_cached (id : N) {caller original} (owner : option (Work.owner_scope original))
- (checked : checked_cached caller original) := CommandResult.decide original (install_cached_result id owner checked).
 Definition graph_capacity (value:world) :=
  Nat.ltb (List.length (filter (fun graph=>match graph with Some _=>true | None=>false end) (registry value))) 32.
 Definition declare_result (creating:bool) (id:N) (owner:option N)
