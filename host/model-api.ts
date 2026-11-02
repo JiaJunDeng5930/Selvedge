@@ -61,7 +61,7 @@ export interface HttpPrimitives {
   browser_command(command: JsonValue): Promise<void>;
 }
 /** The only HTTP plan consumer selects physical primitives after generated decoding. */
-export async function interpretHttpPlan(input: unknown, bodyObserved: boolean, frameBytes: number, io: HttpPrimitives): Promise<unknown | null> {
+export async function interpretHttpPlan(input: unknown, frameBytes: number, io: HttpPrimitives): Promise<unknown | null> {
   const plan = decodeHttpPlan(input);
   switch (plan.action) {
     case 'respond': io.respond(plan.status, plan.value); return null;
@@ -105,14 +105,13 @@ export async function interpretHttpPlan(input: unknown, bodyObserved: boolean, f
     case 'command':
     case 'assess':
     case 'connection_command':
-      if (!bodyObserved) {
+      // Omission requests physical reading; a present JSON null is already observed.
+      if (plan.body === undefined) {
         const maximum = plan.action === 'account_refresh' || plan.action === 'audio_login' ? 1024
           : plan.action === 'remote_pair' || plan.action === 'remote_enable' || plan.action === 'remote_disable'
             || plan.action === 'remote_approve' || plan.action === 'remote_revoke' ? 8192 : frameBytes;
         return io.readBody(plan.action, maximum);
       }
-      // DEFENSE: The HTTP body stage must attach its admitted JSON value before an execution primitive can run.
-      if (plan.body === undefined) throw new TypeError('HTTP body plan has no body');
       switch (plan.action) {
         case 'account_refresh': { await io.account_refresh(plan.body); return null; }
         case 'audio_create': { await io.audio_create(plan.body); return null; }

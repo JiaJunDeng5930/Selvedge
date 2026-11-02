@@ -162,10 +162,9 @@ export async function startServer(options) {
     const decide = operation => boundary(operation, source);
     let plan = decide('http.closing');
     let url;
-    let bodyObserved = false;
     let connectionId;
     for (;;) {
-      const next = await interpretHttpPlan(plan, bodyObserved, service.limits.frame_bytes, {
+      const next = await interpretHttpPlan(plan, service.limits.frame_bytes, {
         respond: (status, value) => json(response, status, value),
         observe_host: () => {
           source.expected_host = address ? new URL(address).host : null;
@@ -200,7 +199,6 @@ export async function startServer(options) {
         readBody: async (target, maximum) => {
           const text = await readText(request, maximum);
           Object.assign(source, { text, target });
-          bodyObserved = true;
           return decide('http.body');
         },
         asset: async () => {
