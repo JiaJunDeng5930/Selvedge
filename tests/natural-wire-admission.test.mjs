@@ -70,12 +70,17 @@ test('public integer command fields admit equal JSON number values with their de
     assert.equal(refused.ok, false, fields);
   }
 
-  const save = token => `{"op":"configure_title_settings","revision":${token},` +
-    '"task_prompt":"Use a short title.","agent_prompt":"Describe the goal."}';
-  for (const alternate of [value => `${value}.0`, value => `0.${value}e${value.length}`, value => `${BigInt(value) * 100n}e-2`]) {
+  const save = (token, taskPrompt = 'Use a short title.', agentPrompt = 'Describe the goal.') =>
+    `{"op":"configure_title_settings","revision":${token},` +
+    `"task_prompt":${JSON.stringify(taskPrompt)},"agent_prompt":${JSON.stringify(agentPrompt)}}`;
+  for (const [index, alternate] of [value => `${value}.0`, value => `0.${value}e${value.length}`, value => `${BigInt(value) * 100n}e-2`].entries()) {
     const current = await successful({ op: 'read_title_settings' });
-    await successful(save(alternate(String(current.revision))));
-    assert.equal((await successful({ op: 'read_title_settings' })).revision, current.revision + 1);
+    const taskPrompt = `Title spelling ${index}`, agentPrompt = `Goal spelling ${index}`;
+    await successful(save(alternate(String(current.revision)), taskPrompt, agentPrompt));
+    const changed = await successful({ op: 'read_title_settings' });
+    assert.notEqual(changed.revision, current.revision);
+    assert.equal(changed.task_prompt, taskPrompt);
+    assert.equal(changed.agent_prompt, agentPrompt);
   }
   const retained = await successful({ op: 'read_title_settings' });
   for (const [canonical, alternate] of [['9007199254740993', '9007199254740993e0'],
