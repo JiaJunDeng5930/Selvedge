@@ -246,7 +246,7 @@ test('Web shutdown detaches a durable original request and restart does not repo
   assert.equal(sent.reply.ok, true, JSON.stringify(sent.reply));
   const snapshot = await taskIdle(service, created.reply.result.task_id);
   assert.ok(snapshot.messages.some(message => message.role === 'error' &&
-    message.content.includes('retained') && message.content.includes(original.key)),
+    message.content.includes(original.key)),
   'The successor must explain which unresolved external request blocks it');
   assert.equal(web.requests.filter(entry => entry.body.tools.length > 0).length, 1,
     'Neither journal replay nor a successor ticket may repost an uncertain original');

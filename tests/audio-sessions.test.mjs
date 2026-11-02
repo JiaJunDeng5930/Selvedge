@@ -197,8 +197,8 @@ test('accepted Task progress reaches the active voice provider', async t => {
   assert.equal((await service.command({ op: 'send', task_id, message: messages[1] })).reply.ok, true);
   await eventually(async () => (await read()).filter(message => message.role === 'model_context' && message.content?.item?.role === 'assistant').length === 2);
   await eventually(() => {
-    const progress = wire.sockets[0].sent.flatMap(event => event.content ?? []).map(part => part.text ?? '')
-      .filter(text => text.includes('progress ('));
+    const progress = wire.sockets[0].sent.filter(event => ['session.context.append', 'delegation.context.append'].includes(event.type))
+      .flatMap(event => event.content ?? []).map(part => part.text ?? '');
     return messages.every(message => progress.some(text => text.includes(message)));
   });
   await service.audioStop(session.id, 'browser');

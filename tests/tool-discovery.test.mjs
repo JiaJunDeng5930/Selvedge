@@ -6,10 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { home, responsesServer, taskIdle } from './support.mjs';
+import { home, responsesServer, taskIdle, asyncToolResult } from './support.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/discovery-tools.mjs', import.meta.url));
-const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
 const call = (name, arguments_) => ({ name, arguments: arguments_ });
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 const waiting = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Waiting for the tool result.' }] }];
@@ -90,10 +89,8 @@ test('MCP discovery preserves the provider prefix and frozen invocation policy a
     previous = body;
     for (const item of body.input) {
       if (item.type === 'function_call_output') immediate.set(item.call_id, JSON.parse(item.output));
-      if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(completionPrefix)) {
-        const result = JSON.parse(item.content.slice(completionPrefix.length));
-        completed.set(result.call_id, result);
-      }
+      const result = asyncToolResult(item);
+      if (result) completed.set(result.call_id, result);
     }
     if (finished) {
       resumed = true;

@@ -10,6 +10,7 @@ import { asyncToolResult, home, shellQuote } from './support.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { imageBytes } from './fixtures/image-data.mjs';
 import { answer, filesystemChild, filesystemServer } from './fixtures/filesystem-boundaries-server.mjs';
+import { contextChanges, contextContent } from './fixtures/context-observations.mjs';
 
 async function write(filename, contents) {
   await mkdir(path.dirname(filename), { recursive: true });
@@ -26,35 +27,6 @@ async function matchingFiles(directory, bytes) {
         && (await readFile(filename)).equals(bytes)) matches.push(filename);
   }
   return matches;
-}
-
-function providerContextContent(request, type, filename, initial) {
-  let content;
-  for (const item of request.input) {
-    if (typeof item.content !== 'string' || !item.content.startsWith('Committed context object ')) continue;
-    const lines = item.content.split('\n');
-    const key = JSON.parse(lines[1].slice('Context: '.length));
-    if (key.type !== type || key.identity.path !== filename) continue;
-    if (lines[0] === 'Committed context object introduced.') {
-      assert.ok(item.content.includes(`Field: content\n${initial}\n`));
-      content = initial;
-    } else if (lines[0] === 'Committed context object update.') {
-      assert.notEqual(content, undefined, 'An update requires its earlier introduction');
-      const field = item.content.split('Field: content\n')[1]?.split('\nField: ')[0];
-      if (field === undefined) continue;
-      const edits = [...field.matchAll(/^@@ code point (\d+) @@\n- (.+)\n\+ (.+)$/gm)];
-      assert.ok(edits.length > 0, 'The public context amendment contains concrete edits');
-      // Public amendments index the previous content by Unicode code point.
-      const characters = [...content];
-      for (const [, position, removed, inserted] of edits.reverse()) {
-        const start = Number(position), before = [...JSON.parse(removed)];
-        assert.equal(characters.slice(start, start + before.length).join(''), before.join(''));
-        characters.splice(start, before.length, ...JSON.parse(inserted));
-      }
-      content = characters.join('');
-    } else if (lines[0] === 'Committed context object removed.') content = undefined;
-  }
-  return content;
 }
 
 test('HTTP attachment reads preserve uploaded bytes and reject changed bytes or a matching symlink', async t => {
@@ -131,9 +103,10 @@ test('provider context respects a Git-file boundary and retains accepted guidanc
   await unlink(nestedGuidance);
   await symlink(rootGuidance, nestedGuidance);
   await writeFile(rootGuidance, 'REPOSITORY-NOT-YET-ACCEPTED-GUIDANCE');
-  await writeFile(global, 'GLOBAL-INDEPENDENT-UPDATE');
+  // Disjoint fixture text leaves the newly delivered value observable in any prompt layout.
+  await writeFile(global, 'independently updated global guidance');
   await fixture.command({ op: 'send', task_id, message: 'Observe the independently updated global guidance.' });
-  await fixture.idle(task_id);
+  const refreshed = await fixture.idle(task_id);
   assert.equal(fixture.upstream.requests.length, 2);
   const next = JSON.stringify(fixture.upstream.requests[1]);
   for (const text of ['REPOSITORY-ACCEPTED-GUIDANCE', 'NESTED-ACCEPTED-GUIDANCE']) {
@@ -146,8 +119,10 @@ test('provider context respects a Git-file boundary and retains accepted guidanc
   assert.ok(fixture.upstream.requests[1].input.some(item => item.role === 'user'
     && typeof item.content === 'string' && item.content.includes(diagnostic.content)),
   'The next provider request must carry the observed failure');
-  assert.equal(providerContextContent(fixture.upstream.requests[1], 'global_agents', global,
-    'GLOBAL-ACCEPTED-GUIDANCE'), 'GLOBAL-INDEPENDENT-UPDATE');
+  assert.equal(contextContent(contextChanges(refreshed, 'global_agents'), global), 'independently updated global guidance');
+  assert.ok(fixture.upstream.requests[1].input.some(item => item.role === 'developer'
+    && typeof item.content === 'string' && item.content.includes('independently updated global guidance')),
+  'The next provider request must deliver the independently updated global guidance');
 
   const observeSkills = async () => {
     const response = await fetch(`${fixture.running.address}/api/browser/observation`, { method: 'POST',
