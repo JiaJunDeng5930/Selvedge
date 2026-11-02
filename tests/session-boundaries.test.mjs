@@ -94,7 +94,7 @@ test('a relay reconnect cannot receive an old in-flight reply or replay its comm
   } } });
   await eventually(() => committed, 'The remote command did not reach the actual Service');
   assert.equal(committed.reply.ok, true, JSON.stringify(committed.reply));
-  assert.equal(committed.reply.result.task_id, 0);
+  const taskId = committed.reply.result.task_id;
   sockets[0].close(1012, 'Lose delivery while the admitted command reply is pending');
   await eventually(() => ready(1), 'The connector did not establish a fresh session');
   send(sockets[1], { type: 'controller_open', ...connection });
@@ -106,9 +106,10 @@ test('a relay reconnect cannot receive an old in-flight reply or replay its comm
   assert.equal(frames.some(entry => entry.frame.response?.id === 'old-rpc'), false,
     'An old transport response must never be routed to a replacement connection');
   assert.equal(invocations, 1, 'Reconnect must not re-admit the old command');
-  const next = await service.command({ op: 'create_idle', profile: 'demo' });
-  assert.equal(next.reply.ok, true);
-  assert.equal(next.reply.result.task_id, 1, 'Only the original remote task may have been created');
+  const listed = await service.command({ op: 'list' });
+  assert.equal(listed.reply.ok, true, JSON.stringify(listed.reply));
+  assert.deepEqual(listed.reply.result.tasks.map(task => task.id), [taskId],
+    'Only the original remote task may have been created');
   assert.ok(authorizations.length >= 2);
 });
 

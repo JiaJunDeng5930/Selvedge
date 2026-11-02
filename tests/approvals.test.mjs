@@ -36,23 +36,24 @@ test('an approved process uses its workspace and granted access, and restart nev
     workspace: { roots: [workspace], primary_root: workspace }, approval: { mode: 'ask-for-approval' },
   } });
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const taskId = created.reply.result.task_id;
   let operation;
   for (let attempt = 0; attempt < 500 && !operation; attempt++) {
-    const page = (await service.command({ op: 'read', task_id: 0 })).reply.result;
+    const page = (await service.command({ op: 'read', task_id: taskId })).reply.result;
     operation = page.task.operations.find(value => value.status === 'awaiting_approval');
     if (!operation) await delay(10);
   }
   assert.ok(operation, 'The real provider must reach the approval boundary');
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
-  const approved = await service.command({ op: 'review_approval', task_id: 0, operation_id: operation.operation_id,
+  const approved = await service.command({ op: 'review_approval', task_id: taskId, operation_id: operation.operation_id,
     decision: 'allow', reason: 'The user requested this exact file.' });
   assert.equal(approved.reply.ok, true, JSON.stringify(approved.reply));
-  const completed = await taskIdle(service);
+  const completed = await taskIdle(service, taskId);
   assert.equal(await readFile(marker, 'utf8'), 'ran\n');
   const requests = upstream.requests.length;
   await service.close();
   service = await Service.open(options);
-  assert.deepEqual((await taskIdle(service)).messages, completed.messages);
+  assert.deepEqual((await taskIdle(service, taskId)).messages, completed.messages);
   assert.equal(await readFile(marker, 'utf8'), 'ran\n');
   assert.equal(upstream.requests.length, requests);
   assert.deepEqual(upstream.failures, []);

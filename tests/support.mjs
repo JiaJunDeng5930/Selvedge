@@ -19,7 +19,7 @@ export async function home(t) {
   return realpath(directory);
 }
 
-export async function taskIdle(service, taskId = 0, timeoutMs = 20_000) {
+export async function taskIdle(service, taskId, timeoutMs = 20_000) {
   // These scenarios include multiple model/tool roundtrips before becoming idle;
   // their physical IO deadlines are asserted separately.
   const deadline = Date.now() + timeoutMs;
