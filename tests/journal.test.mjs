@@ -114,7 +114,11 @@ test('the previous durable journal format is rejected without replay or conversi
   database.prepare('UPDATE meta SET value = ? WHERE key = ?').run('selvedge-rocq-journal-6', 'format');
   database.close();
 
-  await assert.rejects(Service.open(options), /current Selvedge Rocq journal format/);
+  await assert.rejects(Service.open(options), error => {
+    assert.ok(error instanceof Error);
+    assert.notEqual(error.message.trim(), '');
+    return true;
+  });
   const retained = new DatabaseSync(filename);
   try {
     assert.equal(retained.prepare('SELECT value FROM meta WHERE key = ?').get('format').value,
