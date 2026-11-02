@@ -55,13 +55,12 @@ Definition stream_effects s effects :=
   let ordinary := flat_map (fun effect => match effect with
     | AudioState.MarkReady => [Ready]
     | AudioState.Emit event => if String.eqb (str event "type") "closed" then []
-      else [Emit (get (AudioState.primitive_json s effect) "event")]
-    | AudioState.CloseTransport => [] end) effects in
+      else [Emit (AudioState.event_json s event)] end) effects in
   let closes := flat_map (fun effect => match effect with
-    | AudioState.Emit event => if String.eqb (str event "type") "closed" then let event := get (AudioState.primitive_json s effect) "event" in [Close event;Emit event] else []
+    | AudioState.Emit event => if String.eqb (str event "type") "closed" then let event := AudioState.event_json s event in [Close event;Emit event] else []
     | _ => [] end) effects in List.app ordinary closes.
 Definition fold_stream (s : transport_state) observation :=
-  let '(next,effects) := AudioState.step (stream s) (AudioState.generation (stream s)) observation in
+  let '(next,effects) := AudioState.step (stream s) observation in
   let ended := match AudioState.phase next with AudioState.Closed => true | _ => false end in
   let c := if ended then fst (AudioConnection.step (connection s) AudioConnection.Stop) else connection s in
   TransportState c next (if ended then Draining else phase s) (List.app (waiting s) (stream_effects next effects)) (active s) (serial s).
@@ -79,7 +78,7 @@ Inductive observation := Arrival (observed : AudioConnection.observation)
   | EmitAck (token : N) | EmitFailed (token : N).
 Definition retire (s : transport_state) :=
   let '(next,_) := AudioState.stop (stream s) "" in
-  let event := get (AudioState.primitive_json next (AudioState.Emit (JObject [("type",JString "closed");("reason",JString "error")]))) "event" in
+  let event := AudioState.event_json next (JObject [("type",JString "closed");("reason",JString "error")]) in
   TransportState (fst (AudioConnection.step (connection s) AudioConnection.Stop)) next Retired [Close event;Emit event] None (serial s).
 Definition step (s : transport_state) observation : transport_state * list json :=
   match observation with
@@ -111,7 +110,7 @@ Theorem begin_has_one_owner : forall s next actions token effect,
 Proof. intros s next actions token effect H E. unfold begin in H. rewrite E in H. injection H. auto. Qed.
 
 Theorem closed_stream_ends_its_connection_in_the_same_step : forall s observed next effects,
-  AudioState.step (stream s) (AudioState.generation (stream s)) observed = (next,effects) ->
+  AudioState.step (stream s) observed = (next,effects) ->
   AudioState.phase next = AudioState.Closed ->
   AudioConnection.phase (connection (fold_stream s observed)) = AudioConnection.Ended.
 Proof.

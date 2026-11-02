@@ -117,6 +117,6 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
     }
     const text = await readText(response.body, evaluatorResponseBytes);
     deadline.throwIfAborted();
-    return evaluatorOperation('decision', { evaluator, policy, mode: 'parsed', text });
+    return evaluatorOperation('decision', { evaluator, policy, text });
   }
 }

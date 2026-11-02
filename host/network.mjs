@@ -23,16 +23,7 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  const source = { response: { ok: response.ok }, text };
-  let decoded;
-  try { decoded = boundary('web.http_json', source); }
-  catch (error) {
-    // DEFENSE: A successful HTTP response containing malformed JSON is a protocol failure with a SyntaxError cause.
-    if (error.code === 'http_json_parse') {
-      throw new Error(error.message, { cause: new SyntaxError('Invalid JSON response') });
-    }
-    throw error;
-  }
+  const decoded = boundary('web.http_json', { response: { ok: response.ok }, text });
   const value = decoded.present ? decoded.value : undefined;
   return { status: response.status, ok: response.ok, value, text };
 }

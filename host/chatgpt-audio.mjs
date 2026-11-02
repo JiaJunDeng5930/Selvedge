@@ -111,7 +111,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     return boundary('audio.asr_response', { status: response.status, value });
   }
 
-  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), generation = randomUUID(), initial_items = [], signal }) {
+  async function createSession({ connection: connectionId, task_id, sdp, id, generation, initial_items, signal }) {
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.connect_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
@@ -261,10 +261,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       signal => capabilities({ ...options, signal })),
     transcribe: options => track(`transcribe:${randomUUID()}`, options.signal,
       signal => transcribe({ ...options, signal })),
-    createSession: options => {
-      const id = options.id ?? randomUUID();
-      return track(id, options.signal, signal => createSession({ ...options, id, signal }));
-    },
+    createSession: options => track(options.id, options.signal, signal => createSession({ ...options, signal })),
     startLogin: (options = {}) => track(`login:${randomUUID()}`, options.signal,
       signal => authority.startLogin({ ...options, signal })),
     appendContext, stopSession, close,

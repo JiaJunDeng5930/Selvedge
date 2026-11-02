@@ -76,9 +76,8 @@ Definition decision_configured reply policy := let effort := get (get reply "ans
 Definition decision_reply source reply := checked (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy"))
  (JObject [("effort",get (get (get reply "answers") "effort") "choice");("generations",lease_number (get (get (get reply "answers") "lease") "choice"))])
  "Error" "Jev returned an invalid model/provider, effort or lease; no model request was authorized".
-Definition decision source := if String.eqb (str source "mode") "parsed" then
- match parse_json (str source "text") with Some reply => decision_reply source reply | None => err "Jev returned an invalid JSON response" end
- else decision_reply source (get source "reply").
+Definition decision source :=
+ match parse_json (str source "text") with Some reply => decision_reply source reply | None => err "Jev returned an invalid JSON response" end.
 Definition retry_error message := JObject [("action",JString "fail");("error",JString message)].
 Definition retry_wait source milliseconds := JObject [("action",JString "wait");("milliseconds",milliseconds);("next_attempt",number (num source "attempt"+1))].
 Definition retry_eligible source := negb (boolean_field source "ok") &&

@@ -93,29 +93,26 @@ Proof.
  rewrite accepted; apply equivalent_is_reflexive.
 Qed.
 Theorem public_evaluator_authorizes_only_configured_decision : forall source reply value,
-  str source "mode" <> "parsed" -> get source "reply" = reply ->
+  TextJson.parse_json (str source "text") = Some reply ->
   Api.call "evaluator.decision" source = success value ->
   decision_identity reply (get source "evaluator") = true /\ decision_configured reply (get source "policy") = true.
 Proof.
-  intros source reply value mode parsed H.
+  intros source reply value parsed H.
   change (decision source = success value) in H.
-  unfold decision in H. destruct (String.eqb (str source "mode") "parsed") eqn:E.
-  - apply String.eqb_eq in E;contradiction.
-  - rewrite parsed in H;unfold decision_reply,checked in H.
-    destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
-    now apply andb_true_iff in A.
+  unfold decision in H; rewrite parsed in H;unfold decision_reply,checked in H.
+  destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
+  now apply andb_true_iff in A.
 Qed.
-Theorem public_evaluator_accepts_configured_decision : forall source,
-  str source "mode" <> "parsed" ->
-  decision_identity (get source "reply") (get source "evaluator") = true ->
-  decision_configured (get source "reply") (get source "policy") = true ->
+Theorem public_evaluator_accepts_configured_decision : forall source reply,
+  TextJson.parse_json (str source "text") = Some reply ->
+  decision_identity reply (get source "evaluator") = true ->
+  decision_configured reply (get source "policy") = true ->
   JsonObjects.equivalent (Api.call "evaluator.decision" source) (success (JObject [
-    ("effort",get (get (get (get source "reply") "answers") "effort") "choice");
-    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))])) = true.
+    ("effort",get (get (get reply "answers") "effort") "choice");
+    ("generations",lease_number (get (get (get reply "answers") "lease") "choice"))])) = true.
 Proof.
- intros source mode identity configured;change (Api.call "evaluator.decision" source) with (decision source).
- unfold decision.
- destruct (String.eqb (str source "mode") "parsed") eqn:E;[apply String.eqb_eq in E;contradiction|].
+ intros source reply parsed identity configured;change (Api.call "evaluator.decision" source) with (decision source).
+ unfold decision;rewrite parsed.
  unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
 Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
@@ -128,16 +125,6 @@ Proof.
  - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
 Qed.
 
-Theorem public_parsed_evaluator_decision_requires_identity_and_configuration : forall source reply value,
-  str source "mode" = "parsed" -> TextJson.parse_json (str source "text") = Some reply ->
-  Api.call "evaluator.decision" source = success value ->
-  decision_identity reply (get source "evaluator") = true /\ decision_configured reply (get source "policy") = true.
-Proof.
- intros source reply value mode parsed H;change (decision source = success value) in H.
- unfold decision in H;rewrite mode in H;cbn in H;rewrite parsed in H;unfold decision_reply,checked in H.
- destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
- now apply andb_true_iff in A.
-Qed.
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
   decode_state source = Some state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->

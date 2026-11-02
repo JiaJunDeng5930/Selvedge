@@ -26,7 +26,7 @@ async function measured(session, prepared, limits, options, window_tokens) {
 // items. Ciphertext byte or tokenizer length is never treated as input tokens.
 export async function observeModelRequest(effect, config, home, limits, options = {}) {
   const session = await providerSession(effect, config, home, options);
-  if (effect.scope_only || effect.kind === 'context_scope') return { scope: session.scope, now: Date.now() };
+  if (effect.kind === 'context_scope') return { scope: session.scope, now: Date.now() };
   const scope = observeCompactionScope(effect, session.scope);
   // DEFENSE: Credential/account rotation between selection and observation invalidates the old opaque context consumer.
   if (scope.scope_changed) return { ...scope, now: Date.now() };

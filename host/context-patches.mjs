@@ -1,12 +1,12 @@
 import { diffChars } from 'diff';
 
-const DEFAULT_TIMEOUT = 250;
-const DEFAULT_MAX_EDIT_LENGTH = 8192;
+const DIFF_TIMEOUT_MS = 250;
+const MAX_EDIT_LENGTH = 8192;
 
 /** Each edit starts at a Unicode code-point offset in the unchanged baseline. */
-function textEdits(previousText, nextText, { timeout = DEFAULT_TIMEOUT, maxEditLength = DEFAULT_MAX_EDIT_LENGTH } = {}) {
+function textEdits(previousText, nextText) {
   if (previousText === nextText) return [];
-  const changes = diffChars(previousText, nextText, { timeout, maxEditLength });
+  const changes = diffChars(previousText, nextText, { timeout: DIFF_TIMEOUT_MS, maxEditLength: MAX_EDIT_LENGTH });
   // DEFENSE: A large edit to an external context file can exhaust diff's declared computation budget.
   if (!changes) {
     throw new Error('Context patch computation exceeded its timeout or edit-distance limit');
@@ -33,10 +33,10 @@ function textEdits(previousText, nextText, { timeout = DEFAULT_TIMEOUT, maxEditL
 }
 
 /** Native admission checks the schema, identity projections and reconstructed value. */
-export function proposeContextPatch(previousSnapshot, nextSnapshot, options) {
+export function proposeContextPatch(previousSnapshot, nextSnapshot) {
   const next = nextSnapshot.value;
   const fields = Object.entries(next.fields).flatMap(([field, value]) => {
-    const edits = previousSnapshot ? textEdits(previousSnapshot.value.fields[field], value, options) : [];
+    const edits = previousSnapshot ? textEdits(previousSnapshot.value.fields[field], value) : [];
     return edits.length ? [{ field, edits }] : [];
   });
   return { type: 'field_edits', fields };

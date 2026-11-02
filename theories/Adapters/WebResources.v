@@ -60,14 +60,12 @@ Definition public_codes := ["idempotency_conflict";"previous_response_pending";"
 Definition retained_message record := "ChatGPT Web request retained (" ++ member_text record "request_key" ++
   (if truthy (member record "response_id") then ", response " ++ member_text record "response_id" else "") ++
   "); inspect or resume that request before continuing, or explicitly compact to start a new page".
-Definition retained record := success (JObject [
-  ("message",JString (retained_message record)); ("request_key",member record "request_key"); ("response_id",member record "response_id")]).
+Definition retained record := success (JString (retained_message record)).
 Definition failure_result record code status :=
   let code := if existsb (String.eqb (text code)) public_codes then text code else "upstream_error" in
-  success (JObject [("message",JString ("ChatGPT Web " ++
+  success (JString ("ChatGPT Web " ++
     (if truthy status then "HTTP " ++ TextJson.render_json status ++ ", " else "") ++
-    code ++ ". " ++ retained_message record)); ("code",JString code);
-    ("request_key",member record "request_key"); ("response_id",member record "response_id")]).
+    code ++ ". " ++ retained_message record)).
 Definition event_kind name event := if String.eqb name "message" then str event "type" else name.
 Definition event_action action event extras := success (JObject
   (("action",JString action)::(optional (truthy (get event "response_id"))

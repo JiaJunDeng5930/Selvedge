@@ -17,12 +17,6 @@ Definition state_json (s : connection_state) := JObject [("attempt",number (atte
 Definition state_of (source : json) := ConnectionState (num source "attempt")
   (if String.eqb (str source "phase") "ended" then Ended else if String.eqb (str source "phase") "waiting" then Waiting
    else if String.eqb (str source "phase") "active" then Active else Connecting).
-Definition primitive_json (effect : primitive) := match effect with
-  | Connect generation => JObject [("type",JString "connect");("attempt",number generation)]
-  | ScheduleRetry generation delay => JObject [("type",JString "retry");("attempt",number generation);("delay",number delay)]
-  | OpenStream => JObject [("type",JString "open")]
-  | StopStream message => JObject [("type",JString "stop");("message",JString message)]
-  | Deliver raw => JObject [("type",JString "provider");("raw",raw)] end.
 Definition observed_attempt (observed : observation) := match observed with
   | Opened n | UpgradeRejected n _ | SocketFailed n _ | SocketClosed n _ | ProviderMessage n _ | RetryElapsed n => n
   | Stop => 0 end.

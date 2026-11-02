@@ -178,3 +178,11 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
   a_ready_evaluator_choice_has_a_supported_frozen_duration,
   actual_model_generation_consumes_one_lease_step,
   failed_reasoning_with_no_queued_input_is_idle).
+
+(** The evaluator supplies HTTP text. Both admission and successful delivery
+    constrain that same parsed entry: an admitted model/provider and supported
+    effort/lease must produce the requested decision. A theorem about a separate
+    pre-parsed input would not constrain the response path used by the host. *)
+From Selvedge.Adapters Require ApiProofs.
+Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
+  public_evaluator_accepts_configured_decision).

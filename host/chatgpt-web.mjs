@@ -13,11 +13,7 @@ function nativeJson(text) {
 }
 
 function failure(code, record, status) {
-  const value = boundary('web.failure', { code, record, status });
-  const error = retainedRequest(record);
-  error.code = value.code;
-  error.message = value.message;
-  return error;
+  return retainedRequest(record, boundary('web.failure', { code, record, status }));
 }
 
 function credential(profile) {

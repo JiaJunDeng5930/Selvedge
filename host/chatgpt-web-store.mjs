@@ -13,12 +13,9 @@ function closeDatabase(db) {
   } finally { db.close(); }
 }
 
-export function retainedRequest(record) {
-  const value = boundary('web.retained', { record });
-  const error = new Error(value.message);
-  error.name = 'ChatGPTWebRetainedRequest';
-  error.requestKey = value.request_key;
-  error.responseId = value.response_id;
+export function retainedRequest(record, message = boundary('web.retained', { record })) {
+  const error = new Error(message);
+  error.requestKey = record.request_key;
   return error;
 }
 
