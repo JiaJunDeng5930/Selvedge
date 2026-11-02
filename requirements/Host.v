@@ -77,7 +77,18 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     A cancelled reply can leave its physical work active, so freeing only the
     reply identity must not free that capacity. These contracts retain usable
     admission within the budgets without prescribing the diagnostic selected
-    when several limits fail together. *)
+    when several limits fail together.
+
+    Closure withdraws write admission before invoking cancellation, and
+    successful completion awaits the admitted physical work. Cancellation
+    callbacks can run synchronously before the async close call returns its
+    completion Promise. The immediate admission observation therefore cannot
+    simply be replaced by that Promise: doing so would defer cancellation or
+    require another publication mechanism. The retirement laws concern semantic
+    ownership; the transport's synchronous sequencing establishes this physical
+    order. The full-service shutdown case in [tests/session-boundaries.test.mjs]
+    exercises cancellation of an unanswered extension hook and release of its
+    peer. *)
 
 From Selvedge.Host Require Dispatch DispatchAdapterProofs.
 Export Dispatch(launch_installs_handle_before_run,
