@@ -232,6 +232,84 @@ Proof.
  - apply consumed_materialization_cannot_remain_active.
 Qed.
 
+Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source state,
+  decode_state source = Some state ->
+  (field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit").
+Proof.
+ intros source state decoded.
+ change (field "ok" (Rpc.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit").
+ unfold Rpc.call;rewrite decoded;cbn.
+ destruct (num source "bytes" <=? num source "frameLimit") eqn:Budget;cbn.
+ - split;[intros _;now apply N.leb_le|intros _;reflexivity].
+ - split;[discriminate|intros Bound;apply N.leb_gt in Budget;lia].
+Qed.
+
+Theorem public_rpc_write_admission_matches_its_byte_budgets : forall source state,
+  decode_state source = Some state ->
+  (get (get (Api.call "rpc.write" source) "value") "action" = JString "write" <->
+   state.(failed) = false /\ state.(closing) = false /\
+   num source "bytes" <= num source "frameLimit" /\
+   num source "queuedBytes" + num source "bytes" <= 2 * num source "frameLimit").
+Proof.
+ intros source state decoded.
+ change (get (get (Rpc.call "rpc.write" source) "value") "action" = JString "write" <->
+   state.(failed) = false /\ state.(closing) = false /\
+   num source "bytes" <= num source "frameLimit" /\
+   num source "queuedBytes" + num source "bytes" <= 2 * num source "frameLimit").
+ unfold Rpc.call;rewrite decoded;cbn -[N.mul];unfold Rpc.write.
+ destruct state.(failed);[cbn -[N.mul];split;[discriminate|intros [Impossible _];discriminate]|].
+ destruct state.(closing);[cbn -[N.mul];split;[discriminate|intros [_ [Impossible _]];discriminate]|].
+ destruct (num source "bytes" <=? num source "frameLimit") eqn:Frame;
+   [|cbn -[N.mul];split;[discriminate|intros [_ [_ [Bound _]]];apply N.leb_gt in Frame;lia]].
+ destruct (num source "queuedBytes" + num source "bytes" <=? 2 * num source "frameLimit") eqn:Queue;
+   [|cbn -[N.mul];split;[discriminate|intros [_ [_ [_ Bound]]];apply N.leb_gt in Queue;lia]].
+ cbn -[N.mul]. split;[intros _;repeat split;try reflexivity;now apply N.leb_le|intros _;reflexivity].
+Qed.
+
+Theorem public_rpc_reservation_matches_available_capacity : forall source state,
+  decode_state source = Some state ->
+  (get (get (Api.call "rpc.request" source) "value") "action" = JString "request" <->
+   boolean_field source "aborted" = false /\ state.(failed) = false /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   state.(next_id) < 9007199254740991).
+Proof.
+ intros source state decoded.
+ change (get (get (Rpc.call "rpc.request" source) "value") "action" = JString "request" <->
+   boolean_field source "aborted" = false /\ state.(failed) = false /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   state.(next_id) < 9007199254740991).
+ unfold Rpc.call;rewrite decoded;cbn;unfold Rpc.request.
+ destruct (boolean_field source "aborted");[cbn;split;[discriminate|intros [Impossible _];discriminate]|].
+ destruct state.(failed);[cbn;split;[discriminate|intros [_ [Impossible _]];discriminate]|].
+ destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") eqn:Capacity;
+   [|cbn;split;[discriminate|intros [_ [_ [Bound _]]];apply N.ltb_ge in Capacity;lia]].
+ destruct (state.(next_id) <? 9007199254740991) eqn:Identity;
+   [|cbn;split;[discriminate|intros [_ [_ [_ Bound]]];apply N.ltb_ge in Identity;lia]].
+ cbn. split;[intros _;repeat split;try reflexivity;now apply N.ltb_lt|intros _;reflexivity].
+Qed.
+
+Theorem public_rpc_reservation_returns_a_bounded_pending_set : forall source state,
+  decode_state source = Some state ->
+  get (get (Api.call "rpc.request" source) "value") "action" = JString "request" ->
+  N.of_nat (List.length (items (get (get (Api.call "rpc.request" source) "value") "nextPending"))) +
+    N.of_nat (List.length state.(working)) <= num source "maxPending".
+Proof.
+ intros source state decoded accepted.
+ apply (proj1 (public_rpc_reservation_matches_available_capacity source state decoded)) in accepted.
+ destruct accepted as [Aborted [Failed [Capacity Identity]]].
+ assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") = true)
+   by now apply N.ltb_lt.
+ assert (IdentityValue : (state.(next_id) <? 9007199254740991) = true) by now apply N.ltb_lt.
+ assert (Entry : Api.call "rpc.request" source = Rpc.request state source).
+ { change (Rpc.call "rpc.request" source = Rpc.request state source).
+   unfold Rpc.call;rewrite decoded;reflexivity. }
+ rewrite Entry. unfold Rpc.request. rewrite Aborted,Failed,CapacityValue,IdentityValue;cbn.
+ rewrite map_length,app_length,Nat2N.inj_add;cbn.
+ rewrite app_length,Nat2N.inj_add in Capacity. lia.
+Qed.
+
 Theorem public_mcp_media_plan_admits_every_part_within_one_byte_budget : forall source result,
   Api.call "plugin.mcp_media_plan" source = success result ->
   Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source) /\

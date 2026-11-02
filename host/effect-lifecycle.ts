@@ -25,7 +25,7 @@ export function launchEffect(control: Control, active: Map<string, ActiveEffect>
   const generation = control({ kind: 'launch', effect }).starts[0];
   // DEFENSE: Startup reconciliation may reach a dispatcher retired by a journal failure.
   if (generation === undefined) return Promise.reject(new Error('Effect dispatcher is retired'));
-  const handle: EffectHandle = Object.freeze({ generation, [handleBrand]: true as const });
+  const handle: EffectHandle = { generation, [handleBrand]: true };
   const key = naturalKey(generation);
   const controller = new AbortController();
   // The microtask cannot execute run until its rejecting promise is installed.

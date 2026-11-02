@@ -53,7 +53,11 @@ From Selvedge.Adapters Require RpcProofs ApiProofs.
 Export RpcProofs(correlation_matches_the_pending_numeric_value).
 Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
   public_issued_plain_rpc_result_resolves_its_pending_request,
-  public_issued_media_rpc_result_reserves_before_materialization).
+  public_issued_media_rpc_result_reserves_before_materialization,
+  public_rpc_frame_admission_matches_its_byte_budget,
+  public_rpc_write_admission_matches_its_byte_budgets,
+  public_rpc_reservation_matches_available_capacity,
+  public_rpc_reservation_returns_a_bounded_pending_set).
 
 (** ** RPC responses retain the issued numeric identity
 
@@ -63,7 +67,17 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     strings, fractional values and unrelated identities cannot consume that
     request. The correlation law gives both directions, and the actual API
     contracts connect it to ordinary settlement and media reservation.
-    A result retired during asynchronous materialization remains retired. *)
+    A result retired during asynchronous materialization remains retired.
+
+    External stdout, a slow pipe and concurrent Task calls can otherwise retain
+    unbounded frames or pending replies. The frame and write admission contracts
+    constrain the actual byte observations supplied by framing and encoding,
+    including the outbound queue. Reservation admission also constrains the
+    returned pending set together with still-running materialization work.
+    A cancelled reply can leave its physical work active, so freeing only the
+    reply identity must not free that capacity. These contracts retain usable
+    admission within the budgets without prescribing the diagnostic selected
+    when several limits fail together. *)
 
 From Selvedge.Host Require Dispatch DispatchAdapterProofs.
 Export Dispatch(launch_installs_handle_before_run,

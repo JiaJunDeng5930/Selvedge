@@ -28,31 +28,29 @@ export class Plugin extends StdioRpc {
     if (!this.available) throw new Error(`Plugin ${this.name} became unavailable during initialization`);
     const admitted = boundary('plugin.manifest', { name: this.name, manifest,
       definition: this.definition, limits: this.limits });
-    this.reference = Object.freeze(admitted.reference);
-    this.descriptor = Object.freeze({ ...admitted.descriptor, reference: this.reference,
-      events: Object.freeze(admitted.descriptor.events) });
+    this.descriptor = admitted.descriptor;
     this.tools = admitted.tools;
     return this.descriptor;
   }
 
   matches(reference) {
-    return boundary('plugin.matches', { reference, expected: this.reference });
+    return boundary('plugin.matches', { reference, expected: this.descriptor.reference });
   }
 
   async before(effect, { signal } = {}) {
-    const request = boundary('plugin.before_request', { effect, reference: this.reference, descriptor: this.descriptor });
+    const request = boundary('plugin.before_request', { effect, descriptor: this.descriptor });
     const outcome = await this.request('beforeTool', request, { signal });
     return boundary('plugin.before_result', { outcome });
   }
 
   async call(effect, { signal } = {}) {
-    const request = boundary('plugin.call_request', { effect, reference: this.reference });
+    const request = boundary('plugin.call_request', { effect, reference: this.descriptor.reference });
     const result = await this.request('callTool', request, { signal });
     return boundary('plugin.call_result', { result });
   }
 
   async after(effect, { signal } = {}) {
-    const request = boundary('plugin.after_request', { effect, reference: this.reference, descriptor: this.descriptor });
+    const request = boundary('plugin.after_request', { effect, descriptor: this.descriptor });
     const outcome = await this.request('afterTool', request, { signal });
     return boundary('plugin.after_result', { outcome });
   }
@@ -70,7 +68,6 @@ export class Plugin extends StdioRpc {
     this.#queue.push(...decision.append);
     this.#queuedBytes = decision.next_queued_bytes;
     if (decision.accepted) this.#startPump();
-    return decision.accepted;
   }
 
   #startPump() {

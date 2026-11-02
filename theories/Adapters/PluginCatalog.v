@@ -57,7 +57,7 @@ Definition manifest source := let value := get source "manifest" in
   if negb (manifest_valid value (get source "definition")) then type_error ("Plugin " ++ str source "name" ++ " returned an invalid manifest") else
   let reference := JObject [("name",get source "name");("revision",get value "revision")] in
   let result := collect_tools source false reference (items (get value "tools")) [] in
-  if negb (boolean_field result "ok") then result else success (JObject [("reference",reference);("tools",get result "value");
+  if negb (boolean_field result "ok") then result else success (JObject [("tools",get result "value");
     ("descriptor",JObject [("reference",reference);("before_tool",get value "beforeTool");("after_tool",get value "afterTool");("events",get value "events")])]).
 Definition annotations route := JObject [("readOnlyHint",JBool (readonly route));("destructiveHint",JBool (destructive route));
   ("idempotentHint",JBool (idempotent route));("openWorldHint",JBool (open_world route))].

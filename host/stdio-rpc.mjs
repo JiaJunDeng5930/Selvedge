@@ -76,15 +76,11 @@ export class StdioRpc extends EventEmitter {
   }
 
   #write(value) {
-    // Serialization is an external observation and follows native availability
-    // admission, preserving the original failure ordering.
-    const preflight = this.#decide('rpc.write', { message: value, bytes: 0, queuedBytes: 0, frameLimit: this.limits.frame_bytes });
-    // DEFENSE: An earlier pipe/process error may have retired this connection before a queued callback attempts a write.
-    if (preflight.action === 'external_failure') throw this.#failure;
-    const text = stringifyJson(preflight.message);
+    const text = stringifyJson(value);
+    let decision;
     try {
-      this.#decide('rpc.write', {
-        message: preflight.message, bytes: Buffer.byteLength(text),
+      decision = this.#decide('rpc.write', {
+        bytes: Buffer.byteLength(text),
         queuedBytes: this.#child.stdin.writableLength, frameLimit: this.limits.frame_bytes,
       });
     } catch (error) {
@@ -92,6 +88,8 @@ export class StdioRpc extends EventEmitter {
       if (error.code === 'range') throw new RangeError(error.message);
       throw error;
     }
+    // DEFENSE: An earlier pipe/process error may have retired this connection before a queued callback attempts a write.
+    if (decision.action === 'external_failure') throw this.#failure;
     this.#child.stdin.write(`${text}\n`, error => {
       // DEFENSE: The child can close stdin after the write was queued; fail pending requests instead of leaving them unresolved.
       if (error) this.#fail(error);
@@ -167,7 +165,7 @@ export class StdioRpc extends EventEmitter {
   request(method, params, { signal, timeoutMs = this.timeoutMs, prepareIncoming } = {}) {
     let decision;
     try { decision = this.#decide('rpc.request', { method, params, maxPending: this.maxPending,
-      prepare: Boolean(prepareIncoming), aborted: signal?.aborted ?? false }); }
+      aborted: signal?.aborted ?? false }); }
     // DEFENSE: Queue pressure, exhausted request identities or a closed process can reject a new RPC call; report it through the request promise.
     catch (error) { return Promise.reject(error); }
     // DEFENSE: The task may have been cancelled or the process may have failed before this RPC starts.

@@ -47,23 +47,21 @@ Definition decode_state (source : json) : option rpc_state :=
 Record rpc_action := RpcAction {
   action_kind : string;
   action_pending : list N;
-  action_preparable : list N;
   action_materializing : list N;
   action_next : N;
   action_payload : list (string * json)
 }.
 Definition unchanged (kind : string) (state : rpc_state) (payload : list (string * json)) :=
-  RpcAction kind state.(pending) state.(preparable) state.(materializing) state.(next_id) payload.
+  RpcAction kind state.(pending) state.(materializing) state.(next_id) payload.
 Definition consume (kind : string) (state : rpc_state) (id : N) (payload : list (string * json)) :=
-  RpcAction kind (retire id state.(pending)) (retire id state.(preparable))
+  RpcAction kind (retire id state.(pending))
     (retire id state.(materializing)) state.(next_id) (("id", number id)::payload).
 Definition reserve_materialization (state : rpc_state) (id : N) (value : json) :=
-  RpcAction "prepare" (retire id state.(pending)) (retire id state.(preparable))
+  RpcAction "prepare" (retire id state.(pending))
     (id::state.(materializing)) state.(next_id) [("id",number id);("value",value)].
 Definition encode_action (action : rpc_action) :=
   success (JObject ([("action", JString action.(action_kind));
                     ("nextPending", JArray (map number action.(action_pending)));
-                    ("nextPreparable", JArray (map number action.(action_preparable)));
                     ("nextMaterializing", JArray (map number action.(action_materializing)));
                     ("nextId", number action.(action_next))] ++ action.(action_payload))).
 (* DEFENSE: A peer can return an unrelated identifier or a late response after its request retired. *)
@@ -128,7 +126,6 @@ Definition request (state : rpc_state) (source : json) : json :=
     (* DEFENSE: A long-lived connection can exhaust exact JavaScript request ids. *)
     if state.(next_id) <? 9007199254740991 then
       encode_action (RpcAction "request" (state.(pending) ++ [state.(next_id)])
-        (if boolean_field source "prepare" then state.(preparable) ++ [state.(next_id)] else state.(preparable))
         state.(materializing)
         (N.succ state.(next_id)) [("id",number state.(next_id));
           ("message",request_message state source)])
@@ -139,7 +136,7 @@ Definition write (state : rpc_state) (source : json) : json :=
   else if state.(closing) then err (label source ++ " " ++ name source ++ " is closed")
   else if num source "bytes" <=? num source "frameLimit" then
     if num source "queuedBytes" + num source "bytes" <=? 2 * num source "frameLimit"
-    then encode_action (unchanged "write" state [("message",get source "message")])
+    then encode_action (unchanged "write" state [])
     else err (label source ++ " outbound queue is full")
   else failure "range" (label source ++ " request exceeds frame limit").
 Definition cancellation (state : rpc_state) (source : json) (id : N) (timeout : bool) :=
@@ -175,7 +172,7 @@ Definition lifecycle (state : rpc_state) (source : json) :=
   let failing := String.eqb (str source "event") "failure" in
   if (if failing then state.(failed) else state.(closing))
   then encode_action (unchanged "ignore" state [])
-  else encode_action (RpcAction (if failing then "fail" else "close") [] [] [] state.(next_id)
+  else encode_action (RpcAction (if failing then "fail" else "close") [] [] state.(next_id)
     [("retired",JArray (map number (state.(pending) ++ state.(materializing))));
      ("error",JString (label source ++ " connection closed"))]).
 Definition exit (state : rpc_state) (source : json) :=
@@ -199,7 +196,7 @@ Definition call (operation : string) (source : json) : json :=
     else if String.eqb operation "rpc.notification" then encode_action (unchanged "write" state [("message",notification_message source)])
     else if String.eqb operation "rpc.write" then write state source
     else if String.eqb operation "rpc.frame" then
-      if num source "bytes" <=? num source "frameLimit" then encode_action (unchanged "read" state [])
+      if num source "bytes" <=? num source "frameLimit" then success JNull
       else err (label source ++ " frame exceeds limit")
     else if String.eqb operation "rpc.message" then message state source
     else if String.eqb operation "rpc.prepared" then prepared state source
