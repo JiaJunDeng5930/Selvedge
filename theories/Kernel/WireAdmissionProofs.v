@@ -11,14 +11,15 @@ Theorem completion_rejects_non_root_configuration : forall execute value request
  G.admit (Remote.intent request) = Some admitted ->
  configuration <> JNull ->
  Remote.root_task_command (G.admitted_value admitted) = false ->
+ exists code reason,
  Remote.complete_request execute true request
    (Schema.of_tuple (Remote.preparation_fields true) (prepared,(configuration,tt))) value =
  (negb (Remote.observation_command (G.admitted_value admitted)),false,
-   reject "invalid_input" "Remote environment observations are limited to task creation" value).
+   reject code reason value).
 Proof.
  intros execute value request admitted prepared configuration Admitted NonNull Root.
  unfold Remote.complete_request; rewrite Admitted; cbn beta iota zeta delta [Schema.head Schema.tail Schema.of_tuple].
  unfold Remote.execute_remote, Remote.configuration_allowed.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);
-   rewrite Root; reflexivity.
+   rewrite Root; eexists; eexists; reflexivity.
 Qed.

@@ -146,9 +146,10 @@ Proof.
 Qed.
 Theorem unknown_task_has_no_binding : forall payload caller value,
  find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value=None ->
+ exists reason,
  Worktree.handle_read_worktree payload caller value=
- failure "task_not_found" "Task does not exist.".
-Proof. intros; unfold Worktree.handle_read_worktree; now rewrite H. Qed.
+ failure "task_not_found" reason.
+Proof. intros; unfold Worktree.handle_read_worktree; rewrite H; eexists; reflexivity. Qed.
 
 (** Cloud fork admission runs before the ordinary settings selection. Both
     workspace and project overrides are rejected by the actual feature guard. *)

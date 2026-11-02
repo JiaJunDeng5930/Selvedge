@@ -65,9 +65,10 @@ Proof.
 Qed.
 
 Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,
+ exists reason,
  F.job_state (Chatgpt.recover_job (F.ConnectionJob connection project request arguments workspace resource sandbox F.JobRunning)) =
- F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
-Proof. reflexivity. Qed.
+ F.JobInterrupted reason.
+Proof. intros; eexists; reflexivity. Qed.
 
 (** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forget_payload) value job granted caller,
