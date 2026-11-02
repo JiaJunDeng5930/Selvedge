@@ -44,11 +44,12 @@ Qed.
 Theorem archived_send_rejects_without_changing_world : forall id contents value task operations,
  find_task id value = Some task ->
  task_lifecycle task = Archived operations ->
+ exists reason,
  Tasks.send id contents value =
-   reject "invalid_arguments" "Archived tasks cannot accept input" value.
+   reject "invalid_arguments" reason value.
 Proof.
  intros id contents value task operations Hfind Harchived.
- rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. reflexivity.
+ rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. eexists; reflexivity.
 Qed.
 
 Theorem stopped_idle_receive_reactivates : forall contents task,

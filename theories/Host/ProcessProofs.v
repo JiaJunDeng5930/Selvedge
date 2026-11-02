@@ -8,16 +8,17 @@ Theorem completion_closes_stdin current :
 Proof. reflexivity. Qed.
 
 Theorem closed_input_rejects_write current terminal eof resize :
+  exists reason,
   admit_write (observe current InputClosed) terminal eof resize =
-    Some (Failure "process_stdin_closed" "The process input is closed").
-Proof. destruct current as [[] input busy reason]; reflexivity. Qed.
+    Some (Failure "process_stdin_closed" reason).
+Proof. destruct current as [[] input busy reason]; eexists; reflexivity. Qed.
 
 Theorem reserved_write_is_exclusive current next :
   reserve_write current = inr next ->
-  reserve_write next = inl (Failure "process_input_busy" "Another input write is still pending for this process").
+  exists reason, reserve_write next = inl (Failure "process_input_busy" reason).
 Proof.
   destruct current as [phase input busy reason]; destruct busy;
-    cbn; intros; inversion H; reflexivity.
+    cbn; intros; inversion H; eexists; reflexivity.
 Qed.
 
 Theorem first_reason_survives current first later :

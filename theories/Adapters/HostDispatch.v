@@ -13,11 +13,11 @@ Definition effect_provider effect := if String.eqb (str effect "kind") "model" t
   else if String.eqb (str effect "kind") "approval" then IndependentProvider else NoProvider.
 Definition running_json (entry : running) := JObject [("generation",number (handle entry));
   ("key",JString (key entry));("task",match task entry with Some owner => number owner | None => JNull end);
-  ("cancellable",JBool (cancellable entry));("provider",provider_json (provider entry));("reduced",JBool (reduced entry));("settled",JBool (settled entry))].
+  ("cancellable",JBool (cancellable entry));("provider",provider_json (provider entry));("reduced",JBool (reduced entry))].
 Definition state_json (s : state) := JObject [("retired",JBool (retired s));
   ("next",number (next_handle s));("active",JArray (map running_json (active s)))].
 Definition running_of (entry : json) := Running (num entry "generation") (str entry "key")
-  (natural (get entry "task")) (boolean_field entry "cancellable") (provider_of (get entry "provider")) (boolean_field entry "reduced") (boolean_field entry "settled").
+  (natural (get entry "task")) (boolean_field entry "cancellable") (provider_of (get entry "provider")) (boolean_field entry "reduced").
 Definition state_of (source : json) := State (boolean_field source "retired") (num source "next")
   (map running_of (items (get source "active"))).
 Definition effect_key (effect : json) :=
