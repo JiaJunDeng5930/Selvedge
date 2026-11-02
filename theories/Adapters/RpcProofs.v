@@ -4,17 +4,25 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Theorem correlated_identity_is_pending : forall state observed id,
-  correlate state observed = Some id ->
-  canonical_natural observed = true /\ In id state.(pending).
+Theorem correlation_matches_the_pending_numeric_value : forall state observed id,
+  correlate state observed = Some id <->
+  wire_natural observed = Some id /\ In id state.(pending).
 Proof.
   intros state observed id.
-  unfold correlate, issued.
-  destruct (canonical_natural observed && contains (nat_value observed) (pending state)) eqn:H;
-    intro E; inversion E; subst.
-  apply andb_true_iff in H as [C H]. split; [exact C|].
-  apply existsb_exists in H as [value [member same]].
-  apply N.eqb_eq in same; subst; assumption.
+  unfold correlate.
+  destruct (wire_natural observed) as [value|] eqn:Decoded.
+  - destruct (contains value state.(pending)) eqn:Pending.
+    + split.
+      * intros Same; injection Same as Same; subst value. split; [reflexivity|].
+        unfold contains in Pending. apply existsb_exists in Pending as [entry [Member Equal]].
+        apply N.eqb_eq in Equal; now subst entry.
+      * intros [Same _]; exact Same.
+    + split; [discriminate|].
+      intros [Same Member]; injection Same as Same; subst value.
+      assert (contains id state.(pending) = true) as Present.
+      { unfold contains. apply existsb_exists. exists id; split; [exact Member|apply N.eqb_refl]. }
+      congruence.
+  - split; [discriminate|intros [Impossible _]; discriminate].
 Qed.
 
 Theorem consumed_identity_cannot_remain_pending : forall id ids,

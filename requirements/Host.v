@@ -49,6 +49,22 @@ Import ListNotations.
     input once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
+From Selvedge.Adapters Require RpcProofs ApiProofs.
+Export RpcProofs(correlation_matches_the_pending_numeric_value).
+Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
+  public_issued_plain_rpc_result_resolves_its_pending_request,
+  public_issued_media_rpc_result_reserves_before_materialization).
+
+(** ** RPC responses retain the issued numeric identity
+
+    JSON-RPC correlates a response with the value of the issued identifier.
+    Equivalent JSON Number spellings therefore identify the same pending
+    request. The existing bounded-integer decoder supplies its exact value;
+    strings, fractional values and unrelated identities cannot consume that
+    request. The correlation law gives both directions, and the actual API
+    contracts connect it to ordinary settlement and media reservation.
+    A result retired during asynchronous materialization remains retired. *)
+
 From Selvedge.Host Require Dispatch DispatchAdapterProofs.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,

@@ -66,10 +66,12 @@ Definition encode_action (action : rpc_action) :=
                     ("nextPreparable", JArray (map number action.(action_preparable)));
                     ("nextMaterializing", JArray (map number action.(action_materializing)));
                     ("nextId", number action.(action_next))] ++ action.(action_payload))).
-Definition issued (state : rpc_state) (id : json) :=
-  canonical_natural id && contains (nat_value id) state.(pending).
+(* DEFENSE: A peer can return an unrelated identifier or a late response after its request retired. *)
 Definition correlate (state : rpc_state) (id : json) : option N :=
-  if issued state id then Some (nat_value id) else None.
+  match wire_natural id with
+  | Some value => if contains value state.(pending) then Some value else None
+  | None => None
+  end.
 Definition label (source : json) := str source "label".
 Definition name (source : json) := str source "name".
 Definition request_message (state : rpc_state) (source : json) :=
