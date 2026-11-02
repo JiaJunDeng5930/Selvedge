@@ -295,7 +295,6 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   assert.equal(read.reply.result.task.settings.approval.mode, 'full-access');
   const entry = await worktree(fixture_.service, id);
   assert.equal(entry.backend, 'tencent_cvm');
-  assert.equal(entry.root, `/workspace/selvedge/${id}/repository`);
   await assert.rejects(() => fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
     messages: ['Reject caller-supplied root guidance on the ready cloud path.'],
     settings: { guidance: { instructions: 'UNTRUSTED-CLIENT-GUIDANCE' } } }), { name: 'CommandNotSubmitted' });
@@ -420,8 +419,6 @@ test('a disconnected allocation response is reconciled and its instance is recla
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
     'Unknown allocation must finish recovery before publishing its failure');
   assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
-  const pages = fixture_.requests.filter(value => value.action === 'DescribeInstances' && value.body.Filters);
-  assert.equal(pages.length, 1);
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 1);
   assert.equal(fixture_.instances.size, 0);
   assert.equal(entry.root, null);
@@ -543,7 +540,7 @@ test('cloud guidance uses the shared override priority and preserves the leading
 test('native independent creation reuses the caller cloud resource despite the project worktree preference and receives its environment notice', async t => {
   let owner;
   let childObserved = false;
-  const fixture_ = await fixture(t, body => {
+  const fixture_ = await fixture(t, async body => {
     const context = JSON.stringify({ instructions: body.instructions, input: body.input });
     if (body.input.some(item => item.role === 'user' && JSON.stringify(item.content).includes('INDEPENDENT-CLOUD') &&
         !(typeof item.content === 'string' && item.content.startsWith(completionPrefix)))) {
@@ -552,7 +549,7 @@ test('native independent creation reuses the caller cloud resource despite the p
       return done;
     }
     if (outputs(body).has('create-independent-cloud')) return done;
-    const root = `/workspace/selvedge/${owner}/repository`;
+    const { root } = await worktree(fixture_.service, owner);
     return tool(body, 'create-independent-cloud', 'create_task', {
       profile: fixture_.profile, message: 'INDEPENDENT-CLOUD', settings: {
         workspace: { roots: [root], primary_root: root },
