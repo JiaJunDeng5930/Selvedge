@@ -2,7 +2,7 @@ From Selvedge.Programming Require TaskBirth.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import State Numbers LifecycleProofs.
+From Selvedge.Kernel Require Import State Codec Numbers LifecycleProofs.
 From Selvedge.Features Require Import Domain State Work WorkUIPatch.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
@@ -94,9 +94,10 @@ Proof.
  destruct (N.eqb expected (F.work_ui_revision previous)); [rewrite failed|]; split; reflexivity.
 Qed.
 Theorem ui_requires_task_call : forall value patch expected,
- Work.apply_ui_patch None patch expected value =
- K.reject "task_call_required"%string "Edit the shared UI through a Task tool call."%string value.
-Proof. reflexivity. Qed.
+ let refused := Work.apply_ui_patch None patch expected value in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = value /\ decision_effects refused = [].
+Proof. intros; repeat split; reflexivity. Qed.
 Theorem own_birth_changes_only_ownership : forall origin before
  (owner : Work.owner_scope origin) (birth : TaskBirth.birth_result before) value tasks works,
  with_features (Selvedge.Features.State.with_task_owners

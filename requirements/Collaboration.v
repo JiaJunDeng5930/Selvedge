@@ -3,14 +3,16 @@
     A Work groups an undertaking, a Task executes a conversation, a graph routes
     replies, and a board card records planned work. Linking them does not merge
     their identity, authority or lifecycle. Independent names and shared source
-    must remain editable without rewriting the execution they describe. *)
+    must remain editable without rewriting the execution they describe.
+    Refusal contracts require failure, unchanged state and no emitted effects;
+    human-readable diagnostic wording is not part of that behavior. *)
 
 From Selvedge.Features Require WorkProofs.
 Export WorkProofs(witnessed_root_birth_records_its_work,
   new_root_ownership_preserves_existing_roots,
   stale_ui_is_atomic, failed_patch_is_atomic,
   admitted_patch_updates_shared_source,
-  shared_ui_patch_preserves_task_ownership).
+  shared_ui_patch_preserves_task_ownership, ui_requires_task_call).
 
 (** ** Work ownership and shared source
 

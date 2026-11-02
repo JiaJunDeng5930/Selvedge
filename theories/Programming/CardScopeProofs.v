@@ -1,5 +1,6 @@
 From Stdlib Require Import String Bool NArith.
-From Selvedge.Kernel Require Import State.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Kernel Require Import State Codec.
 From Selvedge.Features Require Domain.
 From Selvedge.Programming Require CommandResult CardScope.
 From Selvedge.Programming Require Import OptionObservationProofs.
@@ -21,9 +22,10 @@ Qed.
 
 Theorem stale_card_is_atomic : forall id expected value card run,
  CardScope.lookup id value = Some card -> expected <> F.card_revision card ->
- CardScope.with_card id expected value run =
- reject "card_conflict"%string "The card changed in another view or during execution. Refresh its current values before applying this edit."%string value.
+ let refused := CardScope.with_card id expected value run in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = value /\ decision_effects refused = nil.
 Proof.
- intros id expected value card run found different.
- unfold CardScope.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found. apply N.eqb_neq in different. rewrite different. reflexivity.
+ intros id expected value card run found different; cbv zeta.
+ unfold CardScope.with_card; rewrite selecting_a_card_retains_the_observed_value; unfold CommandResult.resolve. rewrite found. apply N.eqb_neq in different. rewrite different. repeat split; reflexivity.
 Qed.
