@@ -13,9 +13,8 @@ Proof. intros source H;change (meter_fallback source = action "error");
   unfold meter_fallback;rewrite H;reflexivity. Qed.
 Theorem public_token_counter_rejects_negative_or_nonnumeric : forall source,
   natural (get (get source "response") "input_tokens") = None ->
-  Api.call "backend.compaction_meter_result" source =
-    err "The provider returned an invalid input token count".
-Proof. intros source H;change (meter_result source = err "The provider returned an invalid input token count");unfold meter_result;now rewrite H. Qed.
+  exists message, Api.call "backend.compaction_meter_result" source = err message.
+Proof. intros source H; exists "The provider returned an invalid input token count"; change (meter_result source = err "The provider returned an invalid input token count"); unfold meter_result; now rewrite H. Qed.
 Theorem public_valid_token_count_is_retained : forall source count,
   natural (get (get source "response") "input_tokens") = Some count ->
   Api.call "backend.compaction_meter_result" source = success (JObject [

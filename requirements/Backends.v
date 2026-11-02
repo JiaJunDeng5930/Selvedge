@@ -13,7 +13,10 @@ From Selvedge.Programming Require Import AdapterResult.
     model and audio credentials retain their own grants. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
     [AccountsProofs] binds these refresh, callback and credential rules to the
-    public account operations. Refresh eligibility uses one admitted, locked
+    public account operations. Refusal contracts retain failure and the actual
+    control decision without fixing diagnostic wording. Errors for malformed
+    credential text must be independent of the rejected bytes so they cannot
+    disclose a credential. Refresh eligibility uses one admitted, locked
     credential; its expiry margin and earliest refresh time are evaluated
     against the same observed time. Callback admission binds the actual HTTP
     request to the login; repeated browser callbacks must not replace its chosen
@@ -44,7 +47,8 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_valid_callback_authorizes_its_client,
  public_credential_requires_unambiguous_identity,
  public_audio_credential_rejects_another_client,
- public_malformed_encoded_cache_is_disposable).
+ public_malformed_encoded_cache_is_disposable,
+ public_unparseable_authentication_text_is_sanitized).
 Export BackendProofs(public_frozen_account_rejects_another_identity,
  public_matching_account_is_usable,
  public_finalized_output_retains_every_item,

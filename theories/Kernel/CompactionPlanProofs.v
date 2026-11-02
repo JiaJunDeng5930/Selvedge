@@ -27,10 +27,10 @@ Proof.
  unfold receive, receive_source. cbn. now rewrite Finished.
 Qed.
 Theorem an_opaque_reply_cannot_finish_portable_work : forall unread cursor carry width window reserve scope items,
- receive (CompactionState (PortableSource unread) cursor carry width window reserve)
+ exists reason, receive (CompactionState (PortableSource unread) cursor carry width window reserve)
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =
- Failed "The compactor returned an empty continuation note".
-Proof. reflexivity. Qed.
+ Failed reason.
+Proof. intros; eexists; reflexivity. Qed.
 Theorem an_admitted_plan_fits_its_byte_allocation : forall value budget,
  transport_fits value budget = true -> plan_bytes value <= budget /\ has_transport_work value = true.
 Proof.
@@ -100,11 +100,8 @@ Qed.
 Theorem rebasing_preserves_the_unread_suffix_in_order :
  forall unread cursor carry width window reserve rebased,
  rebase_note (CompactionState (PortableSource unread) cursor carry width window reserve) = Some rebased ->
- exists prefix,
-   scalar_fragments
-     ("Prior continuation note:" ++ String (Ascii.ascii_of_nat 10) carry ++
-      String (Ascii.ascii_of_nat 10) "Unread task history:" ++
-      String (Ascii.ascii_of_nat 10) "") = Some prefix /\
+ exists opening closing prefix,
+   scalar_fragments (opening ++ carry ++ closing) = Some prefix /\
    compaction_source rebased = PortableSource (prefix ++ unread) /\
    compaction_carry rebased = "".
 Proof.
@@ -117,7 +114,9 @@ Proof.
     String (Ascii.ascii_of_nat 10) "")) as [prefix|] eqn:Parsed;
    try discriminate.
  inversion Rebased; subst rebased.
- exists prefix. split; [reflexivity|].
+ exists ("Prior continuation note:" ++ String (Ascii.ascii_of_nat 10) ""),
+   (String (Ascii.ascii_of_nat 10) "Unread task history:" ++ String (Ascii.ascii_of_nat 10) ""), prefix.
+ split; [exact Parsed|].
  cbn. split.
  - rewrite List.rev_append_rev, List.rev_append_rev, List.app_nil_r, List.rev_involutive.
    reflexivity.

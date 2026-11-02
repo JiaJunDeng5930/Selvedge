@@ -190,10 +190,9 @@ Theorem public_frozen_account_rejects_another_identity : forall source,
   text (get (get source "profile") "bound_account_id") <> "" ->
   JsonObjects.equivalent (get (get source "profile") "bound_account_id")
     (get (get source "authorization") "account_id") = false ->
-  Api.call "backend.authorization" source = err
-    "This task belongs to a different ChatGPT account; restore that account or create a new task".
+  exists message, Api.call "backend.authorization" source = err message.
 Proof.
- intros source bound different;change (authorization source = err
+ intros source bound different; exists "This task belongs to a different ChatGPT account; restore that account or create a new task"; change (authorization source = err
     "This task belongs to a different ChatGPT account; restore that account or create a new task").
  unfold authorization;apply String.eqb_neq in bound;now rewrite bound,different.
 Qed.
@@ -210,9 +209,8 @@ Proof. intros source typed nonempty;change (credentials source = success (get so
  unfold credentials;apply String.eqb_neq in nonempty;now rewrite typed,nonempty. Qed.
 Theorem public_empty_environment_credential_fails_before_io : forall source,
   str source "key" = "" ->
-  Api.call "backend.credentials" source = err
-    ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider").
-Proof. intros source empty;change (credentials source = err
+  exists message, Api.call "backend.credentials" source = err message.
+Proof. intros source empty; exists ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider"); change (credentials source = err
     ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider"));
  unfold credentials;rewrite empty;cbn;now rewrite andb_false_r. Qed.
 Theorem public_http_context_limit_recovers_before_output : forall source,
@@ -247,9 +245,8 @@ Theorem public_excessive_retry_after_cancels_response : forall source delay,
   contains (items (get (get source "policy") "statuses")) (get source "status") = true ->
   attempt_available source = true -> header_delay source = Some delay ->
   delay_exceeds_integer delay (num (get source "policy") "max_retry_after_ms") = true ->
-  Api.call "backend.retry" source = retry_failure
-    ("Model request failed with HTTP " ++ display_field source "status" ++ "; Retry-After exceeds the retry budget") true false.
-Proof. intros source delay error status available header budget;change (retry source = retry_failure
+  exists message, Api.call "backend.retry" source = retry_failure message true false.
+Proof. intros source delay error status available header budget; exists ("Model request failed with HTTP " ++ display_field source "status" ++ "; Retry-After exceeds the retry budget"); change (retry source = retry_failure
     ("Model request failed with HTTP " ++ display_field source "status" ++ "; Retry-After exceeds the retry budget") true false);
  unfold retry;now rewrite error,status,available,header,budget. Qed.
 Theorem public_admitted_retry_keeps_the_header_minimum : forall source delay,
@@ -267,10 +264,9 @@ Definition account_function_output arguments namespace := JObject [
     ("call_id",JString "call-1");("name",JString "read_work");("arguments",JString arguments)]])].
 Theorem public_foreign_function_namespace_is_rejected : forall arguments namespace,
   namespace <> local_tool_namespace ->
-  Api.call "backend.output" (account_function_output arguments namespace) =
-    err "ChatGPT returned a function call outside the local tool namespace".
+  exists message, Api.call "backend.output" (account_function_output arguments namespace) = err message.
 Proof.
-  intros arguments namespace foreign.
+  intros arguments namespace foreign. eexists.
   apply String.eqb_neq in foreign.
   change (Api.call "backend.output" (account_function_output arguments namespace))
     with (BackendResponses.output (account_function_output arguments namespace)).

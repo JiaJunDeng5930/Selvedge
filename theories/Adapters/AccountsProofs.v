@@ -7,9 +7,9 @@ Open Scope N_scope.
 Theorem public_model_credential_rejects_another_identity : forall source,
   boolean_field source "audio" = false ->
   same (get (get source "value") "account_id") (get source "identity") = false ->
-  Api.call "account.credential" source = err "Invalid current-format ChatGPT credential; sign in again".
+  exists message, Api.call "account.credential" source = err message.
 Proof.
- intros source model different.
+ intros source model different. exists "Invalid current-format ChatGPT credential; sign in again".
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite model;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
@@ -20,9 +20,9 @@ Qed.
 Theorem public_audio_credential_rejects_another_client : forall source,
   boolean_field source "audio" = true ->
   same (get (get source "value") "client_id") (get AccountContracts.audio_contract "client_id") = false ->
-  Api.call "account.credential" source = err "Invalid current-format ChatGPT credential; sign in again".
+  exists message, Api.call "account.credential" source = err message.
 Proof.
- intros source audio different.
+ intros source audio different. exists "Invalid current-format ChatGPT credential; sign in again".
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite audio;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
@@ -32,25 +32,25 @@ Proof.
 Qed.
 Theorem public_registration_rejects_another_issuer : forall source,
   same (get (get source "value") "issuer") (get source "issuer") = false ->
-  Api.call "account.registration" source = err "Invalid ChatGPT client registration; sign in again".
+  exists message, Api.call "account.registration" source = err message.
 Proof.
- intros source different.
+ intros source different. exists "Invalid ChatGPT client registration; sign in again".
  change (registration source = err "Invalid ChatGPT client registration; sign in again").
  unfold registration,admit_registration;destruct (decode_complete registration_schema (get source "value"));auto.
  unfold registration_checks,registration_binding;rewrite different;now rewrite !andb_false_r.
 Qed.
 Theorem public_refresh_rejects_another_registered_client : forall source,
   same (get (get source "registered") "client_id") (get (get source "value") "client_id") = false ->
-  Api.call "account.refresh" source = err identity_failure.
-Proof. intros source different;change (refresh source = err identity_failure).
+  exists message, Api.call "account.refresh" source = err message.
+Proof. intros source different; exists identity_failure; change (refresh source = err identity_failure).
  unfold refresh,refresh_admission,same_registration;now rewrite different. Qed.
 Theorem public_refresh_cannot_replace_the_request_identity : forall source,
   same_registration source = true ->
   has source "requestCredential" = true ->
   same_request_identity (get source "requestCredential") (get source "value") = false ->
-  Api.call "account.refresh" source = err request_identity_failure.
+  exists message, Api.call "account.refresh" source = err message.
 Proof.
- intros source registered bound different.
+ intros source registered bound different. exists request_identity_failure.
  change (refresh source = err request_identity_failure).
  unfold refresh,refresh_admission,request_identity_retained;
  now rewrite registered,bound,different.
@@ -83,8 +83,8 @@ Proof.
 Qed.
 Theorem public_credential_rejects_another_issuer : forall source,
   same (get (get source "value") "issuer") (get source "issuer") = false ->
-  Api.call "account.issuer_admission" source = err "ChatGPT credential belongs to a different issuer; sign in again".
-Proof. intros source different;change (issuer_admission source = err "ChatGPT credential belongs to a different issuer; sign in again");
+  exists message, Api.call "account.issuer_admission" source = err message.
+Proof. intros source different; exists "ChatGPT credential belongs to a different issuer; sign in again"; change (issuer_admission source = err "ChatGPT credential belongs to a different issuer; sign in again");
  unfold issuer_admission;now rewrite different. Qed.
 Theorem public_foreign_callback_state_cannot_authorize : forall source,
   same (first (parameters source "state")) (get source "state") = false ->
@@ -110,18 +110,18 @@ Proof. intros source different;change (cache source = success JNull);unfold cach
 Theorem public_forced_discovery_does_not_use_stale_fallback : forall source,
   boolean_field source "force" = true -> Api.call "account.cache_fallback" source = success (JBool false).
 Proof. intros source forced;change (cache_fallback source = success (JBool false));unfold cache_fallback;now rewrite forced. Qed.
-Theorem public_unparseable_authentication_text_is_sanitized : forall source,
+Theorem public_unparseable_authentication_text_is_sanitized : exists message, forall source,
   TextJson.parse_json (str source "text") = None ->
-  Api.call "account.record_decode" source = err "Invalid ChatGPT authentication record; sign in again".
-Proof. intros source invalid;change (record_decode source = err "Invalid ChatGPT authentication record; sign in again");
+  Api.call "account.record_decode" source = err message.
+Proof. exists "Invalid ChatGPT authentication record; sign in again"; intros source invalid; change (record_decode source = err "Invalid ChatGPT authentication record; sign in again");
  unfold record_decode;now rewrite invalid. Qed.
 Theorem public_unparseable_cache_is_disposable : forall source,
   TextJson.parse_json (str source "text") = None -> Api.call "account.cache_decode" source = success JNull.
 Proof. intros source invalid;change (cache_decode source = success JNull);unfold cache_decode;now rewrite invalid. Qed.
 Theorem public_login_metadata_excludes_token_fields : forall source,
-  map fst (object_fields (get (Api.call "account.login_result" source) "value")) =
-    ["account_id";"filename";"name";"email"].
-Proof. reflexivity. Qed.
+  Forall (fun name => In name ["account_id";"filename";"name";"email"])
+    (map fst (object_fields (get (Api.call "account.login_result" source) "value"))).
+Proof. intros; repeat constructor; cbn; tauto. Qed.
 
 Definition example_credential := JObject [
   ("format",JString "selvedge-chatgpt-2");("issuer",JString "https://auth.openai.com");

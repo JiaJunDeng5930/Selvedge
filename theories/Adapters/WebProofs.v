@@ -22,17 +22,17 @@ Proof.
 Qed.
 Theorem invalid_domain_json_is_rejected : forall source,
   parse_provider_json source = None -> domain_json_failure_at (S TextJson.input_nesting) source = true ->
-  decode_provider_text source = err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode".
-Proof. intros source parsed domain;unfold decode_provider_text;now rewrite parsed,domain. Qed.
+  exists message, decode_provider_text source = err message.
+Proof. intros source parsed domain; unfold decode_provider_text; rewrite parsed,domain; eexists; reflexivity. Qed.
 Theorem successful_invalid_http_json_reports_protocol_error : forall source,
   TextJson.parse_json_members source = None ->
-  WebResources.http_json true source = failure "http_json_parse" "The service returned invalid JSON".
-Proof. intros source parsed;unfold WebResources.http_json;now rewrite parsed. Qed.
+  exists message, WebResources.http_json true source = failure "http_json_parse" message.
+Proof. intros source parsed; unfold WebResources.http_json; rewrite parsed; eexists; reflexivity. Qed.
 Theorem response_identity_cannot_change : forall record current id,
   identity id = true -> truthy (member current "response_id") = true ->
   same (member current "response_id") id = false ->
-  store_identify record current id = err "ChatGPT Web changed the response identity".
-Proof. intros record current id valid present changed;unfold store_identify;now rewrite valid,present,changed. Qed.
+  exists message, store_identify record current id = err message.
+Proof. intros record current id valid present changed; unfold store_identify; rewrite valid,present,changed; eexists; reflexivity. Qed.
 Theorem existing_request_reuse_requires_body_and_connection : forall record request previous key value,
   stored_as Active record = true ->
   store_prepare (Some record) request previous key = prepare_decision "reuse" value -> prepare_identity record request = true.
@@ -44,8 +44,8 @@ Theorem cancelled_request_cannot_reuse_a_different_connection : forall source,
   truthy (get source.(continuation_effect).(effect_model) "adaptive_reasoning") = false ->
   configuration_reset source = false -> cancelled source = true ->
   same (previous_field source "binding") source.(continuation_binding_value) = false ->
-  WebContinuation.continuation source = err "The cancelled ChatGPT Web request belongs to a different connection".
-Proof. intros source adaptive reset cancelled different;unfold WebContinuation.continuation;now rewrite adaptive,reset,cancelled,different. Qed.
+  exists message, WebContinuation.continuation source = err message.
+Proof. intros source adaptive reset cancelled different; unfold WebContinuation.continuation; rewrite adaptive,reset,cancelled,different; eexists; reflexivity. Qed.
 Theorem tool_continuation_requires_complete_unique_result_batch : forall source receipt suffix value,
   receipt.(receipt_requires_action) = true -> continue_receipt source receipt suffix = success value ->
   continuation_batch_matches receipt.(receipt_calls) suffix = true /\

@@ -158,7 +158,7 @@ Theorem actual_model_generation_consumes_one_lease_step : forall owner model rem
  task_history (ModelRequest.Plans.generation owner model remaining task) =
  prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
  (prefix = task_history task \/
-  prefix = task_history task ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]) /\
+  exists reason, prefix = task_history task ++ [FailureMessage reason]) /\
  (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
  intros owner model remaining task. unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
@@ -172,7 +172,7 @@ Proof.
  cbn [andb app Domain.append_history Domain.with_history task_history].
  - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
      [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite <- app_assoc|split; [now right|now right]].
+   split; [now rewrite <- app_assoc|split; [right; eexists; reflexivity|now right]].
  - exists history, [ReasoningConfigurationMessage (profile_reasoning model)].
    split; [reflexivity|split; [now left|now right]].
  - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
@@ -341,10 +341,10 @@ Theorem public_evaluator_notes_keep_their_reasoning_category : forall text,
  ReasoningView.text_message "reasoning_summary" (ReasoningView.excerpt text).
 Proof. reflexivity. Qed.
 
-Theorem encrypted_provider_continuations_are_redacted_before_preview : forall secret,
+Theorem encrypted_provider_continuations_are_redacted_before_preview : exists placeholder, forall secret,
  ReasoningView.public_value 512 (JObject [("encrypted_content",secret)]) =
- JObject [("encrypted_content",JString "[Private provider continuation omitted]")].
-Proof. reflexivity. Qed.
+ JObject [("encrypted_content",JString placeholder)].
+Proof. eexists; reflexivity. Qed.
 
 Theorem provider_reasoning_exposes_only_its_public_summary : forall secret summary,
  ReasoningView.public_value 512 (JObject [("type",JString "reasoning");

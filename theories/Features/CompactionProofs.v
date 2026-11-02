@@ -329,15 +329,16 @@ Theorem suspended_manual_context_completion_cancels_its_job :
  A.cancelled_task id (K.decision_effects result) = false ->
  A.cancelled_ticket id ticket (K.decision_effects result) = false ->
  (task_lifecycle task = Frozen WantsModel operations \/ task_lifecycle task = Stopped WantsModel operations) ->
- let cancelled := TaskWake.promote (with_activity Idle (append_history
-   [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task)) in
+ exists reason,
+ let cancelled := TaskWake.promote (with_activity Idle (append_history [FailureMessage reason] task)) in
  DecisionComposition.run (A.observe_manual before id) result =
  DecisionComposition.follow result (A.cancel id cancelled (A.current_entry id (A.registry (K.decision_world result)))
    (K.put_task id cancelled (K.decision_world result))) /\
  task_activity cancelled = Idle /\
  entry_job (A.clear_entry cancelled (A.current_entry id (A.registry (K.decision_world result)))) = NoJob.
 Proof.
- intros id ticket revision before result previous task operations Previous Phase Found Job CurrentJob NotCancelled NotSteered Paused cancelled.
+ intros id ticket revision before result previous task operations Previous Phase Found Job CurrentJob NotCancelled NotSteered Paused.
+ exists "Context summary was not sent because the task is frozen or stopped; original history retained"; intro cancelled.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_manual; rewrite Previous, Found, NotCancelled, Phase, Job, N.eqb_refl, NotSteered.
  unfold A.awaiting_context_demand; rewrite CurrentJob, N.eqb_refl; cbn [A.same_context_purpose].
  destruct Paused as [FrozenTask|StoppedTask].
@@ -595,14 +596,12 @@ Theorem an_oversized_portable_validation_stops :
  A.same_history preview
    (ContextSelection.adopt (captured_history input) (PortableArtifact first rest usage) (task_history task)) = true ->
  (tokens + reserve_tokens budget <=? window_tokens budget) = false ->
- A.finish_validation id task input purpose (PortableArtifact first rest usage)
-   preview scope tokens budget entry value =
- A.failed id task entry
-   "The portable summary and retained context exceed the configured model window; original history retained" value.
+ exists reason, A.finish_validation id task input purpose (PortableArtifact first rest usage)
+   preview scope tokens budget entry value = A.failed id task entry reason value.
 Proof.
  intros id task input purpose first rest usage preview scope tokens budget entry value Relevant Preview Oversized.
  unfold A.finish_validation; rewrite Relevant; cbn [ContextSelection.consumes].
- now rewrite Preview, Oversized.
+ rewrite Preview, Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_native_validation_keeps_portable_fallback :
@@ -627,12 +626,11 @@ Theorem an_oversized_portable_validation_frame_stops :
  let request := R.MeasureRequest input candidate scope entry in
  (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
- A.measured_call id task input scope candidate entry value =
- A.failed id task entry
-   "The portable summary and retained context exceed the validation transport budget; original history retained" value.
+ exists reason, A.measured_call id task input scope candidate entry value =
+ A.failed id task entry reason value.
 Proof.
  intros id task input scope purpose first rest usage preview entry value candidate request Oversized.
- unfold A.measured_call. fold request. now rewrite Oversized.
+ unfold A.measured_call. fold request. rewrite Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_measurement_without_a_portable_candidate_can_rebuild :
@@ -672,18 +670,19 @@ Proof.
    Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
 Qed.
 
-Definition compaction_failure_task (current : task) (reason : string) :=
+Definition compaction_failure_task (current : task) (message : string) :=
  with_activity (match task_activity current with ReadyForModel => Idle | phase => phase end)
-   (set task_history (fun history => (history ++ [FailureMessage ("Context compaction: " ++ reason)])%list) current).
+   (set task_history (fun history => (history ++ [FailureMessage message])%list) current).
 
 Theorem compaction_failure_preserves_history_and_retires_its_receivers :
  forall id current entry reason before,
  K.find_task id before = Some current ->
- let stopped := compaction_failure_task current reason in
+ exists message,
+ let stopped := compaction_failure_task current message in
  let result := A.failed id current entry reason before in
  let saved := A.current_entry id (A.registry (K.decision_world result)) in
  K.find_task id (K.decision_world result) = Some stopped /\
- task_history stopped = (task_history current ++ [FailureMessage ("Context compaction: " ++ reason)])%list /\
+ task_history stopped = (task_history current ++ [FailureMessage message])%list /\
  task_activity stopped = (match task_activity current with ReadyForModel => Idle | phase => phase end) /\
  entry_job saved = NoJob /\
  entry_measurement saved = MeasurementFailed (A.capture_task stopped (K.decision_world result)) /\
@@ -692,7 +691,8 @@ Theorem compaction_failure_preserves_history_and_retires_its_receivers :
  A.cancellations id saved = [] /\
  K.decision_effects result = [].
 Proof.
- intros id current entry reason before Found stopped result saved.
+ intros id current entry reason before Found.
+ exists ("Context compaction: " ++ reason)%string; intros stopped result saved.
  assert (Saved : saved =
    set entry_attempted (fun _ => A.useful (task_history stopped))
      (set entry_cache_deadline (fun _ => 0)
@@ -757,11 +757,11 @@ Theorem a_compaction_failure_is_not_immediately_resubmitted :
 Proof.
  intros id current entry reason before Found.
  pose proof (compaction_failure_preserves_history_and_retires_its_receivers
-   id current entry reason before Found) as Contract.
+   id current entry reason before Found) as [message Contract].
  cbn zeta in Contract.
  destruct Contract as [Stored [_ [_ [Job [Measured [_ [Deadline [_ Effects]]]]]]]].
  set (result := A.failed id current entry reason before) in *.
- set (stopped := compaction_failure_task current reason) in *.
+ set (stopped := compaction_failure_task current message) in *.
  set (saved := A.current_entry id (A.registry (K.decision_world result))) in *.
  set (next := A.synchronized_entry stopped saved (A.registry (K.decision_world result))).
  assert (NextState : entry_job next = NoJob /\
