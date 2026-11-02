@@ -16,10 +16,25 @@ Import ListNotations.
     same entry; replay does not publish physical effects. Queries preserve the
     world, emit no effects and require no journal row. A committed row must
     retain the input evaluated by the Worker so recovery reconstructs that
-    execution.
+    execution. The submitted frame is also the retained replay input: one
+    serialization owner avoids a second representation whose interpretation
+    could differ from the committed execution. Replay submits that retained
+    frame to the same admission entry.
     [actual_query_preserves_world_and_emits_no_effect] constrains that actual
     packet entry. Public restart tests cover ordered replay and retained state;
-    SQLite supplies transaction durability.
+    SQLite supplies transaction durability. Exclusive writer ownership and the
+    acknowledged transaction establish journal authority. An authenticated
+    audit history would require an independent trust anchor and is outside this
+    restart contract. Changes to input meaning require a new persistent format
+    so restart cannot silently reinterpret prior work.
+
+    The Journal owns serialization through the entire Worker response and
+    storage commit, so another input cannot observe an uncommitted world.
+    Assessments use that same owner. With one outstanding request and one Worker
+    response per request, the pending invocation supplies response correlation.
+    Worker message delivery remains a runtime premise; timeout or failure
+    retires that Worker before another invocation can use its uncertain world.
+    Closing drains the invocation queue and awaits Worker termination.
 
     Publication and successful completion of durable mutations require
     acknowledgement of the commit. A failure during COMMIT has an unknown outcome. It
@@ -57,7 +72,12 @@ Export Dispatch(launch_installs_handle_before_run,
 
     A successful journal acknowledgement returns directly from the runner's
     awaited execution, before consulting retirement control. Shutdown cannot
-    turn that accepted commit into a failure.
+    turn that accepted commit into a failure. That runner owns settlement and
+    retains its physical handle until completion. Cancellation and shutdown
+    observe the handle without creating another settlement continuation, so
+    their state need not mirror the Promise's completed continuation. External
+    callback tickets have a different lifetime: independent external results
+    can arrive late and still require ticket admission.
 
     A terminal failure retires dispatch before its settlement promise rejects.
     Other queued continuations can resume before the failure observer runs;

@@ -21,6 +21,12 @@ From Selvedge.Programming Require Import AdapterResult.
     against the same observed time. Callback admission binds the actual HTTP
     request to the login; repeated browser callbacks must not replace its chosen
     code or repeat the authorization exchange and credential publication.
+    The login awaits one callback Promise before exchanging the accepted code.
+    Single-settlement Promise semantics gives that continuation one outcome; each
+    HTTP callback still undergoes its own method, target, origin, state and
+    issued-client admission. Signature, nonce and PKCE verification belong to
+    the OpenID client. Callback response wording or a duplicate-receipt status
+    does not establish whether the exchange ran once.
     [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
     The account transport can omit output from its terminal response after

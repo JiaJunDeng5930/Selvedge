@@ -173,6 +173,8 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     ticket until settlement. Its completed history retains the actual command
     and decision reason so the user can understand what was approved or denied;
     the reviewer's complete profile is not a second historical configuration.
+    A before-tool hook can rewrite the original call, so this explanation must
+    retain the effective invocation that reached approval.
     Denial follows the same frozen result-hook chain as an execution result.
 
     The authority constructor and granted-operation interpreter bind the

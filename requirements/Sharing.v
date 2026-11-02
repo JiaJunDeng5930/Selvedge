@@ -31,7 +31,17 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     private configuration; environment inheritance is not a portable package
     contract. Local stdio and deployed tunnel packaging choose their actual
     route without embedding credentials or a fabricated registered application
-    identity. Real tunnel and filesystem isolation remain physical checks. *)
+    identity. The shared bounded descriptor reader establishes file kind,
+    no-follow access and size; plugin admission adds the private file's owner,
+    permissions and configuration fields. Each boundary consumes the
+    observations already established by its owner.
+
+    Packaging exports an explicit set of shipped files, keeping private
+    connection data outside the package. Its output may be a new directory
+    within the source tree because that directory cannot enter the fixed input
+    set. Exclusive directory creation preserves existing deployments. Explicit
+    relative paths use the process working directory, as ordinary filesystem
+    paths do. Real tunnel and filesystem isolation remain physical checks. *)
 
 From Selvedge.Features Require RemoteProofs RemoteEntryProofs.
 Export RemoteProofs(check_satisfies_complete_access_contract,
@@ -83,6 +93,11 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     accepted languages. Only declared bounded envelope integers are materialized
     as JavaScript numbers; opaque command and event JSON retains its numeric
     tokens. An unrelated header limit cannot silently narrow enrollment.
+
+    Session transitions own admission of their actual frames. An HTTP request
+    is admitted from its supplied observation; facts needed across socket
+    hibernation instead remain in the session attachment. This distinction
+    keeps retained state tied to a real lifetime.
 
     Closed transport states distinguish probing, negotiation, online operation,
     scheduled retry and rejected identity. Randomness, status and clock values

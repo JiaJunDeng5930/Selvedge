@@ -23,6 +23,9 @@ the existing executable definitions and propositions. Keep current user and
 engineering reasons beside their selected contracts under requirements/.
 Select existing contracts with Rocq Export rather than copying their formulas.
 Production code must remain independent of the requirements logical root.
+Do not write or maintain architecture decision records (ADRs). Keep justified,
+current decision reasons beside the relevant requirement; Git history preserves
+past designs. Remove obsolete reasons instead of accumulating historical choices.
 
 ## Changes and validation
 

@@ -95,11 +95,19 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     checkout outcome. Atomic control-record publication retains the reservation,
     ownership and result needed for service restart. Reopening still checks the
     actual path and Git registration before returning or deleting a resource.
+    The checkout guarantee covers service-process restart. Repository contents
+    follow Git's durability policy; preserving every copied project file across
+    host power loss is outside this resource contract. Recovery control records
+    retain their separate persistence requirement.
 
     Cloud recovery records retain the outstanding instance or the fact that
     allocation remains unresolved. Failed cleanup retains its instance for an
     explicit archive retry. Allocation and destruction outcomes are observed
-    at the provider.
+    at the provider. The verified provider, account, region and endpoint identify
+    recovery authority; a label for the credential source adds no principal
+    identity. The allocated instance ID identifies the resource needed for
+    observation and cleanup. A provider request ID only supports diagnostics
+    and cannot establish allocation ownership.
 
     Setup logs aid diagnosis; they do not establish allocation or readiness.
     A log write failure is reported through service diagnostics without

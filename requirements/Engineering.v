@@ -34,6 +34,15 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    Shipped execution paths determine the build artifacts. The generated
+    command declarations are checked with their production consumers; inspection
+    can use those definitions or the public service entry. An installed plugin
+    must run from its built package without the original checkout or compiler.
+    Its model build produces the extracted runtime and packaging selects the
+    shipped files. Source and compiler fingerprints control build-cache reuse;
+    placing a second manifest beside the executable would provide no
+    independent runtime authentication.
+
     ** Choose constructions that fit the domain
 
     [theories/Programming] owns the project's existing reusable languages,
