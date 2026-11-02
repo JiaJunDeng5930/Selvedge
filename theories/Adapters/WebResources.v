@@ -12,7 +12,7 @@ Definition parse_status value := match value with
   | "cancelled" => Some ResponseCancelled | _ => None end.
 Definition resource_identity value :=
   nonempty (member value "id") && String.eqb (member_text value "object") "web.response" &&
-  String.eqb (member_text value "protocol") "chatgpt-web.v1" && natural (member value "created_at") &&
+  String.eqb (member_text value "protocol") "chatgpt-web.v1" && D.present (wire_natural (member value "created_at")) &&
   is_array (member value "output") && match parse_status (member_text value "status") with Some _ => true | None => false end.
 Definition same_model_request value model body :=
   same (member value "model") model && D.present (Json.lookup "previous_response_id" value) &&
@@ -24,7 +24,7 @@ Definition assistant_output values := match values with
     output_text (items (get item "content"))
   | _ => false end.
 Definition usage value := is_null value || (is_object value && boolean_field value "estimated" &&
-  natural (get value "input_tokens") && natural (get value "output_tokens") && natural (get value "total_tokens")).
+  D.present (wire_natural (get value "input_tokens")) && D.present (wire_natural (get value "output_tokens")) && D.present (wire_natural (get value "total_tokens"))).
 Definition authority value := match parse_status (member_text value "status") with
   | Some Completed => assistant_output (items (member value "output")) && D.present (Json.lookup "usage" value) && usage (member value "usage")
   | Some RequiresAction => negb (Nat.eqb (List.length (items (member value "output"))) 0) && D.present (Json.lookup "usage" value) && is_null (member value "usage")

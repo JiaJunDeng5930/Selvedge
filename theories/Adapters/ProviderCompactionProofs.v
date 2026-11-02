@@ -12,13 +12,13 @@ Theorem public_opaque_requests_never_use_textual_fallback : forall source,
 Proof. intros source H;change (meter_fallback source = action "error");
   unfold meter_fallback;rewrite H;reflexivity. Qed.
 Theorem public_token_counter_rejects_negative_or_nonnumeric : forall source,
-  natural (get (get source "response") "input_tokens") = None ->
+  wire_natural (get (get source "response") "input_tokens") = None ->
   exists message, Api.call "backend.compaction_meter_result" source = err message.
 Proof. intros source H; exists "The provider returned an invalid input token count"; change (meter_result source = err "The provider returned an invalid input token count"); unfold meter_result; now rewrite H. Qed.
 Theorem public_valid_token_count_is_retained : forall source count,
-  natural (get (get source "response") "input_tokens") = Some count ->
+  wire_natural (get (get source "response") "input_tokens") = Some count ->
   JsonObjects.equivalent (Api.call "backend.compaction_meter_result" source) (success (JObject [
-    ("scope",get source "scope"); ("input_tokens",get (get source "response") "input_tokens");
+    ("scope",get source "scope"); ("input_tokens",number count);
     ("tokenizer",JString "provider")])) = true.
 Proof.
  intros source count H;change (Api.call "backend.compaction_meter_result" source) with (meter_result source).

@@ -70,32 +70,32 @@ Proof.
      constructor; [apply N.ltb_ge in Before; lia|exact Above].
 Qed.
 
-Theorem public_finalized_output_retains_every_item : forall source,
+Theorem public_finalized_output_retains_every_item : forall source index,
  str (get source "event") "type" = "response.output_item.done" ->
- canonical_natural (get (get source "event") "output_index") = true ->
+ wire_natural (get (get source "event") "output_index") = Some index ->
  is_object (get (get source "event") "item") = true ->
  StronglySorted (fun left right => completed_index left < completed_index right)
    (completed_items (decode_stream (get source "state"))) ->
- Forall (fun previous => completed_index previous <> num (get source "event") "output_index")
+ Forall (fun previous => completed_index previous <> index)
    (completed_items (decode_stream (get source "state"))) ->
  exists retained,
  decode_stream (get (get (Api.call "backend.stream_step" source) "value") "state") =
    ResponseStream true retained /\
  str (get (Api.call "backend.stream_step" source) "value") "action" = "continue" /\
- Permutation retained (CompletedItem (num (get source "event") "output_index")
+ Permutation retained (CompletedItem index
    (get (get source "event") "item") :: completed_items (decode_stream (get source "state"))) /\
  StronglySorted (fun left right => completed_index left < completed_index right) retained.
 Proof.
- intros source Kind Index Item Ordered Fresh.
- set (incoming := CompletedItem (num (get source "event") "output_index") (get (get source "event") "item")).
+ intros source index Kind Index Item Ordered Fresh.
+ set (incoming := CompletedItem index (get (get source "event") "item")).
  set (retained := insert_completed incoming (completed_items (decode_stream (get source "state")))).
  assert (NoConflict : conflict (completed_items (decode_stream (get source "state")))
-   (num (get source "event") "output_index") (get (get source "event") "item") = false)
+   index (get (get source "event") "item") = false)
    by (apply (fresh_completed_item_has_no_conflict _ incoming); exact Fresh).
  assert (Step : Api.call "backend.stream_step" source = encode_action (ResponseStream true retained) Continue).
  { change (stream_step source = encode_action (ResponseStream true retained) Continue).
-   unfold stream_step, step; rewrite Kind; cbn.
-   rewrite Index, Item; cbn [andb exposed completed_items].
+   unfold stream_step, step; rewrite Kind; cbn -[wire_natural].
+   rewrite Index, Item; cbn [andb exposed completed_items conflict decode_stream].
    unfold conflict, decode_stream in NoConflict; cbn [completed_items] in NoConflict; rewrite NoConflict.
    destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); reflexivity. }
  exists retained; rewrite Step; split.
@@ -106,24 +106,24 @@ Proof.
    + apply insert_fresh_completed_item_keeps_provider_order; assumption.
 Qed.
 
-Theorem public_conflicting_finalized_output_fails : forall source previous,
+Theorem public_conflicting_finalized_output_fails : forall source previous index,
  str (get source "event") "type" = "response.output_item.done" ->
- canonical_natural (get (get source "event") "output_index") = true ->
+ wire_natural (get (get source "event") "output_index") = Some index ->
  is_object (get (get source "event") "item") = true ->
  In previous (completed_items (decode_stream (get source "state"))) ->
- completed_index previous = num (get source "event") "output_index" ->
+ completed_index previous = index ->
  JsonObjects.equivalent (completed_value previous) (get (get source "event") "item") = false ->
  str (get (Api.call "backend.stream_step" source) "value") "action" = "failure" /\
  get (get (Api.call "backend.stream_step" source) "value") "recoverable" = JBool false.
 Proof.
- intros source previous Kind Index Item Member Coordinate Different.
+ intros source previous index Kind Index Item Member Coordinate Different.
  assert (Conflict : conflict (completed_items (decode_stream (get source "state")))
-   (num (get source "event") "output_index") (get (get source "event") "item") = true).
+   index (get (get source "event") "item") = true).
  { unfold conflict; apply existsb_exists; exists previous; split; [exact Member|].
    now rewrite Coordinate, N.eqb_refl, Different. }
  change (Api.call "backend.stream_step" source) with (stream_step source).
- unfold stream_step, step; rewrite Kind; cbn.
- rewrite Index, Item; cbn [andb exposed completed_items].
+ unfold stream_step, step; rewrite Kind; cbn -[wire_natural].
+ rewrite Index, Item; cbn [andb exposed completed_items conflict decode_stream].
  unfold conflict, decode_stream in Conflict; cbn [completed_items] in Conflict; rewrite Conflict.
  destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); split; reflexivity.
 Qed.
@@ -172,12 +172,12 @@ Proof.
  change (str (get (BackendResponses.stream_step source) "value") "action" <> "terminal").
  unfold BackendResponses.stream_step,step.
  destruct (String.eqb (str (get source "event") "type") "response.output_text.delta");
-   [destruct (is_text (get (get source "event") "delta") &&
-      canonical_natural (get (get source "event") "output_index"))|];
+   [destruct (wire_natural (get (get source "event") "output_index"));
+    destruct (is_text (get (get source "event") "delta"))|];
    try (destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate).
  destruct (String.eqb (str (get source "event") "type") "response.output_item.done").
- - destruct (canonical_natural (get (get source "event") "output_index") &&
-     is_object (get (get source "event") "item"));
+ - destruct (wire_natural (get (get source "event") "output_index"));
+     destruct (is_object (get (get source "event") "item"));
      try (destruct (conflict _ _ _));
      destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate.
  - apply String.eqb_neq in nonterminal. rewrite nonterminal.

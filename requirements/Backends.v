@@ -33,7 +33,12 @@ From Selvedge.Programming Require Import AdapterResult.
     reporting finalized items separately. Those items must survive until that
     terminal response, in provider index order, including their coordinates.
     A finalized coordinate names one item; conflicting contents cannot authorize
-    a completed answer.
+    a completed answer. External JSON integer fields denote mathematical values:
+    decimal or exponent notation does not select another coordinate, token count
+    or advertised model budget. Admission retains the declared field ranges.
+    The shared exact integer construction supplies canonical naturals before
+    internal indexing and budget calculations; host floating-point conversion
+    cannot establish those bounds.
     Transient stream items do not acquire durable-output authority merely by
     arriving before a terminal response.
     SSE framing dispatches only complete events and discards unfinished data at

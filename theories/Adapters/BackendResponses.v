@@ -94,16 +94,18 @@ Definition terminal_action event state :=
 Definition step (event : json) (state : response_stream) : response_stream * stream_action :=
   let state := exposed event state in let kind := str event "type" in
   if String.eqb kind "response.output_text.delta" then
-    (state, if is_text (get event "delta") && canonical_natural (get event "output_index")
-      then TextDelta (num event "output_index") (str event "delta") else Continue)
+    (state, match wire_natural (get event "output_index") with
+      | Some index => if is_text (get event "delta") then TextDelta index (str event "delta") else Continue
+      | None => Continue end)
   else if String.eqb kind "response.output_item.done" then
-    if canonical_natural (get event "output_index") && is_object (get event "item") then
+    match wire_natural (get event "output_index"), is_object (get event "item") with
+    | Some index, true =>
       let state := ResponseStream true state.(completed_items) in
-      if conflict state.(completed_items) (num event "output_index") (get event "item") then
+      if conflict state.(completed_items) index (get event "item") then
         (state,StreamFailure "Provider returned conflicting completed output items" false)
       else (ResponseStream true (insert_completed
-        (CompletedItem (num event "output_index") (get event "item")) state.(completed_items)),Continue)
-    else (state,StreamFailure "Provider returned an invalid completed output item" false)
+        (CompletedItem index (get event "item")) state.(completed_items)),Continue)
+    | _, _ => (state,StreamFailure "Provider returned an invalid completed output item" false) end
   else if String.eqb kind "response.completed" then
     (state,if String.eqb (str (get event "response") "status") "completed" then terminal_action event state
       else StreamFailure "Terminal model response is not completed" false)

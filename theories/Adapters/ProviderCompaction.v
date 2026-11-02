@@ -71,11 +71,11 @@ Definition portable_request (source : json) :=
     (get (get (get source "effect") "plan") "output_reserve_tokens").
 Definition meter_result (source : json) :=
   let count := get (get source "response") "input_tokens" in
-  (* DEFENSE: External token counters can return nonnumeric or negative counts. *)
-  match natural count with
+  (* DEFENSE: External token counters can return fractional, negative or out-of-range counts. *)
+  match wire_natural count with
   | None => err "The provider returned an invalid input token count"
-  | Some _ => success (JObject [("scope",get source "scope");
-      ("input_tokens",count); ("tokenizer",JString "provider")]) end.
+  | Some count => success (JObject [("scope",get source "scope");
+      ("input_tokens",number count); ("tokenizer",JString "provider")]) end.
 Definition native_result (source : json) :=
   let response := get source "response" in
   (* DEFENSE: A provider replacement window must be an array before it enters history. *)

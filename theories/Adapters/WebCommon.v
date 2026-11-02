@@ -9,7 +9,6 @@ Open Scope N_scope.
 Definition eq source key value := String.eqb (str source key) value.
 Definition same := JsonObjects.equivalent.
 Definition nonempty value := is_text value && negb (String.eqb (text value) "").
-Definition natural := canonical_natural.
 Definition check (accepted : bool) value message := if accepted then success value else err message.
 Definition name_or_number value := if is_text value then text value else TextJson.render_json value.
 Definition subset value keys := fold_right (fun key rest =>
