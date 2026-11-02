@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
-import { parseJson, integer } from './codec.mjs';
+import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
 
 const outcomes = new WeakMap();
@@ -57,7 +57,7 @@ export class Journal extends EventEmitter {
       journal.description = initial.description;
       journal.program = initial.program;
       for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
-        const replayed = await journal.#kernel.replay(parseJson(row.input));
+        const replayed = await journal.#kernel.replay(row.input);
         // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
         if (!replayed.value.durable) {
           throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);

@@ -65,21 +65,22 @@ export class Kernel {
   }
 
   request(input) {
-    return this.#request(input, true);
+    const text = encodeInput(input, this.maximum);
+    // Journal persists the same admitted frame that this Worker evaluates.
+    return { text, result: this.#submit(text, true) };
   }
 
   // Replay checks admission without projecting intermediate worlds while the journal opens.
-  replay(input) {
-    return this.#request(input, false).result;
+  replay(text) {
+    return this.#submit(text, false);
   }
 
   assess(candidate) {
-    return this.#request(candidate, false, 'assess').result;
+    return this.#submit(encodeInput(candidate, this.maximum), false, 'assess');
   }
 
-  #request(input, snapshot, operation = 'packet') {
-    const text = encodeInput(input, this.maximum);
-    const result = new Promise((resolve, reject) => {
+  #submit(text, snapshot, operation = 'packet') {
+    return new Promise((resolve, reject) => {
       // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
       // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
@@ -88,8 +89,6 @@ export class Kernel {
       this.#pending = { resolve, reject, timer };
       this.#worker.postMessage({ text, snapshot, operation });
     });
-    // Journal persists the same admitted frame that this Worker evaluates.
-    return { text, result };
   }
 
   abort(reason) { this.#fail(reason); }

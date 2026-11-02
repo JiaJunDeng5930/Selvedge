@@ -27,7 +27,10 @@ The Kernel request returns both the encoded input frame and its pending Worker
 response. The Journal retains that frame instead of independently serializing
 the original object again. One serialization owner makes the persisted replay
 input the same input evaluated by the Worker and avoids a second pass through
-the complete JSON value.
+the complete JSON value. Restart submits that stored frame directly to the same
+Worker entry. Parsing and re-encoding it in the host cannot add admission that
+the native input parser and packet already own; it only repeats a JSON traversal
+and puts another representation between the saved input and replay.
 
 Remove the decision copies, hash chain and unused Gallina trace model whose
 properties concerned the removed receipt collection. The actual packet's
