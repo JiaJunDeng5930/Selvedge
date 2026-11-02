@@ -170,7 +170,7 @@ Definition prepared (state : rpc_state) (source : json) : json :=
   else encode_action (unchanged "ignore" state []).
 Definition lifecycle (state : rpc_state) (source : json) :=
   let failing := String.eqb (str source "event") "failure" in
-  if (if failing then state.(failed) else state.(closing))
+  if failing && state.(failed)
   then encode_action (unchanged "ignore" state [])
   else encode_action (RpcAction (if failing then "fail" else "close") [] [] state.(next_id)
     [("retired",JArray (map number (state.(pending) ++ state.(materializing))));

@@ -319,10 +319,10 @@ export class Service extends EventEmitter {
       const resources = await Promise.all(running.map(active => active.effect.execution
         ? active.effect.execution.resource
         : Object.hasOwn(active.effect, 'resource') ? active.effect.resource
-        : active.task === undefined ? undefined : this.#worktree(active.task)));
+        : active.effect.task_id === undefined ? undefined : this.#worktree(active.effect.task_id)));
       const plan = this.#dispatchControl({ kind: 'workspace_barrier', effect,
         running: running.map((active, index) => ({ generation: active.handle.generation,
-          task: active.task ?? null, resource: resources[index] ?? null,
+          task: active.effect.task_id ?? null, resource: resources[index] ?? null,
           local_overlap: effect.backend === 'local' && !!active.effect.execution && !resources[index] &&
             active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root)) })) });
       await Promise.all(plan.awaits.map(generation => this.#running.get(naturalKey(generation))?.promise));

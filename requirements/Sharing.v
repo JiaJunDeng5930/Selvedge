@@ -36,6 +36,11 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     permissions and configuration fields. Each boundary consumes the
     observations already established by its owner.
 
+    Client settings retain the admitted authorization header: repeating token
+    admission for each request adds no new authority. Setup persists the same
+    validated raw credential in the private connection file, while runtime
+    requests use the header established when that configuration was loaded.
+
     Packaging exports an explicit set of shipped files, keeping private
     connection data outside the package. Its output may be a new directory
     within the source tree because that directory cannot enter the fixed input

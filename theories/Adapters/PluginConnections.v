@@ -74,9 +74,9 @@ Definition connection_config source := P.render_outcome configuration_json (admi
 Definition connection_grants source := P.render_outcome (fun values =>
  JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values))) (admit_configuration source).
 (** Secret values never enter Gallina: this is a plan for the opaque credential interpreter. *)
-Definition credential_plan := JObject [("operation",JString "base64url-bearer");("minimum",number 32);
+Definition credential_plan := JObject [("minimum",number 32);
   ("maximum",number 256);("alphabet",JString "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-");
-  ("distinct",JBool true);("prefix",JString "Bearer ")].
+  ("prefix",JString "Bearer ")].
 Definition client_endpoint_valid source := String.eqb (str source "protocol") "http:" &&
   (String.eqb (str source "hostname") "127.0.0.1" || String.eqb (str source "hostname") "[::1]") &&
   negb (boolean_field source "username_present") && negb (boolean_field source "password_present") &&

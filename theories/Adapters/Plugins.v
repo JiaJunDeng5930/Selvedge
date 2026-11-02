@@ -52,9 +52,10 @@ Definition call_result_declaration := D.Object [F.required "value" D.Any;F.requi
 Definition call_result source := match D.decode call_result_declaration (get source "result") with
  | Some value => success (D.encode call_result_declaration value)
  | None => type_error "Plugin returned an invalid tool result" end.
+(** Mandatory media preparation has admitted the result object before this
+    completed RPC value reaches its Task-facing wrapper. *)
 Definition mcp_result source := let value := get source "result" in
-  if is_object value then success (JObject [("value",value);("error",JBool (boolean_field value "isError"))])
-  else err "MCP returned a malformed tool result".
+  success (JObject [("value",value);("error",JBool (boolean_field value "isError"))]).
 Definition mcp_media_part (part observation : json) :=
   if String.eqb (str part "type") "image" then
     is_text (get part "data") && boolean_field observation "canonical" &&

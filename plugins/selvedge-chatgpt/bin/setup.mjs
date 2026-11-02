@@ -23,7 +23,7 @@ export async function saveConnection(directory, env = process.env) {
   const config = settings(env);
   const filename = path.resolve(directory, 'connection.json');
   const result = await publishBytes(filename, JSON.stringify({ SELVEDGE_URL: config.endpoint, SELVEDGE_CONNECTION_ID: config.connection,
-    SELVEDGE_CONNECTION_TOKEN: config.token }) + '\n', { mode: 'create-if-absent' });
+    SELVEDGE_CONNECTION_TOKEN: env.SELVEDGE_CONNECTION_TOKEN }) + '\n', { mode: 'create-if-absent' });
   // DEFENSE: Setup must preserve an existing saved credential rather than replace it.
   if (result === 'already-exists') throw Object.assign(new Error('Connection file already exists'), { code: 'EEXIST' });
   return filename;

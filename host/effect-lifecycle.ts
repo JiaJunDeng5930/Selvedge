@@ -9,7 +9,6 @@ type ControlResult = ReturnType<typeof dispatchControlResult>;
 type Outcome = 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
 type Control = (observation: unknown) => ControlResult;
 export interface ActiveEffect {
-  task: DomainNatural | undefined;
   effect: RunningEffect;
   controller: AbortController;
   handle: EffectHandle;
@@ -33,7 +32,7 @@ export function launchEffect(control: Control, active: Map<string, ActiveEffect>
     control({ kind: 'complete', generation: handle.generation });
     active.delete(key);
   });
-  active.set(key, { task: 'task_id' in effect ? effect.task_id : undefined, effect, controller, handle, promise });
+  active.set(key, { effect, controller, handle, promise });
   return promise;
 }
 

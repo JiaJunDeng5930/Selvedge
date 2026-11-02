@@ -32,11 +32,13 @@ export function settings(env = process.env) {
     connection: env.SELVEDGE_CONNECTION_ID ?? null,
   });
   const token = env.SELVEDGE_CONNECTION_TOKEN;
+  const credential = interpretCredential(token, normalized.credential_plan, null);
   // DEFENSE: The selected environment or private connection file can omit the dedicated credential or contain invalid header bytes.
-  if (interpretCredential(token, normalized.credential_plan, null) === null) {
+  if (credential === null) {
     throw new Error('SELVEDGE_CONNECTION_TOKEN must contain the dedicated connection credential');
   }
-  return { endpoint: normalized.endpoint, connection: normalized.connection, token };
+  return { endpoint: normalized.endpoint, connection: normalized.connection,
+    authorization: credential.toString() };
 }
 
 /** A narrow, bounded loopback client. It does not load Selvedge's admin token or execute files. */
@@ -51,7 +53,7 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
     // follows a redirect or an inherited HTTP_PROXY to a different server.
     const request = http.request(new URL(`/api/chatgpt/${config.connection}`, config.endpoint), {
       method: 'POST', signal: cancellation,
-      headers: { authorization: interpretCredential(config.token, boundary('plugin.credential_plan', null), null).toString(), 'content-type': 'application/json',
+      headers: { authorization: config.authorization, 'content-type': 'application/json',
         accept: 'application/json', 'content-length': Buffer.byteLength(body) },
     }, response => {
       const chunks = [];

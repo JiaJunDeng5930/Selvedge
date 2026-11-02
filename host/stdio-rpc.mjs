@@ -208,14 +208,13 @@ export class StdioRpc extends EventEmitter {
   }
 
   close() {
+    // The first close owns cleanup through the last admitted media write.
     this.#closePromise ??= this.#close();
     return this.#closePromise;
   }
 
   async #close() {
     const decision = this.#decide('rpc.lifecycle', { event: 'close' });
-    // DEFENSE: Initialization cleanup and service shutdown may both close the same transport.
-    if (decision.action === 'ignore') return this.closed;
     const retiring = decision.retired.map(id => this.#pending.get(id));
     this.#closing = true;
     this.#apply(decision);
