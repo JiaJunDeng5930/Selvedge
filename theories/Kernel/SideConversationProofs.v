@@ -1,6 +1,6 @@
 From Stdlib Require Import List String NArith.
 From Selvedge.Programming Require CommandResult TaskScope.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs.
 From Selvedge.Kernel Require Import Numbers Domain State.
 From Selvedge.Programming Require Import TaskScopeProofs.
 From Selvedge.Kernel Require Import Tasks History Codec.
@@ -10,14 +10,13 @@ Import ListNotations.
 Open Scope string_scope.
 
 Theorem side_birth_serializes_as_provider_context : forall owner parent start,
- Codec.message_json owner (SideConversationBirth owner parent start) =
- JObject [("role", JString "task_context"); ("type", JString "side_conversation");
-   ("owner_task", number owner); ("parent_task", number parent); ("start", number start)].
-Proof. reflexivity. Qed.
+ JsonObjects.equivalent (Codec.message_json owner (SideConversationBirth owner parent start))
+   (JObject [("role", JString "task_context"); ("type", JString "side_conversation");
+     ("owner_task", number owner); ("parent_task", number parent); ("start", number start)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem successful_open_side_records_private_birth_guidance : forall parent_id contents value,
- decision_reply (Tasks.open_side parent_id contents value) =
-   success (JObject [("task_id", number (next_task value)); ("parent_task_id", number parent_id)]) ->
+ bool_default "ok" (decision_reply (Tasks.open_side parent_id contents value)) false = true ->
  exists parent, find_task parent_id value = Some parent /\
    let inherited := Tasks.selected_context_history (task_current_settings parent) parent
      (History.snapshot_history parent_id parent) in
@@ -27,9 +26,10 @@ Theorem successful_open_side_records_private_birth_guidance : forall parent_id c
    In child (world_tasks (decision_world (Tasks.open_side parent_id contents value))) /\
    task_side_parent child = Some parent_id /\
    In birth (task_history child) /\
-   In (JObject [("role", JString "task_context"); ("type", JString "side_conversation");
-     ("owner_task", number (next_task value)); ("parent_task", number parent_id); ("start", number start)])
-     (map (Codec.message_json (next_task value)) (task_history child)) /\
+   (exists context, In context (map (Codec.message_json (next_task value)) (task_history child)) /\
+     JsonObjects.equivalent context
+       (JObject [("role", JString "task_context"); ("type", JString "side_conversation");
+         ("owner_task", number (next_task value)); ("parent_task", number parent_id); ("start", number start)]) = true) /\
    task_side_cursor child = N.of_nat (List.length
      (Tasks.fork_child_history (next_task value) parent_id parent (task_current_settings parent) true)) /\
    History.returned_content birth = false.
@@ -56,10 +56,16 @@ Proof.
        -- unfold Tasks.fork_child, Tasks.fork_child_history.
           simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
        -- split.
-          ++ rewrite <- side_birth_serializes_as_provider_context.
-             apply in_map.
-             unfold Tasks.fork_child, Tasks.fork_child_history.
-             simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
+          ++ exists (Codec.message_json (next_task value)
+               (SideConversationBirth (next_task value) parent_id
+                 (N.succ (N.of_nat (List.length
+                   (Tasks.selected_context_history (task_current_settings parent) parent
+                     (History.snapshot_history parent_id parent))))))).
+             split.
+             ** apply in_map.
+                unfold Tasks.fork_child, Tasks.fork_child_history.
+                simpl. apply in_or_app. left. apply in_or_app. right. simpl. left. reflexivity.
+             ** apply side_birth_serializes_as_provider_context.
           ++ split; [reflexivity|reflexivity].
  - intros Missing successful. discriminate.
 Qed.

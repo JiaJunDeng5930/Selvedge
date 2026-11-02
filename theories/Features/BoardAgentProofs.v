@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json Registry RegistryProofs.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec.
 From Selvedge.Features Require Import Domain Board BoardParameters.
@@ -58,7 +58,8 @@ Theorem valid_new_agent_is_saved_below_capacity source value :
  let saved := Board.save_agent source value in
  let identity := N.of_nat (List.length (agent_slots value)) in
  let agent := Board.agent_parameters 0 source in
- decision_reply saved = success (JObject [("agent_id",number identity);("revision",number 0)]) /\
+ JsonObjects.equivalent (decision_reply saved)
+   (success (JObject [("agent_id",number identity);("revision",number 0)])) = true /\
  decision_effects saved = [] /\
  agent_slots (decision_world saved) = agent_slots value ++ [Some agent] /\
  Board.lookup_agent identity (decision_world saved) = Some agent /\
@@ -72,6 +73,7 @@ Proof.
    by (apply N.ltb_lt;exact Identity).
  unfold agent_count,live_count,occupied,agent_slots in Capacity,Space.
  rewrite Capacity,Space. cbn beta iota zeta. repeat split; try reflexivity.
+ - apply equivalent_is_reflexive.
  - change (match registry_at (N.of_nat (List.length (agent_slots value)))
      (agent_slots value ++ [Some (Board.agent_parameters 0 source)]) with
      Some slot => slot | None => None end = Some (Board.agent_parameters 0 source)).
@@ -99,7 +101,8 @@ Theorem current_agent_update_succeeds_without_a_capacity_precondition source id 
  Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source = F.agent_revision previous ->
  let saved := Board.save_agent source value in
  let agent := Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source in
- decision_reply saved = success (JObject [("agent_id",number id);("revision",number (N.succ (G.save_board_agent_revision source)))]) /\
+ JsonObjects.equivalent (decision_reply saved)
+   (success (JObject [("agent_id",number id);("revision",number (N.succ (G.save_board_agent_revision source)))])) = true /\
  decision_effects saved = [] /\
  Board.lookup_agent id (decision_world saved) = Some agent /\
  agent_count (decision_world saved) = agent_count value /\
@@ -110,6 +113,7 @@ Proof.
  unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
  rewrite Valid,Found,Current,N.eqb_refl.
  cbn beta iota zeta. repeat split; try reflexivity.
+ - apply equivalent_is_reflexive.
  - change (match registry_at id (replace id
      (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
      (agent_slots value)) with Some slot=>slot | None=>None end =
