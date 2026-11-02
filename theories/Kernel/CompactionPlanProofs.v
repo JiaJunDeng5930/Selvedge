@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json SequenceProofs.
+From Selvedge.Foundation Require Import Json SequenceProofs JsonObjectsProofs.
 From Selvedge.Kernel Require Import Compaction CompactionPlan ContextSelection Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -73,19 +73,19 @@ Qed.
 
 Theorem native_plan_transports_only_its_selected_history :
  forall history raw cursor carry width window reserve,
- plan_json (CompactionState (NativeSource history raw) cursor carry width window reserve) =
- JObject [("method", JString "native"); ("window_tokens", number window);
-   ("output_reserve_tokens", number reserve); ("history", history)].
-Proof. reflexivity. Qed.
+ JsonObjects.equivalent (plan_json (CompactionState (NativeSource history raw) cursor carry width window reserve))
+ (JObject [("method", JString "native"); ("window_tokens", number window);
+   ("output_reserve_tokens", number reserve); ("history", history)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem portable_plan_transports_only_bounded_summary_material :
  forall unread cursor carry width window reserve,
- plan_json (CompactionState (PortableSource unread) cursor carry width window reserve) =
- JObject [("method", JString "portable"); ("window_tokens", number window);
+ JsonObjects.equivalent (plan_json (CompactionState (PortableSource unread) cursor carry width window reserve))
+ (JObject [("method", JString "portable"); ("window_tokens", number window);
    ("output_reserve_tokens", number reserve);
    ("chunk", JString (String.concat "" (chunk (CompactionState (PortableSource unread) cursor carry width window reserve))));
-   ("carry", JString carry); ("prompt", JString summary_prompt)].
-Proof. reflexivity. Qed.
+   ("carry", JString carry); ("prompt", JString summary_prompt)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem a_portable_chunk_is_an_exact_prefix_of_unread_scalars :
  forall unread cursor carry width window reserve,

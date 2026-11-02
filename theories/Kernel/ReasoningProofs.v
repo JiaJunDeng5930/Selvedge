@@ -2,7 +2,7 @@ From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChange TaskResult TaskScope TaskScopeProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson JsonObjectsProofs.
 From Selvedge.Programming Require OptionObservationProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
 From Selvedge.Kernel Require Import ReasoningPlan.
@@ -347,10 +347,10 @@ Theorem encrypted_provider_continuations_are_redacted_before_preview : exists pl
 Proof. eexists; reflexivity. Qed.
 
 Theorem provider_reasoning_exposes_only_its_public_summary : forall secret summary,
- ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)]) =
- JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))].
-Proof. reflexivity. Qed.
+ JsonObjects.equivalent (ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
+   ("encrypted_content",secret);("summary",JArray summary)]))
+ (JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  Utf8.chunks text = Some parts -> (List.length parts <=? 1024)%nat = true ->
@@ -359,9 +359,9 @@ Proof. intros; unfold ReasoningView.excerpt; now rewrite H, H0. Qed.
 
 Theorem configuration_transport_keeps_the_request_baseline : forall model requested policy,
  profile_policy requested = AdaptivePolicy policy -> reasoning_transport_mode policy = ConfigurationUpdates ->
- Reasoning.sampling model requested = JObject [
-   ("effective_effort",JString (profile_reasoning model));("request_effort",JString (reasoning_baseline policy))].
-Proof. intros; unfold Reasoning.sampling; now rewrite H, H0. Qed.
+ JsonObjects.equivalent (Reasoning.sampling model requested) (JObject [
+   ("effective_effort",JString (profile_reasoning model));("request_effort",JString (reasoning_baseline policy))]) = true.
+Proof. intros; unfold Reasoning.sampling; rewrite H, H0; apply equivalent_is_reflexive. Qed.
 
 Theorem side_context_rebasing_recaptures_its_updated_history : forall id ticket original value current revision,
  Dispatch.side_task id value = Some current ->

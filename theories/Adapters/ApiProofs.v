@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
   PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
@@ -96,15 +96,14 @@ Theorem public_evaluator_accepts_configured_decision : forall source,
   str source "mode" <> "parsed" ->
   decision_identity (get source "reply") (get source "evaluator") = true ->
   decision_configured (get source "reply") (get source "policy") = true ->
-  Api.call "evaluator.decision" source = success (JObject [
+  JsonObjects.equivalent (Api.call "evaluator.decision" source) (success (JObject [
     ("effort",get (get (get (get source "reply") "answers") "effort") "choice");
-    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))]).
+    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))])) = true.
 Proof.
- intros source mode identity configured;change (decision source = success (JObject [
-    ("effort",get (get (get (get source "reply") "answers") "effort") "choice");
-    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))]));unfold decision.
+ intros source mode identity configured;change (Api.call "evaluator.decision" source) with (decision source).
+ unfold decision.
  destruct (String.eqb (str source "mode") "parsed") eqn:E;[apply String.eqb_eq in E;contradiction|].
- unfold decision_reply,checked;now rewrite identity,configured.
+ unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
 Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
   Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->

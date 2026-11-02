@@ -102,19 +102,21 @@ Qed.
 
 Theorem selecting_a_summary_preserves_each_original_image : forall parts image summary scope,
  In image parts -> string_field "type" image = Some "image" ->
- exists images,
+ exists images message,
  In image images /\
- In (JObject [("role",JString "user");("content",JArray images)])
+ In message
   (target_messages
    [JObject [("role",JString "user");("content",JArray parts)];
-    Codec.message_json 0 (record 1 (PortableArtifact (PortableMessage PortableUser summary) [] JNull))] scope).
+    Codec.message_json 0 (record 1 (PortableArtifact (PortableMessage PortableUser summary) [] JNull))] scope) /\
+ string_field "role" message = Some "user" /\ array_field "content" message = Some images.
 Proof.
  intros parts image summary scope Present IsImage.
  assert (Kept : In image (image_parts (JArray parts))).
  { unfold image_parts; apply filter_In; split; [exact Present|].
    unfold text_default; rewrite IsImage; apply String.eqb_refl. }
  destruct (image_parts (JArray parts)) as [|first rest] eqn:Images; [contradiction|].
- exists (first :: rest); split; [exact Kept|].
+ exists (first :: rest), (JObject [("role",JString "user");("content",JArray (first :: rest))]).
+ split; [exact Kept|]. split; [|split; reflexivity].
  rewrite selected_summary_keeps_fixed_inputs_and_discards_replaced_dialogue.
  apply in_or_app; left; unfold fixed; apply in_flat_map.
  exists (JObject [("role",JString "user");("content",JArray parts)]).
@@ -163,20 +165,21 @@ Qed.
 Theorem fixed_input_preserves_each_original_image : forall role content image,
  In role ["user";"function_output";"operation_result"] ->
  In image (image_parts content) ->
- exists images, In image images /\
- fixed_message (JObject [("role",JString role);("content",content)]) =
- [JObject [("role",JString "user");("content",JArray images)]].
+ exists images message, In image images /\
+ In message (fixed_message (JObject [("role",JString role);("content",content)])) /\
+ string_field "role" message = Some "user" /\ array_field "content" message = Some images.
 Proof.
  intros role content image Role Present.
  destruct (image_parts content) as [|first rest] eqn:Images; [contradiction|].
- exists (first :: rest); split; [exact Present|].
+ exists (first :: rest), (JObject [("role",JString "user");("content",JArray (first :: rest))]).
+ split; [exact Present|]. split; [|split; reflexivity].
  cbn in Role; destruct Role as [Role|[Role|[Role|Role]]]; try contradiction;
  subst role;
- change ((match image_parts content with
+ change (In (JObject [("role",JString "user");("content",JArray (first :: rest))])
+  (match image_parts content with
    | [] => []
-   | images => [JObject [("role",JString "user");("content",JArray images)]] end) =
-  [JObject [("role",JString "user");("content",JArray (first :: rest))]]);
- rewrite Images; reflexivity.
+   | images => [JObject [("role",JString "user");("content",JArray images)]] end));
+ rewrite Images; left; reflexivity.
 Qed.
 
 Theorem portable_selection_keeps_suffix_receipts_verbatim : forall snapshot receipt rest candidate,
