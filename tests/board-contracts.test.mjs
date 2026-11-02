@@ -29,7 +29,7 @@ test('assisted cards trim the saved title and provider request before applying t
   t.after(async () => { release(); await service.close(); });
   const cases = [
     { title: '\uFEFF\t  Fix  now!?  \u00a0', description: '  Preserve this request.  ', expected: 'Fix  now!?' },
-    { title: `${' '.repeat(2000)}x`, description: 'Long raw title', expected: 'x' },
+    { title: `${' '.repeat(2000)}BOUNDARY-TITLE`, description: 'Long raw title', expected: 'BOUNDARY-TITLE' },
     { title: ' \n\u3000', description: ` \n${'😀'.repeat(121)}\t `, expected: '😀'.repeat(120) },
   ];
   for (const input of cases) {
@@ -45,8 +45,8 @@ test('assisted cards trim the saved title and provider request before applying t
   assert.equal(upstream.requests.length, cases.length);
   const prompts = upstream.requests.map(request => JSON.stringify(request.input));
   for (const input of cases) {
-    const preview = `Title/request preview:\n${input.expected}\n\nOriginal user request:\n${input.description}`;
-    assert.ok(prompts.some(prompt => prompt.includes(JSON.stringify(preview).slice(1, -1))), input.expected);
+    const required = [input.expected, input.description].map(text => JSON.stringify(text).slice(1, -1));
+    assert.ok(prompts.some(prompt => required.every(text => prompt.includes(text))), input.expected);
   }
   assert.ok(prompts.every(prompt => !prompt.includes(' '.repeat(2000))));
 

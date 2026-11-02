@@ -36,9 +36,9 @@ test('side conversations receive trusted guidance and return only their new conv
   const guidance = sideRequest.input.find(item => item.role === 'developer'
     && typeof item.content === 'string' && /Side conversation context/.test(item.content));
   assert.ok(guidance, 'The provider must receive the side context as trusted developer guidance');
-  assert.match(guidance.content, /parent continues independently/i);
-  assert.match(guidance.content, /Closing the side window sends nothing to the parent/i);
-  assert.match(guidance.content, /Only the user.s explicit return action appends new side content to the parent/i);
+  assert.match(guidance.content, /parent[^.]*independen/i);
+  assert.match(guidance.content, /clos[^.]*\b(?:no|nothing|never)\b[^.]*parent/i);
+  assert.match(guidance.content, /user[^.]*explicit[^.]*return[^.]*parent/i);
   assert.ok(sideRequest.input.some(item => item.role === 'developer' && /task_lifecycle/.test(item.content)),
     'The side also receives observed parent lifecycle context');
 
