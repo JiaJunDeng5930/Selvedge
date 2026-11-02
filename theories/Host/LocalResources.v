@@ -68,7 +68,6 @@ Definition action_name value := match value with Persist=>"persist" | Reserve=>"
  | Observe=>"local_observe" | Finish=>"finish" end.
 Definition intent_name value := match value with Create=>"create" | Archive=>"archive"
  | RecoverCreate=>"recover_create" | RecoverArchive=>"recover_archive" end.
-Definition recovering value := match value with RecoverCreate | RecoverArchive=>true | _=>false end.
 Definition owner_of value := match value with
  | ReservationPersistence owner | Registering owner | RegistrationPersistence owner | Preparing owner
  | Releasing owner | Removing owner | Moving owner | Observing owner | TerminalPersistence owner _ | Complete owner _=>Some owner

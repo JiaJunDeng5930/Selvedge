@@ -3,6 +3,8 @@ From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 From Selvedge.Host Require Import LocalResources.
+Definition local_recovery_intent value := match value with
+ | LocalResources.RecoverCreate | LocalResources.RecoverArchive=>true | _=>false end.
 Definition local_observation_only (action : LocalResources.action) :=
  match action with LocalResources.Persist | LocalResources.Classify | LocalResources.Observe
  | LocalResources.Finish=>True | _=>False end.
@@ -11,7 +13,7 @@ Definition local_recovery_phase (phase : LocalResources.phase) :=
  | LocalResources.TerminalPersistence _ _
  | LocalResources.Complete _ _ | LocalResources.NeedsResolution _=>true | _=>false end.
 Theorem local_recovery_step_never_repeats_mutation : forall value event,
- LocalResources.recovering value.(LocalResources.operation) = true ->
+ local_recovery_intent value.(LocalResources.operation) = true ->
  local_recovery_phase value.(LocalResources.current) = true ->
  Forall local_observation_only (LocalResources.actions (LocalResources.step value event)) /\
  local_recovery_phase (LocalResources.current (LocalResources.next_state (LocalResources.step value event))) = true.
@@ -35,7 +37,7 @@ Inductive local_trace : LocalResources.state -> list LocalResources.action -> Lo
    local_trace value (LocalResources.actions (LocalResources.step value event) ++ tail) final.
 Theorem local_recovery_trace_never_repeats_mutation : forall value actions final,
  local_trace value actions final ->
- LocalResources.recovering value.(LocalResources.operation) = true ->
+ local_recovery_intent value.(LocalResources.operation) = true ->
  local_recovery_phase value.(LocalResources.current) = true ->
  Forall local_observation_only actions.
 Proof.
