@@ -29,7 +29,7 @@ export function createContextDiscovery({ home, settings, signal, filesystem = { 
       await prefetched.get(folder);
     }
     const stat = await filesystem.lstat(folder);
-    const canonical = stat.isDirectory() && !stat.isSymbolicLink() && await filesystem.realpath(folder) === folder;
+    const canonical = stat.isDirectory() && await filesystem.realpath(folder) === folder;
     const observation = { canonical, parent: path.dirname(folder), probes: [], entries: [] };
     if (!canonical) return observation;
     observation.probes = await Promise.all(effect.probes.map(async name => ({ name, kind: await probe(path.join(folder, name)) })));

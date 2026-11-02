@@ -42,10 +42,6 @@ Definition maintenance_ready_from (input : C.capture) (current : task) (entry : 
  | Some observed => capture_compatible observed current before &&
      ContextSelection.history_extends (C.captured_history observed) (C.captured_history input)
  | None => false end.
-Definition maintenance_ready (owner : N) (input : C.capture) (before : world) :=
- match find_task owner before, compaction_entry owner before with
- | Some current, Some entry => maintenance_ready_from input current entry before
- | _, _ => false end.
 (** Inspection has one continuation. A validation candidate cannot occur
     without its compaction purpose, and every stage retains its complete input. *)
 Inductive inspection_purpose := MeterOnly | PrepareFor (purpose : C.reason) | ValidateCandidate (candidate : C.validation).
@@ -71,8 +67,6 @@ Definition maintenance_replacement_ready request := match request with
  | InspectRequest _ MeterOnly _ _ | InspectRequest _ (PrepareFor _) _ _ => true
  | InspectRequest input (ValidateCandidate _) _ _ => ContextSelection.closed_prefix (C.captured_history input)
  | CompactRequest input _ => ContextSelection.closed_prefix (C.captured_history (C.compact_capture input)) end.
-Definition maintenance_admission owner request before :=
- maintenance_ready owner (maintenance_input request) before && maintenance_replacement_ready request.
 Record maintenance_reference (before : world) (owner : N) (request : maintenance_action) := MaintenanceReference {
  maintenance_current : task;
  maintenance_current_found : find_task owner before = Some maintenance_current;

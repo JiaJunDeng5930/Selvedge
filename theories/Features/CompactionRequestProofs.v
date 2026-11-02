@@ -11,13 +11,20 @@ Module S := CompactionRequest.
 Module F := Selvedge.Features.Domain.
 Module C := Selvedge.Features.CompactionTypes.
 
+Definition maintenance_admission owner request before :=
+ match find_task owner before, S.compaction_entry owner before with
+ | Some current, Some entry =>
+   S.maintenance_ready_from (S.maintenance_input request) current entry before &&
+     S.maintenance_replacement_ready request
+ | _, _ => false end.
+
 Lemma admitted_maintenance_has_a_selected_plan : forall before owner request current
  (Found : find_task owner before = Some current),
- S.maintenance_admission owner request before = true ->
+ maintenance_admission owner request before = true ->
  exists reference, S.maintenance_selected owner request before current Found = Some reference.
 Proof.
  intros before owner request current Found Ready.
- unfold S.maintenance_admission,S.maintenance_ready in Ready; rewrite Found in Ready.
+ unfold maintenance_admission in Ready; rewrite Found in Ready.
  unfold S.maintenance_selected.
  eapply observe_cases; [intros entry Stored|intro Missing].
  - rewrite Stored in Ready; unfold S.maintenance_observed,S.boolean_admission.

@@ -3,26 +3,13 @@ import { diffChars } from 'diff';
 const DEFAULT_TIMEOUT = 250;
 const DEFAULT_MAX_EDIT_LENGTH = 8192;
 
-export class ContextPatchError extends Error {
-  constructor(message, code) {
-    super(message);
-    this.name = 'ContextPatchError';
-    this.code = code;
-  }
-}
-
-function diffLimits({ timeout = DEFAULT_TIMEOUT, maxEditLength = DEFAULT_MAX_EDIT_LENGTH } = {}) {
-  return { timeout, maxEditLength };
-}
-
 /** Each edit starts at a Unicode code-point offset in the unchanged baseline. */
-export function textEdits(previousText, nextText, options) {
-  const limits = diffLimits(options);
+function textEdits(previousText, nextText, { timeout = DEFAULT_TIMEOUT, maxEditLength = DEFAULT_MAX_EDIT_LENGTH } = {}) {
   if (previousText === nextText) return [];
-  const changes = diffChars(previousText, nextText, limits);
+  const changes = diffChars(previousText, nextText, { timeout, maxEditLength });
   // DEFENSE: A large edit to an external context file can exhaust diff's declared computation budget.
   if (!changes) {
-    throw new ContextPatchError('Context patch computation exceeded its timeout or edit-distance limit', 'CONTEXT_PATCH_LIMIT');
+    throw new Error('Context patch computation exceeded its timeout or edit-distance limit');
   }
   const edits = [];
   let offset = 0;

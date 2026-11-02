@@ -24,12 +24,12 @@ Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
 Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
- R.maintenance_admission id request before = true ->
+ maintenance_admission id request before = true ->
  exists reference : R.maintenance_reference before id request,
    A.run_request id request before = R.maintenance_issue reference.
 Proof.
  intros id request before Ready; pose proof Ready as HasOwner.
- unfold R.maintenance_admission,R.maintenance_ready in HasOwner.
+ unfold maintenance_admission in HasOwner.
  destruct (K.find_task id before) as [current|] eqn:Found; [|discriminate].
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
    as [[owner selected Observed] [Selected [Owner Current]]].
