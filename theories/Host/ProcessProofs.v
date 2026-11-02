@@ -58,6 +58,31 @@ Theorem completed_retention_is_bounded current key :
   List.length (completed (complete current key)) <= 64.
 Proof. unfold complete; cbn; rewrite length_skipn; lia. Qed.
 
+Theorem completion_retains_exactly_unexpired_entries current key entry :
+  In entry (entries (complete current key)) <->
+  In entry (entries current) /\
+  ~ In (entry_key entry)
+    (firstn (List.length (completed current ++ [key]) - 64)
+      (completed current ++ [key])).
+Proof.
+  unfold complete, retired, completion_queue; cbn [entries].
+  rewrite filter_In, Bool.negb_true_iff.
+  assert (Absent : forall keys,
+    existsb (String.eqb (entry_key entry)) keys = false <->
+    ~ In (entry_key entry) keys).
+  { intros keys; split.
+    - intros Missing Present.
+      assert (Found : existsb (String.eqb (entry_key entry)) keys = true).
+      { apply existsb_exists. exists (entry_key entry).
+        split; [exact Present|apply String.eqb_refl]. }
+      congruence.
+    - intros Missing. destruct (existsb (String.eqb (entry_key entry)) keys) eqn:Found;
+        [|reflexivity].
+      apply existsb_exists in Found as [name [Present Equal]].
+      apply String.eqb_eq in Equal. subst name. contradiction. }
+  now rewrite Absent.
+Qed.
+
 Theorem artifact_metadata_requires_complete_published_capture source :
   Common.boolean_field (HostProcess.artifact_metadata source) "persisted" = true ->
   Common.boolean_field source "capture_complete" = true /\

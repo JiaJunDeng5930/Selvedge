@@ -48,9 +48,10 @@ Export Dispatch(launch_installs_handle_before_run,
     [launch_installs_handle_before_run] requires ownership before interpretation.
     Completion uses a physical generation so an old finalizer can be separated
     from a replacement with the same logical key. The existing
-    [completion_only_removes_its_generation] establishes the surviving-entry
-    direction: every retained entry existed before and differs from the completed
-    generation. Recovery uses this same runner, including its original rejecting
+    [completion_only_removes_its_generation] retains exactly the entries from
+    other generations. Completing one invocation must leave concurrent work
+    registered so later cancellation and cleanup still reach it.
+    Recovery uses this same runner, including its original rejecting
     promise, so a failed recovery cannot become successful startup through a
     background error observer.
 
@@ -78,7 +79,8 @@ Export Dispatch(launch_installs_handle_before_run,
 
 From Selvedge.Host Require ProcessProofs.
 Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
-  append_tail_preserves_absolute_cursor,
+  append_tail_preserves_absolute_cursor, completed_retention_is_bounded,
+  completion_retains_exactly_unexpired_entries,
   artifact_metadata_requires_complete_published_capture).
 
 (** ** Process progress is bounded without copying its complete buffer
@@ -91,6 +93,10 @@ Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
     bind those requirements to the pure controller. The physical scalar buffer
     stays in the host; the model controls counts and slice instructions. Sending the whole tail through
     semantic JSON per chunk adds cost without stronger authority.
+    A completed process remains queryable within the retained completion window.
+    Completion bounds that window and removes exactly its expired entries,
+    preserving all other running and retained processes. Physical handles follow
+    the same returned retirement list.
 
     PTY execution keeps its fresh terminal session and the admitted command as
     the foreground job so resize and keyboard signals reach it. Pipe execution

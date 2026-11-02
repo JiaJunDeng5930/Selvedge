@@ -66,10 +66,11 @@ Definition step (s : state) (o : observation) : state * list primitive :=
       end
   end.
 Theorem completion_only_removes_its_generation s generation entry :
-  In entry (active (fst (step s (Complete generation)))) -> In entry (active s) /\ handle entry <> generation.
+  In entry (active (fst (step s (Complete generation)))) <->
+  In entry (active s) /\ handle entry <> generation.
 Proof.
-  simpl. rewrite filter_In. intros [H Hkeep]. split; auto.
-  apply Bool.negb_true_iff in Hkeep. apply N.eqb_neq in Hkeep. congruence.
+  simpl. rewrite filter_In, Bool.negb_true_iff, N.eqb_neq.
+  intuition congruence.
 Qed.
 Theorem uncertain_never_retries s generation :
   ~ In RetryFailure (snd (step s (Settlement generation Uncertain))).
