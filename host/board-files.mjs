@@ -20,7 +20,7 @@ async function vault(home, { create }) {
   if (create) await durableDirectory(directory);
   const stat = await lstat(directory);
   // DEFENSE: Replacing the attachment vault with a link must not redirect attachment reads or writes outside the service home.
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
+  if (!stat.isDirectory() || await realpath(directory) !== directory) {
     throw new Error('The attachment vault must be a real directory inside the service home');
   }
   return directory;
@@ -36,7 +36,7 @@ export async function readBoardAttachment(home, id) {
   const directory = path.join(root, id);
   const stat = await lstat(directory);
   // DEFENSE: A replaced attachment directory must not redirect reads outside its content-addressed vault.
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
+  if (!stat.isDirectory() || await realpath(directory) !== directory) {
     throw new Error('Attachment directories cannot be symbolic links');
   }
   const record = parseJson((await regularFile(path.join(directory, 'metadata.json'), 2048)).toString('utf8'));
