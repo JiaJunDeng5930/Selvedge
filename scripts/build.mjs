@@ -12,13 +12,6 @@ const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
-async function compilerVersions() {
-  return Promise.all([
-    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
-    run('opam', ['var', 'rocq-metarocq-template:version']),
-    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
-  ]);
-}
 const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
   // DEFENSE: A missing build artifact requires compilation; other filesystem errors are real failures.
   if (error.code === 'ENOENT') return false;
@@ -102,7 +95,7 @@ export async function build(options = {}) {
       throw new Error(`Production entry ${filename} is missing; the full migration build is incomplete`);
     }
   }
-  const versions = await compilerVersions();
+  const rocqVersion = await run('rocq', ['--version']);
   const inputFingerprints = new Map();
   let inputsStable = true;
   let checkedSourceFiles = null;
@@ -144,27 +137,40 @@ export async function build(options = {}) {
   }
   const pins = JSON.parse((await readInput('toolchain.json')).toString('utf8'));
   // DEFENSE: The public build can be launched with Bun below its declared minimum.
-  if (!Bun.semver.satisfies(versions[5].trim(), `>=${pins.bun}`)) {
+  if (!Bun.semver.satisfies(Bun.version, `>=${pins.bun}`)) {
     throw new Error(`Bun ${pins.bun} or later is required by toolchain.json`);
   }
-  if (!versions[0].includes(`version ${pins.rocq}`) || versions[1].trim() !== pins.ocaml || versions[2].trim() !== pins.js_of_ocaml
-      || versions[3].trim() !== pins['metarocq-template'] || versions[4].trim() !== pins.zarith) {
-    throw new Error('Toolchain does not match toolchain.json; run scripts/bootstrap.sh');
+  // DEFENSE: PATH can select a Rocq executable outside the pinned compiler release.
+  if (!rocqVersion.includes(`version ${pins.rocq}`)) {
+    throw new Error('Rocq does not match toolchain.json; run scripts/bootstrap.sh');
   }
-  const stubsDirectory = '.build/deps/zarith_stubs_js';
-  for (const [name, expected] of Object.entries(pins.zarith_stubs_js_sha256)) {
-    const filename = `${stubsDirectory}/${name}`;
-    if (!await exists(filename)) throw new Error('Pinned Zarith JS runtime is missing; run scripts/bootstrap.sh');
-    if (digest(await readInput(filename)) !== expected) throw new Error(`Zarith JS runtime checksum mismatch: ${filename}`);
-  }
-  const identity = digest(JSON.stringify([versions[0], flags]));
+  const identity = digest(JSON.stringify([rocqVersion, flags]));
   const buildScript = await readInput(path.relative(root, fileURLToPath(import.meta.url)));
-  const extraction = await readInput('runtime/Extraction.v');
   const buildTools = await readInput('scripts/build-tools.mjs');
   const sourceLayout = await readInput('scripts/rocq-sources.mjs');
   const assumptionAudit = await readInput('scripts/assumptions.mjs');
   if (selected.includes('schema')) await readInput('scripts/generate-model-schema.mjs');
-  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, buildScript, buildTools, sourceLayout, assumptionAudit, extraction]));
+  let extractionIdentity;
+  if (selected.length) {
+    const [ocaml, javascript, zarith] = await Promise.all([
+      run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
+      run('ocamlfind', ['query', '-format', '%v', 'zarith']),
+    ]);
+    // DEFENSE: PATH and the opam switch can select another extraction toolchain.
+    if (ocaml.trim() !== pins.ocaml || javascript.trim() !== pins.js_of_ocaml || zarith.trim() !== pins.zarith) {
+      throw new Error('Extraction toolchain does not match toolchain.json; run scripts/bootstrap.sh');
+    }
+    const stubsDirectory = '.build/deps/zarith_stubs_js';
+    for (const [name, expected] of Object.entries(pins.zarith_stubs_js_sha256)) {
+      const filename = `${stubsDirectory}/${name}`;
+      // DEFENSE: A source checkout can lack the JS runtime or contain modified runtime files.
+      if (!await exists(filename)) throw new Error('Pinned Zarith JS runtime is missing; run scripts/bootstrap.sh');
+      if (digest(await readInput(filename)) !== expected) throw new Error(`Zarith JS runtime checksum mismatch: ${filename}`);
+    }
+    const extraction = await readInput('runtime/Extraction.v');
+    extractionIdentity = digest(JSON.stringify([identity, [ocaml, javascript, zarith, Bun.version],
+      pins, buildScript, buildTools, sourceLayout, assumptionAudit, extraction]));
+  }
   const state = await exists('.build/build-state.json') ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
   const next = {};
   let compiled = 0;
@@ -193,7 +199,7 @@ export async function build(options = {}) {
         await Promise.all(imported.map(compile));
         const source = (await readInput(filename)).toString('utf8');
         // Rocq records imported object identities, including objects rebuilt outside this cache.
-        const moduleIdentity = digest(JSON.stringify([versions[0], compilationFlags(filename)]));
+        const moduleIdentity = digest(JSON.stringify([rocqVersion, compilationFlags(filename)]));
         const key = digest(JSON.stringify([moduleIdentity, source, imported.map(file => [
           next[file], next[`artifact:${file.slice(0, -1)}vo`]
         ])]));
@@ -219,8 +225,18 @@ export async function build(options = {}) {
       reachable.add(filename);
       requested.push(...(graph.get(filename) ?? []));
     }
+    const generator = 'theories/Derive/Commands.v';
+    const generateCommands = allModules || reachable.has('theories/Generated/Commands.v');
+    let templateVersion;
+    if (generateCommands || reachable.has(generator)) {
+      templateVersion = (await run('opam', ['var', 'rocq-metarocq-template:version'])).trim();
+      // DEFENSE: The requested generator can load another MetaRocq package from the active opam switch.
+      if (templateVersion !== pins['metarocq-template']) {
+        throw new Error('MetaRocq does not match toolchain.json; run scripts/bootstrap.sh');
+      }
+    }
     const generatorInputs = new Set();
-    if (allModules || reachable.has('theories/Generated/Commands.v')) {
+    if (generateCommands) {
       const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v', 'theories/Derive/CommandGeneration.v'];
       const missingGeneratorDependencies = generatorDependencies.filter(filename => !graph.has(filename));
       if (missingGeneratorDependencies.length) {
@@ -235,10 +251,9 @@ export async function build(options = {}) {
         generatorSources.push(...(graph.get(filename) ?? []));
       }
       await settleIndependent(generatorDependencies.map(compile), 'Command generator dependencies failed');
-      const generator = 'theories/Derive/Commands.v';
       generatorInputs.add(generator);
       const generatorSource = (await readInput(generator)).toString('utf8');
-      const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), generatorSource, generatorDependencies.map(filename => next[filename])]));
+      const generatorKey = digest(JSON.stringify([identity, templateVersion, generatorSource, generatorDependencies.map(filename => next[filename])]));
       const generatedPath = 'theories/Generated/Commands.v';
       const generatedCurrent = await fingerprint(generatedPath);
       if (check || state.generator !== generatorKey || generatedCurrent !== state.generatedSource) {

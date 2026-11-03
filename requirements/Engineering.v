@@ -34,6 +34,12 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    Checking a selected proof closure must not depend on prerequisites used
+    only to ship an executable. OCaml and JavaScript extraction tools and the
+    JavaScript arithmetic runtime therefore cannot block a proof-only check.
+    Command generation still needs its pinned MetaRocq dependency when that
+    generator is part of the requested work.
+
     Shipped execution paths determine the build artifacts. The generated
     command declarations are checked with their production consumers; inspection
     can use those definitions or the public service entry. An installed plugin
