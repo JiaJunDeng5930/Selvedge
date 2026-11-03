@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -115,5 +115,15 @@ test('private identity publication and lost remote command receipts survive rest
   await service.close();
   await unlink(filename);
   await promisify(execFile)('mkfifo', ['-m', '600', filename]);
-  await assert.rejects(provisionRemote(provision), { code: 'remote_identity_permissions' });
+  const existing = await lstat(filename, { bigint: true });
+  const registered = registrations.length;
+  await assert.rejects(provisionRemote(provision), error => {
+    assert.equal(String(error).includes(enrollmentToken), false, 'Refusal must not expose the enrollment credential');
+    return true;
+  });
+  const retained = await lstat(filename, { bigint: true });
+  assert.ok(retained.isFIFO(), 'Refusal must preserve the original non-regular identity path');
+  assert.equal(retained.dev, existing.dev);
+  assert.equal(retained.ino, existing.ino);
+  assert.equal(registrations.length, registered, 'An unusable existing identity must not cause another registration');
 });
