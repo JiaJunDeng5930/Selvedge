@@ -100,6 +100,15 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
 Export Focus(modification_has_its_selected_value, modifications_compose,
   modifications_keep_the_frame).
 
+(** ** Issued identities remain fresh
+
+    A late reply must not acquire authority over a later invocation. The actual
+    allocator selects the next identity advertised by its space and advances
+    that supply past the issued value. Freshness does not require consecutive
+    numbering; unused identities add no correlation guarantee. *)
+From Selvedge.Kernel Require StateProofs.
+Export StateProofs(identity_allocation_advances_its_supply).
+
 (** ** Admission retains the established meaning
 
     An external value is admitted once into the declared constrained type;

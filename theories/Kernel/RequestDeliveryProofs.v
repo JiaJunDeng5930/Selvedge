@@ -3,7 +3,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require DecisionComposition TaskResult.
 From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State StateProofs.
+From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Programming Require Import TaskScope TaskChange.
 From Selvedge.Kernel Require Import Dispatch Scheduler Delivery.
 From Selvedge.Kernel Require Import DeferredCommit.
