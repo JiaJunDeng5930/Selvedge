@@ -83,8 +83,14 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
 
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their
-    previews are bounded and omit private provider continuations. The captured
-    public history owns evidence selection and excerpting. [ReasoningView]
+    previews are bounded. The history's [ModelContext] constructor identifies
+    provider output: its projection retains public reasoning summaries and
+    excludes opaque continuations. Tool arguments and results remain ordinary
+    evidence, including a tool's public read of another Task. Their field names
+    and [type] values do not acquire provider semantics. Recursively guessing
+    that meaning would discard valid tool data; the existing excerpt and total
+    byte bounds already limit this evidence. The captured public history owns
+    evidence selection and excerpting. [ReasoningView]
     also constructs the effect's history roles and string previews. The evaluator
     adapter organizes those values directly without another admission of its
     private input or a parallel text-part representation. It forwards the selected
@@ -106,8 +112,10 @@ Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   a_compaction_failure_is_not_immediately_resubmitted).
 Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
   unselected_model_request_uses_portable_context,
-  evaluator_history_obeys_its_transport_budget,
-  encrypted_provider_payload_cannot_affect_public_preview).
+  evaluator_history_obeys_its_transport_budget).
+Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
+  model_context_preview_exposes_only_the_public_reasoning_summary,
+  model_context_compaction_has_no_public_preview).
 
 (** ** Replacement input preserves its independent source
 

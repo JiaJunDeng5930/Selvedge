@@ -341,16 +341,14 @@ Theorem public_evaluator_notes_keep_their_reasoning_category : forall text,
  ReasoningView.text_message "reasoning_summary" (ReasoningView.excerpt text).
 Proof. reflexivity. Qed.
 
-Theorem encrypted_provider_continuations_are_redacted_before_preview : exists placeholder, forall secret,
- ReasoningView.public_value 512 (JObject [("encrypted_content",secret)]) =
- JObject [("encrypted_content",JString placeholder)].
-Proof. eexists; reflexivity. Qed.
-
-Theorem provider_reasoning_exposes_only_its_public_summary : forall secret summary,
- JsonObjects.equivalent (ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)]))
- (JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))]) = true.
-Proof. intros; apply equivalent_is_reflexive. Qed.
+Theorem evaluator_tool_evidence_keeps_the_original_json : forall invocation value error ticket,
+ option_map (value_or_null "arguments") (ReasoningView.public_message (FunctionCall invocation)) =
+   Some (call_arguments invocation) /\
+ option_map (value_or_null "content")
+   (ReasoningView.public_message (FunctionOutput (call_id invocation) value error)) = Some value /\
+ option_map (value_or_null "content")
+   (ReasoningView.public_message (OperationResult ticket invocation value error)) = Some value.
+Proof. intros; repeat split; reflexivity. Qed.
 
 Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  Utf8.chunks text = Some parts -> (List.length parts <=? 1024)%nat = true ->
@@ -382,8 +380,20 @@ Theorem public_evaluator_assistant_content_remains_text : forall origin text,
  Some (ReasoningView.text_message "assistant" (ReasoningView.excerpt text)).
 Proof. reflexivity. Qed.
 
-Theorem model_context_preview_exposes_only_the_public_reasoning_summary : forall origin secret summary,
- ReasoningView.public_message (ModelContext origin (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)])) =
- Some (ReasoningView.text_message "reasoning_summary" (ReasoningView.public_parts_text summary)).
-Proof. reflexivity. Qed.
+Theorem model_context_preview_exposes_only_the_public_reasoning_summary : forall origin value,
+ text_default "type" (Conversation.provider_value value) "" = "reasoning" ->
+ ReasoningView.public_message (ModelContext origin value) =
+ Some (ReasoningView.text_message "reasoning_summary"
+   (ReasoningView.public_parts_text (array_default "summary" (Conversation.provider_value value)))).
+Proof.
+ intros origin value Kind. cbn [ReasoningView.public_message].
+ unfold ReasoningView.public_context. now rewrite Kind.
+Qed.
+
+Theorem model_context_compaction_has_no_public_preview : forall origin value,
+ text_default "type" (Conversation.provider_value value) "" = "compaction" ->
+ ReasoningView.public_message (ModelContext origin value) = None.
+Proof.
+ intros origin value Kind. cbn [ReasoningView.public_message].
+ unfold ReasoningView.public_context. now rewrite Kind.
+Qed.

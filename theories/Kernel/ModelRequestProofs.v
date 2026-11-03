@@ -53,9 +53,3 @@ Proof.
    let Checked := fresh "Checked" in destruct condition eqn:Checked end;
  try assumption; vm_compute; reflexivity.
 Qed.
-(* The statement compares arbitrary payloads at the actual recursive preview
-   entry. Arbitrary text is deliberately not interpreted as provider JSON. *)
-Theorem encrypted_provider_payload_cannot_affect_public_preview : forall fuel value other rest,
- ReasoningView.public_value (S fuel) (JObject (("encrypted_content",value) :: rest)) =
- ReasoningView.public_value (S fuel) (JObject (("encrypted_content",other) :: rest)).
-Proof. intros; reflexivity. Qed.
