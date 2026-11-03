@@ -34,6 +34,12 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    A reported runtime workload must finish its scheduled transitions before
+    replay is measured. The benchmark supplies deterministic external replies
+    and follows the kernel's continuation requests; pending maintenance cannot
+    stand for a completed workload. Its provenance identifies the published
+    bundles, without describing intermediate compiler files as runtime inputs.
+
     Checking a selected proof closure must not depend on prerequisites used
     only to ship an executable. OCaml and JavaScript extraction tools and the
     JavaScript arithmetic runtime therefore cannot block a proof-only check.

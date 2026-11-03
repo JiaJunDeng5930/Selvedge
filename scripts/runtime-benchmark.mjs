@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { Journal, journalFormat } from '../host/journal.mjs';
+import { targets } from './build-tools.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -47,10 +48,9 @@ export async function collectBenchmarkProvenance() {
   ]);
   const status = gitValue(['status', '--porcelain', '--untracked-files=all']);
   const trackedDiff = gitValue(['diff', 'HEAD', '--binary']);
-  const extracted = Object.fromEntries(await Promise.all(['host', 'kernel', 'interaction', 'browser'].map(async target => [target, {
-    model: await artifactFingerprint(`.build/${target}-model.mjs`),
-    runtime: await artifactFingerprint(`.build/${target}-runtime.js`),
-  }])));
+  const extracted = Object.fromEntries(await Promise.all(Object.keys(targets).map(async target => [target,
+    await artifactFingerprint(`.build/${target}-model.mjs`),
+  ])));
   const zarithStubs = Object.fromEntries(await Promise.all(Object.entries(toolchain.zarith_stubs_js_sha256).map(async ([name, expected]) => [name,
     await artifactFingerprint(`.build/deps/zarith_stubs_js/${name}`, expected)])));
   return {
@@ -118,15 +118,19 @@ async function measureWorkload({ taskCount, historyTurns, messageBytes }) {
       return result;
     };
     const settle = async decision => {
+      const responses = {
+        continue: () => ({ kind: 'continue' }),
+        observe_context: effect => ({ kind: 'context_observed', task_id: effect.task_id,
+          ticket: effect.ticket, ok: true, observations: [] }),
+        model: effect => ({ kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true,
+          items: [{ type: 'text', part: 0, text: 'done' }] }),
+      };
       const pending = [...decision.effects];
       while (pending.length > 0) {
         const effect = pending.shift();
-        assert.ok(['observe_context', 'model'].includes(effect.kind), `Unexpected benchmark effect: ${effect.kind}`);
-        const input = effect.kind === 'observe_context'
-          ? { kind: 'context_observed', task_id: effect.task_id, ticket: effect.ticket, ok: true, observations: [] }
-          : { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true,
-              items: [{ type: 'text', part: 0, text: 'done' }] };
-        pending.push(...(await execute(input)).effects);
+        const respond = responses[effect.kind];
+        assert.ok(respond, `Unexpected benchmark effect: ${effect.kind}`);
+        pending.push(...(await execute(respond(effect))).effects);
       }
     };
 
