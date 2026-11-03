@@ -55,13 +55,14 @@ Proof.
  unfold Chatgpt.authority,Chatgpt.registry in Missing. rewrite Missing in Authority; discriminate.
 Qed.
 
-Theorem query_cannot_reveal_foreign_operation : forall (payload : G.chatgpt_operation_payload) value,
+Theorem query_cannot_reveal_foreign_operation : forall (payload : G.chatgpt_operation_payload),
+ exists code reason, forall value,
  Chatgpt.authority (G.chatgpt_operation_connection_id payload)
    (G.chatgpt_operation_project_id payload) (Chatgpt.registry value) = None ->
- Chatgpt.handle_chatgpt_operation payload None value = Chatgpt.forbidden.
+ Chatgpt.handle_chatgpt_operation payload None value = Selvedge.Kernel.State.failure code reason.
 Proof.
- intros payload value Missing. unfold Chatgpt.handle_chatgpt_operation, Chatgpt.read_job.
- now rewrite Missing.
+ intros payload. do 2 eexists. intros value Missing.
+ unfold Chatgpt.handle_chatgpt_operation, Chatgpt.read_job. rewrite Missing. reflexivity.
 Qed.
 
 Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,

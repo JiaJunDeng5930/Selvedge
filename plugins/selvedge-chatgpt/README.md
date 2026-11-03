@@ -114,7 +114,7 @@ the connection environment above:
 node plugins/selvedge-chatgpt/bin/setup.mjs connection /absolute/path/to/plugin-data
 ```
 
-This creates `connection.json` with mode `0600` and refuses to overwrite it.
+This creates a private, owner-readable `connection.json` and refuses to overwrite it.
 For rotation, remove it, recreate it with the new settings and restart the MCP
 process. The server rejects symlinks, foreign-owned files and group/world-readable
 files. Connection files and HTTP replies use strict UTF-8 decoding; malformed

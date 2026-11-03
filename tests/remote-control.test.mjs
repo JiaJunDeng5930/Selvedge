@@ -74,7 +74,8 @@ test('private identity publication and lost remote command receipts survive rest
   assert.deepEqual(firstIdentity, secondIdentity);
   assert.deepEqual(registrations[0], registrations[1], 'Concurrent initializers register the same completed private identity');
   const filename = path.join(directory, 'remote-identity.json');
-  assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  assert.equal((await stat(filename)).mode & 0o477, 0o400,
+    'Published credentials must be owner-readable and deny group/other permissions');
   const identity = JSON.parse(await readFile(filename, 'utf8'));
   assert.equal(identity.host_id, firstIdentity.host_id);
   const config = { ...validateConfig({ ...defaultConfig, chatgpt: false }), remote: { relay_url: relayUrl } };

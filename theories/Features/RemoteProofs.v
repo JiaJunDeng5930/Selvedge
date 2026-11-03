@@ -255,9 +255,10 @@ Proof.
 Qed.
 
 (** A task-owned execution cannot administer native remote grants. *)
-Theorem delegated_remote_administration_is_denied : forall payload caller value,
- Remote.handle_remote_enable payload (Some caller) value = Remote.local_only value.
-Proof. reflexivity. Qed.
+Theorem delegated_remote_administration_is_denied : forall payload caller,
+ exists code reason, forall value,
+ Remote.handle_remote_enable payload (Some caller) value = reject code reason value.
+Proof. intros payload caller. do 2 eexists. intros value. reflexivity. Qed.
 
 (** Even an effectful supplied executor cannot mutate the world through a remote query. *)
 Theorem remote_query_is_read_only : forall execute prepared configuration request command value,

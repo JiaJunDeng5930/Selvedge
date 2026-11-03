@@ -6,7 +6,8 @@
 
 From Selvedge.Features Require SharingProofs.
 Export SharingProofs(connection_without_project_grant_cannot_execute,
-  accepted_public_exec_emits_frozen_job, recovery_never_replays_running_job).
+  accepted_public_exec_emits_frozen_job, query_cannot_reveal_foreign_operation,
+  recovery_never_replays_running_job).
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_configured_connection_grants_preserve_authority).
 
@@ -26,6 +27,11 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     it again; cancellation requests a physical stop without undoing writes.
     Project connection authority remains distinct from browser, CLI and remote
     controller credentials.
+
+    [query_cannot_reveal_foreign_operation] requires an ungranted query to fail
+    without disclosing private world data. Its diagnostic may depend on the
+    public request but is chosen independently of that world; neither an error
+    identifier's spelling nor fixed prose is part of the access guarantee.
 
     Configuration admission already establishes connection identities, project
     membership and sandbox values. Projecting those admitted values into native
@@ -51,6 +57,10 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     no-follow access and size; plugin admission adds the private file's owner,
     permissions and configuration fields. Each boundary consumes the
     observations already established by its owner.
+    Published credentials must be owner-readable and deny group/other access.
+    Loading does not require owner write permission. Acceptance retains the
+    read permission check because a privileged test runner could otherwise
+    read an owner-unreadable file and conceal a failed ordinary installation.
 
     Identity loading preserves safe descriptor failures without assigning
     another diagnostic category. Only a missing identity permits initial
@@ -75,7 +85,8 @@ Export RemoteProofs(check_satisfies_complete_access_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
   prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back,
   public_grant_replaces_authority_and_clears_old_receipts,
-  local_administration_never_reuses_a_generation).
+  local_administration_never_reuses_a_generation,
+  delegated_remote_administration_is_denied).
 Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 (** ** Revocation precedes retained-result access
@@ -86,6 +97,10 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    [delegated_remote_administration_is_denied] additionally requires delegated
+    administration to leave the world unchanged and issue no effects. Its
+    refusal diagnostic is independent of private world data, without fixing
+    the diagnostic's identifier or prose.
     Probe success already admits preparation or capture; an additional admitted
     marker supplies no consumed information. A retained-result probe still
     distinguishes replay and carries the original reply for its caller.

@@ -473,7 +473,8 @@ test('installed MCP credentials are private, reject unsafe files and never expos
   const setup = path.join(pluginRoot, 'bin/setup.mjs');
   await execute(process.execPath, [setup, 'connection', data], { env: { ...process.env, ...connection }, timeout: 10000 });
   const filename = path.join(data, 'connection.json');
-  assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  assert.equal((await stat(filename)).mode & 0o477, 0o400,
+    'Published credentials must be owner-readable and deny group/other permissions');
   await assert.rejects(execute(process.execPath, [setup, 'connection', data], { env: { ...process.env, ...connection }, timeout: 10000 }));
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'mcp.json'), 'utf8')).mcpServers.selvedge;
   async function list(selected) {
