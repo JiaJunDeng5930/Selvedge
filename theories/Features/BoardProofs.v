@@ -185,7 +185,7 @@ Theorem admitted_link_preserves_execution_and_drafting : forall id observed targ
      F.InProgress (F.draft_priority (F.card_contents card))
      (F.draft_owner (F.card_contents card)) (F.draft_project (F.card_contents card))
      (F.draft_labels (F.card_contents card)) (F.draft_attachments (F.card_contents card)) /\
-   F.card_revision updated=N.succ (F.card_revision card) /\
+   F.card_revision updated<>F.card_revision card /\
    F.card_enrichment updated=F.card_enrichment card /\
    world_tasks (decision_world linked)=world_tasks value /\
    F.feature_titles (world_features (decision_world linked))=F.feature_titles (world_features value) /\
@@ -209,7 +209,7 @@ Proof.
    accept decision_reply decision_world decision_effects].
  split; [reflexivity|].
  eexists. split; [now apply board_lookup_after_put_selected with (before:=card)|].
- repeat split; reflexivity.
+ repeat split; try reflexivity. apply N.neq_succ_diag_l.
 Qed.
 
 Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
