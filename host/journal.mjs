@@ -163,7 +163,7 @@ export class Journal extends EventEmitter {
       }
       this.program = response.program;
       this.sequence = sequence;
-      const committed = { sequence, input, program: this.program, ...response.value };
+      const committed = { sequence, program: this.program, ...response.value };
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
       for (const observer of this.listeners('commit')) {
         try { observer(committed); }

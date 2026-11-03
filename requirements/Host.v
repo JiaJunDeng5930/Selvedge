@@ -20,7 +20,10 @@ Import ListNotations.
     execution. The submitted frame is also the retained replay input: one
     serialization owner avoids a second representation whose interpretation
     could differ from the committed execution. Replay submits that retained
-    frame to the same admission entry. Recovery and new commands use the kernel
+    frame to the same admission entry. Commit observers consume the outcome and
+    its effects; publishing another copy of the submitted input adds no restart
+    authority. Lost remote replies are exercised at the public transport boundary.
+    Recovery and new commands use the kernel
     built for this service; binding the Worker directly to that bundle keeps
     execution semantics independent of a private caller-supplied module path.
     [actual_query_preserves_world_and_emits_no_effect] constrains that actual
