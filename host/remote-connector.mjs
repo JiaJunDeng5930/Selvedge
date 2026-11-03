@@ -78,10 +78,9 @@ export class RemoteConnector {
   status() { return { ...this.#status }; }
 
   start() {
-    if (this.#running) return this.status();
+    if (this.#running) return;
     this.#service.on('notice', this.#noticeListener);
     this.#observe('enable');
-    return this.status();
   }
 
   close() {

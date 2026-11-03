@@ -123,47 +123,35 @@ function decodeEnum11(value: unknown): "send" | "steer" {
 export function decodeHttpReplyStatus(input: unknown): number { return decodeSafeNatural(input); }
 export type RemoteConnectorSessionAction =
   | {"kind": "ignore"; }
-  | {"kind": "installed"; }
   | {"kind": "retire"; }
   | {"kind": "pairing"; }
-  | {"kind": "pending"; }
-  | {"kind": "expired"; }
-  | {"kind": "grants"; }
   | {"kind": "enqueue"; }
-  | {"kind": "dequeue"; }
   | {"kind": "disconnect"; }
   | {"kind": "ready"; }
   | {"kind": "pong"; }
-  | {"kind": "notice"; }
   | {"kind": "snapshot"; }
   | {"kind": "unsubscribed"; }
   | {"kind": "deliver"; }
   | {"kind": "controller_open"; "connection_id": string; "controller_id": string; "grant_epoch": DomainInteger}
   | {"kind": "controller_close"; "connection_id": string}
-  | {"kind": "request"; "connection_id": string; "controller_id": string; "grant_epoch": DomainInteger; "request": JsonValue}
+  | {"kind": "request"; "connection_id": string; "request": JsonValue}
   | {"kind": "pair_request"; "request": JsonValue};
 export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnectorSessionAction {
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "ignore": exactFields(source, ["kind"]); return {"kind": "ignore"};
-    case "installed": exactFields(source, ["kind"]); return {"kind": "installed"};
     case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     case "pairing": exactFields(source, ["kind"]); return {"kind": "pairing"};
-    case "pending": exactFields(source, ["kind"]); return {"kind": "pending"};
-    case "expired": exactFields(source, ["kind"]); return {"kind": "expired"};
-    case "grants": exactFields(source, ["kind"]); return {"kind": "grants"};
     case "enqueue": exactFields(source, ["kind"]); return {"kind": "enqueue"};
-    case "dequeue": exactFields(source, ["kind"]); return {"kind": "dequeue"};
     case "disconnect": exactFields(source, ["kind"]); return {"kind": "disconnect"};
     case "ready": exactFields(source, ["kind"]); return {"kind": "ready"};
     case "pong": exactFields(source, ["kind"]); return {"kind": "pong"};
-    case "notice": exactFields(source, ["kind"]); return {"kind": "notice"};
     case "snapshot": exactFields(source, ["kind"]); return {"kind": "snapshot"};
     case "unsubscribed": exactFields(source, ["kind"]); return {"kind": "unsubscribed"};
     case "deliver": exactFields(source, ["kind"]); return {"kind": "deliver"};
     case "controller_open": exactFields(source, ["kind","connection_id","controller_id","grant_epoch"]); return {"kind": "controller_open", "connection_id": decodeText(source["connection_id"]), "controller_id": decodeText(source["controller_id"]), "grant_epoch": decodeInteger(source["grant_epoch"])};
     case "controller_close": exactFields(source, ["kind","connection_id"]); return {"kind": "controller_close", "connection_id": decodeText(source["connection_id"])};
-    case "request": exactFields(source, ["kind","connection_id","controller_id","grant_epoch","request"]); return {"kind": "request", "connection_id": decodeText(source["connection_id"]), "controller_id": decodeText(source["controller_id"]), "grant_epoch": decodeInteger(source["grant_epoch"]), "request": decodeJson(source["request"])};
+    case "request": exactFields(source, ["kind","connection_id","request"]); return {"kind": "request", "connection_id": decodeText(source["connection_id"]), "request": decodeJson(source["request"])};
     case "pair_request": exactFields(source, ["kind","request"]); return {"kind": "pair_request", "request": decodeJson(source["request"])};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionAction variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionAction discriminant');
@@ -259,8 +247,8 @@ export type RemoteTransportAction =
   | {"kind": "open"; "generation": number}
   | {"kind": "retry"; "generation": number; "deadline": number}
   | {"kind": "heartbeat"; "generation": number; "deadline": number}
-  | {"kind": "online"; "generation": number}
-  | {"kind": "ping"; "generation": number}
+  | {"kind": "online"; }
+  | {"kind": "ping"; }
   | {"kind": "retire"; }
   | {"kind": "stopped"; }
   | {"kind": "auth_failed"; };
@@ -271,8 +259,8 @@ export function decodeRemoteTransportAction(input: unknown): RemoteTransportActi
     case "open": exactFields(source, ["kind","generation"]); return {"kind": "open", "generation": decodeSafeNatural(source["generation"])};
     case "retry": exactFields(source, ["kind","generation","deadline"]); return {"kind": "retry", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
     case "heartbeat": exactFields(source, ["kind","generation","deadline"]); return {"kind": "heartbeat", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
-    case "online": exactFields(source, ["kind","generation"]); return {"kind": "online", "generation": decodeSafeNatural(source["generation"])};
-    case "ping": exactFields(source, ["kind","generation"]); return {"kind": "ping", "generation": decodeSafeNatural(source["generation"])};
+    case "online": exactFields(source, ["kind"]); return {"kind": "online"};
+    case "ping": exactFields(source, ["kind"]); return {"kind": "ping"};
     case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     case "stopped": exactFields(source, ["kind"]); return {"kind": "stopped"};
     case "auth_failed": exactFields(source, ["kind"]); return {"kind": "auth_failed"};

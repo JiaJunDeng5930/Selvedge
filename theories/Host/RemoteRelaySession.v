@@ -82,18 +82,17 @@ Definition reason_text value := match value with TicketLimit=>"ticket_limit"|Hos
 
 Definition step (current : state) (event : observation) : state * action :=
  match event with
- | NewHost=>(Negotiating (N.succ (generation current)),Decision Permit)
- | Hello=>match current with
-   | Negotiating own=>(AwaitingGrants (HostData own initial_pairing),Decision Permit)
-   | AwaitingGrants _ | Ready _ _=>(current,Decision Permit)
-   | _=>(current,Decision Deny) end
- | GrantSnapshot grants=>match current with
-   | AwaitingGrants host=>(Ready host [],Decision Permit)
-   | Ready host tickets=>(Ready host (filter (fun value=>granted grants (ticket_grant value)) tickets),Decision Permit)
-   | _=>(current,Decision Deny) end
+ | NewHost=>(Negotiating (N.succ (generation current)),NoAction)
+ | Hello=>(match current with
+   | Negotiating own=>AwaitingGrants (HostData own initial_pairing)
+   | _=>current end,NoAction)
+ | GrantSnapshot grants=>(match current with
+   | AwaitingGrants host=>Ready host []
+   | Ready host tickets=>Ready host (filter (fun value=>granted grants (ticket_grant value)) tickets)
+   | _=>current end,NoAction)
  | BeginPairing=>match pairing_of current with
-   | Some previous=>(change_pairing current (fun _=>PairingState (N.succ previous.(pairing_revision)) None),Decision Permit)
-   | None=>(current,Decision Deny) end
+   | Some previous=>(change_pairing current (fun _=>PairingState (N.succ previous.(pairing_revision)) None),NoAction)
+   | None=>(current,NoAction) end
  | InstallPairing now revision value=>
    let allowed:=match pairing_of current with Some previous=>N.eqb previous.(pairing_revision) revision &&
      (now <? (pairing_expiry value)) && ((pairing_expiry value) <=? now + 300000) | None=>false end in
@@ -199,7 +198,7 @@ Definition encode_result next output :=
  | CloseControllers=>[("action",JString "close_controllers")]
  | NotifyHost id=>[("action",JString "notify_host");("connection_id",JString (RP.identifier_text id))]
  | AcceptedFrame value=>[("frame",RP.encode_host_frame value)]
- | NoAction=>[("action",JString "none")] end).
+ | NoAction=>[] end).
 Definition relay_step source event := match decode_state source,decode_observation event with
  | Some state,Some event => let '(next,output):=step state event in Some (encode_result next output)
  | _,_ => None end.

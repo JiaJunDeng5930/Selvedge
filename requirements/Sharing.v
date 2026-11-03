@@ -156,6 +156,11 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     transition's frame, capture, delivery and enqueue contracts establish these
     ranges; the native consumers narrow the generated union accordingly.
     Impossible internal action categories need no second runtime refusal.
+    Actions request work from their interpreter; state-only updates need no
+    separate acknowledgement. Repeating already installed authority in a
+    request action adds no authorization check. Immediate transport effects
+    likewise use the installed session, while asynchronous callbacks retain
+    their generation so replacement can invalidate them.
     Relay liveness and delivery are queries over the current attachment, not
     events that change it. [delivery_admits_exactly_current_authority] constrains
     the actual delivery predicate: an available host, its current generation

@@ -16,8 +16,8 @@ export interface TransportIO {
   open(generation: number): void;
   retry(generation: number, deadline: number): void;
   heartbeat(generation: number, deadline: number): void;
-  online(generation: number): void;
-  ping(generation: number): void;
+  online(): void;
+  ping(): void;
   retire(): void;
   stopped(): void;
   authenticationFailed(): void;
@@ -39,8 +39,8 @@ export function observeTransport(state: RemoteTransportState, observation: Remot
       case 'open': io.open(action.generation); continue;
       case 'retry': io.retry(action.generation, action.deadline); continue;
       case 'heartbeat': io.heartbeat(action.generation, action.deadline); continue;
-      case 'online': io.online(action.generation); continue;
-      case 'ping': io.ping(action.generation); continue;
+      case 'online': io.online(); continue;
+      case 'ping': io.ping(); continue;
       case 'retire': io.retire(); continue;
       case 'stopped': io.stopped(); continue;
       case 'auth_failed': io.authenticationFailed(); continue;

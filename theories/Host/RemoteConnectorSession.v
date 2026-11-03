@@ -58,32 +58,31 @@ Inductive observation := Retire | SetPairing (value : pairing) (now : N) | Curre
  | Snapshot (id : string) (subscribe : bool) | Unsubscribe (id : string) | Deliver (id : string) (notice : N)
  | Frame (value : frame).
 Inductive event := Install (generation : N) | Notice | Observe (generation : N) (value : observation).
-Inductive action := Ignore | Installed | Retired | PublishPairing | PendingPairing | PairingExpired
- | GrantsUpdated | Enqueued | Dequeued | Disconnect | BecameReady
+Inductive action := Ignore | Retired | PublishPairing | Enqueued | Disconnect | BecameReady
  | Opened (entry : connection) | Closed (id : RP.identifier)
- | Requested (entry : connection) (request : RP.rpc_request) | PairRequested (request : RP.pairing_request) | ReceivedPong
- | RecordedNotice | CapturedSnapshot | Unsubscribed | DeliverNotice.
+ | Requested (id : RP.identifier) (request : RP.rpc_request) | PairRequested (request : RP.pairing_request) | ReceivedPong
+ | CapturedSnapshot | Unsubscribed | DeliverNotice.
 Definition deliver_notice sequence data id notice :=
  if notice_eligible sequence data id notice && notice_queued data id notice
  then (subscription data id (Some notice),DeliverNotice) else (data,Ignore).
 Definition phase_step sequence s event : phase * action := match event with
- | Install n => (Negotiating n (pairing_of s),Installed)
- | Notice => (s,RecordedNotice)
+ | Install n => (Negotiating n (pairing_of s),Ignore)
+ | Notice => (s,Ignore)
  | Observe n value => if negb (N.eqb (phase_generation s) n) then (s,Ignore) else
    match value with
    | Retire => (Offline n None,Retired)
    | SetPairing pairing_value now => (set_pairing s (Some pairing_value),
-     match s with Ready _ _ => if now <? expires pairing_value then PublishPairing else PendingPairing | _ => PendingPairing end)
+     match s with Ready _ _ => if now <? expires pairing_value then PublishPairing else Ignore | _ => Ignore end)
    | CurrentPairing now => match pairing_of s with
-     Some pairing_value => if now <? expires pairing_value then (s,PublishPairing) else (set_pairing s None,PairingExpired)
-     | None => (s,PairingExpired) end
+     Some pairing_value => if now <? expires pairing_value then (s,PublishPairing) else (set_pairing s None,Ignore)
+     | None => (s,Ignore) end
    | _ => match s with
      | Offline _ _ => (s,Ignore)
      | Negotiating g pairing_value => match value with Frame RP.RelayReady => (Ready g (Session pairing_value RP.no_grants [] []),BecameReady)
        | Frame _ => (s,Disconnect) | _ => (s,Ignore) end
      | Ready g data => match value with
        | Grants values => (Ready g (Session (pairing_code data) values
-         (filter (fun entry => permitted values (authority entry)) (connections data)) (pending data)),GrantsUpdated)
+         (filter (fun entry => permitted values (authority entry)) (connections data)) (pending data)),Ignore)
        | Enqueue id size notice => match find_connection data id with None => (s,Ignore) | Some _ =>
          if match notice with Some value => notice_eligible sequence data id value | None => true end then
          if (queued_for data id <? 32) && (N.of_nat (List.length (pending data)) <? 256) &&
@@ -91,7 +90,7 @@ Definition phase_step sequence s event : phase * action := match event with
            (Ready g (Session (pairing_code data) (grants data) (connections data) (Queued id size notice::pending data)),Enqueued)
          else (s,Disconnect) else (s,Ignore) end
        | Dequeue id size notice => (Ready g (Session (pairing_code data) (grants data) (connections data)
-         (complete (pending data) id size notice)),Dequeued)
+         (complete (pending data) id size notice)),Ignore)
        | Snapshot id subscribe => match find_connection data id with None => (s,Ignore) | Some _ =>
          (Ready g (if subscribe then subscription data id (Some sequence) else data),CapturedSnapshot) end
        | Unsubscribe id => match find_connection data id with None => (s,Ignore) | Some _ =>
@@ -106,7 +105,7 @@ Definition phase_step sequence s event : phase * action := match event with
        | Frame (RP.RelayControllerClose id) => (Ready g (Session (pairing_code data) (grants data)
          (forget (connections data) (RP.identifier_text id)) (pending data)),Closed id)
        | Frame (RP.RelayRequest id requested request) => match find_connection data (RP.identifier_text id) with
-         Some entry => (s,if same_grant (authority entry) requested then Requested entry request else Disconnect)
+         Some entry => (s,if same_grant (authority entry) requested then Requested (connection_identity entry) request else Disconnect)
          | None => (s,Disconnect) end
        | Frame (RP.RelayPairRequest request) => (set_pairing s None,PairRequested request)
        | Frame RP.RelayPong => (s,ReceivedPong)
@@ -197,25 +196,23 @@ Definition event_of := F.decode_cases event_decoders.
 Definition simple_action name := F.declare "kind" (JString name) [].
 Definition opened_action := F.declare "kind" (JString "controller_open") RP.controller_open_fields.
 Definition closed_action := F.declare "kind" (JString "controller_close") RP.controller_close_fields.
-Definition request_action := F.declare "kind" (JString "request") RP.relay_request_fields.
+Definition request_action := F.declare "kind" (JString "request")
+ (RP.routed_fields [F.required "request" RP.controller_request_declaration]).
 Definition pair_request_action := F.declare "kind" (JString "pair_request") [F.required "request" RP.pairing_request_declaration].
 Definition simple_packet name := F.Packet (simple_action name) tt.
 Definition action_packet value := match value with
  | Opened entry => F.Packet opened_action (RP.authorized_values [] (connection_identity entry) (authority entry) tt)
  | Closed id => F.Packet closed_action [!id!]
- | Requested entry request => F.Packet request_action
-   (RP.authorized_values [F.required "request" RP.controller_request_declaration] (connection_identity entry)
-     (authority entry) [!RP.controller_request_arguments request!])
+ | Requested id request => F.Packet request_action [!id;RP.controller_request_arguments request!]
  | PairRequested request => F.Packet pair_request_action [!RP.pairing_request_arguments request!]
- | Ignore => simple_packet "ignore" | Installed => simple_packet "installed" | Retired => simple_packet "retire"
- | PublishPairing => simple_packet "pairing" | PendingPairing => simple_packet "pending" | PairingExpired => simple_packet "expired"
- | GrantsUpdated => simple_packet "grants" | Enqueued => simple_packet "enqueue" | Dequeued => simple_packet "dequeue"
+ | Ignore => simple_packet "ignore" | Retired => simple_packet "retire"
+ | PublishPairing => simple_packet "pairing" | Enqueued => simple_packet "enqueue"
  | Disconnect => simple_packet "disconnect" | BecameReady => simple_packet "ready" | ReceivedPong => simple_packet "pong"
- | RecordedNotice => simple_packet "notice" | CapturedSnapshot => simple_packet "snapshot"
+ | CapturedSnapshot => simple_packet "snapshot"
  | Unsubscribed => simple_packet "unsubscribed" | DeliverNotice => simple_packet "deliver" end.
 Definition action_declarations := map (fun action => F.packet_branch (action_packet action))
- [Ignore;Installed;Retired;PublishPairing;PendingPairing;PairingExpired;GrantsUpdated;Enqueued;Dequeued;Disconnect;
-  BecameReady;ReceivedPong;RecordedNotice;CapturedSnapshot;Unsubscribed;DeliverNotice] ++
+ [Ignore;Retired;PublishPairing;Enqueued;Disconnect;
+  BecameReady;ReceivedPong;CapturedSnapshot;Unsubscribed;DeliverNotice] ++
  [opened_action;closed_action;request_action;pair_request_action].
 Definition abi_variant declaration := Variant.from_branch declaration (F.names (F.payload_fields declaration)) None.
 Definition connector_step source observed := match state_of source,event_of observed with

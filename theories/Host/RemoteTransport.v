@@ -30,7 +30,7 @@ Inductive observation :=
 Inductive action :=
 | Connect (generation : N) | OpenSocket (generation : N)
 | RetryAt (generation deadline : N) | HeartbeatAt (generation deadline : N)
-| MarkOnline (generation : N) | Ping (generation : N)
+| MarkOnline | Ping
 | Retire | MarkStopped | MarkAuthenticationFailed.
 Definition attempt s := match s with Connecting _ n | Negotiating _ n | Retrying _ n _ => n | _ => 0 end.
 Definition retry_delay cfg tries sample :=
@@ -61,11 +61,11 @@ Definition step cfg s event : state * list action := match event with
    | Rejected _ => (AuthenticationFailed (N.succ (generation s)),[Retire;MarkAuthenticationFailed])
    | Lost _ now sample => retry cfg s now sample
    | Negotiated _ now => match s with Negotiating g _ =>
-     (Online g now,[MarkOnline g;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
+     (Online g now,[MarkOnline;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
    | Pong _ now => match s with Online g _ => (Online g now,[]) | _ => (s,[]) end
    | Heartbeat _ now sample => match s with Online g last =>
      if heartbeat_timeout cfg <? now - last then retry cfg s now sample
-     else (s,[Ping g;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
+     else (s,[Ping;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
    | _ => (s,[]) end
  end.
 
