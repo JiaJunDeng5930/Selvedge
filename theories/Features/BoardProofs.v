@@ -159,13 +159,57 @@ Proof.
  { unfold CardScope.lookup. rewrite Worktree.transition_preserves_board. exact found. }
  exists (F.Card (N.succ (F.card_revision card))
    (Board.with_stage F.InProgress (F.card_contents card))
-   (Some (Worktree.transition_identity birth)) false (F.card_created_at card) observed
+   (Some (Worktree.transition_identity birth)) (F.card_archived card) (F.card_created_at card) observed
    F.NoEnrichment "" (F.card_pinned card)).
  split.
  - eapply BoardRelations.board_lookup_after_put_selected. exact created_keeps_card.
  - split; [reflexivity|]. split.
    + apply BoardRelations.task_lookup_after_board_put.
    + split; reflexivity.
+Qed.
+
+(** Linking existing execution changes the association, not the Task or the
+    request currently drafting the card's independent name. *)
+Theorem admitted_link_preserves_execution_and_drafting : forall id observed target value card task,
+ CardScope.lookup id value=Some card -> F.card_archived card=false ->
+ F.card_task card=None -> Selvedge.Kernel.State.find_task target value=Some task ->
+ (forall other, In (Some other) (F.board_cards (Board.registry value)) ->
+   F.card_task other<>Some target) ->
+ let linked:=Board.link id (F.card_revision card) observed target value in
+ bool_default "ok" (decision_reply linked) false=true /\
+ exists updated,
+   CardScope.lookup id (decision_world linked)=Some updated /\
+   F.card_task updated=Some target /\
+   F.card_contents updated=F.CardDraft
+     (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card))
+     F.InProgress (F.draft_priority (F.card_contents card))
+     (F.draft_owner (F.card_contents card)) (F.draft_project (F.card_contents card))
+     (F.draft_labels (F.card_contents card)) (F.draft_attachments (F.card_contents card)) /\
+   F.card_revision updated=N.succ (F.card_revision card) /\
+   F.card_enrichment updated=F.card_enrichment card /\
+   world_tasks (decision_world linked)=world_tasks value /\
+   F.feature_titles (world_features (decision_world linked))=F.feature_titles (world_features value) /\
+   decision_effects linked=[].
+Proof.
+ intros id observed target value card task Found Active Unlinked Target Unused linked.
+ assert (NotUsed:existsb (fun candidate=>match candidate with Some other=>
+   match F.card_task other with Some linked=>N.eqb linked target | None=>false end
+   | None=>false end) (F.board_cards (Board.registry value))=false).
+ { apply Bool.not_true_iff_false. intro Used.
+   apply existsb_exists in Used as [[other|] [Member Matches]]; [|discriminate].
+   destruct (F.card_task other) as [previous|] eqn:Previous; [|discriminate].
+   apply N.eqb_eq in Matches. subst previous. exact (Unused other Member Previous). }
+ unfold linked,Board.link,CardScope.with_card.
+ rewrite selecting_a_card_retains_the_observed_value,Found,N.eqb_refl.
+ cbn [CommandResult.resolve]. rewrite Target.
+ unfold Board.editable,BoardFacts.editable,Board.unlinked,BoardFacts.unlinked.
+ rewrite Active,Unlinked,NotUsed.
+ cbn [negb andb Board.save CommandResult.accept CommandResult.change_value
+   CommandResult.change_world CommandResult.change_effects Board.save_change
+   accept decision_reply decision_world decision_effects].
+ split; [reflexivity|].
+ eexists. split; [now apply board_lookup_after_put_selected with (before:=card)|].
+ repeat split; reflexivity.
 Qed.
 
 Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,

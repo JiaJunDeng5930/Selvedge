@@ -135,8 +135,10 @@ Definition link (id revision:N) (observed:BoardParameters.clock) (target:N) (val
  let now:=observed in CardScope.with_card id revision value (fun card=>
  match Selvedge.Kernel.State.find_task target value with None=>Selvedge.Kernel.State.reject "task_not_found" "The conversation to link does not exist" value | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
- if editable card && unlinked card && negb used then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
- save id ((set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some target)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(Selvedge.Features.Domain.card_revision updated)) (card)))))))) value
+ if editable card && unlinked card && negb used then
+ let updated:=revised (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) now card in
+ save id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
+   (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value
  else Selvedge.Kernel.State.reject "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" value end).
 Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Domain.card) (value:world) :=
  if archived then match Selvedge.Features.Domain.card_task card with
@@ -176,7 +178,7 @@ Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:o
  | Some agent=>
  let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
  CommandResult.map (fun birth=>
- let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card)))))))) in
+ let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card))))))) in
  CommandResult.Change (JObject [("card_id",number id);("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))]) (put id updated (Worktree.transition_world birth)) (Worktree.transition_effects birth))
    (Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value) end).
 Definition run (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=

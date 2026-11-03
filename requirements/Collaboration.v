@@ -78,6 +78,7 @@ Export CardScopeProofs(stale_card_is_atomic).
 Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
   automatic_queue_follows_pin_priority_and_board_order,
   admitted_card_edit_preserves_its_execution,
+  admitted_link_preserves_execution_and_drafting,
   linked_assignment_cannot_be_transferred,
   stopped_operation_retains_its_concurrency_slot,
   archive_busy_card_retains_task_authority,
@@ -123,6 +124,11 @@ Export TitleProofs(admitted_title_issues_observed_request,
     then rejects stale results without waiting for the external invocation to
     finish. A second generation is refused while the first remains current.
     This keeps request ownership separate from optimistic edit conflicts.
+    Linking an existing Task also keeps the current drafting receiver and card
+    plan. [admitted_link_preserves_execution_and_drafting] requires that actual
+    successful association while preserving the Task registry and independent
+    conversation titles; linking must not recreate execution or lose a paid
+    request that still owns its receiver.
 
     Ordinary creation retains the requested draft. Automatic execution selects
     pinned cards first, then urgent through unprioritized cards, retaining manual
