@@ -70,14 +70,17 @@ Qed.
 Theorem current_title_configuration_writes_both_instructions :
  forall value revision task_prompt agent_prompt,
  revision = F.title_revision (F.feature_title_settings (world_features value)) ->
+ exists updated_revision,
  F.feature_title_settings (world_features
    (decision_world (TitleRuntime.configure revision task_prompt agent_prompt value))) =
- F.TitleSettings (N.succ revision) task_prompt agent_prompt /\
+ F.TitleSettings updated_revision task_prompt agent_prompt /\
+ updated_revision <> revision /\
  decision_effects (TitleRuntime.configure revision task_prompt agent_prompt value) = [].
 Proof.
  intros value revision task_prompt agent_prompt Revision.
  unfold TitleRuntime.configure.
- rewrite Revision, N.eqb_refl. split; reflexivity.
+ rewrite Revision, N.eqb_refl.
+ eexists. repeat split; try reflexivity. apply N.neq_succ_diag_l.
 Qed.
 
 Theorem conflicting_title_configuration_keeps_the_complete_world :

@@ -98,7 +98,7 @@ Theorem current_board_text_retains_other_plan_fields : forall
    CardScope.lookup (head address) (decision_world result)=Some updated /\
    F.card_contents updated=draft /\
    F.card_task updated=F.card_task card /\
-   F.card_revision updated=N.succ (F.card_revision card) /\
+   F.card_revision updated<>F.card_revision card /\
    F.card_enrichment updated=F.NoEnrichment /\
    world_tasks (decision_world result)=world_tasks value /\
    F.feature_titles (world_features (decision_world result))=F.feature_titles (world_features value) /\
@@ -110,7 +110,7 @@ Proof.
  rewrite Valid. cbn [andb].
  eexists. eexists. split; [reflexivity|].
  split; [now apply board_lookup_after_put_selected with (before:=card)|].
- repeat split; reflexivity.
+ repeat split; try reflexivity. apply N.neq_succ_diag_l.
 Qed.
 
 Local Lemma runnable_selects_the_observed_agent : forall card value agent,
@@ -436,7 +436,7 @@ Theorem admitted_card_edit_preserves_its_execution : forall id observed value ca
      (match Board.patch_project input with Some project=>project | None=>F.draft_project (F.card_contents card) end)
      (match Board.patch_labels input with Some labels=>labels | None=>F.draft_labels (F.card_contents card) end)
      (match Board.patch_attachments input with Some attachments=>attachments | None=>F.draft_attachments (F.card_contents card) end) /\
-   F.card_revision updated=N.succ (F.card_revision card) /\
+   F.card_revision updated<>F.card_revision card /\
    F.card_task updated=F.card_task card /\
    F.card_enrichment updated=(match Board.patch_title input,Board.patch_description input with
      None,None=>F.card_enrichment card | _,_=>F.NoEnrichment end) /\
@@ -471,7 +471,7 @@ Proof.
  split; [now apply board_lookup_after_put_selected with (before:=card)|].
  unfold Board.edited_card,Board.apply_patch,Board.retained.
  destruct (Board.patch_title input); destruct (Board.patch_description input);
-   repeat split; reflexivity.
+   repeat split; try reflexivity; apply N.neq_succ_diag_l.
 Qed.
 
 (** Linked assignment remains the concurrency attribution when that Task runs

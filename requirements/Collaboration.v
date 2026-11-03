@@ -105,6 +105,12 @@ Export TitleProofs(admitted_title_issues_observed_request,
     before editing. An active Task keeps its card in progress; same-column
     ordering and pinning remain independent of that execution.
 
+    Cards, Board agent settings and title settings use revisions to reject
+    stale writes. Callers return the revision they observed; they do not
+    calculate its next value. Successful updates invalidate the previous
+    revision while retaining the requested content. A particular initial
+    revision or increment size is not part of that conflict contract.
+
     The linked assignee is also the attribution used by the agent concurrency
     limit. Changing it could free the old agent's slot while its Task still
     runs, including a later resumed turn. [linked_assignment_cannot_be_transferred]
