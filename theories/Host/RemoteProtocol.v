@@ -52,7 +52,6 @@ Module AuthoritySet := KeyedCollection.Make AuthorityEntry.
 Definition grant_limit (values : AuthoritySet.t) := N.of_nat (AuthoritySet.size values) <=? 64.
 Definition grant_set := D.checked grant_limit.
 Definition grant_values (value : grant_set) := AuthoritySet.values (proj1_sig value).
-Definition no_grants : grant_set := exist _ AuthoritySet.empty eq_refl.
 Definition admit_grants values := match AuthoritySet.admit values with
  | Some values => D.admit grant_limit values | None => None end.
 Definition grants_declaration := D.Array authority_declaration.

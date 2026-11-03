@@ -98,7 +98,7 @@ export class RemoteConnector {
     // A single owner preserves native grant observation order across reconnects.
     const next = this.#grantTail.then(async () => {
       const session = this.#session;
-      if (!session?.ready) return;
+      if (!session || this.#control.phase !== 'ready') return;
       const grants = (await this.#getGrants()).map(({ controller_id, grant_epoch }) => ({ controller_id, grant_epoch }));
       // DEFENSE: Grant observation can complete after a reconnect or shutdown retired this socket.
       if (!this.#current(session)) return;
@@ -149,7 +149,7 @@ export class RemoteConnector {
     const url = new URL(this.#hostUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
-    const session = { socket, generation, connections: new Map(), ready: false };
+    const session = { socket, generation, connections: new Map() };
     this.#session = session;
     session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), CONNECT_TIMEOUT_MS);
     session.timeout.unref();
@@ -255,7 +255,6 @@ export class RemoteConnector {
   }
 
   #ready(session) {
-    session.ready = true;
     this.syncGrants().then(() => {
       // DEFENSE: Grant synchronization can finish after disconnection or replacement.
       if (!this.#current(session)) return;
@@ -329,7 +328,7 @@ export class RemoteConnector {
     this.#step('notice');
     const sequence = this.#control.notice_sequence;
     const session = this.#session;
-    if (!session?.ready) return;
+    if (!session || this.#control.phase !== 'ready') return;
     let event;
     let bytes;
     try {

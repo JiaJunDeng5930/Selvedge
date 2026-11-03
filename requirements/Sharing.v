@@ -7,6 +7,7 @@
 From Selvedge.Features Require SharingProofs.
 Export SharingProofs(connection_without_project_grant_cannot_execute,
   accepted_public_exec_emits_frozen_job, query_cannot_reveal_foreign_operation,
+  retained_public_exec_satisfies_retry_contract,
   recovery_never_replays_running_job).
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_configured_connection_grants_preserve_authority).
@@ -22,6 +23,13 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     before process launch. Sharing one Project does not share the whole host.
 
     Request identities and retained results support retry after a lost response.
+    A retained request belongs to the connection and request ID used to find it;
+    comparing that connection again supplies no additional authority. The
+    requested Project and arguments must still match the retained intent.
+    [retained_public_exec_satisfies_retry_contract] constrains the actual exec
+    entry to return the retained receipt or refuse changed intent, leaving the
+    world unchanged and issuing no effects in either case. A retry needs no
+    fresh execution capacity or currently available managed workspace.
     Forgetting a settled receipt does not recycle its operation identity.
     [recovery_never_replays_running_job] marks uncertain work instead of launching
     it again; cancellation requests a physical stop without undoing writes.
@@ -190,6 +198,12 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     rereads the current attachment instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
+    A grant observation filters the connector's live connections directly;
+    retaining that entire snapshot supplies no later decision. Native commands
+    and captures still check current journal authority, while the relay keeps
+    the grants it actually uses for tickets and forwarding. The installed
+    connector phase also supplies readiness to its physical interpreter;
+    a second socket readiness flag would duplicate that state.
     The connector synchronously clears its physical socket owner before closing
     that socket. Object identity therefore excludes old physical callbacks,
     including pairing callbacks, without a second native generation query.

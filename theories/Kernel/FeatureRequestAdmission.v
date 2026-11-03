@@ -81,7 +81,7 @@ Definition resolve_connection identity project (request : ChatgptArguments.reque
  CommandResult.require (connection_has_primary target) (fun Primary =>
  observe (connection_retry identity request (sharing_registry before)) (fun pair _ =>
    let '(id,job) := pair in
-   if N.eqb identity (F.job_connection job) && N.eqb project (F.job_project job) &&
+   if N.eqb project (F.job_project job) &&
       Json.equal (ChatgptArguments.encode arguments) (F.job_arguments_json job)
    then CommandResult.Accepted (ExistingConnection id job)
    else CommandResult.refuse "request_conflict" "This request_id already names a different command; do not retry with new arguments")

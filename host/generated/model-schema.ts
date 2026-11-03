@@ -153,13 +153,13 @@ export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnec
 export type RemoteConnectorSessionState =
   | {"phase": "offline"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
   | {"phase": "negotiating"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
-  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "grants": Array<JsonValue>; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
+  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
 export function decodeRemoteConnectorSessionState(input: unknown): RemoteConnectorSessionState {
   const source = decodeObject(input);
   switch (source["phase"]) {
     case "offline": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
     case "negotiating": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
-    case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","grants","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "grants": decodeArray(source["grants"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
+    case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionState variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionState discriminant');
   }
