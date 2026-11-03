@@ -1,6 +1,6 @@
-import { decodeResourceTransition, type JsonValue, type ResourceTransition } from './generated/model-schema.ts';
+import { decodeLocalResourceTransition, decodeCloudResourceTransition, type JsonValue } from './generated/model-schema.ts';
 
-type State = ResourceTransition['state'];
+type State = JsonValue;
 type Transition = (state: State, observation: JsonValue) => unknown;
 type Result = { receipt: State; errors: Error[] };
 interface LocalPrimitives {
@@ -18,11 +18,10 @@ interface LocalPrimitives {
 /** The decoded action selects one physical primitive; its acknowledgement is
  * admitted by the phase-specific Gallina controller before another IO starts. */
 export async function runLocalResourceController(initial: unknown, transition: Transition, io: LocalPrimitives): Promise<Result> {
-  let plan = decodeResourceTransition(initial);
+  let plan = decodeLocalResourceTransition(initial);
   const errors: Error[] = [];
   for (;;) {
-    const { state, effects } = plan;
-    const action = effects[0];
+    const { state, action } = plan;
     let observation: JsonValue;
     if (action === 'finish') return { receipt: state, errors };
     try {
@@ -36,16 +35,13 @@ export async function runLocalResourceController(initial: unknown, transition: T
         case 'local_remove': observation = await io.local_remove(state); break;
         case 'local_archive': observation = await io.local_archive(state); break;
         case 'local_observe': observation = await io.local_observe(state); break;
-        // DEFENSE: A cloud action cannot execute through a local reservation's physical handle.
-        case 'allocate': case 'prepare': case 'credentials': case 'scan': case 'terminate':
-        case undefined: throw new TypeError('Invalid local resource primitive');
         default: { const unreachable: never = action; throw new TypeError(`Unknown local resource primitive: ${unreachable}`); }
       }
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
       observation = { kind: action === 'persist' ? 'persistence_failed' : 'local_failed' };
     }
-    plan = decodeResourceTransition(transition(state, observation));
+    plan = decodeLocalResourceTransition(transition(state, observation));
   }
 }
 
@@ -58,11 +54,12 @@ interface CloudPrimitives {
   terminate(state: State): Promise<JsonValue>;
 }
 export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives) {
-  let plan = decodeResourceTransition(initial);
+  let plan = decodeCloudResourceTransition(initial);
   const errors: string[] = [];
   for (;;) {
-    const { state, effects } = plan;
-    const action = effects[0];
+    const { state, action } = plan;
+    // DEFENSE: An observation with no transition from the current cloud phase grants no physical action.
+    if (action == null) throw new TypeError('Cloud resource observation did not select an action');
     let observation: JsonValue;
     if (action === 'finish') return { receipt: state, errors };
     try {
@@ -73,10 +70,6 @@ export async function runCloudResourceController(initial: unknown, transition: T
         case 'credentials': observation = await io.credentials(state); break;
         case 'scan': observation = await io.scan(state); break;
         case 'terminate': observation = await io.terminate(state); break;
-        // DEFENSE: A local filesystem action cannot execute with a cloud allocation's provider handle.
-        case 'local_reserve': case 'local_create': case 'local_prepare': case 'local_classify':
-        case 'local_release': case 'local_remove': case 'local_archive': case 'local_observe':
-        case undefined: throw new TypeError('Invalid cloud resource primitive');
         default: { const unreachable: never = action; throw new TypeError(`Unknown cloud resource primitive: ${unreachable}`); }
       }
     } catch (error) {
@@ -91,6 +84,6 @@ export async function runCloudResourceController(initial: unknown, transition: T
         default: throw error;
       }
     }
-    plan = decodeResourceTransition(transition(state, observation));
+    plan = decodeCloudResourceTransition(transition(state, observation));
   }
 }

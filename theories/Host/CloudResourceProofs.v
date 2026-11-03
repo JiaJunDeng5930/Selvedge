@@ -7,8 +7,8 @@ Open Scope string_scope.
 
 Fixpoint allocation_authority value := match value with
   | Allocating _ => true | Persisting next => allocation_authority next | _ => false end.
-Definition no_allocate (result : state * list action) :=
-  allocation_authority (fst result) = false /\ ~ In Allocate (snd result).
+Definition no_allocate (result : state * option action) :=
+  allocation_authority (fst result) = false /\ snd result <> Some Allocate.
 Lemma run_preserves_retirement value : allocation_authority value = false -> no_allocate (run value).
 Proof. destruct value; unfold no_allocate; cbn; intros H; try discriminate; split; auto; intuition discriminate. Qed.
 Lemma termination_never_allocates source : no_allocate (terminate_or_finish source).
@@ -79,7 +79,7 @@ Qed.
 
 Theorem durable_readiness_revalidation_keeps_connection source instance host guidance :
   step (Persisting (Ready source instance host guidance)) Resume =
-    (Revalidating source instance host,[Prepare]).
+    (Revalidating source instance host,Some Prepare).
 Proof. reflexivity. Qed.
 
 Theorem reconciled_termination_requires_the_unique_owned_instance : forall source instances total next id,

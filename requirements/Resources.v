@@ -34,6 +34,9 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     today's Task state. A missing binding fails rather than executing locally.
     Process input, filesystem observations and image snapshots use this same
     binding. Project observations without a Task binding remain local.
+    Local sandbox preparation observes the running platform and architecture
+    directly. No caller selects a different host platform when interpreting an
+    admitted execution plan.
 
     An admitted setup result installs the observed workspace or stops its live
     owner. Successful setup records its settings and every queued user input
@@ -156,8 +159,15 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     authority. Receipt admission uses the controller's decoded phase and adds
     the expected task identity and owned path; workspace declarations already
     admit the root text used by membership and containment checks.
-    Generated action unions and checked interpreters keep the host from
-    choosing another continuation. SSH readiness retries follow observed
+    Each resource controller selects one physical action before awaiting its
+    observation. The local plan carries one local action; a cloud transition
+    carries one cloud action or explicitly has no matching transition. Their
+    typed Schema encoders also supply the generated host declarations, retaining
+    both the backend's action range and its single-step meaning. There is no
+    unused action-list suffix for an interpreter to discard. A missing cloud
+    action remains an interpretation failure and grants no physical operation.
+    Checked interpreters keep the host from choosing another continuation.
+    SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
     is a preparation failure. [ssh_wait_fits_remaining_deadline] requires each
     probe timeout and retry delay to be positive and fit the deadline remaining

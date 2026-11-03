@@ -3,7 +3,7 @@ From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Import Domain.
-From Selvedge.Host Require RemoteTransport RemoteConnectorSession.
+From Selvedge.Host Require RemoteTransport RemoteConnectorSession LocalResources CloudResources.
 Module RT := Selvedge.Host.RemoteTransport.
 Module RC := Selvedge.Host.RemoteConnectorSession.
 Import ListNotations.
@@ -185,12 +185,10 @@ Definition http_remote_approval_fields := [Field "request_id" KText;Field "permi
 Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition http_remote_revoke_fields := [Field "controller_id" KText].
 Definition http_browser_command_fields := [Field "command" KJson].
-Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
- "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
-Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
  ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);
- ("ResourceTransition",resource_transition_fields);
+ ("LocalResourceTransition",LocalResources.transition_fields);
+ ("CloudResourceTransition",CloudResources.transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);
  ("WorkspaceCommandPlan",workspace_command_fields);
