@@ -18,7 +18,9 @@ Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   a_frozen_context_completion_waits_for_a_new_observation,
   a_stopped_context_completion_waits_for_a_new_observation,
   actual_model_requests_retain_the_complete_committed_history).
-Export RequestDeliveryProofs(context_completion_commits_before_following_scheduling).
+Export RequestDeliveryProofs(context_completion_commits_before_following_scheduling,
+  a_transport_refusal_retains_the_complete_task_history,
+  an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation).
 Export ModelRequestConstructionProofs(every_frozen_model_is_supported_by_its_frozen_profile,
   captured_history_cannot_reselect_the_model).
 Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
@@ -68,6 +70,10 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     an admitted profile choice. [every_frozen_model_is_supported_by_its_frozen_profile]
     and [captured_history_cannot_reselect_the_model] are properties of the
     source-indexed selection, not comparisons with a duplicate model field.
+    An oversized request fails while retaining the complete history and
+    unrelated operations. An after-hook transport refusal retains the original
+    tool evidence, retires its operation and records the same failure reason in
+    its receipt and result. These outcomes do not prescribe diagnostic wording.
     Frozen choices are captured domain values. Host configuration, credential
     views and prepared-request containers supply observations; freezing their
     JavaScript properties does not establish Task authority or capture a choice.

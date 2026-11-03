@@ -56,7 +56,7 @@ Definition authorization source :=
   else success JNull.
 Definition credentials source :=
   (* DEFENSE: Environment credentials may be absent when the configured provider is first used. *)
-  if is_text (get source "key") && negb (String.eqb (str source "key") "") then success (get source "key")
+  if is_text (get source "key") && negb (String.eqb (str source "key") "") then success JNull
   else err ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider").
 Definition request_size source :=
   (* DEFENSE: Encoded history can exceed the host request budget before network IO. *)

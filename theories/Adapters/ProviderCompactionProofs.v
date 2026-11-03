@@ -18,8 +18,7 @@ Proof. intros source H; exists "The provider returned an invalid input token cou
 Theorem public_valid_token_count_is_retained : forall source count,
   wire_natural (get (get source "response") "input_tokens") = Some count ->
   JsonObjects.equivalent (Api.call "backend.compaction_meter_result" source) (success (JObject [
-    ("scope",get source "scope"); ("input_tokens",number count);
-    ("tokenizer",JString "provider")])) = true.
+    ("scope",get source "scope"); ("input_tokens",number count)])) = true.
 Proof.
  intros source count H;change (Api.call "backend.compaction_meter_result" source) with (meter_result source).
  unfold meter_result;rewrite H;apply equivalent_is_reflexive.
@@ -45,7 +44,7 @@ Theorem public_readable_unsupported_route_uses_byte_bound : forall source,
   opaque_request (get source "request") = false -> unsupported_route source = true ->
   JsonObjects.equivalent (Api.call "backend.compaction_meter_fallback" source) (success (JObject [
     ("action",JString "local"); ("scope",get source "scope");
-    ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])) = true.
+    ("input_tokens",get source "bytes")])) = true.
 Proof.
  intros source H R;change (Api.call "backend.compaction_meter_fallback" source) with (meter_fallback source).
  unfold meter_fallback;rewrite H,R;apply equivalent_is_reflexive.
@@ -57,8 +56,7 @@ Theorem public_account_image_requests_use_the_complete_request_estimate : forall
   JsonObjects.equivalent (Api.call "backend.compaction_measurement_plan" source)
     (success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json (get source "request"))) +
-        1844 * request_image_count (get source "request")));
-      ("tokenizer",JString "codex_image_estimate")])) = true.
+        1844 * request_image_count (get source "request")))])) = true.
 Proof.
  intros source account images.
  change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).

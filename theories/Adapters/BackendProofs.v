@@ -240,13 +240,13 @@ Qed.
 Theorem public_matching_account_is_usable : forall source,
   JsonObjects.equivalent (get (get source "profile") "bound_account_id")
     (get (get source "authorization") "account_id") = true ->
-  Api.call "backend.authorization" source = success JNull.
-Proof. intros source matching;change (authorization source = success JNull);unfold authorization;
+  exists accepted, Api.call "backend.authorization" source = success accepted.
+Proof. intros source matching;exists JNull;change (authorization source = success JNull);unfold authorization;
  rewrite matching;cbn;now rewrite andb_false_r. Qed.
-Theorem public_nonempty_environment_credential_is_retained : forall source,
+Theorem public_nonempty_environment_credential_is_admitted : forall source,
   is_text (get source "key") = true -> str source "key" <> "" ->
-  Api.call "backend.credentials" source = success (get source "key").
-Proof. intros source typed nonempty;change (credentials source = success (get source "key"));
+  exists accepted, Api.call "backend.credentials" source = success accepted.
+Proof. intros source typed nonempty;exists JNull;change (credentials source = success JNull);
  unfold credentials;apply String.eqb_neq in nonempty;now rewrite typed,nonempty. Qed.
 Theorem public_empty_environment_credential_fails_before_io : forall source,
   str source "key" = "" ->

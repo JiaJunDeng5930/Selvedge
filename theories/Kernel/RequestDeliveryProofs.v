@@ -16,7 +16,8 @@ Open Scope list_scope.
 
 Theorem a_transport_refusal_retains_the_complete_task_history : forall current,
  let next := TaskChange.apply RequestDelivery.refusal_changes current in
- task_history next = task_history current ++ [FailureMessage RequestDelivery.failure_message] /\
+ exists reason,
+ task_history next = task_history current ++ [FailureMessage reason] /\
  task_operations next = task_operations current /\
  task_queued next = task_queued current /\
  task_contract next = task_contract current /\
@@ -24,6 +25,7 @@ Theorem a_transport_refusal_retains_the_complete_task_history : forall current,
  task_current_settings next = task_current_settings current.
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ exists RequestDelivery.failure_message.
  destruct lifecycle; repeat split; reflexivity.
 Qed.
 
@@ -160,14 +162,14 @@ Theorem an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation :
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
  operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
  let refused := (DecisionComposition.transform (RequestDelivery.after_refusal (CheckResult owner ticket identity plugin invocation result error)) current) in
- exists updated released,
+ exists updated released reason,
  find_task owner (decision_world refused) = Some updated /\
  task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
    [AfterReceipt owner (operation_id operation) plugin
-     (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] ++
+     (Inputs.after_json (AfterFailure reason))] ++
    [History.operation_result operation
-     (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true] ++
+     (State.failure "after_hook_failed" reason) true] ++
    map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
@@ -201,7 +203,8 @@ Proof.
        (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
- exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released; split.
+ exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released,
+   RequestDelivery.after_failure_message; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].

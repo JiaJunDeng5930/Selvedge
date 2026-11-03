@@ -33,6 +33,10 @@ From Selvedge.Programming Require Import AdapterResult.
     the OpenID client. Displaying the SDK's authorization URL introduces no new
     account admission. Issuer admission checks the credential already held by
     the caller without returning another copy of it.
+    Environment authentication admits a captured nonempty key before I/O; that
+    same captured key supplies Authorization and the compaction consumer scope.
+    These credential guards establish acceptance without a successful-payload
+    contract: returning another credential adds no authentication evidence.
     Callback response wording or a duplicate-receipt status
     does not establish whether the exchange ran once.
     [BackendProofs] binds frozen-account checks and
@@ -81,6 +85,8 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_unparseable_authentication_text_is_sanitized).
 Export BackendProofs(public_frozen_account_rejects_another_identity,
  public_matching_account_is_usable,
+ public_nonempty_environment_credential_is_admitted,
+ public_empty_environment_credential_fails_before_io,
  public_finalized_output_retains_every_item,
  public_stream_step_preserves_provider_order,
  public_conflicting_finalized_output_fails,
@@ -177,6 +183,8 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     an over-budget request cannot become admissible through a fabricated token
     count. A readable request may use the existing byte bound after an explicit
     unsupported meter-route response.
+    Admission depends on the consumer scope and token bound; a label naming
+    the measurement source adds no admission or scheduling evidence.
     Vault bytes, digest checks, image decoding, model capabilities and transport
     materialization are physical observations rather than consequences of these
     pure proofs. *)

@@ -58,7 +58,7 @@ Definition meter_result (source : json) :=
   match wire_natural count with
   | None => err "The provider returned an invalid input token count"
   | Some count => success (JObject [("scope",get source "scope");
-      ("input_tokens",number count); ("tokenizer",JString "provider")]) end.
+      ("input_tokens",number count)]) end.
 Definition native_result (source : json) :=
   let response := get source "response" in
   (* DEFENSE: A provider replacement window must be an array before it enters history. *)
@@ -108,7 +108,7 @@ Definition measurement_plan (source : json) :=
        estimate includes the complete encoded request and each image. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
-        1844 * images)); ("tokenizer",JString "codex_image_estimate")])
+        1844 * images))])
   else success (JObject [("action",JString "remote")]).
 Definition code_in (source : json) (codes : list string) :=
   existsb (String.eqb (str source "code")) codes.
@@ -124,7 +124,7 @@ Definition meter_fallback (source : json) :=
      encrypted continuations and image handles have no textual token bound. *)
   if negb (opaque_request (get source "request")) && unsupported_route source then
     success (JObject [("action",JString "local"); ("scope",get source "scope");
-      ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])
+      ("input_tokens",get source "bytes")])
   else action "error".
 Definition native_failure (source : json) :=
   (* DEFENSE: Only unsupported route/model responses authorize portable compaction. *)
