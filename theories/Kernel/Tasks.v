@@ -484,7 +484,7 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
       let '(invocation,retained) := match entry with
        | AcceptedNativeFork invocation _ => (invocation,value)
        | ManualFork =>
-         let '(ticket, allocated) := allocate_ticket value in
+         let '(ticket, allocated) := allocate_identity TaskTicket value in
          let invocation := Call (manual_fork_identity ticket task) "fork_task"
            (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt in
          (invocation,with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target

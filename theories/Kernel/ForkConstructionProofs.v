@@ -59,11 +59,11 @@ Proof.
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
      Tasks.no_resource_observation settings) end); [exact Found|].
  destruct entry.
- - destruct (allocate_ticket before) as [ticket allocated] eqn:Allocated.
+ - destruct (allocate_identity TaskTicket before) as [ticket allocated] eqn:Allocated.
    cbn [decision_world accept]. apply fork_children_preserve_every_existing_task.
    unfold find_task, put_task, with_tasks; cbv [set]; cbn.
    rewrite registry_replace_other by congruence.
-   unfold allocate_ticket in Allocated; inversion Allocated; subst allocated.
+   cbn [allocate_identity next_identity] in Allocated; inversion Allocated; subst allocated.
    unfold with_ticket; cbn. exact Found.
  - cbn [decision_world accept]. apply fork_children_preserve_every_existing_task; exact Found.
 Qed.

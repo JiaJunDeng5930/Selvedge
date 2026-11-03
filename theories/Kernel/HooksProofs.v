@@ -27,7 +27,7 @@ Theorem before_hook_dispatches_the_first_pending_plugin :
  find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  Capabilities.hook_available Capabilities.BeforeTool plugin
    (environment_plugins (world_environment value)) = true ->
- let '(ticket, allocated) := allocate_ticket value in
+ let '(ticket, allocated) := allocate_identity TaskTicket value in
  decision_effects (Scheduler.before_hook_step execute id tool invocation
    (plugin :: rest) remaining task value) =
    [CheckTool id ticket plugin tool invocation].
@@ -48,7 +48,7 @@ Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
  TicketedRequest.Scoped.operation_at (operation_id current) task = Some current ->
  Capabilities.hook_available Capabilities.AfterTool plugin
    (environment_plugins (world_environment value)) = true ->
- let '(ticket, allocated) := allocate_ticket value in
+ let '(ticket, allocated) := allocate_identity TaskTicket value in
  decision_effects (Scheduler.after_hooks_step id current value) =
    [CheckResult id ticket (operation_id current) plugin (operation_call current) result error].
 Proof.

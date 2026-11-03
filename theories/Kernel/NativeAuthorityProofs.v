@@ -79,7 +79,7 @@ Proof.
  rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending, Available.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
- destruct (allocate_ticket value); reflexivity.
+ reflexivity.
 Qed.
 
 (* No catalog-membership premise is needed: the actual authorization request
@@ -208,5 +208,5 @@ Proof.
    Found Available Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
  rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found, Available, Eligible, Count, Messages, Capacity, Resolved, Fixed.
  cbn [andb]. rewrite Delegated, Observed. cbn [negb andb].
- destruct (allocate_ticket value); reflexivity.
+ reflexivity.
 Qed.
