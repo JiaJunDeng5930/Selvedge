@@ -41,6 +41,11 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     permissions and configuration fields. Each boundary consumes the
     observations already established by its owner.
 
+    Identity loading preserves safe descriptor failures without assigning
+    another diagnostic category. Only a missing identity permits initial
+    creation. Parsing failures still need redaction because their diagnostics
+    can contain credential bytes; descriptor failures contain no such bytes.
+
     Client settings retain the admitted authorization header: repeating token
     admission for each request adds no new authority. Setup persists the same
     validated raw credential in the private connection file, while runtime

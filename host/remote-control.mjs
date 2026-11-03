@@ -37,12 +37,8 @@ async function readIdentity(home, relayUrl) {
     }
     return value;
   } catch (error) {
-    // DEFENSE: Startup before remote init has no identity; selecting a symlink must not follow it to credential data.
+    // DEFENSE: Startup before remote init has no identity; a failed read must remain distinct from that missing file.
     if (error.code === 'ENOENT') throw remoteError('remote_identity_missing', 'Initialize this relay with remote init before enabling remote control');
-    if (error.code === 'ELOOP') throw remoteError('remote_identity_permissions', 'Remote identity must not be a symbolic link');
-    // DEFENSE: Snapshot rejection must not disclose private identity contents.
-    if (['NOT_REGULAR', 'TOO_LARGE'].includes(error.code)) throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
-    if (error.code === 'CHANGED') throw remoteError('remote_identity_invalid', 'Remote identity changed while being read');
     throw error;
   }
 }
