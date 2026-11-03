@@ -226,7 +226,7 @@ Proof.
  intros source.
  change (field "ok" (Rpc.call "rpc.frame" source) = Some (JBool true) <->
    num source "bytes" <= num source "frameLimit").
- cbn [Rpc.call].
+ unfold Rpc.call;cbn.
  destruct (num source "bytes" <=? num source "frameLimit") eqn:Budget;cbn.
  - split;[intros _;now apply N.leb_le|intros _;reflexivity].
  - split;[discriminate|intros Bound;apply N.leb_gt in Budget;lia].
