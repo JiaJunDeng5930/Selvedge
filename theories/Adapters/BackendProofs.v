@@ -48,26 +48,67 @@ Proof.
    rewrite Equal. eapply Permutation_trans; [apply perm_skip; exact IH|apply perm_swap].
 Qed.
 
-Lemma insert_fresh_completed_item_keeps_provider_order : forall values item,
+Lemma insert_completed_preserves_forall : forall (property : completed_item -> Prop) values item,
+ property item -> Forall property values -> Forall property (insert_completed item values).
+Proof.
+ intros property values item Item Values; induction Values as [|first rest First Rest IH]; cbn [insert_completed].
+ - now constructor.
+ - destruct (completed_index item <? completed_index first); [now repeat constructor|].
+   destruct (N.eqb (completed_index item) (completed_index first)); now constructor.
+Qed.
+
+Lemma insert_completed_item_keeps_provider_order : forall values item,
  StronglySorted (fun left right => completed_index left < completed_index right) values ->
- Forall (fun previous => completed_index previous <> completed_index item) values ->
  StronglySorted (fun left right => completed_index left < completed_index right)
    (insert_completed item values).
 Proof.
- intros values item Ordered; induction Ordered as [|first rest Ordered IH Above]; intro Fresh.
+ intros values item Ordered; induction Ordered as [|first rest Ordered IH Above].
  - cbn [insert_completed]; repeat constructor.
- - inversion Fresh as [|? ? Different Tail]; subst.
-   cbn [insert_completed].
+ - cbn [insert_completed].
    destruct (completed_index item <? completed_index first) eqn:Before.
    + apply N.ltb_lt in Before. constructor.
      * now constructor.
      * constructor; [exact Before|]. eapply Forall_impl; [|exact Above].
        intros value Later; cbn in *; lia.
-   + assert (Equal : N.eqb (completed_index item) (completed_index first) = false)
-       by (apply N.eqb_neq; congruence).
-     rewrite Equal. constructor; [now apply IH|].
-     rewrite (insert_fresh_completed_item_keeps_all_outputs rest item Tail).
-     constructor; [apply N.ltb_ge in Before; lia|exact Above].
+   + destruct (N.eqb (completed_index item) (completed_index first)) eqn:Equal.
+     * apply N.eqb_eq in Equal. constructor; [exact Ordered|].
+       eapply Forall_impl; [|exact Above]. intros value Later; cbn in *; lia.
+     * constructor; [exact IH|]. apply insert_completed_preserves_forall; [|exact Above].
+       apply N.ltb_ge in Before; apply N.eqb_neq in Equal; lia.
+Qed.
+
+Lemma response_step_preserves_provider_order : forall event state,
+ StronglySorted (fun left right => completed_index left < completed_index right) (completed_items state) ->
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (fst (step event state))).
+Proof.
+ intros event state Ordered; unfold step; cbn [exposed completed_items].
+ destruct (String.eqb (str event "type") "response.output_text.delta"); [exact Ordered|].
+ destruct (String.eqb (str event "type") "response.output_item.done").
+ - destruct (wire_natural (get event "output_index")) as [index|]; destruct (is_object (get event "item"));
+     cbn [fst completed_items]; try exact Ordered.
+   destruct (conflict (completed_items state) index (get event "item")); cbn [fst completed_items];
+     [exact Ordered|now apply insert_completed_item_keeps_provider_order].
+ - destruct (String.eqb (str event "type") "response.completed"); [exact Ordered|].
+   destruct (existsb (String.eqb (str event "type")) ["error";"response.failed";"response.incomplete"]); exact Ordered.
+Qed.
+
+Theorem public_stream_step_preserves_provider_order : forall source,
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get source "state"))) ->
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get (get (Api.call "backend.stream_step" source) "value") "state"))).
+Proof.
+ intros source Ordered.
+ pose proof (response_step_preserves_provider_order (get source "event")
+   (decode_stream (get source "state")) Ordered) as Preserved.
+ change (Api.call "backend.stream_step" source) with (stream_step source).
+ unfold stream_step.
+ destruct (step (get source "event") (decode_stream (get source "state"))) as [next action]; cbn [fst] in Preserved.
+ destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); destruct action;
+   change (StronglySorted (fun left right => completed_index left < completed_index right)
+     (completed_items (decode_stream (encode_stream next))));
+   now rewrite response_stream_roundtrip.
 Qed.
 
 Theorem public_finalized_output_retains_every_item : forall source index,
@@ -103,7 +144,7 @@ Proof.
    apply response_stream_roundtrip.
  - split; [reflexivity|]. split.
    + apply insert_fresh_completed_item_keeps_all_outputs; exact Fresh.
-   + apply insert_fresh_completed_item_keeps_provider_order; assumption.
+   + now apply insert_completed_item_keeps_provider_order.
 Qed.
 
 Theorem public_conflicting_finalized_output_fails : forall source previous index,

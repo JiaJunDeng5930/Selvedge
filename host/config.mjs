@@ -45,7 +45,7 @@ function configurationHead(value, observer) {
 }
 
 /** Observe mutable context configuration without changing frozen task policy. */
-export function contextConfiguration(value, definitions = contextDefinitions) {
+export function contextConfiguration(value, definitions) {
   const observer = configurationObserver();
   const current = configurationHead(value, observer);
   const settings = Object.fromEntries(contextSettings(definitions).map(definition => {

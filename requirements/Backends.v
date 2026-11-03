@@ -33,7 +33,11 @@ From Selvedge.Programming Require Import AdapterResult.
     reporting finalized items separately. Those items must survive until that
     terminal response, in provider index order, including their coordinates.
     A finalized coordinate names one item; conflicting contents cannot authorize
-    a completed answer. External JSON integer fields denote mathematical values:
+    a completed answer. The stream keeps provider order through every event,
+    including a repeated finalized coordinate. Its terminal output and coordinate
+    list come from that same retained sequence, so translation can consume them
+    without revalidating the sequence constructed by the stream.
+    External JSON integer fields denote mathematical values:
     decimal or exponent notation does not select another coordinate, token count
     or advertised model budget. Admission retains the declared field ranges.
     The shared exact integer construction supplies canonical naturals before
@@ -63,6 +67,7 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
 Export BackendProofs(public_frozen_account_rejects_another_identity,
  public_matching_account_is_usable,
  public_finalized_output_retains_every_item,
+ public_stream_step_preserves_provider_order,
  public_conflicting_finalized_output_fails,
  public_completed_response_preserves_durable_output,
  public_completed_response_retains_finalized_output,
@@ -133,7 +138,14 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
 
     [ProviderCompactionProofs] connects complete-request image classification to
     the account estimate and prevents a text-only fallback for opaque content.
+    The encrypted-input contract describes a nonempty encrypted field in the
+    request tree itself, so no proof-only runtime flag is needed.
     The estimate supports admission; it is not an exact provider token count.
+    Physical preparation admits the complete request's bytes before measurement.
+    Measurement therefore selects the account image estimate or provider meter;
+    an over-budget request cannot become admissible through a fabricated token
+    count. A readable request may use the existing byte bound after an explicit
+    unsupported meter-route response.
     Vault bytes, digest checks, image decoding, model capabilities and transport
     materialization are physical observations rather than consequences of these
     pure proofs. *)
@@ -143,6 +155,7 @@ Export ContextSelectionProofs(selecting_a_summary_preserves_each_original_image)
 Export CompactionPlanProofs(images_force_portable_rebuilding).
 From Selvedge.Adapters Require Import ProviderCompactionProofs.
 Export ProviderCompactionProofs(public_account_image_requests_use_the_complete_request_estimate,
+ public_other_requests_use_provider_measurement,
  public_image_requests_never_use_textual_fallback,
  public_encrypted_requests_never_use_textual_fallback).
 

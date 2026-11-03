@@ -2,10 +2,10 @@ import { boundary } from './public/model-boundary.mjs';
 import { providerSession, observeCompactionScope, prepareModelRequest, requestProviderJSON, requestProviderSSE, responseBody } from './providers.mjs';
 import { compactionSettings } from './config.mjs';
 
-async function measured(session, prepared, limits, options, window_tokens) {
+async function measured(session, prepared, limits, options) {
   const { request, bytes } = prepared;
   const plan = boundary('backend.compaction_measurement_plan', { scope: session.scope, profile: session.profile,
-    request, bytes, limits, window_tokens });
+    request });
   if (plan.action === 'local') return plan;
   const body = boundary('backend.compaction_meter_request', { request });
   let response;
@@ -33,7 +33,7 @@ export async function observeModelRequest(effect, config, home, limits, options 
   const request = boundary('backend.compaction_model_request', { effect, profile: session.profile });
   const settings = compactionSettings(config);
   const target = settings.targets.find(value => value.profile === effect.model.profile);
-  const observation = await measured(session, await prepareModelRequest(request, home, limits), limits, options, target.window_tokens);
+  const observation = await measured(session, await prepareModelRequest(request, home, limits), limits, options);
   return { ...observation, window_tokens: target.window_tokens,
     output_reserve_tokens: target.output_reserve_tokens, now: Date.now() };
 }
@@ -51,7 +51,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
     ? boundary('backend.compaction_request', { request: encoded })
     : boundary('backend.compaction_portable_request', { effect, request: encoded });
   const prepared = await prepareModelRequest(request, home, limits);
-  const observation = await measured(session, prepared, limits, options, effect.plan.window_tokens);
+  const observation = await measured(session, prepared, limits, options);
   if (boundary('backend.compaction_budget', { input_tokens: observation.input_tokens, plan: effect.plan }) === 'resize') {
     return { action: 'resize' };
   }

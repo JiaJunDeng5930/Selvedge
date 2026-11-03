@@ -64,7 +64,7 @@ Theorem unreserved_materialization_cannot_settle state source :
   contains (nat_value (get source "id")) (materializing state) = false ->
   prepared state source = encode_action (unchanged "ignore" state []).
 Proof.
-  intro H. unfold prepared. rewrite H, andb_false_r. reflexivity.
+  intro H. unfold prepared. rewrite H. reflexivity.
 Qed.
 
 Theorem consumed_materialization_cannot_remain_active state id kind payload :

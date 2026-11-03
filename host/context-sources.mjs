@@ -34,10 +34,7 @@ function metadataFields(content) {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
   // DEFENSE: User-authored SKILL.md files must declare the metadata projected into model context.
   if (!frontmatter) throw new TypeError('Context metadata requires YAML frontmatter');
-  let metadata;
-  // DEFENSE: Invalid YAML in a skill file must fail observation instead of injecting guessed metadata.
-  try { metadata = Bun.YAML.parse(frontmatter[1]); }
-  catch { throw new TypeError('Context frontmatter is not valid YAML'); }
+  const metadata = Bun.YAML.parse(frontmatter[1]);
   // DEFENSE: Valid YAML can contain a scalar/list, while skill metadata requires a field record.
   if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
     throw new TypeError('Context frontmatter must contain a field record');
@@ -72,11 +69,7 @@ async function mutableConfiguration(config, definitions, limits, options) {
   if (filename === undefined) return contextConfiguration(config, definitions);
   const file = await snapshotContextFile(filename, { ...limits, project_context_bytes: configFileLimit }, options);
   if (file === null) return contextConfiguration(defaultConfig, definitions);
-  let value;
-  // DEFENSE: A user may save malformed config.json while context settings are being refreshed.
-  try { value = JSON.parse(file.content); }
-  catch { throw new TypeError('Context configuration is not valid JSON'); }
-  return contextConfiguration(value, definitions);
+  return contextConfiguration(JSON.parse(file.content), definitions);
 }
 
 /** Observe the current metadata catalog independently of any task history. */

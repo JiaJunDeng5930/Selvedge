@@ -71,6 +71,14 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     contracts connect it to ordinary settlement and media reservation.
     A result retired during asynchronous materialization remains retired.
 
+    The transport constructs its state observation from private Promise and
+    physical-work collections. The shared Map supplies the pending phases and
+    preparation membership, while issued identifiers supply callback identity.
+    [Rpc.state_of] consumes this constructed observation directly. Rechecking
+    its field shapes, uniqueness or subsets would add a second admission of the
+    transport's own bookkeeping. External peer messages still undergo JSON-RPC
+    parsing and numeric response correlation before any settlement.
+
     External stdout, a slow pipe and concurrent Task calls can otherwise retain
     unbounded frames or pending replies. The frame and write admission contracts
     constrain the actual byte observations supplied by framing and encoding,

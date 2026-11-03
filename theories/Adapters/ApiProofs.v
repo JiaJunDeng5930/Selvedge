@@ -126,7 +126,7 @@ Proof.
 Qed.
 
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = None ->
@@ -140,7 +140,7 @@ Qed.
 
 (** Field presence distinguishes an actual null result from a dropped result. *)
 Theorem public_issued_plain_rpc_result_resolves_its_pending_request : forall source state id,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = Some id ->
@@ -181,7 +181,7 @@ Proof.
 Qed.
 
 Theorem public_issued_media_rpc_result_reserves_before_materialization : forall source state id,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = Some id ->
@@ -203,7 +203,7 @@ Proof.
 Qed.
 
 Theorem public_reserved_rpc_materialization_resolves_once : forall source state,
-  decode_state source = Some state -> canonical_natural (get source "id") = true ->
+  Rpc.state_of source = state ->
   contains (nat_value (get source "id")) state.(materializing) = true ->
   boolean_field source "ok" = true ->
   Api.call "rpc.prepared" source = encode_action
@@ -211,30 +211,29 @@ Theorem public_reserved_rpc_materialization_resolves_once : forall source state,
   ~ In (nat_value (get source "id"))
     (action_materializing (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
 Proof.
- intros source state decoded canonical reserved successful. split.
+ intros source state decoded reserved successful. split.
  - change (Rpc.call "rpc.prepared" source = encode_action
      (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
    unfold Rpc.call;rewrite decoded;cbn.
-   unfold prepared;rewrite canonical,reserved,successful;reflexivity.
+   unfold prepared;rewrite reserved,successful;reflexivity.
  - apply consumed_materialization_cannot_remain_active.
 Qed.
 
-Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source state,
-  decode_state source = Some state ->
-  (field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
-   num source "bytes" <= num source "frameLimit").
+Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source,
+  field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit".
 Proof.
- intros source state decoded.
+ intros source.
  change (field "ok" (Rpc.call "rpc.frame" source) = Some (JBool true) <->
    num source "bytes" <= num source "frameLimit").
- unfold Rpc.call;rewrite decoded;cbn.
+ cbn [Rpc.call].
  destruct (num source "bytes" <=? num source "frameLimit") eqn:Budget;cbn.
  - split;[intros _;now apply N.leb_le|intros _;reflexivity].
  - split;[discriminate|intros Bound;apply N.leb_gt in Budget;lia].
 Qed.
 
 Theorem public_rpc_write_admission_matches_its_byte_budgets : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   (get (get (Api.call "rpc.write" source) "value") "action" = JString "write" <->
    state.(failed) = false /\ state.(closing) = false /\
    num source "bytes" <= num source "frameLimit" /\
@@ -256,7 +255,7 @@ Proof.
 Qed.
 
 Theorem public_rpc_reservation_matches_available_capacity : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   (get (get (Api.call "rpc.request" source) "value") "action" = JString "request" <->
    boolean_field source "aborted" = false /\ state.(failed) = false /\
    N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
@@ -278,7 +277,7 @@ Proof.
 Qed.
 
 Theorem public_rpc_reservation_returns_a_bounded_pending_set : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   get (get (Api.call "rpc.request" source) "value") "action" = JString "request" ->
   N.of_nat (List.length (items (get (get (Api.call "rpc.request" source) "value") "nextPending"))) +
     N.of_nat (List.length state.(working)) <= num source "maxPending".

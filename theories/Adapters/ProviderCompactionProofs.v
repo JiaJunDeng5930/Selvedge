@@ -53,23 +53,17 @@ Proof.
 Qed.
 
 Definition content_consistent value :=
-  (image_count value = 0 \/ opaque_content value = true) /\
-  (encrypted_content_present value = false \/ opaque_content value = true).
+  image_count value = 0 \/ opaque_content value = true.
 Lemma combine_content_consistent : forall left right,
   content_consistent left -> content_consistent right -> content_consistent (combine_content left right).
 Proof.
- intros [lo le li] [ro re ri] [Limage Lencrypted] [Rimage Rencrypted];
- unfold content_consistent,combine_content in *;cbn in *;split.
- - destruct Limage as [Limage|Limage];destruct Rimage as [Rimage|Rimage].
-   + left;lia.
-   + right;rewrite Rimage;apply orb_true_r.
-   + right;rewrite Limage;apply orb_true_l.
-   + right;rewrite Limage;apply orb_true_l.
- - destruct Lencrypted as [Lencrypted|Lencrypted];destruct Rencrypted as [Rencrypted|Rencrypted].
-   + left;now rewrite Lencrypted,Rencrypted.
-   + right;rewrite Rencrypted;apply orb_true_r.
-   + right;rewrite Lencrypted;apply orb_true_l.
-   + right;rewrite Lencrypted;apply orb_true_l.
+ intros [lo li] [ro ri] Limage Rimage;
+ unfold content_consistent,combine_content in *;cbn in *.
+ destruct Limage as [Limage|Limage];destruct Rimage as [Rimage|Rimage].
+ - left;lia.
+ - right;rewrite Rimage;apply orb_true_r.
+ - right;rewrite Limage;apply orb_true_l.
+ - right;rewrite Limage;apply orb_true_l.
 Qed.
 
 Theorem public_account_image_requests_use_the_complete_request_estimate : forall source,
@@ -89,27 +83,63 @@ Proof.
    by (apply N.ltb_lt; exact images).
  rewrite has_images; apply equivalent_is_reflexive.
 Qed.
-Theorem complete_request_classification_is_consistent : forall value,
-  content_consistent (classify_content value).
+Theorem public_other_requests_use_provider_measurement : forall source,
+  is_object (get source "request") = true ->
+  (ProviderCatalog.account (get source "profile") &&
+    N.ltb 0 (image_count (classify_content (get source "request")))) = false ->
+  Api.call "backend.compaction_measurement_plan" source = success (JObject [("action",JString "remote")]).
 Proof.
- fix induction_json 1;intro value;destruct value as [|b|n|s|values|fields];
-   try (split;[left;reflexivity|left;reflexivity]).
- - cbn;induction values as [|head tail IH];[split;[left|left];reflexivity|].
-   apply combine_content_consistent;[apply induction_json|exact IH].
- - cbn;induction fields as [|[name item] tail IH];[split;[left|left];reflexivity|].
-   apply combine_content_consistent.
-   + unfold content_consistent;cbn;split.
-     * destruct (String.eqb name "image_asset" && is_object item);[right;apply orb_true_l|left];reflexivity.
-     * destruct (String.eqb name "encrypted_content" && is_text item && negb (String.eqb (text item) ""));
-       [right;apply orb_true_r|left];reflexivity.
-   + apply combine_content_consistent;[apply induction_json|exact IH].
+ intros source Complete Remote.
+ change (measurement_plan source = success (JObject [("action",JString "remote")])).
+ unfold measurement_plan; now rewrite Complete, Remote.
 Qed.
 Theorem complete_request_image_count_is_opaque : forall value,
   image_count (classify_content value) = 0 \/ opaque_content (classify_content value) = true.
-Proof. intros value;exact (proj1 (complete_request_classification_is_consistent value)). Qed.
+Proof.
+ change (forall value, content_consistent (classify_content value)).
+ fix induction_json 1;intro value;destruct value as [|b|n|s|values|fields];
+   try (left;reflexivity).
+ - cbn;induction values as [|head tail IH];[left;reflexivity|].
+   apply combine_content_consistent;[apply induction_json|exact IH].
+ - cbn;induction fields as [|[name item] tail IH];[left;reflexivity|].
+   apply combine_content_consistent.
+   + unfold content_consistent;cbn.
+     destruct (String.eqb name "image_asset" && is_object item);[right;apply orb_true_l|left];reflexivity.
+   + apply combine_content_consistent;[apply induction_json|exact IH].
+Qed.
+
+Inductive encrypted_continuation : json -> Prop :=
+ | EncryptedField : forall first rest fields,
+     In ("encrypted_content",JString (String first rest)) fields ->
+     encrypted_continuation (JObject fields)
+ | EncryptedArray : forall value values,
+     In value values -> encrypted_continuation value -> encrypted_continuation (JArray values)
+ | EncryptedObject : forall name value fields,
+     In (name,value) fields -> encrypted_continuation value -> encrypted_continuation (JObject fields).
+
 Theorem complete_request_encrypted_continuation_is_opaque : forall value,
-  encrypted_content_present (classify_content value) = false \/ opaque_content (classify_content value) = true.
-Proof. intros value;exact (proj2 (complete_request_classification_is_consistent value)). Qed.
+  encrypted_continuation value -> opaque_content (classify_content value) = true.
+Proof.
+ intros value Present; induction Present as
+   [first rest fields Member|value values Member Present Opaque|name value fields Member Present Opaque].
+ - revert Member; induction fields as [|[name item] fields IH]; intro Member; cbn [In] in Member; [contradiction|].
+   destruct Member as [Same|Member].
+   + inversion Same; subst; reflexivity.
+   + specialize (IH Member); cbn [classify_content combine_content opaque_content] in *.
+     now rewrite IH, !orb_true_r.
+ - revert Member; induction values as [|item values IH]; intro Member; cbn [In] in Member; [contradiction|].
+   destruct Member as [Same|Member].
+   + subst item; cbn [classify_content combine_content opaque_content] in *.
+     now rewrite Opaque.
+   + specialize (IH Member); cbn [classify_content combine_content opaque_content] in *.
+     now rewrite IH, orb_true_r.
+ - revert Member; induction fields as [|[key item] fields IH]; intro Member; cbn [In] in Member; [contradiction|].
+   destruct Member as [Same|Member].
+   + inversion Same; subst; cbn [classify_content combine_content opaque_content] in *.
+     now rewrite Opaque, orb_true_r.
+   + specialize (IH Member); cbn [classify_content combine_content opaque_content] in *.
+     now rewrite IH, !orb_true_r.
+Qed.
 Theorem public_image_requests_never_use_textual_fallback : forall source,
   0 < image_count (classify_content (get source "request")) ->
   Api.call "backend.compaction_meter_fallback" source = action "error".
@@ -118,10 +148,9 @@ Proof.
  destruct (complete_request_image_count_is_opaque (get source "request")) as [zero|opaque];[lia|exact opaque].
 Qed.
 Theorem public_encrypted_requests_never_use_textual_fallback : forall source,
-  encrypted_content_present (classify_content (get source "request")) = true ->
+  encrypted_continuation (get source "request") ->
   Api.call "backend.compaction_meter_fallback" source = action "error".
 Proof.
- intros source encrypted;apply public_opaque_requests_never_use_textual_fallback.
- destruct (complete_request_encrypted_continuation_is_opaque (get source "request")) as [absent|opaque];
-   [rewrite encrypted in absent;discriminate|exact opaque].
+ intros source Encrypted; apply public_opaque_requests_never_use_textual_fallback.
+ now apply complete_request_encrypted_continuation_is_opaque.
 Qed.

@@ -32,7 +32,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     actual update interpreter. An external diff algorithm only proposes edits;
     admission checks both the baseline and captured result.
 
-    Source failures retain the last admitted binding. A tool's ordinary file
+    Source failures retain the last admitted binding. Descriptor reads and
+    UTF-8, JSON and YAML decoders already reject their invalid external input;
+    their errors flow into the same observation failure. The requirement is a
+    visible failed observation with the previous binding retained; it does not
+    prescribe another layer of diagnostic wording.
+    A tool's ordinary file
     read is not automatically an instruction update, and observing instruction
     text cannot grant workspace or tool authority. [ContextTypes.definition]
     shares identity, fields, scope and observation declarations across admission

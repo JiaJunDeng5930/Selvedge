@@ -35,12 +35,6 @@ Definition parse_output (profile item markdown_fences : json) : outcome provider
     if Nat.eqb (List.length observations) 0 then Accepted (ContextItem (object_fields item) observations)
     else reject "Non-message provider output cannot carry Markdown fence observations"
   else reject ("Unsupported provider output type: " ++ display_field item "type") end.
-Fixpoint valid_coordinates (previous : option N) values := match values with
-  | [] => true | value :: rest => match natural value with None => false | Some index =>
-    canonical_natural value && match previous with None => true | Some old => old <? index end &&
-      valid_coordinates (Some index) rest end end.
-Definition coordinates_valid values count := match values with [] => true
-  | _ => Nat.eqb (List.length values) count && valid_coordinates None values end.
 Fixpoint output_items profile values observations coordinates index : outcome (list json) :=
   match values,observations with
   | [],[] => Accepted []
@@ -52,9 +46,7 @@ Fixpoint output_items profile values observations coordinates index : outcome (l
   | _,_ => reject "Provider output and Markdown fence observations are misaligned"
   end.
 Definition output source :=
-  if is_array (get source "output") && is_array (get source "markdown_observations") &&
-    coordinates_valid (items (get source "output_indices"))
-    (List.length (items (get source "output")))
+  if is_array (get source "output") && is_array (get source "markdown_observations")
   then render_outcome JArray (output_items (get source "profile") (items (get source "output"))
     (items (get source "markdown_observations")) (items (get source "output_indices")) 0)
   else err "Completed response requires output and Markdown fence observations".

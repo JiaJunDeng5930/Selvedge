@@ -11,14 +11,12 @@ Open Scope N_scope.
 
 Record request_content := RequestContent {
   opaque_content : bool;
-  encrypted_content_present : bool;
   image_count : N
 }.
 Definition combine_content (left right : request_content) :=
   RequestContent (opaque_content left || opaque_content right)
-    (encrypted_content_present left || encrypted_content_present right)
     (image_count left + image_count right).
-Definition empty_content := RequestContent false false 0.
+Definition empty_content := RequestContent false 0.
 (* Image handles and encrypted continuations cannot be bounded by their textual
    representation. The complete request, rather than an IO assertion, owns this fact. *)
 Fixpoint classify_content (value : json) : request_content :=
@@ -34,7 +32,7 @@ Fixpoint classify_content (value : json) : request_content :=
          let image := String.eqb name "image_asset" && is_object item in
          let encrypted := String.eqb name "encrypted_content" && is_text item &&
            negb (String.eqb (text item) "") in
-         combine_content (RequestContent (image || encrypted) encrypted (if image then 1 else 0))
+         combine_content (RequestContent (image || encrypted) (if image then 1 else 0))
            (combine_content (classify_content item) (scan tail)) end) fields
   | _ => empty_content
   end.
@@ -116,12 +114,6 @@ Definition scope_changed (source : json) :=
       String.eqb (str effect "kind") "context_compaction") &&
       is_text (get effect "context_scope") &&
       negb (equal (get effect "context_scope") (get source "scope"))))]).
-Definition local_measurement (source : json) (content : request_content) :=
-  let plaintext := negb (opaque_content content) in success (JObject [
-    ("action",JString "local"); ("scope",get source "scope");
-    ("input_tokens",if plaintext && N.ltb (num source "window_tokens") (num source "bytes")
-      then get source "bytes" else get source "window_tokens");
-    ("tokenizer",JString (if plaintext then "utf8_upper_bound" else "request_bytes_exceeded"))]).
 Definition measurement_plan (source : json) :=
   let request := get source "request" in
   (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
@@ -134,8 +126,7 @@ Definition measurement_plan (source : json) :=
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
         1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])
-  else if N.leb (num source "bytes") (if images then 33554432 else num (get source "limits") "frame_bytes")
-  then success (JObject [("action",JString "remote")]) else local_measurement source content.
+  else success (JObject [("action",JString "remote")]).
 Definition code_in (source : json) (codes : list string) :=
   existsb (String.eqb (str source "code")) codes.
 Definition status_is (source : json) (status : N) := equal (get source "status") (number status).
