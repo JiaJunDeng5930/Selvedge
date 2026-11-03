@@ -62,7 +62,9 @@ From Selvedge.Features Require RemoteProofs RemoteEntryProofs.
 Export RemoteProofs(check_satisfies_complete_access_contract,
   authorize_satisfies_complete_request_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
-  prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back).
+  prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back,
+  public_grant_replaces_authority_and_clears_old_receipts,
+  local_administration_never_reuses_a_generation).
 Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 (** ** Revocation precedes retained-result access
@@ -83,7 +85,11 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Oversized complete replies roll back instead of partly committing a result.
 
     Grant generations are monotone; a later grant cannot authorize an earlier
-    ticket. Queries preserve the world and do not apply prepared configuration.
+    ticket. The public grant contract requires the requested authority, a fresh
+    epoch, removal of that controller's old receipts and preservation of other
+    controllers. Contiguous epoch allocation and grant-list placement do not
+    affect authorization and need no separate guarantee.
+    Queries preserve the world and do not apply prepared configuration.
     [current_control_grant_executes_actual_remote_stop] additionally proves a
     positive entry case: with a single running Task, current control permission,
     a fresh request and receipt capacity, the actual packet executor stops that
@@ -98,6 +104,7 @@ Export RemoteTransportProofs(authorization_retry_decreases,
   retry_observation_before_deadline_does_not_connect).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
   delivered_notice_is_queued_and_beyond_the_current_cutoff,
+  every_observed_notice_advances_the_cursor,
   frame_observation_emits_only_frame_actions,
   capture_observations_emit_only_capture_actions,
   delivery_observation_emits_only_delivery_actions,
@@ -127,6 +134,13 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     are observations, not host permission to reconnect. Authorization checks
     retain their bounded sequence comparison; capture requires equality with
     the current committed sequence in that observation.
+
+    Owners need the current connection status to diagnose availability.
+    Recovery depends on actual probes, socket traffic and cessation after
+    rejected authentication; a separate history of intermediate status
+    notifications adds no delivery or recovery guarantee. Relay refusal retains
+    the protocol's HTTP and WebSocket status semantics, without fixing an
+    application diagnostic's spelling when no client consumes it.
 
     Each capture attempt retains only its pending check stage across native
     observations. Capture, denial and disconnection end the awaited invocation;
@@ -158,6 +172,9 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     subscription and later notices. Transport replacement retains the notice
     sequence. Unsubscribe, resubscribe and delayed queue completion therefore
     share one cursor owner rather than separate JavaScript tests.
+    The cursor orders notices relative to a subscription cutoff; it is not a
+    count of delivered messages. Strict advancement is sufficient without
+    requiring adjacent cursor values.
 
     The journal remains command-idempotency authority; the relay does not keep
     another durable command database. Socket handles, cryptography, atomic

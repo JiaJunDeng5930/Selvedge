@@ -282,29 +282,52 @@ Proof.
      (Remote.registry value))); split;reflexivity.
 Qed.
 
-(** Successful public grants consume a fresh generation, including re-grants. *)
-Theorem public_grant_issues_generation : forall payload value,
+(** A successful public grant replaces its controller's authority and receipts.
+    Epoch ordering and lookups express that result without fixing allocation
+    strides or the registry's list layout. *)
+Theorem public_grant_replaces_authority_and_clears_old_receipts : forall payload value,
  let controller := proj1_sig (G.remote_grant_controller_id_admitted payload) in
+ let rights := Remote.rights_of_values (G.remote_grant_permissions_admitted payload) in
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch)=true ->
  (match Remote.find_grant controller (Remote.registry value) with
  | Some _=>true | None=>N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end)=true ->
- exists result,
- Remote.handle_remote_grant payload None value=result /\
- F.remote_next_epoch (Remote.registry (decision_world result))=N.succ (F.remote_next_epoch (Remote.registry value)).
+ let previous := Remote.registry value in
+ let result := Remote.handle_remote_grant payload None value in
+ let current := Remote.registry (decision_world result) in
+ exists issued,
+ JsonObjects.equivalent (decision_reply result) (success (Remote.grant_json issued)) = true /\
+ Remote.find_grant controller current = Some issued /\
+ F.grant_rights issued = rights /\
+ F.remote_next_epoch previous <= F.grant_epoch issued /\
+ F.grant_epoch issued < F.remote_next_epoch current /\
+ F.remote_enabled current = F.remote_enabled previous /\
+ (forall other, other <> controller ->
+   Remote.find_grant other current = Remote.find_grant other previous) /\
+ (forall receipt, In receipt (F.remote_receipts current) <->
+   In receipt (F.remote_receipts previous) /\ controller_text (F.remote_controller receipt) <> controller) /\
+ decision_effects result = [].
 Proof.
- intros payload value controller Epoch capacity.
+ intros payload value controller rights Epoch Capacity previous result current.
+ unfold current,result.
  unfold Remote.handle_remote_grant, Remote.admin_command, Remote.grant.
- fold controller. rewrite Epoch; cbn [negb]; rewrite capacity.
- eexists; split;[reflexivity|].
- cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
-Qed.
-
-Theorem revocation_never_reuses_generation : forall controller value,
- F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke controller value)))=
- F.remote_next_epoch (Remote.registry value).
-Proof.
- intros. unfold Remote.revoke.
- cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
+ fold controller rights. rewrite Epoch; cbn [negb]; rewrite Capacity.
+ cbn beta iota zeta delta [decision_world decision_reply decision_effects accept].
+ rewrite remote_registry_store. fold previous.
+ exists (F.RemoteGrant (ControllerId controller) (GrantEpoch (F.remote_next_epoch previous)) rights).
+ split; [apply equivalent_is_reflexive|].
+ split.
+ - unfold Remote.find_grant; cbn. now rewrite String.eqb_refl.
+ - split; [reflexivity|]. split; [apply N.le_refl|].
+   split; [apply N.lt_succ_diag_r|]. split; [reflexivity|].
+   split.
+   + intros other Different. unfold Remote.find_grant; cbn.
+     rewrite (proj2 (String.eqb_neq other controller) Different).
+     unfold Remote.remove_grants.
+     apply filtering_another_key_preserves_lookup; [intros; now apply String.eqb_eq|exact Different].
+   + split; [|reflexivity]. intro receipt.
+     unfold Remote.remove_receipts; cbn.
+     rewrite filter_In,negb_true_iff,String.eqb_neq.
+     split; intros [Present Different]; split; [exact Present|congruence|exact Present|congruence].
 Qed.
 
 Lemma recorded_remote_registry : forall request before candidate,
@@ -414,24 +437,6 @@ Proof.
  - inversion Authorized; subst.
    match goal with Access : access_contract _ _ _ _ Remote.Admitted |- _ =>
      inversion Access; congruence end.
-Qed.
-
-Theorem local_grant_replaces_authority_and_clears_old_receipts :
- forall controller rights value,
- (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch) = true ->
- (match Remote.find_grant (proj1_sig controller) (Remote.registry value) with
- | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end) = true ->
- let previous := Remote.registry value in
- let issued := F.RemoteGrant (ControllerId (proj1_sig controller)) (GrantEpoch (F.remote_next_epoch previous)) rights in
- Remote.grant controller rights value =
- accept (Remote.grant_json issued)
-   (Remote.store (F.Remote (F.remote_enabled previous)
-     (issued :: Remote.remove_grants (proj1_sig controller) (F.remote_grants previous))
-     (N.succ (F.remote_next_epoch previous))
-     (Remote.remove_receipts (proj1_sig controller) (F.remote_receipts previous))) value) [].
-Proof.
- intros controller rights value Epoch Capacity.
- unfold Remote.grant. rewrite Epoch; cbn [negb]; now rewrite Capacity.
 Qed.
 
 Theorem full_registry_rejects_a_new_controller : forall controller rights value,

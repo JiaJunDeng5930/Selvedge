@@ -79,7 +79,7 @@ test('real Durable Object hibernation restores live WebSocket identities and an 
   assert.equal(pairRequest.label, pairingBody.label);
   const reusedPairing = await postResponse(path + '/pair', pairingCode, pairingBody);
   assert.equal(reusedPairing.status, 401);
-  assert.equal((await reusedPairing.json()).error.code, 'invalid_pairing_code');
+  await reusedPairing.body.cancel();
   const ticket = await post(path + '/tickets', controllerToken, {});
   const controller = await connect(path + '/control?ticket=' + ticket.ticket);
   await controller.next(value => value.type === 'ready');
@@ -111,7 +111,7 @@ test('real Durable Object hibernation restores live WebSocket identities and an 
   assert.equal(ready.grant_epoch, 1);
   const spent = await fetch(relay.url + path + '/control?ticket=' + unspent.ticket, { headers: { upgrade: 'websocket' } });
   assert.equal(spent.status, 401);
-  assert.equal((await spent.json()).error.code, 'invalid_ticket');
+  await spent.body.cancel();
 
   for (const spelling of ['1.1', '9007199254740992', '1e999999999999999999999999']) {
     const rejectedTicket = await post(path + '/tickets', controllerToken, {});

@@ -14,7 +14,6 @@ export class RemoteConnector {
   #service;
   #getGrants;
   #onPairRequest;
-  #onStatus;
   #hostToken;
   #hostUrl;
   #control = initialConnectorSession();
@@ -63,7 +62,7 @@ export class RemoteConnector {
   #settings;
   #noticeListener;
 
-  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest = () => {}, onStatus = () => {},
+  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest = () => {},
     allowLoopback = false, retryBaseMs = 1000, retryMaxMs = 30_000,
     heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000 } = {}) {
     const origin = assertRelayUrl(relayUrl, { allowLoopback });
@@ -72,7 +71,6 @@ export class RemoteConnector {
     this.#service = service;
     this.#getGrants = getGrants;
     this.#onPairRequest = onPairRequest;
-    this.#onStatus = onStatus;
     this.#settings = { retryBaseMs, retryMaxMs, heartbeatMs, heartbeatTimeoutMs };
     this.#noticeListener = notice => this.#notice(notice);
   }
@@ -121,7 +119,6 @@ export class RemoteConnector {
 
   #setStatus(state, detail = {}) {
     this.#status = { state, connected: state === 'online', controller_count: this.#session?.connections.size ?? 0, ...detail };
-    this.#onStatus(this.status());
   }
 
   async #connect(generation) {

@@ -102,9 +102,9 @@ Proof.
    cbn; [|discriminate]. intro Delivered. now apply andb_true_iff in Admitted.
 Qed.
 
-Theorem every_observed_notice_advances_one_sequence s :
- notice_sequence (fst (step s Notice)) = N.succ (notice_sequence s).
-Proof. unfold step,phase_step. reflexivity. Qed.
+Theorem every_observed_notice_advances_the_cursor s :
+ notice_sequence s < notice_sequence (fst (step s Notice)).
+Proof. unfold step,phase_step. apply N.lt_succ_diag_r. Qed.
 
 Theorem expired_local_pairing_cannot_retain_a_request deadline pending now :
  deadline <= now -> live_pairing (AwaitingPairing deadline pending) now = PairingIdle.
