@@ -100,13 +100,20 @@ order within a priority. The bounded pump requests continuation when work
 remains. Filter categories intersect and selections within a category unite;
 filtering changes the view rather than recording a card mutation.
 
-An idle card may regenerate its own title after linking a conversation.
-Generating or completing that request preserves its linked Task and that
-conversation's title. Running, archived or already generating cards remain
-locked. [TitleRuntime.v](TitleRuntime.v) freezes the selected profile and prompt
-for each conversation-title request. Settings updates affect future requests;
-saved names and dispatched snapshots survive. Correlated completions normalize
-their result; stale completions leave the current request untouched. Interrupted
+Card plan fields and independent titles remain editable while their linked
+Task runs. A linked assignee remains fixed, active cards stay in progress, and
+archived cards require restoration before editing. Pinning and same-column
+ordering remain available. Deletion waits for linked active work to settle.
+
+Title assistance may run alongside a linked Task. Metadata and progress changes
+preserve the pending request; explicit title or description edits supersede it.
+Archiving and deletion also retire the receiver. Current completions retain the
+other current card fields, linked Task and conversation title. Another title
+request waits until the current request completes or is superseded.
+[TitleRuntime.v](TitleRuntime.v) freezes the selected profile and prompt for each
+conversation-title request. Settings updates affect future requests; saved
+names and dispatched snapshots survive. Correlated completions normalize their
+result; stale completions leave the current request untouched. Interrupted
 pending requests become failed requests during recovery rather than silently
 being dispatched again.
 

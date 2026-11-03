@@ -19,7 +19,7 @@ Definition attachment_json (value : Selvedge.Features.Domain.attachment) := JObj
  ("bytes", JString (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.attachment_bytes value)))].
 Definition enrichment_json (value:Selvedge.Features.Domain.enrichment) := match value with
  | Selvedge.Features.Domain.NoEnrichment=>JObject [("status",JString "idle")]
- | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket (revision, retitle))=>JObject [("status",JString "running");("ticket",number ticket);("revision",number revision);("retitle",JBool retitle)]
+ | Selvedge.Features.Domain.Enriching (RequestEnvelope.Envelope ticket retitle)=>JObject [("status",JString "running");("ticket",number ticket);("retitle",JBool retitle)]
  | Selvedge.Features.Domain.EnrichmentFailed reason=>JObject [("status",JString "failed");("reason",JString reason)] end.
 Definition card_json (id : N) (value : Selvedge.Features.Domain.card) :=
  let draft := Selvedge.Features.Domain.card_contents value in JObject [
@@ -95,8 +95,8 @@ Definition title_settings_json (value : Selvedge.Features.Domain.title_settings)
 
 Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domain.card) := match card_json id card with JObject fields=>JObject (fields++[
  ("activity",JString (BoardFacts.activity card value));("capabilities",JObject [
- ("edit",JBool (BoardFacts.mutable card value && BoardFacts.unlinked card));("metadata",JBool (BoardFacts.mutable card value));("regenerate",JBool (BoardFacts.mutable card value));("drag",JBool (BoardFacts.mutable card value));
- ("run",JBool (BoardFacts.runnable card value));("archive",JBool (negb (Selvedge.Features.Domain.card_archived card || BoardFacts.pending card)));("restore",JBool (Selvedge.Features.Domain.card_archived card));("delete",JBool (negb (BoardFacts.pending card || BoardFacts.busy card value)))])]) | other=>other end.
+ ("edit",JBool (BoardFacts.editable card));("metadata",JBool (BoardFacts.editable card));("regenerate",JBool (BoardFacts.request_available card));("drag",JBool (BoardFacts.editable card));
+ ("run",JBool (BoardFacts.runnable card value));("archive",JBool (negb (Selvedge.Features.Domain.card_archived card)));("restore",JBool (Selvedge.Features.Domain.card_archived card));("delete",JBool (negb (BoardFacts.busy card value)))])]) | other=>other end.
 Definition board_json_in_world (value:world) := let board:=world_features value in let b:=Selvedge.Features.Domain.feature_board board in
  match board_json b with JObject fields=>JObject (Json.set_field "agents" (JArray (agents_json_in_world value))
  (Json.set_field "cards" (JArray (present_values (card_json_in_world value) (Selvedge.Features.Domain.board_cards b))) fields)) | other=>other end.

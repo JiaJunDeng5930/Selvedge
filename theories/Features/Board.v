@@ -46,7 +46,7 @@ Definition linked_task := BoardFacts.linked_task.
 Definition busy_task := BoardFacts.busy_task.
 Definition busy := BoardFacts.busy.
 Definition pending := BoardFacts.pending.
-Definition mutable := BoardFacts.mutable.
+Definition editable := BoardFacts.editable.
 Definition unlinked := BoardFacts.unlinked.
 Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
@@ -99,33 +99,43 @@ Definition create_card_result (input:patch) (observed:BoardParameters.clock) (as
    (parsed_drafting_target parsed assisted value observed Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
  "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.".
-Definition changes_execution (input:patch) :=
- match patch_title input,patch_description input,patch_owner input,patch_project input,patch_attachments input with None,None,None,None,None=>false | _,_,_,_,_=>true end.
+Definition retains_assignment (input:patch) (card:Selvedge.Features.Domain.card) :=
+ match patch_owner input with None=>true | Some owner=>
+ if Selvedge.Features.Domain.owner_eq_dec owner (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) then true else false end.
+Definition retains_active_stage (input:patch) (card:Selvedge.Features.Domain.card) (value:world) :=
+ match patch_stage input with None=>true | Some stage=>BoardFacts.stage_available card stage value end.
+Definition edited_card (input:patch) (observed:BoardParameters.clock) (card:Selvedge.Features.Domain.card) :=
+ let updated:=revised (apply_patch input (Selvedge.Features.Domain.card_contents card)) observed card in
+ (* Editing a drafting input supersedes that request; unrelated metadata keeps
+    its receiver so the outstanding result can still complete. *)
+ match patch_title input,patch_description input with None,None=>updated | _,_=>
+ set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) updated end.
 Definition update_card (id revision:N) (observed:BoardParameters.clock) (input:patch) (value:world) :=
  CardScope.with_card id revision value (fun card=>let draft:=apply_patch input (Selvedge.Features.Domain.card_contents card) in
- if mutable card value && (unlinked card || negb (changes_execution input)) && valid_draft draft value
- then save id (revised draft observed card) value
- else Selvedge.Kernel.State.reject "card_locked" "The card is busy, archived or invalid. Execution inputs cannot be edited after a conversation is linked." value).
+ if editable card && (unlinked card || retains_assignment input card) &&
+   retains_active_stage input card value && valid_draft draft value
+ then save id (edited_card input observed card) value
+ else Selvedge.Kernel.State.reject "card_locked" "Restore archived cards before editing. Linked assignees stay fixed, active conversations keep their cards in progress, and card fields must be valid." value).
 Fixpoint insert_before (id:N) (before:option N) (order:list N) := match order with []=>[id] | item::rest=>
  if match before with Some target=>N.eqb target item | None=>false end then id::order else item::insert_before id before rest end.
 Definition move_card (id revision:N) (observed:BoardParameters.clock)
  (destination:Selvedge.Features.Domain.board_stage) (target:option N) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
  let valid_target:=match target with None=>true | Some target=>negb (N.eqb target id) && match CardScope.lookup target value with Some other=>negb (Selvedge.Features.Domain.card_archived other) && String.eqb (Selvedge.Features.Domain.stage_name destination) (Selvedge.Features.Domain.stage_name (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents other))) && Bool.eqb (Selvedge.Features.Domain.card_pinned card) (Selvedge.Features.Domain.card_pinned other) | None=>false end end in
- if mutable card value && valid_target then let updated:=revised (with_stage destination (Selvedge.Features.Domain.card_contents card)) now card in
+ if editable card && BoardFacts.stage_available card destination value && valid_target then let updated:=revised (with_stage destination (Selvedge.Features.Domain.card_contents card)) now card in
  let changed:=put id updated value in let b:=registry changed in
  Selvedge.Kernel.State.accept (result id updated) (store ((set Selvedge.Features.Domain.board_order (fun _=>(insert_before id target (filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b)))) (b))) changed) []
  else Selvedge.Kernel.State.reject "invalid_card_move" "The card must be editable and the insertion target must remain in the destination column and pin group" value).
 Definition pin (id revision:N) (observed:BoardParameters.clock) (pinned:bool) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
- if mutable card value then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
+ if editable card then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
  save id (set Selvedge.Features.Domain.card_pinned (fun _=>pinned) updated) value
- else Selvedge.Kernel.State.reject "card_locked" "A running, archived or generating card cannot be pinned or unpinned" value).
+ else Selvedge.Kernel.State.reject "card_locked" "Restore the archived card before pinning or unpinning it" value).
 Definition link (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
  match Selvedge.Kernel.State.find_task target value with None=>Selvedge.Kernel.State.reject "task_not_found" "The conversation to link does not exist" value | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
- if mutable card value && unlinked card && negb used then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
+ if editable card && unlinked card && negb used then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
  save id ((set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some target)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(Selvedge.Features.Domain.card_revision updated)) (card)))))))) value
  else Selvedge.Kernel.State.reject "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" value end).
 Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Domain.card) (value:world) :=
@@ -136,14 +146,13 @@ Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Doma
  | None=>None end else None.
 Definition archive_card (id revision:N) (observed:BoardParameters.clock) (archived:bool) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
- if pending card then Selvedge.Kernel.State.reject "card_locked" "Wait for pending drafting before archiving or restoring the card" value else
  let target:=archive_interrupt_target archived card value in
  let updated:=(set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>archived) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) in
  let saved:=save id updated value in
  match target with Some target=>
  let stopped:=Tasks.control_command target Tasks.Interrupt (decision_world saved) in
  Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end).
-Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if pending card || busy card value then Selvedge.Kernel.State.reject "card_locked" "Stop the running conversation and wait for pending drafting before deleting this card" value else
+Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if busy card value then Selvedge.Kernel.State.reject "card_locked" "Wait for the linked conversation's active work to settle before deleting this card" value else
  let b:=registry value in Selvedge.Kernel.State.accept (JObject [("card_id",number id)]) (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "
 - " (String.append (Selvedge.Features.Domain.attachment_name file) (String.append ": " (String.append (Selvedge.Features.Domain.attachment_path file) (attachment_prompt rest)))) end.
@@ -226,9 +235,9 @@ Definition settings (automatic:bool) (profile:string) (value:world) :=
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
 Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.bind (CardScope.select_card_reference id revision value) (fun reference =>
- CommandResult.require (mutable (CardScope.selected_card reference) value) (fun Mutable =>
-   request_text_result (BD.revised_target value id reference observed Mutable) profile)
- "card_locked" "A running, archived or already-generating card cannot start another title request").
+ CommandResult.require (BoardFacts.request_available (CardScope.selected_card reference)) (fun Available =>
+   request_text_result (BD.revised_target value id reference observed Available) profile)
+ "card_locked" "An archived or already-generating card cannot start another title request").
 Definition regenerate (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.decide value (regenerate_result id revision observed profile value).
 Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change :=
@@ -283,10 +292,8 @@ Definition suggestion_from_reply (reply : Callback.reply_fields ModelDeclaration
      (proj1_sig (fst (snd fields))) "" card value
   else fun fields => suggestion false retitle "" "" (proj1_sig (fst fields)) card value) fields.
 Definition completion_choice reply value (card : Selvedge.Features.Domain.card)
- (request : RequestEnvelope.t (N * bool)) :=
- let '(revision,retitle) := RequestEnvelope.input request in
- if N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card)
- then Some (suggestion_from_reply reply retitle card value) else None.
+ (request : RequestEnvelope.t bool) :=
+ Some (suggestion_from_reply reply (RequestEnvelope.input request) card value).
 Definition completion_path id := Receiver.field world_features (BoardDrafting.card_slot id).
 Definition completion (received : Callback.decoded ModelDeclarations.BoardText) (value : world)
  : bool * bool * decision :=
@@ -301,7 +308,7 @@ Definition completion (received : Callback.decoded ModelDeclarations.BoardText) 
 Definition completion_inputs := [InputRoute.callback ModelDeclarations.BoardText
  (fun received => Some (completion received))].
 Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
- if Selvedge.Features.Domain.card_archived card || pending card then card else match linked_task card value with None=>card | Some task=>
+ if Selvedge.Features.Domain.card_archived card then card else match linked_task card value with None=>card | Some task=>
  let previous:=Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) in
  let next:=if busy_task task then Selvedge.Features.Domain.InProgress else match previous with Selvedge.Features.Domain.InProgress=>if latest_failure task then Selvedge.Features.Domain.Blocked else Selvedge.Features.Domain.InReview | _=>previous end in
  if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then card else revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card end.

@@ -18,6 +18,7 @@ reasoning, instructions, execution settings and concurrency. Role/project edits
 affect future launches, not existing frozen task contracts.
 
 Drag a card into another stage or before another card in its current stage.
+An active linked Task keeps its card in progress; same-column ordering remains available.
 Submission rechecks the source revision. Escape cancels a gesture. Context actions
 include pinning, metadata changes, execution, title regeneration, archive/restore
 and deletion.
@@ -36,8 +37,10 @@ endpoint. The offline demo and adaptive task profiles are not drafting profiles.
 **Settings → 标题生成** edits **Task 看板标题提示词** independently of the
 **Agent 会话标题提示词** used by ordinary conversations. Both retain the shared
 schema and normalization. Linked conversations generate their own names;
-renaming a card preserves its conversation's title. An idle linked card can
-regenerate its board title without changing its linked conversation.
+renaming a card preserves its conversation's title. A linked card can regenerate
+its board title while its Task runs. Other metadata changes preserve that request;
+explicit title or description edits supersede it, so its late result cannot
+overwrite the edit. Restore an archived card before editing or generating a title.
 
 Each title instruction accepts up to 4096 UTF-8 bytes of nonempty text.
 Restore defaults changes the editor's draft; Save commits both fields together

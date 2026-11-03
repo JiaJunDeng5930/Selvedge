@@ -28,7 +28,11 @@ Import ListNotations.
     acknowledged transaction establish journal authority. An authenticated
     audit history would require an independent trust anchor and is outside this
     restart contract. Changes to input meaning require a new persistent format
-    so restart cannot silently reinterpret prior work.
+    so restart cannot silently reinterpret prior work. Domain refusals of
+    admitted mutations are also stored: relaxing a card-edit restriction can
+    turn a previously refused journal row into a successful edit on replay.
+    The current-format check must reject such earlier journals before replay,
+    retaining their bytes rather than converting or partially applying them.
 
     The Journal owns serialization through the entire Worker response and
     storage commit, so another input cannot observe an uncommitted world.

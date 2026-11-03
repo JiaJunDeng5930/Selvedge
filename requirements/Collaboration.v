@@ -77,10 +77,12 @@ From Selvedge.Programming Require CardScopeProofs.
 Export CardScopeProofs(stale_card_is_atomic).
 Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
   automatic_queue_follows_pin_priority_and_board_order,
-  linked_execution_inputs_are_immutable,
+  admitted_card_edit_preserves_its_execution,
+  linked_assignment_cannot_be_transferred,
+  stopped_operation_retains_its_concurrency_slot,
   archive_busy_card_retains_task_authority,
-  card_title_result_preserves_conversation,
-  saving_card_preserves_conversations_and_their_titles).
+  current_board_text_retains_other_plan_fields,
+  board_text_without_current_lease_is_ignored).
 Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
   a_pending_title_is_not_resolved_again).
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
@@ -91,13 +93,36 @@ Export TitleProofs(admitted_title_issues_observed_request,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
 
-(** ** Plans and generated titles retain their own revisions
+(** ** Plans remain editable without rewriting execution
 
-    Launching a card freezes an ordinary Task request. Later role, Project or
-    title changes govern future requests rather than rewriting that accepted
-    execution. Revision conflict is an atomic refusal; linked execution inputs
-    remain immutable. Archival may request the ordinary Task interruption but
-    cannot invent new cancellation authority from old receipt data.
+    Launching a card captures an ordinary Task request. The card remains a plan:
+    its title, description, Project, attachments, priority and labels may change
+    while the linked Task runs. [admitted_card_edit_preserves_its_execution]
+    requires the actual update to save the exact patch and retain the complete
+    Task registry, its association and independent conversation titles.
+    Revision conflict is an atomic refusal. Archived plans must be restored
+    before editing. An active Task keeps its card in progress; same-column
+    ordering and pinning remain independent of that execution.
+
+    The linked assignee is also the attribution used by the agent concurrency
+    limit. Changing it could free the old agent's slot while its Task still
+    runs, including a later resumed turn. [linked_assignment_cannot_be_transferred]
+    therefore freezes that association, while resubmitting its current value
+    is allowed. [stopped_operation_retains_its_concurrency_slot] requires active
+    operations to keep their slot after the next model turn has been stopped.
+    The same slot must settle before deleting its card. Archival may request
+    the ordinary Task interruption but cannot invent new cancellation authority
+    from old receipt data.
+
+    Card drafting owns a request ticket, not the whole card revision. Pinning,
+    ordering, plan metadata and linked Task progress do not invalidate its
+    prompt or chosen output fields. The current result amends the current card,
+    preserving those changes as [current_board_text_retains_other_plan_fields]
+    requires. Explicit title or description edits supersede that request;
+    archiving clears its receiver and deletion removes it. The shared receiver
+    then rejects stale results without waiting for the external invocation to
+    finish. A second generation is refused while the first remains current.
+    This keeps request ownership separate from optimistic edit conflicts.
 
     Ordinary creation retains the requested draft. Automatic execution selects
     pinned cards first, then urgent through unprioritized cards, retaining manual
@@ -117,10 +142,10 @@ Export TitleProofs(admitted_title_issues_observed_request,
     frozen settings and its completed title through public read. The selected
     theorems constrain admission and receiver construction; the public test
     covers their composed delivery through the service.
-    A card title and its linked conversation title remain independent, as
-    [card_title_result_preserves_conversation] requires. Stale completions do
-    not overwrite a newer request; recovery marks interrupted generation as
-    failed instead of replaying uncertain inference.
+    A card title and its linked conversation title remain independent.
+    [board_text_without_current_lease_is_ignored] constrains the actual callback:
+    stale completions cannot overwrite a newer request. Recovery marks
+    interrupted generation as failed instead of replaying uncertain inference.
 
     Generated-title quality and external model completion remain provider
     observations. *)
