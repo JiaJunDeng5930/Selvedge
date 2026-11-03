@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { pathToFileURL } from 'node:url';
 
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -31,17 +30,15 @@ function tunnelArguments(argv) {
   return [action, '--profile', profile, ...(action === 'doctor' ? ['--explain'] : [])];
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    const child = spawn('tunnel-client', tunnelArguments(process.argv.slice(2)), { stdio: 'inherit' });
-    // DEFENSE: The separately installed official tunnel-client may be absent or fail to spawn; report failure without a replacement transport.
-    child.once('error', error => {
-      console.error(error.code === 'ENOENT' ? 'Install the official OpenAI tunnel-client and put it on PATH.' : 'Could not start tunnel-client.');
-      process.exitCode = 1;
-    });
-    // DEFENSE: A signal-terminated tunnel-client has no numeric exit code and must not report success.
-    child.once('exit', code => { process.exitCode = code ?? 1; });
-    for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal));
-  // DEFENSE: Rejected CLI arguments must fail the launcher before starting the tunnel process.
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
-}
+try {
+  const child = spawn('tunnel-client', tunnelArguments(process.argv.slice(2)), { stdio: 'inherit' });
+  // DEFENSE: The separately installed official tunnel-client may be absent or fail to spawn; report failure without a replacement transport.
+  child.once('error', error => {
+    console.error(error.code === 'ENOENT' ? 'Install the official OpenAI tunnel-client and put it on PATH.' : 'Could not start tunnel-client.');
+    process.exitCode = 1;
+  });
+  // DEFENSE: A signal-terminated tunnel-client has no numeric exit code and must not report success.
+  child.once('exit', code => { process.exitCode = code ?? 1; });
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal));
+// DEFENSE: Rejected CLI arguments must fail the launcher before starting the tunnel process.
+} catch (error) { console.error(error.message); process.exitCode = 1; }
