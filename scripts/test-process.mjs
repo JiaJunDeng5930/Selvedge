@@ -38,7 +38,7 @@ export async function runTestProcess(label, command, { cwd, active }) {
       return code;
     });
     const [exitCode, out, err] = await Promise.all([exited, stdout, stderr]);
-    return { exitCode, out, err, signal: proc.signalCode, pid: proc.pid };
+    return { exitCode, out, err, signal: proc.signalCode };
   } finally {
     // DEFENSE: Bun.spawn can fail before allocating the owned subprocess; only terminate a process that was created.
     if (proc) {

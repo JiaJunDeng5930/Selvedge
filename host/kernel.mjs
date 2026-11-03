@@ -14,7 +14,6 @@ export class Kernel {
   #closing = false;
 
   constructor() {
-    this.maximum = 128 * 1024;
     this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url));
     this.#worker.on('message', message => {
       // DEFENSE: A response can arrive after timeout or journal failure retired this Worker.

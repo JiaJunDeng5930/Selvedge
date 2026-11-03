@@ -42,6 +42,10 @@ Import ListNotations.
     retires that Worker before another invocation can use its uncertain world.
     Closing drains the invocation queue and awaits Worker termination.
 
+    Startup sends a fixed internal description query before admitting caller
+    input. Its returned limits supply the frame policy for subsequent requests;
+    a separate bootstrap limit would constrain no external observation.
+
     Publication and successful completion of durable mutations require
     acknowledgement of the commit. A failure during COMMIT has an unknown outcome. It
     retires the current world, so reopening establishes the durable result;

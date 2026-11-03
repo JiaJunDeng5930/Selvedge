@@ -235,7 +235,6 @@ export async function build(options = {}) {
         throw new Error('MetaRocq does not match toolchain.json; run scripts/bootstrap.sh');
       }
     }
-    const generatorInputs = new Set();
     if (generateCommands) {
       const generatorDependencies = ['theories/Kernel/CommandDeclarations.v', 'theories/Programming/ArgumentProjection.v', 'theories/Derive/CommandGeneration.v'];
       const missingGeneratorDependencies = generatorDependencies.filter(filename => !graph.has(filename));
@@ -243,15 +242,7 @@ export async function build(options = {}) {
         const generatorGraph = await dependencies(missingGeneratorDependencies, true, readInput);
         for (const [filename, imported] of generatorGraph) graph.set(filename, imported);
       }
-      const generatorSources = [...generatorDependencies];
-      while (generatorSources.length) {
-        const filename = generatorSources.pop();
-        if (generatorInputs.has(filename)) continue;
-        generatorInputs.add(filename);
-        generatorSources.push(...(graph.get(filename) ?? []));
-      }
       await settleIndependent(generatorDependencies.map(compile), 'Command generator dependencies failed');
-      generatorInputs.add(generator);
       const generatorSource = (await readInput(generator)).toString('utf8');
       const generatorKey = digest(JSON.stringify([identity, templateVersion, generatorSource, generatorDependencies.map(filename => next[filename])]));
       const generatedPath = 'theories/Generated/Commands.v';
