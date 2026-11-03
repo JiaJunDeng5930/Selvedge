@@ -25,7 +25,7 @@ export function tencentCvmBackend(settings) {
   async function describe(instanceId, signal) {
     try {
       const response = await request('DescribeInstances', { InstanceIds: [instanceId] }, signal);
-      return response.InstanceSet?.find(instance => instance.InstanceId === instanceId);
+      return response.InstanceSet.find(instance => instance.InstanceId === instanceId);
     } catch (error) {
       // DEFENSE: Tencent returns NotFound after an instance has already been reclaimed or destroyed.
       if (error.code === 'InvalidInstanceId.NotFound') return undefined;

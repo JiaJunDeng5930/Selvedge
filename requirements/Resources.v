@@ -133,6 +133,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     observation and cleanup. A provider request ID only supports diagnostics
     and cannot establish allocation ownership.
 
+    An instance lookup requires the provider's [InstanceSet] array. A missing
+    list is an observation failure; it cannot establish that the instance no
+    longer exists. The existing cleanup failure retains the allocation for an
+    explicit archive retry. [tests/cloud-workspaces.test.mjs] exercises this
+    distinction through the public service and a real HTTP provider peer.
+
     Receipt admission preserves the supplied JSON spelling. Cloud configuration
     decoding at backend use also normalizes valid integer spellings before host
     arithmetic: a receipt may spell its startup timeout as [1e3]. That conversion
