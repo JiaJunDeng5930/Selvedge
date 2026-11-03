@@ -35,7 +35,7 @@ function dateObservation(value, numeric = false) {
 }
 function credentialObservations(value, audio = false) {
   return { value, audio, identity: chatgptAccountIdentity(value?.issuer, value?.client_id, value?.subject),
-    dates: Object.fromEntries(['expires_at', 'earliest_refresh_at', 'last_refresh'].map(key => [key, dateObservation(value?.[key])])) };
+    dates: Object.fromEntries(['expires_at', 'earliest_refresh_at'].map(key => [key, dateObservation(value?.[key])])) };
 }
 function connectionObservations(value) {
   return { value, urls: { endpoint: urlObservation(value?.endpoint ?? defaultChatGPTAccount.endpoint),
@@ -151,8 +151,7 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
   const expires = dateObservation(expiration, true);
   const earliestValue = tokens.earliest_refresh_at;
   const earliest = dateObservation(typeof earliestValue === 'number' ? earliestValue * 1000 : earliestValue, typeof earliestValue === 'number');
-  return boundary('account.token', { ...source, metadata, identity, expires, earliest,
-    now_date: dateObservation(now, true) });
+  return boundary('account.token', { ...source, metadata, identity, expires, earliest });
 }
 
 async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential, audio = false } = {}) {

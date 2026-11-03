@@ -1,10 +1,11 @@
 import http from 'node:http';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { writeAtomic } from '../../host/files.mjs';
-import { defaultChatGPTAccount, chatgptAccountIdentity } from '../../host/chatgpt-account.mjs';
+import { defaultChatGPTAccount } from '../../host/chatgpt-account.mjs';
 import { home } from '../support.mjs';
 
 const scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
@@ -95,16 +96,9 @@ export async function chatgptFixture(t) {
   return { directory, profile, requests, oauthRequests, failures, options, address,
     authorize: async ({ url }) => fetch(url),
     async seedExpiredCredential() {
-      const { token_type, expires_in, ...credential } = await tokens();
-      await writeAtomic(path.join(directory, profile.auth_file), {
-        format: 'selvedge-chatgpt-2', issuer: address, client_id: clientId, subject,
-        account_id: chatgptAccountIdentity(address, clientId, subject), ...credential,
-        expires_at: new Date(0).toISOString(), earliest_refresh_at: null,
-        last_refresh: new Date().toISOString(), name: 'Fixture User', email: 'fixture@example.invalid',
-      });
-      await writeAtomic(path.join(directory, `${profile.auth_file}.registration.json`), {
-        format: 'selvedge-chatgpt-registration-1', issuer: address, client_id: clientId, subject,
-      });
+      const filename = path.join(directory, profile.auth_file);
+      const credential = JSON.parse(await readFile(filename, 'utf8'));
+      await writeAtomic(filename, { ...credential, expires_at: new Date(0).toISOString() });
     },
   };
 }

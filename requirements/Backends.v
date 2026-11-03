@@ -12,6 +12,14 @@ From Selvedge.Programming Require Import AdapterResult.
     registration. Registration survives separately from rotating credentials;
     model and audio credentials retain their own grants. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
+    The SDK verifies each received ID token before its claims become the stored
+    principal. Refresh and request authorization use that principal and the
+    access/refresh grants; they do not consume a saved ID token. Expiry and the
+    earliest permitted refresh time control renewal. A last-refresh timestamp
+    supplies no scheduling evidence and need not be retained or admitted.
+    The refresh grant uses the refresh token and may omit a new ID token
+    (OpenID Connect Core 1.0, sections 12.1-12.2:
+    https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokens).
     Configured account connections are admitted when configuration enters the
     service; the built-in audio connection is constructed from its native
     declaration. Authorization and model materialization reuse those connections.
@@ -151,6 +159,9 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     and settles that reservation once. The public media plan admits every part
     within one byte budget. JavaScript materialization and the physical protocol
     remain separate checks.
+    RPC admission observes whether its transport failed; the host retains the
+    actual exception for pending callers. A copied diagnostic in that state
+    observation does not select another transport decision.
 
     A plugin notification attempts to enqueue one already committed event.
     Admission decides whether capacity remains and the resulting byte total;
@@ -331,6 +342,10 @@ Qed.
     and connection still agree. A receipt is bound to the actual Task,
     connection and response. Continuing after tools requires the complete,
     uniquely matched result batch; a partial batch cannot stand for completion.
+    Continuation pairs that batch by call identity. Tool names already belong
+    to the admitted calls and retained response, so its continuation receipt
+    needs no name copy. Prefix hashing consumes the receipt's input count;
+    the continuation interpreter owns the history position used for selection.
     Detaching an observer leaves retained work available, while explicit
     cancellation has its own state and connection conditions. Cancellation
     selects at most one retained request: the latest for the matching owner and

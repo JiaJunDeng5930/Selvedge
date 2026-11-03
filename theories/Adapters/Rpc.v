@@ -23,7 +23,7 @@ Definition state_of (source : json) : rpc_state :=
     (map nat_value (items (get state "preparable")))
     (map nat_value (items (get state "materializing")))
     (map nat_value (items (get state "working"))) (num state "nextId")
-    (truthy (get state "failure")) (boolean_field state "closing").
+    (boolean_field state "failure") (boolean_field state "closing").
 
 Record rpc_action := RpcAction {
   action_kind : string;

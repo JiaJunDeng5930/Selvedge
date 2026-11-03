@@ -139,7 +139,7 @@ Definition receipt (history : list json) model task response record deferred
     ("input_count",number (N.of_nat (List.length history)));("input_hash",JString (proj1_sig input_hash));
     ("output_count",number (proj1_sig output_count));
     ("calls",JArray (if String.eqb (member_text response "status") "requires_action" then
-      map (fun call => JObject (subset call ["call_id";"name"])) (items (member response "output")) else []));("deferred",JArray deferred)])
+      map (fun call => JObject (subset call ["call_id"])) (items (member response "output")) else []));("deferred",JArray deferred)])
   else err "Invalid ChatGPT Web JSON source".
 Definition emitted_call call : outcome json :=
  match CallWire.from_text CallWire.callback_argument_nesting

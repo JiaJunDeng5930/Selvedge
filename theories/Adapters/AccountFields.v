@@ -32,7 +32,7 @@ Definition field_description names nullable_names := map (fun name =>
   Schema.Field name (if existsb (String.eqb name) nullable_names then Schema.KOptional Schema.KText else Schema.KText)) names.
 Definition credential_schema := field_description
   ["format";"issuer";"client_id";"subject";"account_id";"access_token";"refresh_token";
-   "id_token";"scope";"expires_at";"earliest_refresh_at";"last_refresh";"name";"email"]
+   "scope";"expires_at";"earliest_refresh_at";"name";"email"]
   ["scope";"earliest_refresh_at";"name";"email"].
 Definition registration_schema := field_description ["format";"issuer";"client_id";"subject"] ["subject"].
 Definition decode_complete description source :=

@@ -25,7 +25,7 @@ export class StdioRpc extends EventEmitter {
         materializing: [...this.#pending].filter(([, entry]) => entry.phase === 'materializing').map(([id]) => id),
         working: [...this.#materializations].map(work => work.id),
         nextId: this.#nextId,
-        failure: this.#failure === undefined ? null : { message: this.#failure.message },
+        failure: this.#failure !== undefined,
         closing: this.#closing,
       },
       ...observation,

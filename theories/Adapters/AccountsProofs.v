@@ -126,13 +126,12 @@ Proof. intros; repeat constructor; cbn; tauto. Qed.
 Definition example_credential := JObject [
   ("format",JString "selvedge-chatgpt-2");("issuer",JString "https://auth.openai.com");
   ("client_id",JString "client-1");("subject",JString "subject-1");("account_id",JString "account-1");
-  ("access_token",JString "access");("refresh_token",JString "refresh");("id_token",JString "id");
+  ("access_token",JString "access");("refresh_token",JString "refresh");
   ("scope",JString "chatgpt.tokens.use.direct");("expires_at",JString "2030-01-01T00:00:00Z");
-  ("earliest_refresh_at",JNull);("last_refresh",JString "2029-01-01T00:00:00Z");("name",JNull);("email",JNull)].
+  ("earliest_refresh_at",JNull);("name",JNull);("email",JNull)].
 Theorem public_valid_credential_is_retained :
   Api.call "account.credential" (JObject [("value",example_credential);("identity",JString "account-1");
-    ("dates",JObject [("expires_at",JObject [("iso",JString "2030-01-01T00:00:00Z")]);
-      ("last_refresh",JObject [("iso",JString "2029-01-01T00:00:00Z")])])]) = success example_credential.
+    ("dates",JObject [("expires_at",JObject [("iso",JString "2030-01-01T00:00:00Z")])])]) = success example_credential.
 Proof. vm_compute;reflexivity. Qed.
 
 (* Callback admission binds the browser request to this login. Token signature,
