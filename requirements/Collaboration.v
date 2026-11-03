@@ -40,6 +40,7 @@ Export TaskGraphProofs(resolved_installation_succeeds,
   expansion_has_declared_meaning,
   pending_deliveries_obey_registry_order,
   actual_delivery_reaches_idle_task,
+  unchanged_history_has_no_new_outputs,
   observed_provider_text_retains_its_requested_mode_and_is_routed).
 
 (** ** Graphs express connections using ordinary Task operations
@@ -58,7 +59,11 @@ Export TaskGraphProofs(resolved_installation_succeeds,
     [actual_delivery_reaches_idle_task] connect it to actual delivery. An
     implementation that emits no handoffs cannot satisfy the positive result.
     Fresh nonempty assistant replies trigger reactions; installation does not
-    replay old outputs. Routing follows the returned assistant message, so the
+    replay old outputs. [unchanged_history_has_no_new_outputs] binds that
+    boundary to the committed history position. The request receiver already
+    consumes each model completion once, and inherited fork context retains its
+    original producer. Rechecking every old origin adds no routing authority.
+    Routing follows the returned assistant message, so the
     source's requested output mode cannot silently discard its text.
     [observed_provider_text_retains_its_requested_mode_and_is_routed] connects
     that requirement to the actual provider callback and reaction hook.

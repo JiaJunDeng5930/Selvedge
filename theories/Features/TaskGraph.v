@@ -265,8 +265,6 @@ Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_
    (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) features) removed) [] end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
-Definition same_origin (a b:output_origin) := N.eqb (origin_producer a) (origin_producer b) && N.eqb (origin_operation a) (origin_operation b) && N.eqb (origin_part a) (origin_part b) &&
- match origin_mode a,origin_mode b with PlainOutput,PlainOutput|InteractiveOutput,InteractiveOutput=>true | _,_=>false end.
 Definition assistant_output (item:message) : option (output_origin * string) :=
  match item with
  | AssistantMessage origin text=>Some (origin,text)
@@ -274,14 +272,12 @@ Definition assistant_output (item:message) : option (output_origin * string) :=
    if Conversation.provider_assistant_message content
    then Some (origin,Conversation.provider_text content) else None
  | _=>None end.
-Definition seen_origin (origin:output_origin) (task:task) := existsb (fun message=>match assistant_output message with Some (existing,_)=>same_origin origin existing | None=>false end) (task_history task).
 Definition new_outputs (before:world) (id:N) (task:task) :=
  let added:=skipn (match Selvedge.Kernel.State.find_task id before with Some previous=>List.length (task_history previous) | None=>0%nat end) (task_history task) in
  if existsb (fun message=>match message with FunctionCall _=>true | _=>false end) added then [] else
  fold_right (fun message rest=>match assistant_output message with
  | Some (origin,text)=>if N.eqb id (origin_producer origin) &&
- negb (String.eqb text "") &&
- negb (match Selvedge.Kernel.State.find_task id before with Some previous=>seen_origin origin previous | None=>false end) then text::rest else rest
+ negb (String.eqb text "") then text::rest else rest
  | None=>rest end) [] added.
 Record delivery := Delivery { delivery_graph:N;delivery_rule:string;delivery_target:N;delivery_text:string }.
 Definition pending_rule (source graph:N) (nodes:list Selvedge.Features.Domain.resolved_node) (rule:Selvedge.Features.Domain.graph_rule) (output:string) :=
