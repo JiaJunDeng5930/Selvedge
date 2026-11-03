@@ -45,8 +45,7 @@ export function accountConfig(value = {}) {
   return boundary('account.connection', connectionObservations(value));
 }
 export function accountConnection(profile) {
-  const connection = boundary('account.profile_connection', { profile });
-  return boundary('account.connection', connectionObservations(connection));
+  return boundary('account.profile_connection', { profile });
 }
 const locks = new Map();
 
@@ -197,9 +196,8 @@ function authorizationView(credential, connection, home, audio = false) {
 }
 
 export async function authorize(profile, home, { signal, audio = false } = {}) {
-  const connection = accountConnection(profile);
-  const credential = await resolveCredential(connection, home, { signal, audio });
-  return authorizationView(credential, connection, home, audio);
+  const credential = await resolveCredential(profile, home, { signal, audio });
+  return authorizationView(credential, profile, home, audio);
 }
 
 async function hostIdentity(home) {

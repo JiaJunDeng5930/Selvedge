@@ -47,13 +47,13 @@ export function createContextDiscovery({ home, settings, signal, filesystem = { 
 
   return async function discover(observer) {
     let result = boundary('control.context.start', { observer, home, workspace: settings.workspace });
-    while (!result.done) {
+    while (result.effect !== null) {
       let observation;
-      try { observation = await inspect(result.effects[0]); }
+      try { observation = await inspect(result.effect); }
       catch (error) { signal?.throwIfAborted(); observation = { error: error.message }; }
       result = boundary('control.context.step', { state: result.state, observation });
     }
-    if (result.error !== null) throw new Error(result.error);
-    return result.entries;
+    if (result.state.error !== null) throw new Error(result.state.error);
+    return result.state.sources;
   };
 }

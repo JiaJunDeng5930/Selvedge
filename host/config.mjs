@@ -98,7 +98,7 @@ export function validateConfig(value) {
       key, profile: source, adaptive, endpoint_observation: urlObservation(endpoint),
     });
     const backend = boundary('backend.support', { profile, effect: { model: { provider: profile.provider } } });
-    if (backend.auth === 'account') Object.assign(profile, accountConnection(profile));
+    if (backend.auth === 'account') Object.assign(profile, accountConfig(accountConnection(profile)));
     return [key, profile];
   }));
   config.compaction = profileBoundary('config.compaction', { config: { compaction: value.compaction }, profiles: compactionProfiles(config.profiles) });

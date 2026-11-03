@@ -54,13 +54,12 @@ export class WebRequestStore {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
-      const selected = boundary('web.retire_existing', { rows, records, owner, ticket });
-      for (const write of selected) {
+      const write = boundary('web.retire_existing', { rows, records, owner, ticket });
+      if (write !== null) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
-      const record = selected[0]?.record;
       db.exec('COMMIT');
-      return record;
+      return write?.record;
     } finally { closeDatabase(db); }
   }
 

@@ -57,6 +57,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     requested refresh. Its single synchronous cache insertion per live observer
     supplies this bound by construction, without a wall-clock threshold.
 
+    Discovery observes one directory at a time. Its controller selects an
+    optional inspection from the current scan state; the host observes that
+    directory before another transition. The scan state already owns failure
+    and collected sources. A parallel completion flag, action list or repeated
+    copy of that result supplies no additional observation.
+
     [the_actual_scheduler_observes_before_preparing_a_model] binds this order
     to the scheduler. Model and evaluator requests capture current history and
     an admitted profile choice. [every_frozen_model_is_supported_by_its_frozen_profile]

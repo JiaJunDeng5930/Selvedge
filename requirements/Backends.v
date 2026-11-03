@@ -12,6 +12,11 @@ From Selvedge.Programming Require Import AdapterResult.
     registration. Registration survives separately from rotating credentials;
     model and audio credentials retain their own grants. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
+    Configured account connections are admitted when configuration enters the
+    service; the built-in audio connection is constructed from its native
+    declaration. Authorization and model materialization reuse those connections.
+    Re-admitting their unchanged URL fields adds no evidence about the credential
+    read from disk, whose identity and grant still require their own admission.
     [AccountsProofs] binds these refresh, callback and credential rules to the
     public account operations. Refusal contracts retain failure and the actual
     control decision without fixing diagnostic wording. Errors for malformed
@@ -115,7 +120,13 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     A media result reserves its correlated RPC identity before materialization
     and settles that reservation once. The public media plan admits every part
     within one byte budget. JavaScript materialization and the physical protocol
-    remain separate checks. *)
+    remain separate checks.
+
+    A plugin notification attempts to enqueue one already committed event.
+    Admission decides whether capacity remains and the resulting byte total;
+    it does not rewrite the event. The host can therefore enqueue that original
+    event directly after acceptance, without transporting a second copy inside
+    a singleton list. *)
 From Selvedge.Foundation Require Import CallWire.
 From Selvedge.Programming Require Import EncodedObject.
 From Selvedge.Foundation Require Import TextJsonRoundtrip.
@@ -289,8 +300,11 @@ Qed.
     connection and response. Continuing after tools requires the complete,
     uniquely matched result batch; a partial batch cannot stand for completion.
     Detaching an observer leaves retained work available, while explicit
-    cancellation has its own state and connection conditions. Resource admission
-    follows the fields used for settlement and continuation: response identity,
+    cancellation has its own state and connection conditions. Cancellation
+    selects at most one retained request: the latest for the matching owner and
+    ticket. An optional record represents that selection directly;
+    resetting a whole session remains a separate operation over its requests.
+    Resource admission follows the fields used for settlement and continuation: response identity,
     model, predecessor, status, output and tool-call correlation. Creation time,
     usage estimates and a tool item's separate provider identifier have no role
     in those decisions. They remain in the retained response when supplied, but

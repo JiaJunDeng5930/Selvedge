@@ -82,8 +82,7 @@ Definition initialize_request source := let definition := get source "definition
 Definition mcp_initialize_request := JObject [("protocolVersion",JString "2025-11-25");("capabilities",JObject []);("clientInfo",client_info)].
 Definition mcp_version source := if existsb (String.eqb (str (get source "initialized") "protocolVersion"))
   ["2024-11-05";"2025-03-26";"2025-06-18";"2025-11-25"] then success JNull else err "MCP server selected an unsupported protocol version".
-Definition enqueue_stopped source := [("accepted",JBool false);("next_queued_bytes",get source "queued_bytes");
-  ("append",JArray [])].
+Definition enqueue_stopped source := [("accepted",JBool false);("next_queued_bytes",get source "queued_bytes")].
 Definition enqueue source :=
   if boolean_field source "stopping" then success (JObject (enqueue_stopped source)) else
   let maximum := nat_value (default_value (get (get source "config") "event_queue") (get (get source "limits") "plugin_event_queue")) in
@@ -91,8 +90,7 @@ Definition enqueue source :=
   if (maximum <=? num source "queue_count") || negb (next_bytes <=? 2 * num (get source "limits") "frame_bytes") then
     success (JObject (enqueue_stopped source ++ [("diagnostic",JObject [("message",JString ("Plugin " ++ str source "name" ++ " event queue is full; notification was not delivered"));
       ("event_id",JObject [("sequence",get (get source "event") "sequence");("ordinal",get (get source "event") "ordinal")])])]))
-  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes);
-    ("append",JArray [JObject [("event",get source "event");("bytes",get source "event_bytes")]])]).
+  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes)]).
 Definition response_content value error := success (JObject [("content",JArray [JObject [("type",JString "text");("text",JString (render_json value))]]);
   ("structuredContent",value);("isError",JBool error)]).
 Definition connection_failure := response_content (JObject [("error",JObject [("code",JString "connection_failed");
