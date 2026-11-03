@@ -46,7 +46,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false, incompleteInstanceObservation = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -133,7 +133,8 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
         let found = [...instances.values()].filter(instance => !body.InstanceIds || body.InstanceIds.includes(instance.InstanceId));
         if (body.Filters) found = found.filter(instance => instance.Tags.some(tag => tag.Key === 'selvedge-task' &&
           body.Filters[0].Values.includes(tag.Value)));
-        result = { InstanceSet: body.InstanceIds ? found : found.slice(body.Offset ?? 0, (body.Offset ?? 0) + (body.Limit ?? 20)), TotalCount: found.length };
+        result = incompleteInstanceObservation() ? { TotalCount: found.length }
+          : { InstanceSet: body.InstanceIds ? found : found.slice(body.Offset ?? 0, (body.Offset ?? 0) + (body.Limit ?? 20)), TotalCount: found.length };
       } else if (action === 'TerminateInstances') {
         if (body.InstanceIds.some(rejectTermination)) {
           result = { Error: { Code: 'OperationDenied', Message: 'Fixture refused this termination' } };
@@ -600,6 +601,45 @@ test('native independent creation reuses the caller cloud resource despite the p
   }
   await until(() => worktree(fixture_.service, owner), value => value.status === 'archived',
     'The owner must release its resource after the independent borrower is archived');
+});
+
+test('an incomplete cloud instance observation retains the resource for an explicit archive retry', async t => {
+  let incomplete = false;
+  const fixture_ = await fixture(t, () => done, { incompleteInstanceObservation: () => incomplete });
+  const created = await fixture_.create();
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const id = created.reply.result.task_id;
+  const ready = await until(() => worktree(fixture_.service, id),
+    value => value.status === 'ready' || value.status === 'create_failed', 'The cloud task must finish preparation');
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  await until(async () => {
+    const read = await fixture_.service.command({ op: 'read', task_id: id });
+    assert.equal(read.reply.ok, true, JSON.stringify(read.reply));
+    return read.reply.result.task;
+  }, task => fixture_.upstream.requests.length > 0 && task.phase === 'idle' && task.operations.length === 0,
+  'The cloud task must complete before archive');
+  const allocated = [...fixture_.instances.keys()];
+  assert.equal(allocated.length, 1);
+
+  incomplete = true;
+  const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+  assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
+  const observed = await until(() => worktree(fixture_.service, id),
+    value => value.status === 'archive_failed' || value.status === 'archived', 'The archive observation must settle');
+  assert.equal(observed.status, 'archive_failed', 'An incomplete provider response cannot establish that the instance is gone');
+  assert.deepEqual([...fixture_.instances.keys()], allocated);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
+
+  incomplete = false;
+  const retried = await fixture_.service.command({ op: 'retry_worktree_archive', task_id: id });
+  assert.equal(retried.reply.ok, true, JSON.stringify(retried.reply));
+  await until(() => worktree(fixture_.service, id), value => value.status === 'archived',
+    'A complete observation must let the owner retry cleanup of the same instance');
+  assert.equal(fixture_.instances.size, 0);
+  assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances')
+    .flatMap(value => value.body.InstanceIds), allocated);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.deepEqual(fixture_.upstream.failures, []);
 });
 
 test('a failed termination retains its instance for an explicit archive retry', async t => {
