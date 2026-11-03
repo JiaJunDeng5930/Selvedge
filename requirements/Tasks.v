@@ -159,6 +159,11 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     operations and queued follow-ups. An idle inference phase therefore does
     not imply an empty operation list.
 
+    A runnable Task with admitted context observation must issue it before
+    inference. [a_runnable_task_requests_context_before_inference] also requires
+    the correlation supply to advance. Callback owners compare ticket identity;
+    consecutive numeric labels add no correlation guarantee.
+
     The existing control and input definitions give these operations their
     meaning. Their changes use the same frame-preserving Task construction.
     Lifecycle availability is a Boolean observation shared by the command and
@@ -174,7 +179,8 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
   TasksProofs NativeAuthorityProofs.
 Export Selvedge.Kernel.Tasks(control_command, input_changes, input_effects).
-Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
+Export SchedulerLifecycleProofs(a_runnable_task_requests_context_before_inference,
+  frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
   stopped_inference_requests_settle_without_effects,
   stopped_tasks_can_finish_an_already_accepted_call).
 Export CallbacksProofs(an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand).

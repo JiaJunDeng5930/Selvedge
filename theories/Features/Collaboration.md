@@ -40,9 +40,9 @@ world while preparing node plans. Every node must be admitted before
 installation creates any Task, so a refused node leaves the world and effects
 unchanged.
 
-Installed graphs route subsequent fresh plain assistant replies. Installation
-does not replay history. Interactive output and replies containing tool calls
-do not become handoffs. Each matching rule expands its actions in declaration
+The [collaboration contract](../../requirements/Collaboration.v) defines which
+new assistant replies produce handoffs. Installation does not replay history.
+Each matching rule expands its actions in declaration
 order; output expressions use the exact reply, literals keep their exact text,
 and concatenation preserves fragment order. Graph registration order and rule
 order determine the overall attempt order. Each attempt uses ordinary Task
