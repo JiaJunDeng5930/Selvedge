@@ -1,4 +1,4 @@
-import { initialTransport, observeTransport, transportRunning, transportCurrent, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
+import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
 import { randomUUID } from 'node:crypto';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
@@ -62,9 +62,9 @@ export class RemoteConnector {
   #settings;
   #noticeListener;
 
-  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest = () => {},
+  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest,
     allowLoopback = false, retryBaseMs = 1000, retryMaxMs = 30_000,
-    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000 } = {}) {
+    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000 }) {
     const origin = assertRelayUrl(relayUrl, { allowLoopback });
     this.#hostUrl = `${origin}/v1/hosts/${hostId}/host`;
     this.#hostToken = hostToken;
@@ -167,7 +167,7 @@ export class RemoteConnector {
   }
 
   #current(session) {
-    return Boolean(session) && this.#session === session && transportCurrent(this.#transport, session.generation);
+    return Boolean(session) && this.#session === session;
   }
 
   #retireSession() {

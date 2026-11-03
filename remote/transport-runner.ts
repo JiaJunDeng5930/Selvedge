@@ -24,7 +24,6 @@ export interface TransportIO {
 }
 export const initialTransport = (): RemoteTransportState => decodeRemoteTransportState(remoteControl('transport_initial', {}));
 export const transportRunning = (state: RemoteTransportState): boolean => remoteControl('transport_running', { state });
-export const transportCurrent = (state: RemoteTransportState, generation: number): boolean => remoteControl('transport_current', { state, generation });
 
 /** Install every transition before invoking primitives that can synchronously
  * deliver a socket callback. Timers report observations; they never choose policy. */

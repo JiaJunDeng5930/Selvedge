@@ -47,13 +47,12 @@ Inductive observation :=
  | DeliverPairing (now revision expiry : N)
  | IssueTicket (now : N) (grants : RP.grant_set) (value : ticket)
  | ConsumeTicket (now : N) (grants : RP.grant_set) (digest : string) (controller_count : N)
- | Frame (value : RP.host_frame)
  | Disconnected (generation : N) (host_ready : bool).
 Inductive verdict := Permit | Deny.
 Inductive reason := TicketLimit | HostOffline | ConnectionLimit | InvalidTicket.
 Inductive action := Decision (allowed : verdict)
  | TicketIssued | TicketConsumed (selected : ticket) | TicketRejected (why : reason)
- | CloseControllers | NotifyHost (id : RP.identifier) | AcceptedFrame (value : RP.host_frame) | NoAction.
+ | CloseControllers | NotifyHost (id : RP.identifier) | NoAction.
 
 Definition decide (allowed : bool) := if allowed then Permit else Deny.
 Definition permitted value := match value with Permit=>true|Deny=>false end.
@@ -121,7 +120,6 @@ Definition step (current : state) (event : observation) : state * action :=
         else TicketRejected InvalidTicket
       | None=>TicketRejected InvalidTicket end)
    | _=>(current,TicketRejected InvalidTicket) end
- | Frame frame=>(current,if frame_allowed current frame then AcceptedFrame frame else Decision Deny)
  | Disconnected expected host_ready=>(Closed,match current with
    | Negotiating own=>if N.eqb own expected then CloseControllers else NoAction
    | AwaitingGrants host | Ready host _=>if N.eqb host.(host_generation) expected then CloseControllers else NoAction
@@ -197,7 +195,6 @@ Definition encode_result next output :=
  | TicketRejected why=>[("allowed",JBool false);("reason",JString (reason_text why))]
  | CloseControllers=>[("action",JString "close_controllers")]
  | NotifyHost id=>[("action",JString "notify_host");("connection_id",JString (RP.identifier_text id))]
- | AcceptedFrame value=>[("frame",RP.encode_host_frame value)]
  | NoAction=>[] end).
 Definition relay_step source event := match decode_state source,decode_observation event with
  | Some state,Some event => let '(next,output):=step state event in Some (encode_result next output)
@@ -215,8 +212,7 @@ Definition relay_host_current source := match F.decode [F.required "connection" 
  | None => None end.
 Definition relay_frame_allowed source := match F.decode [F.required "state" D.Any;F.required "frame" RP.host_frame_declaration] source with
  | Some (state,(frame,_)) => match decode_state state,RP.host_frame_from_arguments frame with
-   | Some state,Some frame => match snd (step state (Frame frame)) with
-     | AcceptedFrame value => Some (RP.encode_host_frame value) | _ => None end
+   | Some state,Some frame => if frame_allowed state frame then Some (RP.encode_host_frame frame) else None
    | _,_ => None end
  | None => None end.
 Definition forward_request source := match F.decode [F.required "connection" D.Any;

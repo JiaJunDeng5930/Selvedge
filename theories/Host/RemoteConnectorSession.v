@@ -122,9 +122,9 @@ Definition natural_from_arguments (value : D.denote optional_natural) := match v
  | inl value => Some value | inr (inl _) => None | inr (inr impossible) => match impossible with end end.
 Definition optional_pairing := D.nullable RP.pairing_declaration.
 Definition pairing_arguments (value : option pairing) : D.denote optional_pairing := match value with
- | Some value => inl (RP.pairing_arguments value) | None => inr (inl tt) end.
+ | Some value => inl value | None => inr (inl tt) end.
 Definition pairing_from_arguments (value : D.denote optional_pairing) := match value with
- | inl value => Some (RP.pairing_from_fields (snd (proj1_sig value)))
+ | inl value => Some value
  | inr (inl _) => None | inr (inr impossible) => match impossible with end end.
 Definition connection_fields := RP.authorized_fields [F.required "after" optional_natural].
 Definition connection_declaration := D.Object connection_fields.
@@ -178,7 +178,7 @@ Definition event_decoders : list (F.decoder event) := [
  event_decoder "install" [generation_field] (fun '(generation,_) => Some (Install generation));
  observation_decoder "retire" [] (fun _ => Some Retire);
  observation_decoder "pair" [F.required "now" natural;F.required "frame" RP.pairing_declaration]
-   (fun '(now,(pairing,_)) => Some (SetPairing (RP.pairing_from_fields (snd (proj1_sig pairing))) now));
+   (fun '(now,(pairing,_)) => Some (SetPairing pairing now));
  observation_decoder "pairing_current" [F.required "now" natural] (fun '(now,_) => Some (CurrentPairing now));
  observation_decoder "grants" [F.required "grants" RP.grants_declaration]
    (fun '(grants,_) => option_map Grants (RP.grants_from_arguments grants));
@@ -204,7 +204,7 @@ Definition action_packet value := match value with
  | Opened entry => F.Packet opened_action (RP.authorized_values [] (connection_identity entry) (authority entry) tt)
  | Closed id => F.Packet closed_action [!id!]
  | Requested id request => F.Packet request_action [!id;RP.controller_request_arguments request!]
- | PairRequested request => F.Packet pair_request_action [!RP.pairing_request_arguments request!]
+ | PairRequested request => F.Packet pair_request_action [!request!]
  | Ignore => simple_packet "ignore"
  | PublishPairing => simple_packet "pairing" | Enqueued => simple_packet "enqueue"
  | Disconnect => simple_packet "disconnect" | BecameReady => simple_packet "ready" | ReceivedPong => simple_packet "pong"
@@ -246,13 +246,12 @@ Definition pairing_state_arguments current : F.values pairing_state_fields := ma
  | PairingIdle => [!0;exist _ [] eq_refl!]
  | AwaitingPairing deadline pending => [!deadline;match pending with
      | None => exist _ [] eq_refl
-     | Some value => exist _ [RP.pairing_request_arguments value] eq_refl end!] end.
+     | Some value => exist _ [value] eq_refl end!] end.
 Definition pairing_state_json current := D.encode (D.Object pairing_state_fields)
  (F.construct pairing_state_fields (pairing_state_arguments current)).
 Definition pairing_state_of source := match F.decode pairing_state_fields source with
  | Some (deadline,(pending,_)) => if N.eqb deadline 0 then Some PairingIdle else
-     Some (AwaitingPairing deadline (option_map (fun value => RP.pairing_request_from_fields (proj1_sig value))
-       (hd_error (proj1_sig pending))))
+     Some (AwaitingPairing deadline (hd_error (proj1_sig pending)))
  | None => None end.
 Definition pairing_event name fields (construct : N -> F.values fields -> option pairing_observation)
  `{DistinctNames ("kind" :: "now" :: F.names fields)} : F.decoder pairing_observation :=
@@ -263,7 +262,7 @@ Definition pairing_event_of := F.decode_cases [
  pairing_event "clear" [] (fun _ _ => Some ClearPairing);
  pairing_event "observe" [] (fun now _ => Some (ObservePairing now));
  pairing_event "receive" [F.required "request" RP.pairing_request_declaration]
-   (fun now '(request,_) => Some (ReceivePairing now (RP.pairing_request_from_fields (proj1_sig request))));
+   (fun now '(request,_) => Some (ReceivePairing now request));
  pairing_event "consume" [F.required "request_id" RP.identifier_declaration]
    (fun now '(request,_) => Some (ConsumePairing now (RP.identifier_text request)))].
 Definition pairing_step source observed := match pairing_state_of source,pairing_event_of observed with

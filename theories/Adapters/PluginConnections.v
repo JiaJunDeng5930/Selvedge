@@ -71,8 +71,9 @@ Definition admit_configuration source : P.outcome Connections.t :=
    | None => P.reject "ChatGPT plugin connections must be an object with at most 32 entries" end
  | None => P.reject "Invalid ChatGPT plugin configuration" end.
 Definition connection_config source := P.render_outcome configuration_json (admit_configuration source).
-Definition connection_grants source := P.render_outcome (fun values =>
- JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values))) (admit_configuration source).
+Definition connection_grants source := success (JArray (map (fun '(identity,value) =>
+ JObject [("connection_id",JNumber identity);("project_ids",get value "project_ids");("sandbox",get value "sandbox")])
+ (object_fields (get source "connections")))).
 (** Secret values never enter Gallina: this is a plan for the opaque credential interpreter. *)
 Definition credential_plan := JObject [("minimum",number 32);
   ("maximum",number 256);("alphabet",JString "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-");

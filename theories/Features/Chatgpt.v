@@ -163,7 +163,7 @@ Definition running (_ : unit) := Selvedge.Features.Domain.JobRunning.
 Definition settle id result error value :bool*bool*decision :=
  let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
    (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
- (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
+ (accepted,accepted,accept JNull next []).
 Definition completion (received : Callback.decoded ModelDeclarations.ChatgptExec) value :=
  let '(existT _ ok (address,fields)) := received in
  settle (Schema.head address) (JObject (fst fields)) (negb ok) value.

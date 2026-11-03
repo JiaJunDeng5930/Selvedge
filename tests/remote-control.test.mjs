@@ -34,6 +34,7 @@ test('private identity publication and lost remote command receipts survive rest
   const registrations = [];
   let socket;
   let publishedGrants = [];
+  let lostReply;
   // This peer only delivers wire messages; grants and receipts come from the
   // production service and its actual SQLite journal.
   const relay = Bun.serve({ hostname: '127.0.0.1', port: 0,
@@ -56,6 +57,12 @@ test('private identity publication and lost remote command receipts survive rest
         if (frame.type === 'pairing') peer.send(JSON.stringify({ type: 'pair_request',
           request_id: pairing_id, controller_id, label: 'Local owner approved device' }));
         if (frame.type === 'ping') peer.send(JSON.stringify({ type: 'pong' }));
+        if (frame.type === 'response' && frame.response.id === 'lost') {
+          // The relay observes the committed response but loses it before
+          // controller delivery, using only the public wire boundary.
+          peer.terminate();
+          lostReply = frame.response.result.reply;
+        }
       },
     },
   });
@@ -84,21 +91,11 @@ test('private identity publication and lost remote command receipts survive rest
   const request_id = randomUUID();
   const command = { op: 'create', profile: 'demo', message: 'Retain this remote command after reply loss.',
     settings: { workspace: { roots: [workspace], primary_root: workspace } } };
-  const committed = new Promise(resolve => {
-    const observe = decision => {
-      if (decision.input.kind !== 'remote_command' || decision.input.request_id !== request_id) return;
-      service.journal.off('commit', observe);
-      socket.terminate(); // Lose delivery after the actual command and receipt commit.
-      resolve(decision.reply);
-    };
-    service.journal.on('commit', observe);
-    t.after(() => service.journal.off('commit', observe));
-  });
   const connection = { connection_id: 'lost-reply', controller_id, grant_epoch: grant.grant_epoch };
   socket.send(JSON.stringify({ type: 'controller_open', ...connection }));
   socket.send(JSON.stringify({ type: 'request', ...connection,
     request: { id: 'lost', method: 'command', params: { request_id, command } } }));
-  const reply = await committed;
+  const reply = await until(() => lostReply);
   assert.equal(reply.ok, true, JSON.stringify(reply));
   await taskIdle(service, reply.result.task_id);
   await service.close();

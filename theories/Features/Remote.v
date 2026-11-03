@@ -137,7 +137,7 @@ Definition authorize_command command request state := with_command_rights comman
    else authorize rights request state).
 Definition probe_reply authorization value := match authorization with
  | Denied code reason=>reject code reason value
- | Admitted=>accept (JObject [("admitted",JBool true)]) value []
+ | Admitted=>accept JNull value []
  | Replay reply=>accept (JObject [("replayed",JBool true);("reply",reply)]) value [] end.
 Definition retain request reply state := Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (Selvedge.Features.Domain.remote_grants state)
  (Selvedge.Features.Domain.remote_next_epoch state) (Selvedge.Features.Domain.RemoteReceipt (controller request) (epoch request) (request_id request)

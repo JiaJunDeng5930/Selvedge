@@ -7,6 +7,8 @@
 From Selvedge.Features Require SharingProofs.
 Export SharingProofs(connection_without_project_grant_cannot_execute,
   accepted_public_exec_emits_frozen_job, recovery_never_replays_running_job).
+From Selvedge.Adapters Require ApiProofs.
+Export ApiProofs(public_configured_connection_grants_preserve_authority).
 
 (** ** Connection work captures an explicit Project grant
 
@@ -24,6 +26,15 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     it again; cancellation requests a physical stop without undoing writes.
     Project connection authority remains distinct from browser, CLI and remote
     controller credentials.
+
+    Configuration admission already establishes connection identities, project
+    membership and sandbox values. Projecting those admitted values into native
+    grants preserves that authority without admitting the configuration again;
+    [public_configured_connection_grants_preserve_authority] binds this projection
+    to the actual adapter entry without requiring grant-list order. The public
+    native command still admits independently supplied grant requests.
+    Job settlement keeps its completion and scheduling decisions; its host
+    caller needs the commit acknowledgement, not another accepted marker.
 
     The standalone package and service use the same credential interpreter and
     filesystem primitives. Secrets, token bytes and tunnel identities remain
@@ -75,6 +86,9 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    Probe success already admits preparation or capture; an additional admitted
+    marker supplies no consumed information. A retained-result probe still
+    distinguishes replay and carries the original reply for its caller.
     Admission after asynchronous preparation uses the current world. Within
     that pure transition the request and receipt cannot change; checking the
     prepared command's permissions suffices without admitting that packet again.
@@ -111,6 +125,7 @@ Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_not
   delivery_observation_emits_only_delivery_actions,
   enqueue_observation_emits_only_queue_actions).
 Export RemoteRelaySessionProofs(consumption_removes_ticket,
+  host_frame_admission_matches_negotiation,
   delivery_admits_exactly_current_authority,
   ticket_issuance_admits_exactly_current_bounded_authority,
   issued_tickets_respect_capacity,
@@ -129,6 +144,12 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     is admitted from its supplied observation; facts needed across socket
     hibernation instead remain in the session attachment. This distinction
     keeps retained state tied to a real lifetime.
+    Admitted wire values already have their shared declaration's type;
+    projecting and reconstructing the same value supplies no new admission.
+    Host-frame admission is a query over the negotiated session. Before hello,
+    only the versioned hello frame is eligible; afterward the admitted host
+    frames may proceed. [host_frame_admission_matches_negotiation] constrains
+    the predicate used by that query, which needs no state-transition wrapper.
 
     Closed transport states distinguish probing, negotiation, online operation,
     scheduled retry and rejected identity. Randomness, status and clock values
@@ -154,6 +175,12 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     rereads the current attachment instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
+    The connector synchronously clears its physical socket owner before closing
+    that socket. Object identity therefore excludes old physical callbacks,
+    including pairing callbacks, without a second native generation query.
+    Native clock, probe and queue observations still carry their generations
+    for semantic admission. Connector start, pair and close request their
+    physical effects synchronously; their return does not promise delivery.
 
     The connector interprets each observation's possible actions. The actual
     transition's frame, capture, delivery and enqueue contracts establish these

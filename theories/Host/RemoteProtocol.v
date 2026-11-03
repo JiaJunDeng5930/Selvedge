@@ -41,7 +41,6 @@ Definition authority_controller value := proj1_sig (fst (authority_to_fields val
 Definition authority_epoch value := epoch_value (fst (snd (authority_to_fields value))).
 Definition same_authority first second := String.eqb (authority_controller first) (authority_controller second) &&
  N.eqb (authority_epoch first) (authority_epoch second).
-Definition authority_arguments (value : wire_authority) := value.
 
 Module AuthorityEntry <: KeyedCollection.Entry.
  Definition t := wire_authority.
@@ -57,9 +56,9 @@ Definition no_grants : grant_set := exist _ AuthoritySet.empty eq_refl.
 Definition admit_grants values := match AuthoritySet.admit values with
  | Some values => D.admit grant_limit values | None => None end.
 Definition grants_declaration := D.Array authority_declaration.
-Definition grants_arguments values : D.denote grants_declaration := map authority_arguments (grant_values values).
+Definition grants_arguments values : D.denote grants_declaration := grant_values values.
 Definition grants_from_arguments (values : D.denote grants_declaration) :=
- admit_grants (map (fun value => authority_from_fields (proj1_sig value)) values).
+ admit_grants values.
 
 (** Commands remain opaque to the relay. The operation is admitted while every
     member and every number spelling remains owned by the command boundary. *)
@@ -88,8 +87,6 @@ Definition result_fields := [F.required "id" rpc_id_declaration;F.required "resu
 Definition failure_fields := [F.required "id" rpc_id_declaration;F.required "error" (D.Object error_fields)].
 Definition response_declaration := D.Union [D.Object result_fields;D.Object failure_fields].
 Definition rpc_response := D.denote response_declaration.
-Definition response_arguments (value : rpc_response) := value.
-Definition response_from_arguments (value : D.denote response_declaration) := value.
 
 Definition pairing_code_declaration := D.Textual (D.PrintableUtf16 20 128).
 Definition pairing_fields := [F.required "code" pairing_code_declaration;F.required "expires_at" epoch_declaration].
@@ -97,9 +94,7 @@ Definition pairing_branch := F.declare "type" (JString "pairing") pairing_fields
 Definition pairing_declaration := F.branch_declaration pairing_branch.
 Definition pairing_announcement := D.denote pairing_declaration.
 Definition pairing_to_fields (value : pairing_announcement) := snd (proj1_sig value).
-Definition pairing_from_fields := F.branch_arguments pairing_branch.
 Definition pairing_expiry value := epoch_value (fst (snd (pairing_to_fields value))).
-Definition pairing_arguments (value : pairing_announcement) := value.
 
 Definition pairing_request_fields := [F.required "request_id" identifier_declaration;
  F.required "controller_id" RemoteIdentity.controller_declaration;F.required "label" label_declaration].
@@ -108,7 +103,6 @@ Definition pairing_request := D.denote pairing_request_declaration.
 Definition pairing_request_to_fields (value : pairing_request) := proj1_sig value.
 Definition pairing_request_from_fields := F.construct pairing_request_fields.
 Definition pairing_request_id value := identifier_text (fst (pairing_request_to_fields value)).
-Definition pairing_request_arguments (value : pairing_request) := value.
 
 Definition version_fields := [F.required "version" version_declaration].
 Definition routed_fields payload := F.required "connection_id" identifier_declaration :: payload.
@@ -130,15 +124,15 @@ Inductive host_frame : Type := HostHello | HostGrants (values : grant_set) | Hos
 Definition host_frame_arguments value : D.denote host_frame_declaration := match value with
  | HostHello => inl (F.branch_arguments hello_branch [!version_value!])
  | HostGrants values => inr (inl (F.branch_arguments host_grants_branch [!grants_arguments values!]))
- | HostPairing value => inr (inr (inl (pairing_arguments value)))
- | HostResponse id value => inr (inr (inr (inl (F.branch_arguments host_response_branch [!id;response_arguments value!]))))
+ | HostPairing value => inr (inr (inl value))
+ | HostResponse id value => inr (inr (inr (inl (F.branch_arguments host_response_branch [!id;value!]))))
  | HostEvent id value => inr (inr (inr (inr (inl (F.branch_arguments host_event_branch [!id;value!])))))
  | HostPing => inr (inr (inr (inr (inr (inl (F.branch_arguments host_ping_branch tt)))))) end.
 Definition host_frame_from_arguments (value : D.denote host_frame_declaration) : option host_frame := match value with
  | inl _ => Some HostHello
  | inr (inl values) => option_map HostGrants (grants_from_arguments (fst (snd (proj1_sig values))))
- | inr (inr (inl values)) => Some (HostPairing (pairing_from_fields (snd (proj1_sig values))))
- | inr (inr (inr (inl values))) => let values := snd (proj1_sig values) in Some (HostResponse (fst values) (response_from_arguments (fst (snd values))))
+ | inr (inr (inl values)) => Some (HostPairing values)
+ | inr (inr (inr (inl values))) => let values := snd (proj1_sig values) in Some (HostResponse (fst values) (fst (snd values)))
  | inr (inr (inr (inr (inl values)))) => let values := snd (proj1_sig values) in Some (HostEvent (fst values) (fst (snd values)))
  | inr (inr (inr (inr (inr (inl _))))) => Some HostPing
  | inr (inr (inr (inr (inr (inr impossible))))) => match impossible with end end.

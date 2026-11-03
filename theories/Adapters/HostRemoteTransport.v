@@ -48,7 +48,6 @@ Definition call operation source :=
  | None => type_error "Invalid remote transport state"
  | Some state =>
    if String.eqb operation "control.remote.transport_running" then success (JBool (running state))
-   else if String.eqb operation "control.remote.transport_current" then success (JBool (current state (num source "generation")))
    else if String.eqb operation "control.remote.transport" then
      match observation_of (get source "observation") with None => type_error "Invalid remote transport observation"
      | Some observation => let '(next,actions) := step (settings_of (get source "settings")) state observation in

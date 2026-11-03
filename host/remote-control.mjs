@@ -159,7 +159,7 @@ export class RemoteControl {
     const code = randomBytes(32).toString('base64url');
     const expires_at = Date.now() + REMOTE_PAIRING_TTL_MS;
     this.#pairingStep('begin', { expires_at });
-    await this.#connector.pair(code, expires_at);
+    this.#connector.pair(code, expires_at);
     return { code, expires_at, host_id: this.#identity.host_id, relay_url: this.#identity.relay_url };
   }
 
@@ -184,11 +184,6 @@ export class RemoteControl {
     const result = unwrap(await this.#service.command({ op: 'remote_revoke', controller_id }));
     await this.reconcile();
     return result;
-  }
-
-  #pairRequested(request) {
-    if (this.#closed) return;
-    this.#pairingStep('receive', { request: { request_id: request.request_id, controller_id: request.controller_id, label: request.label } });
   }
 
   reconcile() {
@@ -220,7 +215,7 @@ export class RemoteControl {
       this.#connector = undefined;
       this.#grantsKey = undefined;
       this.#pairingStep('clear');
-      await connector?.close();
+      connector?.close();
       return;
     }
     if (!this.#connector) {
@@ -231,9 +226,9 @@ export class RemoteControl {
           const current = await this.#nativeStatus();
           return current.enabled ? current.grants : [];
         },
-        onPairRequest: request => this.#pairRequested(request),
+        onPairRequest: request => this.#pairingStep('receive', { request }),
       });
-      await this.#connector.start();
+      this.#connector.start();
     }
     const key = JSON.stringify(state.grants);
     if (key !== this.#grantsKey) {
@@ -245,7 +240,7 @@ export class RemoteControl {
   async close() {
     this.#closed = true;
     this.#pairingStep('clear');
-    await this.#connector?.close();
+    this.#connector?.close();
     await this.#reconciling;
     this.#connector = undefined;
   }

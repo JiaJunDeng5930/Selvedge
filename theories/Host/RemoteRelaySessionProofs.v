@@ -5,6 +5,16 @@ Open Scope string_scope.
 Open Scope N_scope.
 Open Scope list_scope.
 
+Theorem host_frame_admission_matches_negotiation current frame :
+ frame_allowed current frame = true <->
+ match current with
+ | Negotiating _ => frame = RP.HostHello
+ | AwaitingGrants _ | Ready _ _ => True
+ | _ => False end.
+Proof.
+ destruct current,frame; cbn; split; intros; try discriminate; tauto.
+Qed.
+
 Lemma consumed_digest_absent digest tickets :
  find (fun entry=>String.eqb (ticket_digest entry) digest)
  (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets) = None.

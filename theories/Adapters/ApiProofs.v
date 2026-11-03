@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith Lia.
+From Stdlib Require Import String List Bool NArith Lia Sorting.Permutation.
 From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
@@ -10,6 +10,20 @@ Open Scope N_scope.
 (** These statements constrain the actual extracted dispatch entry. Both
     successful behavior and admission requirements are stated, so rejecting
     every input cannot satisfy the public contract. *)
+
+Theorem public_configured_connection_grants_preserve_authority values :
+ exists projected,
+ Api.call "plugin.connection_grants" (configuration_json values) = success (JArray projected) /\
+ Permutation projected (map (fun value => grant_json (connection_grant value)) (Connections.values values)).
+Proof.
+ exists (map (fun value => grant_json (connection_grant value)) (Connections.values values)).
+ split; [|apply Permutation_refl].
+ change (connection_grants (configuration_json values) =
+   success (JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values)))).
+ unfold connection_grants,configuration_json.
+ cbn [Common.get Common.object_fields Json.field Json.lookup String.eqb Ascii.eqb Bool.eqb].
+ rewrite map_map. reflexivity.
+Qed.
 
 Theorem public_admitted_command_body_is_delivered : forall source original value,
   open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
