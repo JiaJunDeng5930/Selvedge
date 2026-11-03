@@ -36,30 +36,25 @@ Definition argument_specs (tool : native_tool) : list argument_spec :=
   | ReadImage => [Arguments.with_declaration nonempty_text (required_text "path" "Local image path, relative to the task workspace or absolute");
       Argument "detail" (Scalar Images.detail_kind) false "Image detail"]
   end.
-(** Primitive effects keep their admitted values. A terminal resize is one
-    optional pair, and only a PTY transport can carry it. *)
-Inductive permission_request := UseDefault
- | RequireEscalated (justification : D.denote ApprovalProtocol.justification_declaration).
-Definition permission_of
+Definition permission_valid
  (requested : option (Schema.denote (KEnum "use_default" ["require_escalated"])))
- (justification : option (D.denote D.text)) : option permission_request :=
+ (justification : option (D.denote D.text)) : bool :=
  match requested with
  | Some requested => if String.eqb (proj1_sig requested) "require_escalated" then
    match justification with
-   | Some text => option_map RequireEscalated
-       (D.admit (D.check_text ApprovalProtocol.justification_constraints) (proj1_sig text))
-   | None => None end
-   else Some UseDefault
- | None => Some UseDefault end.
+   | Some text => D.check_text ApprovalProtocol.justification_constraints (proj1_sig text)
+   | None => false end
+   else true
+ | None => true end.
 Definition mode_of (requested : option (Schema.denote (KEnum "pipe" ["pty"]))) :=
  match requested with Some requested =>
    if String.eqb (proj1_sig requested) "pty" then Process.Pty else Process.Pipe
  | None => Process.Pipe end.
+(** A terminal resize is one optional pair, and only a PTY transport can carry it. *)
 Record bash_parameters := BashParameters {
  bash_command : D.denote nonempty_text;
  bash_timeout : option (D.denote (D.Natural 100 1800000));
  bash_transport : Process.transport;
- bash_permission : permission_request;
  bash_maximum : option (D.denote (D.Natural 1 65536))
 }.
 Definition operation_identity := D.denote (D.Natural 0 4294967295).
@@ -90,9 +85,9 @@ Definition construct (tool : native_tool) : Arguments.parsed_arguments (argument
  match tool as tool return Arguments.parsed_arguments (argument_specs tool) -> option (arguments tool) with
  | Bash => fun fields =>
    let '(command,(timeout,(mode,(cols,(rows,(permissions,(justification,(maximum,_)))))))) := proj1_sig fields in
-   match Process.paired_size cols rows, permission_of permissions justification with
-   | Some size,Some permissions => option_map
-       (fun transport => BashParameters command timeout transport permissions maximum)
+   match Process.paired_size cols rows, permission_valid permissions justification with
+   | Some size,true => option_map
+       (fun transport => BashParameters command timeout transport maximum)
        (Process.prepare_transport (mode_of mode) size)
    | _,_ => None end
  | ReadProcess => fun fields => let '(operation,(cursor,_)) := proj1_sig fields in

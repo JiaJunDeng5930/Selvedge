@@ -95,9 +95,9 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id value) =
  [RequestApproval id (world_next_ticket value) reviewer invocation
-   (TaskWake.promote (TicketedRequest.append_operation
+   (TaskWake.promote (TaskChange.apply (TicketedRequest.opening_changes
      (Operation (world_next_ticket value) invocation false
-       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
+       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining) task))].
 Proof.
  intros id tool invocation remaining task value reviewer Found ExecuteAllowed Ready Known Room Bash Elevated Policy.
  destruct (starting_selects_the_current_call id value task tool invocation remaining
@@ -120,7 +120,8 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute id
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (TicketedRequest.publish_operations (TaskWake.promote task))].
+ decision_effects result = [ObserveContext id (world_next_ticket value)
+   (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task))].
 Proof.
  intros execute id task value operations Found ObserveAllowed Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.

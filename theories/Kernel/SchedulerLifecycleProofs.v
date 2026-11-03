@@ -56,7 +56,8 @@ Theorem a_runnable_task_requests_context_before_inference :
  task_lifecycle task = Running WantsModel [] ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- In (ObserveContext id (world_next_ticket value) (TicketedRequest.publish_operations (TaskWake.promote task)))
+ In (ObserveContext id (world_next_ticket value)
+   (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task)))
    (decision_effects result) /\
  world_next_ticket (decision_world result) = N.succ (world_next_ticket value).
 Proof.

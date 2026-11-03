@@ -63,7 +63,10 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     can issue physical work. The manual-fork contract finalizes the actual [ForkCommit.select]
     with the admitted candidate and output budget. The native-fork contract
     reaches [Packet.packet] under the actual invocation selection and delivery
-    budget. The terminal-settlement contract also reaches [Packet.packet], including
+    budget. Its final dispatch gate is justified by lookup in the selected
+    Task's frozen contract; that proof does not require retaining an otherwise
+    unused tool value in the commit plan.
+    The terminal-settlement contract also reaches [Packet.packet], including
     the matching final after-hook callback of an archived Task. Settlement
     does not restore ordinary execution authority to that Task.
 
@@ -175,6 +178,9 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     the reviewer's complete profile is not a second historical configuration.
     A before-tool hook can rewrite the original call, so this explanation must
     retain the effective invocation that reached approval.
+    Escalation admission checks the bounded, nonblank justification in that
+    invocation. Review uses the same captured arguments, so process transport
+    does not need another stored permission value.
     Denial follows the same frozen result-hook chain as an execution result.
 
     The authority constructor and granted-operation interpreter bind the

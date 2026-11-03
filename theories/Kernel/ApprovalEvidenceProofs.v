@@ -39,7 +39,7 @@ Proof.
  unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
- unfold TicketedRequest.append_operation, TaskWake.promote.
+ unfold TaskWake.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
