@@ -34,8 +34,8 @@ From Selvedge.Programming Require Import AdapterResult.
     terminal response, in provider index order, including their coordinates.
     A finalized coordinate names one item; conflicting contents cannot authorize
     a completed answer. The stream keeps provider order through every event,
-    including a repeated finalized coordinate. Its terminal output and coordinate
-    list come from that same retained sequence, so translation can consume them
+    including a repeated finalized coordinate. Reconstructed terminal output and
+    its coordinate list come from that same retained sequence, so translation can consume them
     without revalidating the sequence constructed by the stream.
     External JSON integer fields denote mathematical values:
     decimal or exponent notation does not select another coordinate, token count
