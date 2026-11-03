@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json JsonObjects.
-From Selvedge.Adapters Require Import Common Api ProviderCatalog RetryAfter RetryAfterProofs BackendRetry BackendProofs EvaluatorBudget EvaluatorPolicy.
+From Selvedge.Adapters Require Import Common Api ProviderCatalog RetryAfter RetryAfterProofs BackendRetry BackendProofs EvaluatorPolicy.
 Open Scope string_scope.
 Open Scope N_scope.
 

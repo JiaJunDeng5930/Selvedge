@@ -31,8 +31,8 @@ on loopback. Restart the server after changing its configuration or environment.
 
 The evaluator receives the original and current request, retained public notes,
 the frozen project context, and the last six tool calls paired with their results.
-Each call shares a 1,000-local-token result budget. Head/tail omissions are marked;
-the complete request is bounded by 28,000 local tokens and the native frame limit.
+The captured public history bounds its excerpts and marks omissions. The complete
+request is bounded by 28,000 local tokens and the native frame limit.
 The pinned `o200k_base` tokenizer is an estimate, not Jev's private tokenizer.
 Public task and tool content still leaves this computer for the chosen evaluator.
 

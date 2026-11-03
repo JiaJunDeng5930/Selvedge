@@ -1,67 +1,15 @@
-import { encode, decode, countTokens } from 'gpt-tokenizer/encoding/o200k_base';
+import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { adaptivePolicy } from './reasoning-config.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
-const evaluatorContract = boundary('evaluator.contract', {});
-const evaluatorResponseBytes = evaluatorContract.response_bytes;
+const evaluatorResponseBytes = boundary('evaluator.contract', {}).response_bytes;
 const tokenizerOptions = { disallowedSpecial: new Set() };
 
 function evaluatorOperation(operation, source) {
   return boundary(`evaluator.${operation}`, source);
-}
-
-// This is a local tokenizer budget, not a claim about Jev's private tokenizer.
-function outputTokens(text) {
-  return text ? Math.max(countTokens(text, tokenizerOptions), countTokens(JSON.stringify(text), tokenizerOptions)) : 0;
-}
-
-function preview(text, budget, originalCost) {
-  const source = { text, budget, original_cost: originalCost };
-  const observations = {};
-  let tokens;
-  let state = evaluatorOperation('preview', source);
-  while (state.action !== 'done') {
-    switch (state.action) {
-      case 'marker':
-        observations.marker_cost = outputTokens(state.text);
-        break;
-      case 'encode':
-        tokens = encode(text, tokenizerOptions);
-        observations.token_count = tokens.length;
-        break;
-      case 'decode':
-        observations.state = state;
-        observations.observation = { head: decode(tokens.slice(0, state.head_count)),
-          tail: state.tail_count ? decode(tokens.slice(-state.tail_count)) : '' };
-        break;
-      case 'count':
-        observations.state = state;
-        observations.observation = { cost: outputTokens(state.text) };
-        break;
-    }
-    state = evaluatorOperation('preview', { ...source, ...observations });
-  }
-  return observations;
-}
-
-function budgetObservations(outputs) {
-  const costs = outputs.map(output => outputTokens(output.text));
-  const allocation = evaluatorOperation('budget_plan', { costs });
-  const previews = outputs.map((output, index) => allocation[index].action === 'original' ? null
-    : preview(output.text, allocation[index].budget, costs[index]));
-  return { costs, previews };
-}
-
-function contextConstruction(effect) {
-  const selected = evaluatorOperation('context_select', { effect });
-  return { effect, budgeted: selected.recent_tool_calls.map(call => budgetObservations(call.outputs)) };
-}
-
-function decisionRequest(effect, evaluator, policy) {
-  return evaluatorOperation('request', { evaluator, policy, construction: contextConstruction(effect) });
 }
 
 function retryPlan(source) {
@@ -82,7 +30,7 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
   evaluatorOperation('request_admission', { evaluator, phase: 'credential',
     observation: { present: Boolean(key), whitespace: /\s/.test(key ?? '') } });
   const deadline = signal ? AbortSignal.any([signal, AbortSignal.timeout(evaluator.timeout_ms)]) : AbortSignal.timeout(evaluator.timeout_ms);
-  const request = decisionRequest(effect, evaluator, policy);
+  const request = evaluatorOperation('request', { effect, evaluator, policy });
   const body = stringifyJson(request);
   evaluatorOperation('request_admission', { body, limits, phase: 'bytes' });
   evaluatorOperation('request_admission', { phase: 'tokens', observation: { tokens: countTokens(body, tokenizerOptions) } });

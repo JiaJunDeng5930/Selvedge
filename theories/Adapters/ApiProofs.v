@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
-  PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
+  PluginConnections Plugins EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.

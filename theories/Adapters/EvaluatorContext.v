@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson JsonObjects.
-From Selvedge.Adapters Require Import Common EvaluatorBudget ProviderCatalog.
+From Selvedge.Adapters Require Import Common.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
@@ -29,12 +29,11 @@ Fixpoint outputs history call index := match history with
 Fixpoint pair_calls values history := match values with [] => [] | call::rest =>
   JObject [("history_index",get call "history_index");("call_id",get call "call_id");("name",get call "name");("arguments",get call "arguments");
     ("outputs",JArray (if existsb (fun later => JsonObjects.equivalent (get later "call_id") (get call "call_id")) rest then [] else outputs history call 0))]::pair_calls rest history end.
-Definition context_boundary := JString "Only public text and the last six paired tool calls are supplied. Each call shares a 1000 local o200k_base token output budget. Preview omissions are unknown. Private continuation and encrypted reasoning are never supplied.".
+Definition context_boundary := JString "Only bounded public text previews and the last six paired tool calls are supplied. Preview omissions are unknown. Private continuation and encrypted reasoning are never supplied.".
 Module Type ConstructedContext.
  Parameter t : Set.
  Parameter encode : t -> json.
  Parameter select : json -> outcome t.
- Parameter finish : json -> list json -> outcome t.
 End ConstructedContext.
 Module PublicContext : ConstructedContext.
 Record public_context := Context {
@@ -61,22 +60,4 @@ Definition select effect : outcome t := let history := get effect "history" in
  then Rejected "TypeError" "An evaluator requires a native reasoning effect" else
  let error := history_error (items history) in if negb (String.eqb error "") then Rejected "TypeError" error
  else Accepted (context_raw effect).
-Definition context_output pair := let '(output,preview) := pair in JObject [
- ("history_index",get output "history_index");("is_error",get output "is_error");
- ("text",match Budgeted.text preview with Some value => JString value | None => JNull end);
- ("preview",Budgeted.metadata preview)].
-Fixpoint finish_calls raw budgeted := match raw,budgeted with
- | [],[] => Some [] | call::rest,observations::budgeted =>
-   let outputs := items (get call "outputs") in
-   match Budgeted.finish (map (fun output => str output "text") outputs) observations,finish_calls rest budgeted with
-   | Some previews,Some tail => Some (JObject [("history_index",get call "history_index");("call_id",get call "call_id");
-       ("name",get call "name");("arguments",get call "arguments");
-       ("outputs",JArray (map context_output (combine outputs previews)))]::tail)
-   | _,_ => None end
- | _,_ => None end.
-Definition finish effect budgeted : outcome t := bind (select effect) (fun raw =>
- match finish_calls (recent_calls raw) budgeted with
- | Some calls => Accepted (Context (context_fields raw) calls (omitted_calls raw))
- | None => Rejected "TypeError" "Invalid evaluator context observations" end).
 End PublicContext.
-Definition context_select source := render_outcome PublicContext.encode (PublicContext.select (get source "effect")).

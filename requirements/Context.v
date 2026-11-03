@@ -71,7 +71,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
 
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their
-    previews are bounded and omit private provider continuations. *)
+    previews are bounded and omit private provider continuations. The captured
+    public history owns evidence selection and excerpting. The evaluator adapter
+    forwards those selected tool excerpts directly: another per-call truncation
+    would discard useful evidence without bounding a distinct resource. The
+    complete encoded request remains subject to byte and local-token admission
+    before dispatch. *)
 
 From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs.
 From Selvedge.Features Require CompactionProofs.

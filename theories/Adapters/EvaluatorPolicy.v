@@ -1,11 +1,19 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json TextJson JsonObjects.
-From Selvedge.Adapters Require Import Common EvaluatorBudget EvaluatorContext RetryAfter ProviderCatalog.
+From Selvedge.Adapters Require Import Common EvaluatorContext RetryAfter ProviderCatalog.
 From Selvedge.Kernel Require Import ReasoningProtocol.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+
+Definition checked (valid : bool) value code message := if valid then success value else failure code message.
+Definition response_bytes : N := 65536.
+Definition request_bytes : N := 2100000.
+Definition request_tokens : N := 28000.
+Definition contract := JObject [("response_bytes",number response_bytes)].
+Definition action name := JObject [("action",JString name)].
+Definition bounded value maximum := canonical_natural value && (nat_value value <=? maximum).
 
 Definition lease_values := map Selvedge.Foundation.Numbers.show_natural ReasoningProtocol.lease_generations.
 Definition lease_number value := JNumber (text value).
@@ -32,9 +40,9 @@ Definition request_base evaluator policy context := JObject [
 Definition request_value evaluator policy context := let base := request_base evaluator policy context in let provider := str evaluator "provider" in
  if String.eqb provider "vercel" then set base "providerOptions" (JObject [("gateway",JObject [("only",JArray [JString "typesafe-ai"])])])
  else if String.eqb provider "openrouter" then set base "provider" (JObject [("only",JArray [JString "typesafe"]);("allow_fallbacks",JBool false)]) else base.
-Definition request source := let construction := get source "construction" in
+Definition request source :=
    render_outcome (request_value (get source "evaluator") (get source "policy"))
-     (PublicContext.finish (get construction "effect") (items (get construction "budgeted"))).
+     (PublicContext.select (get source "effect")).
 Definition request_budget_error := range_error "The public reasoning-evaluator context exceeds its local token/byte budget; compact the task before retrying".
 Definition bytes_allowed source := let bytes := N.of_nat (String.length (str source "body")) in
  (bytes <=? request_bytes) && (bytes <=? num (get source "limits") "frame_bytes").
