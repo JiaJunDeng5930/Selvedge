@@ -258,18 +258,18 @@ Theorem public_rpc_reservation_matches_available_capacity : forall source state,
   Rpc.state_of source = state ->
   (get (get (Api.call "rpc.request" source) "value") "action" = JString "request" <->
    boolean_field source "aborted" = false /\ state.(failed) = false /\
-   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < Rpc.request_limit /\
    state.(next_id) < 9007199254740991).
 Proof.
  intros source state decoded.
  change (get (get (Rpc.call "rpc.request" source) "value") "action" = JString "request" <->
    boolean_field source "aborted" = false /\ state.(failed) = false /\
-   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < Rpc.request_limit /\
    state.(next_id) < 9007199254740991).
  unfold Rpc.call;rewrite decoded;cbn;unfold Rpc.request.
  destruct (boolean_field source "aborted");[cbn;split;[discriminate|intros [Impossible _];discriminate]|].
  destruct state.(failed);[cbn;split;[discriminate|intros [_ [Impossible _]];discriminate]|].
- destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") eqn:Capacity;
+ destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? Rpc.request_limit) eqn:Capacity;
    [|cbn;split;[discriminate|intros [_ [_ [Bound _]]];apply N.ltb_ge in Capacity;lia]].
  destruct (state.(next_id) <? 9007199254740991) eqn:Identity;
    [|cbn;split;[discriminate|intros [_ [_ [_ Bound]]];apply N.ltb_ge in Identity;lia]].
@@ -280,12 +280,12 @@ Theorem public_rpc_reservation_returns_a_bounded_pending_set : forall source sta
   Rpc.state_of source = state ->
   get (get (Api.call "rpc.request" source) "value") "action" = JString "request" ->
   N.of_nat (List.length (items (get (get (Api.call "rpc.request" source) "value") "nextPending"))) +
-    N.of_nat (List.length state.(working)) <= num source "maxPending".
+    N.of_nat (List.length state.(working)) <= Rpc.request_limit.
 Proof.
  intros source state decoded accepted.
  apply (proj1 (public_rpc_reservation_matches_available_capacity source state decoded)) in accepted.
  destruct accepted as [Aborted [Failed [Capacity Identity]]].
- assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") = true)
+ assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? Rpc.request_limit) = true)
    by now apply N.ltb_lt.
  assert (IdentityValue : (state.(next_id) <? 9007199254740991) = true) by now apply N.ltb_lt.
  assert (Entry : Api.call "rpc.request" source = Rpc.request state source).

@@ -98,12 +98,13 @@ Definition message (state : rpc_state) (source : json) : json :=
         end
       end)
   else err ("Malformed " ++ label source ++ " JSON-RPC message").
+Definition request_limit : N := 128.
 Definition request (state : rpc_state) (source : json) : json :=
   if boolean_field source "aborted" then encode_action (unchanged "abort" state [])
   else if state.(failed) then encode_action (unchanged "external_failure" state [])
   (* Retired response tokens retain their physical capacity until their
      interpreter has actually stopped; cancellation cannot bypass this bound. *)
-  else if N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending" then
+  else if N.of_nat (List.length (state.(pending) ++ state.(working))) <? request_limit then
     (* DEFENSE: A long-lived connection can exhaust exact JavaScript request ids. *)
     if state.(next_id) <? 9007199254740991 then
       encode_action (RpcAction "request" (state.(pending) ++ [state.(next_id)])

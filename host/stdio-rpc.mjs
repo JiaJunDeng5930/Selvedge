@@ -164,7 +164,7 @@ export class StdioRpc extends EventEmitter {
 
   request(method, params, { signal, timeoutMs = this.timeoutMs, prepareIncoming } = {}) {
     let decision;
-    try { decision = this.#decide('rpc.request', { method, params, maxPending: 128,
+    try { decision = this.#decide('rpc.request', { method, params,
       aborted: signal?.aborted ?? false }); }
     // DEFENSE: Queue pressure, exhausted request identities or a closed process can reject a new RPC call; report it through the request promise.
     catch (error) { return Promise.reject(error); }
