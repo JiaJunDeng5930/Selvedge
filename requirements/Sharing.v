@@ -172,6 +172,8 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     events that change it. [delivery_admits_exactly_current_authority] constrains
     the actual delivery predicate: an available host, its current generation
     and an exact current grant are all necessary and sufficient.
+    That predicate also selects the controller attachment constructor; repeating
+    its role test in the host supplies no additional authority.
     Ticket issuance and consumption also require a current grant and unexpired
     credential. A successful consumption carries its selected ticket by
     construction; failure reasons belong only to rejected results. Their
@@ -191,6 +193,12 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     The journal remains command-idempotency authority; the relay does not keep
     another durable command database. Socket handles, cryptography, atomic
     attachment publication and network ordering remain host responsibilities.
+    The deployed Workers compatibility contract already answers peer close
+    frames. Closing again adds no transport guarantee and only creates a need
+    to normalize reserved close-event codes. The relay still retires its
+    attachment and notifies or closes affected peers. This runtime contract is
+    enabled by default for compatibility dates from 2026-04-07:
+    https://developers.cloudflare.com/durable-objects/best-practices/websockets/ .
 
     Opening the intended loopback URL establishes an HttpOnly browser session so
     product JavaScript need not handle its secret. Origin and host admission

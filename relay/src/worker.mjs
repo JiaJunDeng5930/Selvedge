@@ -132,7 +132,7 @@ export class RemoteHostRelay {
   }
 
   controllerCurrent(state) {
-    return state.role === 'controller' && remoteControl('delivery', { connection: state,
+    return remoteControl('delivery', { connection: state,
       generation: this.generation, grants: this.grantSnapshot(),
       host_ready: Boolean(this.host()) });
   }
@@ -345,10 +345,8 @@ export class RemoteHostRelay {
     }
   }
 
-  webSocketClose(socket, code, reason) {
+  webSocketClose(socket) {
     this.disconnect(socket);
-    // DEFENSE: Close events can report reserved 1005/1006 codes, which cannot be sent in a close frame.
-    socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
   }
 
   webSocketError(socket) {
