@@ -21,7 +21,12 @@ From Selvedge.Programming Require Import AdapterResult.
     public account operations. Refusal contracts retain failure and the actual
     control decision without fixing diagnostic wording. Errors for malformed
     credential text must be independent of the rejected bytes so they cannot
-    disclose a credential. Refresh eligibility uses one admitted, locked
+    disclose a credential. Private credential, registration and host-identity
+    files must be readable by their owner and deny group and other access.
+    Exact owner write and execute bits add no privacy property. Permission
+    acceptance checks owner read explicitly because a privileged test process
+    can read a file even when its owner cannot.
+    Refresh eligibility uses one admitted, locked
     credential; its expiry margin and earliest refresh time are evaluated
     against the same observed time. Callback admission binds the actual HTTP
     request to the login; repeated browser callbacks must not replace its chosen

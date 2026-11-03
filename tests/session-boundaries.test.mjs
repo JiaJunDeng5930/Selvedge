@@ -388,7 +388,7 @@ test('CLI login preserves private credentials on bad signatures and service refr
   const filename = path.join(upstream.directory, upstream.profile.auth_file);
   const saved = await readFile(filename, 'utf8');
   for (const name of [filename, `${filename}.registration.json`, path.join(upstream.directory, 'auth/chatgpt-host.json')]) {
-    assert.equal((await stat(name)).mode & 0o777, 0o600);
+    assert.equal((await stat(name)).mode & 0o477, 0o400);
   }
   upstream.options.privateKey = (await generateKeyPair('RS256')).privateKey;
   const refused = await loginThroughCli(upstream.directory, upstream.address);
