@@ -57,9 +57,9 @@ Definition reasoning_completed_expression (id ticket : N) (outcome : Reasoning.o
  let body := eval unfold Callbacks.reasoning_completed in (Callbacks.reasoning_completed id ticket outcome value) in
  derive_callback_view constr:(Callbacks.reasoning_completed id ticket outcome value) body id value).
 
-Definition context_ready_expression (accepted : bool) (id : N) (task : task) (value : world) := ltac:(
- let body := eval unfold Callbacks.context_ready in (Callbacks.context_ready accepted id task value) in
- derive_callback_view constr:(Callbacks.context_ready accepted id task value) body id value).
+Definition context_ready_expression (id : N) (task : task) (value : world) := ltac:(
+ let body := eval unfold Callbacks.context_ready in (Callbacks.context_ready id task value) in
+ derive_callback_view constr:(Callbacks.context_ready id task value) body id value).
 
 Definition context_completed_expression (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) := ltac:(
  let body := eval unfold Callbacks.context_completed in (Callbacks.context_completed id ticket observations diagnostic value) in

@@ -23,10 +23,10 @@ Definition find_entry (id : N) (value : Selvedge.Features.CompactionTypes.state)
 Definition current_entry (id : N) (value : Selvedge.Features.CompactionTypes.state) := match find_entry id value with Some entry => entry | None => empty_entry end.
 Definition with_entry (id : N) (entry : entry) (value : Selvedge.Features.CompactionTypes.state) :=
  Receiver.install (Receiver.path (R.compaction_entries id value)) entry value.
-Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
- Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
+Definition acknowledged (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
+ Selvedge.Kernel.State.accept JNull value effects.
 Definition commit_change (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
- CommandResult.Change (JObject [("accepted", JBool true)])
+ CommandResult.Change JNull
    (store (with_entry id entry (registry value)) value) (map Selvedge.Kernel.State.MaintainContext effects).
 Definition commit (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
  CommandResult.accept (commit_change id entry value effects).
@@ -329,10 +329,10 @@ Definition resolve (completion : completion) (value : Selvedge.Kernel.State.worl
  match completion with
  | Configure policy now =>
    let before := registry value in
-   Some (acknowledged true (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
+   Some (acknowledged (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
        (maintenance_entries before)) (N.max now (maintenance_now before)) 0) (recover_context_tasks before value))
      (map Selvedge.Kernel.State.MaintainContext (pending_cancellations before)))
- | Clock now => Some (acknowledged true (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
+ | Clock now => Some (acknowledged (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
  | Activity id _ _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
 
 Definition validating (job : job) := match job with
@@ -512,7 +512,7 @@ Definition recover (value : Selvedge.Kernel.State.world) :=
    process restart still uses [recover], since the new process has no running
    handles for its old requests. Recovery does not confirm remote cancellation. *)
 Definition reconfigure (value : Selvedge.Kernel.State.world) :=
- acknowledged true (recover value)
+ acknowledged (recover value)
    (map Selvedge.Kernel.State.MaintainContext (pending_cancellations (registry value))).
 Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
@@ -527,7 +527,7 @@ Definition supplied_change (id : N) (task : task) (summary : Compaction.summary)
 Definition manual_change {value} (target : TaskScope.task_reference value) :=
  let id := TaskScope.owner target in
  let entry := current_entry id (registry value) in
- let result := if job_pending (entry_job entry) then acknowledged false value []
+ let result := if job_pending (entry_job entry) then acknowledged value []
    else wait_for_context_selected target (Some Manual) entry in
  CommandResult.Change (JObject [("task_id", number id)]) (Selvedge.Kernel.State.decision_world result)
    ((map Selvedge.Kernel.State.MaintainContext (if job_pending (entry_job entry) then [] else cancellations id entry)) ++
@@ -560,7 +560,7 @@ Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload
 
 Definition completion (event : Selvedge.Features.CompactionTypes.completion) (value : Selvedge.Kernel.State.world) :=
  (true,true,match resolve event value with
- | None => acknowledged false value [] | Some result => result end).
+ | None => acknowledged value [] | Some result => result end).
 Definition completion_inputs := List.map (InputRoute.map completion) Selvedge.Features.CompactionCodec.completion_inputs.
 Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  map (fun effect => match effect with

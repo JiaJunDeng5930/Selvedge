@@ -53,7 +53,7 @@ Theorem every_owned_terminal_callback_commits_at_the_public_packet :
   Packet.packet raw before =
   (with_sequence (N.succ (world_sequence before)) (decision_world result),
    Notifications.envelope true true (Some input) before result) /\
-  decision_reply result = State.success (JObject [("accepted",JBool true)]) /\
+  bool_default "ok" (decision_reply result) false = true /\
   decision_effects result = [ContinueScheduling]).
 Proof.
  intros raw before payload current input Decoded Found Eligible InputBudget.

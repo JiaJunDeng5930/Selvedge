@@ -55,7 +55,7 @@ Definition resolve (input : input) (before : world) := match input with
  | _ => None end.
 
 Definition interpret_change {before : world} (accepted : plan before) :=
- CommandResult.Change (JObject [("accepted"%string,JBool true)])
+ CommandResult.Change JNull
    (TaskResult.interpret_result (target accepted) (TaskResult.WakeDemand (update accepted))) [].
 (* The settled callback commits before independent runtime maintenance. The
    selected plan is an accepted settlement even when its hook result failed. *)

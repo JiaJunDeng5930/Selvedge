@@ -21,8 +21,8 @@ Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
  | _ => False
  end.
 
-(** A well-formed callback with no current card lease is acknowledged as
-    ignored, without changing the board or dispatching another turn. *)
+(** A well-formed callback with no current card lease succeeds without
+    changing the board or dispatching another turn. *)
 Theorem board_text_without_current_lease_is_ignored : forall ok
  (address : Schema.fields (Callback.coordinates ModelDeclarations.BoardText))
  (fields : DeclarationFields.values (Callback.payload ModelDeclarations.BoardText ok)) value,
@@ -30,7 +30,7 @@ Theorem board_text_without_current_lease_is_ignored : forall ok
    ~ current_board_lease (head (tail address)) card) ->
  exists result,
    Board.completion (existT _ ok (address,fields)) value=(false,false,result) /\
-   decision_reply result=success (JObject [("accepted"%string,JBool false)]) /\
+   bool_default "ok" (decision_reply result) false=true /\
    decision_world result=value /\ decision_effects result=[] /\
    CardScope.lookup (head address) (decision_world result)=CardScope.lookup (head address) value.
 Proof.
@@ -51,7 +51,7 @@ Proof.
    destruct (Completion.Row.request received) as [expected retitle] eqn:Request.
    unfold current_board_lease; rewrite <-Phase; cbn.
    now apply N.eqb_eq in Matches.
- - exists (Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool false)]) value []).
+ - exists (Selvedge.Kernel.State.ignored value).
    repeat split; reflexivity.
 Qed.
 
@@ -61,7 +61,7 @@ Local Lemma current_board_completion_expression : forall ok
  CardScope.lookup (head address) value=Some card ->
  F.card_enrichment card=F.Enriching (RequestEnvelope.Envelope (head (tail address)) retitle) ->
  Board.completion (existT _ ok (address,fields)) value=
- (true,true,Selvedge.Kernel.State.accept (JObject [("accepted"%string,JBool true)])
+ (true,true,Selvedge.Kernel.State.accept JNull
    (Board.put (head address) (Completion.Row.finish F.card_enrichment
      (Board.suggestion_from_reply (existT _ ok fields) retitle card value) card) value) []).
 Proof.

@@ -22,7 +22,7 @@ Definition completion_path owner := Receiver.field world_features
  (Receiver.field Selvedge.Features.Domain.feature_worktrees
    (Receiver.inject (Selvedge.Features.Domain.WorktreeEntry owner)
      (Receiver.keyed Selvedge.Features.Domain.worktree_task))).
-Definition ignored value := Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [].
+Definition ignored := Selvedge.Kernel.State.ignored.
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
 Definition archived := WorkspaceBinding.archived.
 Definition inside := WorkspaceBinding.inside.
@@ -82,11 +82,11 @@ Definition handle_read_worktree (payload:Selvedge.Generated.Commands.read_worktr
  match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id payload) value with Some tree=>Selvedge.Kernel.State.success (Observation.worktree_json tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end.
 Definition archive_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :decision :=
  let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
- match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) value [] | Some root=>
+ match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept JNull value [] | Some root=>
  let target:=Selvedge.Features.Domain.worktree_target_primary tree in
  if root_unused id root value then
- Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving (RequestEnvelope.Owned (root,target))) tree) value) [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree)]
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiveFailed root target "Worktree is still used by another task. Archive shared tasks before retrying.") tree) value) [] end.
+ Selvedge.Kernel.State.accept JNull (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving (RequestEnvelope.Owned (root,target))) tree) value) [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree)]
+ else Selvedge.Kernel.State.accept JNull (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiveFailed root target "Worktree is still used by another task. Archive shared tasks before retrying.") tree) value) [] end.
 Definition retry (id:N) (value:world) :=
  if negb (archive_allowed id value) then Selvedge.Kernel.State.reject "worktree_in_use" "This worktree is shared by other tasks. Archive those tasks before archiving its owner." value else
  match lookup id value,Selvedge.Kernel.State.find_task id value with
@@ -513,7 +513,7 @@ Definition finish_creation {before} (reference:TaskScope.task_reference before)
    Selvedge.Kernel.State.put_task id (completed_task space guidance task) (complete_bindings id space guidance ready)
  | CreationFailure _ message => Selvedge.Kernel.State.put_task id (failed_task message task) ready end in
  if archived task then archive_tree (Selvedge.Features.Domain.WorktreeEntry id (Completion.Row.updated received)) updated
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) updated [].
+ else Selvedge.Kernel.State.accept JNull updated [].
 Definition created (owner:N) (observed:creation_observation) (value:world) : decision :=
  match TaskScope.select owner value with
  | Some reference =>
@@ -582,7 +582,7 @@ Definition archive_choice (observed:archive_observation) (contents:Selvedge.Feat
 Definition archived_result id observed value :=
  match Completion.Row.consume (completion_path id) Selvedge.Features.Domain.contents_phase
    Selvedge.Features.Domain.TreeArchiving Completion.Owner tt (archive_choice observed) value with
- | Some received => Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (Completion.Row.after received) []
+ | Some received => Selvedge.Kernel.State.accept JNull (Completion.Row.after received) []
  | None => ignored value end.
 Definition completion_inputs := [
  InputRoute.callback (ModelDeclarations.Worktree true) (fun received =>

@@ -18,7 +18,7 @@ Definition observe_scheduled_context (id : N) (value : world) :=
 Definition context_retry_wait (id : N) (current : task) (value : world) :=
  match task_lifecycle current with
  | Running (ObservingContext _ _) _ =>
-   accept (JObject [("accepted",JBool false)]) (put_task id (with_activity WantsModel current) value) []
+   accept JNull (put_task id (with_activity WantsModel current) value) []
  | _ => State.ignored value end.
 Definition context_retry (id : N) (value : world) :=
  match TaskScope.select id value with

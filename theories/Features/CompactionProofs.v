@@ -105,11 +105,11 @@ Qed.
     when their owned request has expired. Receiver admission is shared. *)
 Theorem an_unresolved_observation_retains_journal_ordering : forall event value,
  A.resolve event value = None ->
- A.completion event value = (true,true,A.acknowledged false value []).
+ A.completion event value = (true,true,A.acknowledged value []).
 Proof. intros; unfold A.completion; now rewrite H. Qed.
 Theorem clock_observation_uses_monotone_time : forall now value,
  A.completion (Clock now) value = (true,true,
- A.acknowledged true (A.store (set maintenance_timer (fun _ => 0) (A.with_now now (A.registry value))) value) []).
+ A.acknowledged (A.store (set maintenance_timer (fun _ => 0) (A.with_now now (A.registry value))) value) []).
 Proof. reflexivity. Qed.
 Lemma storing_maintenance_preserves_tasks : forall id state value,
  K.find_task id (A.store state value) = K.find_task id value.

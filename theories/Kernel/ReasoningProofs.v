@@ -243,10 +243,13 @@ Theorem unavailable_context_retry_keeps_unsatisfied_demand :
  task_lifecycle task = Running (ObservingContext ticket revision) operations ->
  Nat.eqb revision (List.length (task_history task)) = false ->
  TicketedRequest.Scoped.resources_available task value = false ->
- Callbacks.context_completed id ticket observations diagnostic value =
- accept (JObject [("accepted"%string,JBool false)]) (put_task id (with_activity WantsModel task) value) [].
+ let result := Callbacks.context_completed id ticket observations diagnostic value in
+ bool_default "ok" (decision_reply result) false = true /\
+ decision_world result = put_task id (with_activity WantsModel task) value /\
+ decision_effects result = [].
 Proof.
  intros id ticket revision observations diagnostic value task operations Found Status Stale Resource.
+ cbn beta zeta.
  assert (Phase : task_activity task = ObservingContext ticket revision).
  { unfold task_activity; now rewrite Status. }
  rewrite context_completed_expression, Found, Phase, N.eqb_refl, Stale, Status.
@@ -261,7 +264,8 @@ Proof.
  { rewrite Current in Evidence; unfold TicketedRequest.Scoped.can_observe in Evidence.
    rewrite Resource in Evidence; cbn in Evidence; symmetry; exact Evidence. }
  revert Evidence; rewrite Unavailable; intro Evidence; cbn [TicketedRequest.Scoped.observe_allowed].
- rewrite Owner,Current; unfold Reasoning.context_retry_wait; now rewrite Status.
+ rewrite Owner,Current; unfold Reasoning.context_retry_wait; rewrite Status.
+ repeat split; reflexivity.
 Qed.
 
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
@@ -276,8 +280,7 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
-   unfold Callbacks.context_phase; rewrite FrozenTask.
+ - unfold Callbacks.context_phase; rewrite FrozenTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
    change (change_activity WantsModel (task_lifecycle task) =
@@ -302,8 +305,7 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
-   unfold Callbacks.context_phase; rewrite StoppedTask.
+ - unfold Callbacks.context_phase; rewrite StoppedTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
    change (change_activity WantsModel (task_lifecycle task) =

@@ -137,6 +137,13 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     Owner-only protocols explicitly use [Completion.Owner]; this does not
     distinguish attempts after a later explicit retry.
 
+    A callback acknowledgement confirms that the service handled its submitted
+    observation. An expired or repeated result may successfully leave the world
+    unchanged. The receiver and packet outcomes determine ownership, durability
+    and further scheduling; a second acceptance marker in the reply has no
+    consumer. Callback contracts therefore require successful acknowledgement
+    and the appropriate world and effects, without prescribing a result object.
+
     Field-name uniqueness, declaration-indexed callback coordinates and input
     grammar ownership are already enforced by [ModelDeclarations],
     [CallbackDeclarations], [SchemaProjection] and [InputRoute]. Physical dispatch

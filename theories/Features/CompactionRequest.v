@@ -131,7 +131,7 @@ Definition maintenance_observe {before} (request : maintenance_context_plan befo
    (set C.entry_measurement (fun _ => C.Unmeasured)
     (set C.entry_job (fun _ => C.AwaitingContext ticket (maintenance_context_purpose request) resume_model)
       (maintenance_context_entry request))) in
- accept (JObject [("accepted",JBool true)])
+ accept JNull
   (put_compaction (owner target) entry
     (put_task (owner target) (with_activity (ObservingContext ticket (List.length (task_history current))) current) allocated))
   [ObserveContext (owner target) ticket current].

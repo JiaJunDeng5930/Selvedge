@@ -162,7 +162,7 @@ Definition issue {before} (value : plan before) :=
  let installed := match intent value with
  | ResumeOperation _ _ _ => TaskWake.mark_context_wake (owner target) (selected target) installed
  | _ => installed end in
- accept (JObject [("accepted",JBool true)]) installed effects.
+ accept JNull installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
  (evidence : can_observe publish (selected target) before = allowed) : option (plan before) :=
  match allowed as allowed

@@ -60,9 +60,9 @@ Definition completed_name (ok : bool) (text : string)
  if ok && negb (String.eqb normalized "") then Completion.done (Selvedge.Features.Domain.Named normalized)
  else Completion.done (Selvedge.Features.Domain.TitleFailed text).
 Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
- let '(correlated,next) := Completion.run (reception (world_features value) id) Selvedge.Features.Domain.TitlePending
+ let '(_,next) := Completion.run (reception (world_features value) id) Selvedge.Features.Domain.TitlePending
    Completion.Ticket ticket (fun _ => completed_name ok text) value in
- Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
+ Selvedge.Kernel.State.accept JNull next [].
 Definition completion (received : Callback.decoded ModelDeclarations.TaskTitle) (value : world)
  : bool * bool * decision :=
  let '(existT _ ok (address,fields)) := received in

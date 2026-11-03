@@ -301,11 +301,11 @@ Definition completion (received : Callback.decoded ModelDeclarations.BoardText) 
  : bool * bool * decision :=
  let '(existT _ ok (address,fields)) := received in
  let id := head address in let ticket := head (tail address) in
- let ignored := Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] in
+ let ignored := Selvedge.Kernel.State.ignored value in
  match Completion.Row.consume (completion_path id) Selvedge.Features.Domain.card_enrichment
    Selvedge.Features.Domain.Enriching Completion.Ticket ticket
    (completion_choice (existT _ ok fields) value) value with
- | Some received => (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (Completion.Row.after received) [])
+ | Some received => (true,true,Selvedge.Kernel.State.accept JNull (Completion.Row.after received) [])
  | None => (false,false,ignored) end.
 Definition completion_inputs := [InputRoute.callback ModelDeclarations.BoardText
  (fun received => Some (completion received))].

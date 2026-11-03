@@ -86,4 +86,4 @@ Definition reject (code reason : string) (value : world) :=
 Definition accept (result : json) (value : world) (effects : list effect) :=
  Decision value (success result) effects.
 
-Definition ignored (value : world) := accept (JObject [("ignored"%string,JBool true)]) value [].
+Definition ignored (value : world) := accept JNull value [].
