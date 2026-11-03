@@ -150,6 +150,7 @@ export async function build(options = {}) {
   const sourceLayout = await readInput('scripts/rocq-sources.mjs');
   const assumptionAudit = await readInput('scripts/assumptions.mjs');
   if (selected.includes('schema')) await readInput('scripts/generate-model-schema.mjs');
+  const stubsDirectory = '.build/deps/zarith_stubs_js';
   let extractionIdentity;
   if (selected.length) {
     const [ocaml, javascript, zarith] = await Promise.all([
@@ -160,7 +161,6 @@ export async function build(options = {}) {
     if (ocaml.trim() !== pins.ocaml || javascript.trim() !== pins.js_of_ocaml || zarith.trim() !== pins.zarith) {
       throw new Error('Extraction toolchain does not match toolchain.json; run scripts/bootstrap.sh');
     }
-    const stubsDirectory = '.build/deps/zarith_stubs_js';
     for (const [name, expected] of Object.entries(pins.zarith_stubs_js_sha256)) {
       const filename = `${stubsDirectory}/${name}`;
       // DEFENSE: A source checkout can lack the JS runtime or contain modified runtime files.
