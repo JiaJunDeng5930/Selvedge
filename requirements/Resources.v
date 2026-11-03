@@ -169,7 +169,11 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Checked interpreters keep the host from choosing another continuation.
     SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. [ssh_wait_fits_remaining_deadline] requires each
+    is a preparation failure. [ssh_expiry_emits_no_probe] requires an expired
+    readiness check to return refusal from the actual controller. The host
+    dispatches on the refusal constructor, so its diagnostic text may evolve
+    independently of the deadline contract.
+    [ssh_wait_fits_remaining_deadline] requires each
     probe timeout and retry delay to be positive and fit the deadline remaining
     at its clock observation. Zero must not disable the physical probe timeout.
     The awaited probe or delay already determines which observation comes next;

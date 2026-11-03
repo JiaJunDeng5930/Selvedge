@@ -42,6 +42,7 @@ Lemma the_actual_fork_handler_has_its_typed_result : forall request context befo
 Proof. intros request [context|] before; reflexivity. Qed.
 
 Lemma the_actual_fork_handler_interprets_its_message_admission : forall request context before,
+ exists reason,
  CommandHandlers.execute (G.Cmd_fork request) context before =
  match Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) with
  | Some messages => CommandResult.decide before (Tasks.fork_result
@@ -51,9 +52,9 @@ Lemma the_actual_fork_handler_interprets_its_message_admission : forall request 
      else Tasks.ManualFork | None => Tasks.ManualFork end)
    (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
    messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before)
- | None => reject "invalid_message" "Child messages contain invalid content parts" before end.
+ | None => reject "invalid_message" reason before end.
 Proof.
- intros request context before.
+ intros request context before. eexists.
  rewrite the_actual_fork_handler_has_its_typed_result.
  change (CommandExecution.handle_fork_result request context before) with
    (match Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) with
@@ -74,7 +75,8 @@ Lemma the_manual_fork_handler_emits_no_unbound_effects : forall request before,
  decision_effects (CommandHandlers.execute (G.Cmd_fork request) None before) = [].
 Proof.
  intros request before.
- rewrite the_actual_manual_fork_handler_interprets_its_message_admission.
+ destruct (the_actual_manual_fork_handler_interprets_its_message_admission request before) as [reason Interpreted].
+ rewrite Interpreted.
  destruct (Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request)) as [messages|]; [|reflexivity].
  apply the_fork_constructor_emits_no_unbound_effects.
 Qed.
@@ -86,7 +88,8 @@ Theorem fork_command_has_no_external_effects : forall request context before,
 Proof.
  intros request context before.
  assert (Empty : decision_effects (CommandHandlers.execute (G.Cmd_fork request) context before) = []).
- { rewrite the_actual_fork_handler_interprets_its_message_admission.
+ { destruct (the_actual_fork_handler_interprets_its_message_admission request context before) as [reason Interpreted].
+   rewrite Interpreted.
    destruct (Codec.traverse Images.message_content (message_sources request)); [|reflexivity].
    apply the_fork_constructor_emits_no_unbound_effects. }
  rewrite the_actual_fork_handler_has_its_typed_result in Empty.
@@ -116,7 +119,8 @@ Lemma a_manual_fork_uses_the_actual_domain_constructor : forall request messages
    (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before).
 Proof.
  intros request messages before Parsed.
- rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed; reflexivity.
+ destruct (the_actual_manual_fork_handler_interprets_its_message_admission request before) as [reason Interpreted].
+ rewrite Interpreted, Parsed; reflexivity.
 Qed.
 
 Lemma a_constructed_fork_commits_its_typed_result : forall request before after reply,

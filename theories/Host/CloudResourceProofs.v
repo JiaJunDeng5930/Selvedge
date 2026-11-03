@@ -52,8 +52,8 @@ Qed.
 
 Theorem ssh_expiry_emits_no_probe deadline now :
   (deadline <=? now)%N = true ->
-  ssh_probe deadline now = Reject deadline_message.
-Proof. intros expired. unfold ssh_probe. rewrite expired. reflexivity. Qed.
+  exists reason, ssh_step deadline (SshCheck now) = Reject reason.
+Proof. intros expired. cbn [ssh_step]. unfold ssh_probe. rewrite expired. eexists; reflexivity. Qed.
 
 Theorem ssh_wait_fits_remaining_deadline deadline observed duration :
   ssh_step deadline observed = Probe duration \/ ssh_step deadline observed = Delay duration ->
