@@ -33,12 +33,16 @@ Proof.
  eexists; reflexivity.
 Qed.
 
-Theorem archived_control_is_terminal : forall task operations,
+Theorem archived_controls_reject_without_changing_world : forall id command value task operations,
+ find_task id value = Some task ->
  task_lifecycle task = Archived operations ->
- (TaskChange.apply (Tasks.control_changes Tasks.Archive task) task) = task.
+ exists reason,
+ Tasks.control_command id command value = reject "invalid_transition" reason value.
 Proof.
- intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] operations H.
- cbn in H. subst lifecycle. reflexivity.
+ intros id command value task operations Found Archived.
+ rewrite TaskChangesProofs.control_command_expression; cbv beta zeta; rewrite Found.
+ unfold Tasks.control_target. rewrite Archived.
+ destruct command; eexists; reflexivity.
 Qed.
 
 Theorem archived_send_rejects_without_changing_world : forall id contents value task operations,
@@ -108,7 +112,7 @@ Proof.
      Task contract profile settings (Stopped Idle []) history queued lineage parent cursor consumed).
    now rewrite app_nil_r. }
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
- destruct lifecycle; first [apply Stable; reflexivity | reflexivity].
+ destruct lifecycle; apply Stable; reflexivity.
 Qed.
 
 Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side,

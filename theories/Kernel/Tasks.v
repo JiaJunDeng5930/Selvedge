@@ -200,19 +200,16 @@ Definition available_controls (value : lifecycle) := fold_right (fun request res
  match control_transition request value with Some _ => JString (control_name request) :: rest | None => rest end)
  [] [Freeze;Unfreeze;Stop;Interrupt;Archive].
 Definition control_changes (command : control) (task : task) : list TaskChange.edit :=
- match control_target command task with
- | None => []
- | Some _ => match command with
-   | Freeze => [TaskChange.ChangeStatus TaskChange.FrozenStatus]
-   | Unfreeze => [TaskChange.ChangeStatus TaskChange.RunningStatus]
-   | Stop => [TaskChange.ChangeStatus TaskChange.StoppedStatus]
-   | Interrupt => [TaskChange.AppendHistory
-       (unknown_operations (task_operations task) ++ History.interrupted_phase (task_activity task));
-       TaskChange.ChangeStatus TaskChange.StoppedStatus; TaskChange.ChangePhase Idle; TaskChange.ClearOperations]
-   | Archive => [TaskChange.AppendHistory
-       (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task));
-       TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
-   end
+ match command with
+ | Freeze => [TaskChange.ChangeStatus TaskChange.FrozenStatus]
+ | Unfreeze => [TaskChange.ChangeStatus TaskChange.RunningStatus]
+ | Stop => [TaskChange.ChangeStatus TaskChange.StoppedStatus]
+ | Interrupt => [TaskChange.AppendHistory
+     (unknown_operations (task_operations task) ++ History.interrupted_phase (task_activity task));
+     TaskChange.ChangeStatus TaskChange.StoppedStatus; TaskChange.ChangePhase Idle; TaskChange.ClearOperations]
+ | Archive => [TaskChange.AppendHistory
+     (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task));
+     TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
  end.
 Definition control_effects (id : N) (command : control) :=
  match command with

@@ -1,5 +1,5 @@
 From Selvedge.Features Require BoardDrafting.
-From Selvedge.Programming Require DecisionComposition TaskChangeProofs FeatureRequest.
+From Selvedge.Programming Require DecisionComposition FeatureRequest.
 From Selvedge.Programming Require Callback.
 From Selvedge.Programming Require CommandResult CardScope.
 From Stdlib Require Import String List Bool NArith Lia.
@@ -227,22 +227,6 @@ Proof.
  destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl in *; try discriminate; reflexivity.
 Qed.
 
-Lemma interrupt_preserves_task_authority : forall task,
- Selvedge.Kernel.Domain.task_contract (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
-   Selvedge.Kernel.Domain.task_contract task /\
- Selvedge.Kernel.Domain.task_current_profile (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
-   Selvedge.Kernel.Domain.task_current_profile task /\
- Selvedge.Kernel.Domain.task_current_settings (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)=
-   Selvedge.Kernel.Domain.task_current_settings task.
-Proof.
- intros task.
- pose proof (TaskChangeProofs.field_changes_keep_the_immutable_task_identity
-   (Tasks.control_changes Tasks.Interrupt task) task) as Identity.
- pose proof (TaskChangeProofs.field_changes_keep_execution_configuration
-   (Tasks.control_changes Tasks.Interrupt task) task) as Configuration.
- tauto.
-Qed.
-
 (** Archiving a busy linked card keeps the association and the Task's frozen
     authority while the real Interrupt transition emits its cancellation. Its
     resource preparation does not prevent cancelling the linked task. *)
@@ -295,9 +279,6 @@ Proof.
    eapply BoardRelations.board_lookup_after_put_selected. exact found.
  - eapply BoardRelations.task_lookup_after_put_task with (previous:=task).
    rewrite BoardRelations.task_lookup_after_board_put. exact task_found.
- - exact (proj1 (interrupt_preserves_task_authority task)).
- - exact (proj1 (proj2 (interrupt_preserves_task_authority task))).
- - exact (proj2 (proj2 (interrupt_preserves_task_authority task))).
 Qed.
 
 (** An already archived linked Task can retain pending operation records. The

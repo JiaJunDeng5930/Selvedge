@@ -152,6 +152,11 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
 
     The existing control and input definitions give these operations their
     meaning. Their changes use the same frame-preserving Task construction.
+    Lifecycle availability is admitted by the control command before it builds
+    those changes. The actual command rejects every control on an archived
+    Task without changing the world or emitting effects. Its private edit
+    helper therefore does not need a second availability check or an identity
+    guarantee for that already-refused state.
     [steering_replaces_inference_and_preserves_independent_work] additionally
     constrains the actual admitted steering transition, including its new input
     and cancellation of the current inference ticket. *)
@@ -163,6 +168,7 @@ Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_s
   stopped_tasks_can_finish_an_already_accepted_call).
 Export CallbacksProofs(an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand).
 Export TasksProofs(stopped_idle_receive_reactivates,
+  archived_controls_reject_without_changing_world,
   archived_send_rejects_without_changing_world,
   steering_replaces_inference_and_preserves_independent_work).
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
