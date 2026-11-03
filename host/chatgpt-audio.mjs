@@ -69,8 +69,8 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
   async function connection(id, signal) {
     const rows = await authority.connections({ signal });
     const selected = rows.find(item => item.id === id);
-    const capability = boundary('audio.capability', selected ?? { id, authorized: false });
-    const authorization = await authority.authorize(capability.id, { signal });
+    const connectionId = boundary('audio.capability', selected ?? { id, authorized: false });
+    const authorization = await authority.authorize(connectionId, { signal });
     return { authorization };
   }
 

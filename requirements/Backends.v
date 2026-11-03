@@ -70,6 +70,19 @@ From Selvedge.Programming Require Import AdapterResult.
 
     Audio callers await context delivery and session-stop completion. A boolean
     reporting a local session-map entry adds no separate completion evidence.
+    Single-connection admission returns the identity used for authorization;
+    display capabilities belong to the advertised connection list. Physical
+    audio close only releases its session. The ordered following emission owns
+    the closed event, so cleanup does not need another event payload.
+
+    Provider support admits image capability before selecting the echo or
+    network transport. Rechecking the unchanged echo history cannot establish
+    another capability. Independent compaction uses the common request type's
+    absence of tool authority; empty tool lists and sampling placeholders do
+    not strengthen that construction. A native replacement's format and a
+    changed consumer's boolean already select their continuations, without
+    unused action labels. Web invocation owns its request ticket; the history
+    projection does not need an unread ticket copy.
 
     These are requirements on the extracted decisions from supplied observations.
     Issuer signature verification, atomic credential replacement, live account

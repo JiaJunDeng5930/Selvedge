@@ -316,8 +316,8 @@ Proof.
    now rewrite StoppedTask.
 Qed.
 
-Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall owner task,
- (String.length (TextJson.render_json (JArray (Reasoning.evaluator_history owner task))) <= 16384)%nat.
+Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall task,
+ (String.length (TextJson.render_json (JArray (Reasoning.evaluator_history task))) <= 16384)%nat.
 Proof.
  intros; unfold Reasoning.evaluator_history, ReasoningView.history.
  match goal with |- context [if ?condition then _ else _] => destruct condition eqn:Full end;

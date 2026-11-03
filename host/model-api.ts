@@ -251,7 +251,7 @@ export async function interpretWorkspaceSettings(input: unknown, io: {
 export interface AudioTransportPrimitives {
   ready(): void;
   emit(event: JsonValue): Promise<void>;
-  close(event: JsonValue): Promise<void>;
+  close(): Promise<void>;
   connect(attempt: DomainNatural): void;
   retry(attempt: DomainNatural, delay: DomainNatural): void;
   ack(token: DomainNatural): void;
@@ -265,7 +265,7 @@ export async function interpretAudioTransport(input: unknown, io: AudioTransport
     switch (action.type) {
       case 'ready': io.ready(); break;
       case 'emit': await io.emit(action.event); break;
-      case 'close': await io.close(action.event); break;
+      case 'close': await io.close(); break;
       case 'connect': io.connect(action.attempt); break;
       case 'retry': io.retry(action.attempt, action.delay); break;
       default: { const unreachable: never = action; return unreachable; }

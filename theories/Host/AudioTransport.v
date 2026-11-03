@@ -12,7 +12,7 @@ Open Scope N_scope.
    provider prefix is folded immediately even while its journal commit waits. *)
 Inductive transport_phase := Live | Draining | Retired | Closed.
 Inductive primitive := Connect (attempt : N) | Retry (attempt delay : N)
-  | Ready | Emit (event : json) | Close (event : json).
+  | Ready | Emit (event : json) | Close.
 Record transport_state := TransportState {
   connection : AudioConnection.connection_state;
   stream : AudioState.audio_state;
@@ -26,13 +26,13 @@ Definition primitive_packet effect := match effect with
   | Retry attempt delay => Variant.pack ModelResultDeclarations.audio_transport_retry [!attempt;delay!]
   | Ready => Variant.pack ModelResultDeclarations.audio_transport_ready [!!]
   | Emit event => Variant.pack ModelResultDeclarations.audio_transport_emit [!event!]
-  | Close event => Variant.pack ModelResultDeclarations.audio_transport_close [!event!] end.
+  | Close => Variant.pack ModelResultDeclarations.audio_transport_close [!!] end.
 Definition primitive_json effect := Variant.encode_packet (primitive_packet effect).
 Definition primitive_of source := let kind := str source "type" in
   if String.eqb kind "connect" then Connect (num source "attempt")
   else if String.eqb kind "retry" then Retry (num source "attempt") (num source "delay")
   else if String.eqb kind "ready" then Ready
-  else if String.eqb kind "close" then Close (get source "event") else Emit (get source "event").
+  else if String.eqb kind "close" then Close else Emit (get source "event").
 Definition state_json s := JObject [("connection",AudioConnection.state_json (connection s));
   ("stream",AudioState.stream_json (stream s));("phase",JString (match phase s with Live=>"live" | Draining=>"draining" | Retired=>"retired" | Closed=>"closed" end));
   ("waiting",JArray (map primitive_json (waiting s)));("active",match active s with None=>JNull | Some (token,effect)=>JObject [("token",number token);("effect",primitive_json effect)] end);
@@ -57,7 +57,7 @@ Definition stream_effects s effects :=
     | AudioState.Emit event => if String.eqb (str event "type") "closed" then []
       else [Emit (AudioState.event_json s event)] end) effects in
   let closes := flat_map (fun effect => match effect with
-    | AudioState.Emit event => if String.eqb (str event "type") "closed" then let event := AudioState.event_json s event in [Close event;Emit event] else []
+    | AudioState.Emit event => if String.eqb (str event "type") "closed" then let event := AudioState.event_json s event in [Close;Emit event] else []
     | _ => [] end) effects in List.app ordinary closes.
 Definition fold_stream (s : transport_state) observation :=
   let '(next,effects) := AudioState.step (stream s) observation in
@@ -79,7 +79,7 @@ Inductive observation := Arrival (observed : AudioConnection.observation)
 Definition retire (s : transport_state) :=
   let '(next,_) := AudioState.stop (stream s) "" in
   let event := AudioState.event_json next (JObject [("type",JString "closed");("reason",JString "error")]) in
-  TransportState (fst (AudioConnection.step (connection s) AudioConnection.Stop)) next Retired [Close event;Emit event] None (serial s).
+  TransportState (fst (AudioConnection.step (connection s) AudioConnection.Stop)) next Retired [Close;Emit event] None (serial s).
 Definition step (s : transport_state) observation : transport_state * list json :=
   match observation with
   | EmitAck token => match active s with Some (issued,effect) =>
@@ -91,7 +91,7 @@ Definition step (s : transport_state) observation : transport_state * list json 
       if N.eqb token issued then match effect with
       | Emit event => if String.eqb (str event "type") "closed" then
           (TransportState (connection s) (stream s) Closed [] None (serial s),[]) else begin (retire s)
-      | Close _ => begin (TransportState (connection s) (stream s) Retired (waiting s) None (serial s))
+      | Close => begin (TransportState (connection s) (stream s) Retired (waiting s) None (serial s))
       | _ => begin (retire s) end else (s,[]) | None => (s,[]) end
   | _ => match phase s with Live =>
       let next := match observation with

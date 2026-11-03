@@ -122,11 +122,11 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
  (progress : compaction_state) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let ticket := world_next_ticket value in
  let limit := Limits.frame_bytes / 4 in
- let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input target scope in
+ let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input scope in
  match Selvedge.Kernel.CompactionPlan.fit_transport progress available with
  | Some fitted =>
    if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
-     (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input target fitted scope))) <=? limit)
+     (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input fitted scope))) <=? limit)
    then run_request id (R.CompactRequest (CompactInput input purpose target fitted scope) entry) value
    else failed id task entry "The configured compaction request exceeds the transport budget" value
  | None => failed id task entry "Compaction history is not valid UTF-8" value end.

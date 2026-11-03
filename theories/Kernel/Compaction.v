@@ -22,7 +22,6 @@ Definition method_name (value : method) :=
 Inductive source := NativeSource (history raw : json) | PortableSource (readable : list string).
 Record compaction_state := CompactionState {
  compaction_source : source;
- compaction_cursor : N;
  compaction_carry : string;
  compaction_chunk_chars : N;
  compaction_window_tokens : N;

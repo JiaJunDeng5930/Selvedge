@@ -108,7 +108,7 @@ Definition audio_transport_connect := variant "type" "connect" [Field "attempt" 
 Definition audio_transport_retry := variant "type" "retry" [Field "attempt" KNatural;Field "delay" KNatural] [].
 Definition audio_transport_ready := variant "type" "ready" [] [].
 Definition audio_transport_emit := variant "type" "emit" [Field "event" KJson] [].
-Definition audio_transport_close := variant "type" "close" [Field "event" KJson] [].
+Definition audio_transport_close := variant "type" "close" [] [].
 Definition audio_transport_actions := [audio_transport_connect;audio_transport_retry;audio_transport_ready;audio_transport_emit;audio_transport_close].
 Definition audio_actions := [audio_emit;audio_journal;audio_context;audio_contexts;audio_read;audio_stop;audio_release;audio_timer;audio_connect_timer;audio_reject].
 (** Remote transport state and observations are closed over their phase. *)

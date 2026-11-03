@@ -56,7 +56,7 @@ Definition sampling (model : profile) (requested : profile) :=
   ("request_effort",JString (match profile_policy requested with
   | AdaptivePolicy policy => match reasoning_transport_mode policy with ConfigurationUpdates => reasoning_baseline policy | RequestEffort => effective end
   | FixedReasoning => effective end))].
-Definition evaluator_history (_ : N) (task : task) := ReasoningView.history (task_history task).
+Definition evaluator_history (task : task) := ReasoningView.history (task_history task).
 
 (* Evaluators see the same committed project snapshot as the requested turn.
    Looking up a mutable Project here would change an already captured request. *)

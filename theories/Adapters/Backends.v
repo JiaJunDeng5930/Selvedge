@@ -93,8 +93,7 @@ Definition support source :=
       else if String.eqb kind "context_compaction" then err "The offline echo profile cannot compact context; configure a model provider"
       else success (descriptor backend) end.
 Definition echo source :=
-  if history_has_images (items (get source "history")) then err "Image input is not supported by the offline echo backend"
-  else let last := fold_left (fun fallback item => if String.eqb (str item "role") "user" then
+  let last := fold_left (fun fallback item => if String.eqb (str item "role") "user" then
     default (get item "content") (JString "Task resumed.") else fallback)
     (items (get source "history")) (JString "Task resumed.") in
   success (JArray [JObject [("type",JString "text");("part",number 0);

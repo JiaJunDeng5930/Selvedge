@@ -8,11 +8,11 @@ Open Scope N_scope.
 
 Record history_effect := HistoryEffect {
  effect_history : list json; effect_kind : string; effect_model : json; effect_task : json;
- effect_ticket : json; effect_replacement : json; effect_retitle : bool; effect_tools_value : json; effect_instructions : json }.
+ effect_replacement : json; effect_retitle : bool; effect_tools_value : json; effect_instructions : json }.
 Definition history_fields := [required "history" (D.Array D.Any);raw "kind";raw "model";raw "task_id";
- raw "ticket";raw "context_replacement_source";raw "retitle";raw "tools";raw "instructions"].
-Definition history_value := O.project history_fields (fun history kind model task ticket replacement retitle tools instructions =>
- HistoryEffect history (text (missing kind)) (missing model) (missing task) (missing ticket)
+ raw "context_replacement_source";raw "retitle";raw "tools";raw "instructions"].
+Definition history_value := O.project history_fields (fun history kind model task replacement retitle tools instructions =>
+ HistoryEffect history (text (missing kind)) (missing model) (missing task)
    (missing replacement) (flag (missing retitle)) (missing tools) (missing instructions)).
 Record continuation_input := ContinuationInput {
  continuation_effect : history_effect;

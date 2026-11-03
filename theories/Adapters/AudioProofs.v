@@ -20,12 +20,12 @@ Qed.
 Theorem audio_capability_matches_account_authority : forall transport assistant content source result,
   Audio.call transport assistant content "audio.capability" source = success result <->
   boolean_field source "authorized" = true /\ str source "source" = "chatgpt_audio" /\
-  nonempty_text (get source "id") = true /\ result = capability source.
+  nonempty_text (get source "id") = true /\ result = get source "id".
 Proof.
   intros transport assistant content source result.
   split.
   - intros accepted.
-    change (admit (eligible source) (capability source) "ChatGPT audio sign-in is required" = success result) in accepted.
+    change (admit (eligible source) (get source "id") "ChatGPT audio sign-in is required" = success result) in accepted.
     unfold admit in accepted. destruct (eligible source) eqn:eligible; [|discriminate].
     inversion accepted; subst result.
     unfold Audio.eligible, authorized in eligible.
@@ -33,7 +33,7 @@ Proof.
     apply andb_true_iff in authority as [authority_flag source_kind].
     apply String.eqb_eq in source_kind. auto.
   - intros [authority_flag [source_kind [identity ->]]].
-    change (admit (eligible source) (capability source) "ChatGPT audio sign-in is required" = success (capability source)).
+    change (admit (eligible source) (get source "id") "ChatGPT audio sign-in is required" = success (get source "id")).
     unfold admit, eligible, authorized.
     rewrite authority_flag, source_kind, identity. reflexivity.
 Qed.

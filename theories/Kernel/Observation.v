@@ -151,15 +151,14 @@ Definition effect_packet (state : world) (value : effect) := match value with
    let scope := ModelRequest.scope request in let reserve := ModelRequest.reserve request in
    let source := ContextSelection.history_json id (task_history task) in
    let selected := ContextSelection.latest source (if (0 <? reserve)%N then scope else "") 0 ContextSelection.Original in
-   Variant.pack ModelDeclarations.request_model [!id;ModelRequest.ticket request;model_json model;output_mode_value (ModelRequest.mode request);
-    settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;
+   Variant.pack ModelDeclarations.request_model [!id;ModelRequest.ticket request;model_json model;
+    WorkspaceBinding.execution (task_current_settings task) state;
     Reasoning.sampling model (task_current_profile task);
     (if (0 <? reserve)%N then ContextSelection.assemble selected source scope else ContextSelection.portable_messages source);
     (0 <? reserve)%N;scope;(match selected with ContextSelection.Replacement length _ => Some length | _ => None end);
     reserve;N.of_nat (List.length (task_history task));map tool_json (contract_tools (task_contract task));ModelRequest.callable request!]
  | RequestReasoning id ticket task => let model := task_current_profile task in Variant.pack ModelDeclarations.reasoning
-   [!id;ticket;model_json model;Reasoning.evaluator_history id task;Reasoning.evaluator_project_context task;
-    true;N.of_nat ReasoningView.maximum_bytes!]
+   [!id;ticket;model_json model;Reasoning.evaluator_history task;Reasoning.evaluator_project_context task!]
  | ExecuteTool id ticket operation tool call settings access => Variant.pack ModelDeclarations.tool
    [!id;ticket;operation;tool_json tool;wire_call_json call;
     JObject [("workspace",workspace_json (settings_workspace settings));("resource",WorkspaceBinding.execution settings state);

@@ -128,7 +128,7 @@ Definition login_target (source : json) :=
 Definition call (transport : json -> json) (assistant : json -> bool) (content : json -> json)
   (operation : string) (source : json) :=
   if String.eqb operation "audio.contract" then success contract
-  else if String.eqb operation "audio.capability" then admit (eligible source) (capability source) "ChatGPT audio sign-in is required"
+  else if String.eqb operation "audio.capability" then admit (eligible source) (get source "id") "ChatGPT audio sign-in is required"
   else if String.eqb operation "audio.capabilities" then
     success (JArray (map capability (filter eligible (items (get source "connections")))))
   else if String.eqb operation "audio.asr_request" then asr_request source

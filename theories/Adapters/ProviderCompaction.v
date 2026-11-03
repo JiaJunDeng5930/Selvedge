@@ -47,8 +47,7 @@ Previous continuation note:
 Next quoted history fragment:
 " ++ str plan "chunk"))]] in
   JObject [("kind",JString "context_compaction"); ("context_selected",JBool true);
-    ("model",get original "model"); ("sampling",get original "sampling");
-    ("tools",JArray []); ("callable",JArray []); ("history",JArray history)].
+    ("model",get original "model"); ("history",JArray history)].
 Definition portable_request (source : json) :=
   set (get source "request") "max_output_tokens"
     (get (get (get source "effect") "plan") "output_reserve_tokens").
@@ -63,7 +62,7 @@ Definition native_result (source : json) :=
   let response := get source "response" in
   (* DEFENSE: A provider replacement window must be an array before it enters history. *)
   if is_array (get response "output") then success (JObject [
-    ("action",JString "native"); ("format",JString "native"); ("scope",get source "scope");
+    ("format",JString "native"); ("scope",get source "scope");
     ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]]);
     ("usage",get response "usage")])
   else err "The native compactor returned an invalid replacement window".
@@ -94,7 +93,7 @@ Definition headers (source : json) := success (JString
    else if boolean_field source "ok" then "continue" else "read_error")).
 Definition scope_changed (source : json) :=
   let effect := get source "effect" in success (JObject [
-    ("action",JString "scope_changed"); ("scope",get source "scope");
+    ("scope",get source "scope");
     ("scope_changed",JBool ((boolean_field effect "context_selected" ||
       String.eqb (str effect "kind") "context_compaction") &&
       is_text (get effect "context_scope") &&

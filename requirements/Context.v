@@ -77,6 +77,11 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     Frozen choices are captured domain values. Host configuration, credential
     views and prepared-request containers supply observations; freezing their
     JavaScript properties does not establish Task authority or capture a choice.
+    The Task retains settings and the output mode used to interpret its reply.
+    A provider dispatch does not consume another copy of either value; it keeps
+    the resource binding needed by the physical archive barrier. Evaluator
+    previews obtain their bounds from their construction and encoded-request
+    admission, without self-reported preview flags or byte-limit labels.
     A matching ticket also captures a history revision. Another completed
     operation may have extended that history while observation was outstanding;
     the actual callback then requests a new observation of the current prefix.
@@ -161,7 +166,12 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     does not bound the escaped JSON transport. Complete encoded requests and
     carried summary metadata must fit their actual byte budgets; bounded
     fragment processing must not assume that the whole source fits another
-    model. No fallback is allowed to silently discard original history. *)
+    model. No fallback is allowed to silently discard original history.
+    Portable progress is the remaining ordered scalar list and its carried
+    continuation note; a second cumulative offset neither selects work nor
+    establishes completion. The executed plan owns the method and budget.
+    The captured receiver owns validation purpose and settings compatibility,
+    so neither needs another unused copy in the physical request. *)
 
 From Selvedge.Kernel Require NativeTools NativeCatalogProofs.
 Export NativeTools(presentation_catalog).

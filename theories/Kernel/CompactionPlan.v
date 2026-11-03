@@ -22,7 +22,7 @@ Fixpoint contains_image (value : json) : bool :=
    contains_image (snd entry)) fields
  | _ => false end.
 Definition start_with_images (has_images : bool) (history raw : json) (provider : string) (method : method) (input_tokens window reserve : N) :=
- let value := CompactionState (NativeSource history raw) 0 "" window window reserve in
+ let value := CompactionState (NativeSource history raw) "" window window reserve in
  if negb has_images && String.eqb provider "chatgpt" &&
     (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window)
  then Some value else to_portable value.
@@ -74,8 +74,7 @@ Definition receive_source (value : compaction_state) (result : json) :=
      let summary := String head tail in
      match skipn (N.to_nat (compaction_chunk_chars value)) unread with
      | [] => Compacted (PortableArtifact (PortableMessage PortableAssistant summary) [] (value_or_null "usage" result))
-     | remaining => Next (CompactionState (PortableSource remaining)
-       (compaction_cursor value + N.of_nat (List.length (chunk value))) summary
+     | remaining => Next (CompactionState (PortableSource remaining) summary
        (compaction_chunk_chars value) (compaction_window_tokens value) (compaction_output_reserve value)) end
    | _ => Failed "The compactor returned an empty continuation note" end end.
 Definition resize (value : compaction_state) :=

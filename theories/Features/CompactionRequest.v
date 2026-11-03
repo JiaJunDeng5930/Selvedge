@@ -163,8 +163,7 @@ Definition inspection_protocol {before} owner purpose stage
      (fun input _ => CompactionCodec.scope_fields (C.inspection_capture input))
  | C.InspectCount scope => RequestTypes.Protocol receiver ModelDeclarations.context_measure_request
      (fun input _ => CompactionCodec.measure_fields owner
-       (counting_input purpose (C.inspection_continuation input) (C.inspection_capture input)) scope
-       (match purpose with ValidateCandidate _ => true | _ => false end))
+       (counting_input purpose (C.inspection_continuation input) (C.inspection_capture input)) scope)
  end).
 Definition request_protocol owner features previous request : RequestTypes.located (payload request) features :=
  let base := retained_entry request previous in
@@ -178,7 +177,7 @@ Definition request_protocol owner features previous request : RequestTypes.locat
      (Receiver.At.in_record slot C.entry_job C.Validating base)
  | CompactRequest _ _ => RequestTypes.task_bound (RequestTypes.Protocol
      (Receiver.At.in_record slot C.entry_job C.Compacting base) ModelDeclarations.context_compaction_request
-     (fun input _ => CompactionCodec.compact_fields (C.compact_capture input) (C.compact_target input)
+     (fun input _ => CompactionCodec.compact_fields (C.compact_capture input)
        (C.compact_scope input) (CompactionPlan.plan_json (C.compact_progress input))))
  end.
 Definition channel owner request
