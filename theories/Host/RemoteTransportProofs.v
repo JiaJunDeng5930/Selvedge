@@ -16,14 +16,14 @@ Proof.
  destruct (N.eqb checked current); cbn; intros; try discriminate; lia.
 Qed.
 
-(** Authentication failure is absorbing for every asynchronous observation.
-    Only a new explicit Enable may start another physical attempt. *)
 Theorem rejected_identity_ignores_async_observations cfg generation event :
  event <> Enable -> event <> Stop ->
- step cfg (AuthenticationFailed generation) event = (AuthenticationFailed generation,[]).
+ exists next_generation, generation <= next_generation /\
+ step cfg (AuthenticationFailed generation) event = (AuthenticationFailed next_generation,[]).
 Proof.
- destruct event; intros; try contradiction;
- unfold step, current, RemoteTransport.generation; try rewrite andb_false_r; reflexivity.
+ destruct event; intros; try contradiction.
+ all: exists generation; split; [apply N.le_refl|].
+ all: unfold step, current, RemoteTransport.generation; try rewrite andb_false_r; reflexivity.
 Qed.
 
 Theorem retry_observation_before_deadline_does_not_connect cfg generation tries deadline now :

@@ -125,7 +125,6 @@ Theorem recovery_never_replays_running_job : forall connection project request a
  F.JobInterrupted reason.
 Proof. intros; eexists; reflexivity. Qed.
 
-(** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forget_payload) value job granted caller,
  let connection := G.chatgpt_forget_connection_id payload in
  let project := G.chatgpt_forget_project_id payload in
@@ -137,7 +136,7 @@ Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forg
  exists decision,
  Chatgpt.handle_chatgpt_forget payload caller value = decision /\
  Chatgpt.find_job id (Chatgpt.registry (decision_world decision)) = None /\
- F.sharing_next (Chatgpt.registry (decision_world decision)) = F.sharing_next (Chatgpt.registry value) /\
+ F.sharing_next (Chatgpt.registry value) <= F.sharing_next (Chatgpt.registry (decision_world decision)) /\
  decision_effects decision = [].
 Proof.
  intros payload value job granted caller connection project id authority found owner settled.
@@ -148,7 +147,7 @@ Proof.
  cbn beta iota zeta delta [decision_world decision_effects accept].
  rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
  cbn. unfold Chatgpt.find_job. cbn. rewrite removing_a_key_clears_its_lookup.
- repeat split; reflexivity.
+ repeat split; try reflexivity; apply N.le_refl.
 Qed.
 
 (** Repeating an accepted cancellation cannot request a second physical stop. *)

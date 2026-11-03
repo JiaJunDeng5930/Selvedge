@@ -240,18 +240,18 @@ Theorem oversized_remote_reply_rolls_back : forall request before candidate,
  decision_effects (Remote.record_result request before candidate) = [].
 Proof. intros. unfold Remote.record_result. rewrite H. split;reflexivity. Qed.
 
-(** Receipt insertion cannot change the grant generation or grant authority. *)
 Theorem remote_receipt_preserves_authority : forall request before candidate,
  let current:=Remote.registry (decision_world (Remote.record_result request before candidate)) in
  F.remote_enabled current = F.remote_enabled (Remote.registry before) /\
- F.remote_grants current = F.remote_grants (Remote.registry before) /\
- F.remote_next_epoch current = F.remote_next_epoch (Remote.registry before).
+ (forall controller, Remote.find_grant controller current = Remote.find_grant controller (Remote.registry before)) /\
+ F.remote_next_epoch (Remote.registry before) <= F.remote_next_epoch current.
 Proof.
  intros request before candidate. cbv zeta. unfold Remote.record_result.
- destruct (Remote.payload_valid (decision_reply candidate)); cbn.
- - destruct (bool_default "ok" (decision_reply candidate) false); cbn;
-   try rewrite remote_registry_store; repeat split;reflexivity.
- - repeat split;reflexivity.
+ destruct (Remote.payload_valid (decision_reply candidate));
+   [destruct (bool_default "ok" (decision_reply candidate) false)|]; cbn;
+   try rewrite remote_registry_store.
+ all: split; [reflexivity|].
+ all: split; [intro controller; reflexivity|apply N.le_refl].
 Qed.
 
 (** A task-owned execution cannot administer native remote grants. *)

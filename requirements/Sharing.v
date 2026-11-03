@@ -8,6 +8,7 @@ From Selvedge.Features Require SharingProofs.
 Export SharingProofs(connection_without_project_grant_cannot_execute,
   accepted_public_exec_emits_frozen_job, query_cannot_reveal_foreign_operation,
   retained_public_exec_satisfies_retry_contract,
+  public_forget_removes_settled_receipt,
   recovery_never_replays_running_job).
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_configured_connection_grants_preserve_authority).
@@ -30,7 +31,9 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     entry to return the retained receipt or refuse changed intent, leaving the
     world unchanged and issuing no effects in either case. A retry needs no
     fresh execution capacity or currently available managed workspace.
-    Forgetting a settled receipt does not recycle its operation identity.
+    [public_forget_removes_settled_receipt] requires forgetting a settled
+    receipt to remove it without moving the identity supply backward. Gaps in
+    that supply do not recycle earlier operation identities.
     [recovery_never_replays_running_job] marks uncertain work instead of launching
     it again; cancellation requests a physical stop without undoing writes.
     Project connection authority remains distinct from browser, CLI and remote
@@ -92,6 +95,7 @@ Export RemoteProofs(check_satisfies_complete_access_contract,
   authorize_satisfies_complete_request_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
   prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back,
+  remote_receipt_preserves_authority,
   public_grant_replaces_authority_and_clears_old_receipts,
   local_administration_never_reuses_a_generation,
   delegated_remote_administration_is_denied).
@@ -126,6 +130,10 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     epoch, removal of that controller's old receipts and preservation of other
     controllers. Contiguous epoch allocation and grant-list placement do not
     affect authorization and need no separate guarantee.
+    [remote_receipt_preserves_authority] keeps each controller's selected grant
+    and a nondecreasing epoch supply when a command receipt is recorded.
+    Authorization consumes that mapping and fresh identities, independently of
+    the grant list's order or gaps in the unused identity supply.
     Queries preserve the world and do not apply prepared configuration.
     [current_control_grant_executes_actual_remote_stop] additionally proves a
     positive entry case: with a single running Task, current control permission,
@@ -186,6 +194,10 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     notifications adds no delivery or recovery guarantee. Relay refusal retains
     the protocol's HTTP and WebSocket status semantics, without fixing an
     application diagnostic's spelling when no client consumes it.
+    Rejected authentication remains quiescent under background observations;
+    only an explicit owner action can resume it. Its generation must stay
+    nondecreasing so a future session cannot reuse a retired identity, but no
+    pending physical work requires that private counter to remain fixed.
 
     Each capture attempt retains only its pending check stage across native
     observations. Capture, denial and disconnection end the awaited invocation;
