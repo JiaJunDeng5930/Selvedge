@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Kernel Require Import Numbers Codec ContextTypes Context ContextUpdates.
+From Selvedge.Kernel Require Import Numbers Codec ContextTypes Context.
 Import ListNotations.
 Open Scope string_scope.
 Definition parse_scope (source : json) := match source with
@@ -60,18 +60,3 @@ Definition parse_definition (source : json) :=
    | Some identity,Some fields => admit_definition (DefinitionBody kind semantics scope observer identity fields)
    | _,_ => None end
  | _,_,_,_,_,_ => None end.
-Definition self_key (source : json) :=
- match string_field "type" source,parse_definition (value_or_null "definition" source),ContextUpdates.parse_fields (value_or_null "identity" source) with
- | Some kind,Some definition,Some identity =>
-   if String.eqb kind (definition_kind definition)
-   then admit_key definition identity else None
- | _,_,_ => None end.
-Definition self_snapshot (source : json) :=
- match self_key (value_or_null "key" source),string_field "revision" source,
-  ContextUpdates.parse_fields (value_or_null "fields" (value_or_null "value" source)) with
- | Some key,Some revision,Some fields =>
-   if String.eqb (definition_kind (key_definition key)) (text_default "type" (value_or_null "value" source) "")
-   then admit_snapshot key revision fields else None
- | _,_,_ => None end.
-Definition patch := ContextUpdates.parse_patch.
-Definition valid_patch := ContextUpdates.valid_patch.

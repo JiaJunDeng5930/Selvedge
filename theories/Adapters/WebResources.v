@@ -12,7 +12,7 @@ Definition parse_status value := match value with
   | "cancelled" => Some ResponseCancelled | _ => None end.
 Definition resource_identity value :=
   nonempty (member value "id") && String.eqb (member_text value "object") "web.response" &&
-  String.eqb (member_text value "protocol") "chatgpt-web.v1" && D.present (wire_natural (member value "created_at")) &&
+  String.eqb (member_text value "protocol") "chatgpt-web.v1" &&
   is_array (member value "output") && match parse_status (member_text value "status") with Some _ => true | None => false end.
 Definition same_model_request value model body :=
   same (member value "model") model && D.present (Json.lookup "previous_response_id" value) &&
@@ -23,14 +23,12 @@ Definition assistant_output values := match values with
     is_array (get item "content") && negb (Nat.eqb (List.length (items (get item "content"))) 0) &&
     output_text (items (get item "content"))
   | _ => false end.
-Definition usage value := is_null value || (is_object value && boolean_field value "estimated" &&
-  D.present (wire_natural (get value "input_tokens")) && D.present (wire_natural (get value "output_tokens")) && D.present (wire_natural (get value "total_tokens"))).
 Definition authority value := match parse_status (member_text value "status") with
-  | Some Completed => assistant_output (items (member value "output")) && D.present (Json.lookup "usage" value) && usage (member value "usage")
-  | Some RequiresAction => negb (Nat.eqb (List.length (items (member value "output"))) 0) && D.present (Json.lookup "usage" value) && is_null (member value "usage")
-  | _ => Nat.eqb (List.length (items (member value "output"))) 0 && D.present (Json.lookup "usage" value) && is_null (member value "usage") end.
+  | Some Completed => assistant_output (items (member value "output"))
+  | Some RequiresAction => negb (Nat.eqb (List.length (items (member value "output"))) 0)
+  | _ => Nat.eqb (List.length (items (member value "output"))) 0 end.
 Fixpoint declared_calls calls tools := match calls with [] => true | call::rest =>
-  eq call "type" "function_call" && is_text (get call "id") && nonempty (get call "call_id") &&
+  eq call "type" "function_call" && nonempty (get call "call_id") &&
   negb (contains_name rest "call_id" (get call "call_id")) &&
   contains_name tools "name" (get call "name") && (match CallWire.parse_arguments CallWire.callback_argument_nesting (str call "arguments_json") with
   | Some _ => true | None => false end) && declared_calls rest tools end.
@@ -44,10 +42,8 @@ Definition resource_object value model body tools :=
   then err "ChatGPT Web returned an invalid response resource"
   else
     match parse_status (member_text value "status") with
-    | Some Completed => err (if assistant_output (items (member value "output"))
-        then "ChatGPT Web returned invalid estimated usage" else "ChatGPT Web returned an invalid assistant message")
-    | Some RequiresAction => err (if negb (Nat.eqb (List.length (items (member value "output"))) 0) &&
-        D.present (Json.lookup "usage" value) && is_null (member value "usage")
+    | Some Completed => err "ChatGPT Web returned an invalid assistant message"
+    | Some RequiresAction => err (if negb (Nat.eqb (List.length (items (member value "output"))) 0)
         then "ChatGPT Web returned an invalid or undeclared function call" else "ChatGPT Web returned an invalid tool batch")
     | _ => err "ChatGPT Web returned output without a committed response" end.
 Definition resource value model body tools := match value with

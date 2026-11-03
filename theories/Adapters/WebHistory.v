@@ -27,8 +27,7 @@ Definition history_item item : outcome (list json) :=
   | Some HistoryRole.Delegation => Accepted []
   | Some HistoryRole.Data => history_data item
   | Some HistoryRole.Context =>
-    if negb (BackendHistory.context_valid (str item "type") item) then reject "Malformed or unsupported task context message"
-    else match str item "type" with
+    match str item "type" with
     | "environment_notice" => Accepted [message "developer" (get item "content")]
     | "context_change" => Accepted [message "developer" (JString (BackendHistory.context_change_text (get item "change")))]
     | "reasoning_configuration" => Accepted [message "developer" (JString ("Committed reasoning effort for subsequent responses: " ++ str item "effort"))]

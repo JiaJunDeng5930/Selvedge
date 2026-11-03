@@ -1,34 +1,12 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json CallWire TextJson JsonObjects.
-From Selvedge.Kernel Require Import Images ContextProtocol Conversation HistoryRole.
+From Selvedge.Kernel Require Import Images Conversation HistoryRole.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition parsed {A} (value : option A) := match value with Some _ => true | None => false end.
-Definition context_patch_valid key patch :=
- match ContextProtocol.self_key key,ContextProtocol.patch patch with
- | Some key,Some patch => ContextProtocol.valid_patch key patch | _,_ => false end.
-Definition context_change_valid change := is_object change &&
-  if String.eqb (str change "type") "introduce" then parsed (ContextProtocol.self_snapshot (get change "snapshot"))
-  else if String.eqb (str change "type") "amend" then
-    nonempty (get change "base_revision") && nonempty (get change "revision") &&
-      negb (JsonObjects.equivalent (get change "base_revision") (get change "revision")) &&
-      context_patch_valid (get change "key") (get change "patch")
-  else if String.eqb (str change "type") "remove" then
-    parsed (ContextProtocol.self_key (get change "key")) && nonempty (get change "base_revision") else false.
-Definition context_valid kind message :=
-  if String.eqb kind "environment_notice" then is_text (get message "content")
-  else if String.eqb kind "context_change" then context_change_valid (get message "change")
-  else if String.eqb kind "settings" then is_object (get message "content") &&
-    nonempty (get message "profile") && nonempty (get message "reasoning")
-  else if String.eqb kind "reasoning_configuration" then nonempty (get message "effort")
-  else if String.eqb kind "side_conversation" then parsed (natural (get message "owner_task")) &&
-    parsed (natural (get message "parent_task")) && parsed (natural (get message "start"))
-  else if String.eqb kind "side_return_cursor" then parsed (natural (get message "owner_task")) &&
-    parsed (natural (get message "through")) else false.
 Definition context_identity key := JObject [("type",get key "type"); ("identity",get key "identity")].
 Definition context_fields_text fields := String.concat "" (map (fun field =>
   "Field: " ++ fst field ++ "
@@ -75,16 +53,14 @@ Definition history_data value := [message "user" (JString ("Committed task histo
 " ++ TextJson.render_json value))].
 Definition context_item value profile : outcome (list json) :=
   let kind := str value "type" in
-  (* DEFENSE: Persisted task_context values are decoded before becoming model instructions. *)
-  if negb (context_valid kind value) then reject "Malformed or unsupported task context message"
-  else if String.eqb kind "environment_notice" then Accepted [message "developer" (get value "content")]
+  if String.eqb kind "environment_notice" then Accepted [message "developer" (get value "content")]
   else if String.eqb kind "context_change" then Accepted [message "developer" (JString (context_change_text (get value "change")))]
   else if String.eqb kind "reasoning_configuration" then
     Accepted (if account profile then [message "developer" (JString
       ("Committed reasoning effort for subsequent responses: " ++ str value "effort"))]
       else [JObject [("type",JString "configuration_update");("reasoning",JObject [("effort",get value "effort")])]])
   else if String.eqb kind "side_conversation" then Accepted [message "developer" (JString (side_conversation_text value))]
-  else if String.eqb kind "side_return_cursor" then Accepted [] else Accepted (history_data value).
+  else Accepted (history_data value).
 Definition content_has_images parts := existsb (fun part => String.eqb (str part "type") "image") parts.
 Definition message_has_images value :=
   let role := str value "role" in

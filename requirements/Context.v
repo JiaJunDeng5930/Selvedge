@@ -37,9 +37,15 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     their errors flow into the same observation failure. The requirement is a
     visible failed observation with the previous binding retained; it does not
     prescribe another layer of diagnostic wording.
-    A tool's ordinary file
-    read is not automatically an instruction update, and observing instruction
-    text cannot grant workspace or tool authority. [ContextTypes.definition]
+    [ContextTypes] constructs the admitted snapshots and [ContextUpdates]
+    checks each external change against its baseline and reconstructed value.
+    The provider adapters consume the committed [Codec] projection directly;
+    journal replay runs the admitted inputs again rather than importing arbitrary
+    history records. Re-parsing those private records supplies no new source
+    observation. Context selection keeps original fixed records and excludes
+    replacement-provided instruction records.
+    A tool's ordinary file read is not automatically an instruction update, and
+    observing instruction text cannot grant workspace or tool authority. [ContextTypes.definition]
     shares identity, fields, scope and observation declarations across admission
     and provider translation. New uses of existing observation operations reuse
     that language; new physical observations still need an interpreter.
@@ -72,9 +78,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their
     previews are bounded and omit private provider continuations. The captured
-    public history owns evidence selection and excerpting. The evaluator adapter
-    forwards those selected tool excerpts directly: another per-call truncation
-    would discard useful evidence without bounding a distinct resource. The
+    public history owns evidence selection and excerpting. [ReasoningView]
+    also constructs the effect's history roles and string previews. The evaluator
+    adapter organizes those values directly without another admission of its
+    private input or a parallel text-part representation. It forwards the selected
+    tool excerpts directly: another per-call truncation would discard useful
+    evidence without bounding a distinct resource. The
     complete encoded request remains subject to byte and local-token admission
     before dispatch. *)
 

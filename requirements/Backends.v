@@ -85,7 +85,11 @@ Export BackendProofs(public_frozen_account_rejects_another_identity,
     minimum, while rounding before admission can hide an exact value above a
     configured cap. Backend and evaluator policies consume the same exact
     parser, retain their own attempt and delay limits, and convert an admitted
-    delay to its first permissible integral millisecond.
+    delay to its first permissible integral millisecond. Evaluator configuration
+    admits its attempt limit once. The request loop checks its current attempt
+    before dispatch; response and network stages consume that admitted attempt.
+    Rechecking the configuration and cursor at every private stage adds no
+    protection against an external retry response.
     [RetryAfterProofs] supplies the common arithmetic; [RetryExecutionProofs]
     binds it to the actual public retry plans. A checked plan does not establish
     when a physical timer or remote server acts. *)
@@ -285,7 +289,12 @@ Qed.
     connection and response. Continuing after tools requires the complete,
     uniquely matched result batch; a partial batch cannot stand for completion.
     Detaching an observer leaves retained work available, while explicit
-    cancellation has its own state and connection conditions.
+    cancellation has its own state and connection conditions. Resource admission
+    follows the fields used for settlement and continuation: response identity,
+    model, predecessor, status, output and tool-call correlation. Creation time,
+    usage estimates and a tool item's separate provider identifier have no role
+    in those decisions. They remain in the retained response when supplied, but
+    their presence or format cannot block otherwise usable output.
 
     A Web request consumes the Task's frozen catalog. Configuration admission
     already establishes distinct tool names and object schemas. Native and

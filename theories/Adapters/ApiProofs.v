@@ -115,16 +115,6 @@ Proof.
  unfold decision;rewrite parsed.
  unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
-Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
-  Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->
-  bounded_retry source = true.
-Proof.
- intros source result H nonterminal;change (retry source = success result) in H;unfold retry in H.
- destruct (String.eqb (str (retry_calculation source) "action") "fail") eqn:terminal.
- - inversion H;subst;apply String.eqb_eq in terminal;contradiction.
- - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
-Qed.
-
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
   Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
