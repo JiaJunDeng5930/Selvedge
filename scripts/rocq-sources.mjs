@@ -17,9 +17,6 @@ export const moduleFile = name => name.startsWith('Requirements.')
 export const moduleName = filename => filename.startsWith('requirements/')
   ? `SelvedgeRequirements.${filename.slice('requirements/'.length, -2).replaceAll('/', '.')}`
   : `Selvedge.${filename.slice('theories/'.length, -2).replaceAll('/', '.')}`;
-export const moduleSelection = filename => filename.startsWith('requirements/')
-  ? `Requirements.${filename.slice('requirements/'.length, -2).replaceAll('/', '.')}`
-  : filename.slice('theories/'.length, -2).replaceAll('/', '.');
 
 async function files(directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true });

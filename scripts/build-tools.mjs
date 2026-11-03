@@ -21,9 +21,9 @@ export const jsonEntries = {
   selvedge_consume_input_nesting: 'Foundation.TextJson.consume_input_nesting'
 };
 
-export async function run(command, args, options = {}) {
+export async function run(command, args) {
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
     const chunks = [];
     child.stdout.on('data', chunk => chunks.push(chunk));
     child.stderr.on('data', chunk => chunks.push(chunk));
