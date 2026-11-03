@@ -93,7 +93,10 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     evidence selection and excerpting. [ReasoningView]
     also constructs the effect's history roles and string previews. The evaluator
     adapter organizes those values directly without another admission of its
-    private input or a parallel text-part representation. It forwards the selected
+    private input or a parallel text-part representation. Credential and budget
+    admission either reject or allow the awaited request to continue; they do
+    not select another evaluator or dispatch a host action through an unused
+    success payload. It forwards the selected
     tool excerpts directly: another per-call truncation would discard useful
     evidence without bounding a distinct resource. The
     complete encoded request remains subject to byte and local-token admission

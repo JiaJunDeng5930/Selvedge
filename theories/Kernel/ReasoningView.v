@@ -13,14 +13,11 @@ Definition excerpt (text : string) := match Utf8.chunks text with
    String.append (Utf8.render_chunks (firstn 768 parts))
     (String.append omission (Utf8.render_chunks (skipn (List.length parts - 256) parts)))
  | None => omission end.
-Definition public_parts (parts : list json) := fold_right (fun part rest =>
- match text_default "type" part "" with
- | "output_text" | "summary_text" => JObject [("text",JString (text_default "text" part ""))] :: rest
- | "refusal" => JObject [("text",JString (text_default "refusal" part ""))] :: rest
- | _ => rest end) [] parts.
 Definition text_message role text := JObject [("role",JString role);("content",JString text)].
-Definition public_parts_text parts := String.concat "
-" (map (fun part => text_default "text" part "") (public_parts parts)).
+Definition public_parts_text (parts : list json) := String.concat "
+" (fold_right (fun part rest => match text_default "type" part "" with
+ | "output_text" | "summary_text" | "refusal" => provider_part_text part :: rest
+ | _ => rest end) [] parts).
 Definition public_context value := let value := provider_value value in
  match text_default "type" value "" with
  | "message" => Some (text_message "assistant" (public_parts_text (array_default "content" value)))

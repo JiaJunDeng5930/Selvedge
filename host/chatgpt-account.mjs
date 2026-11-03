@@ -259,7 +259,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
       const parameters = boundary('account.auth_parameters', { audio, registered, redirectUri, state, nonce,
         challenge: await oidc.calculatePKCECodeChallenge(verifier), ext_agent_host_id });
       const authorize = oidc.buildAuthorizationUrl(configuration(metadata, parameters.client_id, profile, lifetime, audio), parameters);
-      await onAuthorize(boundary('account.authorize_prompt', { url: authorize.href, redirectUri }));
+      await onAuthorize({ url: authorize.href });
       // The single await owns settlement; repeated HTTP callbacks cannot start another exchange.
       const { url, clientId } = await callback;
       registered = boundary('account.registration_record', { issuer: profile.issuer, clientId, registered });

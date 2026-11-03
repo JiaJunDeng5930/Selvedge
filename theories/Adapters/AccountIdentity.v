@@ -64,7 +64,7 @@ Definition refresh_admission source accepted :=
     if request_identity_retained source then accepted else err request_identity_failure
   else err identity_failure.
 Definition issuer_admission source := if same (get (get source "value") "issuer") (get source "issuer")
-  then success (get source "value") else err "ChatGPT credential belongs to a different issuer; sign in again".
+  then success JNull else err "ChatGPT credential belongs to a different issuer; sign in again".
 Inductive refresh_action := Keep | Refresh.
 Definition rejected_current source := has source "rejectedToken" &&
   same (get source "rejectedToken") (get (get source "value") "access_token").

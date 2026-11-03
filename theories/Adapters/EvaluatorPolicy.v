@@ -54,12 +54,12 @@ Definition request_admission source := let phase := str source "phase" in
    else let model := get (get source "effect") "model" in let profile := get (get (get source "config") "profiles") (str model "profile") in
      checked (truthy profile && JsonObjects.equivalent (get profile "provider") (get model "provider")) evaluator "Error" "The frozen model provider is no longer configured"
  else if String.eqb phase "credential" then checked (boolean_field (get source "observation") "present" && negb (boolean_field (get source "observation") "whitespace"))
-   (get source "evaluator") "Error" ("Set " ++ str (get source "evaluator") "api_key_env" ++ " for the configured reasoning evaluator")
+   JNull "Error" ("Set " ++ str (get source "evaluator") "api_key_env" ++ " for the configured reasoning evaluator")
  (* DEFENSE: A captured request can exceed the frame budget before tokenization
     or the local token budget before dispatch; each stage admits its new observation. *)
  else if (if String.eqb phase "bytes" then bytes_allowed source
    else bounded (get (get source "observation") "tokens") request_tokens)
-   then success (action (if String.eqb phase "bytes" then "count" else "fetch")) else request_budget_error.
+   then success JNull else request_budget_error.
 Definition digit ch := Nat.leb 48 (nat_of_ascii ch) && Nat.leb (nat_of_ascii ch) 57.
 Fixpoint digits value := match value with EmptyString => true | String ch rest => digit ch && digits rest end.
 Fixpoint version_parts value nonempty dots := match value with EmptyString => nonempty && ((dots =? 1) || (dots =? 2))

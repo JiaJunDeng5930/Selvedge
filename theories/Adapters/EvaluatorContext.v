@@ -17,7 +17,7 @@ Fixpoint outputs history call index := match history with
 Fixpoint pair_calls values history := match values with [] => [] | call::rest =>
   JObject [("history_index",get call "history_index");("call_id",get call "call_id");("name",get call "name");("arguments",get call "arguments");
     ("outputs",JArray (if existsb (fun later => JsonObjects.equivalent (get later "call_id") (get call "call_id")) rest then [] else outputs history call 0))]::pair_calls rest history end.
-Definition context_boundary := JString "Only bounded public text previews and the last six paired tool calls are supplied. Preview omissions are unknown. Private continuation and encrypted reasoning are never supplied.".
+Definition context_boundary := JString "Only bounded public text previews and the last six paired tool calls are supplied. Preview omissions are unknown. Provider conversation previews omit opaque continuations; ordinary tool data keeps its fields.".
 Definition context effect :=
   let history := items (get effect "history") in
   let users := map (fun item => get item "content") (filter (fun item => String.eqb (str item "role") "user") history) in

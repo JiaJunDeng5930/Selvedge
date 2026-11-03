@@ -28,7 +28,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.audio_identity",AccountIdentity.audio_identity);
   ("account.auth_parameters",AccountOAuth.auth_parameters);
   ("account.authorization_view",AccountIdentity.authorization_view);
-  ("account.authorize_prompt",AccountOAuth.authorize_prompt);
   ("account.cache",AccountCatalog.cache);
   ("account.cache_error",AccountCatalog.cache_error);
   ("account.cache_fallback",AccountCatalog.cache_fallback);

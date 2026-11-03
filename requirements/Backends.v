@@ -30,7 +30,10 @@ From Selvedge.Programming Require Import AdapterResult.
     Single-settlement Promise semantics gives that continuation one outcome; each
     HTTP callback still undergoes its own method, target, origin, state and
     issued-client admission. Signature, nonce and PKCE verification belong to
-    the OpenID client. Callback response wording or a duplicate-receipt status
+    the OpenID client. Displaying the SDK's authorization URL introduces no new
+    account admission. Issuer admission checks the credential already held by
+    the caller without returning another copy of it.
+    Callback response wording or a duplicate-receipt status
     does not establish whether the exchange ran once.
     [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
@@ -60,6 +63,9 @@ From Selvedge.Programming Require Import AdapterResult.
     An HTTP context-limit failure permits automatic recovery only before output;
     replaying a request after visible output would
     execute the same turn twice.
+
+    Audio callers await context delivery and session-stop completion. A boolean
+    reporting a local session-map entry adds no separate completion evidence.
 
     These are requirements on the extracted decisions from supplied observations.
     Issuer signature verification, atomic credential replacement, live account

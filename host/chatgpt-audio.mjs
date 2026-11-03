@@ -206,7 +206,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
   async function appendContext(id, source) {
     const record = sessions.get(id);
     // DEFENSE: Accepted task work outlives a hung-up voice call; an absent control session has no context receiver and does not cancel that work.
-    if (!record || record.closed) return false;
+    if (!record || record.closed) return;
     const content = boundary('audio.context', source);
     const maximum = contract().context_chunk_bytes;
     let chunk = '', bytes = 0;
@@ -221,20 +221,17 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       bytes += width;
     }
     if (chunk) send(chunk);
-    return true;
   }
 
   async function stopSession(id) {
     const pending = operations.get(id);
     const record = sessions.get(id);
-    if (!pending && !record) return false;
     pending?.controller.abort(new Error('Voice session stopped'));
     record?.stop();
     // A stop owns cancellation of its in-flight create; the create caller receives
     // that rejection while this caller waits for physical cleanup.
     if (pending) await Promise.allSettled([pending.promise]);
     if (record) await record.finished;
-    return true;
   }
 
   function close() {

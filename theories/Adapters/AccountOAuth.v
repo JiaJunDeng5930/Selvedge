@@ -82,7 +82,6 @@ Definition auth_parameters source :=
     ("ext_agent_host_id",get source "ext_agent_host_id");
     ("client_id",default (get (get source "registered") "client_id") (JString "dynamic_agent_client"))] ++
     optional (negb (is_object (get source "registered"))) "agent_name_hint" (JString "Selvedge"))).
-Definition authorize_prompt source := success (JObject [("url",get source "url");("redirect_uri",get source "redirectUri")]).
 Definition code_grant_checks source := success (JObject [
   ("expectedNonce",get source "nonce");("expectedState",get source "state");
   ("idTokenExpected",JBool true);("pkceCodeVerifier",get source "verifier")]).
