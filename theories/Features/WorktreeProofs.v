@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskBirth TaskChangeProofs TaskResult.
 From Selvedge.Programming Require CommandResult.
-From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
