@@ -167,7 +167,9 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     Admission decides whether capacity remains and the resulting byte total;
     it does not rewrite the event. The host can therefore enqueue that original
     event directly after acceptance, without transporting a second copy inside
-    a singleton list. *)
+    a singleton list. A rejected command that leaves the state unchanged emits
+    no committed notification. That observer guarantee does not depend on the
+    diagnostic used to name the rejection. *)
 From Selvedge.Foundation Require Import CallWire.
 From Selvedge.Programming Require Import EncodedObject.
 From Selvedge.Foundation Require Import TextJsonRoundtrip.
