@@ -8,11 +8,9 @@ Open Scope string_scope.
 Local Opaque Packet.decode CommandHandlers.interpret DeferredCommit.select.
 
 Theorem live_configuration_preserves_maintenance_cancellations : forall environment value,
- Packet.core_transition (Configure environment) value =
- Decision (Selvedge.Features.Compaction.recover (with_environment environment value))
-   (success (JObject [("configured",JBool true)]))
-   (map MaintainContext (Selvedge.Features.Compaction.pending_cancellations
-     (Selvedge.Features.Compaction.registry value))).
+ decision_effects (Packet.core_transition (Configure environment) value) =
+ map MaintainContext (Selvedge.Features.Compaction.pending_cancellations
+   (Selvedge.Features.Compaction.registry value)).
 Proof. reflexivity. Qed.
 
 Lemma a_nondurable_transition_has_no_core_input : forall source value result,

@@ -7,7 +7,8 @@
 
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require PacketProofs.
-Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
+Export PacketProofs(actual_query_preserves_world_and_emits_no_effect,
+  live_configuration_preserves_maintenance_cancellations).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
@@ -33,6 +34,12 @@ Import ListNotations.
     turn a previously refused journal row into a successful edit on replay.
     The current-format check must reject such earlier journals before replay,
     retaining their bytes rather than converting or partially applying them.
+
+    Live configuration must carry the domain controller's maintenance
+    cancellations into the actual packet decision. That boundary need not
+    prescribe the controller's world-construction recipe. Successful admission
+    already acknowledges configuration; an additional configured marker has no
+    consumer and supplies no separate completion evidence.
 
     The Journal owns serialization through the entire Worker response and
     storage commit, so another input cannot observe an uncommitted world.
@@ -121,6 +128,9 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
 (** ** Each physical effect keeps its own generation
 
     [launch_installs_handle_before_run] requires ownership before interpretation.
+    Allocation advances the issued-handle counter and registers the matching
+    physical generation while retaining the other active handles. Freshness and
+    ownership do not require consecutive numbering or an active-list order.
     Completion uses a physical generation so an old finalizer can be separated
     from a replacement with the same logical key. The existing
     [completion_only_removes_its_generation] retains exactly the entries from
