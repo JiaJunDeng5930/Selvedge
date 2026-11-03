@@ -76,20 +76,17 @@ Theorem initial_context_constructs_protocol_messages : forall transport assistan
 Proof.
   intros transport assistant content source result accepted.
   change (initial_context assistant content source = success result) in accepted.
-  unfold initial_context, admit in accepted.
-  destruct (is_array (get source "messages")); [|discriminate].
+  unfold initial_context in accepted.
   inversion accepted; subst result; clear accepted. split; [reflexivity|].
   change (forallb initial_item (flat_map (initial_history_item assistant content) (items (get source "messages"))) = true).
   induction (items (get source "messages")) as [|message rest remaining]; [reflexivity|].
   cbn [flat_map]. rewrite forallb_app, initial_history_items_are_valid, remaining. reflexivity.
 Qed.
 
-Theorem transcript_tail_preserves_unrelated_utterance : forall source,
-  is_text (get source "pending") = true -> is_text (get source "completed") = true ->
-  starts (str source "pending") (str source "completed") = false ->
-  starts (str source "completed") (str source "pending") = false ->
-  transcript_tail source = success (JString (str source "pending")).
+Theorem transcript_tail_preserves_unrelated_utterance : forall pending completed,
+  starts pending completed = false -> starts completed pending = false ->
+  transcript_tail pending completed = pending.
 Proof.
-  intros source pending completed H1 H2.
-  unfold transcript_tail,admit. rewrite pending,completed,H1,H2. reflexivity.
+  intros pending completed H1 H2.
+  unfold transcript_tail. now rewrite H1,H2.
 Qed.

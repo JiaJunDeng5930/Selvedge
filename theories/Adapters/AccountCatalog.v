@@ -119,8 +119,7 @@ Definition candidate_identity source := success (JString
   (str source "resolved" ++ String (ascii_of_nat 0) "" ++ str source "connection")).
 Definition model_cache_path source := success (JString (str source "resolved" ++ ".models-" ++ str source "hash" ++ ".json")).
 Definition hash_prefix source := success (JString (substring 0 AccountNamespace.hash_width (str source "digest"))).
-Definition account_namespace source := if AccountNamespace.hash_valid (str source "hash")
-  then success (JString (AccountNamespace.make (str source "hash"))) else err "Invalid ChatGPT account namespace".
+Definition account_namespace source := success (JString (AccountNamespace.make (str source "hash"))).
 
 Definition cache_format := "selvedge-siwc-models-1".
 Definition cache source :=

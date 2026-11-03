@@ -101,7 +101,6 @@ Definition materialization_diagnostic result models :=
 Definition materialization_summary result models := JObject [
   ("models",number (N.of_nat (Models.size (selectable models))));("cached",get result "cached");("stale",get result "stale")].
 Definition materialize source :=
-  if negb (AccountNamespace.is_namespace (str source "namespace")) then err "Invalid ChatGPT account namespace" else
   let result := get source "result" in
   render_outcome (fun result => result) (bind (decode_models (get result "models")) (fun models =>
     bind (materialize_list source false (Models.values (selectable models)) []) (fun generated =>

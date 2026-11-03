@@ -232,7 +232,12 @@ Export AudioConnection(step).
     its request. [initial_context_constructs_protocol_messages] guarantees that
     its committed history projection constructs valid voice messages. The request
     retains those constructed values directly instead of revalidating them or
-    silently substituting empty history. The externally supplied SDP still needs
+    silently substituting empty history. Committed reads also own the cursor and
+    message-array shape used by initial history and progress. Progress and
+    acknowledgement constructors supply their text, channel and admitted
+    delegation identity; internal transcript tails remain native strings.
+    These transformations do not introduce a second admission boundary for
+    their already constructed inputs. The externally supplied SDP still needs
     admission. Media signaling may finish before the control
     connection is ready; microphone admission waits for both connections and
     initialization. Raw audio and secrets never become journal inputs.

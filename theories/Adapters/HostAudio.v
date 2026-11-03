@@ -21,7 +21,7 @@ Definition session_step (source : json) :=
       Some (AudioSession.InitialCursor (num page "after" + N.of_nat (List.length (items (get page "messages"))))%N)
     else if String.eqb kind "page" then
       let updates := Audio.task_progress Conversation.json_message_assistant Conversation.json_message_content (get observed "page") in
-      Some (AudioSession.ProgressPage (num observed "token") (get observed "page") (items (get updates "value"))) else None in
+      Some (AudioSession.ProgressPage (num observed "token") (get observed "page") updates) else None in
   match observation with None => failure "TypeError" "Unknown audio session observation" | Some observation =>
     let '(next,effects) := AudioSession.step state (get observed "generation") observation in
     success (JObject [("state",AudioSession.state_json next);("actions",JArray (map (AudioSession.primitive_json next) effects))]) end.

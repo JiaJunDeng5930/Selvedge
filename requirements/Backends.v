@@ -29,6 +29,10 @@ From Selvedge.Programming Require Import AdapterResult.
     does not establish whether the exchange ran once.
     [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
+    Discovered profile namespaces derive from the native SHA-256 hex digest of
+    the admitted account connection. Construction establishes their format;
+    materialization consumes it directly. User-configured names still require
+    a matching discovered account connection before they can select credentials.
     The account transport can omit output from its terminal response after
     reporting finalized items separately. Those items must survive until that
     terminal response, in provider index order, including their coordinates.
@@ -136,12 +140,18 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     avoiding a provider continuation that could copy transport byte strings back
     into durable history.
 
-    [ProviderCompactionProofs] connects complete-request image classification to
+    [ProviderCompactionProofs] connects typed input-image classification to
     the account estimate and prevents a text-only fallback for opaque content.
-    The encrypted-input contract describes a nonempty encrypted field in the
-    request tree itself, so no proof-only runtime flag is needed.
+    A reasoning or compaction input item carries its nonempty encrypted
+    continuation. Resource semantics belongs to those input positions, not
+    similarly named fields anywhere in a JSON tree. The resident discovery tool
+    currently presents external tools through deferred parameter declarations;
+    classification does not need a guarantee over arbitrary Schema metadata.
+    The byte estimate still includes the entire encoded request.
     The estimate supports admission; it is not an exact provider token count.
     Physical preparation admits the complete request's bytes before measurement.
+    The request encoder establishes the object's structure, which measurement
+    consumes directly instead of admitting that private structure again.
     Measurement therefore selects the account image estimate or provider meter;
     an over-budget request cannot become admissible through a fabricated token
     count. A readable request may use the existing byte bound after an explicit
@@ -276,6 +286,13 @@ Qed.
     uniquely matched result batch; a partial batch cannot stand for completion.
     Detaching an observer leaves retained work available, while explicit
     cancellation has its own state and connection conditions.
+
+    A Web request consumes the Task's frozen catalog. Configuration admission
+    already establishes distinct tool names and object schemas. Native and
+    plugin names use the admitted identifier grammar, and MCP names are
+    normalized at discovery. The Web encoder preserves those declarations and
+    checks its own length limit, because combined MCP server/tool names are
+    not otherwise limited to that transport's maximum.
 
     These contracts constrain the interpreters used by the declared [web.*]
     operations. HTTP delivery and durable store acknowledgements remain host

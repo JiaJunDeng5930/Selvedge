@@ -9,33 +9,18 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Record request_content := RequestContent {
-  opaque_content : bool;
-  image_count : N
-}.
-Definition combine_content (left right : request_content) :=
-  RequestContent (opaque_content left || opaque_content right)
-    (image_count left + image_count right).
-Definition empty_content := RequestContent false 0.
-(* Image handles and encrypted continuations cannot be bounded by their textual
-   representation. The complete request, rather than an IO assertion, owns this fact. *)
-Fixpoint classify_content (value : json) : request_content :=
-  match value with
-  | JArray values =>
-      (fix scan (remaining : list json) :=
-       match remaining with [] => empty_content
-       | head :: tail => combine_content (classify_content head) (scan tail) end) values
-  | JObject fields =>
-      (fix scan (remaining : list (string * json)) :=
-       match remaining with [] => empty_content
-       | (name, item) :: tail =>
-         let image := String.eqb name "image_asset" && is_object item in
-         let encrypted := String.eqb name "encrypted_content" && is_text item &&
-           negb (String.eqb (text item) "") in
-         combine_content (RequestContent (image || encrypted) (if image then 1 else 0))
-           (combine_content (classify_content item) (scan tail)) end) fields
-  | _ => empty_content
-  end.
+Definition input_parts (item : json) := items (get item
+  (if String.eqb (str item "type") "function_call_output" then "output" else "content")).
+Definition input_images (request : json) := filter (fun part => String.eqb (str part "type") "input_image")
+  (flat_map input_parts (items (get request "input"))).
+Definition request_image_count (request : json) := N.of_nat (List.length (input_images request)).
+Definition encrypted_input_item (item : json) :=
+  (String.eqb (str item "type") "reasoning" || String.eqb (str item "type") "compaction") &&
+  is_text (get item "encrypted_content") && negb (String.eqb (str item "encrypted_content") "").
+(* Only input content carries images or provider continuations. JSON Schema
+   examples and defaults can use the same field names as ordinary text data. *)
+Definition opaque_request (request : json) :=
+  existsb encrypted_input_item (items (get request "input")) || N.ltb 0 (request_image_count request).
 Definition selected_request (meter : bool) (source : json) : json :=
   let names := List.app ["model"; "input"; "instructions"]
     (if meter then ["tools"; "tool_choice"; "parallel_tool_calls"] else []) in
@@ -116,16 +101,14 @@ Definition scope_changed (source : json) :=
       negb (equal (get effect "context_scope") (get source "scope"))))]).
 Definition measurement_plan (source : json) :=
   let request := get source "request" in
-  (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
-  if negb (is_object request) then err "Context measurement requires the complete encoded request"
-  else let content := classify_content request in let images := N.ltb 0 (image_count content) in
-  if ProviderCatalog.account (get source "profile") && images then
+  let images := request_image_count request in
+  if ProviderCatalog.account (get source "profile") && N.ltb 0 images then
     (* The account transport does not promise the public token-count endpoint.
        Keep image requests usable with an encrypted continuation as well: the
        estimate includes the complete encoded request and each image. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
-        1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])
+        1844 * images)); ("tokenizer",JString "codex_image_estimate")])
   else success (JObject [("action",JString "remote")]).
 Definition code_in (source : json) (codes : list string) :=
   existsb (String.eqb (str source "code")) codes.
@@ -139,8 +122,7 @@ Definition action (name : string) := success (JObject [("action",JString name)])
 Definition meter_fallback (source : json) :=
   (* DEFENSE: Only explicit route-capability failures allow local measurement;
      encrypted continuations and image handles have no textual token bound. *)
-  if negb (opaque_content (classify_content (get source "request"))) &&
-     is_object (get source "request") && unsupported_route source then
+  if negb (opaque_request (get source "request")) && unsupported_route source then
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])
   else action "error".
