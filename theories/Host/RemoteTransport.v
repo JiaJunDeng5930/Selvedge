@@ -92,7 +92,7 @@ Proof.
  rewrite N.eqb_refl; reflexivity.
 Qed.
 Theorem last_changed_revision_disconnects checked current : N.eqb checked current = false ->
- authorize LastCheck (GrantChecked true true checked current) = (LastCheck,Disconnect).
+ snd (authorize LastCheck (GrantChecked true true checked current)) = Disconnect.
 Proof. intros H; cbn; now rewrite H. Qed.
 Theorem capture_requires_current_revision s active allowed checked current :
  snd (authorize s (GrantChecked active allowed checked current)) = Capture ->

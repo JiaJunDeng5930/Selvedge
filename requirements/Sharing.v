@@ -99,6 +99,7 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 From Selvedge.Host Require RemoteTransportProofs
   RemoteConnectorSessionProofs RemoteRelaySessionProofs.
+Export RemoteConnectorSession(retirement_discards_session_and_preserves_notice_cursor).
 Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   retry_observation_before_deadline_does_not_connect).
@@ -144,7 +145,9 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
 
     Each capture attempt retains only its pending check stage across native
     observations. Capture, denial and disconnection end the awaited invocation;
-    they do not create a retained authorization state.
+    they do not create a retained authorization state. A required disconnection
+    constrains the action that retires the transport, not the abandoned check
+    stage or intermediate session that its consumer immediately discards.
 
     New semantic state is installed before sending or accepting sockets. Ticket
     consumption precedes authorization. After asynchronous hashing, the relay
@@ -157,7 +160,11 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     ranges; the native consumers narrow the generated union accordingly.
     Impossible internal action categories need no second runtime refusal.
     Actions request work from their interpreter; state-only updates need no
-    separate acknowledgement. Repeating already installed authority in a
+    separate acknowledgement. Retirement removes the live session, its queued
+    work and pairing code by entering the offline phase, while preserving the
+    notice cursor across a later connection. Its caller consumes the updated
+    state without a retirement acknowledgement or prescribed retired generation.
+    Repeating already installed authority in a
     request action adds no authorization check. Immediate transport effects
     likewise use the installed session, while asynchronous callbacks retain
     their generation so replacement can invalidate them.

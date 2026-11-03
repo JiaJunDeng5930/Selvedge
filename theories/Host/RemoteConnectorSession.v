@@ -58,7 +58,7 @@ Inductive observation := Retire | SetPairing (value : pairing) (now : N) | Curre
  | Snapshot (id : string) (subscribe : bool) | Unsubscribe (id : string) | Deliver (id : string) (notice : N)
  | Frame (value : frame).
 Inductive event := Install (generation : N) | Notice | Observe (generation : N) (value : observation).
-Inductive action := Ignore | Retired | PublishPairing | Enqueued | Disconnect | BecameReady
+Inductive action := Ignore | PublishPairing | Enqueued | Disconnect | BecameReady
  | Opened (entry : connection) | Closed (id : RP.identifier)
  | Requested (id : RP.identifier) (request : RP.rpc_request) | PairRequested (request : RP.pairing_request) | ReceivedPong
  | CapturedSnapshot | Unsubscribed | DeliverNotice.
@@ -70,7 +70,7 @@ Definition phase_step sequence s event : phase * action := match event with
  | Notice => (s,Ignore)
  | Observe n value => if negb (N.eqb (phase_generation s) n) then (s,Ignore) else
    match value with
-   | Retire => (Offline n None,Retired)
+   | Retire => (Offline n None,Ignore)
    | SetPairing pairing_value now => (set_pairing s (Some pairing_value),
      match s with Ready _ _ => if now <? expires pairing_value then PublishPairing else Ignore | _ => Ignore end)
    | CurrentPairing now => match pairing_of s with
@@ -205,13 +205,13 @@ Definition action_packet value := match value with
  | Closed id => F.Packet closed_action [!id!]
  | Requested id request => F.Packet request_action [!id;RP.controller_request_arguments request!]
  | PairRequested request => F.Packet pair_request_action [!RP.pairing_request_arguments request!]
- | Ignore => simple_packet "ignore" | Retired => simple_packet "retire"
+ | Ignore => simple_packet "ignore"
  | PublishPairing => simple_packet "pairing" | Enqueued => simple_packet "enqueue"
  | Disconnect => simple_packet "disconnect" | BecameReady => simple_packet "ready" | ReceivedPong => simple_packet "pong"
  | CapturedSnapshot => simple_packet "snapshot"
  | Unsubscribed => simple_packet "unsubscribed" | DeliverNotice => simple_packet "deliver" end.
 Definition action_declarations := map (fun action => F.packet_branch (action_packet action))
- [Ignore;Retired;PublishPairing;Enqueued;Disconnect;
+ [Ignore;PublishPairing;Enqueued;Disconnect;
   BecameReady;ReceivedPong;CapturedSnapshot;Unsubscribed;DeliverNotice] ++
  [opened_action;closed_action;request_action;pair_request_action].
 Definition abi_variant declaration := Variant.from_branch declaration (F.names (F.payload_fields declaration)) None.
@@ -273,9 +273,10 @@ Theorem stale_generation_is_ignored s n value : N.eqb (generation s) n = false -
  step s (Observe n value) = (s,Ignore).
 Proof. destruct s as [phase sequence]. intro Stale.
  unfold step,phase_step,generation in *; cbn in *. rewrite Stale. reflexivity. Qed.
-Theorem retire_discards_all_queued_work s :
- step s (Observe (generation s) Retire) = (State (Offline (generation s) None) (notice_sequence s),Retired).
-Proof. unfold step,phase_step,generation. now rewrite N.eqb_refl. Qed.
+Theorem retirement_discards_session_and_preserves_notice_cursor s :
+ let next := fst (step s (Observe (generation s) Retire)) in
+ (exists n, current next = Offline n None) /\ notice_sequence next = notice_sequence s.
+Proof. unfold step,phase_step,generation. rewrite N.eqb_refl. split; [eexists|]; reflexivity. Qed.
 
 Theorem unqueued_notice_cannot_publish sequence data id notice :
  notice_queued data id notice = false -> snd (deliver_notice sequence data id notice) = Ignore.
@@ -290,6 +291,3 @@ Theorem captured_prefix_cannot_publish sequence data id notice entry after :
  (after <? notice) = false -> snd (deliver_notice sequence data id notice) = Ignore.
 Proof. intros Found Subscribed Old. unfold deliver_notice,notice_eligible.
  rewrite Found,Subscribed,Old. reflexivity. Qed.
-Theorem notice_sequence_survives_transport_retirement s :
- notice_sequence (fst (step s (Observe (generation s) Retire))) = notice_sequence s.
-Proof. rewrite retire_discards_all_queued_work. reflexivity. Qed.

@@ -123,7 +123,6 @@ function decodeEnum11(value: unknown): "send" | "steer" {
 export function decodeHttpReplyStatus(input: unknown): number { return decodeSafeNatural(input); }
 export type RemoteConnectorSessionAction =
   | {"kind": "ignore"; }
-  | {"kind": "retire"; }
   | {"kind": "pairing"; }
   | {"kind": "enqueue"; }
   | {"kind": "disconnect"; }
@@ -140,7 +139,6 @@ export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnec
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "ignore": exactFields(source, ["kind"]); return {"kind": "ignore"};
-    case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     case "pairing": exactFields(source, ["kind"]); return {"kind": "pairing"};
     case "enqueue": exactFields(source, ["kind"]); return {"kind": "enqueue"};
     case "disconnect": exactFields(source, ["kind"]); return {"kind": "disconnect"};
