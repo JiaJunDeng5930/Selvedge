@@ -3,6 +3,53 @@ From Selvedge.Host Require Import RemoteConnectorSession.
 Import ListNotations.
 Open Scope N_scope.
 
+Theorem frame_observation_emits_only_frame_actions s n frame :
+ match snd (step s (Observe n (Frame frame))) with
+ | Ignore | Disconnect | BecameReady | Opened _ | Closed _ | Requested _ _
+ | PairRequested _ | ReceivedPong => True | _ => False end.
+Proof.
+ destruct s as [phase sequence]. destruct phase as [g pairing|g pairing|g data];
+ unfold step,phase_step; cbn; destruct (N.eqb g n); cbn; try exact I.
+ all: destruct frame; cbn; try exact I.
+ all: repeat match goal with
+ | |- context[find_connection ?data ?id] => destruct (find_connection data id); cbn
+ | |- context[if ?condition then _ else _] => destruct condition; cbn
+ end; exact I.
+Qed.
+
+Theorem capture_observations_emit_only_capture_actions s n id subscribe :
+ (match snd (step s (Observe n (Snapshot id subscribe))) with
+  | Ignore | CapturedSnapshot => True | _ => False end) /\
+ (match snd (step s (Observe n (Unsubscribe id))) with
+  | Ignore | Unsubscribed => True | _ => False end).
+Proof.
+ destruct s as [phase sequence]. destruct phase as [g pairing|g pairing|g data];
+ unfold step,phase_step; cbn; destruct (N.eqb g n); cbn; try tauto.
+ destruct (find_connection data id); cbn; tauto.
+Qed.
+
+Theorem delivery_observation_emits_only_delivery_actions s n id notice :
+ match snd (step s (Observe n (Deliver id notice))) with
+ | Ignore | DeliverNotice => True | _ => False end.
+Proof.
+ destruct s as [phase sequence]. destruct phase as [g pairing|g pairing|g data];
+ unfold step,phase_step; cbn; destruct (N.eqb g n); cbn; try exact I.
+ unfold deliver_notice.
+ destruct (notice_eligible sequence data id notice && notice_queued data id notice); exact I.
+Qed.
+
+Theorem enqueue_observation_emits_only_queue_actions s n id size notice :
+ match snd (step s (Observe n (Enqueue id size notice))) with
+ | Ignore | Disconnect | Enqueued => True | _ => False end.
+Proof.
+ destruct s as [phase sequence]. destruct phase as [g pairing|g pairing|g data];
+ unfold step,phase_step; cbn; destruct (N.eqb g n); cbn; try exact I.
+ destruct (find_connection data id); cbn; try exact I.
+ repeat match goal with
+ | |- context[if ?condition then _ else _] => destruct condition; cbn
+ end; exact I.
+Qed.
+
 (** Queue admission constrains the very acknowledgement consumed by the
     physical Promise queue; counters are projections of the pending jobs. *)
 Theorem enqueue_acknowledges_available_budget s n id size notice :

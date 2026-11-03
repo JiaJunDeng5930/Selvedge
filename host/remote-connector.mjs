@@ -6,6 +6,7 @@ import {
 } from '../remote/protocol.mjs';
 
 const MAX_BUFFERED_BYTES = MAX_REMOTE_FRAME_BYTES * 2;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 
 /** Outbound relay transport only; disconnecting never cancels a native task. */
@@ -64,8 +65,7 @@ export class RemoteConnector {
 
   constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest = () => {}, onStatus = () => {},
     allowLoopback = false, retryBaseMs = 1000, retryMaxMs = 30_000,
-    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000, connectTimeoutMs = 10_000,
-    createWebSocket = (url, options) => new WebSocket(url, options), fetch: fetchRequest = fetch } = {}) {
+    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000 } = {}) {
     const origin = assertRelayUrl(relayUrl, { allowLoopback });
     this.#hostUrl = `${origin}/v1/hosts/${hostId}/host`;
     this.#hostToken = hostToken;
@@ -73,7 +73,7 @@ export class RemoteConnector {
     this.#getGrants = getGrants;
     this.#onPairRequest = onPairRequest;
     this.#onStatus = onStatus;
-    this.#settings = { retryBaseMs, retryMaxMs, heartbeatMs, heartbeatTimeoutMs, connectTimeoutMs, createWebSocket, fetchRequest };
+    this.#settings = { retryBaseMs, retryMaxMs, heartbeatMs, heartbeatTimeoutMs };
     this.#noticeListener = notice => this.#notice(notice);
   }
 
@@ -129,12 +129,12 @@ export class RemoteConnector {
     this.#setStatus('connecting');
     const probe = new AbortController();
     this.#probe = probe;
-    const timeout = setTimeout(() => probe.abort(), this.#settings.connectTimeoutMs);
+    const timeout = setTimeout(() => probe.abort(), CONNECT_TIMEOUT_MS);
     timeout.unref();
     try {
       // Bun's failed WebSocket handshake hides HTTP status. Probe the same
       // authenticated route and let the controller classify the observation.
-      const response = await this.#settings.fetchRequest(this.#hostUrl, {
+      const response = await fetch(this.#hostUrl, {
         headers: { authorization: `Bearer ${this.#hostToken}` }, redirect: 'error', signal: probe.signal,
       });
       await response.body?.cancel();
@@ -152,10 +152,10 @@ export class RemoteConnector {
   #openSocket(generation) {
     const url = new URL(this.#hostUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = this.#settings.createWebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
+    const socket = new WebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
     const session = { socket, generation, connections: new Map(), ready: false };
     this.#session = session;
-    session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), this.#settings.connectTimeoutMs);
+    session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), CONNECT_TIMEOUT_MS);
     session.timeout.unref();
     socket.addEventListener('open', () => {
       if (this.#current(session)) this.#send(session, { type: 'hello', version: REMOTE_PROTOCOL_VERSION });

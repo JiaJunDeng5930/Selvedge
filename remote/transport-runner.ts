@@ -63,9 +63,23 @@ export function observeAuthorization(state: RemoteAuthorizationState, active: bo
 }
 
 type SessionAction = RemoteConnectorSessionAction;
+type FrameAction = Extract<SessionAction, {kind: 'ignore' | 'disconnect' | 'ready' | 'controller_open' | 'controller_close' | 'request' | 'pair_request' | 'pong'}>;
+type CaptureAction = Extract<SessionAction, {kind: 'ignore' | 'snapshot' | 'unsubscribed'}>;
+type DeliveryAction = Extract<SessionAction, {kind: 'ignore' | 'deliver'}>;
+type QueueAction = Extract<SessionAction, {kind: 'ignore' | 'disconnect' | 'enqueue'}>;
+type SessionTransition<Action = SessionAction> = {state: RemoteConnectorSessionState; action: Action};
 export const initialConnectorSession = (): RemoteConnectorSessionState => decodeRemoteConnectorSessionState(remoteControl('connector_initial', {}));
+export function observeConnectorSession(state: RemoteConnectorSessionState,
+  event: Extract<RemoteConnectorSessionObservation, {kind: 'frame'}>): SessionTransition<FrameAction>;
+export function observeConnectorSession(state: RemoteConnectorSessionState,
+  event: Extract<RemoteConnectorSessionObservation, {kind: 'capture'}>): SessionTransition<CaptureAction>;
+export function observeConnectorSession(state: RemoteConnectorSessionState,
+  event: Extract<RemoteConnectorSessionObservation, {kind: 'deliver'}>): SessionTransition<DeliveryAction>;
+export function observeConnectorSession(state: RemoteConnectorSessionState,
+  event: Extract<RemoteConnectorSessionObservation, {kind: 'enqueue'}>): SessionTransition<QueueAction>;
+export function observeConnectorSession(state: RemoteConnectorSessionState, event: RemoteConnectorSessionObservation): SessionTransition;
 export function observeConnectorSession(state: RemoteConnectorSessionState, event: RemoteConnectorSessionObservation):
-  {state: RemoteConnectorSessionState; action: SessionAction} {
+  SessionTransition {
   const result = decodeRemoteConnectorSessionTransition(remoteControl('connector', { state, event }));
   return { state: decodeRemoteConnectorSessionState(result.state), action: decodeRemoteConnectorSessionAction(result.action) };
 }
@@ -77,7 +91,7 @@ export interface ConnectorFrameIO {
   pairRequest(value: JsonValue): void; pong(): void;
 }
 /** A relay-frame observation is interpreted once, after its session state is installed. */
-export function interpretConnectorFrame(action: SessionAction, io: ConnectorFrameIO): void {
+export function interpretConnectorFrame(action: FrameAction, io: ConnectorFrameIO): void {
   switch (action.kind) {
     case 'ignore': return;
     case 'disconnect': io.disconnect(); return;
@@ -87,37 +101,23 @@ export function interpretConnectorFrame(action: SessionAction, io: ConnectorFram
     case 'request': io.request(action); return;
     case 'pair_request': io.pairRequest(action.request); return;
     case 'pong': io.pong(); return;
-    // DEFENSE: The session ABI only emits frame actions for a relay-frame observation.
-    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired':
-    case 'grants': case 'enqueue': case 'dequeue': case 'notice': case 'snapshot':
-    case 'unsubscribed': case 'deliver': throw new TypeError('Unexpected connector frame action');
   }
   const exhaustive: never = action;
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
 }
-export function interpretConnectorCapture(action: SessionAction, io: {snapshot(): void; unsubscribed(): void}): void {
+export function interpretConnectorCapture(action: CaptureAction, io: {snapshot(): void; unsubscribed(): void}): void {
   switch (action.kind) {
     case 'ignore': return;
     case 'snapshot': io.snapshot(); return;
     case 'unsubscribed': io.unsubscribed(); return;
-    // DEFENSE: A capture observation cannot authorize a transport or notice action.
-    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
-    case 'enqueue': case 'dequeue': case 'disconnect': case 'ready': case 'controller_open':
-    case 'controller_close': case 'request': case 'pair_request': case 'pong': case 'notice':
-    case 'deliver': throw new TypeError('Unexpected connector capture action');
   }
   const exhaustive: never = action;
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
 }
-export function interpretConnectorDelivery(action: SessionAction, deliver: () => void): void {
+export function interpretConnectorDelivery(action: DeliveryAction, deliver: () => void): void {
   switch (action.kind) {
     case 'ignore': return;
     case 'deliver': deliver(); return;
-    // DEFENSE: Only the model's queued, fresh cursor decision authorizes delivery.
-    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
-    case 'enqueue': case 'dequeue': case 'disconnect': case 'ready': case 'controller_open':
-    case 'controller_close': case 'request': case 'pair_request': case 'pong': case 'notice':
-    case 'snapshot': case 'unsubscribed': throw new TypeError('Unexpected connector delivery action');
   }
   const exhaustive: never = action;
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
@@ -128,7 +128,8 @@ export interface RemoteOperationQueue {
 }
 export interface RemoteQueueIO {
   current(): boolean;
-  observe(action: 'enqueue' | 'dequeue', bytes: number): SessionAction;
+  observe(action: 'enqueue', bytes: number): QueueAction;
+  observe(action: 'dequeue', bytes: number): void;
   disconnect(reason: string): void;
 }
 export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: number,
@@ -140,11 +141,6 @@ export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: 
     case 'ignore': return;
     case 'disconnect': io.disconnect('request_queue_full'); return;
     case 'enqueue': break;
-    // DEFENSE: The queue ABI must acknowledge admission before a physical operation is chained.
-    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
-    case 'dequeue': case 'ready': case 'controller_open': case 'controller_close': case 'request':
-    case 'pair_request': case 'pong': case 'notice': case 'snapshot': case 'unsubscribed':
-    case 'deliver': throw new TypeError('Unexpected connector queue action');
     default: { const exhaustive: never = action; throw new TypeError(String(exhaustive)); }
   }
   connection.tail = connection.tail.then(async () => {

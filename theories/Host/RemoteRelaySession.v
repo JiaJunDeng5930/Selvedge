@@ -47,15 +47,12 @@ Inductive observation :=
  | DeliverPairing (now revision expiry : N)
  | IssueTicket (now : N) (grants : RP.grant_set) (value : ticket)
  | ConsumeTicket (now : N) (grants : RP.grant_set) (digest : string) (controller_count : N)
- | HostCurrent (generation : N) (require_ready : bool)
- | Delivery (generation : N) (grants : RP.grant_set) (host_ready : bool)
  | Frame (value : RP.host_frame)
  | Disconnected (generation : N) (host_ready : bool).
 Inductive verdict := Permit | Deny.
 Inductive reason := TicketLimit | HostOffline | ConnectionLimit | InvalidTicket.
 Inductive action := Decision (allowed : verdict)
- | TicketIssued (allowed : verdict) (why : reason)
- | TicketConsumed (selected : option ticket) (allowed : verdict) (why : reason)
+ | TicketIssued | TicketConsumed (selected : ticket) | TicketRejected (why : reason)
  | CloseControllers | NotifyHost (id : RP.identifier) | AcceptedFrame (value : RP.host_frame) | NoAction.
 
 Definition decide (allowed : bool) := if allowed then Permit else Deny.
@@ -112,17 +109,19 @@ Definition step (current : state) (event : observation) : state * action :=
      let live:=filter (fun entry=>now <? (ticket_expiry entry)) tickets in
      let fresh:=current_ticket now grants value in
      let allowed:=(N.of_nat (List.length live) <? 8) && fresh in
-     (Ready host (if allowed then live++[value] else live),TicketIssued (decide allowed) (if fresh then TicketLimit else HostOffline))
-   | _=>(current,TicketIssued Deny HostOffline) end
+     (Ready host (if allowed then live++[value] else live),
+       if allowed then TicketIssued else TicketRejected (if fresh then TicketLimit else HostOffline))
+   | _=>(current,TicketRejected HostOffline) end
  | ConsumeTicket now grants digest count=>match current with
    | Ready host tickets=>
      let selected:=find (fun entry=>String.eqb (ticket_digest entry) digest) tickets in
      let remaining:=filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets in
-     let fresh:=match selected with Some value=>current_ticket now grants value | None=>false end in
-     (Ready host remaining,TicketConsumed selected (decide (fresh && (count <? 32))) (if fresh then ConnectionLimit else InvalidTicket))
-   | _=>(current,TicketConsumed None Deny InvalidTicket) end
- | HostCurrent expected require_ready=>(current,Decision (decide (host_current current expected require_ready)))
- | Delivery expected grants host_ready=>(current,Decision (decide (can_deliver current expected grants host_ready)))
+     (Ready host remaining,match selected with
+      | Some value=>if current_ticket now grants value then
+          if count <? 32 then TicketConsumed value else TicketRejected ConnectionLimit
+        else TicketRejected InvalidTicket
+      | None=>TicketRejected InvalidTicket end)
+   | _=>(current,TicketRejected InvalidTicket) end
  | Frame frame=>(current,if frame_allowed current frame then AcceptedFrame frame else Decision Deny)
  | Disconnected expected host_ready=>(Closed,match current with
    | Negotiating own=>if N.eqb own expected then CloseControllers else NoAction
@@ -194,9 +193,9 @@ Definition decode_observation := F.decode_cases observation_decoders.
 Definition encode_result next output :=
  let fields:=[("state",encode_state next)] in JObject (fields++match output with
  | Decision allowed=>[("allowed",JBool (permitted allowed))]
- | TicketIssued allowed why=>[("allowed",JBool (permitted allowed));("reason",JString (reason_text why))]
- | TicketConsumed selected allowed why=>[("allowed",JBool (permitted allowed));("ticket",match selected with
-     Some value=>D.encode ticket_declaration value|None=>JNull end);("reason",JString (reason_text why))]
+ | TicketIssued=>[("allowed",JBool true)]
+ | TicketConsumed selected=>[("allowed",JBool true);("ticket",D.encode ticket_declaration selected)]
+ | TicketRejected why=>[("allowed",JBool false);("reason",JString (reason_text why))]
  | CloseControllers=>[("action",JString "close_controllers")]
  | NotifyHost id=>[("action",JString "notify_host");("connection_id",JString (RP.identifier_text id))]
  | AcceptedFrame value=>[("frame",RP.encode_host_frame value)]

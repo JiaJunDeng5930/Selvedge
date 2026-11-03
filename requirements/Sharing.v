@@ -97,9 +97,17 @@ Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   retry_observation_before_deadline_does_not_connect).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
-  delivered_notice_is_queued_and_beyond_the_current_cutoff).
+  delivered_notice_is_queued_and_beyond_the_current_cutoff,
+  frame_observation_emits_only_frame_actions,
+  capture_observations_emit_only_capture_actions,
+  delivery_observation_emits_only_delivery_actions,
+  enqueue_observation_emits_only_queue_actions).
 Export RemoteRelaySessionProofs(consumption_removes_ticket,
-  stale_generation_cannot_deliver, replaced_hash_cannot_install_pairing).
+  delivery_admits_exactly_current_authority,
+  ticket_issuance_admits_exactly_current_bounded_authority,
+  issued_tickets_respect_capacity,
+  ticket_consumption_admits_exactly_current_bounded_authority,
+  replaced_hash_cannot_install_pairing).
 
 (** ** The relay and connector speak the same admitted protocol
 
@@ -129,6 +137,21 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     rereads the current attachment instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
+
+    The connector interprets each observation's possible actions. The actual
+    transition's frame, capture, delivery and enqueue contracts establish these
+    ranges; the native consumers narrow the generated union accordingly.
+    Impossible internal action categories need no second runtime refusal.
+    Relay liveness and delivery are queries over the current attachment, not
+    events that change it. [delivery_admits_exactly_current_authority] constrains
+    the actual delivery predicate: an available host, its current generation
+    and an exact current grant are all necessary and sufficient.
+    Ticket issuance and consumption also require a current grant and unexpired
+    credential. A successful consumption carries its selected ticket by
+    construction; failure reasons belong only to rejected results. Their
+    complete admission contracts preserve successful access
+    within the attachment and live-connection limits, while
+    [issued_tickets_respect_capacity] bounds the actual retained ticket list.
 
     [subscription_capture_records_the_current_notice_cutoff] and
     [delivered_notice_is_queued_and_beyond_the_current_cutoff] connect snapshot
