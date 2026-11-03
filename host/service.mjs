@@ -421,8 +421,8 @@ export class Service extends EventEmitter {
       // DEFENSE: Cancellation may occur while model completion is committing; do not record stale cache activity after the request was aborted.
       if (observation && !signal.aborted) {
         const activity = await this.journal.execute({ kind: 'compaction_activity', task_id: effect.task_id,
-          source_length: effect.source_length, now: observation.now, scope: observation.scope });
-        // DEFENSE: A provider scope/clock observation can be rejected by native admission or the complete-decision budget.
+          source_length: effect.source_length, now: observation.now });
+        // DEFENSE: A provider activity clock can be rejected by native admission or the complete-decision budget.
         if (!activity.reply.ok) throw new Error(`Cache observation rejected: ${activity.reply.error.message}`);
       }
       this.notify({ type: 'stream_end', task_id: effect.task_id, ticket: effect.ticket, sequence: result.sequence });

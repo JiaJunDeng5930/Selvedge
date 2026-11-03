@@ -35,6 +35,8 @@ Import ListNotations.
     so restart cannot silently reinterpret prior work. Domain refusals of
     admitted mutations are also stored: relaxing a card-edit restriction can
     turn a previously refused journal row into a successful edit on replay.
+    Removing an obsolete field from a closed input grammar also makes earlier
+    rows incompatible, even when that field never influenced execution.
     The current-format check must reject such earlier journals before replay,
     retaining their bytes rather than converting or partially applying them.
 

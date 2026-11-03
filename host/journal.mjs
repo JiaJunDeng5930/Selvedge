@@ -15,7 +15,7 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-14';
+export const journalFormat = 'selvedge-rocq-journal-15';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',

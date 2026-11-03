@@ -157,6 +157,9 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Compaction has its own feature state so preparatory work can coexist with
     ordinary execution. Each physical invocation receives a fresh ticket;
     retained useful-work revision and failure state prevent idle reissuance.
+    Cache maintenance uses the observed prefix and deadline. A separate last
+    activity timestamp or old consumer label cannot select further work; the
+    next maintenance request observes its consumer scope before dispatch.
     [a_compaction_failure_is_not_immediately_resubmitted] excludes treating
     every failure as permission to repeat. Recovery retires pending receivers
     while retaining the Task's actual inference demand.
@@ -170,6 +173,8 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Portable progress is the remaining ordered scalar list and its carried
     continuation note; a second cumulative offset neither selects work nor
     establishes completion. The executed plan owns the method and budget.
+    Once that plan exists, retaining its original target configuration adds
+    no input to a subsequent fragment or portable rebuild.
     The captured receiver owns validation purpose and settings compatibility,
     so neither needs another unused copy in the physical request. *)
 

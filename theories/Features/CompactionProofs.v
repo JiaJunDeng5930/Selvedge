@@ -84,7 +84,7 @@ Theorem a_stale_ready_measurement_is_planned_again :
  task_lifecycle current = Running ReadyForModel operations ->
  TicketedRequest.Scoped.resources_available current value = true ->
  A.enabled_target current (A.registry value) = Some target ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) ->
  entry_job entry = NoJob -> entry_measurement entry = Measured input scope tokens budget ->
  A.fresh (entry_measurement entry) current value = false ->
  A.synchronize id current value = Some (A.begin_scope id (A.capture_task current value) None entry value).
@@ -238,7 +238,7 @@ Theorem a_closed_manual_wait_recaptures_its_current_prefix :
  task_lifecycle current = Running phase operations ->
  phase <> WantsModel -> (forall ticket revision, phase <> ObservingContext ticket revision) ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  A.relevant input current before = true ->
  ContextSelection.closed_prefix (task_history current) = true ->
@@ -259,7 +259,7 @@ Theorem an_open_manual_wait_keeps_waiting_without_io :
  forall id current before input entry operations,
  task_lifecycle current = Running Idle operations ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  A.relevant input current before = true ->
  ContextSelection.closed_prefix (task_history current) = false ->
@@ -278,7 +278,7 @@ Theorem a_closed_manual_wait_starts_a_fresh_context_read :
  task_lifecycle current = Running phase operations ->
  (phase = Idle \/ phase = ReadyForModel) ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  entry_observation (A.current_entry id (A.registry before)) = None ->
  A.relevant input current before = true ->
@@ -500,7 +500,7 @@ Proof.
  intros; unfold A.recover_entry, A.with_observation, A.with_measurement, A.with_job, set; cbn.
  split; [reflexivity|]. unfold A.resume, A.job_ticket.
  destruct (entry_job entry) as [|purpose|ticket purpose demand|input purpose|
-   [ticket [input purpose stage]]|[ticket [input purpose target progress scope]]|
+   [ticket [input purpose stage]]|[ticket [input purpose progress scope]]|
    [ticket [input [purpose candidate preview] stage]]]; reflexivity.
 Qed.
 
@@ -571,18 +571,18 @@ Proof.
    cbn; now rewrite N.eqb_refl.
 Qed.
 
-(** The feature callback forwards recovered progress with the complete retained
-    lease, including its target. The kernel planner
-    separately proves that recovered progress retains native raw history. *)
+(** The feature callback forwards the recovered plan with its captured input
+    and scope. The kernel planner separately proves that recovered progress
+    retains native raw history. *)
 Theorem native_unavailable_callback_dispatches_portable_rebuild :
- forall id task input purpose progress scope entry value target portable,
+ forall id task input purpose progress scope entry value portable,
  A.relevant input task value = true ->
  P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
- A.compacted_result id task (CompactInput input purpose target progress scope)
+ A.compacted_result id task (CompactInput input purpose progress scope)
    (JObject [("action",JString "native_unavailable")]) false entry value =
- A.dispatch_compact id task input purpose target portable scope entry value.
+ A.dispatch_compact id task input purpose portable scope entry value.
 Proof.
- intros id task input purpose progress scope entry value target portable Relevant Recovered.
+ intros id task input purpose progress scope entry value portable Relevant Recovered.
  unfold A.compacted_result. rewrite Relevant,Recovered. reflexivity.
 Qed.
 
@@ -718,7 +718,7 @@ Qed.
 
 Lemma synchronizing_a_fresh_terminal_failure_emits_no_requests :
  forall id current value entry input result,
- entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) ->
  entry_job entry = NoJob -> entry_measurement entry = MeasurementFailed input ->
  entry_cache_deadline entry = 0 -> A.fresh (entry_measurement entry) current value = true ->
  A.synchronize id current value = Some result -> K.decision_effects result = [].
@@ -763,7 +763,7 @@ Proof.
  set (result := A.failed id current entry reason before) in *.
  set (stopped := compaction_failure_task current message) in *.
  set (saved := A.current_entry id (A.registry (K.decision_world result))) in *.
- set (next := A.synchronized_entry stopped saved (A.registry (K.decision_world result))).
+ set (next := A.synchronized_entry stopped saved).
  assert (NextState : entry_job next = NoJob /\
    entry_measurement next = MeasurementFailed (A.capture_task stopped (K.decision_world result)) /\
    entry_cache_deadline next = 0).

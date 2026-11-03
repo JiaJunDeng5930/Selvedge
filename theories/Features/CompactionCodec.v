@@ -112,7 +112,7 @@ Definition completion_inputs : list (InputRoute.t completion) := [
    (fun fields => option_map (fun policy => Configure policy (head (tail fields))) (decode_policy (head fields)));
  InputRoute.object "compaction_clock" [Field "now" KNatural] (fun fields => Some (Clock (head fields)));
  InputRoute.object "compaction_activity"
-   [Field "task_id" KNatural;Field "source_length" KNatural;Field "now" KNatural;Field "scope" KText]
-   (fun fields => Some (Activity (head fields) (head (tail fields)) (head (tail (tail fields))) (head (tail (tail (tail fields))))));
+   [Field "task_id" KNatural;Field "source_length" KNatural;Field "now" KNatural]
+   (fun fields => Some (Activity (head fields) (head (tail fields)) (head (tail (tail fields)))));
  InputRoute.callback (ModelDeclarations.Compaction false) (outcome_from_values false);
  InputRoute.callback (ModelDeclarations.Compaction true) (outcome_from_values true)].
