@@ -58,6 +58,8 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     can evolve without changing the bound environment or execution permissions. *)
 
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
+From Selvedge.Adapters Require CloudWorkspacesProofs.
+Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields).
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
   retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
   ssh_wait_fits_remaining_deadline,
@@ -142,7 +144,10 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     explicit archive retry. [tests/cloud-workspaces.test.mjs] exercises this
     distinction through the public service and a real HTTP provider peer.
 
-    Receipt admission preserves the supplied JSON spelling. Cloud configuration
+    Receipt admission checks the original receipt retained by its physical
+    owner. [admitted_receipt_preserves_expected_fields] binds that admitted
+    input to its expected task identity; returning a second copy adds no
+    authority. Admission preserves the supplied JSON spelling. Cloud configuration
     decoding at backend use also normalizes valid integer spellings before host
     arithmetic: a receipt may spell its startup timeout as [1e3]. That conversion
     remains necessary even after receipt validation has established the settings

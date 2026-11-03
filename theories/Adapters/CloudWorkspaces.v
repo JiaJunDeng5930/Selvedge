@@ -63,7 +63,7 @@ Definition receipt_matches (source : json) :=
   (is_null (get source "bound_root") || equal (get value "root") (get source "bound_root")) &&
   contained_workspace (get value "workspace") (str value "root") && recovery_authority value && CloudResources.receipt_valid value.
 Definition receipt (source : json) :=
-  if receipt_matches source then success (get source "value")
+  if receipt_matches source then success JNull
   else type_error "Cloud workspace receipt does not match its task".
 Definition workspace (source : json) :=
   let selected := get source "workspace" in

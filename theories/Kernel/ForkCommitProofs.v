@@ -33,7 +33,7 @@ Proof.
  destruct (Tasks.admit_fork_selection _ _ _) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); reflexivity].
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) && Tasks.no_resource_observation raw) end);
- reflexivity.
+ destruct entry; reflexivity.
 Qed.
 
 Lemma the_actual_fork_handler_has_its_typed_result : forall request context before,

@@ -66,6 +66,8 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     budget. Its final dispatch gate is justified by lookup in the selected
     Task's frozen contract; that proof does not require retaining an otherwise
     unused tool value in the commit plan.
+    A native fork already owns its issued invocation. Only the manual entry
+    allocates a correlation ticket for its newly recorded fork call.
     The terminal-settlement contract also reaches [Packet.packet], including
     the matching final after-hook callback of an archived Task. Settlement
     does not restore ordinary execution authority to that Task.

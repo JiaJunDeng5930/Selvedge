@@ -16,11 +16,11 @@ Definition path_valid (value : json) := is_text value && Utf8.well_formed (text 
 Definition workspace_valid value := ArgumentDeclaration.present
  (ArgumentDeclaration.decode Codec.workspace_declaration value).
 Definition workspace_admit value := match ArgumentDeclaration.decode Codec.workspace_declaration value with
- | Some fields => success (ArgumentDeclaration.encode Codec.workspace_declaration fields)
+ | Some _ => success JNull
  | None => type_error "A workspace requires at most 32 roots and an optional primary_root" end.
 Definition root_admit (source : json) :=
  match ArgumentDeclaration.decode Workspace.path_declaration (get source "root") with
- | Some root => type_admit (boolean_field source "absolute") (JString (proj1_sig root))
+ | Some _ => type_admit (boolean_field source "absolute") JNull
      "Workspace roots must be bounded absolute directory paths"
  | None => type_error "Workspace roots must be bounded absolute directory paths" end.
 Fixpoint distinct (seen roots : list json) :=

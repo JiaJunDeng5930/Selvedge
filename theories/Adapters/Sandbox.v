@@ -16,7 +16,7 @@ Definition plan_admission (source : json) :=
   else if negb (existsb (String.eqb (str options "platform")) ["linux";"darwin"])
   then err "Selvedge supports Linux and macOS only"
   else match decode_plan (get source "plan") with
-    | Some _ => success (get source "plan")
+    | Some _ => success JNull
     | None => type_error "Malformed committed sandbox execution plan"
     end.
 Definition root_observation (root observation : json) :=

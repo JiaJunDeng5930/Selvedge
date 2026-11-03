@@ -58,13 +58,14 @@ Proof.
  destruct (match entry with Tasks.ManualFork => false | Tasks.AcceptedNativeFork _ _ =>
    negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
      Tasks.no_resource_observation settings) end); [exact Found|].
- destruct (allocate_ticket before) as [ticket allocated] eqn:Allocated.
- cbn [decision_world accept]. apply fork_children_preserve_every_existing_task.
- destruct entry; [|exact Found].
- unfold find_task, put_task, with_tasks; cbv [set]; cbn.
- rewrite registry_replace_other by congruence.
- unfold allocate_ticket in Allocated; inversion Allocated; subst allocated.
- unfold with_ticket; cbn. exact Found.
+ destruct entry.
+ - destruct (allocate_ticket before) as [ticket allocated] eqn:Allocated.
+   cbn [decision_world accept]. apply fork_children_preserve_every_existing_task.
+   unfold find_task, put_task, with_tasks; cbv [set]; cbn.
+   rewrite registry_replace_other by congruence.
+   unfold allocate_ticket in Allocated; inversion Allocated; subst allocated.
+   unfold with_ticket; cbn. exact Found.
+ - cbn [decision_world accept]. apply fork_children_preserve_every_existing_task; exact Found.
 Qed.
 Theorem accepted_native_fork_never_reconfigures_its_parent : forall invocation remaining origin id count messages settings before parent,
  find_task id before = Some parent ->
@@ -84,6 +85,6 @@ Proof.
  destruct (Tasks.admit_fork_selection parent before selected) as [selection|]; [|destruct (Tasks.fork_selection_fixed parent selected before); exact Found].
  cbn. destruct (negb (Workspace.may_delegate (Tasks.fork_selected parent before selection) (task_current_settings parent) &&
    Tasks.no_resource_observation settings)); [exact Found|].
- destruct (allocate_ticket before). cbn [decision_world accept].
+ cbn [decision_world accept].
  apply fork_children_preserve_every_existing_task; exact Found.
 Qed.

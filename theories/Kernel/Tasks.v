@@ -481,15 +481,15 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
       if match entry with ManualFork => false | AcceptedNativeFork _ _ =>
         negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) end then
        CommandResult.Rejected (start_refusal NativeForkEntry AuthorityExpansion) else
-      let '(ticket, allocated) := allocate_ticket value in
-      let invocation := match entry with
-       | AcceptedNativeFork invocation _ => invocation
-       | ManualFork => Call (manual_fork_identity ticket task) "fork_task"
-         (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt end in
-      let retained := match entry with ManualFork =>
-        with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
-          [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel]))
-        | _ => value end in
+      let '(invocation,retained) := match entry with
+       | AcceptedNativeFork invocation _ => (invocation,value)
+       | ManualFork =>
+         let '(ticket, allocated) := allocate_ticket value in
+         let invocation := Call (manual_fork_identity ticket task) "fork_task"
+           (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt in
+         (invocation,with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
+           [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel])))
+       end in
       let children := fork_children (N.to_nat count) id
         (match entry with ManualFork => append_history [FunctionCall invocation] task | _ => task end)
         messages selected entry (next_task value) invocation retained in

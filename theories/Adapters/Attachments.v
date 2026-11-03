@@ -20,7 +20,7 @@ Definition filename (value : json) :=
   then success value else type_error "An attachment needs a plain filename of at most 256 UTF-8 bytes".
 Definition identifier (value : json) :=
   match D.decode ContentDeclarations.identifier_declaration value with
-  | Some id => success (D.encode ContentDeclarations.identifier_declaration id)
+  | Some _ => success JNull
   | None => type_error "Invalid attachment identifier" end.
 Definition attachment (source : json) :=
   let record := get source "record" in
@@ -69,7 +69,7 @@ Definition board_references (source : json) :=
   (* DEFENSE: Raw attachment references can exceed the four-file limit or contain malformed metadata. *)
   | None => type_error "A card accepts at most four well-formed uploaded file references" end.
 Fixpoint reference_match (keys : list string) (value attachment : json) :=
-  match keys with [] => success attachment | key::rest =>
+  match keys with [] => success JNull | key::rest =>
     if negb (has value key) || equal (get value key) (get attachment key)
     then reference_match rest value attachment
     else type_error ("Attachment " ++ key ++ " does not match its stored observation") end.
@@ -106,7 +106,7 @@ Definition message_image_match (source : json) :=
       equal (JString (proj1_sig mime)) (get stored "mime") &&
       String.eqb (decimal (Images.reference_byte_count bytes)) (diagnostic (get stored "bytes")) &&
       matches "name" name && matches "path" path
-    then success (D.encode ContentDeclarations.reference_declaration admitted) else invalid
+    then success JNull else invalid
   | None => invalid end.
 Definition attachment_budget (source : json) :=
   match D.decode (D.Natural 0 Images.image_byte_limit) (get source "size") with
