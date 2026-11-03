@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** Build only documented official tunnel-client commands; no replacement relay is implemented. */
-export function tunnelArguments(argv, { node = process.execPath, server = fileURLToPath(new URL('./server.mjs', import.meta.url)) } = {}) {
+function tunnelArguments(argv) {
   const [action, ...rest] = argv;
   // DEFENSE: CLI users can name unsupported tunnel actions; only documented official commands are forwarded.
   if (!['init', 'doctor', 'run'].includes(action)) throw new Error('Usage: tunnel.mjs init|doctor|run --profile NAME [--tunnel-id tunnel_ID]');
@@ -19,11 +19,12 @@ export function tunnelArguments(argv, { node = process.execPath, server = fileUR
   }
   const profile = options['--profile'] ?? 'selvedge';
   if (action === 'init') {
+    const server = fileURLToPath(new URL('./server.mjs', import.meta.url));
     const tunnel = options['--tunnel-id'];
     // DEFENSE: init can be invoked without the tunnel-id argument required by this launcher.
     if (!tunnel) throw new Error('init requires --tunnel-id from OpenAI tunnel settings');
     return ['init', '--sample', 'sample_mcp_stdio_local', '--profile', profile, '--tunnel-id', tunnel,
-      '--mcp-command', `${quote(node)} ${quote(server)}`];
+      '--mcp-command', `${quote(process.execPath)} ${quote(server)}`];
   }
   // DEFENSE: doctor/run must not silently ignore a tunnel-id option that applies only to initialization.
   if (options['--tunnel-id']) throw new Error('--tunnel-id is only accepted by init');
