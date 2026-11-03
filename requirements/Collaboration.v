@@ -39,7 +39,8 @@ Export GraphConstructionProofs(public_resolved_graph_installs_its_exact_typed_pl
 Export TaskGraphProofs(resolved_installation_succeeds,
   expansion_has_declared_meaning,
   pending_deliveries_obey_registry_order,
-  actual_delivery_reaches_idle_task).
+  actual_delivery_reaches_idle_task,
+  observed_provider_text_retains_its_requested_mode_and_is_routed).
 
 (** ** Graphs express connections using ordinary Task operations
 
@@ -56,9 +57,13 @@ Export TaskGraphProofs(resolved_installation_succeeds,
     [pending_deliveries_obey_registry_order] and
     [actual_delivery_reaches_idle_task] connect it to actual delivery. An
     implementation that emits no handoffs cannot satisfy the positive result.
-    Fresh ordinary assistant replies trigger reactions; installation does not
-    replay old outputs. Interactive output and tool calls are not ordinary
-    handoff text.
+    Fresh nonempty assistant replies trigger reactions; installation does not
+    replay old outputs. Routing follows the returned assistant message, so the
+    source's requested output mode cannot silently discard its text.
+    [observed_provider_text_retains_its_requested_mode_and_is_routed] connects
+    that requirement to the actual provider callback and reaction hook.
+    Replies containing tool calls await their results instead of triggering a
+    handoff; nonassistant context is not handoff text.
 
     Reliable handoff is part of the committed transition and reuses normal
     input admission. A target refusal remains observable without discarding the
