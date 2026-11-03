@@ -184,20 +184,16 @@ Definition unknown_operations (operations : list operation) :=
  map (History.interrupted_result "outcome_unknown"
  "The external operation may already have run. Its side effects cannot be inferred or undone; it will not be repeated automatically.") operations.
 Inductive control := Freeze | Unfreeze | Stop | Interrupt | Archive.
-Definition control_transition (command : control) (current : lifecycle) : option lifecycle :=
+Definition control_available (command : control) (current : lifecycle) : bool :=
  match command, current with
- | Freeze, Running phase operations => Some (Frozen phase operations)
- | Unfreeze, Frozen phase operations => Some (Running phase operations)
- | Stop, Running phase operations => Some (Stopped phase operations)
- | Interrupt, Archived _ | Archive, Archived _ => None
- | Interrupt, _ => Some (Stopped Idle [])
- | Archive, _ => Some (Archived [])
- | _,_ => None end.
-Definition control_target (command : control) (value : task) := control_transition command (task_lifecycle value).
+ | _, Archived _ => false
+ | Freeze, Running _ _ | Unfreeze, Frozen _ _ | Stop, Running _ _ => true
+ | Interrupt, _ | Archive, _ => true
+ | _,_ => false end.
 Definition control_name (value : control) := match value with Freeze => "freeze" | Unfreeze => "unfreeze"
  | Stop => "stop" | Interrupt => "interrupt" | Archive => "archive" end.
 Definition available_controls (value : lifecycle) := fold_right (fun request rest =>
- match control_transition request value with Some _ => JString (control_name request) :: rest | None => rest end)
+ if control_available request value then JString (control_name request) :: rest else rest)
  [] [Freeze;Unfreeze;Stop;Interrupt;Archive].
 Definition control_changes (command : control) (task : task) : list TaskChange.edit :=
  match command with
@@ -282,10 +278,10 @@ Definition perform_control (command : control) {before : world} (reference : Tas
 Definition control_result (id : N) (command : control) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"
- | Some target => match control_target command (TaskScope.selected target) with
-   | None => CommandResult.refuse "invalid_transition" "This lifecycle control is unavailable for the task"
-   | Some _ => CommandResult.map (perform_control command target) (admit_control command target)
-   end end.
+ | Some target => if control_available command (task_lifecycle (TaskScope.selected target)) then
+     CommandResult.map (perform_control command target) (admit_control command target)
+   else CommandResult.refuse "invalid_transition" "This lifecycle control is unavailable for the task"
+ end.
 Definition control_command (id : N) (command : control) (value : world) :=
  CommandResult.decide value (control_result id command value).
 Definition cancel_operation (id operation_id : N) (value : world) :=

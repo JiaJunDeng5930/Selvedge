@@ -41,7 +41,7 @@ Theorem archived_controls_reject_without_changing_world : forall id command valu
 Proof.
  intros id command value task operations Found Archived.
  rewrite TaskChangesProofs.control_command_expression; cbv beta zeta; rewrite Found.
- unfold Tasks.control_target. rewrite Archived.
+ rewrite Archived.
  destruct command; eexists; reflexivity.
 Qed.
 

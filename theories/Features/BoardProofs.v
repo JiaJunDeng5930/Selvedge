@@ -223,7 +223,7 @@ Proof.
  intros target task value found not_archived.
  unfold Selvedge.Kernel.Domain.task_archived in not_archived.
  rewrite TaskChangesProofs.control_command_expression. rewrite found.
- unfold Tasks.control_target, Tasks.control_transition.
+ unfold Tasks.control_available.
  destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl in *; try discriminate; reflexivity.
 Qed.
 

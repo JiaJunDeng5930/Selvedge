@@ -152,9 +152,11 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
 
     The existing control and input definitions give these operations their
     meaning. Their changes use the same frame-preserving Task construction.
-    Lifecycle availability is admitted by the control command before it builds
-    those changes. The actual command rejects every control on an archived
-    Task without changing the world or emitting effects. Its private edit
+    Lifecycle availability is a Boolean observation shared by the command and
+    its public control list. The accepted command builds its changes once;
+    constructing a second lifecycle only to discard it adds no execution meaning.
+    The actual command rejects every control on an archived Task without changing
+    the world or emitting effects. Its private edit
     helper therefore does not need a second availability check or an identity
     guarantee for that already-refused state.
     [steering_replaces_inference_and_preserves_independent_work] additionally
@@ -162,7 +164,7 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
   TasksProofs NativeAuthorityProofs.
-Export Selvedge.Kernel.Tasks(control_transition, input_changes, input_effects).
+Export Selvedge.Kernel.Tasks(control_command, input_changes, input_effects).
 Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
   stopped_inference_requests_settle_without_effects,
   stopped_tasks_can_finish_an_already_accepted_call).

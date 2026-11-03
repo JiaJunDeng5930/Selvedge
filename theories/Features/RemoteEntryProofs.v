@@ -35,7 +35,7 @@ Proof.
  destruct task; cbn in Running; subst.
  cbn [Selvedge.Kernel.CommandExecution.handle_stop Tasks.control_command
    TaskScope.select State.find_task registry_at TaskScope.selected TaskScope.owner
-   Tasks.control_target Tasks.control_transition Tasks.control_changes
+   Tasks.control_available Tasks.control_changes
    TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
    TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
  reflexivity.
