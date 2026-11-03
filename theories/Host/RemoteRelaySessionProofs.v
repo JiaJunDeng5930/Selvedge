@@ -105,20 +105,21 @@ Proof.
  change (N.of_nat (List.length live) + 1 <= 8). lia.
 Qed.
 
-Theorem ticket_consumption_admits_exactly_current_bounded_authority current now grants digest count selected :
- snd (step current (ConsumeTicket now grants digest count)) = TicketConsumed selected <->
- exists host tickets, current = Ready host tickets /\
+Theorem ticket_consumption_admits_exactly_current_bounded_authority current now grants digest count authority :
+ snd (step current (ConsumeTicket now grants digest count)) = TicketConsumed authority <->
+ exists host tickets selected, current = Ready host tickets /\
  find (fun entry => String.eqb (ticket_digest entry) digest) tickets = Some selected /\
- now < ticket_expiry selected /\ current_authority grants (ticket_grant selected) /\ count < 32.
+ now < ticket_expiry selected /\ current_authority grants (ticket_grant selected) /\
+ count < 32 /\ ticket_grant selected = authority.
 Proof.
  destruct current as [g|g|host|host tickets|connection|]; unfold step; cbn [snd];
- try solve [split; [discriminate|intros [other [entries [Impossible _]]]; discriminate]].
+ try solve [split; [discriminate|intros [other [entries [selected [Impossible _]]]]; discriminate]].
  destruct (find (fun entry => String.eqb (ticket_digest entry) digest) tickets) as [chosen|] eqn:Selected;
    cbn [snd].
  - assert (Consumed : (if current_ticket now grants chosen then
-       if count <? 32 then TicketConsumed chosen else TicketRejected ConnectionLimit
-       else TicketRejected InvalidTicket) = TicketConsumed selected <->
-       current_ticket now grants chosen = true /\ (count <? 32) = true /\ chosen = selected).
+       if count <? 32 then TicketConsumed (ticket_grant chosen) else TicketRejected ConnectionLimit
+       else TicketRejected InvalidTicket) = TicketConsumed authority <->
+       current_ticket now grants chosen = true /\ (count <? 32) = true /\ ticket_grant chosen = authority).
    { split.
      - destruct (current_ticket now grants chosen) eqn:Current; [|discriminate].
        destruct (count <? 32) eqn:Capacity; [|discriminate].
@@ -126,13 +127,13 @@ Proof.
      - intros [Current [Capacity Same]]. now rewrite Current,Capacity,Same. }
    rewrite Consumed,current_ticket_is_current_authority,N.ltb_lt.
    split.
-   + intros [[Fresh Authorized] [Capacity Same]]. subst selected.
-     exists host,tickets. auto.
-   + intros [other [entries [Same [Found [Fresh [Authorized Capacity]]]]]].
+   + intros [[Fresh Authorized] [Capacity Same]].
+     exists host,tickets,chosen. repeat split; assumption || reflexivity.
+   + intros [other [entries [selected [Same [Found [Fresh [Authorized [Capacity Grant]]]]]]]].
      injection Same as Host Entries. subst other entries. rewrite Selected in Found.
      injection Found as Chosen. subst selected. auto.
  - split; [discriminate|].
-   intros [other [entries [Same [Found _]]]].
+   intros [other [entries [selected [Same [Found _]]]]].
    injection Same as Host Entries. subst other entries. rewrite Selected in Found. discriminate.
 Qed.
 

@@ -92,7 +92,7 @@ export class RemoteControl {
   #connector;
   #pairingState = { expires_at: 0, pending: [] };
   #pairingStep(kind, observation = {}) {
-    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, now: Date.now(), ...observation } });
+    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, ...observation } });
   }
   #closed = false;
   #dirty = false;
@@ -164,7 +164,7 @@ export class RemoteControl {
   }
 
   pending() {
-    this.#pairingStep('observe');
+    this.#pairingStep('observe', { now: Date.now() });
     return this.#pairingState.pending.map(request => ({ ...request }));
   }
 
@@ -175,7 +175,7 @@ export class RemoteControl {
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');
     const result = unwrap(await this.#service.command({ op: 'remote_grant', controller_id: request.controller_id, permissions }));
-    this.#pairingStep('consume', { request_id });
+    this.#pairingStep('consume', { now: Date.now(), request_id });
     await this.reconcile();
     return result;
   }
@@ -226,7 +226,7 @@ export class RemoteControl {
           const current = await this.#nativeStatus();
           return current.enabled ? current.grants : [];
         },
-        onPairRequest: request => this.#pairingStep('receive', { request }),
+        onPairRequest: request => this.#pairingStep('receive', { now: Date.now(), request }),
       });
       this.#connector.start();
     }

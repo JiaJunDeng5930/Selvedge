@@ -252,18 +252,17 @@ Definition pairing_state_of source := match F.decode pairing_state_fields source
  | Some (deadline,(pending,_)) => if N.eqb deadline 0 then Some PairingIdle else
      Some (AwaitingPairing deadline (hd_error (proj1_sig pending)))
  | None => None end.
-Definition pairing_event name fields (construct : N -> F.values fields -> option pairing_observation)
- `{DistinctNames ("kind" :: "now" :: F.names fields)} : F.decoder pairing_observation :=
- F.Decoder (F.declare "kind" (JString name) (F.required "now" natural :: fields))
-   (fun '(now,values) => construct now values).
+Definition pairing_event name fields (construct : F.values fields -> option pairing_observation)
+ `{DistinctNames ("kind" :: F.names fields)} : F.decoder pairing_observation :=
+ F.Decoder (F.declare "kind" (JString name) fields) construct.
 Definition pairing_event_of := F.decode_cases [
- pairing_event "begin" [F.required "expires_at" natural] (fun _ '(deadline,_) => Some (BeginPairing deadline));
- pairing_event "clear" [] (fun _ _ => Some ClearPairing);
- pairing_event "observe" [] (fun now _ => Some (ObservePairing now));
- pairing_event "receive" [F.required "request" RP.pairing_request_declaration]
-   (fun now '(request,_) => Some (ReceivePairing now request));
- pairing_event "consume" [F.required "request_id" RP.identifier_declaration]
-   (fun now '(request,_) => Some (ConsumePairing now (RP.identifier_text request)))].
+ pairing_event "begin" [F.required "expires_at" natural] (fun '(deadline,_) => Some (BeginPairing deadline));
+ pairing_event "clear" [] (fun _ => Some ClearPairing);
+ pairing_event "observe" [F.required "now" natural] (fun '(now,_) => Some (ObservePairing now));
+ pairing_event "receive" [F.required "now" natural;F.required "request" RP.pairing_request_declaration]
+   (fun '(now,(request,_)) => Some (ReceivePairing now request));
+ pairing_event "consume" [F.required "now" natural;F.required "request_id" RP.identifier_declaration]
+   (fun '(now,(request,_)) => Some (ConsumePairing now (RP.identifier_text request)))].
 Definition pairing_step source observed := match pairing_state_of source,pairing_event_of observed with
  | Some current,Some event => Some (pairing_state_json (local_pairing_step current event)) | _,_ => None end.
 

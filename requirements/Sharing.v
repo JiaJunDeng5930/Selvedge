@@ -204,6 +204,9 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     they do not create a retained authorization state. A required disconnection
     constrains the action that retires the transport, not the abandoned check
     stage or intermediate session that its consumer immediately discards.
+    Local pairing starts with an explicit deadline and clearing ends it
+    unconditionally. Only observing, receiving or consuming a pending request
+    needs a clock reading to decide whether that deadline has passed.
 
     New semantic state is installed before sending or accepting sockets. Ticket
     consumption precedes authorization. After asynchronous hashing, the relay
@@ -243,8 +246,10 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     That predicate also selects the controller attachment constructor; repeating
     its role test in the host supplies no additional authority.
     Ticket issuance and consumption also require a current grant and unexpired
-    credential. A successful consumption carries its selected ticket by
-    construction; failure reasons belong only to rejected results. Their
+    credential. A successful consumption carries the selected ticket's authority
+    to connection installation. The digest and expiry have completed their
+    admission role and need not cross that boundary again. Failure reasons
+    belong only to rejected results. Their
     complete admission contracts preserve successful access
     within the attachment and live-connection limits, while
     [issued_tickets_respect_capacity] bounds the actual retained ticket list.

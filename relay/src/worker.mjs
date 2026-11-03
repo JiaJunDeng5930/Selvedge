@@ -255,7 +255,7 @@ export class RemoteHostRelay {
     const [client, server] = Object.values(pair);
     const connectionId = crypto.randomUUID();
     const installed = remoteControl('relay_controller', { generation: this.generation,
-      connection_id: connectionId, ticket: consumed.ticket });
+      connection_id: connectionId, authority: consumed.authority });
     server.serializeAttachment(installed.state);
     this.ctx.acceptWebSocket(server, ['controller']);
     send(host, installed.host_frame);

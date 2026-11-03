@@ -51,7 +51,7 @@ Inductive observation :=
 Inductive verdict := Permit | Deny.
 Inductive reason := TicketLimit | HostOffline | ConnectionLimit | InvalidTicket.
 Inductive action := Decision (allowed : verdict)
- | TicketIssued | TicketConsumed (selected : ticket) | TicketRejected (why : reason)
+ | TicketIssued | TicketConsumed (authority : grant) | TicketRejected (why : reason)
  | CloseControllers | NotifyHost (id : RP.identifier) | NoAction.
 
 Definition decide (allowed : bool) := if allowed then Permit else Deny.
@@ -116,7 +116,7 @@ Definition step (current : state) (event : observation) : state * action :=
      let remaining:=filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets in
      (Ready host remaining,match selected with
       | Some value=>if current_ticket now grants value then
-          if count <? 32 then TicketConsumed value else TicketRejected ConnectionLimit
+          if count <? 32 then TicketConsumed (ticket_grant value) else TicketRejected ConnectionLimit
         else TicketRejected InvalidTicket
       | None=>TicketRejected InvalidTicket end)
    | _=>(current,TicketRejected InvalidTicket) end
@@ -191,7 +191,7 @@ Definition encode_result next output :=
  let fields:=[("state",encode_state next)] in JObject (fields++match output with
  | Decision allowed=>[("allowed",JBool (permitted allowed))]
  | TicketIssued=>[("allowed",JBool true)]
- | TicketConsumed selected=>[("allowed",JBool true);("ticket",D.encode ticket_declaration selected)]
+ | TicketConsumed authority=>[("allowed",JBool true);("authority",D.encode RP.authority_declaration authority)]
  | TicketRejected why=>[("allowed",JBool false);("reason",JString (reason_text why))]
  | CloseControllers=>[("action",JString "close_controllers")]
  | NotifyHost id=>[("action",JString "notify_host");("connection_id",JString (RP.identifier_text id))]
@@ -223,8 +223,8 @@ Definition forward_request source := match F.decode [F.required "connection" D.A
    | _,_ => None end
  | None => None end.
 Definition install_controller source := match F.decode [generation_field;F.required "connection_id" RP.identifier_declaration;
- F.required "ticket" ticket_declaration] source with
- | Some (generation,(id,(ticket,_))) => let authority := ticket_grant ticket in
+ F.required "authority" RP.authority_declaration] source with
+ | Some (generation,(id,(authority,_))) =>
    let connection := ControllerData generation id authority in
    Some (JObject [("state",encode_state (Controller connection));
      ("host_frame",RP.encode_relay_frame (RP.RelayControllerOpen id authority));
