@@ -13,7 +13,7 @@ import { naturalKey, sameNatural } from './public/json-tokens.mjs';
 import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
-import { runBash, startBash, runReadImage } from './process.mjs';
+import { startBash, runReadImage } from './process.mjs';
 import { ProcessRegistry } from './process-registry.mjs';
 import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, admitRawWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
@@ -63,13 +63,13 @@ export class Service extends EventEmitter {
   #streams = [];
   #audioSessions = new Map();
 
-  static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions, audioOptions, audioFactory = createChatGPTAudio } = {}) {
+  static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions, audioFactory = createChatGPTAudio } = {}) {
     // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
-      service.journal = await Journal.open(path.join(home, 'journal.sqlite'), journalOptions);
+      service.journal = await Journal.open(path.join(home, 'journal.sqlite'));
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
@@ -203,7 +203,7 @@ export class Service extends EventEmitter {
     }
   }
 
-  #dispatch(effect, sequence, firstOrdinal = 0) {
+  #dispatch(effect, sequence, firstOrdinal) {
     // DEFENSE: A commit observer can reach later effects after an earlier effect retired the service.
     if (this.#closing || this.#failure) return 0;
     return dispatchEffect(effect, {
@@ -350,7 +350,7 @@ export class Service extends EventEmitter {
         },
         chatgpt: async effect => {
           const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
-          return runBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] });
+          return startBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] }).result;
         },
         text: effect => requestTaskText(effect, this.config, this.home, this.limits, { signal }),
         approval: effect => requestApproval(effect, this.config, this.home, this.limits, { signal }),

@@ -8,10 +8,10 @@ import { prepareSandbox } from './sandbox.mjs';
 import { storeImageContent } from './files.mjs';
 import { durableDirectory, syncDirectory } from './file-io.mjs';
 
-export function killGroup(child, signal = 'SIGKILL') {
+export function killGroup(child) {
   // DEFENSE: A failed spawn has no PID and therefore owns no process group.
   if (!child?.pid) return;
-  try { process.kill(-child.pid, signal); }
+  try { process.kill(-child.pid, 'SIGKILL'); }
   // DEFENSE: The shell or its process group may exit before cancellation/exit cleanup sends its signal.
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
@@ -383,9 +383,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     },
   };
 }
-
-/** Execute an already validated Bash effect and wait for its final result. */
-export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
 export async function runReadImage(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {

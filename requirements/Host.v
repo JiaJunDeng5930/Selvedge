@@ -19,7 +19,9 @@ Import ListNotations.
     execution. The submitted frame is also the retained replay input: one
     serialization owner avoids a second representation whose interpretation
     could differ from the committed execution. Replay submits that retained
-    frame to the same admission entry.
+    frame to the same admission entry. Recovery and new commands use the kernel
+    built for this service; binding the Worker directly to that bundle keeps
+    execution semantics independent of a private caller-supplied module path.
     [actual_query_preserves_world_and_emits_no_effect] constrains that actual
     packet entry. Public restart tests cover ordered replay and retained state;
     SQLite supplies transaction durability. Exclusive writer ownership and the
