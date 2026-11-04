@@ -218,7 +218,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     try { const result = await child; return { ...result, exit_code: 0 }; }
     catch (error) {
       // DEFENSE: A remote command's nonzero exit is an execution result, while launch/transport I/O errors still throw.
-      if (Number.isInteger(error.code)) return { stdout: error.stdout ?? '', stderr: error.stderr ?? '', exit_code: error.code };
+      if (Number.isInteger(error.code)) return { stdout: error.stdout, stderr: error.stderr, exit_code: error.code };
       throw error;
     }
   }

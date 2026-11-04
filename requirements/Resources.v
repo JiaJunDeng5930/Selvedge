@@ -197,7 +197,12 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Checked interpreters keep the host from choosing another continuation.
     SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. [ssh_expiry_emits_no_probe] requires an expired
+    is a preparation failure. Promisified [execFile] retains [stdout] and [stderr]
+    on both successful and failed commands; fixed UTF-8 encoding makes those
+    observations strings. SSH command results preserve them directly rather
+    than replacing absent fields with invented empty output. This uses the
+    Node API contract at https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback.
+    [ssh_expiry_emits_no_probe] requires an expired
     readiness check to return refusal from the actual controller. The host
     dispatches on the refusal constructor, so its diagnostic text may evolve
     independently of the deadline contract.

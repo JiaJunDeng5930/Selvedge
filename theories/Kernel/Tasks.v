@@ -514,8 +514,6 @@ Definition open_side (id : N) (contents : content) (value : world) :=
        (admit_input reference)
    else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
  end).
-(* The wire approval DTO names its reviewer. An explicit selection can replace
-   the frozen profile behind that same key, so wire equality is insufficient. *)
 Definition execution_reasoning (effort : option string) (current : profile) :=
  match effort with
  | Some value => if String.eqb value "default" then Some (with_reasoning (profile_default current) current)
@@ -533,17 +531,15 @@ Definition configure_execution (id : N)
    let model := match name with
     | None => Some (task_current_profile task)
     | Some name => find_profile name (environment_profiles (world_environment value)) end in
-   (* Reviewer selection precedes model, reasoning and busy failures. Omitted
-      fields retain the captured settings rather than re-resolving defaults. *)
-   let reviewer_model := match model with Some selected => selected
-     | None => task_current_profile task end in
-   match match approval_source with
-    | None => Some (settings_approval current)
-    | Some source => approval_of_values reviewer_model (environment_profiles (world_environment value)) source end with
-   | None => refuse_start Configuration InvalidPolicy value
-   | Some approval => match model with
-     | None => refuse_start Configuration UnknownProfile value
-     | Some profile => match execution_reasoning reasoning profile with
+   match model with
+   | None => refuse_start Configuration UnknownProfile value
+   | Some profile =>
+     (* Omitted fields retain the captured settings rather than re-resolving defaults. *)
+     match match approval_source with
+      | None => Some (settings_approval current)
+      | Some source => approval_of_values profile (environment_profiles (world_environment value)) source end with
+     | None => refuse_start Configuration InvalidPolicy value
+     | Some approval => match execution_reasoning reasoning profile with
        | None => refuse_start Configuration InvalidReasoning value
        | Some chosen =>
            let sandbox := match sandbox_source with
@@ -553,6 +549,8 @@ Definition configure_execution (id : N)
            let settings := WorkspaceBinding.normalize_settings
             (Settings (settings_workspace current) (settings_project current) sandbox approval
               (settings_guidance current) (settings_worktree current) (settings_resource current)) value in
+           (* The wire approval DTO names its reviewer. An explicit selection can replace
+              the frozen profile behind that same key, so wire equality is insufficient. *)
            let same := Domain.same_profile chosen (task_current_profile task) &&
              Json.equal (settings_json settings) (settings_json current) &&
              same_approval (settings_approval settings) (settings_approval current) in

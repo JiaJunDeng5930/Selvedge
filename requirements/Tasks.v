@@ -30,6 +30,9 @@ Export ExecutionSettingsProofs(admitted_execution_settings_take_effect,
     succeed and become the current configuration, regardless of any retained
     reasoning lease. Selecting default reasoning restores the captured profile
     default while preserving the creation contract.
+    Approval selection uses the resolved model. An unknown model therefore
+    refuses configuration directly; consulting the current model only to prefer
+    a different refusal adds no configuration behavior.
 
     A fork continues recorded context and captures its own overrides. It must
     not reread mutable defaults as if they were the parent's original context,
