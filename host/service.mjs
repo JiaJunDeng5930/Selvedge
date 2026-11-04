@@ -795,7 +795,7 @@ export class Service extends EventEmitter {
   async audioStop(id, browser_id) {
     this.#ownedAudio(id, browser_id);
     await this.#stopAudio(id);
-    return { stopped: true };
+    return null;
   }
 
   async #stopAudio(id) {

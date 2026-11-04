@@ -25,8 +25,7 @@ Definition context effect :=
   let notes := map (fun pair => let '(index,item) := pair in JObject [("history_index",number (N.of_nat index));
     ("kind",get item "role");("text",get item "content")])
     (filter (fun pair => note_role (str (snd pair) "role")) (combine (seq 0 (List.length history)) history)) in
-  JObject [("schema",JString "selvedge-reasoning-context-1");("scope",JString "native_public_history");
-    ("model",get (get effect "model") "name");("project_context",get effect "project_context");
+  JObject [("model",get (get effect "model") "name");("project_context",get effect "project_context");
     ("original_user_request",hd (JString "") users);("latest_user_request",last users (JString ""));
     ("prior_user_requests",JArray (firstn (List.length users - 2) (skipn 1 users)));("public_notes",JArray notes);
     ("recent_tool_calls",JArray (pair_calls recent history));
