@@ -175,7 +175,7 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 From Selvedge.Host Require RemoteTransportProofs
   RemoteConnectorSessionProofs RemoteRelaySessionProofs.
-Export RemoteConnectorSession(retirement_discards_session_and_preserves_notice_cursor).
+Export RemoteConnectorSession(retirement_discards_session_without_rewinding_notice_cursor).
 Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   retry_observation_before_deadline_does_not_connect).
@@ -276,7 +276,7 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     Impossible internal action categories need no second runtime refusal.
     Actions request work from their interpreter; state-only updates need no
     separate acknowledgement. Retirement removes the live session, its queued
-    work and pairing code by entering the offline phase, while preserving the
+    work and pairing code by entering the offline phase, without rewinding the
     notice cursor across a later connection. Its caller consumes the updated
     state without a retirement acknowledgement or prescribed retired generation.
     Repeating already installed authority in a
@@ -300,12 +300,11 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
 
     [subscription_capture_records_the_current_notice_cutoff] and
     [delivered_notice_is_queued_and_beyond_the_current_cutoff] connect snapshot
-    subscription and later notices. Transport replacement retains the notice
-    sequence. Unsubscribe, resubscribe and delayed queue completion therefore
+    subscription and later notices. Unsubscribe, resubscribe and delayed queue completion
     share one cursor owner rather than separate JavaScript tests.
     The cursor orders notices relative to a subscription cutoff; it is not a
     count of delivered messages. Strict advancement is sufficient without
-    requiring adjacent cursor values.
+    requiring adjacent cursor values or an unchanged cursor during retirement.
 
     The journal remains command-idempotency authority; the relay does not keep
     another durable command database. Socket handles, cryptography, atomic

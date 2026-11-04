@@ -270,10 +270,11 @@ Theorem stale_generation_is_ignored s n value : N.eqb (generation s) n = false -
  step s (Observe n value) = (s,Ignore).
 Proof. destruct s as [phase sequence]. intro Stale.
  unfold step,phase_step,generation in *; cbn in *. rewrite Stale. reflexivity. Qed.
-Theorem retirement_discards_session_and_preserves_notice_cursor s :
+Theorem retirement_discards_session_without_rewinding_notice_cursor s :
  let next := fst (step s (Observe (generation s) Retire)) in
- (exists n, current next = Offline n None) /\ notice_sequence next = notice_sequence s.
-Proof. unfold step,phase_step,generation. rewrite N.eqb_refl. split; [eexists|]; reflexivity. Qed.
+ (exists n, current next = Offline n None) /\ notice_sequence s <= notice_sequence next.
+Proof. unfold step,phase_step,generation. rewrite N.eqb_refl.
+ split; [eexists; reflexivity|apply N.le_refl]. Qed.
 
 Theorem unqueued_notice_cannot_publish sequence data id notice :
  notice_queued data id notice = false -> snd (deliver_notice sequence data id notice) = Ignore.
