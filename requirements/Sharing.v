@@ -72,7 +72,10 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority,
     The shared bounded descriptor reader establishes file kind,
     no-follow access and size; plugin admission adds the private file's owner,
     permissions and configuration fields. Each boundary consumes the
-    observations already established by its owner.
+    observations already established by its owner. The descriptor supplies
+    [fs.Stats.mode] as a filesystem bit field; a connection identity's numerical
+    bounds do not protect the credential.
+    See https://nodejs.org/api/fs.html#statsmode .
     Published credentials must be owner-readable and deny group/other access.
     Loading does not require owner write permission. Acceptance retains the
     read permission check because a privileged test runner could otherwise

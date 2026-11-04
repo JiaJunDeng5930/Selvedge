@@ -23,10 +23,7 @@ Definition valid_name name := match Utf8.decode name with Some (first::rest) =>
   ascii_letter first && forallb ascii_name rest && (N.of_nat (List.length rest) <=? 63) | _ => false end.
 Definition env_name name := match Utf8.decode name with Some (first::rest) =>
   (ascii_letter first || (first =? 95)) && forallb ascii_name rest | _ => false end.
-Definition uint32 := D.check G.identity_declaration.
 Definition identity_format := D.NaturalSpelling 0 (Some ChatgptArguments.identity_maximum).
-Fixpoint unique_values values := match values with
-  | [] => true | first::rest => negb (existsb (equal first) rest) && unique_values rest end.
 Definition default_sandbox := Domain.Sandbox Domain.WorkspaceWrite false.
 Definition default_value value fallback := match value with JNull => fallback | _ => value end.
 Definition connection_fields := [F.required "token_env" (D.Value Schema.KText);
@@ -90,7 +87,7 @@ Definition client_settings source :=
    | None => err "SELVEDGE_CONNECTION_ID must name a configured connection" end
  | _ => err "SELVEDGE_CONNECTION_ID must name a configured connection" end.
 Definition settings_file source := if String.eqb (str source "phase") "metadata" then
-    if uint32 (get source "mode") && (num source "mode" mod 64 =? 0) &&
+    if (num source "mode" mod 64 =? 0) &&
       equal (get source "owner_uid") (get source "current_uid") then success JNull
     else err "The connection file must be private and owned by this user"
   else if String.eqb (str source "phase") "keys" then

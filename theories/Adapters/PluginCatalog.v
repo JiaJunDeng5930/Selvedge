@@ -51,7 +51,7 @@ Definition manifest_valid value definition :=
   keys value ["protocolVersion";"revision";"beforeTool";"afterTool";"events";"tools"] &&
   equal (get value "protocolVersion") (get definition "protocolVersion") && Utf8.nonblank (str value "revision") &&
   (N.of_nat (String.length (str value "revision")) <=? 128) && is_bool (get value "beforeTool") && is_bool (get value "afterTool") &&
-  is_array (get value "events") && is_array (get value "tools") && unique_values (items (get value "events")) &&
+  is_array (get value "events") && is_array (get value "tools") &&
   forallb (fun event => existsb (equal event) (items (get definition "events"))) (items (get value "events")).
 Definition manifest source := let value := get source "manifest" in
   if negb (manifest_valid value (get source "definition")) then type_error ("Plugin " ++ str source "name" ++ " returned an invalid manifest") else

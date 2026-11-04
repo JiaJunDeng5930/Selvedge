@@ -224,6 +224,11 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     the future identity supply. Keeping that supply exactly unchanged would
     constrain numbering without improving response correlation.
 
+    Event subscriptions select which kinds a plugin receives.
+    [Notifications.subscribers] visits each registered plugin once and checks
+    membership, so repeated event names cannot multiply delivery. Admission
+    still rejects unsupported event kinds and retains distinct plugin identities.
+
     A plugin notification attempts to enqueue one already committed event.
     Admission decides whether capacity remains and the resulting byte total;
     it does not rewrite the event. The host can therefore enqueue that original
