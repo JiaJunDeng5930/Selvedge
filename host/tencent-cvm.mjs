@@ -34,9 +34,6 @@ export function tencentCvmBackend(settings) {
   }
 
   return {
-    request(token, taskId) {
-      return boundary('control.resource.request', { settings, token, task_id: taskId });
-    },
     async scope({ signal } = {}) {
       const response = await identity.request('GetCallerIdentity', {}, { signal });
       // DEFENSE: Identity responses without an owning account cannot authorize billable allocation.
@@ -46,7 +43,8 @@ export function tencentCvmBackend(settings) {
       return { provider: 'tencent_cvm', account_id: response.AccountId, region: settings.region,
         endpoint: endpoint ? endpoint.origin : 'https://cvm.tencentcloudapi.com' };
     },
-    async create(parameters, { signal } = {}) {
+    async create(token, taskId, { signal } = {}) {
+      const parameters = boundary('control.resource.request', { settings, token, task_id: taskId });
       // Every exception after dispatch is unknown, including API and response-body errors.
       // Recovery uses only DescribeInstances; it never replays this request.
       const response = await request('RunInstances', parameters, signal);
@@ -67,7 +65,7 @@ export function tencentCvmBackend(settings) {
         signal?.throwIfAborted();
         const instance = await describe(instanceId, signal);
         const plan = boundary('control.resource.provider', {
-          operation: 'ready', instance: instance ?? null, settings, now: Date.now(), deadline,
+          operation: 'ready', instance: instance ?? null, address_type: settings.address_type, now: Date.now(), deadline,
         });
         if (plan.action === 'ready') return { host: plan.host };
         if (plan.action === 'failed') throw new Error(`Tencent CVM failed to start (${instance.InstanceState})`);
@@ -80,7 +78,7 @@ export function tencentCvmBackend(settings) {
       while (true) {
         const instance = await describe(instanceId, signal);
         const plan = boundary('control.resource.provider', {
-          operation, instance: instance ?? null, settings, now: Date.now(), deadline,
+          operation, instance: instance ?? null, now: Date.now(), deadline,
         });
         if (plan.action === 'done') return;
         if (plan.action === 'timeout') throw new Error(`Tencent CVM destruction deadline exceeded (${instanceId})`);

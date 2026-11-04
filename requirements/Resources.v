@@ -91,8 +91,10 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     changed. [reconciled_termination_matches_the_unique_owned_instance] constrains
     both directions of the actual selection. Image, instance type and network
     settings describe preparation; requiring their old values during cleanup
-    can leave the owned instance running and billable. Recovery never repeats
-    allocation, so a retained allocation request is not recovery authority.
+    can leave the owned instance running and billable. The first allocation
+    constructs its request from the captured backend settings and the recorded
+    token and Task identity. Recovery never repeats allocation, so the complete
+    request is not retained in the recovery record.
     The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.

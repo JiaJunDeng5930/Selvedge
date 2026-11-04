@@ -368,12 +368,13 @@ Definition fork_child (owner parent_id : N) (parent : task) (contents : option c
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
   (contract_max_fork (task_contract parent)) (contract_max_descendants (task_contract parent))
   (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
+ let history := fork_child_history owner parent_id parent settings side in
  Task contract chosen settings
  (Running (match contents with Some _ => WantsModel | None => Idle end) [])
- (fork_child_history owner parent_id parent settings side ++ optional_input contents) []
+ (history ++ optional_input contents) []
  (parent_id :: task_lineage parent)
  (if side then Some parent_id else None)
- (if side then N.of_nat (List.length (fork_child_history owner parent_id parent settings side)) else 0) 0.
+ (if side then N.of_nat (List.length history) else 0) 0.
 Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation : call) (child : task) :=
  let child := with_history (History.fork_receipt_history
    (ForkReceipt owner invocation (N.succ (owner-start)%N)) (task_history child)) child in
@@ -394,9 +395,10 @@ Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages :
    constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
  end.
 Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+ (settings : task_settings) (entry : fork_entry) (invocation : call) (value : world) : world :=
+ let start := next_task value in
  with_tasks (world_tasks value ++
-   constructed_children count id parent messages settings entry start (next_task value) invocation) value.
+   constructed_children count id parent messages settings entry start start invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
@@ -492,7 +494,7 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
        end in
       let children := fork_children (N.to_nat count) id
         (match entry with ManualFork => append_history [FunctionCall invocation] task | _ => task end)
-        messages selected entry (next_task value) invocation retained in
+        messages selected entry invocation retained in
       CommandResult.Accepted (CommandResult.Change (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children [])
       end
     end)

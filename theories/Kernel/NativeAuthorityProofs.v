@@ -72,7 +72,7 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
  settings_approval (task_current_settings task) = FullAccess ->
  decision_world (CommandResult.decide value (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value)) =
    Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
-     (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value.
+     (Tasks.AcceptedNativeFork invocation remaining) invocation value.
 Proof.
  intros invocation origin id count messages options value task selected selection remaining operations
    Found Available Pending Count Messages Capacity Resolved Fixed Observed Full.
@@ -202,7 +202,7 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
  accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset))
    (seq 0 (N.to_nat count))))])
    (Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
-     (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value) [].
+     (Tasks.AcceptedNativeFork invocation remaining) invocation value) [].
 Proof.
  intros invocation remaining origin id count messages options value task selected selection
    Found Available Eligible Count Messages Capacity Resolved Fixed Delegated Observed.

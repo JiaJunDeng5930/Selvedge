@@ -97,7 +97,7 @@ async function runResource(plan, { files, backend, signal, prepare }) {
     async persist(state) {
       await saveReceipt(files.receipt, resource('receipt', { state }));
     },
-    async allocate(state) { return { kind: 'allocated', ...await backend.create(state.request, { signal }) }; },
+    async allocate(state) { return { kind: 'allocated', ...await backend.create(state.token, state.task_id, { signal }) }; },
     async prepare(state) { return { kind: 'prepared', ...await prepare(state) }; },
     async credentials(state) {
       cleanupSignal = AbortSignal.timeout(120_000);
@@ -158,8 +158,7 @@ export async function createTaskWorkspace(effect, options = {}) {
       workspace: effect.workspace, repository: source.repository, root: files.root });
     const scope = await backend.scope({ signal: options.signal });
     const receipt = { format: receiptFormat, namespace: options.namespace, task_id: effect.task_id, backend: effect.backend,
-      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings, scope,
-      request: backend.request(files.token, effect.task_id) };
+      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings, scope };
     await log(files, `Requesting cloud environment (${effect.backend})`, options.onDiagnostic);
     const result = await runResource(resource('start', receipt), {
       files, backend, signal: options.signal,

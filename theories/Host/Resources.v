@@ -31,7 +31,7 @@ Definition provider (source : json) :=
     if expired then action "timeout"
     else if String.eqb state "LAUNCH_FAILED" || String.eqb state "TERMINATED" then action "failed"
     else
-      let addresses := items (get instance (if String.eqb (str (get source "settings") "address_type") "private"
+      let addresses := items (get instance (if String.eqb (str source "address_type") "private"
         then "PrivateIpAddresses" else "PublicIpAddresses")) in
       if String.eqb state "RUNNING" && nonempty addresses
       then JObject [("action",JString "ready");("host",hd JNull addresses)]
