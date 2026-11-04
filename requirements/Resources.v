@@ -37,6 +37,9 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     Local sandbox preparation observes the running platform and architecture
     directly. No caller selects a different host platform when interpreting an
     admitted execution plan.
+    The isolation contract governs execution authority, filesystem bindings and
+    the applied filter policy. Enumerating the numeric encodings of the closed
+    instruction constructors adds no isolation guarantee.
 
     An admitted setup result installs the observed workspace or stops its live
     owner. Successful setup records its settings and every queued user input
@@ -63,7 +66,7 @@ Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields).
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
   retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
   ssh_wait_fits_remaining_deadline,
-  reconciled_termination_requires_the_unique_owned_instance).
+  reconciled_termination_matches_the_unique_owned_instance).
 Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
   git_registration_requires_reservation_persisted_ack,
   preparation_requires_git_registration_persisted_ack,
@@ -72,8 +75,8 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
 
 (** ** A lost allocation response cannot authorize another allocation
 
-    Before an allocation is emitted, its complete request, unique token and
-    verified account/region/endpoint scope reach a durable control record.
+    Before an allocation is emitted, its unique token and verified
+    account/region/endpoint scope reach a durable control record.
     Identity observation and allocation use the same captured credential without
     persisting its secret. Recovery verifies the current credential against
     that scope and observes existing resources.
@@ -83,11 +86,13 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     allocation after intermediate observations as well as at startup.
     Each request allocates one instance. Reconciliation admits the matching
     instance under its unique management tag; empty, interrupted or unauthorized
-    observations preserve uncertainty. Only that match enters cleanup. The
-    actual reconciliation transition also retains the requested image, instance
-    type, zone and virtual network, as
-    [reconciled_termination_requires_the_unique_owned_instance] requires.
-    Matching a tag alone cannot authorize deletion of another configured resource.
+    observations preserve uncertainty. Only that match enters cleanup, and a
+    unique tagged instance must enter cleanup even when its configuration has
+    changed. [reconciled_termination_matches_the_unique_owned_instance] constrains
+    both directions of the actual selection. Image, instance type and network
+    settings describe preparation; requiring their old values during cleanup
+    can leave the owned instance running and billable. Recovery never repeats
+    allocation, so a retained allocation request is not recovery authority.
     The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.

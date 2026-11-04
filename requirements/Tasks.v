@@ -169,6 +169,10 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     Lifecycle availability is a Boolean observation shared by the command and
     its public control list. The accepted command builds its changes once;
     constructing a second lifecycle only to discard it adds no execution meaning.
+    Refused controls, input submissions and configuration changes retain the
+    Task state and emit no newly authorized effects.
+    Diagnostic labels explain the current rejection; they do not authorize
+    lifecycle changes or select the pending operation's result-hook chain.
     The actual command rejects every control on an archived Task without changing
     the world or emitting effects. Its private edit
     helper therefore does not need a second availability check or an identity

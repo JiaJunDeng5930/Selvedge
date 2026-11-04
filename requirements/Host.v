@@ -193,8 +193,9 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     exercises the physical boundary. Stdin reservations prevent concurrent
     writes, and absolute output cursors survive bounded tail retention.
     [reserved_write_is_exclusive] and [append_tail_preserves_absolute_cursor]
-    bind those requirements to the pure controller. The physical scalar buffer
-    stays in the host; the model controls counts and slice instructions. Sending the whole tail through
+    bind those requirements to the pure controller. Write refusal preserves
+    input ownership independently of its diagnostic code. The physical scalar
+    buffer stays in the host; the model controls counts and slice instructions. Sending the whole tail through
     semantic JSON per chunk adds cost without stronger authority.
     A completed process remains queryable within the retained completion window.
     Completion bounds that window and removes exactly its expired entries,

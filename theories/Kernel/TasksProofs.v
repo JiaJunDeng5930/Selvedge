@@ -36,24 +36,24 @@ Qed.
 Theorem archived_controls_reject_without_changing_world : forall id command value task operations,
  find_task id value = Some task ->
  task_lifecycle task = Archived operations ->
- exists reason,
- Tasks.control_command id command value = reject "invalid_transition" reason value.
+ exists code reason,
+ Tasks.control_command id command value = reject code reason value.
 Proof.
  intros id command value task operations Found Archived.
  rewrite TaskChangesProofs.control_command_expression; cbv beta zeta; rewrite Found.
  rewrite Archived.
- destruct command; eexists; reflexivity.
+ destruct command; do 2 eexists; reflexivity.
 Qed.
 
 Theorem archived_send_rejects_without_changing_world : forall id contents value task operations,
  find_task id value = Some task ->
  task_lifecycle task = Archived operations ->
- exists reason,
+ exists code reason,
  Tasks.send id contents value =
-   reject "invalid_arguments" reason value.
+   reject code reason value.
 Proof.
  intros id contents value task operations Hfind Harchived.
- rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. eexists; reflexivity.
+ rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. do 2 eexists; reflexivity.
 Qed.
 
 Theorem stopped_idle_receive_reactivates : forall contents task,

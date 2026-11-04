@@ -162,14 +162,14 @@ Theorem an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation :
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
  operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
  let refused := (DecisionComposition.transform (RequestDelivery.after_refusal (CheckResult owner ticket identity plugin invocation result error)) current) in
- exists updated released reason,
+ exists updated released code reason,
  find_task owner (decision_world refused) = Some updated /\
  task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
    [AfterReceipt owner (operation_id operation) plugin
      (Inputs.after_json (AfterFailure reason))] ++
    [History.operation_result operation
-     (State.failure "after_hook_failed" reason) true] ++
+     (State.failure code reason) true] ++
    map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
@@ -204,7 +204,7 @@ Proof.
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
  exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released,
-   RequestDelivery.after_failure_message; split.
+   "after_hook_failed", RequestDelivery.after_failure_message; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].

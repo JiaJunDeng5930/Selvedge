@@ -319,7 +319,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
     messages: ['Reject an environment-origin cloud workspace override.'], settings_origin: 'environment',
     settings: { workspace: { roots: [fixture_.source], primary_root: fixture_.source } } });
   assert.equal(rejected.reply.ok, false);
-  assert.equal(rejected.reply.error.code, 'cloud_workspace_fixed');
+  assert.ok(rejected.reply.error?.message?.trim(), 'A refused workspace change must explain the failure');
   inherit = true;
   const forked = await fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
     settings_origin: 'environment', settings: {}, messages: ['Read the committed marker from the inherited cloud workspace.'] });

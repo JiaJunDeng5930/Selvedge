@@ -82,35 +82,37 @@ Theorem durable_readiness_revalidation_keeps_connection source instance host gui
     (Revalidating source instance host,Some Prepare).
 Proof. reflexivity. Qed.
 
-Theorem reconciled_termination_requires_the_unique_owned_instance : forall source instances total next id,
- scan_page source instances total = save (Terminating next id) ->
+Theorem reconciled_termination_matches_the_unique_owned_instance : forall source instances total next id,
+ scan_page source instances total = save (Terminating next id) <->
  next = source /\ exists instance,
  instances = [instance] /\ total = 1%N /\
  is_text (get instance "InstanceId") = true /\ id = str instance "InstanceId" /\ id <> "" /\
- get instance "ImageId" = get (get (metadata source) "request") "ImageId" /\
- get instance "InstanceType" = get (get (metadata source) "request") "InstanceType" /\
- get (get instance "Placement") "Zone" = get (get (get (metadata source) "request") "Placement") "Zone" /\
- get (get instance "VirtualPrivateCloud") "VpcId" = get (get (get (metadata source) "request") "VirtualPrivateCloud") "VpcId" /\
- get (get instance "VirtualPrivateCloud") "SubnetId" = get (get (get (metadata source) "request") "VirtualPrivateCloud") "SubnetId" /\
  exists tag, In tag (items (get instance "Tags")) /\
  str tag "Key" = "selvedge-task" /\ get tag "Value" = get (metadata source) "token".
 Proof.
- intros source instances total next id Selected.
- destruct instances as [|instance [|other rest]]; cbn [scan_page] in Selected; try discriminate.
- destruct (N.eqb total 1 && owned source instance && is_text (get instance "InstanceId") &&
-   negb (String.eqb (str instance "InstanceId") "")) eqn:Admitted; [|discriminate].
- unfold save in Selected. inversion Selected; subst next id.
- repeat rewrite andb_true_iff in Admitted.
- assert (Count : total = 1%N) by (apply N.eqb_eq; tauto).
- assert (Nonempty : str instance "InstanceId" <> "") by
-   (apply String.eqb_neq; apply negb_true_iff; tauto).
- assert (Owned : owned source instance = true) by tauto.
- unfold owned in Owned. repeat rewrite andb_true_iff in Owned.
- assert (Tagged : matching_tag source instance = true) by tauto.
- unfold matching_tag in Tagged. apply existsb_exists in Tagged as [tag [Member Match]].
- apply andb_true_iff in Match as [Name Token].
- apply String.eqb_eq in Name. apply equal_reflects_equality in Token.
- split; [reflexivity|]. exists instance. repeat split; try reflexivity; try assumption;
-   try (apply equal_reflects_equality; tauto); try tauto.
- exists tag. repeat split; assumption.
+ intros source instances total next id; split.
+ - intros Selected.
+   destruct instances as [|instance [|other rest]]; cbn [scan_page] in Selected; try discriminate.
+   destruct (N.eqb total 1 && matching_tag source instance && is_text (get instance "InstanceId") &&
+     negb (String.eqb (str instance "InstanceId") "")) eqn:Admitted; [|discriminate].
+   unfold save in Selected. inversion Selected; subst next id.
+   repeat rewrite andb_true_iff in Admitted.
+   assert (Count : total = 1%N) by (apply N.eqb_eq; tauto).
+   assert (Nonempty : str instance "InstanceId" <> "") by
+     (apply String.eqb_neq; apply negb_true_iff; tauto).
+   assert (Tagged : matching_tag source instance = true) by tauto.
+   unfold matching_tag in Tagged. apply existsb_exists in Tagged as [tag [Member Match]].
+   apply andb_true_iff in Match as [Name Token].
+   apply String.eqb_eq in Name. apply equal_reflects_equality in Token.
+   split; [reflexivity|]. exists instance. repeat split; try reflexivity; try assumption; try tauto.
+   exists tag. repeat split; assumption.
+ - intros [Same [instance [Instances [Count [Text [Identity [Nonempty [tag [Member [Name Token]]]]]]]]]].
+   subst next instances total id.
+   assert (Tagged : matching_tag source instance = true).
+   { unfold matching_tag. apply existsb_exists. exists tag; split; [exact Member|].
+     apply andb_true_iff; split.
+     - apply String.eqb_eq; exact Name.
+     - rewrite Token; apply equal_is_reflexive. }
+   unfold scan_page. rewrite N.eqb_refl, Tagged, Text.
+   apply String.eqb_neq in Nonempty. rewrite Nonempty; reflexivity.
 Qed.

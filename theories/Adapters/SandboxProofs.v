@@ -82,11 +82,3 @@ Proof.
   - apply successful_admission_means_its_condition in access. apply String.eqb_eq in access;exact access.
   - unfold admit in access. destruct (String.eqb (str (get source "plan") "access") "sandboxed"); discriminate.
 Qed.
-
-Theorem seccomp_instruction_cannot_supply_unknown_opcode : forall instruction,
-  In (get (instruction_json instruction) "code")
-    [number 6;number 21;number 32;number 53;number 69].
-Proof.
-  intros instruction. destruct instruction;cbn;try tauto.
-  destruct comparison;cbn;tauto.
-Qed.

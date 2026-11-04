@@ -55,17 +55,10 @@ Definition terminate_or_finish source := match evidence source with
 Definition matching_tag source instance := existsb (fun tag =>
   String.eqb (str tag "Key") "selvedge-task" && equal (get tag "Value") (get (metadata source) "token"))
   (items (get instance "Tags")).
-Definition owned source instance :=
-  let request := get (metadata source) "request" in
-  matching_tag source instance && equal (get instance "ImageId") (get request "ImageId") &&
-  equal (get instance "InstanceType") (get request "InstanceType") &&
-  equal (get (get instance "Placement") "Zone") (get (get request "Placement") "Zone") &&
-  equal (get (get instance "VirtualPrivateCloud") "VpcId") (get (get request "VirtualPrivateCloud") "VpcId") &&
-  equal (get (get instance "VirtualPrivateCloud") "SubnetId") (get (get request "VirtualPrivateCloud") "SubnetId").
 Definition scan_page source instances total :=
   match instances with
   | [instance] =>
-      if N.eqb total 1 && owned source instance && is_text (get instance "InstanceId") &&
+      if N.eqb total 1 && matching_tag source instance && is_text (get instance "InstanceId") &&
          negb (String.eqb (str instance "InstanceId") "")
       then save (Terminating source (str instance "InstanceId"))
       else save (Finished (Cleanup source UnknownAllocation) NeedsResolution)

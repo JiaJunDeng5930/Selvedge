@@ -89,9 +89,9 @@ Qed.
 
 Theorem a_deleted_project_is_unavailable_to_the_public_query : forall id value,
  bool_default "ok" (decision_reply (CommandExecution.delete_project id value)) false = true ->
- exists reason,
+ exists code reason,
  Queries.read_project id (decision_world (CommandExecution.delete_project id value)) =
- State.failure "project_not_found" reason.
+ State.failure code reason.
 Proof.
  intros id value Accepted; unfold CommandExecution.delete_project in Accepted |- *.
  destruct (Selvedge.Features.Domain.board_card_uses_project id
@@ -105,7 +105,7 @@ Proof.
  unfold Queries.read_project.
  unfold accept, with_projects; cbv [set]; cbn [decision_world world_projects].
  rewrite (registry_replace_selected project (world_projects value) id previous _ Found).
- eexists; reflexivity.
+ do 2 eexists; reflexivity.
 Qed.
 
 Lemma next_project_order_is_newer : forall projects previous,
