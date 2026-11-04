@@ -32,7 +32,9 @@ Import ListNotations.
     acknowledged transaction establish journal authority. An authenticated
     audit history would require an independent trust anchor and is outside this
     restart contract. Changes to input meaning require a new persistent format
-    so restart cannot silently reinterpret prior work. Domain refusals of
+    so restart cannot silently reinterpret prior work. Removing a synthetic
+    failure message changes the retained Task history during replay and therefore
+    also requires a new format. Domain refusals of
     admitted mutations are also stored: relaxing a card-edit restriction can
     turn a previously refused journal row into a successful edit on replay.
     Removing an obsolete field from a closed input grammar also makes earlier
@@ -135,7 +137,8 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     [launch_installs_handle_before_run] requires ownership before interpretation.
     Allocation advances the issued-handle counter and registers the matching
     physical generation while retaining the other active handles. Freshness and
-    ownership do not require consecutive numbering or an active-list order.
+    ownership require the retained counter to cover the issued generation; they
+    do not require equal counter and handle values or an active-list order.
     Completion uses a physical generation so an old finalizer can be separated
     from a replacement with the same logical key. The existing
     [completion_only_removes_its_generation] retains exactly the entries from

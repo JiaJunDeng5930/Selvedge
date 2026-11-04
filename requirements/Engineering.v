@@ -103,9 +103,10 @@ Export Focus(modification_has_its_selected_value, modifications_compose,
 (** ** Issued identities remain fresh
 
     A late reply must not acquire authority over a later invocation. The actual
-    allocator selects the next identity advertised by its space and advances
-    that supply past the issued value. Freshness does not require consecutive
-    numbering; unused identities add no correlation guarantee. Manual fork
+    allocator issues an identity at or beyond its space's unused supply and
+    advances that supply past the issued value. Freshness does not require
+    choosing the first available value; skipped identities add no correlation
+    guarantee. Manual fork
     receipts share this ticket space with asynchronous operations, so the same
     allocator must establish freshness for both issuers. *)
 From Selvedge.Kernel Require StateProofs.

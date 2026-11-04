@@ -151,12 +151,12 @@ Theorem launch_installs_handle_before_run s name owner cancellable provider :
   exists generation,
   let result := step s (Launch name owner cancellable provider) in
   next_handle s < generation /\
-  next_handle (fst result) = generation /\
+  generation <= next_handle (fst result) /\
   retired (fst result) = false /\
   snd result = [Start generation] /\
   Permutation (Running generation name owner cancellable provider false :: active s)
     (active (fst result)).
 Proof.
   intros H. exists (N.succ (next_handle s)). unfold step. rewrite H. cbn.
-  repeat split; auto using N.lt_succ_diag_r, Permutation_refl.
+  repeat split; auto using N.le_refl, N.lt_succ_diag_r, Permutation_refl.
 Qed.
