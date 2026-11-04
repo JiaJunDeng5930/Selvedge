@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Context Domain Codec.
@@ -7,12 +8,10 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Fixpoint text_fields (value : list (string * json)) : option (list (string * string)) :=
+Definition text_fields := OptionList.traverse (fun value : string * json =>
  match value with
- | [] => Some []
- | (key,JString text) :: rest =>
-   if Utf8.well_formed text then option_map (cons (key,text)) (text_fields rest) else None
- | _ => None end.
+ | (key,JString text) => if Utf8.well_formed text then Some (key,text) else None
+ | _ => None end).
 Definition parse_fields (value : json) :=
  match value with JObject fields => text_fields fields | _ => None end.
 Definition construct_snapshot (definition : ContextTypes.definition)

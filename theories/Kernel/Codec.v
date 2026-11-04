@@ -25,12 +25,7 @@ Definition optional_number (value : option N) :=
 Definition optional_string (value : option string) :=
  match value with Some value => JString value | None => JNull end.
 Definition nonempty (text : string) := Utf8.nonblank text.
-Fixpoint strings (values : list json) : option (list string) :=
- match values with
- | [] => Some []
- | JString text :: rest => option_map (cons text) (strings rest)
- | _ => None
- end.
+Definition strings := OptionList.traverse as_string.
 Definition workspace_json (value : workspace) := JObject [
  ("roots", JArray (map JString (workspace_roots value)));
  ("primary_root", optional_string (workspace_primary value))].
