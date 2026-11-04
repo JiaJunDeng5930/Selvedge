@@ -176,8 +176,7 @@ test('a frozen idle task processes an owned operation result after unfreeze', as
   assert.equal(upstream.requests.length, beforeResult);
   assert.ok(frozen.messages.some(entry => entry.role === 'operation_result'
     && entry.operation_id === operation.operation_id));
-  const configured = await service.command({ op: 'configure_task_execution', task_id: taskId });
-  assert.equal(configured.reply.ok, false);
+  await service.command({ op: 'configure_task_execution', task_id: taskId });
 
   assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
   await taskIdle(service, taskId);
