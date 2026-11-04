@@ -11,7 +11,8 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
   public_forget_removes_settled_receipt,
   recovery_never_replays_running_job).
 From Selvedge.Adapters Require ApiProofs.
-Export ApiProofs(public_configured_connection_grants_preserve_authority).
+Export ApiProofs(public_configured_connection_grants_preserve_authority,
+  public_rpc_reservation_matches_available_capacity).
 
 (** ** Connection work captures an explicit Project grant
 
@@ -29,8 +30,10 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     requested Project and arguments must still match the retained intent.
     [retained_public_exec_satisfies_retry_contract] constrains the actual exec
     entry to return the retained receipt or refuse changed intent, leaving the
-    world unchanged and issuing no effects in either case. A retry needs no
-    fresh execution capacity or currently available managed workspace.
+    world unchanged and issuing no effects in either case. The current Project
+    may have been deleted or its primary root changed after the original job.
+    A retry uses that job's frozen receipt and needs no current Project, primary
+    root, fresh execution capacity or currently available managed workspace.
     [public_forget_removes_settled_receipt] requires forgetting a settled
     receipt to remove it without moving the identity supply backward. Gaps in
     that supply do not recycle earlier operation identities.
@@ -91,6 +94,32 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     set. Exclusive directory creation preserves existing deployments. Explicit
     relative paths use the process working directory, as ordinary filesystem
     paths do. Real tunnel and filesystem isolation remain physical checks. *)
+
+(** ** MCP discovery completes within one request deadline
+
+    Discovering a tool catalog is one operation even when the server paginates
+    it. A server can keep returning empty pages with different cursors, so tool
+    count, catalog bytes and repeated-cursor detection do not bound discovery.
+    [host/mcp.mjs] uses the configured RPC timeout for the complete discovery
+    and passes the same cancellation signal to every page request. The existing
+    [public_rpc_reservation_matches_available_capacity] contract excludes a new
+    request after cancellation; an outstanding request uses the shared RPC
+    retirement path. Timer delivery and pipe cancellation remain physical
+    runtime obligations.
+
+    The MCP pagination protocol gives the server control of page size and makes
+    cursors opaque. Only the current cursor is needed to request the next page;
+    retaining every earlier cursor adds unbounded state without guaranteeing
+    completion. An empty string is a cursor, while an absent cursor ends the
+    catalog. The catalog's existing tool count and byte limits remain in force.
+    See https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination.
+
+    Several list-changed notifications received before a queued query starts
+    require only that one query of the current catalog. The service keeps at
+    most one queued refresh action per configured server in a map. It removes
+    that action when the query starts, allowing a change during the query to
+    schedule one subsequent refresh. This bounds waiting work without losing
+    changes that the running query may not have observed. *)
 
 From Selvedge.Features Require RemoteProofs RemoteEntryProofs.
 Export RemoteProofs(check_satisfies_complete_access_contract,
@@ -172,6 +201,9 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     accepted languages. Only declared bounded envelope integers are materialized
     as JavaScript numbers; opaque command and event JSON retains its numeric
     tokens. An unrelated header limit cannot silently narrow enrollment.
+    The relay does not consume the command's [op] field. Native command
+    admission already checks the full command before file observations, so an
+    additional transport rule for that field adds no execution authority.
 
     Session transitions own admission of their actual frames. An HTTP request
     is admitted from its supplied observation; facts needed across socket

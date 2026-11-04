@@ -41,12 +41,12 @@ Definition mcp_page source := let page := get source "page" in
   if negb (is_array (get page "tools")) then err "MCP tools/list did not return tools" else
   let result := collect_tools source true JNull (items (get page "tools")) (items (get source "tools")) in
   if negb (boolean_field result "ok") then result else
-    let previous := items (get source "cursors") in let cursor := get page "nextCursor" in
+    let cursor := get page "nextCursor" in
     if has page "nextCursor" then
-      if is_text cursor && negb (existsb (equal cursor) previous) then
-        success (JObject [("tools",get result "value");("cursors",JArray (previous ++ [cursor]));("done",JBool false);("nextCursor",cursor)])
-      else err "MCP returned an invalid or repeated pagination cursor"
-    else success (JObject [("tools",get result "value");("cursors",JArray previous);("done",JBool true)]).
+      if is_text cursor then
+        success (JObject [("tools",get result "value");("done",JBool false);("nextCursor",cursor)])
+      else err "MCP returned an invalid pagination cursor"
+    else success (JObject [("tools",get result "value");("done",JBool true)]).
 Definition manifest_valid value definition :=
   keys value ["protocolVersion";"revision";"beforeTool";"afterTool";"events";"tools"] &&
   equal (get value "protocolVersion") (get definition "protocolVersion") && Utf8.nonblank (str value "revision") &&

@@ -190,7 +190,7 @@ Definition event_decoders : list (F.decoder event) := [
  observation_decoder "deliver" [F.required "connection_id" (D.Value KText);notice_field]
    (fun '(id,(notice,_)) => Some (Deliver id notice));
  observation_decoder "frame" [F.required "frame" RP.relay_frame_declaration]
-   (fun '(frame,_) => option_map Frame (RP.relay_frame_from_arguments frame))].
+   (fun '(frame,_) => Some (Frame (RP.relay_frame_from_arguments frame)))].
 Definition event_of := F.decode_cases event_decoders.
 Definition simple_action name := F.declare "kind" (JString name) [].
 Definition opened_action := F.declare "kind" (JString "controller_open") RP.controller_open_fields.
@@ -202,7 +202,7 @@ Definition simple_packet name := F.Packet (simple_action name) tt.
 Definition action_packet value := match value with
  | Opened entry => F.Packet opened_action (RP.authorized_values [] (connection_identity entry) (authority entry) tt)
  | Closed id => F.Packet closed_action [!id!]
- | Requested id request => F.Packet request_action [!id;RP.controller_request_arguments request!]
+ | Requested id request => F.Packet request_action [!id;request!]
  | PairRequested request => F.Packet pair_request_action [!request!]
  | Ignore => simple_packet "ignore"
  | PublishPairing => simple_packet "pairing" | Enqueued => simple_packet "enqueue"

@@ -59,9 +59,8 @@ Definition grants_arguments values : D.denote grants_declaration := grant_values
 Definition grants_from_arguments (values : D.denote grants_declaration) :=
  admit_grants values.
 
-(** Commands remain opaque to the relay. The operation is admitted while every
-    member and every number spelling remains owned by the command boundary. *)
-Definition operation_declaration := label_declaration.
+(** Native command admission owns every member, including the operation. The
+    relay admits only the envelope and preserves the command's number tokens. *)
 Definition command_params_fields := [F.required "request_id" receipt_id_declaration;F.required "command" D.RawObject].
 Definition request_fields method params := [F.required "id" rpc_id_declaration;
  F.required "method" (D.Const (JString method));F.required "params" params].
@@ -71,14 +70,7 @@ Definition subscribe_request_fields := request_fields "subscribe" (D.Object []).
 Definition unsubscribe_request_fields := request_fields "unsubscribe" (D.Object []).
 Definition controller_request_declaration := D.Union (map D.Object
  [command_request_fields;snapshot_request_fields;subscribe_request_fields;unsubscribe_request_fields]).
-Definition request_command_admitted (value : D.denote controller_request_declaration) := match value with
- | inl values => let params := proj1_sig (fst (snd (snd (proj1_sig values)))) in
-     match lookup "op" (fst (snd params)) with
-     | Some operation => D.check operation_declaration operation | None => false end
- | _ => true end.
-Definition rpc_request := D.checked request_command_admitted.
-Definition controller_request_arguments (value : rpc_request) := proj1_sig value.
-Definition controller_request_from_arguments := D.admit request_command_admitted.
+Definition rpc_request := D.denote controller_request_declaration.
 
 Definition diagnostic_declaration := D.Textual (D.PrintableUtf16 1 1024).
 Definition error_fields := [F.required "code" label_declaration;F.required "message" diagnostic_declaration].
@@ -158,19 +150,19 @@ Definition relay_frame_arguments value : D.denote relay_frame_declaration := mat
  | RelayControllerOpen id authority => inr (inr (inl (F.branch_arguments controller_open_branch
    (authorized_values [] id authority tt))))
  | RelayRequest id authority request => inr (inr (inr (inl (F.branch_arguments relay_request_branch
-   (authorized_values [F.required "request" controller_request_declaration] id authority [!controller_request_arguments request!])))))
+   (authorized_values [F.required "request" controller_request_declaration] id authority [!request!])))))
  | RelayControllerClose id => inr (inr (inr (inr (inl (F.branch_arguments controller_close_branch [!id!])))))
  | RelayPong => inr (inr (inr (inr (inr (inl (F.branch_arguments relay_pong_branch tt)))))) end.
-Definition relay_frame_from_arguments (value : D.denote relay_frame_declaration) : option relay_frame := match value with
- | inl _ => Some RelayReady
- | inr (inl values) => Some (RelayPairRequest (pairing_request_from_fields (snd (proj1_sig values))))
+Definition relay_frame_from_arguments (value : D.denote relay_frame_declaration) : relay_frame := match value with
+ | inl _ => RelayReady
+ | inr (inl values) => RelayPairRequest (pairing_request_from_fields (snd (proj1_sig values)))
  | inr (inr (inl values)) => let values := snd (proj1_sig values) in
-   Some (RelayControllerOpen (fst values) (authority_from_fields (snd values)))
+   RelayControllerOpen (fst values) (authority_from_fields (snd values))
  | inr (inr (inr (inl values))) => let values := snd (proj1_sig values) in
    let '(authority,request) := F.split authority_fields [F.required "request" controller_request_declaration] (snd values) in
-   option_map (RelayRequest (fst values) (authority_from_fields authority)) (controller_request_from_arguments (fst request))
- | inr (inr (inr (inr (inl values)))) => Some (RelayControllerClose (fst (snd (proj1_sig values))))
- | inr (inr (inr (inr (inr (inl _))))) => Some RelayPong
+   RelayRequest (fst values) (authority_from_fields authority) (fst request)
+ | inr (inr (inr (inr (inl values)))) => RelayControllerClose (fst (snd (proj1_sig values)))
+ | inr (inr (inr (inr (inr (inl _))))) => RelayPong
  | inr (inr (inr (inr (inr (inr impossible))))) => match impossible with end end.
 Definition encode_relay_frame value := D.encode relay_frame_declaration (relay_frame_arguments value).
 

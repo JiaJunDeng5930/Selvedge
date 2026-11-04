@@ -75,24 +75,20 @@ Inductive retained_exec_contract (project : N) (arguments : ChatgptArguments.arg
    forall code reason,
    retained_exec_contract project arguments id job before (reject code reason before).
 
-(** Retrying consumes the selected receipt, not fresh execution capacity or a
-    currently available workspace. Reusing its identity cannot change intent. *)
+(** A retry uses the frozen receipt even if its Project was later removed or
+    edited. Current authority and the original intent still apply. *)
 Theorem retained_public_exec_satisfies_retry_contract : forall (payload : G.chatgpt_exec_payload)
- granted target id job value caller,
+ granted id job value caller,
  let connection := G.chatgpt_exec_connection_id payload in
  let project := G.chatgpt_exec_project_id payload in
  let request := G.chatgpt_exec_request_id_admitted payload in
  let arguments := G.chatgpt_exec_arguments_admitted payload in
  Chatgpt.authority connection project (Chatgpt.registry value) = Some granted ->
- Chatgpt.project project value = Some target -> workspace_primary (project_workspace target) <> None ->
  FeatureRequestAdmission.connection_retry connection (ChatgptArguments.request_text request)
    (Chatgpt.registry value) = Some (id,job) ->
  retained_exec_contract project arguments id job value (Chatgpt.handle_chatgpt_exec payload caller value).
 Proof.
- intros payload granted target id job value caller connection project request arguments Authority Project Primary Retry.
- assert (HasPrimary : FeatureRequestAdmission.connection_has_primary target = true).
- { unfold FeatureRequestAdmission.connection_has_primary. destruct (workspace_primary (project_workspace target));
-   [reflexivity|contradiction]. }
+ intros payload granted id job value caller connection project request arguments Authority Retry.
  assert (Resolution : exists code reason,
    FeatureRequestAdmission.resolve_connection connection project request arguments value =
    if N.eqb project (F.job_project job) && Json.equal (ChatgptArguments.encode arguments) (F.job_arguments_json job)
@@ -100,8 +96,6 @@ Proof.
    else CommandResult.refuse code reason).
  { unfold FeatureRequestAdmission.resolve_connection.
    eapply observe_present; [exact Authority|]; intros Granted.
-   eapply observe_present; [exact Project|]; intros Existing.
-   apply CommandResult.require_satisfied; [exact HasPrimary|]; intros Available.
    eapply observe_present; [exact Retry|]; intros Retained.
    do 2 eexists. reflexivity. }
  destruct Resolution as [code [reason Resolution]].

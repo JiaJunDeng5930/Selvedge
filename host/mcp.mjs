@@ -18,11 +18,13 @@ export class Mcp extends StdioRpc {
   }
 
   async discover() {
-    let catalog = { tools: [], cursors: [], done: false };
+    // DEFENSE: A server can keep returning empty pages with fresh cursors;
+    // one deadline bounds the whole discovery, including those pages.
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let catalog = { tools: [], done: false };
     while (!catalog.done) {
-      const page = await this.request('tools/list', catalog.nextCursor === undefined ? {} : { cursor: catalog.nextCursor });
-      catalog = boundary('plugin.mcp_page', { name: this.name, page, tools: catalog.tools,
-        cursors: catalog.cursors, limits: this.limits });
+      const page = await this.request('tools/list', catalog.nextCursor === undefined ? {} : { cursor: catalog.nextCursor }, { signal });
+      catalog = boundary('plugin.mcp_page', { name: this.name, page, tools: catalog.tools, limits: this.limits });
     }
     return catalog.tools;
   }

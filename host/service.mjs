@@ -59,6 +59,7 @@ export class Service extends EventEmitter {
   #closing = false;
   #failure;
   #catalogTail = Promise.resolve();
+  #catalogRefreshes = new Map();
   #closePromise;
   #streams = [];
   #audioSessions = new Map();
@@ -174,7 +175,14 @@ export class Service extends EventEmitter {
   }
 
   #refreshCatalog(name, discover) {
+    const queued = this.#catalogRefreshes.has(name);
+    this.#catalogRefreshes.set(name, discover);
+    // DEFENSE: A server can send repeated list_changed notifications before
+    // its queued query starts; that query observes their latest catalog.
+    if (queued) return;
     this.#catalogTail = this.#catalogTail.then(async () => {
+      const discover = this.#catalogRefreshes.get(name);
+      this.#catalogRefreshes.delete(name);
       // DEFENSE: A queued subprocess catalog refresh can outlive service shutdown or a fatal journal failure.
       if (this.#closing || this.#failure) return;
       if (discover) {

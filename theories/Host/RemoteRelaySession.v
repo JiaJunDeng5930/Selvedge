@@ -219,10 +219,10 @@ Definition relay_frame_allowed source := match F.decode [F.required "state" D.An
  | None => None end.
 Definition forward_request source := match F.decode [F.required "connection" D.Any;
  F.required "request" RP.controller_request_declaration] source with
- | Some (connection,(request,_)) => match decode_state connection,RP.controller_request_from_arguments request with
-   | Some (Controller connection),Some request => Some (RP.encode_relay_frame
+ | Some (connection,(request,_)) => match decode_state connection with
+   | Some (Controller connection) => Some (RP.encode_relay_frame
        (RP.RelayRequest connection.(connection_id) connection.(connection_grant) request))
-   | _,_ => None end
+   | _ => None end
  | None => None end.
 Definition install_controller source := match F.decode [generation_field;F.required "connection_id" RP.identifier_declaration;
  F.required "authority" RP.authority_declaration] source with
