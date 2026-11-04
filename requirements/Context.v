@@ -185,9 +185,13 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Once that plan exists, retaining its original target configuration adds
     no input to a subsequent fragment or portable rebuild.
     The captured receiver owns validation purpose and settings compatibility,
-    so neither needs another unused copy in the physical request. A portable
-    summary carries readable text and usage; its callback does not consume a
-    provider scope, which remains relevant to native replacements and measurement. *)
+    so neither needs another unused copy in the physical request. Returned
+    usage describes the completed provider call; validation measures the next
+    encoded input independently. Retaining that usage in replacement history
+    would enlarge journal and transport records without changing admission.
+    Portable summaries need only their readable content. A provider scope is
+    relevant to native replacements and measurement, so portable replacement
+    records do not carry an empty scope placeholder. *)
 
 From Selvedge.Kernel Require NativeTools NativeCatalogProofs.
 Export NativeTools(presentation_catalog).

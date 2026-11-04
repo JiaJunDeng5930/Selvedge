@@ -591,22 +591,22 @@ Qed.
     These contracts cover both actual validation exits, not a retry counter in
     a separate Host interpreter. *)
 Theorem an_oversized_portable_validation_stops :
- forall id task input purpose first rest usage preview scope tokens budget entry value,
+ forall id task input purpose first rest preview scope tokens budget entry value,
  A.relevant input task value = true ->
  A.same_history preview
-   (ContextSelection.adopt (captured_history input) (PortableArtifact first rest usage) (task_history task)) = true ->
+   (ContextSelection.adopt (captured_history input) (PortableArtifact first rest) (task_history task)) = true ->
  (tokens + reserve_tokens budget <=? window_tokens budget) = false ->
- exists reason, A.finish_validation id task input purpose (PortableArtifact first rest usage)
+ exists reason, A.finish_validation id task input purpose (PortableArtifact first rest)
    preview scope tokens budget entry value = A.failed id task entry reason value.
 Proof.
- intros id task input purpose first rest usage preview scope tokens budget entry value Relevant Preview Oversized.
+ intros id task input purpose first rest preview scope tokens budget entry value Relevant Preview Oversized.
  unfold A.finish_validation; rewrite Relevant; cbn [ContextSelection.consumes].
  rewrite Preview, Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_native_validation_keeps_portable_fallback :
- forall id task input purpose head tail first rest usage preview scope tokens budget entry value,
- let candidate := NativeArtifact head tail first rest usage in
+ forall id task input purpose head tail first rest preview scope tokens budget entry value,
+ let candidate := NativeArtifact head tail first rest in
  A.relevant input task value = true -> ContextSelection.consumes candidate scope = true ->
  A.same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) = true ->
  ((tokens + reserve_tokens budget <=? window_tokens budget) &&
@@ -615,27 +615,27 @@ Theorem an_oversized_native_validation_keeps_portable_fallback :
  A.finish_validation id task input purpose candidate preview scope tokens budget entry value =
  A.force_portable id task scope entry value.
 Proof.
- intros id task input purpose head tail first rest usage preview scope tokens budget entry value candidate Relevant Consumes Preview Oversized.
+ intros id task input purpose head tail first rest preview scope tokens budget entry value candidate Relevant Consumes Preview Oversized.
  unfold candidate in *.
  unfold A.finish_validation; now rewrite Relevant, Consumes, Preview, Oversized.
 Qed.
 
 Theorem an_oversized_portable_validation_frame_stops :
- forall id task input scope purpose first rest usage preview entry value,
- let candidate := R.ValidateCandidate (Candidate purpose (PortableArtifact first rest usage) preview) in
+ forall id task input scope purpose first rest preview entry value,
+ let candidate := R.ValidateCandidate (Candidate purpose (PortableArtifact first rest) preview) in
  let request := R.MeasureRequest input candidate scope entry in
  (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
  exists reason, A.measured_call id task input scope candidate entry value =
  A.failed id task entry reason value.
 Proof.
- intros id task input scope purpose first rest usage preview entry value candidate request Oversized.
+ intros id task input scope purpose first rest preview entry value candidate request Oversized.
  unfold A.measured_call. fold request. rewrite Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_measurement_without_a_portable_candidate_can_rebuild :
  forall id task input scope purpose entry value,
- (forall first rest usage, R.purpose_candidate purpose <> Some (PortableArtifact first rest usage)) ->
+ (forall first rest, R.purpose_candidate purpose <> Some (PortableArtifact first rest)) ->
  let request := R.MeasureRequest input purpose scope entry in
  (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
@@ -652,14 +652,14 @@ Theorem a_portable_source_can_only_finish_with_a_portable_candidate :
  forall progress result candidate unread,
  Selvedge.Kernel.Compaction.compaction_source progress = Selvedge.Kernel.Compaction.PortableSource unread ->
  P.receive_source progress result = P.Compacted candidate ->
- exists first rest usage, candidate = PortableArtifact first rest usage.
+ exists first rest, candidate = PortableArtifact first rest.
 Proof.
  intros progress result candidate unread Portable Finished.
  unfold P.receive_source in Finished; rewrite Portable in Finished.
  destruct (string_field "summary_text" result) as [[|head tail]|]; try discriminate.
  destruct (skipn (N.to_nat (Selvedge.Kernel.Compaction.compaction_chunk_chars progress)) unread);
    try discriminate.
- inversion Finished; subst candidate. eexists; eexists; eexists; reflexivity.
+ inversion Finished; subst candidate. eexists; eexists; reflexivity.
 Qed.
 
 Lemma the_committed_compaction_entry_is_current : forall id entry value effects,

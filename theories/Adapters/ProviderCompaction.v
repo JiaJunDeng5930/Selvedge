@@ -56,15 +56,13 @@ Definition native_result (source : json) :=
   (* DEFENSE: A provider replacement window must be an array before it enters history. *)
   if is_array (get response "output") then success (JObject [
     ("format",JString "native"); ("scope",get source "scope");
-    ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]]);
-    ("usage",get response "usage")])
+    ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]])])
   else err "The native compactor returned an invalid replacement window".
 Definition summary_result (source : json) := success (JObject [
   ("summary_text", JString (String.concat "" (map (fun item =>
     String.concat "" (map (fun part => str part "text")
       (items (get (Conversation.provider_value (get item "value")) "content"))))
-      (items (get source "items")))));
-  ("usage",get source "usage")]).
+      (items (get source "items")))))]).
 Definition scope (source : json) := success (JString (TextJson.render_json (JArray [
   get (get source "profile") "provider"; get (get source "profile") "endpoint";
   get source "model"; get source "account_id"]))).

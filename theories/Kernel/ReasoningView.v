@@ -33,7 +33,7 @@ Definition public_message (message : message) := match message with
     ("name",JString (call_name call));("arguments",call_arguments call)])
  | FunctionOutput id value error => Some (JObject [("role",JString "function_output");("call_id",JString id);("content",value);("is_error",JBool error)])
  | OperationResult _ call value error => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
-    ("name",JString (call_name call));("content",value);("is_error",JBool error)])
+    ("content",value);("is_error",JBool error)])
  | _ => None end.
 (* Domain messages identify provider output; arbitrary tool JSON remains evidence.
    Text crosses the JS bridge without collapsing object members, and an existing

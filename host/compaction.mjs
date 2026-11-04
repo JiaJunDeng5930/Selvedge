@@ -71,8 +71,6 @@ export async function requestCompaction(effect, config, home, limits, options = 
   }
   // Dispatch the measured bytes through the same session. The native portable
   // request already fixes its output reserve and prohibits tools.
-  let usage;
-  const items = await requestProviderSSE(session, call, prepared, limits,
-    { ...options, onDelta: () => {}, onObservation: observation => { usage = observation.usage; } });
-  return boundary('backend.compaction_summary_result', { items, usage });
+  const items = await requestProviderSSE(session, call, prepared, limits, options);
+  return boundary('backend.compaction_summary_result', { items });
 }

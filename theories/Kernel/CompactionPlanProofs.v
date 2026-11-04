@@ -5,10 +5,10 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Theorem an_unfinished_summary_keeps_every_unread_scalar : forall unread carry width window reserve head tail usage remaining,
+Theorem an_unfinished_summary_keeps_every_unread_scalar : forall unread carry width window reserve head tail remaining,
  skipn (N.to_nat width) unread = remaining -> remaining <> [] ->
  receive (CompactionState (PortableSource unread) carry width window reserve)
-  (JObject [("summary_text",JString (String head tail));("usage",usage)]) =
+  (JObject [("summary_text",JString (String head tail))]) =
  Next (CompactionState (PortableSource remaining)
   (String head tail) width window reserve).
 Proof.
@@ -17,13 +17,13 @@ Proof.
 Qed.
 
 Theorem a_finished_summary_publishes_its_returned_continuation :
- forall unread carry width window reserve head tail usage,
+ forall unread carry width window reserve head tail,
  skipn (N.to_nat width) unread = [] ->
  receive (CompactionState (PortableSource unread) carry width window reserve)
-  (JObject [("summary_text",JString (String head tail));("usage",usage)]) =
- Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) [] usage).
+  (JObject [("summary_text",JString (String head tail))]) =
+ Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) []).
 Proof.
- intros unread carry width window reserve head tail usage Finished.
+ intros unread carry width window reserve head tail Finished.
  unfold receive, receive_source. cbn. now rewrite Finished.
 Qed.
 Theorem an_opaque_reply_cannot_finish_portable_work : forall unread carry width window reserve scope items,

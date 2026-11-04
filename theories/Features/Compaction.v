@@ -163,7 +163,7 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
 Definition oversized_candidate (id : N) (task : task) (scope : string)
  (candidate : option artifact) (entry : entry) (message : string) (value : Selvedge.Kernel.State.world) :=
  match candidate with
- | Some (PortableArtifact _ _ _) => failed id task entry message value
+ | Some (PortableArtifact _ _) => failed id task entry message value
  | _ => force_portable id task scope entry value end.
 Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : R.inspection_purpose)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -193,7 +193,7 @@ Definition finish_validation (id : N) (task : task) (input : capture) (purpose :
  if relevant input task value && ContextSelection.consumes candidate scope then
  if same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) then
  if (tokens + reserve_tokens budget <=? window_tokens budget) &&
-    negb (match candidate with NativeArtifact _ _ _ _ _ =>
+    negb (match candidate with NativeArtifact _ _ _ _ =>
      policy_enabled (maintenance_policy (registry value)) &&
        (window_tokens budget * policy_blocking (maintenance_policy (registry value)) <=? tokens * 100)
      | _ => false end) then

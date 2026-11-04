@@ -71,6 +71,11 @@ From Selvedge.Programming Require Import AdapterResult.
     including a repeated finalized coordinate. Reconstructed terminal output and
     its coordinate list come from that same retained sequence, so translation can consume them
     without revalidating the sequence constructed by the stream.
+    The host derives Markdown observations in one map over that output, as it
+    does for constructed text output. Pairing those lists consumes their shared
+    order; a second length check or empty-observation check on non-text items
+    cannot reject another provider input. Provider items, call arguments,
+    namespaces and the observation declaration retain their own admission.
     External JSON integer fields denote mathematical values:
     decimal or exponent notation does not select another coordinate, token count
     or advertised model budget. Admission retains the declared field ranges.

@@ -223,7 +223,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     switch (step.action) {
       case 'delta': onDelta(step.text, step.index); break;
       case 'terminal': {
-        onObservation({ now: Date.now(), usage: event.response?.usage });
+        onObservation({ now: Date.now() });
         const items = providerOutput(step.output, profile, step.output_indices);
         return effect.kind === 'model' ? boundary('backend.compaction_bind_output', { items, scope }) : items;
       }

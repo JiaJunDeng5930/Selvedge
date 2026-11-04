@@ -88,25 +88,25 @@ Proof.
  rewrite firstn_all, length_map, Nat.sub_diag, firstn_O, app_nil_r,
   equivalent_is_reflexive. cbn. symmetry. apply app_assoc.
 Qed.
-Theorem another_scope_cannot_select_native_context : forall boundary position head tail first rest usage scope previous,
+Theorem another_scope_cannot_select_native_context : forall boundary position head tail first rest scope previous,
  String.eqb (String head tail) scope = false ->
- select_event position scope (Codec.message_json 0 (record boundary (NativeArtifact head tail first rest usage))) previous = previous.
+ select_event position scope (Codec.message_json 0 (record boundary (NativeArtifact head tail first rest))) previous = previous.
 Proof.
- intros boundary position head tail first rest usage scope previous different.
+ intros boundary position head tail first rest scope previous different.
  change ((match natural (number boundary) with
  | Some source => if (source <=? position) && String.eqb (String head tail) scope then
-     Replacement source (NativeArtifact head tail first rest usage) else previous
+     Replacement source (NativeArtifact head tail first rest) else previous
  | None => previous end) = previous).
  rewrite different. destruct (natural (number boundary)); cbn; [now rewrite andb_false_r|reflexivity].
 Qed.
 Theorem selected_summary_keeps_fixed_inputs_and_discards_replaced_dialogue : forall parts summary scope,
  let original := JObject [("role", JString "user"); ("content", JArray parts)] in
  let summary_item := PortableMessage PortableUser summary in
- target_messages [original; Codec.message_json 0 (record 1 (PortableArtifact summary_item [] JNull))] scope =
+ target_messages [original; Codec.message_json 0 (record 1 (PortableArtifact summary_item []))] scope =
  (fixed [original] ++ [portable_message_json summary_item])%list.
 Proof.
  intros. unfold target_messages, latest, select_event, record, artifact_json, decode_artifact,
-   artifact_format, artifact_scope, artifact_items, artifact_usage, portable_message_json,
+   artifact_format, artifact_items, portable_message_json,
    decode_portable_message, decode_portable_messages, consumes, assemble,
    portable_speaker, portable_text.
  cbn [Pos.to_nat]. unfold scoped_messages, scoped_message. cbn [Pos.to_nat].
@@ -120,7 +120,7 @@ Theorem selecting_a_summary_preserves_each_original_image : forall parts image s
  In message
   (target_messages
    [JObject [("role",JString "user");("content",JArray parts)];
-    Codec.message_json 0 (record 1 (PortableArtifact (PortableMessage PortableUser summary) [] JNull))] scope) /\
+    Codec.message_json 0 (record 1 (PortableArtifact (PortableMessage PortableUser summary) []))] scope) /\
  string_field "role" message = Some "user" /\ array_field "content" message = Some images.
 Proof.
  intros parts image summary scope Present IsImage.

@@ -78,7 +78,7 @@ Definition response (state : rpc_state) (source message : json) (id : N) : rpc_a
         end
       else reject_action state id (label source ++ " " ++ name source ++ ": request failed")
     else reject_action state id ("Malformed " ++ label source ++ " error response").
-Definition peer_message (state : rpc_state) (source message : json) (method : string) :=
+Definition peer_message (state : rpc_state) (message : json) (method : string) :=
   if has message "id" then
     unchanged "write" state [("message", JObject
       ([("jsonrpc",JString "2.0");("id",get message "id")] ++
@@ -91,7 +91,7 @@ Definition message (state : rpc_state) (source : json) : json :=
   (* DEFENSE: Stdio peers can send values other than JSON-RPC 2.0 objects. *)
   if is_object message && String.eqb (str message "jsonrpc") "2.0" then
     encode_action (match as_string (get message "method") with
-      | Some method => peer_message state source message method
+      | Some method => peer_message state message method
       | None => match correlate state (get message "id") with
         | Some id => response state source message id
         | None => unchanged "ignore" state []
