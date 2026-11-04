@@ -46,7 +46,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false, incompleteInstanceObservation = () => false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', differentImage = false, duplicateOwnership = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false, incompleteInstanceObservation = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -112,9 +112,14 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
           const id = `ins-fixture-${index}`;
           ids.push(id);
           instances.set(id, { InstanceId: id, InstanceState: 'RUNNING', PublicIpAddresses: ['127.0.0.1'],
-            PrivateIpAddresses: ['10.0.0.1'], ImageId: ambiguous ? 'img-other' : body.ImageId,
+            PrivateIpAddresses: ['10.0.0.1'], ImageId: differentImage ? 'img-other' : body.ImageId,
             InstanceType: body.InstanceType, Placement: body.Placement, VirtualPrivateCloud: body.VirtualPrivateCloud,
             Tags: body.TagSpecification[0].Tags });
+        }
+        if (duplicateOwnership) {
+          const first = instances.get(ids[0]);
+          const duplicate = `${ids[0]}-duplicate`;
+          instances.set(duplicate, { ...first, InstanceId: duplicate });
         }
         await onAllocation();
         if (allocation === 'disconnect') {
@@ -427,9 +432,9 @@ for (const failSetup of [false, true]) test(failSetup
   assert.deepEqual(fixture_.upstream.failures, []);
 });
 
-test('a disconnected allocation response is reconciled and its instance is reclaimed', async t => {
+for (const allocation of ['disconnect', 'redirect']) test(`${allocation} allocation responses reclaim the uniquely owned instance despite changed configuration`, async t => {
   const fixture_ = await fixture(t, () => assert.fail('An unknown allocation cannot start a model'),
-    { allocation: 'disconnect' });
+    { allocation, differentImage: true });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
@@ -442,14 +447,14 @@ test('a disconnected allocation response is reconciled and its instance is recla
 
 test('allocation redirects are not followed and reconciliation retains resources whose ownership is ambiguous', async t => {
   const fixture_ = await fixture(t, () => assert.fail('An ambiguous allocation cannot start a model'),
-    { allocation: 'redirect', ambiguous: true });
+    { allocation: 'redirect', duplicateOwnership: true });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
     'Ambiguous allocation must remain recoverable');
   assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
-  assert.equal(fixture_.instances.size, 1);
+  assert.equal(fixture_.instances.size, 2);
   assert.ok(entry.root);
 });
 
