@@ -1,5 +1,4 @@
 import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
-import { randomUUID } from 'node:crypto';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
@@ -54,7 +53,6 @@ export class RemoteConnector {
   #probe;
   #lastError;
   #grantTail = Promise.resolve();
-  #incarnation = randomUUID();
   #settings;
   #noticeListener;
 
@@ -290,7 +288,7 @@ export class RemoteConnector {
 
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
-    return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
+    return { namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
       streams: this.#service.browserStreams(), notice_sequence: this.#control.notice_sequence };
   }
 
@@ -326,7 +324,7 @@ export class RemoteConnector {
     let event;
     let bytes;
     try {
-      event = { incarnation: this.#incarnation, notice_sequence: sequence, notice: notice };
+      event = { notice_sequence: sequence, notice: notice };
       bytes = Buffer.byteLength(encodeRemoteFrame(event));
     // DEFENSE: A committed notice can exceed the remote frame budget; close instead of buffering an undeliverable observation.
     } catch { this.#disconnect(session, 'observation_frame_rejected'); return; }

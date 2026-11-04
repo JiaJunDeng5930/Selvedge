@@ -296,6 +296,8 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     The connector synchronously clears its physical socket owner before closing
     that socket. Object identity therefore excludes old physical callbacks,
     including pairing callbacks, without a second native generation query.
+    Snapshot subscriptions and their later notices belong to that admitted
+    session; a separate process UUID adds no ordering or authority.
     Native clock, probe and queue observations still carry their generations
     for semantic admission. Connector start, pair and close request their
     physical effects synchronously; their return does not promise delivery.

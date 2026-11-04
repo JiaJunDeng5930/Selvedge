@@ -44,9 +44,9 @@ Definition mcp_page source := let page := get source "page" in
     let cursor := get page "nextCursor" in
     if has page "nextCursor" then
       if is_text cursor then
-        success (JObject [("tools",get result "value");("done",JBool false);("nextCursor",cursor)])
+        success (JObject [("tools",get result "value");("nextCursor",cursor)])
       else err "MCP returned an invalid pagination cursor"
-    else success (JObject [("tools",get result "value");("done",JBool true)]).
+    else success (JObject [("tools",get result "value")]).
 Definition manifest_valid value definition :=
   keys value ["protocolVersion";"revision";"beforeTool";"afterTool";"events";"tools"] &&
   equal (get value "protocolVersion") (get definition "protocolVersion") && Utf8.nonblank (str value "revision") &&

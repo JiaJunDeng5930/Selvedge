@@ -53,7 +53,7 @@ export function callTool(config, tool, arguments_, signal) {
     const request = http.request(new URL(`/api/chatgpt/${config.connection}`, config.endpoint), {
       method: 'POST', signal: cancellation,
       headers: { authorization: config.authorization, 'content-type': 'application/json',
-        accept: 'application/json', 'content-length': Buffer.byteLength(body) },
+        accept: 'application/json' },
     }, response => {
       const chunks = [];
       let length = 0;
