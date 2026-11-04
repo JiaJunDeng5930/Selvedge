@@ -147,6 +147,9 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     Recovery uses this same runner, including its original rejecting
     promise, so a failed recovery cannot become successful startup through a
     background error observer.
+    Normal execution and recovery receive the runner-created handle; its
+    private brand serves type checking. Rechecking a runtime marker adds no
+    generation ownership to that construction.
 
     A successful journal acknowledgement returns directly from the runner's
     awaited execution, before consulting retirement control. Shutdown cannot
