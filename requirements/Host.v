@@ -31,13 +31,15 @@ Import ListNotations.
     SQLite supplies transaction durability. Exclusive writer ownership and the
     acknowledged transaction establish journal authority. An authenticated
     audit history would require an independent trust anchor and is outside this
-    restart contract. Changes to admitted input grammar, transition results or
-    retained history require a new persistent format so restart cannot silently
-    reinterpret prior work. Removing an unused history field changes that
-    retained projection. Even a removed result marker can change output-budget
-    admission and therefore scheduling during replay. Domain refusals of
-    admitted mutations are also stored, so changing their admission can change
-    the reconstructed world.
+    restart contract. Persistent formats distinguish changes that would
+    reinterpret accepted work during replay: retained domain state, history or
+    receipts, and the admission or scheduling decisions that establish them.
+    A changed reply can affect output-budget admission and therefore scheduling.
+    Domain refusals of admitted mutations are also stored, so admission changes
+    must be followed through the actual durable input paths.
+    A transient refusal diagnostic needs no new format when refusal precedes
+    state changes and receipt retention, both replies fit the output budget,
+    and durability and cursor progression remain the same.
     The current-format check must reject such earlier journals before replay,
     retaining their bytes rather than converting or partially applying them.
 
