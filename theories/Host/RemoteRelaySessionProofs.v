@@ -15,6 +15,28 @@ Proof.
  destruct current,frame; cbn; split; intros; try discriminate; tauto.
 Qed.
 
+Theorem retirement_notifies_exactly_the_current_controller_host current expected host_ready id :
+ snd (step current (Disconnected expected host_ready)) = NotifyHost id <->
+ match current with
+ | Controller connection => controller_generation connection = expected /\
+   host_ready = true /\ connection_id connection = id
+ | _ => False end.
+Proof.
+ destruct current as [g|g|host|host tickets|connection|]; cbn [step snd].
+ - split; [discriminate|contradiction].
+ - destruct (N.eqb g expected); split; intros; discriminate || contradiction.
+ - destruct (N.eqb (host_generation host) expected); split; intros; discriminate || contradiction.
+ - destruct (N.eqb (host_generation host) expected); split; intros; discriminate || contradiction.
+ - destruct (N.eqb (controller_generation connection) expected && host_ready) eqn:Current.
+   + apply andb_true_iff in Current as [Generation Ready]. apply N.eqb_eq in Generation.
+     split.
+     * intro Notified. injection Notified as Identity. auto.
+     * intros [_ [_ Identity]]. now rewrite Identity.
+   + split; [discriminate|].
+     intros [Generation [Ready _]]. rewrite Generation,Ready,N.eqb_refl in Current. discriminate.
+ - split; [discriminate|contradiction].
+Qed.
+
 Lemma consumed_digest_absent digest tickets :
  find (fun entry=>String.eqb (ticket_digest entry) digest)
  (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets) = None.

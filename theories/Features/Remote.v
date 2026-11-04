@@ -158,8 +158,8 @@ Definition configuration_allowed (original : G.command) configuration :=
 Definition prepared_world configuration value : option world := match configuration with
  | JNull=>Some value
  | _=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
-Definition schedules command result := bool_default "ok" (decision_reply result) false &&
- match command with Selvedge.Generated.Commands.Cmd_create_idle _ | Selvedge.Generated.Commands.Cmd_record_speech_transcript _=>false | _=>negb (observation_command command) end.
+Definition schedules (command : G.command) result := bool_default "ok" (decision_reply result) false &&
+ match command with Selvedge.Generated.Commands.Cmd_create_idle _=>false | _=>true end.
 Definition execute_remote (execute:Scheduler.executor) prepared configuration request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in

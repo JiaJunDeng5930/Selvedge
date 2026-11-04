@@ -126,7 +126,7 @@ Export RemoteProofs(check_satisfies_complete_access_contract,
   authorize_satisfies_complete_request_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
   prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back,
-  remote_receipt_preserves_authority,
+  remote_receipt_preserves_authority, remote_query_is_read_only,
   public_grant_replaces_authority_and_clears_old_receipts,
   local_administration_never_reuses_a_generation,
   delegated_remote_administration_is_denied).
@@ -165,7 +165,12 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     and a nondecreasing epoch supply when a command receipt is recorded.
     Authorization consumes that mapping and fresh identities, independently of
     the grant list's order or gaps in the unused identity supply.
-    Queries preserve the world and do not apply prepared configuration.
+    Queries preserve the world, do not apply prepared configuration and do not
+    schedule work. [remote_query_is_read_only] constrains those results at the
+    executor entry. That entry separates queries before mutation scheduling;
+    repeating the query test in the mutation branch adds no guarantee. Remote
+    admission excludes local speech-transcript commands, so mutation scheduling
+    needs only successful completion and the deliberate idle-creation exception.
     [current_control_grant_executes_actual_remote_stop] additionally proves a
     positive entry case: with a single running Task, current control permission,
     a fresh request and receipt capacity, the actual packet executor stops that
@@ -188,6 +193,7 @@ Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_not
   enqueue_observation_emits_only_queue_actions).
 Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
   host_frame_admission_matches_negotiation,
+  retirement_notifies_exactly_the_current_controller_host,
   delivery_admits_exactly_current_authority,
   ticket_issuance_admits_exactly_current_bounded_authority,
   issued_tickets_respect_capacity,
@@ -289,6 +295,14 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     and an exact current grant are all necessary and sufficient.
     That predicate also selects the controller attachment constructor; repeating
     its role test in the host supplies no additional authority.
+    [retirement_notifies_exactly_the_current_controller_host] connects controller
+    retirement to its current host and exact connection identity. The relay
+    retains the host observed by that synchronous transition for notification;
+    no asynchronous operation can replace it before the send. Repeating the host
+    lookup and silently skipping the required notification supplies no new
+    admission. A physical send failure still retires that failed transport.
+    Durable Objects block new events during synchronous JavaScript execution:
+    https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/ .
     Ticket issuance and consumption also require a current grant and unexpired
     credential. A successful consumption carries the selected ticket's authority
     to connection installation. The digest and expiry have completed their

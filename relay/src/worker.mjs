@@ -355,18 +355,16 @@ export class RemoteHostRelay {
   }
 
   disconnect(socket) {
+    const host = this.host();
     const transition = admission('disconnect', { connection: socket.deserializeAttachment(),
-      generation: this.generation, host_ready: Boolean(this.host()) });
+      generation: this.generation, host_ready: Boolean(host) });
     socket.serializeAttachment(transition.state);
     if (transition.action === 'close_controllers') {
       for (const controller of this.controllers()) controller.close(1012, 'Remote host disconnected');
     } else if (transition.action === 'notify_host') {
-      const host = this.host();
-      if (host) {
-        try { send(host, { type: 'controller_close', connection_id: transition.connection_id }); }
-        // DEFENSE: The host can close before its controller-close notification is sent; retire that failed transport.
-        catch { host.close(1011, 'Remote connection failed'); }
-      }
+      try { send(host, { type: 'controller_close', connection_id: transition.connection_id }); }
+      // DEFENSE: The host can close before its controller-close notification is sent; retire that failed transport.
+      catch { host.close(1011, 'Remote connection failed'); }
     }
   }
 }

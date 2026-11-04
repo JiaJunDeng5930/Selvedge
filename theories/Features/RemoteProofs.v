@@ -260,27 +260,27 @@ Theorem delegated_remote_administration_is_denied : forall payload caller,
  Remote.handle_remote_enable payload (Some caller) value = reject code reason value.
 Proof. intros payload caller. do 2 eexists. intros value. reflexivity. Qed.
 
-(** Even an effectful supplied executor cannot mutate the world through a remote query. *)
+(** Even an effectful supplied executor cannot mutate the world or schedule work through a remote query. *)
 Theorem remote_query_is_read_only : forall execute prepared configuration request command value,
  Remote.observation_command command=true ->
- let '(_,_,result):=Remote.execute_remote execute prepared configuration request command value in
- decision_world result=value /\ decision_effects result=[].
+ let '(_,schedule,result):=Remote.execute_remote execute prepared configuration request command value in
+ schedule=false /\ decision_world result=value /\ decision_effects result=[].
 Proof.
  intros execute prepared configuration request command value readonly.
  unfold Remote.execute_remote. rewrite readonly.
  cbn beta iota zeta delta [negb].
- destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
+ destruct (Remote.configuration_allowed command configuration); [|repeat split;reflexivity].
  destruct (Remote.authorize_command command request (Remote.registry value)) as [code reason| |reply];
-   try (split;reflexivity).
- destruct (G.admit prepared) as [admitted|]; [|split;reflexivity].
+   try (repeat split;reflexivity).
+ destruct (G.admit prepared) as [admitted|]; [|repeat split;reflexivity].
  set (prepared_command := G.admitted_value admitted).
  cbn beta iota zeta.
- destruct (Remote.configuration_allowed prepared_command configuration); [|split;reflexivity].
+ destruct (Remote.configuration_allowed prepared_command configuration); [|repeat split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
-   [|split;reflexivity].
+   [|repeat split;reflexivity].
  destruct (Remote.with_command_rights prepared_command
    (fun rights=>Remote.check rights (Remote.controller request) (Remote.epoch request)
-     (Remote.registry value))); split;reflexivity.
+     (Remote.registry value))); repeat split;reflexivity.
 Qed.
 
 (** A successful public grant replaces its controller's authority and receipts.
