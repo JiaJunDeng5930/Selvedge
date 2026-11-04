@@ -108,7 +108,7 @@ Definition http_response source := let content_type := lowercase (str source "co
   if negb (String.eqb content_type "application/json" || starts content_type "application/json;") then err "Selvedge returned a non-JSON response"
   else match parse_json (str source "text"),find_route (str source "tool") with
   | Some reply,Some route =>
-    if boolean_field reply "ok" && (300 <=? num source "status") then err ("Selvedge returned HTTP " ++ str source "status_text")
+    if boolean_field reply "ok" && (300 <=? num source "status") then err ("Selvedge returned HTTP " ++ decimal (num source "status"))
     else if reply_valid route reply then response_content (JObject [(if boolean_field reply "ok" then "result" else "error",
       get reply (if boolean_field reply "ok" then "result" else "error"))]) (receipt_error route reply)
     else err "Malformed Selvedge response"

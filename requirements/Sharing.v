@@ -252,7 +252,11 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     that action releases a physical subscription.
     Recovery depends on actual probes, socket traffic and cessation after
     rejected authentication; a separate history of intermediate status
-    notifications adds no delivery or recovery guarantee. Relay refusal retains
+    notifications adds no delivery or recovery guarantee. The native WebSocket
+    client's error event is followed by close, which already reports that
+    failure; an empty error listener adds no observation or recovery action.
+    See https://websockets.spec.whatwg.org/#feedback-from-the-protocol .
+    Relay refusal retains
     the protocol's HTTP and WebSocket status semantics, without fixing an
     application diagnostic's spelling when no client consumes it.
     Rejected authentication remains quiescent under background observations;

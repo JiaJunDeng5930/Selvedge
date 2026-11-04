@@ -155,7 +155,6 @@ export class RemoteConnector {
       if (this.#current(session)) this.#send(session, { type: 'hello', version: REMOTE_PROTOCOL_VERSION });
     });
     socket.addEventListener('message', event => this.#receive(session, event.data));
-    socket.addEventListener('error', () => { /* Close reports the physical failure once. */ });
     socket.addEventListener('close', event => {
       // DEFENSE: A retired socket can deliver its close event after its replacement starts.
       if (!this.#current(session)) return;

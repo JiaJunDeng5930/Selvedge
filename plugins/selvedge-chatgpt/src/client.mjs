@@ -68,7 +68,7 @@ export function callTool(config, tool, arguments_, signal) {
         try {
           const text = utf8Decoder.decode(Buffer.concat(chunks));
           const reply = boundary('plugin.http_response', { tool, text, status: response.statusCode,
-            status_text: String(response.statusCode), content_type: response.headers['content-type'] ?? '' });
+            content_type: response.headers['content-type'] ?? '' });
           resolve(reply);
         // DEFENSE: HTTP reply bytes can be invalid UTF-8/JSON or violate the admitted MCP response contract; reject this tool call.
         } catch (error) { reject(error); }
