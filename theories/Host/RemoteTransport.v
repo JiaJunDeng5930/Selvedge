@@ -44,8 +44,13 @@ Definition step cfg s event : state * list action := match event with
    let n := N.succ (generation s) in (Connecting n 0,[Connect n])
  | Stop => (Stopped (N.succ (generation s)),[Retire])
  | Retry n now => match s with Retrying g tries deadline =>
-   if N.eqb g n && (deadline <=? now) then
-     let next := N.succ g in (Connecting next tries,[Connect next]) else (s,[])
+   if N.eqb g n then
+     if deadline <=? now then
+       let next := N.succ g in (Connecting next tries,[Connect next])
+     (* DEFENSE: The one-shot host timer can observe an earlier wall-clock
+        reading after system clock adjustment; keep its deadline scheduled. *)
+     else (s,[RetryAt g deadline])
+   else (s,[])
    | _ => (s,[]) end
  | _ =>
    let n := match event with Probe n _ _ _ | Lost n _ _ | Rejected n |

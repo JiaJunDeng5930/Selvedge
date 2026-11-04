@@ -183,7 +183,7 @@ From Selvedge.Host Require RemoteTransportProofs
 Export RemoteConnectorSession(retirement_discards_session_without_rewinding_notice_cursor).
 Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
-  retry_observation_before_deadline_does_not_connect).
+  current_retry_rearms_or_connects).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
   delivered_notice_is_queued_and_beyond_the_current_cutoff,
   every_observed_notice_advances_the_cursor,
@@ -227,6 +227,14 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     are observations, not host permission to reconnect. Authorization checks
     retain their bounded sequence comparison; capture requires equality with
     the current committed sequence in that observation.
+
+    A current retry must keep a future check scheduled until its deadline, then
+    start a connection with a fresh generation. The host's one-shot timer clears
+    its handle before reading [Date.now], whose wall clock can move backward
+    after system clock adjustment. Requiring no actions before the deadline
+    would lose that retry. [current_retry_rearms_or_connects] instead constrains
+    the existing timer or connection action, without fixing the whole internal
+    state. Clock behavior: https://www.w3.org/TR/hr-time-3/#clocks .
 
     Owners need the current connection status to diagnose availability.
     The query uses the installed transport phase and its socket's current
