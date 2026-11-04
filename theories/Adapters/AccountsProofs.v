@@ -182,7 +182,7 @@ Proof.
  destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
  unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
 Qed.
-Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("display_name",JString "Astra");
+Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");
   ("visibility",JString "list");("supported_reasoning_levels",JArray [JObject [("effort",JString "low")]])].
 Theorem public_automatic_transport_follows_advertised_capability : forall supported : option bool,
  let model := match supported with
@@ -197,7 +197,7 @@ Theorem public_automatic_transport_follows_advertised_capability : forall suppor
  JString (match supported with Some true => "configuration_update" | _ => "request_effort" end).
 Proof. intros [[|]|]; vm_compute; reflexivity. Qed.
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
-  ("display_name",JString "Independent external model");("visibility",JString "list")].
+  ("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :
   Permutation (map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
     ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);

@@ -129,22 +129,12 @@ Definition construct_request effect input reasoning limit
    (text_format effect) limit.
 Definition configuration_updates effect :=
   String.eqb (str (get (get effect "model") "adaptive_reasoning") "transport") "configuration_update".
-(* A setting change starts a new execution configuration. Keep current updates
-   in their original positions, without letting older updates override it. *)
-Fixpoint configuration_history (updates : bool) (history : list json) : list json * bool :=
-  match history with
-  | [] => ([],updates)
-  | message :: rest =>
-    let '(retained,current) := configuration_history updates rest in
-    ((if reasoning_configuration message && negb current then retained else message :: retained),
-      current && negb (String.eqb (str message "role") "task_context" &&
-        String.eqb (str message "type") "settings"))
-  end.
 Definition effect_input (select_history : list json -> string -> list json) effect profile :=
   let history := items (get effect "history") in
   let selected := if boolean_field effect "context_selected" then history else
     if is_text (get profile "scope") then select_history history (str profile "scope") else history in
-  input_items (fst (configuration_history (configuration_updates effect) selected)) profile.
+  input_items (if configuration_updates effect then selected else
+    filter (fun message => negb (reasoning_configuration message)) selected) profile.
 Definition request (select_history : list json -> string -> list json) source :=
   render_outcome (fun body => body) (bind (prepare_effect (get source "effect")) (fun effect =>
     bind (effect_input select_history effect (get source "profile")) (fun input =>

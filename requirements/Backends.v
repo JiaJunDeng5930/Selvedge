@@ -58,6 +58,11 @@ From Selvedge.Programming Require Import AdapterResult.
     the admitted account connection. Construction establishes their format;
     materialization consumes it directly. User-configured names still require
     a matching discovered account connection before they can select credentials.
+    Catalog admission retains fields used to select models, efforts and context
+    budgets. Display names and presentation priority have no consumer in those
+    decisions or in the profile list, which uses model slugs. Requiring or
+    validating that metadata could reject an otherwise usable account catalog;
+    it is excluded from the open descriptor declaration and stored model data.
     The account transport can omit output from its terminal response after
     reporting finalized items separately. Those items must survive until that
     terminal response, in provider index order, including their coordinates.
@@ -106,7 +111,15 @@ From Selvedge.Programming Require Import AdapterResult.
     an account update to developer text and replacing its baseline with the
     effective effort does not implement that transport. The shared request
     projection consumes the declared transport directly, including for manual
-    account profiles. The automatic account preset selects configuration updates
+    account profiles. A settings change already causes the next generation to
+    append its selected effort after the change. Earlier updates cannot override
+    that selection and remain in place for ordinary history replay. Removing
+    them would rewrite the prompt prefix without establishing another effort
+    guarantee. The transport filters all updates when fixed or request-effort
+    execution is selected; compaction separately replaces its captured span.
+    This follows the provider's manual replay contract:
+    https://developers.openai.com/api/docs/guides/reasoning.
+    The automatic account preset selects configuration updates
     only when the catalog advertises [supports_reasoning_effort_updates]. False
     or omitted metadata selects the existing request-effort transport, as the
     provider catalog specifies. The catalog's supported effort list admits both
@@ -125,7 +138,7 @@ Export BackendProofs(public_requests_use_the_committed_request_effort,
 Export AccountsProofs(public_automatic_transport_follows_advertised_capability).
 From Selvedge.Adapters Require Import HistoryProjectionProofs.
 Export HistoryProjectionProofs(requests_without_update_transport_omit_configuration_controls,
- request_input_after_settings_retires_earlier_configuration_controls,
+ requests_with_update_transport_keep_selected_history,
  responses_backends_encode_reasoning_updates_as_control_items).
 Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_refresh_cannot_replace_the_request_identity,

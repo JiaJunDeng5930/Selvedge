@@ -55,8 +55,8 @@ Definition auto_policy profile model : outcome (option json) :=
   else Accepted None.
 Definition review_info model :=
   match find (fun value => String.eqb (proj1_sig value) "low") (model_effort_values model) with
-  | Some low => ModelDescriptor model.(model_slug) model.(model_display) model.(model_visibility)
-    model.(model_priority) model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
+  | Some low => ModelDescriptor model.(model_slug) model.(model_visibility)
+    model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
     model.(model_reasoning_updates)
   | None => model end.
 Definition model_profile source model := JObject (object_fields (get source "connection") ++
