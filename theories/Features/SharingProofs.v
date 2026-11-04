@@ -131,14 +131,14 @@ Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forg
  Chatgpt.handle_chatgpt_forget payload caller value = decision /\
  Chatgpt.find_job id (Chatgpt.registry (decision_world decision)) = None /\
  F.sharing_next (Chatgpt.registry value) <= F.sharing_next (Chatgpt.registry (decision_world decision)) /\
- decision_effects decision = [].
+ decision_effects decision = [] /\ field "ok" (decision_reply decision) = Some (JBool true).
 Proof.
  intros payload value job granted caller connection project id authority found owner settled.
  change (Chatgpt.handle_chatgpt_forget payload caller value)
    with (Chatgpt.edit true connection project id value).
  unfold Chatgpt.edit. rewrite authority,found,owner,settled. cbn.
  eexists. split; [reflexivity|].
- cbn beta iota zeta delta [decision_world decision_effects accept].
+ cbn beta iota zeta delta [decision_world decision_effects decision_reply accept].
  rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
  cbn. unfold Chatgpt.find_job. cbn. rewrite removing_a_key_clears_its_lookup.
  repeat split; try reflexivity; apply N.le_refl.

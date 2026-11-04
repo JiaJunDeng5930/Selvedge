@@ -128,7 +128,7 @@ Definition edit (remove:bool) connection project id value :=
    | Some job=>if negb (owned connection project job) then Decision value missing_operation []
      else if remove then if pending job then reject "operation_running" "Cancel or finish the operation before forgetting it" value
        else let next:=set Selvedge.Features.Domain.sharing_jobs (filter (fun item=>negb (N.eqb id (fst item)))) (registry value) in
-       accept (JObject [("operation_id",number id)]) (store next value) []
+       accept JNull (store next value) []
      else if pending job then
        let stopped:=with_outcome (Selvedge.Features.Domain.JobInterrupted "Cancellation requested; physical changes are not undone") job in
        accept (receipt id stopped) (store (replace_job id stopped (registry value)) value) [CancelConnectionJob id]

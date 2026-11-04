@@ -35,8 +35,10 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority,
     A retry uses that job's frozen receipt and needs no current Project, primary
     root, fresh execution capacity or currently available managed workspace.
     [public_forget_removes_settled_receipt] requires forgetting a settled
-    receipt to remove it without moving the identity supply backward. Gaps in
-    that supply do not recycle earlier operation identities.
+    receipt to acknowledge its removal without moving the identity supply
+    backward or issuing work. Gaps in that supply do not recycle earlier
+    operation identities. The caller already supplies the receipt identity;
+    successful forgetting needs only the standard command acknowledgement.
     [recovery_never_replays_running_job] marks uncertain work instead of launching
     it again; cancellation requests a physical stop without undoing writes.
     Project connection authority remains distinct from browser, CLI and remote
@@ -152,8 +154,11 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     prepared command's permissions suffices without admitting that packet again.
     [prepared_remote_permissions_are_required] prevents preparation from using
     permissions absent from the current grant through the actual executor.
-    [revoked_remote_controller_cannot_replay] prevents retained results from
-    bypassing revocation. [remote_replay_has_no_effect] avoids repeated execution.
+    [revoked_remote_controller_cannot_replay] requires the actual local command
+    to acknowledge revocation, prevent retained-result access and issue no
+    work. Revocation removes future access without undoing accepted work.
+    Echoing the controller identity or a second revoked flag adds no information
+    to command success. [remote_replay_has_no_effect] avoids repeated execution.
     Oversized complete replies roll back instead of partly committing a result.
 
     Grant generations are monotone; a later grant cannot authorize an earlier
@@ -267,6 +272,8 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     so the credential cannot authorize another one. Failed admission issues no
     authority and need not spend an otherwise valid ticket. Issuance already
     removes expired tickets; grant updates remove revoked tickets.
+    Credential admission returns an admitted credential or the existing
+    rejection action; another accepted flag carries no additional result.
     After asynchronous hashing, the relay rereads the current attachment
     instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent

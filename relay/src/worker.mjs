@@ -12,7 +12,8 @@ const failure = (code, status) => result({ error: { code } }, status);
 const admission = (operation, source) => remoteControl(`relay_${operation}`, source);
 const bearer = (request, route) => {
   const admitted = admission('credential', { route, header: request.headers.get('authorization') || '' });
-  if (!admitted.accepted) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  // DEFENSE: Public requests can omit or malform the required bearer credential.
+  if (admitted.action === 'reject') throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
   return admitted.credential;
 };
 const admitBody = (route, body) => {
@@ -240,7 +241,7 @@ export class RemoteHostRelay {
     if (!upgrade(request)) return failure('websocket_required', 426);
     const supplied = admission('credential', { route: 'control', header: `Bearer ${url.searchParams.get('ticket') || ''}` });
     // DEFENSE: A control URL can contain an invalid or missing ticket.
-    if (!supplied.accepted) return failure(supplied.code, supplied.status);
+    if (supplied.action === 'reject') return failure(supplied.code, supplied.status);
     const secret = supplied.credential;
     const secretDigest = await digest(secret);
     const host = this.host();

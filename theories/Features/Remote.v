@@ -53,7 +53,7 @@ Definition revoke (controller : D.denote RemoteIdentity.controller_declaration) 
  let state:=registry value in
  let next:=Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (remove_grants controller (Selvedge.Features.Domain.remote_grants state))
    (Selvedge.Features.Domain.remote_next_epoch state) (remove_receipts controller (Selvedge.Features.Domain.remote_receipts state)) in
- accept (JObject [("controller_id",JString controller);("revoked",JBool true)]) (store next value) [].
+ accept JNull (store next value) [].
 Definition handle_remote_status (_payload : Selvedge.Generated.Commands.remote_status_payload)
  (caller : option N) (value : world) : json :=
  match caller with None => Selvedge.Kernel.State.success (status (registry value))

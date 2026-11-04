@@ -416,17 +416,22 @@ Proof.
  unfold Remote.complete_request. rewrite Admitted; cbn beta iota zeta. now rewrite Authorized.
 Qed.
 
-Theorem revoked_remote_controller_cannot_replay : forall required controller epoch id intent value,
+Theorem revoked_remote_controller_cannot_replay : forall required (payload : G.remote_revoke_payload) epoch id intent value,
+ let controller := G.remote_revoke_controller_id_admitted payload in
  let request := Remote.Request (ControllerId (proj1_sig controller)) epoch id intent in
+ let result := Remote.handle_remote_revoke payload None value in
+ field "ok" (decision_reply result) = Some (JBool true) /\
+ decision_effects result = [] /\
  exists code reason,
  Remote.authorize required request
-   (Remote.registry (decision_world (Remote.revoke controller value))) =
+   (Remote.registry (decision_world result)) =
  Remote.Denied code reason.
 Proof.
- intros required controller epoch id intent value request.
- set (after := decision_world (Remote.revoke controller value)).
+ intros required payload epoch id intent value controller request result.
+ split; [reflexivity|]. split; [reflexivity|].
+ set (after := decision_world result).
  assert (Removed : Remote.find_grant (Remote.controller request) (Remote.registry after) = None).
- { unfold after, Remote.revoke. cbn.
+ { unfold after, result, Remote.handle_remote_revoke, Remote.admin_command, Remote.revoke. cbn.
    rewrite remote_registry_store. unfold Remote.find_grant. cbn.
    unfold Remote.remove_grants; apply removing_a_key_clears_its_lookup. }
  pose proof (authorize_satisfies_complete_request_contract required request (Remote.registry after)) as Authorized.

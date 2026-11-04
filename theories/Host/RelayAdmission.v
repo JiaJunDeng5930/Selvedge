@@ -137,7 +137,7 @@ Definition admit event : action :=
 Definition action_json chosen := match chosen with
  | Reject status code=>JObject [("action",JString "reject");("status",number status);("code",JString code)]
  | Dispatch destination host_id=>JObject [("action",JString (route_name destination));("host_id",JString host_id)]
- | Credential _ value=>JObject [("accepted",JBool true);("credential",JString (proj1_sig value))]
+ | Credential _ value=>JObject [("credential",JString (proj1_sig value))]
  | BodyAccepted destination value=>body_json destination value | ContentAccepted=>number 0
  end.
 

@@ -95,7 +95,7 @@ Definition receipt_shape value := is_object value && has value "value" && is_boo
 Definition reply_result_shape route value := match route with
   | Projects | Operations => is_array value | Project => is_object value
   | Operation | Execute | Cancel => receipt_shape value
-  | Forget => is_object value && uint32 (get value "operation_id") end.
+  | Forget => true end.
 Definition reply_valid route reply := is_object reply && is_bool (get reply "ok") &&
   if boolean_field reply "ok" then keys reply ["ok";"result";"sequence"] && has reply "result" && reply_result_shape route (get reply "result")
   else keys reply ["ok";"error";"sequence"] && keys (get reply "error") ["code";"message"] &&
