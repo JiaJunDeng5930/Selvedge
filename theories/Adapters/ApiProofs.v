@@ -129,6 +129,28 @@ Proof.
  unfold decision;rewrite parsed.
  unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
+Theorem public_evaluator_request_preserves_tool_output_excerpt : forall excerpt failed evaluator policy,
+ let history := [
+   JObject [("role",JString "function_call");("call_id",JString "call");
+     ("name",JString "tool");("arguments",JString "{}")];
+   JObject [("role",JString "function_output");("call_id",JString "call");
+     ("content",JString excerpt);("is_error",JBool failed)]] in
+ let response := Api.call "evaluator.request" (JObject [
+   ("effect",JObject [("history",JArray history)]);("evaluator",evaluator);("policy",policy)]) in
+ let state := get (get response "value") "state" in
+ let calls := items (get state "recent_tool_calls") in
+ let outputs := items (get (hd JNull calls) "outputs") in
+ map (fun output => get output "text") outputs = [JString excerpt].
+Proof.
+ intros excerpt failed evaluator policy history response state calls outputs.
+ change (map (fun output => get output "text")
+   (items (get (hd JNull (items (get
+     (get (request_value evaluator policy (EvaluatorContext.context (JObject [("history",JArray history)]))) "state")
+     "recent_tool_calls"))) "outputs")) = [JString excerpt]).
+ unfold request_value.
+ destruct (String.eqb (str evaluator "provider") "vercel"); [reflexivity|].
+ destruct (String.eqb (str evaluator "provider") "openrouter"); reflexivity.
+Qed.
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
   Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->

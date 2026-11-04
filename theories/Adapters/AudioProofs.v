@@ -60,14 +60,10 @@ Proof.
   intros assistant content message. unfold initial_history_item.
   set (role := if assistant message then JString "assistant"
     else if String.eqb (str message "role") "speech_transcript" then get message "speaker" else get message "role").
-  rewrite forallb_app. apply andb_true_iff; split.
-  - destruct (existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)) eqn:accepted;
-      [|reflexivity].
-    apply andb_true_iff in accepted as [role_valid content_valid].
-    cbn [forallb]. rewrite (initial_message_is_valid _ _ role_valid content_valid). reflexivity.
-  - destruct (String.eqb (str message "role") "context_replacement" && nonempty_text (get message "content"));
-      [|reflexivity].
-    cbn [forallb]. rewrite initial_message_is_valid; reflexivity.
+  destruct (existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)) eqn:accepted;
+    [|reflexivity].
+  apply andb_true_iff in accepted as [role_valid content_valid].
+  cbn [forallb]. rewrite (initial_message_is_valid _ _ role_valid content_valid). reflexivity.
 Qed.
 
 Theorem initial_context_constructs_protocol_messages : forall transport assistant content source result,

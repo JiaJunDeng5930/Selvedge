@@ -29,6 +29,10 @@ Theorem responses_backends_encode_reasoning_updates_as_control_items : forall ow
    ("reasoning",JObject [("effort",JString effort)])]].
 Proof. reflexivity. Qed.
 
+Theorem web_history_omits_responses_reasoning_controls : forall owner effort,
+ WebHistory.history_item (Codec.message_json owner (ReasoningConfigurationMessage effort)) = Accepted [].
+Proof. reflexivity. Qed.
+
 Theorem requests_without_update_transport_omit_configuration_controls : forall select effect profile,
  configuration_updates effect = false ->
  effect_input select effect profile =

@@ -47,7 +47,7 @@ Definition same_input (input : capture) (task : task) (value : Selvedge.Kernel.S
 Definition relevant (input : capture) (task : task) (value : Selvedge.Kernel.State.world) :=
  alive task && same_description input task value && ContextSelection.history_extends (captured_history input) (task_history task).
 Definition useful (history : list message) := N.of_nat (List.length (filter (fun message => match message with
- | ContextReplacement _ | ReasoningRecord _ _ _ _ | FailureMessage _ => false | _ => true end) history)).
+ | ContextReplacement _ | ReasoningRecord _ _ _ | FailureMessage _ => false | _ => true end) history)).
 Definition job_pending (value : job) := match value with NoJob => false | _ => true end.
 Definition job_ticket (value : job) := match value with
  | AwaitingContext ticket _ _ | Preparing (RequestEnvelope.Envelope ticket _) | Compacting (RequestEnvelope.Envelope ticket _) | Validating (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.

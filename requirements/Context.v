@@ -238,16 +238,16 @@ Export SearchProofs(rejected_scope_contributes_no_history,
     An adaptive profile requests its evaluator when it has no active lease.
     The result must select a supported reasoning effort and a duration admitted
     by the frozen policy. Each actual generation consumes one lease step.
-    It records that lease and any changed effort. Absence of retained output
+    The retained owner, effort and remaining count reconstruct that lease;
+    an extra marker distinguishing evaluation from generation supplies no input
+    to that calculation. It records the lease and any changed effort. Absence of retained output
     does not itself establish a failed request; model completion, cancellation
     and recovery report their observed outcomes. A changed effort precedes the
     lease record, whose ordinary provider input begins that generation after
     the control update. No synthetic failure is needed to create an input item.
-    An execution-settings change starts a new configuration interval. Provider
-    input retains ordinary history but omits older control updates, so a prior
-    effort cannot override the new profile or an explicit fixed effort. Current
-    updates retain their positions. Compaction and settings changes require a
-    fresh update even when the selected effort string is unchanged.
+    Compaction and settings changes require a fresh update even when the
+    selected effort string is unchanged. That later update selects the current
+    effort without deleting earlier updates from ordinary history replay.
     Evaluation failure is recorded; with no queued input the Task becomes idle
     instead of inventing an effort or issuing an unsupported model request.
     The evaluator's judgment quality is a provider observation. *)
@@ -265,4 +265,5 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
     pre-parsed input would not constrain the response path used by the host. *)
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
-  public_evaluator_accepts_configured_decision).
+  public_evaluator_accepts_configured_decision,
+  public_evaluator_request_preserves_tool_output_excerpt).

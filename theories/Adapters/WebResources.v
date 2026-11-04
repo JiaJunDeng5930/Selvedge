@@ -93,9 +93,9 @@ Definition event (header : bool) name data body model tools index :=
       else if header then event_action "identify" (optional (truthy (get value "response_id")) "response_id" (get value "response_id"))
       else event_dispatch name value body model tools index.
 Definition http_json (response_ok : bool) source := match TextJson.parse_json_members source with
-  | Some value => success (JObject [("present",JBool true);("value",value)])
+  | Some value => success (JObject [("value",value)])
   | None => if response_ok then failure "http_json_parse" "The service returned invalid JSON"
-    else success (JObject [("present",JBool false)]) end.
+    else success (JObject []) end.
 Definition commit value :=
   if eq value "status" "completed" || eq value "status" "requires_action"
   then success (JObject [("action",JString "finish")])

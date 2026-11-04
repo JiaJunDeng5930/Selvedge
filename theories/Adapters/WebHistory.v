@@ -30,7 +30,7 @@ Definition history_item item : outcome (list json) :=
     match str item "type" with
     | "environment_notice" => Accepted [message "developer" (get item "content")]
     | "context_change" => Accepted [message "developer" (JString (BackendHistory.context_change_text (get item "change")))]
-    | "reasoning_configuration" => Accepted [message "developer" (JString ("Committed reasoning effort for subsequent responses: " ++ str item "effort"))]
+    | "reasoning_configuration" => Accepted []
     | _ => history_data item end
   | Some HistoryRole.User => Accepted [message "user" (JString (BackendHistory.content_text_value (get item "content")))]
   | Some HistoryRole.Assistant => Accepted [message "assistant" (get item "content")]

@@ -249,8 +249,8 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
  | FunctionOutput id value error => JObject [("role", JString "function_output"); ("call_id", JString id); ("content", value); ("is_error", JBool error)]
  | OperationResult ticket call value error => JObject [("role", JString "operation_result"); ("operation_id", number ticket); ("call_id", JString (call_id call)); ("tool", JString (call_name call)); ("content", value); ("is_error", JBool error)]
  | FailureMessage text => JObject [("role", JString "error"); ("content", JString text)]
- | ReasoningRecord owner effort remaining sampling => JObject [("role",JString "reasoning_record"); ("task_id",number owner);
-   ("content",JObject [("effort",JString effort);("remaining",number remaining);("sampling",JBool sampling)])]
+ | ReasoningRecord owner effort remaining => JObject [("role",JString "reasoning_record"); ("task_id",number owner);
+   ("content",JObject [("effort",JString effort);("remaining",number remaining)])]
  | ModelContext origin value => JObject [("role", JString "model_context"); ("origin", origin_json origin); ("content", value)]
  | ContextReplacement value => JObject [("role", JString "context_replacement"); ("content", value)]
  | ContextObservation change => JObject [("role", JString "task_context"); ("type", JString "context_change"); ("change", Context.change_json change)]

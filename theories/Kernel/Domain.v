@@ -195,7 +195,7 @@ Inductive message :=
 | FunctionOutput (id : string) (value : json) (error : bool)
 | OperationResult (ticket : N) (invocation : call) (value : json) (error : bool)
 | FailureMessage (text : string)
-| ReasoningRecord (owner : N) (effort : string) (remaining : N) (sampling : bool)
+| ReasoningRecord (owner : N) (effort : string) (remaining : N)
 | ModelContext (origin : output_origin) (value : json)
 | ContextReplacement (value : json)
 | ContextObservation (change : context_change)

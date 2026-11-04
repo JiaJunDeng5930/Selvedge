@@ -260,7 +260,10 @@ Export AudioConnection(step).
     The Service admits the Task and creates the session identity before building
     its request. [initial_context_constructs_protocol_messages] guarantees that
     its committed history projection constructs valid voice messages. The request
-    retains those constructed values directly instead of revalidating them or
+    uses a bounded recent conversation page. Model compaction retains those
+    original records; its replacement artifact describes a provider window,
+    not another spoken message or a string summary for audio initialization.
+    The request retains those constructed values directly instead of revalidating them or
     silently substituting empty history. Committed reads also own the cursor and
     message-array shape used by initial history and progress. Progress and
     acknowledgement constructors supply their text, channel and admitted

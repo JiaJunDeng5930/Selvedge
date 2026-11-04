@@ -11,7 +11,7 @@ Definition failed_result (error : bool) (value : json) :=
 Inductive lease := NoLease | Lease (effort : string) (remaining : N).
 Definition lease_step (owner : N) (previous : lease) (message : message) :=
  match message with
- | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
+ | ReasoningRecord actual effort remaining => if N.eqb owner actual then Lease effort remaining else NoLease
  | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
  | FailureMessage _ | ContextReplacement _ => NoLease
  | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
@@ -50,7 +50,7 @@ Definition generation_messages (owner : N) (model : profile) (remaining : N) (ta
  | FixedReasoning => false end in
  (* The control item precedes this generation's ordinary provider input. *)
  (if emit then [ReasoningConfigurationMessage effort] else []) ++
- [ReasoningRecord owner effort (N.pred remaining) true].
+ [ReasoningRecord owner effort (N.pred remaining)].
 Definition generation owner model remaining source :=
  append_history (generation_messages owner model remaining source) source.
 

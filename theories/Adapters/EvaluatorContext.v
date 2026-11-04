@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson JsonObjects.
+From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -12,7 +12,7 @@ Fixpoint calls history index := match history with [] => [] | item::rest =>
 Fixpoint outputs history call index := match history with
   | item::rest => let tail := outputs rest call (index+1) in
     if String.eqb (str item "role") "function_output" && JsonObjects.equivalent (get item "call_id") (get call "call_id") && (num call "history_index" <? index) then
-      JObject [("history_index",number index);("is_error",get item "is_error");("text",JString (TextJson.render_json (get item "content")))]::tail else tail
+      JObject [("history_index",number index);("is_error",get item "is_error");("text",get item "content")]::tail else tail
   | _ => [] end.
 Fixpoint pair_calls values history := match values with [] => [] | call::rest =>
   JObject [("history_index",get call "history_index");("call_id",get call "call_id");("name",get call "name");("arguments",get call "arguments");

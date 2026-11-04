@@ -104,11 +104,8 @@ Definition initial_message (role : string) (content : json) := JObject [("type",
 Definition initial_history_item (assistant : json -> bool) (content : json -> json) (message : json) : list json :=
   let role := if assistant message then JString "assistant"
     else if String.eqb (str message "role") "speech_transcript" then get message "speaker" else get message "role" in
-  (if existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)
-   then [initial_message (text role) (content message)] else []) ++
-  if String.eqb (str message "role") "context_replacement" && nonempty_text (get message "content")
-  then [initial_message "user" (JString ("Previous Task context summary:
-" ++ str message "content"))] else [].
+  if existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)
+  then [initial_message (text role) (content message)] else [].
 Definition initial_context (assistant : json -> bool) (content : json -> json) (source : json) :=
   success (JArray (flat_map (initial_history_item assistant content) (items (get source "messages")))).
 Definition task_progress (assistant : json -> bool) (content : json -> json) (source : json) :=

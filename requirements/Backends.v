@@ -117,6 +117,10 @@ From Selvedge.Programming Require Import AdapterResult.
     them would rewrite the prompt prefix without establishing another effort
     guarantee. The transport filters all updates when fixed or request-effort
     execution is selected; compaction separately replaces its captured span.
+    A Task can also switch from an adaptive Responses profile to ChatGPT Web.
+    Web fixes effort through its selected profile, so old Responses controls
+    supply no Web instruction. Its history projection omits those controls
+    without changing the original positions and hashes used by receipts.
     This follows the provider's manual replay contract:
     https://developers.openai.com/api/docs/guides/reasoning.
     The automatic account preset selects configuration updates
@@ -139,7 +143,8 @@ Export AccountsProofs(public_automatic_transport_follows_advertised_capability).
 From Selvedge.Adapters Require Import HistoryProjectionProofs.
 Export HistoryProjectionProofs(requests_without_update_transport_omit_configuration_controls,
  requests_with_update_transport_keep_selected_history,
- responses_backends_encode_reasoning_updates_as_control_items).
+ responses_backends_encode_reasoning_updates_as_control_items,
+ web_history_omits_responses_reasoning_controls).
 Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_refresh_cannot_replace_the_request_identity,
  public_refresh_keeps_the_same_request_identity,
@@ -417,7 +422,10 @@ Qed.
 
     These contracts constrain the interpreters used by the declared [web.*]
     operations. HTTP delivery and durable store acknowledgements remain host
-    observations. *)
+    observations. Successful recovery replies use the provider decoder directly
+    because tool arguments must retain their original members before entering
+    host objects. A preliminary generic JSON projection adds no admission to
+    that decoder and need not return another copy of the raw response. *)
 From Selvedge.Adapters Require WebProofs.
 Export WebProofs(existing_request_reuse_requires_body_and_connection,
   receipt_is_bound_to_actual_task_connection_and_response,

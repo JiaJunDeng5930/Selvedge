@@ -15,7 +15,7 @@ export async function readText(body, maximum) {
   return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, length));
 }
 
-export async function requestJson(url, { method = 'POST', body, headers = {}, signal, timeout = 30_000, maximum = 1024 * 1024 } = {}) {
+export async function requestJson(url, { method = 'POST', body, headers = {}, signal, timeout = 30_000, maximum = 1024 * 1024, decodeSuccess } = {}) {
   const response = await fetch(url, {
     method, headers: { 'content-type': 'application/json', ...headers },
     body: body === undefined ? undefined : stringifyJson(body),
@@ -23,9 +23,9 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  const decoded = boundary('web.http_json', { response: { ok: response.ok }, text });
-  const value = decoded.present ? decoded.value : undefined;
-  return { status: response.status, ok: response.ok, value, text };
+  const value = response.ok && decodeSuccess ? decodeSuccess(text)
+    : boundary('web.http_json', { response: { ok: response.ok }, text }).value;
+  return { status: response.status, ok: response.ok, value };
 }
 
 /** SSE framing is independent of HTTP chunks, including UTF-8 and CRLF splits. */
