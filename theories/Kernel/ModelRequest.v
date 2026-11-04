@@ -38,7 +38,9 @@ Definition next (owner : N) (task : task) :=
  end.
 Definition last_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage effort => Some effort | _ => previous end) history None.
+ | ReasoningConfigurationMessage effort => Some effort
+ | ContextReplacement _ | SettingsMessage _ _ _ => None
+ | _ => previous end) history None.
 Definition generation_messages (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in
  let emit := match profile_policy (task_current_profile task) with
@@ -46,8 +48,9 @@ Definition generation_messages (owner : N) (model : profile) (remaining : N) (ta
    | RequestEffort => false | ConfigurationUpdates =>
      match last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous effort) end end
  | FixedReasoning => false end in
- [ReasoningRecord owner effort (N.pred remaining) true] ++
- (if emit then [ReasoningConfigurationMessage effort] else []).
+ (* The control item precedes this generation's ordinary provider input. *)
+ (if emit then [ReasoningConfigurationMessage effort] else []) ++
+ [ReasoningRecord owner effort (N.pred remaining) true].
 Definition generation owner model remaining source :=
  append_history (generation_messages owner model remaining source) source.
 

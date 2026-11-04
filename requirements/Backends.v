@@ -92,15 +92,41 @@ From Selvedge.Programming Require Import AdapterResult.
     network transport. Rechecking the unchanged echo history cannot establish
     another capability. Independent compaction uses the common request type's
     absence of tool authority; empty tool lists and sampling placeholders do
-    not strengthen that construction. A native replacement's format and a
+    not strengthen that construction. Its native history is already projected
+    to dialogue when the captured plan is constructed; portable fragments are
+    quoted user text. Filtering tracked capabilities again in the adapter adds
+    no input constraint. A native replacement's format and a
     changed consumer's boolean already select their continuations, without
     unused action labels. Web invocation owns its request ticket; the history
     projection does not need an unread ticket copy.
+
+    Declared reasoning transport has the same meaning for API-key and account
+    Responses requests. Configuration updates carry the selected effort as a
+    protocol item while the request retains its committed baseline. Converting
+    an account update to developer text and replacing its baseline with the
+    effective effort does not implement that transport. The shared request
+    projection consumes the declared transport directly, including for manual
+    account profiles. The automatic account preset selects configuration updates
+    only when the catalog advertises [supports_reasoning_effort_updates]. False
+    or omitted metadata selects the existing request-effort transport, as the
+    provider catalog specifies. The catalog's supported effort list admits both
+    the requested baseline and selected value, including after a catalog refresh
+    changes the available levels. These semantics follow OpenAI's catalog and request
+    implementation:
+    https://github.com/openai/codex/blob/main/codex-rs/protocol/src/openai_models.rs
+    and https://github.com/openai/codex/blob/main/codex-rs/core/src/session/reasoning_effort.rs.
 
     These are requirements on the extracted decisions from supplied observations.
     Issuer signature verification, atomic credential replacement, live account
     eligibility and physical HTTP execution remain host boundaries. *)
 From Selvedge.Adapters Require Import AccountsProofs BackendProofs.
+Export BackendProofs(public_requests_use_the_committed_request_effort,
+ adaptive_account_requests_require_supported_baseline_and_effort).
+Export AccountsProofs(public_automatic_transport_follows_advertised_capability).
+From Selvedge.Adapters Require Import HistoryProjectionProofs.
+Export HistoryProjectionProofs(requests_without_update_transport_omit_configuration_controls,
+ request_input_after_settings_retires_earlier_configuration_controls,
+ responses_backends_encode_reasoning_updates_as_control_items).
 Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_refresh_cannot_replace_the_request_identity,
  public_refresh_keeps_the_same_request_identity,
@@ -274,13 +300,11 @@ Lemma preparation_keeps_the_request_kind : forall effect,
  str (BackendRequests.independent_effect effect) "kind" = str effect "kind".
 Proof.
  intro effect; unfold BackendRequests.independent_effect.
- destruct (String.eqb (str effect "kind") "context_compaction").
- - unfold str; rewrite updating_another_field_keeps_value by discriminate; reflexivity.
- - destruct (existsb (String.eqb (str effect "kind")) ["task_title"; "board_text"]).
-   + unfold BackendRequests.independent_task_text, str.
-     repeat rewrite updating_another_field_keeps_value by discriminate; reflexivity.
-   + destruct (String.eqb (str effect "kind") "approval"); [|reflexivity].
-     unfold str; rewrite updating_another_field_keeps_value by discriminate; reflexivity.
+ destruct (existsb (String.eqb (str effect "kind")) ["task_title"; "board_text"]).
+ - unfold BackendRequests.independent_task_text, str.
+   repeat rewrite updating_another_field_keeps_value by discriminate; reflexivity.
+ - destruct (String.eqb (str effect "kind") "approval"); [|reflexivity].
+   unfold str; rewrite updating_another_field_keeps_value by discriminate; reflexivity.
 Qed.
 
 Lemma independent_request_preparation_succeeds : forall effect,

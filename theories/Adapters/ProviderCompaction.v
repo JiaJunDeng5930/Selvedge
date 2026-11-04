@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson ModelWire.
 From Selvedge.Programming Require Import DeclarationFields.
-From Selvedge.Kernel Require Import Context Conversation.
+From Selvedge.Kernel Require Import Conversation.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Adapters Require ProviderCatalog OutputObservations.
 From Selvedge.Programming Require AdapterResult.
@@ -26,17 +26,10 @@ Definition selected_request (meter : bool) (source : json) : json :=
     (if meter then ["tools"; "tool_choice"; "parallel_tool_calls"] else []) in
   JObject (filter (fun field => existsb (String.eqb (fst field)) names)
     (object_fields (get source "request"))).
-Definition capability_message (message : json) : bool :=
-  let change := get message "change" in
-  let kind := definition_kind Context.interactive_markdown in
-  String.eqb (str message "role") "task_context" &&
-    (String.eqb (str (get change "key") "type") kind ||
-     String.eqb (str (get (get change "snapshot") "key") "type") kind).
-Definition helper_history (history : list json) := filter (fun m => negb (capability_message m)) history.
 Definition effect (source : json) : json :=
   let original := get source "effect" in let plan := get original "plan" in
   let history := if String.eqb (str plan "method") "native"
-    then helper_history (items (get plan "history"))
+    then items (get plan "history")
     else [JObject [("role",JString "user"); ("content",JString
       (str plan "prompt" ++ "
 
@@ -71,7 +64,7 @@ Definition summary_result (source : json) := success (JObject [
     String.concat "" (map (fun part => str part "text")
       (items (get (Conversation.provider_value (get item "value")) "content"))))
       (items (get source "items")))));
-  ("scope",get source "scope"); ("usage",get source "usage")]).
+  ("usage",get source "usage")]).
 Definition scope (source : json) := success (JString (TextJson.render_json (JArray [
   get (get source "profile") "provider"; get (get source "profile") "endpoint";
   get source "model"; get source "account_id"]))).

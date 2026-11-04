@@ -36,12 +36,13 @@ Definition model_fields := [F.required "slug" (D.Value KText);F.required "displa
  F.optional "supported_reasoning_levels" (D.Array (D.OpenObject effort_fields));
  F.optional "default_reasoning_level" (D.nullable (D.Value KText));
  F.optional "context_window" window_declaration;
- F.optional "effective_context_window_percent" percent_declaration].
+ F.optional "effective_context_window_percent" percent_declaration;
+ F.optional "supports_reasoning_effort_updates" (D.Value KBool)].
 Record model_descriptor := ModelDescriptor {
   model_slug : model_name; model_display : label; model_visibility : visibility;
   model_priority : option (D.denote priority_declaration); model_efforts : option effort_list;
   model_reasoning : option (option label); model_window : option (D.denote window_declaration);
-  model_percent : option (D.denote percent_declaration)
+  model_percent : option (D.denote percent_declaration); model_reasoning_updates : bool
 }.
 Definition model_id value := proj1_sig value.(model_slug).
 Definition optional_admission {A B : Set} (parse : A -> option B) (value : option A) :=
@@ -54,11 +55,12 @@ Definition admit_reasoning (value : D.denote (D.nullable (D.Value KText))) : opt
  | inl value => option_map Some (D.admit bounded_name value)
  | inr (inl _) => Some None | inr (inr impossible) => match impossible with end end.
 Definition admit_model (source : D.denote (D.OpenObject model_fields)) : option model_descriptor :=
- let '(id,(title,(visible,(rank,(levels,(baseline,(context,(percent,_)))))))) := proj1_sig source in
+ let '(id,(title,(visible,(rank,(levels,(baseline,(context,(percent,(updates,_))))))))) := proj1_sig source in
  match D.admit (fun value => bounded_name value && slug value) id,D.admit bounded_name title,
    optional_admission admit_efforts levels,optional_admission admit_reasoning baseline with
  | Some id,Some title,Some levels,Some baseline =>
-   Some (ModelDescriptor id title (visibility_value visible) rank levels baseline context percent)
+   Some (ModelDescriptor id title (visibility_value visible) rank levels baseline context percent
+     (match updates with Some supported => supported | None => false end))
  | _,_,_,_ => None end.
 Definition optional_member {A} (name : string) (encode : A -> json) (value : option A) :=
   match value with Some value => [(name,encode value)] | None => [] end.
@@ -66,7 +68,8 @@ Definition label_json (value : label) := JString (proj1_sig value).
 Definition effort_json (values : effort_list) := JArray (map (fun value => JObject [("effort",label_json value)]) (proj1_sig values)).
 Definition nullable_label value := match value with Some value => label_json value | None => JNull end.
 Definition model_json value := JObject ([("slug",JString (model_id value));("display_name",label_json value.(model_display));
-  ("visibility",JString (visibility_name value.(model_visibility)))] ++
+  ("visibility",JString (visibility_name value.(model_visibility)));
+  ("supports_reasoning_effort_updates",JBool value.(model_reasoning_updates))] ++
   optional_member "priority" (D.encode priority_declaration) value.(model_priority) ++
   optional_member "default_reasoning_level" nullable_label value.(model_reasoning) ++
   optional_member "supported_reasoning_levels" effort_json value.(model_efforts) ++

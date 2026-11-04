@@ -104,7 +104,10 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     evidence selection and excerpting. [ReasoningView]
     also constructs the effect's history roles and string previews. The evaluator
     adapter organizes those values directly without another admission of its
-    private input or a parallel text-part representation. Credential and budget
+    private input or a parallel text-part representation. The frozen adaptive
+    policy has already passed domain admission, including its effort set,
+    evaluator, transport and lease bound. The host consumes that policy without
+    parsing it again. Credential and budget
     admission either reject or allow the awaited request to continue; they do
     not select another evaluator or dispatch a host action through an unused
     success payload. It forwards the selected
@@ -117,6 +120,7 @@ From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs.
 From Selvedge.Features Require CompactionProofs.
 Export ContextSelectionProofs(adoption_keeps_the_original_history,
   selected_replacement_keeps_the_exact_suffix,
+  selected_replacement_drops_compacted_reasoning_updates,
   portable_replacement_keeps_the_exact_suffix,
   another_scope_cannot_select_native_context,
   an_unresolved_captured_call_cannot_be_compacted).
@@ -140,7 +144,12 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     replacement plus records added after its captured span. Incompatible native
     scope cannot authorize selection; readable originals remain available for
     a portable rebuild. Fixed tracked context and image references retain their
-    distinct roles when ordinary dialogue is summarized.
+    distinct roles when ordinary dialogue is summarized. Reasoning configuration
+    updates control the following generation; they are not tracked instructions
+    to move before a replacement summary. Selection drops updates in the replaced
+    span, and the next generation records its current effort again. This also
+    follows the provider's requirement to restate configuration after compaction
+    (https://developers.openai.com/api/docs/guides/reasoning).
 
     A ticket identifies a request, but does not establish that its measurement
     still describes the current history, settings, tool capabilities or suffix.
@@ -176,7 +185,9 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Once that plan exists, retaining its original target configuration adds
     no input to a subsequent fragment or portable rebuild.
     The captured receiver owns validation purpose and settings compatibility,
-    so neither needs another unused copy in the physical request. *)
+    so neither needs another unused copy in the physical request. A portable
+    summary carries readable text and usage; its callback does not consume a
+    provider scope, which remains relevant to native replacements and measurement. *)
 
 From Selvedge.Kernel Require NativeTools NativeCatalogProofs.
 Export NativeTools(presentation_catalog).
@@ -229,9 +240,14 @@ Export SearchProofs(rejected_scope_contributes_no_history,
     by the frozen policy. Each actual generation consumes one lease step.
     It records that lease and any changed effort. Absence of retained output
     does not itself establish a failed request; model completion, cancellation
-    and recovery report their observed outcomes. The lease record already
-    supplies ordinary provider input before a configuration update, so another
-    failure record is not needed to separate the update from earlier input.
+    and recovery report their observed outcomes. A changed effort precedes the
+    lease record, whose ordinary provider input begins that generation after
+    the control update. No synthetic failure is needed to create an input item.
+    An execution-settings change starts a new configuration interval. Provider
+    input retains ordinary history but omits older control updates, so a prior
+    effort cannot override the new profile or an explicit fixed effort. Current
+    updates retain their positions. Compaction and settings changes require a
+    fresh update even when the selected effort string is unchanged.
     Evaluation failure is recorded; with no queued input the Task becomes idle
     instead of inventing an effort or issuing an unsupported model request.
     The evaluator's judgment quality is a provider observation. *)
@@ -239,6 +255,8 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
   a_supported_evaluator_choice_continues_the_running_task,
   a_ready_evaluator_choice_has_a_supported_frozen_duration,
   actual_model_generation_consumes_one_lease_step,
+  a_generation_after_compaction_restates_its_effort,
+  a_generation_after_settings_restates_its_effort,
   failed_reasoning_with_no_queued_input_is_idle).
 
 (** The evaluator supplies HTTP text. Both admission and successful delivery

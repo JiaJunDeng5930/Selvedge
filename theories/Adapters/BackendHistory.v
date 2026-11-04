@@ -51,14 +51,12 @@ Definition side_conversation_text message :=
 Definition message role content := JObject [("role",JString role);("content",content)].
 Definition history_data value := [message "user" (JString ("Committed task history data:
 " ++ TextJson.render_json value))].
-Definition context_item value profile : outcome (list json) :=
+Definition context_item value : outcome (list json) :=
   let kind := str value "type" in
   if String.eqb kind "environment_notice" then Accepted [message "developer" (get value "content")]
   else if String.eqb kind "context_change" then Accepted [message "developer" (JString (context_change_text (get value "change")))]
   else if String.eqb kind "reasoning_configuration" then
-    Accepted (if account profile then [message "developer" (JString
-      ("Committed reasoning effort for subsequent responses: " ++ str value "effort"))]
-      else [JObject [("type",JString "configuration_update");("reasoning",JObject [("effort",get value "effort")])]])
+    Accepted [JObject [("type",JString "configuration_update");("reasoning",JObject [("effort",get value "effort")])]]
   else if String.eqb kind "side_conversation" then Accepted [message "developer" (JString (side_conversation_text value))]
   else Accepted (history_data value).
 Definition content_has_images parts := existsb (fun part => String.eqb (str part "type") "image") parts.
@@ -106,7 +104,7 @@ Definition input_item value profile : outcome (list json) :=
   | Some HistoryRole.Transcript => Accepted [message (str value "speaker") (get value "content")]
   | Some HistoryRole.Delegation => Accepted []
   | Some HistoryRole.Data => Accepted (history_data value)
-  | Some HistoryRole.Context => context_item value profile
+  | Some HistoryRole.Context => context_item value
   | Some HistoryRole.User | Some HistoryRole.Assistant =>
     bind (message_content (get value "content") profile) (fun content => Accepted [message role content])
   | Some HistoryRole.Call => Accepted [function_call value profile]

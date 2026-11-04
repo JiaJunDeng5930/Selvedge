@@ -44,6 +44,19 @@ Proof.
  now rewrite app_nil_r.
 Qed.
 
+Theorem selected_replacement_drops_compacted_reasoning_updates :
+ forall before owner effort after suffix candidate scope,
+ let snapshot := (before ++ Codec.message_json owner (ReasoningConfigurationMessage effort) :: after)%list in
+ latest (snapshot ++ suffix) scope 0 Original =
+   Replacement (N.of_nat (List.length snapshot)) candidate ->
+ target_messages (snapshot ++ suffix) scope =
+   (fixed (before ++ after) ++ dialogue (artifact_items candidate) ++ scoped_messages suffix scope)%list.
+Proof.
+ intros before owner effort after suffix candidate scope snapshot Selected.
+ rewrite (selected_replacement_keeps_the_exact_suffix snapshot suffix candidate scope Selected).
+ unfold snapshot, fixed; rewrite !flat_map_app; reflexivity.
+Qed.
+
 Theorem portable_replacement_keeps_the_exact_suffix : forall snapshot suffix candidate,
  latest (snapshot ++ suffix) "" 0 Original = Replacement (N.of_nat (List.length snapshot)) candidate ->
  portable_messages (snapshot ++ suffix) =

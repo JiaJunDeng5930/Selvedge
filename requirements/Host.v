@@ -34,7 +34,10 @@ Import ListNotations.
     restart contract. Changes to input meaning require a new persistent format
     so restart cannot silently reinterpret prior work. Removing a synthetic
     failure message changes the retained Task history during replay and therefore
-    also requires a new format. Domain refusals of
+    also requires a new format. Restating the current reasoning configuration
+    after compaction or an execution-settings change adds a retained history
+    record during replay and therefore requires the next format as well.
+    Domain refusals of
     admitted mutations are also stored: relaxing a card-edit restriction can
     turn a previously refused journal row into a successful edit on replay.
     Removing an obsolete field from a closed input grammar also makes earlier

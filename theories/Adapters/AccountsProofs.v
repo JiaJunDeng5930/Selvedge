@@ -184,6 +184,18 @@ Proof.
 Qed.
 Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("display_name",JString "Astra");
   ("visibility",JString "list");("supported_reasoning_levels",JArray [JObject [("effort",JString "low")]])].
+Theorem public_automatic_transport_follows_advertised_capability : forall supported : option bool,
+ let model := match supported with
+   | Some supported => set automatic_candidate "supports_reasoning_effort_updates" (JBool supported)
+   | None => automatic_candidate end in
+ let response := Api.call "account.materialize" (JObject [
+   ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);
+   ("config",JObject [("profiles",JObject [])]);
+   ("result",JObject [("account_id",JString "account-1");("models",JArray [model])])]) in
+ get (get (get (get (get response "value") "profiles")
+   "chatgpt/0123456789abcdef/gpt-6-astra/~auto") "adaptive_reasoning") "transport" =
+ JString (match supported with Some true => "configuration_update" | _ => "request_effort" end).
+Proof. intros [[|]|]; vm_compute; reflexivity. Qed.
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
   ("display_name",JString "Independent external model");("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :

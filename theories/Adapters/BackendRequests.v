@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson CallWire.
-From Selvedge.Kernel Require Import NativeTools ModelCapabilities.
+From Selvedge.Kernel Require Import NativeTools ModelCapabilities ContextSelection.
 From Selvedge.Features Require Import Titles.
-From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory ProviderCompaction.
+From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
@@ -14,9 +14,7 @@ Definition independent_task_text effect := set (set effect "instructions" (JStri
   (JArray [message "user" (get effect "prompt")]).
 Definition independent_effect effect :=
   let kind := str effect "kind" in
-  if String.eqb kind "context_compaction" then set effect "history"
-    (JArray (helper_history (items (get effect "history"))))
-  else if existsb (String.eqb kind) ["task_title";"board_text"] then
+  if existsb (String.eqb kind) ["task_title";"board_text"] then
     independent_task_text effect
   else if String.eqb kind "approval" then
     set effect "history"
@@ -99,16 +97,18 @@ Definition text_format_fields kind retitle :=
 Definition text_format effect := text_format_fields (str effect "kind") (boolean_field effect "retitle").
 Definition structured_text_fields body kind retitle := match text_format_fields kind retitle with
  | Some format => set body "text" format | None => body end.
-Definition reasoning_value effect profile := JObject [
- ("effort",if account profile then effective_effort effect else request_effort effect)].
+Definition reasoning_value effect := JObject [("effort",request_effort effect)].
 Definition admit_reasoning effect profile : outcome (option json) :=
- let value := Some (reasoning_value effect profile) in
+ let value := Some (reasoning_value effect) in
  let observed := get (get profile "model_info") "supported_reasoning_levels" in
  if account profile && is_array observed then
    let levels := map (fun level => get level "effort") (items observed) in
    if Nat.eqb (List.length levels) 0 && negb (is_object (get (get effect "model") "adaptive_reasoning"))
    then Accepted None
-   else if independent_kind (str effect "kind") || contains levels (effective_effort effect) then Accepted value
+   (* DEFENSE: A refreshed account catalog can remove an effort retained by a
+      Task's frozen policy; both the wire baseline and selected effort must fit. *)
+   else if independent_kind (str effect "kind") ||
+     (contains levels (request_effort effect) && contains levels (effective_effort effect)) then Accepted value
    else reject ("This account model supports these reasoning levels: " ++ String.concat ", " (map text levels))
  else Accepted value.
 Definition output_limit effect :=
@@ -127,10 +127,24 @@ Definition construct_request effect input reasoning limit
    (if keep_reasoning then reasoning else None)
    (construct_authority independent effect)
    (text_format effect) limit.
+Definition configuration_updates effect :=
+  String.eqb (str (get (get effect "model") "adaptive_reasoning") "transport") "configuration_update".
+(* A setting change starts a new execution configuration. Keep current updates
+   in their original positions, without letting older updates override it. *)
+Fixpoint configuration_history (updates : bool) (history : list json) : list json * bool :=
+  match history with
+  | [] => ([],updates)
+  | message :: rest =>
+    let '(retained,current) := configuration_history updates rest in
+    ((if reasoning_configuration message && negb current then retained else message :: retained),
+      current && negb (String.eqb (str message "role") "task_context" &&
+        String.eqb (str message "type") "settings"))
+  end.
 Definition effect_input (select_history : list json -> string -> list json) effect profile :=
   let history := items (get effect "history") in
-  input_items (if boolean_field effect "context_selected" then history else
-    if is_text (get profile "scope") then select_history history (str profile "scope") else history) profile.
+  let selected := if boolean_field effect "context_selected" then history else
+    if is_text (get profile "scope") then select_history history (str profile "scope") else history in
+  input_items (fst (configuration_history (configuration_updates effect) selected)) profile.
 Definition request (select_history : list json -> string -> list json) source :=
   render_outcome (fun body => body) (bind (prepare_effect (get source "effect")) (fun effect =>
     bind (effect_input select_history effect (get source "profile")) (fun input =>
@@ -140,5 +154,5 @@ Definition request (select_history : list json -> string -> list json) source :=
 Definition measurement_request (select_history : list json -> string -> list json) source :=
   let effect := get source "effect" in let profile := get source "profile" in
   render_outcome (fun input => encode_request profile
-    (construct_request effect input (Some (reasoning_value effect profile)) None))
+    (construct_request effect input (Some (reasoning_value effect)) None))
     (effect_input select_history effect profile).

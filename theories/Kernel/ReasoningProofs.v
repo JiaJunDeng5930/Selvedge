@@ -149,10 +149,10 @@ Proof.
 Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
- exists suffix,
+ exists prefix,
  task_history (ModelRequest.Plans.generation owner model remaining task) =
- task_history task ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
- (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
+ task_history task ++ prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] /\
+ (prefix = [] \/ prefix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
  intros owner model remaining task. unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
  destruct (match profile_policy (task_current_profile task) with
@@ -164,7 +164,49 @@ Proof.
  cbn [app Domain.append_history Domain.with_history task_history].
  - exists [ReasoningConfigurationMessage (profile_reasoning model)].
    split; [reflexivity|now right].
- - exists []. repeat rewrite app_nil_r; split; [reflexivity|now left].
+ - exists []; split; [reflexivity|now left].
+Qed.
+
+Theorem a_generation_after_compaction_restates_its_effort :
+ forall owner model remaining task policy replacement,
+ profile_policy (task_current_profile task) = AdaptivePolicy policy ->
+ reasoning_transport_mode policy = ConfigurationUpdates ->
+ let resumed := append_history [ContextReplacement replacement;
+   ReasoningRecord owner (profile_reasoning model) remaining false] task in
+ task_history (ModelRequest.Plans.generation owner model remaining resumed) =
+ task_history resumed ++ [ReasoningConfigurationMessage (profile_reasoning model);
+   ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true].
+Proof.
+ intros owner model remaining task policy replacement Policy Transport resumed.
+ unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
+ change (profile_policy (task_current_profile resumed)) with (profile_policy (task_current_profile task)).
+ rewrite Policy, Transport.
+ assert (Fresh : ModelRequest.Plans.last_configuration (task_history resumed) = None).
+ { change (ModelRequest.Plans.last_configuration (task_history task ++ [ContextReplacement replacement;
+     ReasoningRecord owner (profile_reasoning model) remaining false]) = None).
+   unfold ModelRequest.Plans.last_configuration; rewrite fold_left_app; reflexivity. }
+ rewrite Fresh; destruct task; reflexivity.
+Qed.
+
+Theorem a_generation_after_settings_restates_its_effort :
+ forall owner model remaining task policy settings profile effort,
+ profile_policy (task_current_profile task) = AdaptivePolicy policy ->
+ reasoning_transport_mode policy = ConfigurationUpdates ->
+ let resumed := append_history [SettingsMessage settings profile effort;
+   ReasoningRecord owner (profile_reasoning model) remaining false] task in
+ task_history (ModelRequest.Plans.generation owner model remaining resumed) =
+ task_history resumed ++ [ReasoningConfigurationMessage (profile_reasoning model);
+   ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true].
+Proof.
+ intros owner model remaining task policy settings profile effort Policy Transport resumed.
+ unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
+ change (profile_policy (task_current_profile resumed)) with (profile_policy (task_current_profile task)).
+ rewrite Policy, Transport.
+ assert (Fresh : ModelRequest.Plans.last_configuration (task_history resumed) = None).
+ { change (ModelRequest.Plans.last_configuration (task_history task ++ [SettingsMessage settings profile effort;
+     ReasoningRecord owner (profile_reasoning model) remaining false]) = None).
+   unfold ModelRequest.Plans.last_configuration; rewrite fold_left_app; reflexivity. }
+ rewrite Fresh; destruct task; reflexivity.
 Qed.
 
 Theorem context_requests_capture_the_current_history_revision : forall id task value phase operations,

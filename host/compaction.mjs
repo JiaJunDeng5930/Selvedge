@@ -74,5 +74,5 @@ export async function requestCompaction(effect, config, home, limits, options = 
   let usage;
   const items = await requestProviderSSE(session, call, prepared, limits,
     { ...options, onDelta: () => {}, onObservation: observation => { usage = observation.usage; } });
-  return boundary('backend.compaction_summary_result', { items, scope: session.scope, usage });
+  return boundary('backend.compaction_summary_result', { items, usage });
 }

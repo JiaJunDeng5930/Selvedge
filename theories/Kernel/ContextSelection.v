@@ -89,9 +89,12 @@ Definition scoped_messages (messages : list json) (scope : string) := flat_map (
 Definition image_parts (value : json) :=
  let parts := match value with JArray parts => parts | _ => array_default "content" value end in
  filter (fun part => String.eqb (text_default "type" part "") "image") parts.
+Definition reasoning_configuration (message : json) :=
+ String.eqb (text_default "role" message "") "task_context" &&
+ String.eqb (text_default "type" message "") "reasoning_configuration".
 Definition fixed_message (message : json) :=
  match string_field "role" message with
- | Some "task_context" => [message]
+ | Some "task_context" => if reasoning_configuration message then [] else [message]
  | Some "user" | Some "function_output" | Some "operation_result" =>
    match image_parts (value_or_null "content" message) with
    | [] => []

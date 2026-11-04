@@ -2,7 +2,6 @@ import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
-import { adaptivePolicy } from './reasoning-config.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 const evaluatorResponseBytes = boundary('evaluator.contract', {}).response_bytes;
@@ -22,7 +21,7 @@ function retryPlan(source) {
 /** The host performs one already-committed observation, never selects a lease. */
 export async function requestReasoning(effect, config, limits, { signal } = {}) {
   signal?.throwIfAborted();
-  const policy = adaptivePolicy(effect.model.adaptive_reasoning);
+  const policy = effect.model.adaptive_reasoning;
   const publicConfig = { reasoning_evaluators: config.reasoning_evaluators,
     profiles: Object.fromEntries(Object.entries(config.profiles).map(([name, profile]) => [name, { provider: profile.provider }])) };
   const evaluator = evaluatorOperation('request_admission', { effect: { model: effect.model }, config: publicConfig, policy, phase: 'lookup' });

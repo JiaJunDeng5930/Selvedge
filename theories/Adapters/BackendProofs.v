@@ -6,6 +6,57 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Lemma admitted_reasoning_retains_the_committed_request_effort : forall effect profile reasoning,
+ BackendRequests.admit_reasoning effect profile = AdapterResult.Accepted (Some reasoning) ->
+ reasoning = JObject [("effort",BackendRequests.request_effort effect)].
+Proof.
+ intros effect profile reasoning Admitted.
+ unfold BackendRequests.admit_reasoning in Admitted.
+ repeat match type of Admitted with
+ | context [if ?condition then _ else _] => destruct condition end;
+ inversion Admitted; reflexivity.
+Qed.
+
+Theorem public_requests_use_the_committed_request_effort : forall source effect input reasoning,
+ BackendRequests.prepare_effect (get source "effect") = AdapterResult.Accepted effect ->
+ BackendRequests.effect_input ContextSelection.target_messages effect (get source "profile") =
+   AdapterResult.Accepted input ->
+ BackendRequests.admit_reasoning effect (get source "profile") = AdapterResult.Accepted (Some reasoning) ->
+ Api.call "backend.request" source = success
+   (BackendRequests.encode_request (get source "profile")
+     (BackendRequests.construct_request effect input
+       (Some (JObject [("effort",BackendRequests.request_effort effect)]))
+       (BackendRequests.output_limit effect))).
+Proof.
+ intros source effect input reasoning Prepared Input Reasoning.
+ apply admitted_reasoning_retains_the_committed_request_effort in Reasoning as Value.
+ subst reasoning.
+ change (Api.call "backend.request" source)
+   with (BackendRequests.request ContextSelection.target_messages source).
+ unfold BackendRequests.request; rewrite Prepared; cbn [AdapterResult.bind].
+ rewrite Input; cbn [AdapterResult.bind]; rewrite Reasoning; reflexivity.
+Qed.
+
+Theorem adaptive_account_requests_require_supported_baseline_and_effort : forall effect profile reasoning,
+ account profile = true ->
+ is_array (get (get profile "model_info") "supported_reasoning_levels") = true ->
+ is_object (get (get effect "model") "adaptive_reasoning") = true ->
+ independent_kind (str effect "kind") = false ->
+ BackendRequests.admit_reasoning effect profile = AdapterResult.Accepted (Some reasoning) ->
+ let levels := map (fun level => get level "effort")
+   (items (get (get profile "model_info") "supported_reasoning_levels")) in
+ contains levels (BackendRequests.request_effort effect) = true /\
+ contains levels (BackendRequests.effective_effort effect) = true.
+Proof.
+ intros effect profile reasoning Account Levels Adaptive TaskRequest Admitted levels.
+ unfold BackendRequests.admit_reasoning in Admitted.
+ rewrite Account, Levels, Adaptive, TaskRequest, andb_false_r in Admitted.
+ cbn [andb negb orb] in Admitted.
+ fold levels in Admitted.
+ destruct (contains levels (request_effort effect) && contains levels (effective_effort effect)) eqn:Supported;
+   [now apply andb_true_iff in Supported|discriminate].
+Qed.
+
 Lemma completed_item_roundtrip : forall item,
  decode_completed (encode_completed item) = item.
 Proof.

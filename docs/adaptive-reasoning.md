@@ -45,8 +45,10 @@ underlying model. Its only selectable reasoning setting is `auto`; the ordinary
 Astra profile remains available independently.
 
 The preset is ordinary profile data using the
-account's advertised effort levels, its default baseline, evaluator name `jev`,
-and `configuration_update` transport. It does not configure or authenticate Jev.
+account's advertised effort levels, its default baseline, and evaluator name `jev`.
+It uses `configuration_update` when the catalog advertises
+`supports_reasoning_effort_updates: true`; otherwise it uses `request_effort`.
+It does not configure or authenticate Jev.
 A manually configured profile under that auto key overrides the preset. The
 `/~auto` suffix cannot be an advertised model slug, so a provider's independent
 `gpt-6-astra-auto` model remains selectable alongside the generated preset. Like
