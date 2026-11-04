@@ -22,5 +22,5 @@ Definition recovery_changes (owner : N) (value : task) :=
 Definition recover_task (owner : N) (value : task) :=
  TaskChange.apply (recovery_changes owner value) value.
 Definition recover (value : world) :=
- accept (JObject [("recovered",JBool true)])
+ accept JNull
   (with_tasks (Selvedge.Foundation.Registry.indexed recover_task 0 (world_tasks value)) value) [].

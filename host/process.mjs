@@ -298,7 +298,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       signal?.addEventListener('abort', onAbort, { once: true });
       // DEFENSE: Cancellation can arrive between sandbox preparation and listener registration.
       if (signal?.aborted) onAbort();
-      if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
+      if (timeout !== null) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
       cleanupGroup();
       await sessionClose;

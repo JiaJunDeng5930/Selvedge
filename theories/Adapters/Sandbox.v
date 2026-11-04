@@ -17,8 +17,7 @@ Definition plan_admission (source : json) :=
     | None => type_error "Malformed committed sandbox execution plan"
     end.
 Definition root_observation (root observation : json) :=
-  next (admit (is_object observation && plain_fields_only ["root";"absolute"] observation && has observation "root" &&
-    is_bool (get observation "absolute") && JsonObjects.equivalent observation (JObject [("root",root);("absolute",get observation "absolute")]))
+  next (admit (JsonObjects.equivalent observation (JObject [("root",root);("absolute",get observation "absolute")]))
     "Workspace path observation does not match its source") (root_admit observation).
 Fixpoint roots_observed (roots observations : list json) :=
   match roots,observations with

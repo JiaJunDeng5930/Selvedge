@@ -141,8 +141,10 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     observation. An expired or repeated result may successfully leave the world
     unchanged. The receiver and packet outcomes determine ownership, durability
     and further scheduling; a second acceptance marker in the reply has no
-    consumer. Callback contracts therefore require successful acknowledgement
-    and the appropriate world and effects, without prescribing a result object.
+    consumer. Startup recovery and shared feature issuance use the same success
+    envelope: their resulting state and effects establish recovery and request
+    ownership. These contracts require successful acknowledgement and the
+    appropriate world and effects, without prescribing a second result marker.
 
     Field-name uniqueness, declaration-indexed callback coordinates and input
     grammar ownership are already enforced by [ModelDeclarations],
