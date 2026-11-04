@@ -271,7 +271,11 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
 (** The evaluator supplies HTTP text. Both admission and successful delivery
     constrain that same parsed entry: an admitted model/provider and supported
     effort/lease must produce the requested decision. A theorem about a separate
-    pre-parsed input would not constrain the response path used by the host. *)
+    pre-parsed input would not constrain the response path used by the host.
+    The responding model identifier, including a resolved alias, is a string.
+    Alias matching reads that field directly; array-to-string coercion has no
+    provider-contract or caller requirement. The provider's result type is
+    published at https://github.com/typesafe-ai/typesafe-sdk-js/blob/main/src/types.ts . *)
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
   public_evaluator_accepts_configured_decision,

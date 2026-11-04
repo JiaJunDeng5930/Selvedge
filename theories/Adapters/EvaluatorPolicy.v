@@ -65,10 +65,9 @@ Fixpoint digits value := match value with EmptyString => true | String ch rest =
 Fixpoint version_parts value nonempty dots := match value with EmptyString => nonempty && ((dots =? 1) || (dots =? 2))
  | String ch rest => if digit ch then version_parts rest true dots
    else if Ascii.eqb ch "."%char && nonempty && (dots <? 2) then version_parts rest false (dots+1) else false end.
-Fixpoint regex_model value := match value with JString value => value | JArray [value] => regex_model value | _ => "" end.
-Definition typesafe_latest candidate := let value := regex_model candidate in String.eqb value "jev-latest" ||
+Definition typesafe_latest candidate := let value := text candidate in String.eqb value "jev-latest" ||
  (starts value "jev-" && version_parts (substring 4 (String.length value) value) false 0).
-Definition openrouter_alias candidate := let value := regex_model candidate in let suffix := substring 18 (String.length value) value in
+Definition openrouter_alias candidate := let value := text candidate in let suffix := substring 18 (String.length value) value in
  starts value "typesafe/jev-1.13-" && Nat.eqb (String.length suffix) 8 && digits suffix.
 Definition decision_identity reply evaluator := let exact := JsonObjects.equivalent (get reply "model") (get evaluator "model") in let provider := str evaluator "provider" in
  if String.eqb provider "typesafe" && String.eqb (str evaluator "model") "jev-latest" then typesafe_latest (get reply "model")
