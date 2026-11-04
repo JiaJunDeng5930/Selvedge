@@ -30,7 +30,6 @@ export class RemoteConnector {
       open: generation => this.#openSocket(generation),
       retry: (generation, deadline) => this.#scheduleRetry(generation, deadline),
       heartbeat: (generation, deadline) => this.#scheduleHeartbeat(generation, deadline),
-      online: () => this.#setStatus('online'),
       ping: () => this.#send(this.#session, { type: 'ping' }),
       retire: () => {
         clearTimeout(this.#retryTimer);
@@ -39,10 +38,8 @@ export class RemoteConnector {
         this.#probe = undefined;
         this.#retireSession();
       },
-      stopped: () => this.#setStatus('stopped'),
       authenticationFailed: () => {
         this.#service.off('notice', this.#noticeListener);
-        this.#setStatus('auth_failed', { last_error: 'relay_authentication_failed' });
       },
     });
   }
@@ -58,7 +55,6 @@ export class RemoteConnector {
   #lastError;
   #grantTail = Promise.resolve();
   #incarnation = randomUUID();
-  #status = { state: 'stopped', connected: false, controller_count: 0 };
   #settings;
   #noticeListener;
 
@@ -75,7 +71,14 @@ export class RemoteConnector {
     this.#noticeListener = notice => this.#notice(notice);
   }
 
-  status() { return { ...this.#status }; }
+  status() {
+    const transport = this.#transport;
+    return { state: transport.phase, connected: transport.phase === 'online',
+      controller_count: this.#session?.connections.size ?? 0,
+      ...(transport.phase === 'retrying'
+        ? { last_error: this.#lastError ?? 'connection_unavailable', next_retry_at: transport.deadline }
+        : transport.phase === 'auth_failed' ? { last_error: 'relay_authentication_failed' } : {}) };
+  }
 
   start() {
     if (this.#running) return;
@@ -116,13 +119,8 @@ export class RemoteConnector {
     return next;
   }
 
-  #setStatus(state, detail = {}) {
-    this.#status = { state, connected: state === 'online', controller_count: this.#session?.connections.size ?? 0, ...detail };
-  }
-
   async #connect(generation) {
     this.#step('install', { generation });
-    this.#setStatus('connecting');
     const probe = new AbortController();
     this.#probe = probe;
     const timeout = setTimeout(() => probe.abort(), CONNECT_TIMEOUT_MS);
@@ -192,7 +190,6 @@ export class RemoteConnector {
   }
 
   #scheduleRetry(generation, deadline) {
-    this.#setStatus('retrying', { last_error: this.#lastError ?? 'connection_unavailable', next_retry_at: deadline });
     this.#retryTimer = setTimeout(() => {
       this.#retryTimer = undefined;
       this.#observe('retry', { generation, now: Date.now() });
@@ -245,7 +242,6 @@ export class RemoteConnector {
       opened: connection => {
         session.connections.set(connection.connection_id, { id: connection.connection_id, controllerId: connection.controller_id, grantEpoch: connection.grant_epoch,
           active: true, tail: Promise.resolve() });
-        this.#setStatus('online');
       },
       request: accepted => {
         const connection = session.connections.get(accepted.connection_id);
@@ -271,7 +267,6 @@ export class RemoteConnector {
     const connection = session.connections.get(id);
     if (connection) connection.active = false;
     session.connections.delete(id);
-    if (this.#current(session) && this.#status.state === 'online') this.#setStatus('online');
   }
 
   #enqueue(session, connection, bytes, operation, noticeSequence = null) {

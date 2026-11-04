@@ -302,16 +302,13 @@ Proof.
  rewrite app_length,Nat2N.inj_add in Capacity. lia.
 Qed.
 
-Theorem public_mcp_media_plan_admits_every_part_within_one_byte_budget : forall source result,
+Theorem public_mcp_media_plan_admits_each_observed_part : forall source result,
   Api.call "plugin.mcp_media_plan" source = success result ->
-  Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source) /\
-  mcp_media_bytes source <= num source "maximum".
+  Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source).
 Proof.
  intros source result H. change (mcp_media_plan source = success result) in H.
  unfold mcp_media_plan in H. destruct (negb (is_object (get source "result"))); [discriminate|].
  destruct (mcp_media_admitted source) eqn:Admitted; [|discriminate].
- unfold mcp_media_admitted in Admitted. repeat rewrite andb_true_iff in Admitted.
- destruct Admitted as [[_ Parts] Budget]. split.
- - apply Forall_forall. intros pair Present. apply forallb_forall with (x:=pair) in Parts; assumption.
- - now apply N.leb_le in Budget.
+ unfold mcp_media_admitted in Admitted. apply Forall_forall. intros pair Present.
+ apply forallb_forall with (x:=pair) in Admitted; assumption.
 Qed.

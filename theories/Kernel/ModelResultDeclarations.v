@@ -136,13 +136,11 @@ Definition remote_connect := remote_action "connect" [remote_generation].
 Definition remote_open := remote_action "open" [remote_generation].
 Definition remote_retry := remote_action "retry" [remote_generation;Field "deadline" KNatural].
 Definition remote_heartbeat := remote_action "heartbeat" [remote_generation;Field "deadline" KNatural].
-Definition remote_mark_online := remote_action "online" [].
 Definition remote_ping := remote_action "ping" [].
 Definition remote_retire := remote_action "retire" [].
-Definition remote_mark_stopped := remote_action "stopped" [].
 Definition remote_mark_auth_failed := remote_action "auth_failed" [].
-Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;remote_mark_online;
- remote_ping;remote_retire;remote_mark_stopped;remote_mark_auth_failed].
+Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;
+ remote_ping;remote_retire;remote_mark_auth_failed].
 Definition remote_timed := [remote_generation;Field "now" KNatural].
 Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
 Definition remote_observation_decoders : list (Variant.decoder RT.observation) := [

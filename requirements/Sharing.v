@@ -223,6 +223,12 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     the current committed sequence in that observation.
 
     Owners need the current connection status to diagnose availability.
+    The query uses the installed transport phase and its socket's current
+    controllers. Keeping another status record would require separate updates
+    after negotiation, replacement and controller closure without adding an
+    observation. Phase-marking actions that only update that copy are likewise
+    unnecessary. Rejected authentication still removes the notice listener;
+    that action releases a physical subscription.
     Recovery depends on actual probes, socket traffic and cessation after
     rejected authentication; a separate history of intermediate status
     notifications adds no delivery or recovery guarantee. Relay refusal retains

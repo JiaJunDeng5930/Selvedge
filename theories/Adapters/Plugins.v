@@ -58,23 +58,19 @@ Definition mcp_result source := let value := get source "result" in
   success (JObject [("value",value);("error",JBool (boolean_field value "isError"))]).
 Definition mcp_media_part (part observation : json) :=
   if String.eqb (str part "type") "image" then
-    is_text (get part "data") && boolean_field observation "canonical" &&
-    bound (get observation "bytes") 1 Images.image_byte_limit &&
+    boolean_field observation "canonical" &&
     existsb (String.eqb (str (attachment_media_type observation) "value")) Images.mime_types
   else true.
 Definition mcp_media_pairs source := combine (items (get (get source "result") "content")) (items (get source "observations")).
 Definition mcp_media_images source := filter (fun pair => String.eqb (str (fst (snd pair)) "type") "image")
   (combine (seq 0 (List.length (items (get (get source "result") "content")))) (mcp_media_pairs source)).
-Definition mcp_media_bytes source := fold_left (fun total pair => total + num (snd (snd pair)) "bytes") (mcp_media_images source) 0.
 Definition mcp_media_admitted source :=
-  Nat.eqb (List.length (items (get (get source "result") "content"))) (List.length (items (get source "observations"))) &&
-  forallb (fun pair => mcp_media_part (fst pair) (snd pair)) (mcp_media_pairs source) &&
-  (mcp_media_bytes source <=? num source "maximum").
+  forallb (fun pair => mcp_media_part (fst pair) (snd pair)) (mcp_media_pairs source).
 Definition mcp_media_plan source :=
   if negb (is_object (get source "result")) then err "MCP returned a malformed tool result"
   else if mcp_media_admitted source
   then success (JObject [("indices",JArray (map (fun pair => number (N.of_nat (fst pair))) (mcp_media_images source)))])
-  else type_error "MCP image content must use canonical base64, supported image bytes and the response byte budget".
+  else type_error "MCP image content must use canonical base64 and supported image bytes".
 Definition client_info := JObject [("name",JString "selvedge-rocq");("version",JString "0.1.0")].
 Definition initialize_request source := let definition := get source "definition" in let limits := get source "limits" in
   JObject [("protocolVersion",get definition "protocolVersion");("clientInfo",client_info);("workspace",get source "workspace");

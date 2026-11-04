@@ -239,10 +239,8 @@ export type RemoteTransportAction =
   | {"kind": "open"; "generation": number}
   | {"kind": "retry"; "generation": number; "deadline": number}
   | {"kind": "heartbeat"; "generation": number; "deadline": number}
-  | {"kind": "online"; }
   | {"kind": "ping"; }
   | {"kind": "retire"; }
-  | {"kind": "stopped"; }
   | {"kind": "auth_failed"; };
 export function decodeRemoteTransportAction(input: unknown): RemoteTransportAction {
   const source = decodeObject(input);
@@ -251,10 +249,8 @@ export function decodeRemoteTransportAction(input: unknown): RemoteTransportActi
     case "open": exactFields(source, ["kind","generation"]); return {"kind": "open", "generation": decodeSafeNatural(source["generation"])};
     case "retry": exactFields(source, ["kind","generation","deadline"]); return {"kind": "retry", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
     case "heartbeat": exactFields(source, ["kind","generation","deadline"]); return {"kind": "heartbeat", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
-    case "online": exactFields(source, ["kind"]); return {"kind": "online"};
     case "ping": exactFields(source, ["kind"]); return {"kind": "ping"};
     case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
-    case "stopped": exactFields(source, ["kind"]); return {"kind": "stopped"};
     case "auth_failed": exactFields(source, ["kind"]); return {"kind": "auth_failed"};
     // DEFENSE: External boundary values must name a declared RemoteTransportAction variant.
     default: throw new TypeError('Unknown RemoteTransportAction discriminant');

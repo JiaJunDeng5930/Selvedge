@@ -195,8 +195,17 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     rewrite to the same call identity and subsequent final admission, while
     [PluginAuthorityProofs] retains the external MCP server's own schema boundary.
     A media result reserves its correlated RPC identity before materialization
-    and settles that reservation once. The public media plan admits every part
-    within one byte budget. JavaScript materialization and the physical protocol
+    and settles that reservation once. The public media plan admits every
+    observed part before any image is written. The interpreter constructs those
+    observations with one map over the response content; mismatched lengths or
+    a canonical-base64 observation for non-text data cannot arise on this path.
+    RPC already bounds the original JSON frame. Base64 decoding only shrinks
+    those bytes, and [Limits.frame_bytes] is below [Images.image_byte_limit], so
+    neither another cumulative budget nor a per-image byte check adds admission.
+    Supported image signatures establish nonempty content. The media plan keeps
+    the canonical encoding and supported-signature checks. Base64's size relation
+    follows RFC 4648, section 4: https://www.rfc-editor.org/rfc/rfc4648#section-4.
+    JavaScript materialization and the physical protocol
     remain separate checks.
     RPC admission observes whether its transport failed; the host retains the
     actual exception for pending callers. A copied diagnostic in that state
@@ -228,7 +237,7 @@ Export RpcProofs(response_consumes_exactly_its_correlated_identity,
  materialization_reserves_and_removes_its_pending_identity).
 Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
  public_reserved_rpc_materialization_resolves_once,
- public_mcp_media_plan_admits_every_part_within_one_byte_budget).
+ public_mcp_media_plan_admits_each_observed_part).
 
 (** * Images retain portable identity and content order
 
