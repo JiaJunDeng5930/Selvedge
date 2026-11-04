@@ -126,6 +126,7 @@ Export ContextSelectionProofs(adoption_keeps_the_original_history,
   an_unresolved_captured_call_cannot_be_compacted).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
+  manual_compaction_accepts_an_open_prefix_and_waits,
   suspended_manual_context_completion_cancels_its_job,
   a_compaction_failure_is_not_immediately_resubmitted).
 Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
@@ -162,6 +163,11 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     later summary request. This is the actual maintenance operation constrained by
     [suspended_manual_context_completion_cancels_its_job]. Unresolved
     captured calls cannot be discarded before their outputs arrive.
+    [manual_compaction_accepts_an_open_prefix_and_waits] guarantees admission
+    while those calls settle, preserving the Task and its queued demand.
+    Both manual forms acknowledge the Task selected by the caller; repeating
+    its identifier in the reply supplies no new result. Successful admission,
+    retained state and issued effects establish the command's behavior.
 
     Compaction has its own feature state so preparatory work can coexist with
     ordinary execution. Each physical invocation receives a fresh ticket;

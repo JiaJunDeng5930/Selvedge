@@ -529,7 +529,7 @@ Definition manual_change {value} (target : TaskScope.task_reference value) :=
  let entry := current_entry id (registry value) in
  let result := if job_pending (entry_job entry) then acknowledged value []
    else wait_for_context_selected target (Some Manual) entry in
- CommandResult.Change (JObject [("task_id", number id)]) (Selvedge.Kernel.State.decision_world result)
+ CommandResult.Change JNull (Selvedge.Kernel.State.decision_world result)
    ((map Selvedge.Kernel.State.MaintainContext (if job_pending (entry_job entry) then [] else cancellations id entry)) ++
      Selvedge.Kernel.State.decision_effects result)%list.
 Definition handle_compact_result (payload : Selvedge.Generated.Commands.compact_payload)

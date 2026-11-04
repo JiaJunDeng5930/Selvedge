@@ -177,11 +177,6 @@ Definition manual_waiting_world (id : N) (current : task) (before : K.world) :=
  A.store (A.with_entry id
    (manual_waiting_entry current (A.current_entry id (A.registry before)) before)
    (A.registry before)) before.
-Definition manual_waiting_decision (id : N) (current : task) (before : K.world) :=
- K.Decision (manual_waiting_world id current before)
-   (K.success (JObject [("task_id", number id)]))
-   (map K.MaintainContext (A.cancellations id (A.current_entry id (A.registry before)))).
-
 (** This is the public command with a live operation, not an assumed accepted
     helper result. The wait keeps the task, operation and queued demand intact;
     only obsolete maintenance requests are cancelled. *)
@@ -193,8 +188,11 @@ Theorem manual_compaction_accepts_an_open_prefix_and_waits :
  TicketedRequest.Scoped.resources_available current before = true ->
  A.job_pending (entry_job (A.current_entry id (A.registry before))) = false ->
  ContextSelection.closed_prefix (task_history current) = false ->
- A.handle_compact payload caller before =
- manual_waiting_decision id current before.
+ let result := A.handle_compact payload caller before in
+ bool_default "ok" (K.decision_reply result) false = true /\
+ K.decision_world result = manual_waiting_world id current before /\
+ K.decision_effects result =
+   map K.MaintainContext (A.cancellations id (A.current_entry id (A.registry before))).
 Proof.
  intros payload id current operations caller before Id Summary Found Lifecycle Available NoJob Open.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
@@ -212,19 +210,19 @@ Proof.
  unfold A.wait_for_context_selected; rewrite NoPlan.
  cbn [TaskScope.owner TaskScope.selected].
  unfold A.retain_context_wait; rewrite Available.
- unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry.
+ unfold manual_waiting_world, manual_waiting_entry.
  cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world K.decision_effects].
- now rewrite app_nil_r.
+ rewrite app_nil_r; repeat split; reflexivity.
 Qed.
 
 Theorem an_open_manual_wait_preserves_all_task_state : forall id current before,
- K.world_tasks (K.decision_world (manual_waiting_decision id current before)) = K.world_tasks before /\
+ K.world_tasks (manual_waiting_world id current before) = K.world_tasks before /\
  entry_job (A.current_entry id (A.registry
-   (K.decision_world (manual_waiting_decision id current before)))) =
+   (manual_waiting_world id current before))) =
  Resuming (A.capture_task current before) Manual.
 Proof.
  intros; split; [reflexivity|].
- unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry,
+ unfold manual_waiting_world, manual_waiting_entry,
    A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, A.with_observation,
    A.with_measurement, A.with_job, K.with_features, Selvedge.Features.State.with_compaction, set;
  cbn. now rewrite N.eqb_refl.
