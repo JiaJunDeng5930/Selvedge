@@ -79,16 +79,13 @@ Qed.
 
 Inductive authorization_contract (required : F.rights) (request : Remote.request)
  (state : F.remote) : Remote.authorization -> Prop :=
-| RequestDisabled : forall code reason, F.remote_enabled state = false ->
- authorization_contract required request state
-   (Remote.Denied code reason)
 | RequestInvalid : forall code reason, request_valid request = false ->
  authorization_contract required request state
    (Remote.Denied code reason)
 | RequestAccessDenied : forall code reason,
  access_contract required (Remote.controller request) (Remote.epoch request) state (Remote.Denied code reason) ->
  authorization_contract required request state (Remote.Denied code reason)
-| RequestAdmitted : F.remote_enabled state = true -> request_valid request = true ->
+| RequestAdmitted : request_valid request = true ->
  access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
  find (Remote.key_matches request) (F.remote_receipts state) = None ->
  (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = true ->
@@ -98,7 +95,7 @@ Inductive authorization_contract (required : F.rights) (request : Remote.request
  (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = false ->
  authorization_contract required request state
    (Remote.Denied code reason)
-| RequestReplay : forall receipt, F.remote_enabled state = true -> request_valid request = true ->
+| RequestReplay : forall receipt, request_valid request = true ->
  access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
  find (Remote.key_matches request) (F.remote_receipts state) = Some receipt ->
  JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt) = true ->
@@ -119,8 +116,7 @@ Proof.
  { subst checked; apply check_satisfies_complete_access_contract. }
  destruct checked as [code reason| |reply].
  - apply RequestAccessDenied; assumption.
- - inversion Access as [| | | |issued Enabled Granted Epoch Allowed]; subst.
-   destruct (Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request)) eqn:Payload; cbn [negb].
+ - destruct (Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request)) eqn:Payload; cbn [negb].
    + change (request_valid request = true) in Payload.
      destruct (find (Remote.key_matches request) (F.remote_receipts state)) as [receipt|] eqn:Found.
      * destruct (JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt)) eqn:Intent.
