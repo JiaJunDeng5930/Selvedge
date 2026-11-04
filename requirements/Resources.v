@@ -37,6 +37,10 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     Local sandbox preparation observes the running platform and architecture
     directly. No caller selects a different host platform when interpreting an
     admitted execution plan.
+    [ToolArguments.bash_parameters] carries the admitted [Process.transport]
+    into Bash launch. Its closed constructors select pipe or PTY execution;
+    image reads use pipe execution. The internal sandbox adapter receives that
+    selection and needs no second admission rule for arbitrary mode strings.
     The isolation contract governs execution authority, filesystem bindings and
     the applied filter policy. Enumerating the numeric encodings of the closed
     instruction constructors adds no isolation guarantee.

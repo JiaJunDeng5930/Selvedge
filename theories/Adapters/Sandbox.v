@@ -8,10 +8,7 @@ Open Scope N_scope.
 
 Definition plan_admission (source : json) :=
   let options := get source "options" in
-  (* DEFENSE: Direct sandbox callers can supply a process mode outside the pipe/PTY contract. *)
-  if has options "processMode" && negb (existsb (String.eqb (str options "processMode")) ["pipe";"pty"])
-  then type_error "Invalid Bash process mode"
-  else if has options "managedWorktreeRoot" && negb (paths_valid [get options "managedWorktreeRoot"])
+  if has options "managedWorktreeRoot" && negb (paths_valid [get options "managedWorktreeRoot"])
   then type_error "Invalid managed Worktree root"
   else if negb (existsb (String.eqb (str options "platform")) ["linux";"darwin"])
   then err "Selvedge supports Linux and macOS only"
