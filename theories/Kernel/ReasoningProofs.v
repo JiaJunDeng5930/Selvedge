@@ -106,9 +106,9 @@ Proof.
  - exfalso. eapply failed_evaluation_is_never_ready_for_a_model; exact Ready.
 Qed.
 
-Theorem task_settings_do_not_revoke_a_reasoning_lease : forall owner history settings profile effort,
+Theorem task_settings_revoke_a_reasoning_lease : forall owner history settings profile effort,
  History.history_lease owner (history ++ [SettingsMessage settings profile effort]) =
- History.history_lease owner history.
+ History.NoLease.
 Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity. Qed.
 
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,

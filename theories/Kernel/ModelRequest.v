@@ -13,7 +13,7 @@ Definition lease_step (owner : N) (previous : lease) (message : message) :=
  match message with
  | ReasoningRecord actual effort remaining => if N.eqb owner actual then Lease effort remaining else NoLease
  | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
- | FailureMessage _ | ContextReplacement _ => NoLease
+ | FailureMessage _ | ContextReplacement _ | SettingsMessage _ _ _ => NoLease
  | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
    if failed_result error value then NoLease else previous
  | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous

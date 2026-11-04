@@ -549,8 +549,7 @@ Definition configure_execution (id : N)
            let sandbox := match sandbox_source with
              | None => settings_sandbox current
              | Some source => sandbox_patch_of_values (settings_sandbox current) source end in
-           if quiescent task && negb (String.eqb (task_status task) "archived") &&
-            (match History.history_lease id (task_history task) with History.NoLease => true | _ => false end) then
+           if quiescent task && negb (String.eqb (task_status task) "archived") then
            let settings := WorkspaceBinding.normalize_settings
             (Settings (settings_workspace current) (settings_project current) sandbox approval
               (settings_guidance current) (settings_worktree current) (settings_resource current)) value in
@@ -562,7 +561,7 @@ Definition configure_execution (id : N)
            accept (JObject [("task_id", number id)])
             (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
-           else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
+           else reject "task_busy" "Execution settings require a quiescent unarchived task" value
        end
      end
    end

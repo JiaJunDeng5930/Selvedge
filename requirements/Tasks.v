@@ -6,7 +6,7 @@
     operation. *)
 
 From Selvedge.Programming Require TaskChangeProofs.
-From Selvedge.Kernel Require HistoryProofs WorkspaceProofs.
+From Selvedge.Kernel Require HistoryProofs WorkspaceProofs ExecutionSettingsProofs.
 Export TaskChangeProofs(append_only_changes_retain_history,
   field_changes_keep_the_immutable_task_identity,
   field_changes_keep_execution_configuration,
@@ -14,6 +14,8 @@ Export TaskChangeProofs(append_only_changes_retain_history,
 Export HistoryProofs(an_after_hook_retains_the_original_execution_receipt,
   native_results_append_their_completed_observation).
 Export WorkspaceProofs(updating_a_project_preserves_all_existing_tasks).
+Export ExecutionSettingsProofs(admitted_execution_settings_take_effect,
+  default_effort_restores_frozen_configuration).
 
 (** [append_only_changes_retain_history],
     [field_changes_keep_the_immutable_task_identity] and
@@ -22,7 +24,12 @@ Export WorkspaceProofs(updating_a_project_preserves_all_existing_tasks).
     progress and queued input; its history operation appends. An extension of
     that language therefore inherits these facts instead of repeating a proof
     for each command. [TaskChange.configure] is the distinct operation for
-    admitted execution settings.
+    admitted execution settings. An unarchived Task with no active or queued
+    work may change its current profile, reasoning, sandbox and approval policy.
+    [admitted_execution_settings_take_effect] requires that admitted choice to
+    succeed and become the current configuration, regardless of any retained
+    reasoning lease. Selecting default reasoning restores the captured profile
+    default while preserving the creation contract.
 
     A fork continues recorded context and captures its own overrides. It must
     not reread mutable defaults as if they were the parent's original context,

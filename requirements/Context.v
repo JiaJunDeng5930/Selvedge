@@ -238,6 +238,10 @@ Export SearchProofs(rejected_scope_contributes_no_history,
     An adaptive profile requests its evaluator when it has no active lease.
     The result must select a supported reasoning effort and a duration admitted
     by the frozen policy. Each actual generation consumes one lease step.
+    An explicit settings change supersedes the judgment made for the previous
+    execution configuration. [task_settings_revoke_a_reasoning_lease] retires
+    that lease, so the next adaptive generation requests a new evaluation.
+    Repeating the current settings adds no settings record and keeps its lease.
     The retained owner, effort and remaining count reconstruct that lease;
     an extra marker distinguishing evaluation from generation supplies no input
     to that calculation. It records the lease and any changed effort. Absence of retained output
@@ -252,6 +256,7 @@ Export SearchProofs(rejected_scope_contributes_no_history,
     instead of inventing an effort or issuing an unsupported model request.
     The evaluator's judgment quality is a provider observation. *)
 Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluator,
+  task_settings_revoke_a_reasoning_lease,
   a_supported_evaluator_choice_continues_the_running_task,
   a_ready_evaluator_choice_has_a_supported_frozen_duration,
   actual_model_generation_consumes_one_lease_step,
