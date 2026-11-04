@@ -413,7 +413,7 @@ export async function startServer(options) {
     });
     const endpoint = server.address();
     address = `http://${endpoint.family === 'IPv6' ? `[${endpoint.address}]` : endpoint.address}:${endpoint.port}`;
-    await writeAtomic(filename, { format: 'selvedge-local-server-1', address, token, pid: process.pid });
+    await writeAtomic(filename, { format: 'selvedge-local-server-1', address, token });
     return { service, server, address, token, close, url: `${address}/` };
   // DEFENSE: Listen/write failures after Service.open must stop the acquired service and listener.
   } catch (error) { await close(); throw error; }
