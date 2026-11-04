@@ -1,7 +1,6 @@
 From Stdlib Require Import String Ascii Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require ArgumentDeclaration.
-From Selvedge.Foundation Require Json.
 Open Scope N_scope.
 
 Inductive controller_id := ControllerId (controller_text : string).
@@ -15,8 +14,6 @@ Coercion request_text : request_id >-> string.
 Coercion epoch_number : grant_epoch >-> N.
 
 Definition controller_declaration := ArgumentDeclaration.exact_lower_hex 64.
-Definition controller_valid (value : string) := ArgumentDeclaration.check controller_declaration (Json.JString value).
 Definition request_valid (value : string) := negb (String.eqb value EmptyString) && Utf8.well_formed value &&
  (N.of_nat (String.length value) <=? 128).
 Definition max_epoch : N := 9007199254740991.
-Definition epoch_valid (value : N) := (0 <? value) && (value <=? max_epoch).

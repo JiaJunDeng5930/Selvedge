@@ -18,8 +18,6 @@ Module KCommands := Selvedge.Kernel.Commands.
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
 Definition identifier_valid := RemoteIdentity.request_valid.
-Definition controller_valid := RemoteIdentity.controller_valid.
-Definition epoch_valid := RemoteIdentity.epoch_valid.
 Definition payload_valid source := N.of_nat (String.length (TextJson.render_json source)) <=? 65536.
 Definition find_grant controller state := find (fun grant => String.eqb controller (Selvedge.Features.Domain.grant_controller grant)) (Selvedge.Features.Domain.remote_grants state).
 Definition remove_grants controller := filter (fun grant => negb (String.eqb controller (Selvedge.Features.Domain.grant_controller grant))).
@@ -109,7 +107,6 @@ Definition key_matches request receipt := String.eqb (controller request) (Selve
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
 Definition check required controller epoch state :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
- else if negb (controller_valid controller && epoch_valid epoch) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
  else match find_grant controller state with
  | None=>Denied "remote_controller_revoked" "This controller has no active local grant"
  | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then Denied "remote_grant_expired" "This device grant generation is no longer current"

@@ -77,9 +77,8 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority,
     bounds do not protect the credential.
     See https://nodejs.org/api/fs.html#statsmode .
     Published credentials must be owner-readable and deny group/other access.
-    Loading does not require owner write permission. Acceptance retains the
-    read permission check because a privileged test runner could otherwise
-    read an owner-unreadable file and conceal a failed ordinary installation.
+    Loading relies on the operating system's permission check when opening the
+    file; it does not require owner write permission.
 
     Identity loading preserves safe descriptor failures without assigning
     another diagnostic category. Only a missing identity permits initial
@@ -145,6 +144,10 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    Grant issuance admits the controller declaration and allocates a positive,
+    bounded generation. Access matches that stored controller and generation
+    exactly. A malformed external identity fails those comparisons; repeating
+    its shape check would only impose a condition on unreachable registries.
     [delegated_remote_administration_is_denied] additionally requires delegated
     administration to leave the world unchanged and issue no effects. Its
     refusal diagnostic is independent of private world data, without fixing
