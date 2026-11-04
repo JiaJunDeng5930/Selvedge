@@ -28,11 +28,24 @@ Theorem successful_invalid_http_json_reports_protocol_error : forall source,
   TextJson.parse_json_members source = None ->
   exists message, WebResources.http_json true source = failure "http_json_parse" message.
 Proof. intros source parsed; unfold WebResources.http_json; rewrite parsed; eexists; reflexivity. Qed.
-Theorem response_identity_cannot_change : forall record current id,
+Theorem response_identity_cannot_change : forall current id,
   identity id = true -> truthy (member current "response_id") = true ->
   same (member current "response_id") id = false ->
-  exists message, store_identify record current id = err message.
-Proof. intros record current id valid present changed; unfold store_identify; rewrite valid,present,changed; eexists; reflexivity. Qed.
+  exists message, store_identify current id = err message.
+Proof. intros current id valid present changed; unfold store_identify; rewrite valid,present,changed; eexists; reflexivity. Qed.
+Theorem committed_response_cannot_change : forall current response updates,
+  store_finish current response = success updates ->
+  truthy (member current "response") = true ->
+  parsed_matches (member current "response") (JObject response) = true.
+Proof.
+ intros current response updates accepted committed.
+ unfold store_finish in accepted.
+ destruct (negb (boolean_field (store_identify current (member response "id")) "ok")) eqn:identified.
+ - rewrite accepted in identified; discriminate.
+ - rewrite committed in accepted; cbn in accepted.
+   destruct (parsed_matches (member current "response") (JObject response)) eqn:matches;
+     [reflexivity|discriminate].
+Qed.
 Theorem existing_request_reuse_requires_body_and_connection : forall record request previous key value,
   stored_as Active record = true ->
   store_prepare (Some record) request previous key = prepare_decision "reuse" value -> prepare_identity record request = true.

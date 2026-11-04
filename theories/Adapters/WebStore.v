@@ -4,26 +4,24 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition updated record updates := JObject (map (fun pair =>
-  (fst pair,match Json.lookup (fst pair) updates with Some value => value | None => snd pair end)) record).
-Definition writes record updates := success (JObject [("record",updated record updates);("updates",JObject updates)]).
+Definition writes updates := success (JObject [("updates",JObject updates)]).
 Definition identity value := WebCommon.nonempty value && match Utf8.decode (text value) with
   | None => false | Some codes =>
       (fold_left (fun count code => count + if code <? 65536 then 1 else 2) codes 0 <=? 256) &&
       forallb (fun code => (33 <=? code) && negb (N.eqb code 127)) codes end.
-Definition store_identify record current id :=
+Definition store_identify current id :=
   if negb (identity id) then err "ChatGPT Web returned an invalid response identity"
   else if truthy (member current "response_id") && negb (same (member current "response_id") id)
   then err "ChatGPT Web changed the response identity"
-  else writes record [("response_id",id);("rejected",number 0)].
+  else writes [("response_id",id);("rejected",number 0)].
 Definition parsed_matches raw expected := match TextJson.parse_json (text raw) with
   | Some value => same value expected | None => false end.
-Definition store_finish record current response :=
-  let result := store_identify record current (member response "id") in
+Definition store_finish current response :=
+  let result := store_identify current (member response "id") in
   if negb (boolean_field result "ok") then result
   else if truthy (member current "response") && negb (parsed_matches (member current "response") (JObject response))
   then err "ChatGPT Web changed a committed response"
-  else writes record [("response_id",member response "id");
+  else writes [("response_id",member response "id");
     ("response",JString (TextJson.render_json (JObject response)));("rejected",number 0)].
 Definition store_reject record := success (JObject [("updates",if truthy (member record "response_id")
   then JNull else JObject [("rejected",number 1)])]).
@@ -79,7 +77,7 @@ Definition store_metadata rows new_identity (created : bool) := match rows with
   | _ => metadata_error end.
 Definition retire_existing rows records owner ticket := let result := store_metadata rows "" false in
   if boolean_field result "ok" then success (match retire_candidate records owner ticket with
-    | Some record => JObject [("record",record);("request_key",get record "request_key");
+    | Some record => JObject [("record",record);
         ("updates",JObject [("retired",retirement_code Cancelled)])]
     | None => JNull end) else result.
 Definition reset_session rows records task := let result := store_metadata rows "" false in

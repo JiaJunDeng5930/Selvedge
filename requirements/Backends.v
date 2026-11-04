@@ -401,8 +401,13 @@ Qed.
 
     Reconnecting an observer may reuse a retained request only when its body
     and connection still agree. A receipt is bound to the actual Task,
-    connection and response. Continuing after tools requires the complete,
-    uniquely matched result batch; a partial batch cannot stand for completion.
+    connection and response. Reconnection must not replace the identity or
+    committed output of a retained request: continuation would then consume a
+    different result for the same request. These checks use the stored row.
+    Its accepted changes also update the observer's live record; rebuilding
+    that whole record supplies no additional evidence.
+    Continuing after tools requires the complete, uniquely matched result
+    batch; a partial batch cannot stand for completion.
     Continuation pairs that batch by call identity. Tool names already belong
     to the admitted calls and retained response, so its continuation receipt
     needs no name copy. Prefix hashing consumes the receipt's input count;
@@ -433,6 +438,7 @@ Qed.
     that decoder and need not return another copy of the raw response. *)
 From Selvedge.Adapters Require WebProofs.
 Export WebProofs(existing_request_reuse_requires_body_and_connection,
+  response_identity_cannot_change, committed_response_cannot_change,
   receipt_is_bound_to_actual_task_connection_and_response,
   tool_continuation_requires_complete_unique_result_batch,
   cancelled_request_cannot_reuse_a_different_connection).

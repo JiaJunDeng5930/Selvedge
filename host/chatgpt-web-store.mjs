@@ -56,7 +56,7 @@ export class WebRequestStore {
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
       const write = boundary('web.retire_existing', { rows, records, owner, ticket });
       if (write !== null) {
-        db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
+        db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.record.request_key);
       }
       db.exec('COMMIT');
       return write?.record;
@@ -145,19 +145,18 @@ export class WebRequestStore {
 
   identify(record, id) {
     const current = this.find(record.request_key);
-    const decision = boundary('web.store_identify', { record, current, id });
+    const { updates } = boundary('web.store_identify', { current, id });
     this.db.prepare('UPDATE requests SET response_id=?, rejected=? WHERE request_key=?')
-      .run(decision.updates.response_id, decision.updates.rejected, record.request_key);
-    Object.assign(record, decision.record);
+      .run(updates.response_id, updates.rejected, record.request_key);
+    Object.assign(record, updates);
   }
 
   finish(record, response) {
     const current = this.find(record.request_key);
-    const decision = boundary('web.store_finish', { record, current, response });
-    const write = decision.updates;
+    const { updates } = boundary('web.store_finish', { current, response });
     this.db.prepare('UPDATE requests SET response_id=?, response=?, rejected=? WHERE request_key=?')
-      .run(write.response_id, write.response, write.rejected, record.request_key);
-    Object.assign(record, decision.record);
+      .run(updates.response_id, updates.response, updates.rejected, record.request_key);
+    Object.assign(record, updates);
   }
 
   reject(record) {

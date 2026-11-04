@@ -43,9 +43,9 @@ Definition operations := [
  method "web.event" [required "frame" (D.OpenObject frame_fields);raw "body";raw "model";raw "tools";raw "index"]
    (fun frame body model tools index => let '(data,name) := frame_value frame in
     WebResources.event false name data (missing body) (missing model) (items (missing tools)) (missing index));
- method "web.store_identify" [required "record" D.RawObject;required "current" D.RawObject;raw "id"]
-   (fun record current id => WebStore.store_identify record current (missing id));
- method "web.store_finish" [required "record" D.RawObject;required "current" D.RawObject;required "response" D.RawObject] WebStore.store_finish;
+ method "web.store_identify" [required "current" D.RawObject;raw "id"]
+   (fun current id => WebStore.store_identify current (missing id));
+ method "web.store_finish" [required "current" D.RawObject;required "response" D.RawObject] WebStore.store_finish;
  method "web.store_reject" [required "record" D.RawObject] WebStore.store_reject;
  method "web.store_retire" [] WebStore.store_retire;
  method "web.store_prepare" [raw "record";required "request" (D.OpenObject WebStore.request_fields);raw "previous";required "new_key" (D.Value Schema.KText)]
