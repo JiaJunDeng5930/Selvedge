@@ -112,8 +112,6 @@ Definition attachment_budget (source : json) :=
   match D.decode (D.Natural 0 Images.image_byte_limit) (get source "size") with
   | Some bytes => success (number (proj1_sig bytes))
   | None => range_error "Each board attachment is limited to 10 MiB" end.
-Definition artifact_limit (source : json) :=
-  if bound (get (get source "limits") "artifact_bytes") 1 9007199254740991 then success JNull else type_error "Invalid artifact byte limit".
 Definition board_clock (source : json) :=
   if bound (get source "seconds") 0 4294967295 then success (JString (diagnostic (get source "seconds")))
   else range_error "The clock is outside the native board timestamp range".

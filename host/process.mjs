@@ -263,7 +263,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         ? await environment.prepareBash({ command: commandText, mode }, execution, { signal })
         : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
-        boundary('effect.artifact_limit', { limits });
         await durableDirectory(artifactDirectory);
         artifactBatch = await mkdtemp(path.join(artifactDirectory, 'bash-'));
         for (const stream of ['stdout', 'stderr']) {

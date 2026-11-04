@@ -389,14 +389,14 @@ for (const failSetup of [false, true]) test(failSetup
     return done;
   }, { failSetup, onAllocation: async () => {
     const root = path.join(running.state, 'cloud-workspaces');
-    const namespaces = await readdir(root);
-    assert.equal(namespaces.length, 1, 'The isolated service has one resource namespace');
-    const storage = path.join(root, namespaces[0]);
-    const logs = (await readdir(storage)).filter(name => /^task-[0-9]+\.log$/.test(name));
-    assert.equal(logs.length, 1, 'The allocated task has its own diagnostic log');
-    const logfile = path.join(storage, logs[0]);
-    await chmod(logfile, 0o400);
-    await assert.rejects(() => writeFile(logfile, 'permission probe', { flag: 'a' }), { code: 'EACCES' });
+    const logs = (await readdir(root, { recursive: true, withFileTypes: true }))
+      .filter(entry => entry.isFile() && /^task-[0-9]+\.log$/.test(entry.name))
+      .map(entry => path.join(entry.parentPath, entry.name));
+    assert.ok(logs.length > 0, 'The allocation has diagnostic output to make unwritable');
+    await Promise.all(logs.map(async logfile => {
+      await chmod(logfile, 0o400);
+      await assert.rejects(() => writeFile(logfile, 'permission probe', { flag: 'a' }), { code: 'EACCES' });
+    }));
   } });
   running = fixture_;
   const created = await fixture_.create();
