@@ -13,7 +13,7 @@ import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from '
 import { tencentCvmBackend } from './tencent-cvm.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-5';
+const receiptFormat = 'selvedge-cloud-workspace-6';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.
@@ -102,7 +102,7 @@ async function runResource(plan, { files, backend, signal, prepare }) {
     async prepare(state) { return { kind: 'prepared', ...await prepare(state) }; },
     async credentials(state) {
       cleanupSignal = AbortSignal.timeout(120_000);
-      backend = tencentCvmBackend(state.settings);
+      backend = tencentCvmBackend({ ...state.settings, region: state.scope.region });
       return { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
     },
     async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, { signal: cleanupSignal }) }; },

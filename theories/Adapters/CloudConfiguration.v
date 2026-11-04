@@ -24,7 +24,7 @@ Definition settings_fields :=
   map (fun entry => (fst entry,false,D.Natural (fst (snd entry)) (snd (snd entry)))) optional_bounds ++
   [("address_type",false,D.of_kind (KEnum "public" ["private"]))])%list.
 Definition settings_declaration := D.Object settings_fields.
-Definition recovery_settings_names := ["region";"api_endpoint";"ssh_private_key";"ssh_user";"ssh_port"].
+Definition recovery_settings_names := ["api_endpoint";"ssh_private_key";"ssh_user";"ssh_port"].
 Definition recovery_settings_declaration := D.Object
   (filter (fun entry => existsb (String.eqb (fst (fst entry))) recovery_settings_names) settings_fields).
 Definition retained_settings (settings : json) := JObject

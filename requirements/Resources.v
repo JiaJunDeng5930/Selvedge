@@ -100,8 +100,10 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     constructs its request from the captured backend settings and the recorded
     token and Task identity. Recovery never repeats allocation, so its image,
     instance type, network, price and startup settings stay with that attempt.
-    The recovery record retains the API region/endpoint and SSH connection
-    settings used to reach and clean up the existing instance.
+    The verified scope supplies the API region for recovery. Connection settings
+    retain the optional API endpoint override and SSH fields. The override
+    configures both CVM and the identity service; the default CVM endpoint alone
+    cannot select that behavior.
     The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.

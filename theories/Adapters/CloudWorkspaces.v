@@ -52,7 +52,7 @@ Definition recovery_authority (value : json) :=
   let scope := get value "scope" in
   is_object scope && is_text (get scope "account_id") && negb (String.eqb (str scope "account_id") "") &&
   String.eqb (str scope "provider") "tencent_cvm" &&
-  equal (get scope "region") (get (get value "settings") "region") &&
+  ArgumentDeclaration.check CloudConfiguration.nonempty_text (get scope "region") &&
   is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "").
 Definition receipt_matches (source : json) :=
   let expected := get source "expected" in let value := get source "value" in
