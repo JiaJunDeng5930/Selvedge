@@ -223,10 +223,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       const released = await Promise.allSettled([
         authority.close(),
         ...[...sessions.keys()].map(id => stopSession(id)),
-        ...pending.map(operation => operation.promise.then(() => {}, error => {
-          // The owner close cancelled these operations; their callers already receive the cancellation rejection.
-          if (!operation.controller.signal.aborted) throw error;
-        })),
+        Promise.allSettled(pending.map(operation => operation.promise)),
       ]);
       const failed = released.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;

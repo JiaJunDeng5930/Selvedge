@@ -95,6 +95,9 @@ From Selvedge.Programming Require Import AdapterResult.
     display capabilities belong to the advertised connection list. Physical
     audio close only releases its session. The ordered following emission owns
     the closed event, so cleanup does not need another event payload.
+    Host shutdown cancels outstanding audio operations and waits for their
+    cleanup. Their callers receive operation failures, including cancellation;
+    shutdown reports failures to release account or session resources.
 
     Provider support admits image capability before selecting the echo or
     network transport. Rechecking the unchanged echo history cannot establish
