@@ -1,5 +1,4 @@
 From Stdlib Require Import String Ascii Bool NArith.
-From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require ArgumentDeclaration.
 Open Scope N_scope.
 
@@ -14,6 +13,6 @@ Coercion request_text : request_id >-> string.
 Coercion epoch_number : grant_epoch >-> N.
 
 Definition controller_declaration := ArgumentDeclaration.exact_lower_hex 64.
-Definition request_valid (value : string) := negb (String.eqb value EmptyString) && Utf8.well_formed value &&
+Definition request_valid (value : string) := negb (String.eqb value EmptyString) &&
  (N.of_nat (String.length value) <=? 128).
 Definition max_epoch : N := 9007199254740991.

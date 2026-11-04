@@ -148,6 +148,9 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     bounded generation. Access matches that stored controller and generation
     exactly. A malformed external identity fails those comparisons; repeating
     its shape check would only impose a condition on unreachable registries.
+    Request fields come through the native JSON entry, which rejects malformed
+    UTF-8 and unpaired Unicode escapes. Receipt admission checks the nonempty
+    request ID and its byte limit without rescanning its encoding.
     [delegated_remote_administration_is_denied] additionally requires delegated
     administration to leave the world unchanged and issue no effects. Its
     refusal diagnostic is independent of private world data, without fixing
