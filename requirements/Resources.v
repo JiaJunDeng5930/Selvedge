@@ -34,6 +34,10 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     today's Task state. A missing binding fails rather than executing locally.
     Process input, filesystem observations and image snapshots use this same
     binding. Project observations without a Task binding remain local.
+    Cloud commands use the primary root in their captured workspace.
+    Provisioning, workspace selection and connection-job admission establish
+    that primary; forks retain the selected workspace. Recovery metadata
+    identifies the resource and does not supply another command directory.
     Local sandbox preparation observes the running platform and architecture
     directly. No caller selects a different host platform when interpreting an
     admitted execution plan.

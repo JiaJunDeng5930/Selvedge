@@ -163,7 +163,13 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     Field-name uniqueness, declaration-indexed callback coordinates and input
     grammar ownership are already enforced by [ModelDeclarations],
     [CallbackDeclarations], [SchemaProjection] and [InputRoute]. Physical dispatch
-    still has to preserve the committed identity and report the actual outcome. *)
+    still has to preserve the committed identity and report the actual outcome.
+
+    [Capabilities.callable] constructs a request's callable names by filtering
+    the Task's frozen tool contract. Completion checks returned names against
+    that captured set and rejects call identities already used in history.
+    Contract membership follows from that construction and the immutable
+    contract; another membership lookup adds no admission condition. *)
 
 (** ** Lifecycle controls retain their distinct purposes
 

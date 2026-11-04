@@ -27,9 +27,7 @@ Definition permitted_items (items : list model_item) (allowed : list string) (ta
  forallb (fun item => match item with
  | CallItem invocation =>
    negb (call_known (call_id invocation) (task_history task)) &&
-   existsb (String.eqb (call_name invocation)) allowed &&
-   (match find_tool (call_name invocation) (contract_tools (task_contract task)) with
-   | None => false | Some _ => true end)
+   existsb (String.eqb (call_name invocation)) allowed
  | _ => true end) items.
 Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=
  map (fun item => match item with

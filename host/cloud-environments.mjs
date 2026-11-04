@@ -237,7 +237,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     },
     async prepareBash(arguments_, execution, { signal } = {}) {
       signal?.throwIfAborted();
-      const cwd = execution.workspace.primary_root ?? receipt.root;
+      const cwd = execution.workspace.primary_root;
       const directory = `/tmp/selvedge-process-${randomUUID()}`;
       const marker = `${directory}/session`, cancelledPath = `${directory}/cancelled`;
       const reserved = await execute(`mkdir -m 700 -- ${shellQuote(directory)}`, { signal, timeout: 15_000 });
