@@ -227,6 +227,11 @@ Export SearchProofs(rejected_scope_contributes_no_history,
     An adaptive profile requests its evaluator when it has no active lease.
     The result must select a supported reasoning effort and a duration admitted
     by the frozen policy. Each actual generation consumes one lease step.
+    It records that lease and any changed effort. Absence of retained output
+    does not itself establish a failed request; model completion, cancellation
+    and recovery report their observed outcomes. The lease record already
+    supplies ordinary provider input before a configuration update, so another
+    failure record is not needed to separate the update from earlier input.
     Evaluation failure is recorded; with no queued input the Task becomes idle
     instead of inventing an effort or issuing an unsupported model request.
     The evaluator's judgment quality is a provider observation. *)

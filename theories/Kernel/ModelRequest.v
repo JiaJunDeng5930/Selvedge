@@ -39,12 +39,6 @@ Definition next (owner : N) (task : task) :=
 Definition last_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
  | ReasoningConfigurationMessage effort => Some effort | _ => previous end) history None.
-Definition trailing_configuration (history : list message) :=
- fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage _ => true
- | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
- | ApprovalReceipt _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
- | _ => false end) history false.
 Definition generation_messages (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in
  let emit := match profile_policy (task_current_profile task) with
@@ -52,8 +46,6 @@ Definition generation_messages (owner : N) (model : profile) (remaining : N) (ta
    | RequestEffort => false | ConfigurationUpdates =>
      match last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous effort) end end
  | FixedReasoning => false end in
- (if emit && trailing_configuration (task_history task) then
-   [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."] else []) ++
  [ReasoningRecord owner effort (N.pred remaining) true] ++
  (if emit then [ReasoningConfigurationMessage effort] else []).
 Definition generation owner model remaining source :=

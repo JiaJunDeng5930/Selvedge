@@ -156,7 +156,8 @@ Theorem public_issued_plain_rpc_result_resolves_its_pending_request : forall sou
     field "action" reply = Some (JString "resolve") /\
     field "id" reply = Some (number id) /\
     field "value" reply = Some (get (get source "message") "result") /\
-    field "nextId" reply = Some (number state.(next_id)) /\
+    exists next,
+      field "nextId" reply = Some (number next) /\ state.(next_id) <= next /\
     exists remaining,
       field "nextPending" reply = Some (JArray (map number remaining)) /\
       ~ In id remaining /\
@@ -177,7 +178,8 @@ Proof.
  split; [reflexivity|].
  split; [reflexivity|].
  split; [reflexivity|].
- split; [reflexivity|].
+ exists state.(next_id). split; [reflexivity|].
+ split; [apply N.le_refl|].
  exists (retire id state.(pending)).
  split; [reflexivity|].
  split; [apply consumed_identity_cannot_remain_pending|].

@@ -111,11 +111,6 @@ Theorem task_settings_do_not_revoke_a_reasoning_lease : forall owner history set
  History.history_lease owner history.
 Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity. Qed.
 
-Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
- forall history owner invocation plugin outcome,
- ModelRequest.Plans.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
-Proof. intros; unfold ModelRequest.Plans.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
-
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
  find_task id value = Some task ->
  TicketedRequest.Scoped.can_infer task value = true ->
@@ -154,11 +149,9 @@ Proof.
 Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
- exists prefix suffix,
+ exists suffix,
  task_history (ModelRequest.Plans.generation owner model remaining task) =
- prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
- (prefix = task_history task \/
-  exists reason, prefix = task_history task ++ [FailureMessage reason]) /\
+ task_history task ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
  (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
  intros owner model remaining task. unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
@@ -167,16 +160,11 @@ Proof.
    | RequestEffort => false | ConfigurationUpdates =>
      match ModelRequest.Plans.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct (ModelRequest.Plans.trailing_configuration (task_history task));
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
- cbn [andb app Domain.append_history Domain.with_history task_history].
- - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
-     [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite <- app_assoc|split; [right; eexists; reflexivity|now right]].
- - exists history, [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [reflexivity|split; [now left|now right]].
- - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
- - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
+ cbn [app Domain.append_history Domain.with_history task_history].
+ - exists [ReasoningConfigurationMessage (profile_reasoning model)].
+   split; [reflexivity|now right].
+ - exists []. repeat rewrite app_nil_r; split; [reflexivity|now left].
 Qed.
 
 Theorem context_requests_capture_the_current_history_revision : forall id task value phase operations,

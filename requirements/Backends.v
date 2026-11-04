@@ -162,6 +162,9 @@ Export RetryExecutionProofs(public_backend_timer_respects_header_and_budget,
     RPC admission observes whether its transport failed; the host retains the
     actual exception for pending callers. A copied diagnostic in that state
     observation does not select another transport decision.
+    Settling a reply preserves unrelated pending identities and cannot rewind
+    the future identity supply. Keeping that supply exactly unchanged would
+    constrain numbering without improving response correlation.
 
     A plugin notification attempts to enqueue one already committed event.
     Admission decides whether capacity remains and the resulting byte total;
