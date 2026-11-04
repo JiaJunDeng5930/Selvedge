@@ -179,8 +179,10 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     [current_control_grant_executes_actual_remote_stop] additionally proves a
     positive entry case: with a single running Task, current control permission,
     a fresh request and receipt capacity, the actual packet executor stops that
-    Task and retains the reply. The general access contracts and this particular
-    execution case have different scopes. Connection jobs and remote commands
+    Task, acknowledges success and retains the original reply. The controller
+    supplied the target Task identity, so echoing that identity adds no required
+    result. The general access contracts and this particular execution case
+    have different scopes. Connection jobs and remote commands
     reuse the existing scheduler. *)
 
 From Selvedge.Host Require RemoteTransportProofs
