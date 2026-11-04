@@ -57,13 +57,15 @@ Definition recovery_authority (value : json) :=
 Definition receipt_matches (source : json) :=
   let expected := get source "expected" in let value := get source "value" in
   is_object value && forallb (fun name => equal (get value name) (get expected name)) receipt_keys &&
-  CloudConfiguration.valid (JObject [("backend",get value "backend");
-    (WorkspaceBackend.name WorkspaceBackend.TencentCvm,get value "settings")]) &&
   (is_null (get source "bound_root") || equal (get value "root") (get source "bound_root")) &&
   contained_workspace (get value "workspace") (str value "root") && recovery_authority value && CloudResources.receipt_valid value.
 Definition receipt (source : json) :=
-  if receipt_matches source then success JNull
-  else type_error "Cloud workspace receipt does not match its task".
+  match ArgumentDeclaration.decode CloudConfiguration.recovery_settings_declaration
+    (get (get source "value") "settings") with
+  | Some settings => if receipt_matches source then
+      success (ArgumentDeclaration.encode CloudConfiguration.recovery_settings_declaration settings)
+    else type_error "Cloud workspace receipt does not match its task"
+  | None => type_error "Cloud workspace receipt does not match its task" end.
 Definition workspace (source : json) :=
   let selected := get source "workspace" in
   let repository := str source "repository" in

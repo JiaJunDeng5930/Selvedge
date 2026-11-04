@@ -152,6 +152,9 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     envelope: their resulting state and effects establish recovery and request
     ownership. These contracts require successful acknowledgement and the
     appropriate world and effects, without prescribing a second result marker.
+    Speech transcripts and delegated work use the same acknowledgement. A
+    delegation's replay indicator remains meaningful because it prevents a
+    repeated receipt from requesting another scheduling pass.
 
     Field-name uniqueness, declaration-indexed callback coordinates and input
     grammar ownership are already enforced by [ModelDeclarations],

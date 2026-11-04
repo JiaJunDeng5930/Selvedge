@@ -13,7 +13,7 @@ export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`
 export function cloudEnvironmentBackend(cloud) {
   const admitted = boundary('effect.cloud_backend', { cloud });
   const settings = admitted.tencent_cvm;
-  return { ...tencentCvmBackend(settings), settings };
+  return { ...tencentCvmBackend(settings), settings, retainedSettings: admitted.retained_settings };
 }
 
 const filesystemProgram = String.raw`
@@ -270,7 +270,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
         } };
     },
     async snapshotProject(limits, { signal } = {}) {
-      return snapshotProject(receipt.workspace?.primary_root ?? receipt.root, limits, { filesystem, signal });
+      return snapshotProject(receipt.workspace.primary_root, limits, { filesystem, signal });
     },
   };
 }

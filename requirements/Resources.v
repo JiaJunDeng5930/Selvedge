@@ -66,7 +66,8 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
 
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
 From Selvedge.Adapters Require CloudWorkspacesProofs.
-Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields).
+Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields,
+  a_matching_receipt_restores_the_admitted_connection).
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
   retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
   ssh_wait_fits_remaining_deadline,
@@ -97,8 +98,10 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     settings describe preparation; requiring their old values during cleanup
     can leave the owned instance running and billable. The first allocation
     constructs its request from the captured backend settings and the recorded
-    token and Task identity. Recovery never repeats allocation, so the complete
-    request is not retained in the recovery record.
+    token and Task identity. Recovery never repeats allocation, so its image,
+    instance type, network, price and startup settings stay with that attempt.
+    The recovery record retains the API region/endpoint and SSH connection
+    settings used to reach and clean up the existing instance.
     The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.
@@ -157,12 +160,14 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
 
     Receipt admission checks the original receipt retained by its physical
     owner. [admitted_receipt_preserves_expected_fields] binds that admitted
-    input to its expected task identity; returning a second copy adds no
-    authority. Admission preserves the supplied JSON spelling. Cloud configuration
-    decoding at backend use also normalizes valid integer spellings before host
-    arithmetic: a receipt may spell its startup timeout as [1e3]. That conversion
-    remains necessary even after receipt validation has established the settings
-    shape and bounds.
+    input to its expected Task identity.
+    [a_matching_receipt_restores_the_admitted_connection] requires a matching
+    receipt to return its decoded connection settings. SSH uses that value,
+    including the normalized integer port, instead of interpreting the original
+    JSON number spelling. The existing configuration declaration supplies those
+    fields and their bounds; provisioning-only fields do not become recovery
+    prerequisites. The admitted workspace already contains its selected primary
+    root, so project revalidation reads that root directly.
 
     Setup logs aid diagnosis; they do not establish allocation or readiness.
     A log write failure is reported through service diagnostics without
