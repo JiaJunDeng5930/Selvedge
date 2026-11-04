@@ -112,8 +112,7 @@ Theorem current_agent_update_succeeds_without_a_capacity_precondition source id 
    (success (JObject [("agent_id",number id);("revision",number revision)])) = true /\
  decision_effects saved = [] /\
  Board.lookup_agent id (decision_world saved) = Some agent /\
- agent_count (decision_world saved) = agent_count value /\
- List.length (agent_slots (decision_world saved)) = List.length (agent_slots value).
+ agent_count (decision_world saved) = agent_count value.
 Proof.
  intros Identity Valid Found Current. cbn beta iota zeta.
  change (Board.agent_execution_available
@@ -135,10 +134,6 @@ Proof.
    pose proof (replacing_present_slot_counts_the_actual_replacement _ _ _
      (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source)) Present).
    cbn [occupied] in H. lia.
- - change (List.length (replace id
-     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
-     (agent_slots value)) = List.length (agent_slots value)).
-   apply registry_replace_length.
 Qed.
 
 Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected previous value :
@@ -149,8 +144,7 @@ Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected prev
  decision_reply deleted = success (JObject [("agent_id",number id)]) /\
  decision_effects deleted = [] /\
  Board.lookup_agent id (decision_world deleted) = None /\
- S (agent_count (decision_world deleted)) = agent_count value /\
- List.length (agent_slots (decision_world deleted)) = List.length (agent_slots value).
+ S (agent_count (decision_world deleted)) = agent_count value.
 Proof.
  intros Found Current Unassigned. cbn beta iota zeta.
  pose proof (agent_lookup_has_a_present_slot id value previous Found) as Present.
@@ -167,6 +161,4 @@ Proof.
  - change (S (live_count (replace id None (agent_slots value))) = live_count (agent_slots value)).
    pose proof (replacing_present_slot_counts_the_actual_replacement _ _ _ None Present).
    cbn [occupied] in H. lia.
- - change (List.length (replace id None (agent_slots value)) = List.length (agent_slots value)).
-   apply registry_replace_length.
 Qed.

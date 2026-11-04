@@ -294,7 +294,7 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
      let changes := [TaskChange.Edit
        (TaskChange.update (TaskChange.RemoveOperation (Domain.operation_id operation)))
        (Some [History.cancelled_operation operation])] in
-     accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
+     accept JNull
       (TaskResult.interpret_result target (TaskResult.WakeDemand changes))
       (match operation_stage operation with
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]

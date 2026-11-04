@@ -124,14 +124,13 @@ Definition speech_transcript (id : N) (session_value item_value : D.denote D.non
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task =>
-   let result replayed := JObject [("task_id",number id);("session_id",JString session);("item_id",JString item);("replayed",JBool replayed)] in
    match find (fun message => match message with SpeechTranscript owner actual_session actual_item _ _ _ =>
      N.eqb owner id && String.eqb session actual_session && String.eqb item actual_item | _ => false end) (task_history task) with
    | Some message => if Json.equal (message_json id message) (message_json id (SpeechTranscript id session item speaker completion text))
-     then accept (result true) value [] else reject "speech_conflict" "A transcript identity already has different committed content" value
+     then accept JNull value [] else reject "speech_conflict" "A transcript identity already has different committed content" value
    | None => match task_lifecycle task with
      | Archived _ => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
-     | _ => accept (result false) (put_task id (append_history [SpeechTranscript id session item speaker completion text] task) value) [] end
+     | _ => accept JNull (put_task id (append_history [SpeechTranscript id session item speaker completion text] task) value) [] end
    end
  end.
 Definition speech_delegation (id : N) (session_value identity_value : D.denote D.nonblank_text)
@@ -142,7 +141,7 @@ Definition speech_delegation (id : N) (session_value identity_value : D.denote D
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task =>
-   let result replayed := JObject [("task_id",number id);("session_id",JString session);("delegation_id",JString identity);("replayed",JBool replayed)] in
+   let result replayed := JObject [("replayed",JBool replayed)] in
    match find (fun message => match message with SpeechDelegation owner actual_session actual_identity _ _ =>
      N.eqb owner id && String.eqb session actual_session && String.eqb identity actual_identity | _ => false end) (task_history task) with
    | Some message => if Json.equal (message_json id message) (message_json id (SpeechDelegation id session identity mode text))

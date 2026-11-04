@@ -99,7 +99,6 @@ test('cancelling an approval-pending operation prevents execution and continues 
   assert.deepEqual(operation.arguments, arguments_);
   const cancelled = await service.command({ op: 'cancel_operation', task_id: taskId, operation_id: operation.operation_id });
   assert.equal(cancelled.reply.ok, true, JSON.stringify(cancelled.reply));
-  assert.deepEqual(cancelled.reply.result, { task_id: taskId, operation_id: operation.operation_id });
 
   const page = await taskIdle(service, taskId);
   const outcome = page.messages.find(entry => entry.role === 'function_output' && entry.content?.error?.code === 'cancelled');
@@ -134,7 +133,6 @@ test('an approved executing operation retains its announcement, ticket and argum
 
   const cancelled = await service.command({ op: 'cancel_operation', task_id: taskId, operation_id: executing.operation_id });
   assert.equal(cancelled.reply.ok, true, JSON.stringify(cancelled.reply));
-  assert.deepEqual(cancelled.reply.result, { task_id: taskId, operation_id: executing.operation_id });
   await writeFile(release, 'release');
 
   const page = await taskIdle(service, taskId);

@@ -30,13 +30,14 @@ Theorem a_new_transcript_changes_only_the_task_history :
  decision_world result = put_task id
    (set task_history (fun _ => task_history task ++
      [SpeechTranscript id session item speaker completion text]) task) value /\
- decision_effects result = [].
+ decision_effects result = [] /\
+ bool_default "ok" (decision_reply result) false = true.
 Proof.
  intros id session_value item_value speaker completion text_value value task session item text Found Fresh Live.
  unfold CommandExecution.speech_transcript; cbn zeta; fold session item text; rewrite Found, Fresh.
  unfold task_archived in Live.
  destruct (task_lifecycle task) eqn:Lifecycle; try discriminate;
- split; reflexivity.
+ repeat split; reflexivity.
 Qed.
 
 Theorem a_matching_transcript_receipt_is_not_recorded_twice :
@@ -52,7 +53,7 @@ Theorem a_matching_transcript_receipt_is_not_recorded_twice :
    Some (SpeechTranscript id session item speaker completion text) ->
  let result := CommandExecution.speech_transcript id session_value item_value speaker completion text_value value in
  decision_world result = value /\ decision_effects result = [] /\
- bool_default "replayed" (value_or_null "result" (decision_reply result)) false = true.
+ bool_default "ok" (decision_reply result) false = true.
 Proof.
  intros id session_value item_value speaker completion text_value value task session item text Found Receipt.
  unfold CommandExecution.speech_transcript; cbn zeta; fold session item text; rewrite Found, Receipt,
