@@ -114,7 +114,9 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     tool excerpts directly: another per-call truncation would discard useful
     evidence without bounding a distinct resource. The
     complete encoded request remains subject to byte and local-token admission
-    before dispatch. *)
+    before dispatch. The pinned tokenizer counts tokens in that byte-bounded
+    string. Admission consumes its constructed natural count and checks the
+    token budget without imposing another numeric-representation requirement. *)
 
 From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs.
 From Selvedge.Features Require CompactionProofs.

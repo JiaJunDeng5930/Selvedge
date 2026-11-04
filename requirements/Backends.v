@@ -269,6 +269,8 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     The byte estimate still includes the entire encoded request.
     The estimate supports admission; it is not an exact provider token count.
     Physical preparation admits the complete request's bytes before measurement.
+    The native frame limit and [Buffer.byteLength] supply natural counts;
+    admission compares their values without rechecking numeric representation.
     The request encoder establishes the object's structure, which measurement
     consumes directly instead of admitting that private structure again.
     Measurement therefore selects the account image estimate or provider meter;

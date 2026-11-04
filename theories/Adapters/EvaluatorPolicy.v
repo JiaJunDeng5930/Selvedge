@@ -13,7 +13,6 @@ Definition request_bytes : N := 2100000.
 Definition request_tokens : N := 28000.
 Definition contract := JObject [("response_bytes",number response_bytes)].
 Definition action name := JObject [("action",JString name)].
-Definition bounded value maximum := canonical_natural value && (nat_value value <=? maximum).
 
 Definition lease_values := map Selvedge.Foundation.Numbers.show_natural ReasoningProtocol.lease_generations.
 Definition lease_number value := JNumber (text value).
@@ -58,7 +57,7 @@ Definition request_admission source := let phase := str source "phase" in
  (* DEFENSE: A captured request can exceed the frame budget before tokenization
     or the local token budget before dispatch; each stage admits its new observation. *)
  else if (if String.eqb phase "bytes" then bytes_allowed source
-   else bounded (get (get source "observation") "tokens") request_tokens)
+   else num (get source "observation") "tokens" <=? request_tokens)
    then success JNull else request_budget_error.
 Definition digit ch := Nat.leb 48 (nat_of_ascii ch) && Nat.leb (nat_of_ascii ch) 57.
 Fixpoint digits value := match value with EmptyString => true | String ch rest => digit ch && digits rest end.

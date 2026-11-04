@@ -60,8 +60,7 @@ Definition credentials source :=
   else err ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider").
 Definition request_size source :=
   (* DEFENSE: Encoded history can exceed the host request budget before network IO. *)
-  if canonical_natural (get (get source "limits") "frame_bytes") && canonical_natural (get source "bytes") &&
-    (num source "bytes" <=? if wire_content_has_images (items (get (get source "request") "input"))
+  if num source "bytes" <=? (if wire_content_has_images (items (get (get source "request") "input"))
       then 33554432 else num (get source "limits") "frame_bytes")
   then success JNull else range_error "Provider request exceeds the configured limit".
 Definition http_headers source :=
