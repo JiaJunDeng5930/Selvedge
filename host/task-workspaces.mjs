@@ -13,7 +13,7 @@ import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from '
 import { tencentCvmBackend } from './tencent-cvm.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-6';
+const receiptFormat = 'selvedge-cloud-workspace-7';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.

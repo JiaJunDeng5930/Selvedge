@@ -51,7 +51,6 @@ Definition receipt_keys := ["format";"namespace";"task_id";"source_root";"root";
 Definition recovery_authority (value : json) :=
   let scope := get value "scope" in
   is_object scope && is_text (get scope "account_id") && negb (String.eqb (str scope "account_id") "") &&
-  String.eqb (str scope "provider") "tencent_cvm" &&
   ArgumentDeclaration.check CloudConfiguration.nonempty_text (get scope "region") &&
   is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "").
 Definition receipt_matches (source : json) :=

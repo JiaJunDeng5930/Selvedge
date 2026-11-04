@@ -5,7 +5,11 @@
     their identity, authority or lifecycle. Independent names and shared source
     must remain editable without rewriting the execution they describe.
     Refusal contracts require failure, unchanged state and no emitted effects;
-    human-readable diagnostic wording is not part of that behavior. *)
+    human-readable diagnostic wording is not part of that behavior.
+    Deletion, renaming and board settings need an acknowledgement of the
+    admitted change. Repeating their supplied fields adds no outcome.
+    Creation returns the new identity, versioned saves return the revision
+    needed for another edit, and derived results retain their observed data. *)
 
 From Selvedge.Features Require WorkProofs.
 Export WorkProofs(witnessed_root_birth_records_its_work,

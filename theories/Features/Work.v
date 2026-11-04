@@ -42,7 +42,7 @@ Definition create (chosen : option (ArgumentDeclaration.denote Selvedge.Features
 Definition rename (id:N) (name:ArgumentDeclaration.denote Selvedge.Features.Domain.work_name_declaration) (value:world) := match lookup id value with
  | None=>Selvedge.Kernel.State.reject "not_found" "Work does not exist." value
  | Some previous=>let work:=Selvedge.Features.Domain.Work (proj1_sig name) (Selvedge.Features.Domain.work_ui_source previous) (Selvedge.Features.Domain.work_ui_revision previous) in
- Selvedge.Kernel.State.accept (plain_json id work) (with_features (Selvedge.Features.State.with_works (replace id work (Selvedge.Features.Domain.feature_works (world_features value))) (world_features value)) value) [] end.
+ Selvedge.Kernel.State.accept JNull (with_features (Selvedge.Features.State.with_works (replace id work (Selvedge.Features.Domain.feature_works (world_features value))) (world_features value)) value) [] end.
 Definition read_ui (caller:option N) (value:world) := match caller with
  | None=>Selvedge.Kernel.State.failure "task_call_required" "Read the shared UI through a Task tool call."
  | Some caller=>match task_owner caller value with

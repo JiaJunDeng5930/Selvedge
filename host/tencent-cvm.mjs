@@ -40,7 +40,7 @@ export function tencentCvmBackend(settings) {
       if (typeof response.AccountId !== 'string' || !/^[0-9]+$/.test(response.AccountId)) {
         throw new Error('Tencent identity did not return the owning AccountId');
       }
-      return { provider: 'tencent_cvm', account_id: response.AccountId, region: settings.region,
+      return { account_id: response.AccountId, region: settings.region,
         endpoint: endpoint ? endpoint.origin : 'https://cvm.tencentcloudapi.com' };
     },
     async create(token, taskId, { signal } = {}) {

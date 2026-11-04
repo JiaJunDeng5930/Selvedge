@@ -124,11 +124,11 @@ Proof.
    rewrite nonblank_text_has_content; reflexivity. }
  destruct Member as [Mode|[Mode|Impossible]]; try contradiction; subst mode.
  - assert (Delivered : Tasks.send_result id [TextPart text] value =
-     CommandResult.Accepted (CommandResult.Change (JObject [("task_id",Numbers.number id)])
+     CommandResult.Accepted (CommandResult.Change JNull
        (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) [])).
    { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
      change (Tasks.send id [TextPart text] value =
-       accept (JObject [("task_id",Numbers.number id)]) (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) []).
+       accept JNull (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) []).
      rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text,Available; reflexivity. }
    unfold CommandExecution.speech_delegation; cbn zeta; fold session identity text; rewrite Found, Fresh.
    cbn [proj1_sig].
@@ -146,12 +146,12 @@ Proof.
    destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    cbn in IdleTask; subst lifecycle; reflexivity.
  - assert (Steered : Tasks.steer_result id [TextPart text] value =
-     CommandResult.Accepted (CommandResult.Change (JObject [("task_id",Numbers.number id)])
+     CommandResult.Accepted (CommandResult.Change JNull
        (put_task id (with_lifecycle (Running WantsModel [])
          (append_history [UserMessage [TextPart text]] task)) value) [])).
    { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
      change (Tasks.steer id [TextPart text] value =
-       accept (JObject [("task_id",Numbers.number id)])
+       accept JNull
          (put_task id (with_lifecycle (Running WantsModel []) (append_history [UserMessage [TextPart text]] task)) value) []).
      rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text, Available.
      unfold task_activity, task_operations; rewrite !IdleTask.

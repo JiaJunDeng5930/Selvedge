@@ -239,7 +239,7 @@ Definition input_effects (mode : input_mode) (id : N) (task : task) :=
 Definition receive_input {before : world} (reference : TaskScope.task_reference before)
  (_ : input_admission reference) (mode : input_mode) (contents : content) :=
  let current := TaskScope.selected reference in
- CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+ CommandResult.Change JNull
    (TaskChange.interpret (TaskChange.Plan before reference (input_changes mode contents current)))
    (input_effects mode (TaskScope.owner reference) current).
 Definition input_result (mode : input_mode) (id : N) (contents : content) (before : world) :=
@@ -272,7 +272,7 @@ Definition admit_control (command : control) {before : world} (target : TaskScop
 Definition perform_control (command : control) {before : world} (reference : TaskScope.task_reference before)
  (_ : control_admission command reference) :=
  let current := TaskScope.selected reference in
- CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+ CommandResult.Change JNull
    (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
    (control_effects (TaskScope.owner reference) command).
 Definition control_result (id : N) (command : control) (before : world) :=
@@ -509,7 +509,7 @@ Definition open_side (id : N) (contents : content) (value : world) :=
      CommandResult.refuse "side_unavailable" "Archived tasks cannot create a side conversation"
    else if ancestors_fit (id :: task_lineage task) 1 value then
      CommandResult.map (fun _ =>
-       CommandResult.Change (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
+       CommandResult.Change (JObject [("task_id", number (next_task value))])
          (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) [])
        (admit_input reference)
    else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
@@ -558,7 +558,7 @@ Definition configure_execution (id : N)
              same_approval (settings_approval settings) (settings_approval current) in
            let receipt := if same then None else
              Some [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] in
-           accept (JObject [("task_id", number id)])
+           accept JNull
             (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
            else reject "task_busy" "Execution settings require a quiescent unarchived task" value

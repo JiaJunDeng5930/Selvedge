@@ -216,7 +216,7 @@ Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_archived task=false ->
  Tasks.control_command target Tasks.Interrupt value=
-   Selvedge.Kernel.State.accept (JObject [("task_id"%string,number target)])
+   Selvedge.Kernel.State.accept JNull
      (Selvedge.Kernel.State.put_task target (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task) value)
      [Selvedge.Kernel.State.CancelTask target].
 Proof.
@@ -266,7 +266,7 @@ Proof.
  exists updated.
  assert (interrupt : Tasks.control_command target Tasks.Interrupt
    (Board.put id updated value)=
-   Selvedge.Kernel.State.accept (JObject [("task_id"%string,number target)])
+   Selvedge.Kernel.State.accept JNull
      (Selvedge.Kernel.State.put_task target (TaskChange.apply (Tasks.control_changes Tasks.Interrupt task) task)
        (Board.put id updated value)) [Selvedge.Kernel.State.CancelTask target]).
  { eapply interrupt_is_authorized_for_nonarchived_task.

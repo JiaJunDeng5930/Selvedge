@@ -148,10 +148,11 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Cloud recovery records retain the outstanding instance or the fact that
     allocation remains unresolved. Failed cleanup retains its instance for an
     explicit archive retry. Allocation and destruction outcomes are observed
-    at the provider. The verified provider, account, region and endpoint identify
-    recovery authority; a label for the credential source adds no principal
-    identity. The allocated instance ID identifies the resource needed for
-    observation and cleanup. A provider request ID only supports diagnostics
+    at the provider. The admitted backend selects the provider; its verified
+    account, region and endpoint identify recovery authority. A constant
+    provider label in the scope repeats that backend, and a credential-source
+    label adds no principal identity. The allocated instance ID identifies the
+    resource needed for observation and cleanup. A provider request ID only supports diagnostics
     and cannot establish allocation ownership.
 
     An instance lookup requires the provider's [InstanceSet] array. A missing

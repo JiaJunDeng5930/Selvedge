@@ -155,7 +155,7 @@ Definition archive_card (id revision:N) (observed:BoardParameters.clock) (archiv
  let stopped:=Tasks.control_command target Tasks.Interrupt (decision_world saved) in
  Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end).
 Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if busy card value then Selvedge.Kernel.State.reject "card_locked" "Wait for the linked conversation's active work to settle before deleting this card" value else
- let b:=registry value in Selvedge.Kernel.State.accept (JObject [("card_id",number id)]) (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
+ let b:=registry value in Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "
 - " (String.append (Selvedge.Features.Domain.attachment_name file) (String.append ": " (String.append (Selvedge.Features.Domain.attachment_path file) (attachment_prompt rest)))) end.
 Definition task_contents (id:N) (draft:Selvedge.Features.Domain.card_draft) (instructions:string) :=
@@ -179,7 +179,7 @@ Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:o
  let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
  CommandResult.map (fun birth=>
  let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card))))))) in
- CommandResult.Change (JObject [("card_id",number id);("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))]) (put id updated (Worktree.transition_world birth)) (Worktree.transition_effects birth))
+ CommandResult.Change (JObject [("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))]) (put id updated (Worktree.transition_world birth)) (Worktree.transition_effects birth))
    (Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value) end).
 Definition run (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  CommandResult.decide value (run_result id revision observed caller value).
@@ -228,11 +228,11 @@ Definition save_agent (source : Selvedge.Generated.Commands.save_board_agent_pay
 Definition delete_agent (id expected:N) (value:world) := match lookup_agent id value with None=>Selvedge.Kernel.State.reject "agent_not_found" "The board agent no longer exists" value | Some agent=>
  let used:=existsb (fun item=>match item with Some card=>match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.AgentOwner owner=>N.eqb id owner | _=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
  if N.eqb expected (Selvedge.Features.Domain.agent_revision agent) && negb used then let b:=registry value in
- Selvedge.Kernel.State.accept (JObject [("agent_id",number id)]) (store ((set Selvedge.Features.Domain.board_agent_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_agent_order b))) (set Selvedge.Features.Domain.board_agents (fun _=>(replace id None (Selvedge.Features.Domain.board_agents b))) (b)))) value) []
+ Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_agent_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_agent_order b))) (set Selvedge.Features.Domain.board_agents (fun _=>(replace id None (Selvedge.Features.Domain.board_agents b))) (b)))) value) []
  else Selvedge.Kernel.State.reject "agent_in_use" "The board agent changed or is still assigned to a card" value end.
 Definition settings (automatic:bool) (profile:string) (value:world) :=
  let valid:=String.eqb profile "" || match Tasks.find_profile profile (environment_profiles (world_environment value)) with Some chosen=>TitleRuntime.ordinary chosen | None=>false end in
- if valid then let b:=registry value in Selvedge.Kernel.State.accept (JObject [("automatic",JBool automatic);("draft_profile",JString profile)])
+ if valid then let b:=registry value in Selvedge.Kernel.State.accept JNull
  (store ((set Selvedge.Features.Domain.board_draft_profile (fun _=>profile) (set Selvedge.Features.Domain.board_automatic (fun _=>automatic) (b)))) value) []
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
 Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=

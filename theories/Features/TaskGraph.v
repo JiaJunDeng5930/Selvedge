@@ -260,7 +260,7 @@ Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_
 Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_task_graph_payload) (caller:option N) (value:world) :decision :=
  let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>
  let removed:=remove id value in
- let features:=world_features removed in Selvedge.Kernel.State.accept (JObject [("graph_id",number id)])
+ let features:=world_features removed in Selvedge.Kernel.State.accept JNull
  (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners
    (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) features) removed) [] end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with

@@ -141,7 +141,7 @@ Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected prev
  (forall card, In (Some card) (F.board_cards (Board.registry value)) ->
    F.draft_owner (F.card_contents card) <> F.AgentOwner id) ->
  let deleted := Board.delete_agent id expected value in
- decision_reply deleted = success (JObject [("agent_id",number id)]) /\
+ bool_default "ok" (decision_reply deleted) false = true /\
  decision_effects deleted = [] /\
  Board.lookup_agent id (decision_world deleted) = None /\
  S (agent_count (decision_world deleted)) = agent_count value.

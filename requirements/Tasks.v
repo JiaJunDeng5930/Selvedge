@@ -187,6 +187,9 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     constructing a second lifecycle only to discard it adds no execution meaning.
     Refused controls, input submissions and configuration changes retain the
     Task state and emit no newly authorized effects.
+    Successful replies acknowledge the admitted operation. Callers already
+    supplied its Task identity, so repeating that identity adds no result needed
+    for control, input delivery or execution configuration.
     Diagnostic labels explain the current rejection; they do not authorize
     lifecycle changes or select the pending operation's result-hook chain.
     The actual command rejects every control on an archived Task without changing

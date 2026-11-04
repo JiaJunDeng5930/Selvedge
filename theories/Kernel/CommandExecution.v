@@ -114,7 +114,7 @@ Definition delete_project (id : N) (value : world) :=
    if existsb (fun task => match settings_project (task_current_settings task) with
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_not_empty" "A project referenced by a task cannot be deleted" value
-   else accept (JObject [("project_id",number id)])
+   else accept JNull
     (with_projects (replace id (Project "" (Workspace [] None) None false (project_order project) true None) (world_projects value)) value) []
  end.
 Definition speech_transcript (id : N) (session_value item_value : D.denote D.nonblank_text) (speaker : Domain.speaker)
@@ -182,7 +182,7 @@ Definition return_side (id : N) (value : world) :=
 ```") in
      let images := flat_map History.message_images messages in
      CommandResult.commit value (fun delivered => CommandResult.Change
-       (JObject [("task_id",number parent);("side_task_id",number id);("after",number after);("through",number through)])
+       (JObject [("task_id",number parent);("after",number after);("through",number through)])
        (put_task id (with_side_cursor through side) (CommandResult.change_world delivered))
        (CommandResult.change_effects delivered))
        (Tasks.send_result parent (TextPart text :: images) value)
