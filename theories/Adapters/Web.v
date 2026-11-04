@@ -91,15 +91,15 @@ Definition operations := [
    required "owner" (D.Value Schema.KText);required "stage" safe_natural;raw "binding";required "reset" D.Boolean]
    (fun effect profile body owner stage binding reset => WebStore.invocation effect profile body owner (proj1_sig stage) (missing binding) reset);
  method "web.cancellation" [raw "record"] (fun record => WebStore.cancellation (missing record));
- method "web.store_latest" [required "records" (D.Array D.Any);required "owner" (D.Value Schema.KText);raw "ticket"] WebStore.store_latest;
+ method "web.store_latest" [required "records" (D.Array D.Any)] WebStore.store_latest;
  method "web.exchange_start" [raw "record";raw "body";raw "model";raw "tools"]
    (fun record body model tools => WebStore.exchange_start (missing record) (missing body) (missing model) (items (missing tools)));
  method "web.exchange_result" [raw "resource"] (fun resource => WebStore.exchange_result (missing resource));
  method "web.catch" [raw "record";raw "error"] (fun record error => WebStore.catch (missing record) (missing error));
  method "web.http_json" [required "response" (D.OpenObject http_fields);required "text" (D.Value Schema.KText)]
    (fun response text => WebResources.http_json (http_value response) text);
- O.diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "task_id" safe_natural]
-   (fun rows records task => WebStore.reset_session rows records (proj1_sig task)) "Invalid ChatGPT Web reset source"
+ O.diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any)]
+   WebStore.reset_session "Invalid ChatGPT Web reset source"
 ].
 Definition select_operation name := find (fun operation => String.eqb name operation.(O.operation_name)) operations.
 Definition call name source := match select_operation name with

@@ -34,7 +34,7 @@ export class WebRequestStore {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(`task:${taskId}`);
-      const writes = boundary('web.reset_session', { rows, records, task_id: taskId });
+      const writes = boundary('web.reset_session', { rows, records });
       for (const write of writes) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
@@ -117,7 +117,7 @@ export class WebRequestStore {
   close() { this.db.close(); }
   latest(owner) {
     const records = this.db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
-    return boundary('web.store_latest', { records, owner });
+    return boundary('web.store_latest', { records });
   }
   find(key) { return this.db.prepare('SELECT * FROM requests WHERE request_key=?').get(key); }
 

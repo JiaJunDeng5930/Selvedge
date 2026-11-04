@@ -59,12 +59,12 @@ Definition store_prepare record request previous key := match record with
      ("body",JString (TextJson.render_json (JObject request.(request_body))));
      ("response_id",JNull);("response",JNull);("rejected",number 0);("retired",retirement_code Active)]) end end.
 Definition invocation_ticket invocation ticket := String.eqb invocation ticket || String.prefix (ticket ++ ":context:") invocation.
-Definition retire_match record owner ticket := String.eqb (str record "owner") owner &&
-  same (get record "rejected") (number 0) && match ticket with None => true | Some ticket =>
-    invocation_ticket (str record "invocation") (owner ++ ":" ++ name_or_number ticket ++ ":0") ||
-    invocation_ticket (str record "invocation") (owner ++ ":" ++ name_or_number ticket ++ ":1") end.
-Definition retire_candidate records owner ticket := fold_right (fun record selected =>
-  if retire_match record owner ticket then Some (match selected with None => record | Some previous =>
+Definition retire_match record invocation_prefix :=
+  same (get record "rejected") (number 0) && match invocation_prefix with None => true | Some prefix =>
+    invocation_ticket (str record "invocation") (prefix ++ ":0") ||
+    invocation_ticket (str record "invocation") (prefix ++ ":1") end.
+Definition retire_candidate records invocation_prefix := fold_right (fun record selected =>
+  if retire_match record invocation_prefix then Some (match selected with None => record | Some previous =>
     if num previous "ordinal" <? num record "ordinal" then record else previous end) else selected) None records.
 Definition current_format := "selvedge-chatgpt-web-3".
 Definition metadata_reply identity := success (JObject [
@@ -76,15 +76,16 @@ Definition store_metadata rows new_identity (created : bool) := match rows with
       then metadata_reply (get row "identity") else metadata_error
   | _ => metadata_error end.
 Definition retire_existing rows records owner ticket := let result := store_metadata rows "" false in
-  if boolean_field result "ok" then success (match retire_candidate records owner ticket with
+  if boolean_field result "ok" then success (match retire_candidate records
+      (option_map (fun ticket => owner ++ ":" ++ name_or_number ticket) ticket) with
     | Some record => JObject [("record",record);
         ("updates",JObject [("retired",retirement_code Cancelled)])]
     | None => JNull end) else result.
-Definition reset_session rows records task := let result := store_metadata rows "" false in
+Definition reset_session rows records := let result := store_metadata rows "" false in
   if boolean_field result "ok" then success (JArray (map (fun record =>
     JObject [("request_key",get record "request_key");("updates",JObject [("retired",retirement_code ConfigurationChanged)])])
-    (filter (fun record => eq record "owner" ("task:" ++ decimal task)) records))) else result.
-Definition store_latest records owner ticket := success (match retire_candidate records owner ticket with
+    records)) else result.
+Definition store_latest records := success (match retire_candidate records None with
   | Some record => record | None => JNull end).
 Definition cancellation record := success (JString (if truthy record then
   if truthy (get record "response_id") then "cancel" else "retained" else "none")).

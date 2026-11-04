@@ -96,3 +96,86 @@ Proof.
    intros item member;cbn in member;destruct member as [<-|[]].
    now apply andb_true_iff in admitted as [admitted _];apply andb_true_iff in admitted as [_ admitted].
 Qed.
+
+Definition retained_request_matches record invocation_prefix : Prop :=
+ same (get record "rejected") (number 0) = true /\ match invocation_prefix with
+ | None => True
+ | Some prefix =>
+     (str record "invocation" = prefix ++ ":0" \/
+       String.prefix ((prefix ++ ":0") ++ ":context:") (str record "invocation") = true) \/
+     (str record "invocation" = prefix ++ ":1" \/
+       String.prefix ((prefix ++ ":1") ++ ":context:") (str record "invocation") = true)
+ end.
+Lemma retire_match_true_iff : forall record invocation_prefix,
+ retire_match record invocation_prefix = true <-> retained_request_matches record invocation_prefix.
+Proof.
+ intros record [prefix|]; unfold retire_match, retained_request_matches.
+ - rewrite andb_true_iff; unfold invocation_ticket.
+   repeat rewrite orb_true_iff; repeat rewrite String.eqb_eq; tauto.
+ - rewrite andb_true_r; tauto.
+Qed.
+Definition newest_matching_request records invocation_prefix selected : Prop := match selected with
+ | Some record => In record records /\ retained_request_matches record invocation_prefix /\
+     forall candidate, In candidate records -> retained_request_matches candidate invocation_prefix ->
+       num candidate "ordinal" <= num record "ordinal"
+ | None => forall candidate, In candidate records -> ~ retained_request_matches candidate invocation_prefix
+ end.
+Lemma retire_candidate_is_newest_match : forall records invocation_prefix,
+ newest_matching_request records invocation_prefix (retire_candidate records invocation_prefix).
+Proof.
+ intros records invocation_prefix; induction records as [|record records IH].
+ - cbn [retire_candidate newest_matching_request]; intros candidate member; inversion member.
+ - change (newest_matching_request (record :: records) invocation_prefix
+     (if retire_match record invocation_prefix then Some
+       (match retire_candidate records invocation_prefix with
+        | None => record
+        | Some previous => if num previous "ordinal" <? num record "ordinal" then record else previous end)
+      else retire_candidate records invocation_prefix)).
+   destruct (retire_candidate records invocation_prefix) as [previous|];
+     cbn [newest_matching_request] in IH.
+   + destruct IH as [member [eligible maximal]].
+     destruct (retire_match record invocation_prefix) eqn:matches.
+     * destruct (num previous "ordinal" <? num record "ordinal") eqn:newer;
+         cbn [newest_matching_request].
+       -- split; [now left|]. split; [now apply retire_match_true_iff|].
+          intros candidate [<-|present] admitted; [apply N.le_refl|].
+          eapply N.le_trans; [exact (maximal candidate present admitted)|].
+          apply N.lt_le_incl, N.ltb_lt; exact newer.
+       -- split; [now right|]. split; [exact eligible|].
+          intros candidate [<-|present] admitted.
+          ++ now apply N.ltb_ge in newer.
+          ++ exact (maximal candidate present admitted).
+     * cbn [newest_matching_request]; split; [now right|]. split; [exact eligible|].
+       intros candidate [<-|present] admitted.
+       -- apply retire_match_true_iff in admitted; rewrite matches in admitted; discriminate.
+       -- exact (maximal candidate present admitted).
+   + destruct (retire_match record invocation_prefix) eqn:matches;
+       cbn [newest_matching_request].
+     * split; [now left|]. split; [now apply retire_match_true_iff|].
+       intros candidate [<-|present] admitted; [apply N.le_refl|].
+       exfalso; exact (IH candidate present admitted).
+     * intros candidate [<-|present] admitted.
+       -- apply retire_match_true_iff in admitted; rewrite matches in admitted; discriminate.
+       -- exact (IH candidate present admitted).
+Qed.
+Theorem latest_request_selects_newest_match : forall records,
+ exists selected,
+   store_latest records = success (match selected with Some record => record | None => JNull end) /\
+   newest_matching_request records None selected.
+Proof.
+ intros records; exists (retire_candidate records None); split;
+   [reflexivity|apply retire_candidate_is_newest_match].
+Qed.
+Theorem cancellation_selects_newest_match : forall rows records owner ticket,
+ boolean_field (store_metadata rows "" false) "ok" = true ->
+ exists selected,
+   retire_existing rows records owner ticket = success (match selected with
+     | Some record => JObject [("record",record);("updates",JObject [("retired",retirement_code Cancelled)])]
+     | None => JNull end) /\
+   newest_matching_request records
+     (option_map (fun ticket => owner ++ ":" ++ name_or_number ticket) ticket) selected.
+Proof.
+ intros rows records owner ticket metadata;
+   exists (retire_candidate records (option_map (fun ticket => owner ++ ":" ++ name_or_number ticket) ticket)).
+ split; [unfold retire_existing; now rewrite metadata|apply retire_candidate_is_newest_match].
+Qed.

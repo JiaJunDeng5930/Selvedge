@@ -424,6 +424,13 @@ Qed.
     selects at most one retained request: the latest for the matching owner and
     ticket. An optional record represents that selection directly;
     resetting a whole session remains a separate operation over its requests.
+    The store queries each owner's rows with SQLite's [WHERE owner=?], so a
+    second owner filter supplies no new observation. Those queries do not
+    order their rows. Selection must exclude rejected requests, respect an
+    explicit cancellation ticket, and choose the greatest ordinal among the
+    matching rows; an empty selection means that no row matches. The shared
+    selection proof connects these conditions to both latest-request lookup
+    and cancellation. Reset changes every row of its already selected owner.
     Resource admission follows the fields used for settlement and continuation: response identity,
     model, predecessor, status, output and tool-call correlation. Creation time,
     usage estimates and a tool item's separate provider identifier have no role
@@ -448,4 +455,6 @@ Export WebProofs(existing_request_reuse_requires_body_and_connection,
   response_identity_cannot_change, committed_response_cannot_change,
   receipt_is_bound_to_actual_task_connection_and_response,
   tool_continuation_requires_complete_unique_result_batch,
-  cancelled_request_cannot_reuse_a_different_connection).
+  cancelled_request_cannot_reuse_a_different_connection,
+  latest_request_selects_newest_match,
+  cancellation_selects_newest_match).
