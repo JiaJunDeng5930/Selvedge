@@ -113,12 +113,14 @@ Definition step (current : state) (event : observation) : state * action :=
  | ConsumeTicket now grants digest count=>match current with
    | Ready host tickets=>
      let selected:=find (fun entry=>String.eqb (ticket_digest entry) digest) tickets in
-     let remaining:=filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets in
-     (Ready host remaining,match selected with
+     match selected with
       | Some value=>if current_ticket now grants value then
-          if count <? 32 then TicketConsumed (ticket_grant value) else TicketRejected ConnectionLimit
-        else TicketRejected InvalidTicket
-      | None=>TicketRejected InvalidTicket end)
+          if count <? 32 then
+            (Ready host (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets),
+             TicketConsumed (ticket_grant value))
+          else (current,TicketRejected ConnectionLimit)
+        else (current,TicketRejected InvalidTicket)
+      | None=>(current,TicketRejected InvalidTicket) end
    | _=>(current,TicketRejected InvalidTicket) end
  | Disconnected expected host_ready=>(Closed,match current with
    | Negotiating own=>if N.eqb own expected then CloseControllers else NoAction

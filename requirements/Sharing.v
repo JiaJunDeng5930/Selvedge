@@ -82,6 +82,8 @@ Export ApiProofs(public_configured_connection_grants_preserve_authority).
     admission for each request adds no new authority. Setup persists the same
     validated raw credential in the private connection file, while runtime
     requests use the header established when that configuration was loaded.
+    Repeating setup must fail while the saved credential remains usable.
+    Reporting that refusal needs no separate machine-readable error category.
 
     Packaging exports an explicit set of shipped files, keeping private
     connection data outside the package. Its output may be a new directory
@@ -155,7 +157,7 @@ Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_not
   capture_observations_emit_only_capture_actions,
   delivery_observation_emits_only_delivery_actions,
   enqueue_observation_emits_only_queue_actions).
-Export RemoteRelaySessionProofs(consumption_removes_ticket,
+Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
   host_frame_admission_matches_negotiation,
   delivery_admits_exactly_current_authority,
   ticket_issuance_admits_exactly_current_bounded_authority,
@@ -208,9 +210,13 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     unconditionally. Only observing, receiving or consuming a pending request
     needs a clock reading to decide whether that deadline has passed.
 
-    New semantic state is installed before sending or accepting sockets. Ticket
-    consumption precedes authorization. After asynchronous hashing, the relay
-    rereads the current attachment instead of publishing an earlier snapshot.
+    New semantic state is installed before sending or accepting sockets. A
+    successfully consumed ticket is removed before accepting its connection,
+    so the credential cannot authorize another one. Failed admission issues no
+    authority and need not spend an otherwise valid ticket. Issuance already
+    removes expired tickets; grant updates remove revoked tickets.
+    After asynchronous hashing, the relay rereads the current attachment
+    instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
     A grant observation filters the connector's live connections directly;

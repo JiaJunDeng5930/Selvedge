@@ -26,11 +26,19 @@ Qed.
 
 Definition tickets_of current := match current with Ready _ tickets=>tickets|_=>nil end.
 
-(** Even a rejected attempt consumes every copy of the selected ticket identity. *)
-Theorem consumption_removes_ticket current now grants digest count :
+(** Only a successfully consumed credential can authorize a connection; removing
+    it before socket acceptance makes that authorization single-use. *)
+Theorem successful_consumption_removes_ticket current now grants digest count authority :
+ snd (step current (ConsumeTicket now grants digest count)) = TicketConsumed authority ->
  find (fun entry=>String.eqb (ticket_digest entry) digest)
  (tickets_of (fst (step current (ConsumeTicket now grants digest count)))) = None.
-Proof. destruct current; cbn; try reflexivity. apply consumed_digest_absent. Qed.
+Proof.
+ destruct current as [g|g|host|host tickets|connection|]; unfold step; cbn [fst snd]; try discriminate.
+ destruct (find (fun entry=>String.eqb (ticket_digest entry) digest) tickets) as [selected|];
+   [|discriminate].
+ destruct (current_ticket now grants selected), (count <? 32); cbn [fst snd tickets_of]; try discriminate.
+ intro Consumed. apply consumed_digest_absent.
+Qed.
 
 Definition current_authority grants authority : Prop :=
  exists issued, In issued (RP.grant_values grants) /\
@@ -116,9 +124,12 @@ Proof.
  try solve [split; [discriminate|intros [other [entries [selected [Impossible _]]]]; discriminate]].
  destruct (find (fun entry => String.eqb (ticket_digest entry) digest) tickets) as [chosen|] eqn:Selected;
    cbn [snd].
- - assert (Consumed : (if current_ticket now grants chosen then
-       if count <? 32 then TicketConsumed (ticket_grant chosen) else TicketRejected ConnectionLimit
-       else TicketRejected InvalidTicket) = TicketConsumed authority <->
+ - assert (Consumed : snd (if current_ticket now grants chosen then
+       if count <? 32 then
+         (Ready host (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets),
+          TicketConsumed (ticket_grant chosen))
+       else (Ready host tickets,TicketRejected ConnectionLimit)
+       else (Ready host tickets,TicketRejected InvalidTicket)) = TicketConsumed authority <->
        current_ticket now grants chosen = true /\ (count <? 32) = true /\ ticket_grant chosen = authority).
    { split.
      - destruct (current_ticket now grants chosen) eqn:Current; [|discriminate].
