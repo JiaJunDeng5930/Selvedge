@@ -49,7 +49,7 @@ Definition subscription data id after := Session (pairing_code data)
    (connections data)) (pending data).
 Definition frame := RP.relay_frame.
 Inductive observation := Retire | SetPairing (value : pairing) (now : N) | CurrentPairing (now : N)
- | Grants (values : RP.grant_set) | Enqueue (id : string) (size : N) (notice : option N)
+ | Grants (values : RP.grant_set) | Enqueue (id : string) (size : N) (notice : bool)
  | Dequeue (id : string) (size : N)
  | Snapshot (id : string) (subscribe : bool) | Unsubscribe (id : string) | Deliver (id : string) (notice : N)
  | Frame (value : frame).
@@ -59,8 +59,7 @@ Inductive action := Ignore | PublishPairing | Enqueued | Disconnect | BecameRead
  | Requested (id : RP.identifier) (request : RP.rpc_request) | PairRequested (request : RP.pairing_request) | ReceivedPong
  | CapturedSnapshot | Unsubscribed | DeliverNotice.
 Definition deliver_notice data id notice :=
- if notice_eligible data id notice
- then (subscription data id (Some notice),DeliverNotice) else (data,Ignore).
+ if notice_eligible data id notice then DeliverNotice else Ignore.
 Definition phase_step sequence s event : phase * action := match event with
  | Install n => (Negotiating n (pairing_of s),Ignore)
  | Notice => (s,Ignore)
@@ -79,8 +78,8 @@ Definition phase_step sequence s event : phase * action := match event with
      | Ready g data => match value with
        | Grants values => (Ready g (Session (pairing_code data)
          (filter (fun entry => permitted values (authority entry)) (connections data)) (pending data)),Ignore)
-       | Enqueue id size notice => match find_connection data id with None => (s,Ignore) | Some _ =>
-         if match notice with Some value => notice_eligible data id value | None => true end then
+       | Enqueue id size notice => match find_connection data id with None => (s,Ignore) | Some entry =>
+         if negb notice || match after_notice entry with Some _ => true | None => false end then
          if (queued_for data id <? 32) && (N.of_nat (List.length (pending data)) <? 256) &&
            (queued_bytes data + size <=? 33554432) then
            (Ready g (Session (pairing_code data) (connections data) (Queued id size::pending data)),Enqueued)
@@ -91,7 +90,7 @@ Definition phase_step sequence s event : phase * action := match event with
          (Ready g (if subscribe then subscription data id (Some sequence) else data),CapturedSnapshot) end
        | Unsubscribe id => match find_connection data id with None => (s,Ignore) | Some _ =>
          (Ready g (subscription data id None),Unsubscribed) end
-       | Deliver id notice => let '(next,action) := deliver_notice data id notice in (Ready g next,action)
+       | Deliver id notice => (s,deliver_notice data id notice)
        | Frame RP.RelayReady => (s,Disconnect)
        | Frame (RP.RelayControllerOpen id requested) => let entry := Connection id requested None in
          match find_connection data (connection_id entry) with Some _ => (s,Disconnect) | None =>
@@ -174,8 +173,8 @@ Definition event_decoders : list (F.decoder event) := [
  observation_decoder "pairing_current" [F.required "now" natural] (fun '(now,_) => Some (CurrentPairing now));
  observation_decoder "grants" [F.required "grants" RP.grants_declaration]
    (fun '(grants,_) => option_map Grants (RP.grants_from_arguments grants));
- observation_decoder "enqueue" (queued_fields ++ [F.required "notice_sequence" optional_natural])
-   (fun '(id,(bytes,(notice,_))) => Some (Enqueue id bytes (natural_from_arguments notice)));
+ observation_decoder "enqueue" (queued_fields ++ [F.required "notice" (D.Value KBool)])
+   (fun '(id,(bytes,(notice,_))) => Some (Enqueue id bytes notice));
  observation_decoder "dequeue" queued_fields (fun '(id,(bytes,_)) => Some (Dequeue id bytes));
  event_decoder "notice" [] (fun _ => Some Notice);
  observation_decoder "capture" [F.required "connection_id" (D.Value KText);

@@ -48,7 +48,7 @@ async function worktreeGitConfiguration(repository, signal) {
 export async function observeWorkspaceGit(primary, { signal, environment } = {}) {
   signal?.throwIfAborted();
   try {
-    boundary('effect.root_admit', { root: primary, absolute: typeof primary === 'string' && path.isAbsolute(primary) });
+    boundary('effect.root_admit', { root: primary, absolute: path.isAbsolute(primary) });
   } catch (error) {
     // DEFENSE: Browser-selected primary paths are not yet admitted; invalid root syntax is ineligible for worktrees.
     if (error instanceof TypeError) return false;

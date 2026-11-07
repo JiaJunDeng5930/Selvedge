@@ -204,7 +204,9 @@ Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   current_retry_rearms_or_connects).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
-  delivered_notice_follows_the_current_subscription,
+  notice_delivery_matches_the_current_subscription,
+  notice_queue_admission_matches_subscription, enqueued_work_respects_capacity,
+  completed_queue_work_releases_capacity,
   every_observed_notice_advances_the_cursor,
   frame_observation_emits_only_frame_actions,
   capture_observations_emit_only_capture_actions,
@@ -296,6 +298,12 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
+    [enqueued_work_respects_capacity] requires admission to add one pending
+    operation and its bytes, within the limits of 32 operations for that
+    connection, 256 overall and 32 MiB overall. Bounds alone would allow
+    acknowledged work to go unrecorded and escape those limits.
+    [completed_queue_work_releases_capacity] requires completion to release
+    one operation and its bytes so settled work cannot keep consuming capacity.
     A grant observation filters the connector's live connections directly;
     retaining that entire snapshot supplies no later decision. Native commands
     and captures still check current journal authority, while the relay keeps
@@ -354,8 +362,11 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     [issued_tickets_respect_capacity] bounds the actual retained ticket list.
 
     [subscription_capture_records_the_current_notice_cutoff] and
-    [delivered_notice_follows_the_current_subscription] connect snapshot
-    subscription and later notices. Unsubscribe, resubscribe and delayed queue completion
+    [notice_delivery_matches_the_current_subscription] connect snapshot
+    subscription and later notices. For a current connection, an authorized
+    notice requires the delivery action exactly when it is subscribed and the
+    notice follows its snapshot cutoff. A refusal-only property would also permit silently dropping
+    every eligible notice. Unsubscribe, resubscribe and delayed queue completion
     share one cursor owner rather than separate JavaScript tests.
     The cursor orders notices relative to a subscription cutoff; it is not a
     count of delivered messages. Strict advancement is sufficient without
@@ -366,8 +377,16 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     solely to check queue membership adds no delivery authority. Pending jobs
     retain only the connection and bytes needed to bound capacity. Jobs with
     the same connection and byte size are interchangeable for that accounting.
-    The host assigns each notice its current cursor before enqueueing it, so a
-    future cursor cannot arrive on this internal path. Delivery must still
+    The host increments the notice cursor and enqueues the notice synchronously,
+    so the new notice already follows every existing subscription cutoff.
+    Admission needs only the distinction between requests and notifications,
+    without passing or comparing that new cursor again.
+    [notice_queue_admission_matches_subscription] requires a notice to enter
+    an available queue when subscribed and leave it unchanged when unsubscribed.
+    The same connection's Promise chain invokes each registered callback once
+    in order. Sending therefore need not update a second position for the last
+    delivered notice; the retained cutoff belongs to the subscription snapshot.
+    Delivery must still
     check the subscription cutoff: an earlier queued resubscription can capture
     a newer snapshot, or an unsubscribe can end delivery, before the notice runs.
     Promise reactions preserve the registered callback and await its returned

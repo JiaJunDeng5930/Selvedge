@@ -266,11 +266,11 @@ export class RemoteConnector {
     session.connections.delete(id);
   }
 
-  #enqueue(session, connection, bytes, operation, noticeSequence = null) {
+  #enqueue(session, connection, bytes, operation, notice = false) {
     enqueueRemoteOperation(connection, bytes, operation, {
       current: () => this.#current(session),
       enqueue: size => this.#step('enqueue', { generation: session.generation, connection_id: connection.id,
-        bytes: size, notice_sequence: noticeSequence }),
+        bytes: size, notice }),
       dequeue: size => this.#step('dequeue', { generation: session.generation, connection_id: connection.id, bytes: size }),
       disconnect: reason => this.#disconnect(session, reason),
     });
@@ -335,7 +335,7 @@ export class RemoteConnector {
           interpretConnectorDelivery(this.#step('deliver', { generation: session.generation, connection_id: id, notice_sequence: sequence }),
             () => this.#send(session, { type: 'event', connection_id: id, event }));
         });
-      }, sequence);
+      }, true);
     }
   }
 }

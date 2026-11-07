@@ -50,22 +50,102 @@ Proof.
  end; exact I.
 Qed.
 
-(** Queue admission constrains the very acknowledgement consumed by the
-    physical Promise queue; counters are projections of the pending jobs. *)
-Theorem enqueue_acknowledges_available_budget s n id size notice :
+Lemma queued_bytes_accumulator jobs initial :
+ fold_left (fun total job => total + bytes job) jobs initial =
+ initial + fold_left (fun total job => total + bytes job) jobs 0.
+Proof.
+ revert initial. induction jobs as [|job jobs IH]; intro initial; cbn [fold_left].
+ - now rewrite N.add_0_r.
+ - rewrite N.add_0_l, (IH (initial + bytes job)), (IH (bytes job)). lia.
+Qed.
+
+Theorem enqueued_work_respects_capacity s n id size notice :
  snd (step s (Observe n (Enqueue id size notice))) = Enqueued ->
- exists data, current s = Ready n data /\ queued_for data id < 32 /\
- N.of_nat (List.length (pending data)) < 256 /\ queued_bytes data + size <= 33554432.
+ exists before after, current s = Ready n before /\
+ current (fst (step s (Observe n (Enqueue id size notice)))) = Ready n after /\
+ queued_for after id = N.succ (queued_for before id) /\
+ N.of_nat (List.length (pending after)) = N.succ (N.of_nat (List.length (pending before))) /\
+ queued_bytes after = queued_bytes before + size /\ queued_for after id <= 32 /\
+ N.of_nat (List.length (pending after)) <= 256 /\ queued_bytes after <= 33554432.
 Proof.
  destruct s as [phase sequence]. destruct phase as [g p|g p|g data]; unfold step,phase_step; cbn;
  destruct (N.eqb g n) eqn:Same; cbn; try discriminate.
- destruct (find_connection data id) eqn:Present; [|discriminate].
- destruct (match notice with Some value => notice_eligible data id value | None => true end); [|discriminate].
+ destruct (find_connection data id) as [entry|] eqn:Present; [|discriminate].
+ destruct (negb notice || match after_notice entry with Some _ => true | None => false end); [|discriminate].
  destruct ((queued_for data id <? 32) && (N.of_nat (List.length (pending data)) <? 256) &&
    (queued_bytes data + size <=? 33554432)) eqn:Budget; [|discriminate].
- intro Accepted. apply N.eqb_eq in Same; subst n. exists data. split; [reflexivity|].
- repeat rewrite andb_true_iff in Budget. repeat split;
-   first [apply N.ltb_lt|apply N.leb_le]; tauto.
+ intros _. apply N.eqb_eq in Same; subst n.
+ repeat rewrite andb_true_iff in Budget. destruct Budget as [[PerConnection Total] Bytes].
+ apply N.ltb_lt in PerConnection. apply N.ltb_lt in Total. apply N.leb_le in Bytes.
+ set (next := Session (pairing_code data) (connections data) (Queued id size::pending data)).
+ assert (ConnectionCount : queued_for next id = N.succ (queued_for data id)).
+ { unfold next,queued_for. cbn [pending filter owner]. rewrite String.eqb_refl.
+   apply Nat2N.inj_succ. }
+ assert (TotalCount : N.of_nat (List.length (pending next)) = N.succ (N.of_nat (List.length (pending data)))).
+ { unfold next. cbn [pending List.length]. apply Nat2N.inj_succ. }
+ assert (ByteCount : queued_bytes next = queued_bytes data + size).
+ { unfold next,queued_bytes. cbn [pending fold_left bytes]. rewrite queued_bytes_accumulator. lia. }
+ exists data,next. repeat split; try reflexivity; try assumption; lia.
+Qed.
+
+Lemma queued_bytes_cons job jobs :
+ fold_left (fun total job => total + bytes job) (job::jobs) 0 =
+ bytes job + fold_left (fun total job => total + bytes job) jobs 0.
+Proof. cbn [fold_left]. rewrite N.add_0_l. apply queued_bytes_accumulator. Qed.
+
+Lemma release_budget_accounting jobs id size :
+ In (Queued id size) jobs ->
+ N.of_nat (List.length jobs) = N.succ (N.of_nat (List.length (release_budget jobs id size))) /\
+ N.of_nat (List.length (filter (fun job => String.eqb (owner job) id) jobs)) =
+   N.succ (N.of_nat (List.length (filter (fun job => String.eqb (owner job) id) (release_budget jobs id size)))) /\
+ fold_left (fun total job => total + bytes job) jobs 0 =
+   size + fold_left (fun total job => total + bytes job) (release_budget jobs id size) 0.
+Proof.
+ induction jobs as [|[job_owner job_bytes] jobs IH]; intro Present; [contradiction|].
+ cbn [release_budget owner bytes].
+ destruct (String.eqb job_owner id && N.eqb job_bytes size) eqn:Matching.
+ - apply andb_true_iff in Matching. destruct Matching as [Owner Size].
+   apply String.eqb_eq in Owner. apply N.eqb_eq in Size. subst job_owner job_bytes.
+   cbn [List.length filter owner]. rewrite String.eqb_refl.
+   rewrite queued_bytes_cons. cbn [List.length bytes].
+   repeat split; try apply Nat2N.inj_succ; reflexivity.
+ - assert (In (Queued id size) jobs) as Tail.
+   { destruct Present as [Same|Tail]; [|exact Tail].
+     inversion Same; subst. rewrite String.eqb_refl,N.eqb_refl in Matching. discriminate. }
+   destruct (IH Tail) as [Total [PerConnection Bytes]].
+   cbn [List.length filter owner]. rewrite !queued_bytes_cons. cbn [bytes].
+   destruct (String.eqb job_owner id); cbn [List.length];
+     repeat rewrite Nat2N.inj_succ; repeat split; lia.
+Qed.
+
+Theorem completed_queue_work_releases_capacity g data sequence id size :
+ In (Queued id size) (pending data) ->
+ exists next, current (fst (step (State (Ready g data) sequence) (Observe g (Dequeue id size)))) = Ready g next /\
+ queued_for data id = N.succ (queued_for next id) /\
+ N.of_nat (List.length (pending data)) = N.succ (N.of_nat (List.length (pending next))) /\
+ queued_bytes data = size + queued_bytes next.
+Proof.
+ intro Present. unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn.
+ exists (Session (pairing_code data) (connections data) (release_budget (pending data) id size)).
+ split; [reflexivity|]. unfold queued_for,queued_bytes. cbn [pending].
+ pose proof (release_budget_accounting (pending data) id size Present) as [Total [PerConnection Bytes]].
+ repeat split; assumption.
+Qed.
+
+Theorem notice_queue_admission_matches_subscription g data sequence id size entry :
+ find_connection data id = Some entry -> queued_for data id < 32 ->
+ N.of_nat (List.length (pending data)) < 256 -> queued_bytes data + size <= 33554432 ->
+ match after_notice entry with
+ | Some _ => snd (step (State (Ready g data) sequence) (Observe g (Enqueue id size true))) = Enqueued
+ | None => step (State (Ready g data) sequence) (Observe g (Enqueue id size true)) =
+     (State (Ready g data) sequence,Ignore)
+ end.
+Proof.
+ intros Present PerConnection Total Bytes.
+ unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn. rewrite Present. cbn.
+ destruct (after_notice entry); [|reflexivity].
+ rewrite (proj2 (N.ltb_lt _ _) PerConnection), (proj2 (N.ltb_lt _ _) Total),
+   (proj2 (N.leb_le _ _) Bytes). reflexivity.
 Qed.
 
 Theorem grant_refresh_retains_only_current_authority g data sequence values entry :
@@ -92,17 +172,20 @@ Proof.
  now rewrite Present.
 Qed.
 
-Theorem delivered_notice_follows_the_current_subscription g data sequence id notice :
- snd (step (State (Ready g data) sequence) (Observe g (Deliver id notice))) = DeliverNotice ->
+Theorem notice_delivery_matches_the_current_subscription g data sequence id notice :
+ snd (step (State (Ready g data) sequence) (Observe g (Deliver id notice))) = DeliverNotice <->
  exists entry after, find_connection data id = Some entry /\
  after_notice entry = Some after /\ after < notice.
 Proof.
  unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn.
  unfold deliver_notice,notice_eligible.
- destruct (find_connection data id) as [entry|] eqn:Found; [|discriminate].
- destruct (after_notice entry) as [after|] eqn:Subscribed; [|discriminate].
- destruct (after <? notice) eqn:Later; [|discriminate].
- intros _. exists entry, after. repeat split; try assumption. now apply N.ltb_lt.
+ split.
+ - destruct (find_connection data id) as [entry|] eqn:Found; [|discriminate].
+   destruct (after_notice entry) as [after|] eqn:Subscribed; [|discriminate].
+   destruct (after <? notice) eqn:Later; [|discriminate].
+   intros _. exists entry, after. repeat split; try assumption. now apply N.ltb_lt.
+ - intros [entry [after [Found [Subscribed Later]]]].
+   now rewrite Found, Subscribed, (proj2 (N.ltb_lt _ _) Later).
 Qed.
 
 Theorem every_observed_notice_advances_the_cursor s :
