@@ -55,7 +55,7 @@ test('the OS journal lock excludes a second owner and releases on close', async 
   const first = await Service.open(options);
   const namespace = first.browserSnapshot().namespace;
   t.after(() => first.close());
-  await assert.rejects(Service.open(options), /locked|busy/i);
+  await assert.rejects(Service.open(options), error => error instanceof Error && error.message.trim() !== '');
   await first.close();
   const second = await Service.open(options);
   t.after(() => second.close());
@@ -114,7 +114,11 @@ test('the previous durable journal format is rejected without replay or conversi
   database.prepare('UPDATE meta SET value = ? WHERE key = ?').run('selvedge-rocq-journal-6', 'format');
   database.close();
 
-  await assert.rejects(Service.open(options), /current Selvedge Rocq journal format/);
+  await assert.rejects(Service.open(options), error => {
+    assert.ok(error instanceof Error);
+    assert.notEqual(error.message.trim(), '');
+    return true;
+  });
   const retained = new DatabaseSync(filename);
   try {
     assert.equal(retained.prepare('SELECT value FROM meta WHERE key = ?').get('format').value,

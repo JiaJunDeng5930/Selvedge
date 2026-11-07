@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Search Queries.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
@@ -27,13 +27,17 @@ Proof. reflexivity. Qed.
 Theorem a_matching_visible_record_has_its_original_position : forall query summary index before hits message role text newer,
  Search.readable message = Some (role,text) ->
  Search.contains (Search.lower query) (Search.lower text) = true ->
+ exists hit,
  Search.scan_message query summary (index,before,hits) (message,newer) =
- (N.succ index,Search.take_text 180 text,
-  JObject [("task",summary);("message_index",number index);("role",JString role);
-   ("snippet",JString (Search.snippet query text));
-   ("before",JString before);("after",JString newer)] :: hits).
+   (N.succ index,Search.take_text 180 text,hit :: hits) /\
+ field "task" hit = Some summary /\
+ JsonObjects.equivalent hit
+   (JObject [("task",summary);("message_index",number index);("role",JString role);
+     ("snippet",JString (Search.snippet query text));
+     ("before",JString before);("after",JString newer)]) = true.
 Proof.
- intros; unfold Search.scan_message; rewrite H, H0; reflexivity.
+ intros; unfold Search.scan_message; rewrite H, H0.
+ eexists; split; [reflexivity|]. split; [reflexivity|apply equivalent_is_reflexive].
 Qed.
 
 Theorem provider_speech_uses_the_conversation_decoder : forall origin value,

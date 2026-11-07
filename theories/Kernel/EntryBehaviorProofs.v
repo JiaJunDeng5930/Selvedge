@@ -1,10 +1,10 @@
 From Selvedge.Programming Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Packet Inputs InputDecoder CommandExecution
- CreationCommit CreationCommitProofs CreationBirthProofs Delivery Notifications NotificationsProofs.
+ CreationCommit CreationCommitProofs Delivery Notifications NotificationsProofs.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Worktree.
+From Selvedge.Features Require Import Worktree WorktreeProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -44,7 +44,7 @@ Theorem every_resolved_exported_creation_commits_its_planned_result :
  Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
  Packet.packet source before =
- (with_sequence (N.succ (world_sequence before)) (decision_world (Worktree.consume_planned_start plan before)),
+ (with_sequence (N.succ (world_sequence before)) (Worktree.born_world (Worktree.interpret_planned_birth plan before)),
   Notifications.envelope true true (Some (UserCommand (Commands.Cmd_create request))) before (planned_decision plan)).
 Proof.
  intros source request contents before start plan Decoded InputFits Parsed Resolved Prepared OutputFits.
@@ -76,9 +76,15 @@ Proof.
  unfold value_or_null at 1 2 3.
  rewrite !notification_envelopes_preserve_the_committed_reply.
  cbn [planned_decision decision_reply].
- destruct (each_planned_start_installs_its_reported_fresh_reference before plan) as [created [Installed Count]].
+ destruct (planned_birth_appends_exactly_one_task before plan before) as [created Appended].
  repeat split; try reflexivity.
- - exists created; exact Installed.
- - intros; eapply each_planned_start_keeps_every_existing_task; eassumption.
- - exact Count.
+ - exists created.
+   change (find_task (next_task before) (Worktree.born_world (Worktree.interpret_planned_birth plan before)) = Some created).
+   unfold find_task,next_task.
+   rewrite Appended. apply registry_lookup_at_appended_index.
+ - intros; eapply planned_birth_preserves_existing_tasks; eassumption.
+ - change (List.length (world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan before))) =
+     S (List.length (world_tasks before))).
+   rewrite Appended,length_app.
+   cbn; apply PeanoNat.Nat.add_1_r.
 Qed.

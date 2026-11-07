@@ -43,24 +43,18 @@ Definition remote_names (source : json) :=
   let origin := fun value => equal value (JString "origin") in
   success (JArray (filter origin names ++ filter (fun value => negb (origin value)) names)).
 Definition contained_workspace (selected : json) (root : string) :=
-  Workspaces.workspace_valid selected && Workspaces.path_valid (get selected "primary_root") &&
+  Workspaces.workspace_valid selected &&
   existsb (fun member => equal member (get selected "primary_root")) (items (get selected "roots")) &&
-  forallb (fun member => Workspaces.path_valid member && Workspaces.contains_path (text member) root)
+  forallb (fun member => Workspaces.contains_path (text member) root)
     (items (get selected "roots")).
 Definition receipt_keys := ["format";"namespace";"task_id";"source_root";"root";"token";"backend"].
-Definition receipt_statuses := ["persist_pending";"allocation_unknown";"allocated";"preparing";"ready";
-  "destroy_pending";"destroy_failed";"needs_credential";"needs_reconcile";"needs_resolution";"destroyed"].
 Definition recovery_authority (value : json) :=
   let scope := get value "scope" in
   is_object scope && is_text (get scope "account_id") && negb (String.eqb (str scope "account_id") "") &&
   String.eqb (str scope "provider") "tencent_cvm" &&
   equal (get scope "region") (get (get value "settings") "region") &&
   is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "") &&
-  String.eqb (str scope "credential_reference") "service-environment:TENCENTCLOUD" &&
-  equal (get (get value "request") "ClientToken") (get value "token") &&
-  equal (get value "dispatch_count") (number 1) &&
-  existsb (String.eqb (str value "status")) receipt_statuses &&
-  is_array (get value "instance_ids") && is_array (get value "candidate_ids").
+  equal (get (get value "request") "ClientToken") (get value "token").
 Definition receipt_matches (source : json) :=
   let expected := get source "expected" in let value := get source "value" in
   is_object value && forallb (fun name => equal (get value name) (get expected name)) receipt_keys &&

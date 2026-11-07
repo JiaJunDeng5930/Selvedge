@@ -14,10 +14,6 @@ function revision(value) {
   return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
 }
 
-function fieldRecord(entries) {
-  return Object.fromEntries(entries);
-}
-
 function identityValue(source, environment) {
   switch (source.type) {
     case 'constant': return source.value;
@@ -28,7 +24,7 @@ function identityValue(source, environment) {
 }
 
 function contextKey(definition, environment) {
-  const identity = fieldRecord(definition.identity.map(field => [field.name,
+  const identity = Object.fromEntries(definition.identity.map(field => [field.name,
     boundary('config.context_field', { definition, identity: true, field: field.name,
       value: identityValue(field.source, environment) })]));
   return { type: definition.kind, definition, identity };
@@ -57,7 +53,7 @@ async function snapshotSource(definition, environment, key, limits, options) {
       filesystem: workspaceSource ? options.workspaceEnvironment?.filesystem : undefined }))?.content;
   if (content === undefined) return null;
   const metadata = definition.fields.some(field => field.source.type === 'metadata') ? metadataFields(content) : undefined;
-  const fields = fieldRecord(definition.fields.map(field => {
+  const fields = Object.fromEntries(definition.fields.map(field => {
     let value;
     switch (field.source.type) {
       case 'body': value = content; break;

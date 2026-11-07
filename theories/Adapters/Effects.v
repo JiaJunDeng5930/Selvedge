@@ -25,12 +25,9 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.sandbox_prepare",Sandbox.sandbox_prepare);
   ("effect.sandbox_launch",Sandbox.sandbox_launch);
   ("effect.unrestricted_launch",Sandbox.unrestricted_launch);
-  ("effect.sandbox_bindings",fun source => success (SandboxPolicy.bindings source));
   ("effect.environment",fun source => success (SandboxPolicy.environment source));
-  ("effect.protected_workspace",SandboxPolicy.protected_workspace);
   ("effect.seccomp",SandboxPolicy.seccomp);
-  ("effect.seatbelt",Seatbelt.seatbelt);
-  ("effect.seatbelt_input",fun source => success (Seatbelt.seatbelt_input source));
+  ("effect.seatbelt_input",fun source => success (Seatbelt.seatbelt_input (Sandbox.launch_context source)));
   ("effect.runtime_candidates",fun source => success (SandboxPolicy.runtime_candidates (str source "platform")));
   ("effect.executable_candidates",fun source => success (SandboxPolicy.executable_candidates (str source "platform")));
   ("effect.workspace_command",fun source => success (Workspaces.plan_json (Workspaces.plan (get source "command"))));
@@ -60,11 +57,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.approval_text",TextEndpoints.response_text true);
   ("effect.task_text_text",TextEndpoints.response_text false);
   ("effect.approval_outcome",TextEndpoints.approval_outcome);
-  ("effect.task_text_outcome",TextEndpoints.task_text_outcome);
-  ("effect.request_task_text",TextEndpoints.request_task_text);
-  ("effect.request_approval",fun source =>
-    if String.eqb (str (get source "effect") "kind") "approval" then success JNull
-    else type_error "Expected a committed approval effect")].
+  ("effect.task_text_outcome",TextEndpoints.task_text_outcome)].
 Definition call (operation : string) (source : json) :=
   match find (fun handler => String.eqb operation (fst handler)) handlers with
   | Some (_,handler) => handler source

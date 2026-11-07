@@ -88,16 +88,12 @@ Definition cloud_readiness_delay := variant "kind" "delay" [Field "milliseconds"
 Definition cloud_readiness_connected := variant "kind" "connected" [] [].
 Definition cloud_readiness_reject := variant "kind" "reject" [Field "message" KText] [].
 Definition cloud_readiness_actions := [cloud_readiness_probe;cloud_readiness_delay;cloud_readiness_connected;cloud_readiness_reject].
-Definition cloud_readiness_transition := [Field "state" KJson;Field "actions" (KArray KJson)].
 Definition dispatch_start := variant "kind" "start" [Field "generation" KNatural] [].
 Definition dispatch_rollback_workspace := variant "kind" "rollback_workspace" [] [].
-Definition dispatch_retain_workspace := variant "kind" "retain_workspace" [] [].
 Definition dispatch_await := variant "kind" "await" [Field "generation" KNatural] [].
 Definition dispatch_cancel := variant "kind" "cancel" [Field "generation" KNatural;Field "provider" KBool] [].
 Definition dispatch_retry_failure := variant "kind" "retry_failure" [] [].
-Definition dispatch_settled := variant "kind" "settled" [] [].
-Definition dispatch_retire := variant "kind" "retire" [] [].
-Definition dispatch_actions := [dispatch_start;dispatch_rollback_workspace;dispatch_retain_workspace;dispatch_await;dispatch_cancel;dispatch_retry_failure;dispatch_settled;dispatch_retire].
+Definition dispatch_actions := [dispatch_start;dispatch_rollback_workspace;dispatch_await;dispatch_cancel;dispatch_retry_failure].
 Definition audio_emit := variant "type" "emit" [Field "event" KJson] [].
 Definition audio_journal := variant "type" "journal" [Field "token" KJson;Field "command" KJson] [].
 Definition audio_context := variant "type" "context" [Field "context" KJson] [].
@@ -164,12 +160,11 @@ Definition remote_observation_decoders : list (Variant.decoder RT.observation) :
  Variant.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
 Definition remote_transport_observations := map Variant.decoder_declaration remote_observation_decoders.
 Definition authorization_name state := match state with
- | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last"
- | RT.Authorized => "authorized" | RT.Denied => "denied" | RT.RevisionChanged => "revision_changed" end.
+ | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last" end.
 Definition remote_authorization_declaration state := variant "phase" (authorization_name state) [] [].
 Definition remote_authorization_decoders := map (fun state =>
  Variant.Decoder (remote_authorization_declaration state) (fun _ => Some state))
- [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck;RT.Authorized;RT.Denied;RT.RevisionChanged].
+ [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck].
 Definition remote_authorization_states := map Variant.decoder_declaration remote_authorization_decoders.
 Definition grant_action_name action := match action with
  | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
@@ -191,11 +186,10 @@ Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition http_remote_revoke_fields := [Field "controller_id" KText].
 Definition http_browser_command_fields := [Field "command" KJson].
 Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
- "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe";
- "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].
+ "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
 Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
- ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);("CloudReadinessTransition",cloud_readiness_transition);
+ ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);
  ("ResourceTransition",resource_transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);

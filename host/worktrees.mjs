@@ -1,11 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cp, lstat, mkdir, open, readFile, readdir, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { cp, lstat, mkdir, readFile, realpath, rmdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { shellQuote } from './cloud-environments.mjs';
-import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory, syncDirectory } from './control-records.mjs';
+import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { snapshotProject } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
@@ -75,7 +73,7 @@ async function locations(home, taskId) {
   for (const directory of [files.storage, path.dirname(files.archived), path.dirname(files.receipt)]) {
     await durableDirectory(directory);
     // DEFENSE: Replaced storage directories must not redirect managed worktree writes through symbolic links.
-    if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) {
+    if (await realpath(directory) !== directory) {
       throw new Error('Managed worktree storage must not contain symbolic links');
     }
   }
@@ -99,84 +97,11 @@ async function verifyTree(root, reservation) {
   const backlink = (await readFile(path.join(administration, 'gitdir'), 'utf8')).trim();
   const repositoryCommon = await commonDirectory(reservation.repository);
   const checkoutCommon = await commonDirectory(root);
-  control('git_admit', { root, root_symlink: entry.isSymbolicLink(), canonical_root: await realpath(root),
+  control('git_admit', { root, canonical_root: await realpath(root),
     git_top_level: await realpath((await git(root, ['rev-parse', '--show-toplevel'])).trim()),
     git_link_file: link.isFile(), backlink: await realpath(path.resolve(administration, backlink)),
     dev: String(entry.dev), ino: String(entry.ino), reservation,
     repository_common_dir: repositoryCommon, checkout_common_dir: checkoutCommon });
-  return { administration, repositoryCommon, checkoutCommon };
-}
-
-async function syncRegular(filename, expected) {
-  const file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-  try {
-    const observed = await file.stat({ bigint: true });
-    // DEFENSE: A concurrent external writer can replace a staged file before its barrier.
-    if (!observed.isFile() || (expected && (observed.dev !== expected.dev || observed.ino !== expected.ino))) {
-      throw new Error('Managed Git storage changed before synchronization');
-    }
-    await file.sync();
-  } finally { await file.close(); }
-}
-
-/** Sync an owned initialization tree without following its symbolic links. */
-async function syncTree(directory) {
-  const before = await lstat(directory, { bigint: true });
-  // DEFENSE: An externally replaced staging directory must not redirect a recursive barrier.
-  if (!before.isDirectory() || await realpath(directory) !== directory) throw new Error('Managed Git storage is not a canonical directory');
-  for (const name of await readdir(directory)) {
-    const filename = path.join(directory, name);
-    const entry = await lstat(filename, { bigint: true });
-    if (entry.isDirectory()) await syncTree(filename);
-    else if (entry.isFile()) await syncRegular(filename, entry);
-    // Symlink contents and entries are published by their containing directory;
-    // their targets are outside this initialization write set.
-    else if (!entry.isSymbolicLink()) throw new Error('Managed Git storage contains an unsupported special file');
-  }
-  const after = await lstat(directory, { bigint: true });
-  // DEFENSE: An external rename during traversal invalidates the captured directory identity.
-  if (after.dev !== before.dev || after.ino !== before.ino) throw new Error('Managed Git directory changed during synchronization');
-  await syncDirectory(directory);
-}
-
-async function syncAdministrationParent(repositoryCommon) {
-  const directory = path.join(repositoryCommon, 'worktrees');
-  try { await syncDirectory(directory); }
-  catch (error) {
-    // DEFENSE: Removing the final linked checkout can remove the worktrees directory itself.
-    if (error.code !== 'ENOENT') throw error;
-  }
-  await syncDirectory(repositoryCommon);
-}
-
-/** The model selects a write set; only this interpreter establishes its physical barrier. */
-function gitDurability(files) {
-  async function registered(state) {
-    const observed = await verifyTree(state.root, state.reservation);
-    await syncRegular(path.join(state.root, '.git'));
-    await syncTree(observed.administration);
-    await syncDirectory(state.root);
-    await syncAdministrationParent(observed.repositoryCommon);
-    return observed;
-  }
-  return {
-    async local_sync_registration(state) { await registered(state); },
-    async local_sync_ready(state) {
-      await registered(state);
-      await syncTree(state.root);
-      await syncDirectory(path.dirname(state.root));
-    },
-    async local_sync_archive(state) {
-      await registered(state);
-      await syncDirectory(path.dirname(files.active));
-      await syncDirectory(path.dirname(files.archived));
-    },
-    async local_sync_release(state) {
-      await syncDirectory(path.dirname(files.active));
-      await syncDirectory(path.dirname(files.archived));
-      await syncAdministrationParent(await commonDirectory(state.reservation.repository));
-    },
-  };
 }
 
 function completion(effect, result) {
@@ -184,7 +109,7 @@ function completion(effect, result) {
 }
 
 function failure(effect, error, root) {
-  return completion(effect, { ok: false, root: root ?? null,
+  return completion(effect, { ok: false, ...(root == null ? {} : { root }),
     message: `Managed worktree operation failed: ${String(error.message).toWellFormed()}` });
 }
 
@@ -202,7 +127,7 @@ async function runLocalResource(plan, files, operations) {
 
 function archiveOutcome(receipt) {
   return { ok: true, outcome: receipt.status === 'released'
-    ? { kind: 'reservation_released', previous_root: receipt.reservation.canonical_root, reservation_id: receipt.reservation.id }
+    ? { kind: 'reservation_released', previous_root: receipt.reservation.canonical_root }
     : { kind: 'archived_at', root: receipt.root } };
 }
 
@@ -233,13 +158,7 @@ function localOwnership(files, released = () => {}) {
         if (error.code !== 'ENOENT') throw error;
       }
       observed.git_link = Boolean(linked);
-      if (linked) {
-        const registration = await verifyTree(candidate, reservation);
-        observed.repository_common_dir = registration.repositoryCommon;
-        observed.checkout_common_dir = registration.checkoutCommon;
-      } else {
-        observed.empty = (await readdir(candidate)).length === 0;
-      }
+      if (linked) await verifyTree(candidate, reservation);
     }
     return control('classify', { reservation, entries });
   }
@@ -249,8 +168,8 @@ function localOwnership(files, released = () => {}) {
       return { kind: 'local_classified', classification };
     },
     async local_release(state) {
-      // DEFENSE: An external writer can replace or populate a reservation after the first observation.
-      if (await classify(state) !== 'owned_empty') throw new Error('Managed reservation ownership changed before release');
+      // DEFENSE: An external writer can replace a reservation after the first observation.
+      if (await classify(state) !== 'owned_unregistered') throw new Error('Managed reservation ownership changed before release');
       await rmdir(files.active);
       released();
       return { kind: 'local_removed' };
@@ -265,6 +184,8 @@ function localOwnership(files, released = () => {}) {
   };
 }
 
+// KNOWN LIMITATION: Checkout writes use normal filesystem durability; recovery
+// after a host power loss does not reconstruct lost project contents.
 /** The durable resource step grants the one physical checkout attempt. */
 export async function createManagedWorktree(effect, { home, limits, signal } = {}) {
   let root, repository, files;
@@ -284,15 +205,12 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
     const receipt = { task_id: effect.task_id, source_root: effect.source_root, root,
       workspace: { roots: [root], primary_root: root } };
     const result = await runLocalResource(control('local', { operation: 'create', receipt }), files, {
-      reserved: () => reserved,
       ...localOwnership(files, () => { root = null; }),
-      ...gitDurability(files),
       async local_reserve() {
         await mkdir(root, { mode: 0o700 });
         reserved = true;
         const entry = await lstat(root, { bigint: true });
-        await syncDirectory(path.dirname(root));
-        return { kind: 'local_reserved', reservation: { id: randomUUID(), canonical_root: await realpath(root),
+        return { kind: 'local_reserved', reservation: { canonical_root: await realpath(root),
           dev: String(entry.dev), ino: String(entry.ino), repository } };
       },
       async local_create(state) {
@@ -321,9 +239,8 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
           workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
         }));
         const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
-        return { kind: 'local_created', root, workspace, guidance, status: 'ready' };
+        return { kind: 'local_created', root, workspace, guidance };
       },
-
     });
     if (result.errors.length || result.receipt.status !== 'ready') {
       const retainedRoot = reserved && result.receipt.status !== 'released' ? root ?? files.active : null;
@@ -341,7 +258,6 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
     const receipt = await readReceipt(files, effect.task_id, effect.source_root);
     const result = await runLocalResource(control('local', { operation: 'archive', receipt }), files, {
       ...localOwnership(files),
-      ...gitDurability(files),
       async local_archive(state) {
         let currentRoot = effect.root;
         try { await lstat(currentRoot); }
@@ -355,11 +271,11 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
         const workspace = boundary('effect.worktree_workspace', {
           workspace: state.workspace, previous: effect.root, next: files.archived, descendants: true,
         });
-        return { kind: 'local_archived', root: files.archived, workspace, status: 'archived' };
+        return { kind: 'local_archived', root: files.archived, workspace };
       },
     });
     if (result.errors.length) throw result.errors[0];
-    if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root} (reservation ${result.receipt.reservation?.id ?? 'unrecorded'})`);
+    if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root}`);
     return completion(effect, archiveOutcome(result.receipt));
   } catch (error) { return failure(effect, error); }
 }
@@ -375,7 +291,6 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
     const receipt = await readReceipt(files, entry.task_id, entry.source_root);
     const result = await runLocalResource(control('local', { operation: 'recover', receipt, creating }), files, {
       ...localOwnership(files),
-      ...gitDurability(files),
       async local_observe(state) {
         let observedRoot = state.root;
         // DEFENSE: A move can complete immediately before the archived receipt reaches disk.
@@ -389,21 +304,21 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
           const workspace = boundary('effect.worktree_workspace', {
             workspace: state.workspace, previous: state.root, next: observedRoot, descendants: true,
           });
-          return { kind: 'local_observed', root: observedRoot, workspace, status: 'archived' };
+          return { kind: 'local_observed', root: observedRoot, workspace };
         }
         const workspace = await canonicalWorkspace(state.workspace);
         return { kind: 'local_observed', root: state.root, workspace,
-          guidance: await snapshotProject(workspace.primary_root, limits), status: 'ready' };
+          guidance: await snapshotProject(workspace.primary_root, limits) };
       },
     });
     if (result.errors.length) throw result.errors[0];
     if (creating && result.receipt.status !== 'ready') throw new Error('Worktree preparation did not complete before restart');
     if (!creating) {
-      if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root} (reservation ${result.receipt.reservation?.id ?? 'unrecorded'})`);
+      if (!['archived', 'released'].includes(result.receipt.status)) throw new Error(`Managed reservation requires ownership resolution at ${result.receipt.root}`);
       return completion(effect, archiveOutcome(result.receipt));
     }
     return completion(effect, { ok: true, root: result.receipt.root,
-      ...(creating ? { workspace: result.receipt.workspace, guidance: result.receipt.guidance } : {}) });
+      workspace: result.receipt.workspace, guidance: result.receipt.guidance });
   } catch (error) {
     // DEFENSE: Recovery retains existing owned paths; only ENOENT establishes absence.
     if (root) {

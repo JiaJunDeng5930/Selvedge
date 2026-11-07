@@ -41,7 +41,7 @@ Import ListNotations.
 Theorem an_after_hook_retains_the_original_execution_receipt :
  forall id ticket result error value task operation first rest,
  find_task id value = Some task ->
- find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
+ find (RequestReceiver.operation_executing ticket) (task_operations task) = Some operation ->
  Callbacks.after_plugins task = first :: rest ->
  exists updated,
  find_task id (decision_world (Callbacks.tool_completed id ticket result error value)) = Some updated /\

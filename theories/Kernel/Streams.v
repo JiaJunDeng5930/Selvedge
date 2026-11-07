@@ -22,8 +22,6 @@ Definition key_equal (left right : stream_key) :=
 Definition utf16_units := TextMetrics.utf16_units.
 Definition text_within_budget (text : string) := match utf16_units text with
   | Some units => units <=? 4194304 | None => false end.
-Definition parts_within_budget (parts : list stream_part) :=
-  Nat.leb (List.length parts) 32 && forallb (fun part => text_within_budget part.(part_text)) parts.
 Fixpoint put_part (value : stream_part) (parts : list stream_part) :=
   match parts with [] => [value] | part::rest =>
     if N.eqb part.(part_index) value.(part_index) then value::rest else part::put_part value rest end.

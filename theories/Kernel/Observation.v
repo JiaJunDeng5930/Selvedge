@@ -12,9 +12,6 @@ Open Scope list_scope.
 
 Definition indexed {A B : Type} := @Selvedge.Foundation.Registry.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
-(* Auxiliary text generation reuses the connection, without the Task's effort
-   or adaptive evaluator. The provider resolves its ordinary default effort. *)
-Definition task_text_model_json := Codec.task_text_model_json.
 Definition task_owner (id : N) (value : task) (features : Selvedge.Features.Domain.state) := Selvedge.Features.Domain.owner_id id (task_lineage value) features.
 Definition operation_status (value : operation) := match operation_stage value with
  | Executing _ | Elevated _ _ => "running"
@@ -110,23 +107,11 @@ Definition project_summary_json (tasks : list task) (id : N) (value : project) :
  ("primary_root", optional_string (workspace_primary (project_workspace value)));
  ("task_count", number (project_task_count id tasks))]).
 Definition work_json := @Selvedge.Features.Observation.work_json.
-Definition stage_name := @Selvedge.Features.Observation.stage_name.
-Definition priority_name := @Selvedge.Features.Observation.priority_name.
-Definition owner_name := @Selvedge.Features.Observation.owner_name.
-Definition attachment_json := @Selvedge.Features.Observation.attachment_json.
-Definition card_json := @Selvedge.Features.Observation.card_json.
-Definition agent_json := @Selvedge.Features.Observation.agent_json.
 Definition present_values {A : Type} := @Selvedge.Features.Observation.present_values A.
-Definition board_json := @Selvedge.Features.Observation.board_json.
-Definition rights_json := @Selvedge.Features.Observation.rights_json.
-Definition grant_json := @Selvedge.Features.Observation.grant_json.
 Definition remote_json := @Selvedge.Features.Observation.remote_json.
 Definition projects_json (projects : list project) (tasks : list task) :=
  map (fun entry => project_summary_json tasks (fst entry) (snd entry)) (Workspace.ordered_projects projects).
 Definition worktree_json := @Selvedge.Features.Observation.worktree_json.
-Definition graph_message_json := @Selvedge.Features.Observation.graph_message_json.
-Definition graph_action_json := @Selvedge.Features.Observation.graph_action_json.
-Definition graph_rule_json := @Selvedge.Features.Observation.graph_rule_json.
 Definition graph_json := @Selvedge.Features.Observation.graph_json.
 Definition graph_snapshot id graph features :=
  match graph_json id graph with JObject fields=>JObject(fields++
@@ -155,7 +140,6 @@ Definition world_json (value : world) :=
  ("board", Selvedge.Features.Observation.board_json_in_world value);
  ("worktrees", JArray (map worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
-Definition history_json (id : N) (task : task) := JArray (map (public_message_json id) (task_history task)).
 Definition effect_packet (state : world) (value : effect) := match value with
  | ObserveContext id ticket task => Variant.pack ModelDeclarations.observe_context
    [!id;ticket;settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;
@@ -194,7 +178,6 @@ Definition effect_packet (state : world) (value : effect) := match value with
  | CancelConnectionJob id => Variant.pack ModelDeclarations.chatgpt_cancel [!id!]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_packet request
  end.
-Definition effect_fields state value := Schema.encode_fields (Variant.packet_fields (effect_packet state value)).
 Definition effect_json state value := Variant.encode_packet (effect_packet state value).
 Definition envelope_with_effects (durable : bool) (reply : json) (effects : list json) := JObject [
  ("durable", JBool durable); ("reply", reply); ("effects", JArray effects)].

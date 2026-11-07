@@ -15,7 +15,6 @@ Definition find_profile (name : string) (catalog : list profile) :=
  find (fun profile => String.eqb name (profile_key profile)) catalog.
 Definition find_tool (name : string) (catalog : list tool) :=
  find (fun tool => String.eqb name (tool_name tool)) catalog.
-Definition content_text := Domain.content_text.
 Definition content_nonempty (parts : content) :=
  existsb (fun part => match part with TextPart text => Utf8.nonblank text | ImagePart _ => true end) parts.
 Definition input_required_message := "A task input needs text or an image".
@@ -51,10 +50,6 @@ Definition resolve_settings (model : profile) (source : option settings_request)
      option_map (fun settings => WorkspaceBinding.normalize_settings settings value) selected
    | None => None end
  | None => None end end.
-Definition resolve_for_profile (name : string) (source : option settings_request) (fallback : task_settings) (value : world) :=
- match find_profile name (environment_profiles (world_environment value)) with
- | Some model => resolve_settings model source fallback value | None => None end.
-
 (* Native commands cannot perform realpath or observe guidance. Only roots
    from committed caller, environment or project observations may be reused. *)
 Definition observed_creation_roots (selected caller : task_settings) (value : world) :=
@@ -152,7 +147,7 @@ Record resolved_start := ResolvedStart {
 }.
 Inductive start_resolution := StartRefused (cause : failure_cause)
  | StartResolved (plan : resolved_start).
-Definition resolve_start (entry : creation_entry) (name : string) (reasoning : option string)
+Definition resolve_start (name : string) (reasoning : option string)
  (contents : content) (settings : option settings_request) (idle : bool) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | None => StartRefused UnknownProfile
@@ -169,8 +164,6 @@ Definition resolve_start (entry : creation_entry) (name : string) (reasoning : o
 Definition start_task (plan : resolved_start) :=
  make_task (start_profile plan) (start_settings plan) (start_contents plan)
    (start_idle plan) (start_environment plan).
-Definition queue (contents : content) (value : task) :=
- TaskChange.apply [TaskChange.AppendQueued contents] value.
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
  match task_lifecycle value with
  | Archived _ => []
@@ -182,7 +175,6 @@ Definition receive_changes (contents : content) (value : task) : list TaskChange
  | Running _ _ => [TaskChange.AppendQueued contents]
  | Stopped _ _ => [TaskChange.ChangeStatus TaskChange.RunningStatus; TaskChange.AppendQueued contents]
  end.
-Definition receive (contents : content) (value : task) := TaskChange.apply (receive_changes contents value) value.
 Definition inference_effects (id : N) (task : task) :=
  match task_activity task with
  | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
@@ -222,8 +214,7 @@ Definition control_changes (command : control) (task : task) : list TaskChange.e
        TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
    end
  end.
-Definition control_task (command : control) (task : task) := TaskChange.apply (control_changes command task) task.
-Definition control_effects (id : N) (command : control) (task : task) :=
+Definition control_effects (id : N) (command : control) :=
  match command with
  | Freeze | Unfreeze => []
  | Stop => []
@@ -290,7 +281,7 @@ Definition perform_control (command : control) {before : world} (reference : Tas
  let current := TaskScope.selected reference in
  CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
    (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
-   (control_effects (TaskScope.owner reference) command current).
+   (control_effects (TaskScope.owner reference) command).
 Definition control_result (id : N) (command : control) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"
@@ -457,7 +448,7 @@ Definition admit_fork_selection (parent : task) (value : world) (selected : task
 Definition fork_message_call_ids (message : Domain.message) : list string :=
  match message with
  | FunctionCall invocation | OperationResult _ invocation _ _
- | HookReceipt _ invocation _ _ | ApprovalReceipt _ _ invocation _ _
+ | HookReceipt _ invocation _ _ | ApprovalReceipt _ _ invocation _
  | ToolReceipt _ _ invocation _ _ | ForkReceipt _ invocation _ => [call_id invocation]
  | FunctionOutput identity _ _ => [identity]
  | _ => [] end.
@@ -514,12 +505,6 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
     end)
    else CommandResult.Rejected (fork_refusal_reason entry id count task value)
  end.
-Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
- CommandResult.reject value (fork_refusal_reason entry id count parent value).
-Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
- (messages : list content) (settings : option settings_request) (value : world) :=
- CommandResult.decide value (fork_result entry origin id count messages settings value).
-Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
  CommandResult.decide value
  (match TaskScope.select id value with

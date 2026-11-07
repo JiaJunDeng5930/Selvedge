@@ -49,7 +49,7 @@ Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
  Capabilities.hook_available Capabilities.AfterTool plugin
    (environment_plugins (world_environment value)) = true ->
  let '(ticket, allocated) := allocate_ticket value in
- decision_effects (Scheduler.after_hooks_step id current task value) =
+ decision_effects (Scheduler.after_hooks_step id current value) =
    [CheckResult id ticket (operation_id current) plugin (operation_call current) result error].
 Proof.
  intros id operation task value plugin pending result error Stage Found Owned Available.
@@ -63,7 +63,7 @@ Qed.
 Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
  forall id ticket result error value task current plugin rest,
  find_task id value = Some task ->
- find (Callbacks.operation_executing ticket) (task_operations task) = Some current ->
+ find (RequestReceiver.operation_executing ticket) (task_operations task) = Some current ->
  Callbacks.after_plugins task = plugin :: rest ->
  let recorded := append_history
    [ToolReceipt id (operation_id current) (operation_call current) result error] task in
@@ -176,8 +176,10 @@ Theorem denied_after_hook_ends_the_operation_chain :
  ticket = expected ->
  HookCallbacks.after_completed id identity ticket (DenyResult reason) value =
    acknowledged (TaskWake.mark_context_wake id task (put_task id
-     (Callbacks.settle_operation current (State.failure "after_hook_denied" reason) true
+     (TaskChange.apply (TaskResult.result_changes
+       (OperationEvent.settle current (State.failure "after_hook_denied" reason) true)
        (append_history [AfterReceipt id (operation_id current) plugin
+         (Inputs.after_json (DenyResult reason))] task)) (append_history [AfterReceipt id (operation_id current) plugin
          (Inputs.after_json (DenyResult reason))] task)) value)) /\
  decision_effects (HookCallbacks.after_completed id identity ticket (DenyResult reason) value) = [].
 Proof.

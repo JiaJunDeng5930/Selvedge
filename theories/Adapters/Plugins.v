@@ -24,7 +24,8 @@ Definition command source := let body := get source "body" in
 Definition callback_request effect (after : bool) := JObject (map (fun key => (key,if String.eqb key "call" then CallWire.external (get effect key) else get effect key))
   (if after then ["task_id";"operation_id";"ticket";"plugin";"call";"value";"error"] else ["task_id";"ticket";"plugin";"tool";"call"])).
 Definition hook_request source (after : bool) := let effect := get source "effect" in
-  if matching (get effect "plugin") (get source "reference") && boolean_field (get source "descriptor") (if after then "after_tool" else "before_tool")
+  let descriptor := get source "descriptor" in
+  if matching (get effect "plugin") (get descriptor "reference") && boolean_field descriptor (if after then "after_tool" else "before_tool")
   then success (callback_request effect after) else err "Required plugin revision is unavailable".
 Definition call_request source := let effect := get source "effect" in let tool_source := get (get effect "tool") "source" in
   if matching (get tool_source "plugin") (get source "reference") then success (JObject [("name",get tool_source "name");
@@ -51,9 +52,10 @@ Definition call_result_declaration := D.Object [F.required "value" D.Any;F.requi
 Definition call_result source := match D.decode call_result_declaration (get source "result") with
  | Some value => success (D.encode call_result_declaration value)
  | None => type_error "Plugin returned an invalid tool result" end.
+(** Mandatory media preparation has admitted the result object before this
+    completed RPC value reaches its Task-facing wrapper. *)
 Definition mcp_result source := let value := get source "result" in
-  if is_object value then success (JObject [("value",value);("error",JBool (boolean_field value "isError"))])
-  else err "MCP returned a malformed tool result".
+  success (JObject [("value",value);("error",JBool (boolean_field value "isError"))]).
 Definition mcp_media_part (part observation : json) :=
   if String.eqb (str part "type") "image" then
     is_text (get part "data") && boolean_field observation "canonical" &&
@@ -71,8 +73,7 @@ Definition mcp_media_admitted source :=
 Definition mcp_media_plan source :=
   if negb (is_object (get source "result")) then err "MCP returned a malformed tool result"
   else if mcp_media_admitted source
-  then success (JObject [("indices",JArray (map (fun pair => number (N.of_nat (fst pair))) (mcp_media_images source)));
-    ("bytes",number (mcp_media_bytes source))])
+  then success (JObject [("indices",JArray (map (fun pair => number (N.of_nat (fst pair))) (mcp_media_images source)))])
   else type_error "MCP image content must use canonical base64, supported image bytes and the response byte budget".
 Definition client_info := JObject [("name",JString "selvedge-rocq");("version",JString "0.1.0")].
 Definition initialize_request source := let definition := get source "definition" in let limits := get source "limits" in
@@ -82,7 +83,7 @@ Definition mcp_initialize_request := JObject [("protocolVersion",JString "2025-1
 Definition mcp_version source := if existsb (String.eqb (str (get source "initialized") "protocolVersion"))
   ["2024-11-05";"2025-03-26";"2025-06-18";"2025-11-25"] then success JNull else err "MCP server selected an unsupported protocol version".
 Definition enqueue_stopped source := [("accepted",JBool false);("next_queued_bytes",get source "queued_bytes");
-  ("next_queue_count",get source "queue_count");("append",JArray [])].
+  ("append",JArray [])].
 Definition enqueue source :=
   if boolean_field source "stopping" then success (JObject (enqueue_stopped source)) else
   let maximum := nat_value (default_value (get (get source "config") "event_queue") (get (get source "limits") "plugin_event_queue")) in
@@ -90,7 +91,7 @@ Definition enqueue source :=
   if (maximum <=? num source "queue_count") || negb (next_bytes <=? 2 * num (get source "limits") "frame_bytes") then
     success (JObject (enqueue_stopped source ++ [("diagnostic",JObject [("message",JString ("Plugin " ++ str source "name" ++ " event queue is full; notification was not delivered"));
       ("event_id",JObject [("sequence",get (get source "event") "sequence");("ordinal",get (get source "event") "ordinal")])])]))
-  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes);("next_queue_count",number (num source "queue_count" + 1));
+  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes);
     ("append",JArray [JObject [("event",get source "event");("bytes",get source "event_bytes")]])]).
 Definition response_content value error := success (JObject [("content",JArray [JObject [("type",JString "text");("text",JString (render_json value))]]);
   ("structuredContent",value);("isError",JBool error)]).
@@ -122,7 +123,6 @@ Definition http_response source := let content_type := lowercase (str source "co
 Definition handlers : list (string * (json -> json)) := [
  ("plugin.command",command);("plugin.connection_config",connection_config);("plugin.connection_grants",connection_grants);
  ("plugin.credential_plan",fun _ => success credential_plan);("plugin.client_settings",client_settings);("plugin.settings_file",settings_file);
- ("plugin.valid_name",fun s => success (JBool (valid_name (str s "name"))));
  ("plugin.matches",fun s => success (JBool (matching (get s "reference") (get s "expected"))));
  ("plugin.enqueue",enqueue);("plugin.initialize_request",fun s => success (initialize_request s));
  ("plugin.mcp_initialize_request",fun _ => success mcp_initialize_request);

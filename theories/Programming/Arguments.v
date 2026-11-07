@@ -28,9 +28,6 @@ Definition with_scalar (value : kind) (required : bool) (argument : argument_spe
 Definition with_description (description : string) (argument : argument_spec) := Argument
  (argument_name argument) (argument_type_of argument) (argument_required argument)
  description.
-Definition omittable (argument : argument_spec) := Argument
- (argument_name argument) (argument_type_of argument) false
- (argument_description argument).
 Definition omittable_nonnull (argument : argument_spec) :=
  match argument_type_of argument with
  | Scalar (KOptional value) => with_scalar value false argument
@@ -45,8 +42,6 @@ Definition with_bounds (bounds : N * N) (argument : argument_spec) :=
  | Scalar (KOptional _) => ArgumentDeclaration.nullable bounded | _ => bounded end) argument.
 Definition type_declaration (description : argument_type) := match description with
  | Scalar kind => ArgumentDeclaration.of_kind kind | Structured declaration => declaration end.
-Definition type_valid (description : argument_type) :=
- ArgumentDeclaration.check (type_declaration description).
 Definition argument_declaration (declaration : list argument_spec) := ArgumentDeclaration.Object
  (map (fun argument => (argument_name argument,argument_required argument,
    type_declaration (argument_type_of argument))) declaration).

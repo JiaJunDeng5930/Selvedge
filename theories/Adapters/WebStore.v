@@ -71,13 +71,13 @@ Definition retire_candidates records owner ticket := fold_right (fun record sele
 Definition retire_writes records := map (fun record => JObject [("record",record);("request_key",get record "request_key");
   ("updates",JObject [("retired",retirement_code Cancelled)])]) records.
 Definition current_format := "selvedge-chatgpt-web-3".
-Definition metadata_reply create identity := success (JObject [("create",JBool create);
+Definition metadata_reply identity := success (JObject [
   ("identity",identity);("format",JString current_format)]).
 Definition metadata_error := err "ChatGPT Web receipts are not in the current format".
 Definition store_metadata rows new_identity (created : bool) := match rows with
-  | [] => if created then metadata_reply true (JString new_identity) else metadata_error
+  | [] => if created then metadata_reply (JString new_identity) else metadata_error
   | [row] => if is_text (get row "format") && eq row "format" current_format && WebCommon.nonempty (get row "identity")
-      then metadata_reply false (get row "identity") else metadata_error
+      then metadata_reply (get row "identity") else metadata_error
   | _ => metadata_error end.
 Definition retire_existing rows records owner ticket := let result := store_metadata rows "" false in
   if boolean_field result "ok" then success (JArray (retire_writes (retire_candidates records owner ticket))) else result.
@@ -100,9 +100,10 @@ Definition recovery_fields := [required "action" recovery_declaration; required 
 Definition recovery_connected profile record := eq profile "provider" "chatgpt-web" &&
   same (get profile "endpoint") (get record "endpoint").
 Definition recovery_connection profile record := check (recovery_connected profile record) JNull "The ChatGPT Web connection is no longer configured".
-Definition recovery action confirm profile record binding :=
-  if negb (recovery_connected profile record) then err "The ChatGPT Web connection is no longer configured"
-  else if negb (same binding (get record "binding")) then err "The ChatGPT Web request belongs to a different connection"
+(* Connection admission precedes the host's credential read. Only the observed
+   binding is new evidence when this continuation constructs the recovery action. *)
+Definition recovery action confirm record binding :=
+  if negb (same binding (get record "binding")) then err "The ChatGPT Web request belongs to a different connection"
   else success (JObject [("retire",JBool (match action with Cancel => true | _ => false end));
     ("retained",JBool (negb (truthy (get record "response_id"))));
     ("method",JString (match action with Inspect => "GET" | _ => "POST" end));

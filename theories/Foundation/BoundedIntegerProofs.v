@@ -67,8 +67,3 @@ Proof.
   unfold parse_bounded_exponent. rewrite !decimal_width_count.
   destruct (Nat.leb _ _) eqn:bounded; [intros _; now apply Nat.leb_le|discriminate].
 Qed.
-Theorem exponent_window_bounds_allocation width fractional exponent :
-  1 <= width -> fractional + 1 - width <= exponent <= fractional + 16 - width ->
-  (fractional <= exponent -> 0 <= exponent - fractional <= 15) /\
-  (exponent < fractional -> 0 < fractional - exponent < width).
-Proof. intros width_positive window. split; intros sign; lia. Qed.

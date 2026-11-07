@@ -33,11 +33,6 @@ Theorem modification_has_its_selected_value : forall whole part (focus : t whole
 Proof.
  intros; unfold frame, modify, read; rewrite split_join; reflexivity.
 Qed.
-Theorem unchanged_focus_keeps_the_value : forall whole part (focus : t whole part) value,
- modify focus (fun value => value) value = value.
-Proof.
- intros; unfold modify, read, frame; rewrite <- surjective_pairing; apply join_split.
-Qed.
 Theorem modifications_compose : forall whole part (focus : t whole part) first second value,
  modify focus second (modify focus first value) =
  modify focus (fun selected => second (first selected)) value.

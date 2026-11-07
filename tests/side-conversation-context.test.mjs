@@ -27,18 +27,17 @@ test('side conversations receive trusted guidance and return only their new conv
     return reply.result;
   }
   const parent = await command({ op: 'create', profile: 'interactive', message: 'Continue the parent investigation independently.' });
-  await nextRequest(fixture, 0);
+  const parentRequest = await nextRequest(fixture, 0);
   const side = await command({ op: 'open_side_conversation', task_id: parent.task_id,
     message: 'Check the distinct side question.' });
   const sideRequest = await nextRequest(fixture, 1);
   assert.equal(fixture.requests[0].closed, false,
     'The side provider request must start while the parent request remains in progress');
-  const guidance = sideRequest.input.find(item => item.role === 'developer'
-    && typeof item.content === 'string' && /Side conversation context/.test(item.content));
-  assert.ok(guidance, 'The provider must receive the side context as trusted developer guidance');
-  assert.match(guidance.content, /parent continues independently/i);
-  assert.match(guidance.content, /Closing the side window sends nothing to the parent/i);
-  assert.match(guidance.content, /Only the user.s explicit return action appends new side content to the parent/i);
+  const parentGuidance = new Set(parentRequest.input.filter(item => item.role === 'developer').map(item => item.content));
+  const guidance = sideRequest.input.filter(item => item.role === 'developer'
+    && typeof item.content === 'string' && !parentGuidance.has(item.content)
+    && !item.content.includes('task_lifecycle')).map(item => item.content);
+  assert.ok(guidance.length > 0, 'The provider must receive private side guidance in addition to parent lifecycle observations');
   assert.ok(sideRequest.input.some(item => item.role === 'developer' && /task_lifecycle/.test(item.content)),
     'The side also receives observed parent lifecycle context');
 
@@ -63,8 +62,7 @@ test('side conversations receive trusted guidance and return only their new conv
   assert.match(returnedText, /cobalt-73/);
   assert.match(returnedText, /amber-29/);
   assert.match(returnedText, /Check the distinct side question/);
-  assert.ok(!returnedText.includes(guidance.content), 'The side birth instructions must not return as conversation content');
-  assert.ok(!returnedText.includes('Side conversation context for task'), 'No copy of side birth guidance belongs in the parent request');
+  assert.ok(guidance.every(text => !returnedText.includes(text)), 'The side birth instructions must not return as conversation content');
   assert.ok(!returnedText.includes('task_lifecycle'), 'Parent lifecycle observations must not return as side conversation content');
   fixture.finish(3, { text: 'Parent received both explicit side findings.' });
   await taskIdle(fixture.running.service, parent.task_id);

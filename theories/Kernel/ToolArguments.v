@@ -107,8 +107,5 @@ Definition decode_arguments (tool : native_tool) (source : json) : option (argum
 Definition valid_arguments (tool : native_tool) (source : json) :=
  D.present (decode_arguments tool source).
 
-Definition json_schema (tool : native_tool) := Arguments.json_schema (argument_specs tool).
 Definition tool_name (tool : native_tool) :=
   match tool with Bash => "bash" | ReadProcess => "read_process" | WriteProcess => "write_process" | ReadImage => "read_image" end.
-Definition find_native_tool (name : string) :=
-  find (fun tool => String.eqb (tool_name tool) name) [Bash;ReadProcess;WriteProcess;ReadImage].

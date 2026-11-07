@@ -18,7 +18,7 @@ export class AudioRuntime {
   observe(type, values = {}) { if (!this.disposed) this.emit(type, values); }
   async capabilities() {
     try {
-      const body = await this.request(this.url('/api/audio/capabilities'));
+      const body = await this.request('/api/audio/capabilities');
       this.observe('Capabilities', { connections: body.connections });
       if (body.connections.length === 0) this.observe('CapabilitiesFailed', {
         reason: 'Use Sign in for voice to authorize ChatGPT dictation and voice.',
@@ -58,7 +58,7 @@ export class AudioRuntime {
     try {
       const body = await this.request('/api/audio/login', { method: 'POST',
         headers: { 'content-type': 'application/json' }, signal: controller.signal,
-        body: JSON.stringify({ browser_id: this.browserId }) });
+        body: JSON.stringify({}) });
       // DEFENSE: The user can close the popup, or a trusted completion can release it, before the login URL arrives.
       if (controller.signal.aborted || popup.closed) return;
       popup.location.replace(this.loginTarget(body.url));
@@ -129,7 +129,7 @@ export class AudioRuntime {
       if (!entry.bytes || !mime) throw new Error('The recording contains no audio');
       const audio = new Blob(entry.chunks, { type: mime });
       entry.chunks = [];
-      const body = await this.request(this.url(`/api/audio/transcribe?connection=${encodeURIComponent(effect.connection)}`), {
+      const body = await this.request(`/api/audio/transcribe?connection=${encodeURIComponent(effect.connection)}`, {
         method: 'POST', headers: { 'content-type': mime }, body: audio,
         signal: AbortSignal.any([entry.controller.signal, AbortSignal.timeout(this.limits.request_timeout_ms)]),
       });
@@ -195,7 +195,7 @@ export class AudioRuntime {
       await entry.peer.setLocalDescription(await entry.peer.createOffer());
       await this.iceGathered(entry);
       if (!this.current(entry)) return;
-      const body = await this.request(this.url('/api/audio/sessions'), { method: 'POST',
+      const body = await this.request('/api/audio/sessions', { method: 'POST',
         headers: { 'content-type': 'application/json' }, signal: entry.controller.signal,
         body: stringifyJson({ connection: effect.connection, task_id: effect.task,
           browser_id: this.browserId, sdp: entry.peer.localDescription.sdp }),

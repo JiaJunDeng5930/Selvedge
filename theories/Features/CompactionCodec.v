@@ -38,8 +38,6 @@ Definition compact_metadata_bytes (id ticket : N) (input : capture) (target : ta
 Definition effect_packet (value : effect) := match value with
  | ArmClock deadline => Variant.pack ModelDeclarations.compaction_clock [!deadline!]
  | Cancel id ticket => Variant.pack ModelDeclarations.compaction_cancel [!id;ticket!] end.
-Definition effect_fields value := Schema.encode_fields (Variant.packet_fields (effect_packet value)).
-Definition effect_json value := Variant.encode_packet (effect_packet value).
 
 Definition target_json (value : target) := JObject [
  ("profile", JString (target_key value)); ("window_tokens", number (window_tokens (target_budget value)));

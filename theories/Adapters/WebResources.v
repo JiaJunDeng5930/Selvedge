@@ -12,7 +12,7 @@ Definition parse_status value := match value with
   | "cancelled" => Some ResponseCancelled | _ => None end.
 Definition resource_identity value :=
   nonempty (member value "id") && String.eqb (member_text value "object") "web.response" &&
-  String.eqb (member_text value "protocol") "chatgpt-web.v1" && natural (member value "created_at") &&
+  String.eqb (member_text value "protocol") "chatgpt-web.v1" && D.present (wire_natural (member value "created_at")) &&
   is_array (member value "output") && match parse_status (member_text value "status") with Some _ => true | None => false end.
 Definition same_model_request value model body :=
   same (member value "model") model && D.present (Json.lookup "previous_response_id" value) &&
@@ -24,7 +24,7 @@ Definition assistant_output values := match values with
     output_text (items (get item "content"))
   | _ => false end.
 Definition usage value := is_null value || (is_object value && boolean_field value "estimated" &&
-  natural (get value "input_tokens") && natural (get value "output_tokens") && natural (get value "total_tokens")).
+  D.present (wire_natural (get value "input_tokens")) && D.present (wire_natural (get value "output_tokens")) && D.present (wire_natural (get value "total_tokens"))).
 Definition authority value := match parse_status (member_text value "status") with
   | Some Completed => assistant_output (items (member value "output")) && D.present (Json.lookup "usage" value) && usage (member value "usage")
   | Some RequiresAction => negb (Nat.eqb (List.length (items (member value "output"))) 0) && D.present (Json.lookup "usage" value) && is_null (member value "usage")
@@ -60,46 +60,42 @@ Definition public_codes := ["idempotency_conflict";"previous_response_pending";"
 Definition retained_message record := "ChatGPT Web request retained (" ++ member_text record "request_key" ++
   (if truthy (member record "response_id") then ", response " ++ member_text record "response_id" else "") ++
   "); inspect or resume that request before continuing, or explicitly compact to start a new page".
-Definition retained record := success (JObject [
-  ("message",JString (retained_message record)); ("request_key",member record "request_key"); ("response_id",member record "response_id")]).
+Definition retained record := success (JString (retained_message record)).
 Definition failure_result record code status :=
   let code := if existsb (String.eqb (text code)) public_codes then text code else "upstream_error" in
-  success (JObject [("message",JString ("ChatGPT Web " ++
+  success (JString ("ChatGPT Web " ++
     (if truthy status then "HTTP " ++ TextJson.render_json status ++ ", " else "") ++
-    code ++ ". " ++ retained_message record)); ("code",JString code);
-    ("request_key",member record "request_key"); ("response_id",member record "response_id")]).
+    code ++ ". " ++ retained_message record)).
 Definition event_kind name event := if String.eqb name "message" then str event "type" else name.
-Definition event_action action event extras := success (JObject
-  (("action",JString action)::(optional (truthy (get event "response_id"))
-    "response_id" (get event "response_id") ++ extras))).
+Definition event_action action extras := success (JObject (("action",JString action)::extras)).
 Definition event_dispatch name event body model tools index :=
   match event_kind name event with
   | "response.in_progress" => if truthy (get event "response_id") && has event "previous_response_id" &&
       same (get event "previous_response_id") (get body "previous_response_id")
-      then event_action "continue" event [] else err "ChatGPT Web progress does not belong to this request"
+      then event_action "continue" [] else err "ChatGPT Web progress does not belong to this request"
   | "response.output_text.snapshot" => if truthy (get event "response_id") && boolean_field event "provisional" &&
-      is_text (get event "text") then event_action "snapshot" event [("text",get event "text");("index",index)]
+      is_text (get event "text") then event_action "snapshot" [("text",get event "text");("index",index)]
       else err "ChatGPT Web returned an invalid snapshot"
   | "response.completed" | "response.requires_action" =>
       let result := resource (get event "response") model body tools in
       if boolean_field result "ok" then
         if String.eqb (event_kind name event) ("response." ++ str (get result "value") "status")
-        then event_action "terminal" event [("resource",get result "value")]
+        then event_action "terminal" [("resource",get result "value")]
         else err "ChatGPT Web terminal event disagrees with its resource" else result
-  | "error" => event_action "failure" event [("code",get event "code")]
+  | "error" => event_action "failure" [("code",get event "code")]
   | _ => err "ChatGPT Web returned an unsupported SSE event" end.
 (* Event identity is derived by parsing the original frame. No host tokenization
    or separately normalized JSON value can grant authority to a different event. *)
 Definition event (header : bool) name data body model tools index :=
-  if String.eqb data "[DONE]" then event_action "stop" JNull []
+  if String.eqb data "[DONE]" then event_action "stop" []
   else let parsed := decode_provider_text data in
     if negb (boolean_field parsed "ok") then parsed
     else let value := get parsed "value" in
       if negb (is_object value) then err "ChatGPT Web returned an invalid SSE event"
       else if has value "type" && negb (eq value "type" (event_kind name value))
       then err "ChatGPT Web returned conflicting SSE event names"
-      else if header then event_action "identify" value [] else event_dispatch name value body model tools index.
-Definition frame data := if String.eqb data "[DONE]" then success JNull else decode_provider_text data.
+      else if header then event_action "identify" (optional (truthy (get value "response_id")) "response_id" (get value "response_id"))
+      else event_dispatch name value body model tools index.
 Definition http_json (response_ok : bool) source := match TextJson.parse_json_members source with
   | Some value => success (JObject [("present",JBool true);("value",value)])
   | None => if response_ok then failure "http_json_parse" "The service returned invalid JSON"

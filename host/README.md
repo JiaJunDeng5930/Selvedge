@@ -1,16 +1,17 @@
 # IO host
 
-The Bun host accepts authenticated HTTP and CLI requests, records inputs and
-complete decisions in SQLite, and interprets committed effects. It does not own
+The Bun host accepts authenticated HTTP and CLI requests, records inputs in
+SQLite, and interprets committed effects. It does not own
 task policy. `kernel-worker.mjs` invokes the extracted Gallina entry through the
 JSON text API built in `.build/kernel-model.mjs`; the extracted world stays
 private to that worker.
 
-`kernel.mjs` serializes requests and retires the worker after a failed or timed
-out transition. `journal.mjs` commits an accepted durable decision before
-publishing it or starting an effect. On reopen it verifies the hash chain and
-replays inputs through the current extracted kernel without executing effects.
-Only `selvedge-rocq-journal-12` is accepted. Other formats are rejected, without a
+`journal.mjs` serializes requests through their complete transaction and owns
+its private `kernel.mjs` connection, which retires the worker after a failed or
+timed out transition. The journal commits an admitted input before publishing
+its decision or starting an effect. On reopen it replays inputs through the current
+extracted kernel without executing effects.
+Only `selvedge-rocq-journal-13` is accepted. Other formats are rejected, without a
 conversion path.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON

@@ -17,6 +17,7 @@ test('public title settings cross the UTF-8 boundary while model requests exclud
   const taskPrompt = '请用简短中文为任务命名。';
   const agentPrompt = '请概括这段对话的主要目标。';
   let advertised;
+  let saved;
   let sent = false;
   const upstream = await responsesServer(t, body => {
     if (sent) return done;
@@ -24,7 +25,7 @@ test('public title settings cross the UTF-8 boundary while model requests exclud
     advertised = body.tools.find(tool => tool.name === 'configure_title_settings');
     assert.equal(advertised, undefined, 'The real model request excludes owner title management');
     return [{ type: 'function_call', call_id: 'native-title-settings', name: 'configure_title_settings',
-      arguments: JSON.stringify({ revision: 1, task_prompt: taskPrompt, agent_prompt: agentPrompt }) }];
+      arguments: JSON.stringify({ revision: saved.revision, task_prompt: taskPrompt, agent_prompt: agentPrompt }) }];
   });
   const service = await Service.open({ home: directory, cwd: directory, config: validateConfig({
     ...defaultConfig, chatgpt: false,
@@ -39,16 +40,19 @@ test('public title settings cross the UTF-8 boundary while model requests exclud
   };
 
   const publicTaskPrompt = '为任务保留清楚的标题。';
-  const publicSaved = await command({ op: 'configure_title_settings', revision: 0,
+  const initial = await read();
+  const publicSaved = await command({ op: 'configure_title_settings', revision: initial.revision,
     task_prompt: publicTaskPrompt, agent_prompt: agentPrompt });
   assert.equal(publicSaved.ok, true, JSON.stringify(publicSaved));
-  assert.deepEqual(await read(), { revision: 1, task_prompt: publicTaskPrompt, agent_prompt: agentPrompt });
+  saved = await read();
+  assert.equal(saved.task_prompt, publicTaskPrompt);
+  assert.equal(saved.agent_prompt, agentPrompt);
   const created = await command({ op: 'create', profile: 'fixture', message: 'Configure the title instructions through the native tool.' });
   assert.equal(created.ok, true, JSON.stringify(created));
   await taskIdle(service, created.result.task_id);
   assert.deepEqual(upstream.failures, []);
   assert.equal(advertised, undefined);
-  assert.deepEqual(await read(), { revision: 1, task_prompt: publicTaskPrompt, agent_prompt: agentPrompt });
+  assert.deepEqual(await read(), saved);
 
   const remote = service.description.commands.find(command => command.name === 'remote_grant');
   assert.ok(remote, 'The public command vocabulary declares remote controller grants');

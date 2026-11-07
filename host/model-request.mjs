@@ -5,15 +5,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 function retryObservation(policy, attempt, response, error, errorPresent, signal) {
   const header = response?.headers.get('retry-after') ?? null;
   return {
-    limits: policy, policy, attempt,
-    response_present: response !== undefined,
+    policy, attempt,
     status: response?.status ?? null,
     retry_after: header,
     error_present: errorPresent,
-    error: { name: error?.name, message: error?.message },
     isTypeError: error instanceof TypeError,
     aborted: signal.aborted,
-    abort_reason: { name: signal.reason?.name, message: signal.reason?.message },
     now: Date.now(),
   };
 }
@@ -46,8 +43,4 @@ export async function requestHeaders(send, policy, signal, onRetry) {
         break;
     }
   }
-}
-
-export function prepareModelRequest(effect) {
-  return boundary('backend.prepare', effect);
 }

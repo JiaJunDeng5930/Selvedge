@@ -20,12 +20,12 @@ Definition message_sources (request : G.fork_payload) :=
  match G.fork_messages_admitted request with Some values => values | None => [] end.
 
 Lemma the_fork_constructor_emits_no_unbound_effects : forall entry origin owner count messages raw before,
- decision_effects (Tasks.fork_with_caller entry origin owner count messages raw before) = [].
+ decision_effects (CommandResult.decide before (Tasks.fork_result entry origin owner count messages raw before)) = [].
 Proof.
- intros; rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
+ intros; rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta.
  destruct (find_task owner before) as [parent|]; [|reflexivity].
  destruct (_ && _) eqn:Eligible.
- 2: { unfold Tasks.fork_refusal,Tasks.fork_refusal_reason; destruct entry;
+ 2: { unfold CommandResult.reject,Tasks.fork_refusal_reason; destruct entry;
       try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity. }
  destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|reflexivity].
  cbn.
@@ -44,13 +44,13 @@ Proof. intros request [context|] before; reflexivity. Qed.
 Lemma the_actual_fork_handler_interprets_its_message_admission : forall request context before,
  CommandHandlers.execute (G.Cmd_fork request) context before =
  match Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) with
- | Some messages => Tasks.fork_with_caller
+ | Some messages => CommandResult.decide before (Tasks.fork_result
    (match context with Some accepted =>
      if N.eqb (Tasks.native_owner accepted) (G.fork_task_id request)
      then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
      else Tasks.ManualFork | None => Tasks.ManualFork end)
    (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
-   messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before
+   messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before)
  | None => reject "invalid_message" "Child messages contain invalid content parts" before end.
 Proof.
  intros request context before.
@@ -111,8 +111,9 @@ Qed.
 Lemma a_manual_fork_uses_the_actual_domain_constructor : forall request messages before,
  Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) = Some messages ->
  CommandHandlers.execute (G.Cmd_fork request) None before =
- Tasks.fork_with_caller Tasks.ManualFork (settings_origin request)
-   (G.fork_task_id request) (G.fork_child_count_admitted request) messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before.
+ CommandResult.decide before (Tasks.fork_result Tasks.ManualFork (settings_origin request)
+   (G.fork_task_id request) (G.fork_child_count_admitted request) messages
+   (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before).
 Proof.
  intros request messages before Parsed.
  rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed; reflexivity.
@@ -127,11 +128,11 @@ Proof. intros; unfold ForkCommit.candidate; now rewrite H. Qed.
 Lemma a_fork_with_an_admitted_output_budget_is_delivered : forall request before candidate,
  ForkCommit.candidate request before = candidate ->
  Delivery.fits true candidate = true ->
- ForkCommit.packet request before =
+ (CommitPacket.finalize before (ForkCommit.select request before)) =
  (with_sequence (N.succ (world_sequence before)) (decision_world candidate),
   Notifications.envelope true true (Some (UserCommand (G.Cmd_fork request))) before candidate).
 Proof.
  intros request before candidate Constructed Fits.
- unfold ForkCommit.packet, ForkCommit.select, CommitPacket.choose; rewrite Constructed.
+ unfold ForkCommit.select, CommitPacket.choose; rewrite Constructed.
  unfold Delivery.deliver_with_status; rewrite Fits; reflexivity.
 Qed.

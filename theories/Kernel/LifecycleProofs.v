@@ -6,8 +6,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Recovery RecoveryProofs Inputs Callbacks.
 Import ListNotations.
 
-Definition registry_replace_selected := @Selvedge.Foundation.RegistryProofs.registry_replace_selected.
-Definition registry_replace_length := @Selvedge.Foundation.RegistryProofs.registry_replace_length.
+Export RegistryProofs(registry_replace_selected, registry_replace_length).
 Lemma find_put_task : forall id before after value,
  find_task id value = Some before -> find_task id (put_task id after value) = Some after.
 Proof. intros; unfold find_task, put_task, with_tasks; cbn; eapply registry_replace_selected; eauto. Qed.
@@ -16,22 +15,16 @@ Theorem task_creation_never_rewrites_existing_history : forall value created,
 Proof. reflexivity. Qed.
 Theorem archival_removes_all_execution_authority : forall value,
  task_archived value = false ->
- task_lifecycle (Tasks.control_task Tasks.Archive value) = Archived [] /\
- task_operations (Tasks.control_task Tasks.Archive value) = [].
+ task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = Archived [] /\
+ task_operations (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = [].
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor] Live.
  destruct lifecycle; cbn [task_archived task_lifecycle] in Live; try discriminate;
  split; reflexivity.
 Qed.
-Theorem restart_removes_all_old_operation_rights : forall id value,
- task_operations (Recovery.recover_task id value) = [].
-Proof. apply recovery_retires_every_operation. Qed.
 Theorem restart_emits_no_old_external_request : forall value,
  decision_effects (Recovery.recover value) = [].
 Proof. reflexivity. Qed.
-Theorem restart_retains_committed_history : forall id value,
- exists suffix, task_history (Recovery.recover_task id value) = task_history value ++ suffix.
-Proof. apply recovery_retains_committed_history. Qed.
 Theorem fork_snapshot_includes_original_history : forall id value,
  exists suffix, History.snapshot_history id value = task_history value ++ suffix.
 Proof. intros; unfold History.snapshot_history, History.close_operations; eexists; rewrite app_assoc; reflexivity. Qed.
@@ -57,9 +50,9 @@ Theorem tool_completion_requires_owned_execution : forall id ticket result error
 Proof.
  intros id ticket result error value task Hfind Howned.
  rewrite CallbackChangesProofs.tool_completed_expression; rewrite Hfind.
- assert (Hnone : find (Callbacks.operation_executing ticket) (task_operations task) = None).
+ assert (Hnone : find (RequestReceiver.operation_executing ticket) (task_operations task) = None).
  { apply find_none_when_rejected. intros operation Hinside.
-   specialize (Howned operation Hinside). unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
+   specialize (Howned operation Hinside). unfold RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
    destruct (operation_stage operation); try reflexivity; apply N.eqb_neq; exact Howned. }
  rewrite Hnone; reflexivity.
 Qed.

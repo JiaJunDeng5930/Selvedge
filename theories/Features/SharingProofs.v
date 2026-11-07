@@ -34,13 +34,18 @@ Lemma interrupted_is_not_pending : forall reason job,
  Chatgpt.pending (Chatgpt.with_outcome (F.JobInterrupted reason) job)=false.
 Proof. intros reason []; reflexivity. Qed.
 
-Theorem connection_without_project_grant_cannot_execute : forall connection project request arguments value,
+Theorem connection_without_project_grant_cannot_execute : forall (payload : G.chatgpt_exec_payload) value caller,
+ let connection := G.chatgpt_exec_connection_id payload in
+ let project := G.chatgpt_exec_project_id payload in
+ let request := G.chatgpt_exec_request_id_admitted payload in
+ let arguments := G.chatgpt_exec_arguments_admitted payload in
  Chatgpt.authority connection project (Chatgpt.registry value) = None ->
- decision_world (Chatgpt.run connection project request arguments value) = value /\
- decision_effects (Chatgpt.run connection project request arguments value) = [].
+ decision_world (Chatgpt.handle_chatgpt_exec payload caller value) = value /\
+ decision_effects (Chatgpt.handle_chatgpt_exec payload caller value) = [].
 Proof.
- intros connection project request arguments value Missing.
- unfold Chatgpt.run,Chatgpt.run_result.
+ intros payload value caller connection project request arguments Missing.
+ unfold Chatgpt.handle_chatgpt_exec,Chatgpt.handle_chatgpt_exec_result,Chatgpt.run_result.
+ fold connection project request arguments.
  destruct (FeatureRequestAdmission.resolve_connection connection project request arguments value)
    as [[identity job|resolved]|reason];
    cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
@@ -60,9 +65,10 @@ Proof.
 Qed.
 
 Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,
+ exists reason,
  F.job_state (Chatgpt.recover_job (F.ConnectionJob connection project request arguments workspace resource sandbox F.JobRunning)) =
- F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
-Proof. reflexivity. Qed.
+ F.JobInterrupted reason.
+Proof. intros; eexists; reflexivity. Qed.
 
 (** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forget_payload) value job granted caller,
@@ -121,7 +127,7 @@ Theorem accepted_public_exec_emits_frozen_job : forall (payload : G.chatgpt_exec
  let arguments := G.chatgpt_exec_arguments_admitted payload in
  Chatgpt.authority connection project (Chatgpt.registry value)=Some granted ->
  Chatgpt.project project value=Some target -> workspace_primary (project_workspace target)<>None ->
- Chatgpt.retry connection (ChatgptArguments.request_text request) (Chatgpt.registry value)=None ->
+ FeatureRequestAdmission.connection_retry connection (ChatgptArguments.request_text request) (Chatgpt.registry value)=None ->
  Worktree.workspace_available (project_workspace target) value=true ->
  WorkspaceBinding.resource_ready (project_workspace target) (project_resource target) value=true ->
  ((N.of_nat (List.length (F.sharing_jobs (Chatgpt.registry value))) <? 128) &&
@@ -157,14 +163,19 @@ Qed.
 
 (** A retry remains a receipt lookup, but a new physical job cannot enter
     a managed workspace whose resource is unavailable. *)
-Theorem unavailable_fresh_job_emits_no_io : forall connection project request arguments target value,
+Theorem unavailable_fresh_job_emits_no_io : forall (payload : G.chatgpt_exec_payload) target value caller,
+ let connection := G.chatgpt_exec_connection_id payload in
+ let project := G.chatgpt_exec_project_id payload in
+ let request := G.chatgpt_exec_request_id_admitted payload in
+ let arguments := G.chatgpt_exec_arguments_admitted payload in
  Chatgpt.project project value=Some target ->
  Worktree.workspace_available (project_workspace target) value=false ->
- decision_world (Chatgpt.run connection project request arguments value)=value /\
- decision_effects (Chatgpt.run connection project request arguments value)=[].
+ decision_world (Chatgpt.handle_chatgpt_exec payload caller value)=value /\
+ decision_effects (Chatgpt.handle_chatgpt_exec payload caller value)=[].
 Proof.
- intros connection project request arguments target value Project Unavailable.
- unfold Chatgpt.run,Chatgpt.run_result.
+ intros payload target value caller connection project request arguments Project Unavailable.
+ unfold Chatgpt.handle_chatgpt_exec,Chatgpt.handle_chatgpt_exec_result,Chatgpt.run_result.
+ fold connection project request arguments.
  destruct (FeatureRequestAdmission.resolve_connection connection project request arguments value)
    as [[identity job|resolved]|reason];
    cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve

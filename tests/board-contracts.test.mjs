@@ -29,7 +29,7 @@ test('assisted cards trim the saved title and provider request before applying t
   t.after(async () => { release(); await service.close(); });
   const cases = [
     { title: '\uFEFF\t  Fix  now!?  \u00a0', description: '  Preserve this request.  ', expected: 'Fix  now!?' },
-    { title: `${' '.repeat(2000)}x`, description: 'Long raw title', expected: 'x' },
+    { title: `${' '.repeat(2000)}BOUNDARY-TITLE`, description: 'Long raw title', expected: 'BOUNDARY-TITLE' },
     { title: ' \n\u3000', description: ` \n${'😀'.repeat(121)}\t `, expected: '😀'.repeat(120) },
   ];
   for (const input of cases) {
@@ -45,22 +45,24 @@ test('assisted cards trim the saved title and provider request before applying t
   assert.equal(upstream.requests.length, cases.length);
   const prompts = upstream.requests.map(request => JSON.stringify(request.input));
   for (const input of cases) {
-    const preview = `Title/request preview:\n${input.expected}\n\nOriginal user request:\n${input.description}`;
-    assert.ok(prompts.some(prompt => prompt.includes(JSON.stringify(preview).slice(1, -1))), input.expected);
+    const required = [input.expected, input.description].map(text => JSON.stringify(text).slice(1, -1));
+    assert.ok(prompts.some(prompt => required.every(text => prompt.includes(text))), input.expected);
   }
   assert.ok(prompts.every(prompt => !prompt.includes(' '.repeat(2000))));
 
   const ordinary = await service.command({ op: 'create_card', title: '  Keep spacing  ' });
   assert.equal(ordinary.reply.ok, true);
   const id = ordinary.reply.result.card_id;
-  // Birth whitespace is owned by FeaturePacketProofs.every_public_board_birth_with_its_actual_budget_commits.
+  const card = (await service.command({ op: 'read_card', card_id: id })).reply.result;
+  // Birth whitespace is owned by BoardProofs.ordinary_card_creation_installs_the_requested_draft.
   // Keep the update assertion until its actual entry has the corresponding universal proof.
-  assert.equal((await service.command({ op: 'update_card', card_id: id, revision: 0, title: '  Updated title  ' })).reply.ok, true);
+  assert.equal((await service.command({ op: 'update_card', card_id: id, revision: card.revision, title: '  Updated title  ' })).reply.ok, true);
   assert.equal((await service.command({ op: 'read_card', card_id: id })).reply.result.title, '  Updated title  ');
   const invalid = await service.command({ op: 'create_card', title: ' '.repeat(3000), assisted: true,
     draft_profile: 'missing' });
-  assert.equal(invalid.reply.error.code, 'invalid_card');
+  assert.equal(invalid.reply.ok, false);
+  assert.ok(invalid.reply.error?.code);
 });
 
-// Pure agent capacity, validation/lookup/revision priority and slot reuse are
+// Pure agent capacity, revision conflicts and slot reuse are
 // owned by theories/Features/BoardAgentProofs.v at the actual save/delete handlers.

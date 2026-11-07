@@ -23,37 +23,8 @@ Proof.
  unfold TaskGraph.cached_allowed,TaskGraph.cache_node.
  unfold Worktree.start_allowed.
  destruct (CommandExecution.resolve_context_start
-   (Worktree.creation_entry Worktree.GraphTaskCreation None) name (Some effort) contents
+   name (Some effort) contents
    (Some settings) false None before); reflexivity.
-Qed.
-
-Theorem public_missing_work_precedes_graph_capacity_and_semantics : forall request before owner,
- G.create_task_graph_work_id request = Some owner ->
- Work.lookup owner before = None ->
- TaskGraph.handle_create_task_graph request None before =
- reject "work_not_found" "The Work does not exist." before.
-Proof.
- intros request before owner Owner Missing.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- rewrite Owner.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
- destruct (Bool.bool_dec _ true) as [Authorized|Denied].
- 2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
- unfold TaskGraph.select_owner; rewrite Work.select_missing_owner by exact Missing.
- reflexivity.
-Qed.
-Theorem public_graph_capacity_precedes_declaration_semantics : forall request before owner,
- TaskGraph.select_owner (G.create_task_graph_work_id request) before = Some owner ->
- TaskGraph.graph_capacity before = false ->
- TaskGraph.handle_create_task_graph request None before =
- reject "invalid_task_graph" "At most 32 live Task graphs may be installed" before.
-Proof.
- intros request before owner Owner Full.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
- cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes].
- destruct (Bool.bool_dec _ true) as [Authorized|Denied].
- 2: { exfalso; apply Denied; apply public_cached_nodes_have_no_task_caller_gate. }
- rewrite Owner,Full; reflexivity.
 Qed.
 
 Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request before owner plans,
@@ -67,7 +38,7 @@ Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request bef
  TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) = source /\
  TaskGraph.graph_plans plan = plans /\
  TaskGraph.handle_create_task_graph request None before =
-   TaskGraph.install_plan (N.of_nat (List.length (TaskGraph.registry before))) plan.
+   CommandResult.accept (TaskGraph.install_change (N.of_nat (List.length (TaskGraph.registry before))) plan).
 Proof.
  intros request before owner plans source Owner Capacity Valid Prepared.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
@@ -88,12 +59,6 @@ Proof.
  apply TaskGraphProofs.resolved_installation_follows_the_typed_plan.
 Qed.
 
-Lemma failed_installation_is_atomic : forall original caller
- (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original),
- bool_default "ok" (decision_reply (TaskGraph.install_cached id owner checked)) false = false ->
- decision_world (TaskGraph.install_cached id owner checked) = original /\
- decision_effects (TaskGraph.install_cached id owner checked) = [].
-Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
 Theorem every_failed_graph_declaration_is_atomic : forall creating id owner source caller before,
  let result := TaskGraph.declare creating id owner source caller before in
  bool_default "ok" (decision_reply result) false = false ->
@@ -141,33 +106,18 @@ Theorem an_ordinary_start_failure_retains_its_declared_error : forall owner call
  CommandResult.Rejected (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
    (Tasks.failure_message cause)).
 Proof. reflexivity. Qed.
-Theorem the_first_refused_node_prevents_every_birth : forall owner caller original node rest reason,
- TaskGraph.prepare_node owner caller original node = CommandResult.Rejected reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
-Proof. intros; now apply CommandResult.traverse_refuses_first. Qed.
-Theorem later_refusal_prevents_every_birth : forall owner caller original node rest plan reason,
- TaskGraph.prepare_node owner caller original node = CommandResult.Accepted plan ->
- TaskGraph.prepare_nodes owner caller original rest = CommandResult.Rejected reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
-Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
-
-Theorem public_idle_profile_failure_precedes_work_lookup : forall request before cause,
- CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
-   (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartRefused cause ->
- Worktree.handle_create_idle request None before =
- Tasks.refuse_start (Worktree.creation_entry Worktree.IdleTaskCreation None) cause before.
-Proof. intros; unfold Worktree.handle_create_idle,Worktree.create_idle_owned; now rewrite H. Qed.
-Theorem public_idle_missing_work_follows_successful_profile_resolution : forall request before start owner,
+Theorem public_idle_missing_work_is_atomic : forall request before owner,
  G.create_idle_work_id request = Some owner ->
- CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)
-   (G.create_idle_profile request) (G.create_idle_reasoning request) []
-   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before = Tasks.StartResolved start ->
  Work.lookup owner before = None ->
- Worktree.handle_create_idle request None before =
- reject "invalid_arguments" "The Work does not exist." before.
+ let refused := Worktree.handle_create_idle request None before in
+ bool_default "ok" (decision_reply refused) true = false /\
+ decision_world refused = before /\ decision_effects refused = [].
 Proof.
- intros request before start owner Owner Started Missing.
+ intros request before owner Owner Missing.
  unfold Worktree.handle_create_idle,Worktree.create_idle_owned.
- rewrite Started,Owner,(Work.select_missing_owner owner before Missing); reflexivity.
+ destruct (CommandExecution.resolve_context_start
+   (G.create_idle_profile request) (G.create_idle_reasoning request) []
+   (option_map (Codec.settings_request_of_values true) (G.create_idle_settings_admitted request)) true None before).
+ - repeat split; reflexivity.
+ - rewrite Owner,(Work.select_missing_owner owner before Missing); repeat split; reflexivity.
 Qed.

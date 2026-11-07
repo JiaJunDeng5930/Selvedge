@@ -26,7 +26,6 @@ Definition settings_declaration := D.Object
 Definition declaration := D.Object
   [("backend",true,D.Const (JString (WorkspaceBackend.name WorkspaceBackend.TencentCvm)));
    (WorkspaceBackend.name WorkspaceBackend.TencentCvm,true,settings_declaration)].
-Definition configured := D.denote declaration.
 Definition admit := D.decode declaration.
 Definition encode := D.encode declaration.
 Definition valid value := D.present (admit value).

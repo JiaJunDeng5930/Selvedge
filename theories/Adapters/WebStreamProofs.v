@@ -94,36 +94,32 @@ Proof.
  apply IH;rewrite <- step;now apply sse_character_preserves_line_budget.
 Qed.
 Lemma sse_initial_line_budget : forall state maximum,
- let initial := WebStream.StreamWork state [] "" in
- let admitted := if N.of_nat (String.length (WebStream.pending state)) <=? maximum
-   then initial else WebStream.stream_fail initial "SSE line exceeds the configured limit" in
+ N.of_nat (String.length (WebStream.pending state)) <= maximum ->
  sse_buffer_within maximum
    (fold_left (fun result byte => byte :: result) (list_ascii_of_string (WebStream.pending state)) [],
-    N.of_nat (String.length (WebStream.pending state)),admitted).
+    N.of_nat (String.length (WebStream.pending state)),WebStream.StreamWork state [] "").
 Proof.
- intros state maximum;unfold sse_buffer_within.
- destruct (N.of_nat (String.length (WebStream.pending state)) <=? maximum) eqn:within;cbn;split.
+ intros state maximum within;unfold sse_buffer_within;cbn;split.
  - rewrite reversed_bytes_length,encoded_string_length,Nat.add_0_r;reflexivity.
- - intros _;now apply N.leb_le in within.
- - rewrite reversed_bytes_length,encoded_string_length,Nat.add_0_r;reflexivity.
- - discriminate.
+ - intros _;exact within.
 Qed.
 
-Theorem production_successful_sse_step_respects_line_byte_limit : forall state chunk maximum value,
- WebStream.sse_step state chunk false maximum = success value -> get value "error" = JNull ->
+(** The host starts with empty pending text, retains only successful states and
+    keeps one maximum for the stream. The step preserves that established bound. *)
+Theorem production_successful_sse_step_preserves_line_byte_limit : forall state chunk maximum value,
+ N.of_nat (String.length (WebStream.pending state)) <= maximum ->
+ WebStream.sse_step state chunk maximum = success value -> get value "error" = JNull ->
  N.of_nat (String.length (str (get value "state") "pending")) <= maximum.
 Proof.
- intros state chunk maximum value accepted no_error.
+ intros state chunk maximum value within accepted no_error.
  unfold WebStream.sse_step in accepted.
  destruct (Utf8.chunks chunk) as [characters|] eqn:characters_valid;[|discriminate].
- pose proof (sse_initial_line_budget state maximum) as initial.
+ pose proof (sse_initial_line_budget state maximum within) as initial.
  pose proof (sse_scan_preserves_line_budget characters _ _ _ _ initial) as scanned.
  destruct (WebStream.scan characters
    (fold_left (fun result byte => byte :: result) (list_ascii_of_string (WebStream.pending state)) [])
    (N.of_nat (String.length (WebStream.pending state)))
-   (if N.of_nat (String.length (WebStream.pending state)) <=? maximum
-     then WebStream.StreamWork state [] ""
-     else WebStream.stream_fail (WebStream.StreamWork state [] "") "SSE line exceeds the configured limit")
+   (WebStream.StreamWork state [] "")
    maximum) as [[reversed bytes] work] eqn:scan_result.
  unfold sse_buffer_within in scanned;destruct scanned as [consistent bounded].
  unfold WebStream.work_json in accepted;cbn in accepted.

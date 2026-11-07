@@ -54,9 +54,9 @@ Proof.
  unfold model_outcome_from_items; rewrite Duplicated.
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelFailure duplicate_model_identity) task).
- unfold Callbacks.model_result, Callbacks.model_result_changes.
- exists (Callbacks.settle_model (append_history [FailureMessage duplicate_model_identity] task)).
+ cbn beta iota; fold (TaskChange.apply (Callbacks.model_result_changes id ticket allowed mode (ModelFailure duplicate_model_identity) task) task).
+ unfold Callbacks.model_result_changes.
+ exists (TaskChange.apply (Callbacks.settle_model_changes (append_history [FailureMessage duplicate_model_identity] task)) (append_history [FailureMessage duplicate_model_identity] task)).
  split; [reflexivity|]. split.
  - rewrite settle_model_expression.
    destruct (unseen_model_input (append_history [FailureMessage duplicate_model_identity] task));
@@ -92,11 +92,13 @@ Proof.
  intros id ticket allowed mode batch task value operations Found Pending Admitted.
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess batch) task).
+ cbn beta iota; fold (TaskChange.apply (Callbacks.model_result_changes id ticket allowed mode (ModelSuccess batch) task) task).
  eexists; split; [reflexivity|].
- unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Admitted.
+ unfold Callbacks.model_result_changes; rewrite Admitted.
  destruct (Callbacks.item_calls (Codec.model_items batch)) as [|invocation remaining].
- - change (exists suffix, task_history (Callbacks.settle_model
+ - change (exists suffix, task_history (TaskChange.apply
+     (Callbacks.settle_model_changes
+       (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task))
      (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task)) =
      task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix).
    rewrite !settle_model_expression.

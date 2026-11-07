@@ -25,7 +25,8 @@ Proof.
  induction description as [| | | | | |element IH|element IH|first rest]; intros value Supported.
  - exists value; split; reflexivity.
  - exists value; split; reflexivity.
- - exists value; cbn. rewrite natural_print_parse; split; reflexivity.
+ - exists value; cbn [decode_value encode_value as_number].
+   unfold BoundedInteger.decode_unbounded_natural. rewrite natural_print_parse; split; reflexivity.
  - discriminate.
  - discriminate.
  - exists value; split; reflexivity.
@@ -97,7 +98,7 @@ Proof.
  intros description values Unique Supported.
  destruct (typed_fields_wire_is_decodable description values Unique Supported) as [canonical [Decoded Wire]].
  exists canonical. unfold Schema.decode, Schema.encode.
- unfold source_keys. rewrite encoded_keys_are_declared, Unique.
+ unfold source_keys. rewrite encoded_keys_are_declared.
  rewrite (Selvedge.Programming.SchemaProofs.encoded_names_are_unique description values Unique).
  cbn. rewrite Decoded, Wire. split; reflexivity.
 Qed.

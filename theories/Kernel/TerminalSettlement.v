@@ -28,7 +28,6 @@ Definition resolved_update (request : after_request) (current : task) : option (
      | TaskResult.KeepDemand _ => None end
    | None => None end
  | _ => None end.
-Definition eligible request current := match resolved_update request current with Some _ => true | None => false end.
 Record plan (before : world) := Plan {
  target : TaskScope.task_reference before;
  request : after_request;
@@ -65,5 +64,3 @@ Definition candidate {before : world} (accepted : plan before) :=
 Definition source {before : world} (accepted : plan before) :=
  let payload := request accepted in
  AfterCompleted (owner payload) (operation payload) (ticket payload) (outcome payload).
-Definition packet {before : world} (accepted : plan before) (raw : Json.json) :=
- DeferredCommit.packet (Some (source accepted)) before (candidate accepted).

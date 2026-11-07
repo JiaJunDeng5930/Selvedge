@@ -16,24 +16,23 @@ Theorem live_configuration_preserves_maintenance_cancellations : forall environm
 Proof. reflexivity. Qed.
 
 Lemma a_nondurable_transition_has_no_core_input : forall source value result,
- Packet.transition source value = (false,false,None,result) ->
+ Packet.transition_decoded (Packet.decode source) source value = (false,false,None,result) ->
  Packet.core_input (Packet.decode source) = None.
 Proof.
  intros source value result Transition.
- unfold Packet.transition, Packet.transition_decoded in Transition.
+ unfold Packet.transition_decoded in Transition.
  destruct (Packet.decode source) as [[input|complete]|]; cbn [Packet.core_input]; try reflexivity.
  destruct input; try discriminate.
  destruct (CommandHandlers.interpret command false); discriminate.
 Qed.
 
 Lemma a_nondurable_transition_selects_its_ordinary_commit : forall source value result,
- Packet.transition source value = (false,false,None,result) ->
+ Packet.transition_decoded (Packet.decode source) source value = (false,false,None,result) ->
  Packet.select source value = DeferredCommit.select false None value result.
 Proof.
  intros source value result Transition.
  destruct result as [next reply effects].
  pose proof (a_nondurable_transition_has_no_core_input _ _ _ Transition) as Decoded.
- unfold Packet.transition in Transition.
  unfold Packet.select; cbv beta zeta.
  destruct (Packet.decode source) as [[input|complete]|] eqn:Received;
    [cbn [Packet.core_input] in Decoded; discriminate| |].
@@ -61,7 +60,7 @@ Proof.
 Qed.
 (** Every ignored, nondurable callback uses this same finalization path. *)
 Theorem packet_keeps_an_ignored_nondurable_result : forall source value result,
- Packet.transition source value=(false,false,None,result) ->
+ Packet.transition_decoded (Packet.decode source) source value=(false,false,None,result) ->
  decision_world result=value -> decision_effects result=[] ->
  fst (Packet.packet source value)=value /\
  field "effects" (snd (Packet.packet source value))=Some (JArray []) /\

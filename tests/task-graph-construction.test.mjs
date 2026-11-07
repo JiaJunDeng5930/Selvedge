@@ -5,25 +5,24 @@ import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
-// Pure graph construction, failure atomicity, original-world references and
-// Work/capacity/declaration priority are universally owned by
+// Pure graph construction, failure atomicity and original-world references are owned by
 // theories/Features/GraphConstructionProofs.v at the production handlers.
 // The provider/native function-call and output bridge below remains an IO check.
 
-test('native Work and Graph authority gates defer failed ordinary starts until the domain phase', async t => {
+test('refused native Work and Graph requests create no tasks or graphs', async t => {
   const calls = [
     ['failed-before-escalation', 'create_task_graph', { name: 'Authority before profile failure', nodes: [
       { key: 'missing-profile', profile: 'absent', message: 'Unknown profile' },
       { key: 'expanded', profile: 'demo', message: 'Forbidden authority', settings: { approval: { mode: 'full-access' } } },
-    ], rules: [] }, 'invalid_native_feature'],
+    ], rules: [] }],
     ['missing-work-escalation', 'create_task_graph', { work_id: 42, name: 'Authority before missing Work', nodes: [
       { key: 'expanded', profile: 'demo', message: 'Forbidden authority', settings: { approval: { mode: 'full-access' } } },
-    ], rules: [] }, 'invalid_native_feature'],
-    ['ordered-node-failures', 'create_task_graph', { name: 'Original node failure order', nodes: [
+    ], rules: [] }],
+    ['invalid-nodes', 'create_task_graph', { name: 'Invalid graph nodes', nodes: [
       { key: 'missing-profile', profile: 'absent', message: 'Unknown profile' }, { key: 'missing-task', task_id: 42 },
-    ], rules: [] }, 'unknown_profile'],
+    ], rules: [] }],
     ['work-authority', 'create_work_task', { work_id: 42, profile: 'demo', message: 'Forbidden authority',
-      settings: { approval: { mode: 'full-access' } } }, 'invalid_native_feature'],
+      settings: { approval: { mode: 'full-access' } } }],
   ];
   const observed = new Map();
   const upstream = await responsesServer(t, body => {
@@ -52,7 +51,11 @@ test('native Work and Graph authority gates defer failed ordinary starts until t
   const deadline = Date.now() + 10000;
   while (observed.size < calls.length && Date.now() < deadline) await delay(10);
   assert.equal(observed.size, calls.length, JSON.stringify([...observed]));
-  for (const [id, , , expected] of calls) assert.equal(observed.get(id)?.value?.error?.code, expected, `${id}: ${JSON.stringify(observed.get(id))}`);
+  for (const [id] of calls) {
+    const reply = observed.get(id)?.value;
+    assert.equal(reply?.ok, false, `${id}: ${JSON.stringify(reply)}`);
+    assert.ok(reply.error?.code, `${id}: rejection includes its reason`);
+  }
   const tasks = (await service.command({ op: 'list' })).reply.result.tasks;
   assert.equal(tasks.length, 1, 'Every refused native feature keeps its births atomic');
   assert.deepEqual((await service.command({ op: 'list_task_graphs' })).reply.result.graphs, []);

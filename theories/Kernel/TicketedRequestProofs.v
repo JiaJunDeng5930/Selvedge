@@ -76,16 +76,16 @@ Proof.
  exists operations; split; [reflexivity|exact Resources].
 Qed.
 
-Theorem frozen_and_archived_cannot_construct_new_execution : forall before owner current source,
+Theorem frozen_and_archived_cannot_construct_new_execution : forall before current source,
  (exists phase operations, task_lifecycle current = Frozen phase operations) \/
  (exists operations, task_lifecycle current = Archived operations) ->
- TicketedRequest.Scoped.admitted_action before owner current source ->
+ TicketedRequest.Scoped.admitted_action before current source ->
  exists operation plugin pending result error,
  source = TicketedRequest.Scoped.AfterOperation operation plugin pending result error /\
  TicketedRequest.Scoped.operation_at (operation_id operation) current = Some operation /\
  operation_stage operation = AfterHooksReady (plugin :: pending) result error.
 Proof.
- intros before owner current source Paused Admitted.
+ intros before current source Paused Admitted.
  destruct Paused as [[phase [operations Lifecycle]]|[operations Lifecycle]];
  destruct source; cbn [TicketedRequest.Scoped.admitted_action] in Admitted.
  all: try (unfold TicketedRequest.Scoped.can_observe in Admitted;

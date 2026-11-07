@@ -2,23 +2,18 @@ import { createHash } from 'node:crypto';
 import { stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { readText, sseEvents, requestJson } from './network.mjs';
-import { prepareModelRequest, requestHeaders } from './model-request.mjs';
+import { requestHeaders } from './model-request.mjs';
 import { WebRequestStore, retainedRequest } from './chatgpt-web-store.mjs';
 import { observeTextItems } from './public/markdown-fence-observation.mjs';
 
 const digest = value => createHash('sha256').update(stringifyJson(value)).digest('hex');
-const requestOwner = effect => boundary('web.owner', { effect });
 
 function nativeJson(text) {
   return boundary('web.decode', { text });
 }
 
 function failure(code, record, status) {
-  const value = boundary('web.failure', { code, record, status });
-  const error = retainedRequest(record);
-  error.code = value.code;
-  error.message = value.message;
-  return error;
+  return retainedRequest(record, boundary('web.failure', { code, record, status }));
 }
 
 function credential(profile) {
@@ -28,14 +23,9 @@ function credential(profile) {
   return { token, binding: digest([profile.endpoint, token]) };
 }
 
-function toolsFor(effect) { return boundary('web.tools', { effect }); }
-function validateResource(value, body, model, tools) {
-  return boundary('web.resource', { value, body, model, tools });
-}
-
 async function exchange(record, body, model, tools, token, store, limits, lifetime, { onSnapshot, onRetry }, index) {
   // A newly prepared receipt has no response yet; the native exchange selects fetching before cached-response decoding.
-  const start = boundary('web.exchange_start', { record, body, model, tools, index });
+  const start = boundary('web.exchange_start', { record, body, model, tools });
   if (start.action === 'cached') return start.resource;
   const send = async () => {
     const response = await fetch(record.endpoint, { method: 'POST', redirect: 'error', signal: lifetime,
@@ -57,7 +47,7 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
   if (!response.ok) {
     if (boundary('web.http', { record, status: response.status }).reject) store.reject(record);
     const text = await readText(response.body, limits.frame_bytes);
-    const decoded = boundary('web.http_json', { response: { ok: false, status: response.status }, text });
+    const decoded = boundary('web.http_json', { response: { ok: false }, text });
     const value = decoded.present ? decoded.value : undefined;
     throw failure(value?.error?.code, record, response.status);
   }
@@ -69,15 +59,14 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
   } catch (error) { await response.body?.cancel(); throw error; }
   let terminal;
   if (contentType === 'json') {
-    terminal = validateResource(nativeJson(await readText(response.body, limits.frame_bytes)), body, model, tools);
+    terminal = boundary('web.resource', { value: nativeJson(await readText(response.body, limits.frame_bytes)), body, model, tools });
   } else if (contentType === 'sse') {
     for await (const frame of sseEvents(response.body, limits.frame_bytes)) {
-      const source = { frame, record, body, model, tools, index };
-      const header = boundary('web.event_header', source);
+      const header = boundary('web.event_header', { frame });
       if (header.action === 'stop') break;
+      // Record the response identity before semantic event admission can fail.
       if (header.response_id) store.identify(record, header.response_id);
-      const action = boundary('web.event', source);
-      if (action.action === 'stop') break;
+      const action = boundary('web.event', { frame, body, model, tools, index });
       if (action.action === 'snapshot') onSnapshot(action.text, action.index);
       else if (action.action === 'terminal') { terminal = action.resource; break; }
       // DEFENSE: A provider failure event retains the request identity and cannot be accepted as a completed response.
@@ -85,9 +74,9 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
     }
   }
   // DEFENSE: A disconnected stream or nonterminal resource leaves remote work unresolved; retain its original key instead of posting again.
-  if (boundary('web.exchange_result', { resource: terminal, record, body, model, tools, index }).retained) throw retainedRequest(record);
+  if (boundary('web.exchange_result', { resource: terminal }).retained) throw retainedRequest(record);
   store.identify(record, terminal.id);
-  const commit = boundary('web.commit', { resource: terminal, record, body, model, tools });
+  const commit = boundary('web.commit', { resource: terminal });
   // DEFENSE: An admitted terminal response can report provider failure; preserve its receipt rather than returning output as success.
   if (commit.action === 'failure') throw failure(commit.code, record);
   store.finish(record, terminal);
@@ -96,13 +85,13 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
 
 export async function requestChatGPTWeb(effect, profile, home, limits, { signal, onSnapshot = () => {}, onRetry = () => {} } = {}) {
   signal?.throwIfAborted();
-  const request = prepareModelRequest(effect);
-  const options = boundary('web.options', { effect, profile, limits });
-  const tools = toolsFor(request);
+  const request = boundary('backend.prepare', effect);
+  const options = boundary('web.options', { effect });
+  const tools = boundary('web.tools', { effect: request });
   const contract = digest(boundary('web.contract', { request, tools }));
   const { token, binding } = credential(profile);
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
-  const owner = requestOwner(effect);
+  const owner = boundary('web.owner', { effect });
   const store = await WebRequestStore.open(home);
   let active;
   try {
@@ -123,13 +112,13 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
     // No caller tool is executed here, and no unknown request is given a new key.
     for (let stage = 0; stage < options.stages; stage++) {
       lifetime.throwIfAborted();
-      boundary('web.request_bounds', { effect, profile, body, deferred, limits });
+      boundary('web.request_bounds', { body, deferred, limits });
       const reset = continuation.reset;
       active = store.prepare(boundary('web.invocation', { effect, profile, owner, stage, binding, body, reset }));
       terminal = await exchange(active, body, effect.model.name, tools, token, store, limits, lifetime, {
         onRetry, onSnapshot: options.snapshots ? onSnapshot : () => {},
       }, stage);
-      const settled = boundary('web.settle', { effect, resource: terminal, deferred, body, index: stage });
+      const settled = boundary('web.settle', { resource: terminal, deferred, body, index: stage });
       if (options.snapshots) onSnapshot(settled.snapshot, stage);
       output.push(...boundary('backend.observe_text_output', {
         items: settled.items, markdown_observations: observeTextItems(settled.items),
@@ -159,7 +148,6 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
 // Explicit recovery never resends a browser prompt. An observer can then retry
 // the same committed effect/key to receive the retained response.
 export async function chatgptWebRequestAction(key, action, config, home, limits, { signal, confirm = false, timeout } = {}) {
-  boundary('web.recovery_shape', { key, action, confirm });
   const store = await WebRequestStore.open(home, { create: false });
   // DEFENSE: Recovery accepts a user-supplied key even when no provider request has ever created the receipt database.
   if (!store) throw new Error('No ChatGPT Web request receipts');
@@ -168,9 +156,9 @@ export async function chatgptWebRequestAction(key, action, config, home, limits,
     // DEFENSE: A user-supplied recovery key may not name any retained request in this service home.
     if (!record) throw new Error('Unknown ChatGPT Web request key');
     const profile = config.profiles[record.profile];
-    boundary('web.recovery_connection', { key, action, confirm, record, profile });
+    boundary('web.recovery_connection', { record, profile });
     const { token, binding } = credential(profile);
-    const recovery = boundary('web.recovery', { key, action, confirm, record, profile, binding });
+    const recovery = boundary('web.recovery', { action, confirm, record, binding });
     if (recovery.retire) store.retire(record);
     // DEFENSE: Recovery cannot send a remote control request before the provider has supplied a response ID.
     if (recovery.retained) throw retainedRequest(record);
@@ -181,14 +169,14 @@ export async function chatgptWebRequestAction(key, action, config, home, limits,
     const value = response.ok ? nativeJson(response.text) : response.value;
     // DEFENSE: An HTTP failure from the recovery endpoint leaves the retained request available for explicit later action.
     if (!response.ok) throw failure(value?.error?.code, record, response.status);
-    return boundary('web.recovery_result', { key, action, confirm, record, profile, binding, value });
+    return boundary('web.recovery_result', { action, record, value });
   } finally { store.close(); }
 }
 
 export async function cancelChatGPTWeb(task, config, home, limits) {
   const selected = boundary('web.cancel_owner', { task });
   const record = WebRequestStore.retireExisting(home, selected.owner, selected.ticket);
-  const action = boundary('web.cancellation', { task, record: record ?? null });
+  const action = boundary('web.cancellation', { record: record ?? null });
   if (action === 'none') return;
   // DEFENSE: A cancelled request without an admitted remote response ID remains retained; it cannot target the provider's stop endpoint.
   if (action === 'retained') throw retainedRequest(record);

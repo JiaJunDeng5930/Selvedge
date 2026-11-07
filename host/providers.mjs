@@ -27,15 +27,7 @@ export class ContextLimitError extends Error {
   }
 }
 
-export class ContextScopeChangedError extends Error {
-  constructor(scope) {
-    super('The model context consumer changed before dispatch');
-    this.name = 'ContextScopeChangedError';
-    this.scope = scope;
-  }
-}
-
-export function providerOutput(output, profile = {}, output_indices = []) {
+function providerOutput(output, profile, output_indices) {
   const markdown_observations = Array.isArray(output) ? output.map(item => {
     if (item?.type !== 'message' || item.role !== 'assistant' || !Array.isArray(item.content)) return [];
     const text = item.content.map(part => {
@@ -48,15 +40,8 @@ export function providerOutput(output, profile = {}, output_indices = []) {
   return boundary('backend.output', { output, profile, output_indices, markdown_observations });
 }
 
-export function responseBody(effect, profile = { provider: effect.model.provider }) {
+export function responseBody(effect, profile) {
   return boundary('backend.request', { effect, profile });
-}
-
-// Keep the encoded bytes beside the value observed by the native meter. The
-// dispatchers send this body directly rather than reconstructing the request.
-export function prepareProviderRequest(request) {
-  const body = stringifyJson(request);
-  return Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
 }
 
 // Native plans retain asset identities. Only this transport interpreter creates data URLs.
@@ -73,9 +58,9 @@ export async function prepareModelRequest(request, home, limits) {
       }
     }
   }
-  const planned = prepareProviderRequest(request);
+  const planned = stringifyJson(request);
   // The ordinary frame budget still bounds every non-image byte in the plan.
-  boundary('backend.request_size', { bytes: planned.bytes, limits });
+  boundary('backend.request_size', { bytes: Buffer.byteLength(planned), limits });
   boundary('backend.image_request_budget', { assets });
   const urls = await Promise.all(assets.map(asset => imageDataURL(home, asset)));
   const images = new Map(slots.map((slot, index) => [slot, urls[index]]));
@@ -88,16 +73,13 @@ export async function prepareModelRequest(request, home, limits) {
       return { ...fields, image_url: images.get(part) };
     }) };
   });
-  const wire = slots.length ? { ...request, input } : request;
-  const body = stringifyJson(wire);
-  const prepared = Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
-  guardProviderRequest(prepared, limits);
-  return prepared;
-}
-
-function guardProviderRequest(prepared, limits) {
+  const body = slots.length ? stringifyJson({ ...request, input }) : planned;
+  // Keep the admitted bytes beside the value observed by the native meter.
+  // Dispatch sends this body directly without reconstructing the request.
+  const prepared = { request, body, bytes: Buffer.byteLength(body) };
   // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
-  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: { input: prepared.request.input } });
+  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: { input: request.input } });
+  return prepared;
 }
 
 // Resolve the complete consumer before selecting opaque input. API-key identity
@@ -129,7 +111,7 @@ async function createProviderSession(effect, configured, backend, home, { signal
     .update(JSON.stringify([configured.provider, configured.endpoint ?? null, effect.model.profile, effect.model.name, credential]))
     .digest('hex');
   const profile = { ...configured, scope };
-  return { profile, backend, scope, lifetime, headers, home,
+  return { profile, scope, lifetime, headers, home,
     account: Boolean(authorization),
     refresh: async () => {
       authorization = await authorization.refreshAfterRejection({ signal: lifetime });
@@ -140,7 +122,6 @@ async function createProviderSession(effect, configured, backend, home, { signal
 
 export async function requestProviderJSON(session, suffix, prepared, limits, { onRetry = () => {} } = {}) {
   const { body } = prepared;
-  guardProviderRequest(prepared, limits);
   const send = () => fetch(`${session.profile.endpoint}${suffix}`, { method: 'POST',
     headers: { ...session.headers, accept: 'application/json' }, body, signal: session.lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, session.lifetime, onRetry);
@@ -188,7 +169,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const { profile, scope } = session;
   const consumer = observeCompactionScope(effect, scope);
   // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
-  if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
+  if (consumer.scope_changed) throw new Error('The model context consumer changed before dispatch');
   const prepared = await prepareModelRequest(responseBody(effect, profile), home, limits);
   return requestProviderSSE(session, effect, prepared, limits, { onDelta, onRetry, onObservation });
 }
@@ -197,10 +178,9 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
 // compaction caller passes the very session and request used for its meter.
 export async function requestProviderSSE(session, effect, prepared, limits,
   { onDelta = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
-  const { profile, backend, scope, lifetime } = session;
+  const { profile, scope, lifetime } = session;
   lifetime.throwIfAborted();
   const { body } = prepared;
-  guardProviderRequest(prepared, limits);
   const headers = { ...session.headers, accept: 'text/event-stream' };
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
@@ -238,7 +218,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
   for await (const data of events(response.body, limits.frame_bytes)) {
     if (data === '[DONE]') break;
     const event = parseJson(data);
-    const step = boundary('backend.stream_step', { kind: backend.stream_kind, effect: { kind: effect.kind }, event, state });
+    const step = boundary('backend.stream_step', { effect: { kind: effect.kind }, event, state });
     state = step.state;
     switch (step.action) {
       case 'delta': onDelta(step.text, step.index); break;
@@ -254,7 +234,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     }
   }
   // DEFENSE: A disconnected or truncated SSE stream may end without a terminal response; expose failure instead of returning partial output.
-  throw new Error(boundary('backend.stream_end', { kind: backend.stream_kind, effect, state }).message);
+  throw new Error('Model stream ended without a completed response');
 }
 
 export { requestCompaction, observeModelRequest } from './compaction.mjs';

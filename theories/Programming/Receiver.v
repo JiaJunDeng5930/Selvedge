@@ -102,16 +102,8 @@ Arguments position {state input before}.
 Module At.
 Definition keyed {entry} (entries : list entry) (key : entry -> N) : located _ _ entries :=
  Located (Receiver.keyed key) I.
-Definition appended {entry} (entries : list entry) : located _ _ entries :=
- Located (indexed (N.of_nat (List.length entries))) (or_introl eq_refl).
-Definition existing {entry} (entries : list entry) identity value
- (Found : registry_at identity entries = Some value) : located _ _ entries :=
- Located (indexed identity) (or_intror (ex_intro _ value Found)).
 Definition ordered_append {entry} (entries : list entry * list N) : located _ _ entries :=
  Located (ordered (N.of_nat (List.length (fst entries)))) (or_introl eq_refl).
-Definition ordered_existing {entry} (entries : list entry * list N) identity value
- (Found : registry_at identity (fst entries) = Some value) : located _ _ entries :=
- Located (ordered identity) (or_intror (ex_intro _ value Found)).
 Definition ordered_present {entry} (entries : list (option entry) * list N) identity value
  (Found : (match registry_at identity (fst entries) with Some found => found | None => None end) = Some value)
  : located _ (option entry) entries.

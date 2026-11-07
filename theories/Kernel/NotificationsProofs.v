@@ -1,6 +1,6 @@
 From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
+From Selvedge.Foundation Require Import Json JsonProofs JsonObjectsProofs RegistryProofs.
 From Selvedge.Kernel Require Import Domain Inputs State Observation Notifications Delivery.
 Import ListNotations.
 Open Scope string_scope.
@@ -52,15 +52,19 @@ Qed.
 Theorem notification_envelopes_preserve_all_business_effects : forall durable admitted source before result,
  let effects := map (Observation.effect_json (decision_world result)) (decision_effects result) in
  field "effects" (Notifications.envelope durable admitted source before result) = Some (JArray effects) \/
- field "effects" (Notifications.envelope durable admitted source before result) =
-   Some (JArray (effects ++ [JObject [("kind",JString "plugin_events");
-     ("events",JArray (Notifications.batch source before result))]])).
+ exists notification,
+   field "effects" (Notifications.envelope durable admitted source before result) =
+     Some (JArray (effects ++ [notification])) /\
+   JsonObjects.equivalent notification (JObject [("kind",JString "plugin_events");
+     ("events",JArray (Notifications.batch source before result))]) = true.
 Proof.
  intros. unfold Notifications.envelope; destruct (durable && admitted); [|left; reflexivity].
  destruct (Notifications.batch source before result) eqn:Batch; [left; reflexivity|].
  destruct (Delivery.fits_json _); [right|left; reflexivity].
- cbn; unfold Variant.encode_packet,Variant.pack,Variant.encode; cbn.
- now rewrite map_id.
+ eexists; split; [reflexivity|].
+ cbn -[JsonObjects.equivalent]; unfold Variant.encode_packet,Variant.pack,Variant.encode;
+   cbn -[JsonObjects.equivalent].
+ rewrite map_id. apply equivalent_is_reflexive.
 Qed.
 Theorem oversized_notification_batch_leaves_the_complete_base_envelope : forall source before result,
  Delivery.fits_json (Notifications.enriched_envelope true result (Notifications.batch source before result)) = false ->

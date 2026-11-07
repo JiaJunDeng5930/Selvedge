@@ -1,5 +1,5 @@
 From Stdlib Require Import String Ascii List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json Numbers Utf8.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Numbers Utf8.
 From Selvedge.Kernel Require Import Domain Inputs ApprovalProtocol Observation.
 From Selvedge.Adapters Require Import Common BackendHistory BackendRequests.
 Import ListNotations.
@@ -259,28 +259,28 @@ Proof.
    rewrite firstn_cons_bounded, IH; cbn [rev]; rewrite <- app_assoc; cbn [List.app].
    reflexivity.
 Qed.
-Theorem user_requests_are_latest_text_excerpts : forall history,
- user_requests history = map (fun parts => JString (request_excerpt (request_plain_text parts)))
+Theorem user_request_text_is_latest_excerpts : forall history,
+ user_request_text history = map (fun parts => request_excerpt (request_plain_text parts))
  (firstn request_limit (rev (user_contents history))).
 Proof.
- intros history; unfold user_requests, user_request_text; rewrite map_map.
+ intros history; unfold user_request_text.
  change [] with (firstn request_limit ([] : list content)).
  rewrite bounded_recent_user_contents, app_nil_r; reflexivity.
 Qed.
-Theorem user_requests_bounded : forall history,
- (List.length (user_requests history) <= request_limit)%nat.
-Proof. intros; rewrite user_requests_are_latest_text_excerpts, length_map; apply firstn_le_length. Qed.
+Theorem user_request_text_bounded : forall history,
+ (List.length (user_request_text history) <= request_limit)%nat.
+Proof. intros; rewrite user_request_text_is_latest_excerpts, length_map; apply firstn_le_length. Qed.
 
-Theorem user_requests_preserve_admitted_text : forall history,
+Theorem user_request_text_preserves_admitted_text : forall history,
  Forall (fun parts => Forall (fun part => match part with
    | TextPart text => Utf8.well_formed text = true | ImagePart _ => True end) parts)
    (user_contents history) ->
- Forall (fun value => exists text scalars,
-   value = JString text /\ Utf8.well_formed text = true /\
+ Forall (fun text => exists scalars,
+   Utf8.well_formed text = true /\
    Utf8.scalar_count text = Some scalars /\ (scalars <= request_scalars)%nat)
-   (user_requests history).
+   (user_request_text history).
 Proof.
- intros history Admitted; rewrite user_requests_are_latest_text_excerpts.
+ intros history Admitted; rewrite user_request_text_is_latest_excerpts.
  apply Forall_forall; intros value Selected; apply in_map_iff in Selected.
  destruct Selected as [parts [Value Selected]].
  assert (Present : In parts (rev (user_contents history))).
@@ -291,8 +291,8 @@ Proof.
  pose proof (plain_text_keeps_admitted_utf8 _ Admitted) as Valid.
  destruct (bounded_excerpt_preserves_utf8 _ request_scalars Valid)
    as [total [suffix [_ [_ [Utf8 Count]]]]].
- exists (request_excerpt (request_plain_text parts)), (Nat.min request_scalars total).
- split; [symmetry; exact Value|]; split; [exact Utf8|]; split; [exact Count|apply Nat.le_min_l].
+ subst value. exists (Nat.min request_scalars total).
+ split; [exact Utf8|]; split; [exact Count|apply Nat.le_min_l].
 Qed.
 
 (** The final effect and provider preparation consume this same construction.
@@ -302,29 +302,35 @@ Theorem approval_effect_uses_latest_text_excerpts : forall state owner ticket pr
  Some (JArray (map (fun parts => JString (request_excerpt (request_plain_text parts)))
    (firstn request_limit (rev (user_contents (task_history task)))))).
 Proof.
- intros; rewrite <- user_requests_are_latest_text_excerpts; reflexivity.
+ intros.
+ change (Some (JArray (map JString (user_request_text (task_history task)))) =
+   Some (JArray (map (fun parts => JString (request_excerpt (request_plain_text parts)))
+     (firstn request_limit (rev (user_contents (task_history task))))))).
+ rewrite user_request_text_is_latest_excerpts, map_map; reflexivity.
 Qed.
 Theorem approval_effect_carries_bounded_admitted_text : forall state owner ticket profile call task,
  Forall (fun parts => Forall (fun part => match part with
    | TextPart text => Utf8.well_formed text = true | ImagePart _ => True end) parts)
    (user_contents (task_history task)) ->
  field "user_requests" (Observation.effect_json state (State.RequestApproval owner ticket profile call task)) =
-   Some (JArray (user_requests (task_history task))) /\
- (List.length (user_requests (task_history task)) <= request_limit)%nat /\
- Forall (fun value => exists text scalars,
-   value = JString text /\ Utf8.well_formed text = true /\
+   Some (JArray (map JString (user_request_text (task_history task)))) /\
+ (List.length (user_request_text (task_history task)) <= request_limit)%nat /\
+ Forall (fun text => exists scalars,
+   Utf8.well_formed text = true /\
    Utf8.scalar_count text = Some scalars /\ (scalars <= request_scalars)%nat)
-   (user_requests (task_history task)).
+   (user_request_text (task_history task)).
 Proof.
  intros; split; [reflexivity|]; split;
- [apply user_requests_bounded|apply user_requests_preserve_admitted_text; assumption].
+ [apply user_request_text_bounded|apply user_request_text_preserves_admitted_text; assumption].
 Qed.
 Theorem reviewer_request_uses_approval_excerpts : forall state owner ticket profile call task,
  let effect := Observation.effect_json state (State.RequestApproval owner ticket profile call task) in
- Common.get (BackendRequests.independent_effect effect) "history" =
- JArray [BackendHistory.message "user" (JString (TextJson.render_json (JObject [
+ exists boundary request,
+ JsonObjects.equivalent request (JObject [
    ("task_id",Common.get effect "task_id"); ("request_id",Common.get effect "ticket");
    ("command",CallWire.external (Common.get effect "call")); ("task_settings",Common.get effect "settings");
-   ("recent_user_requests_newest_first",JArray (user_requests (task_history task)));
-   ("context_boundary",JString "Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.")])))] .
-Proof. intros; reflexivity. Qed.
+   ("recent_user_requests_newest_first",JArray (map JString (user_request_text (task_history task))));
+   ("context_boundary",JString boundary)]) = true /\
+ JsonObjects.equivalent (Common.get (BackendRequests.independent_effect effect) "history")
+   (JArray [BackendHistory.message "user" (JString (TextJson.render_json request))]) = true.
+Proof. intros; eexists; eexists; split; apply equivalent_is_reflexive. Qed.

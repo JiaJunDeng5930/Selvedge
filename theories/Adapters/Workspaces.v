@@ -61,13 +61,9 @@ Fixpoint graph_selections (index : nat) (nodes : list json) : list selection :=
     (if is_object node && negb (has node "task_id")
      then select_settings (NodeWorkspace index) true (get node "settings") else []) ++
     graph_selections (S index) rest end.
-Definition known_command (operation : string) :=
-  existsb (fun spec => String.eqb operation spec.(command_name)) Commands.command_specs.
 Definition plan (command : json) : workspace_plan :=
   let op := str command "op" in
-  (* DEFENSE: Commands are observed before native admission; unknown operations must not trigger filesystem reads. *)
-  if negb (known_command op) then WorkspacePlan false false []
-  else if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
+  if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
     WorkspacePlan (Commands.root_task_creation command)
       (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))
@@ -142,12 +138,11 @@ Definition worktree_path (source : json) :=
      (String.eqb op "copy" && contains_path (str source "source") (str source "repository") &&
        contains_path (str source "destination") (text root) && negb (equal (get source "destination") root))
   then success JNull else err "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository".
-Definition reservation_valid (value : json) (files : json) :=
-  plain_fields_only ["id";"canonical_root";"dev";"ino";"repository"] value &&
-  forallb (fun key => is_text (get value key) && negb (String.eqb (str value key) ""))
-    ["id";"dev";"ino";"repository"] &&
-  equal (get value "canonical_root") (get files "active") && path_valid (get value "repository").
-Definition worktree_receipt_format := "selvedge-local-workspace-2".
+Definition reservation_matches (owner : LocalResources.reservation) (value files : json) :=
+  plain_fields_only ["canonical_root";"dev";"ino";"repository"] value &&
+  equal (JString owner.(reservation_root)) (get files "active") &&
+  path_valid (JString owner.(reservation_repository)).
+Definition worktree_receipt_format := "selvedge-local-workspace-3".
 Definition worktree_receipt_fields := ["format";"task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
 Definition worktree_receipt_encode (source : json) :=
   let state := get source "state" in
@@ -155,13 +150,18 @@ Definition worktree_receipt_encode (source : json) :=
 Definition worktree_receipt (source : json) :=
   let value := get source "value" in let workspace := get value "workspace" in let root := get value "root" in
   let files := get source "files" in
-  let unreserved := String.eqb (str value "local_phase") "unreserved" && is_null (get value "reservation") in
+  let owned := match LocalResources.decode_receipt_stage value with
+    | None => false
+    | Some UnreservedReceipt => equal root (get files "active")
+    | Some (ArchivedReceipt owner) =>
+      reservation_matches owner (get value "reservation") files && equal root (get files "archived")
+    | Some (ReservedReceipt owner) | Some (RegisteredReceipt owner) | Some (ReadyReceipt owner)
+    | Some (ReleasedReceipt owner) | Some (UnresolvedReceipt owner) =>
+      reservation_matches owner (get value "reservation") files && equal root (get files "active")
+    end in
   type_admit (plain_fields_only worktree_receipt_fields value && String.eqb (str value "format") worktree_receipt_format &&
-    LocalResources.receipt_stage_valid value &&
     equal (get value "task_id") (get source "task_id") && equal (get value "source_root") (get source "source_root") &&
-    (unreserved || reservation_valid (get value "reservation") files) &&
-    ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||
-     (String.eqb (str value "status") "archived" && equal root (get files "archived"))) &&
+    owned &&
     workspace_valid workspace &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&
     contains_path (str workspace "primary_root") (text root)) value "Invalid managed worktree receipt".

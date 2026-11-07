@@ -46,12 +46,12 @@ export interface HttpPrimitives {
   events(): Promise<void> | void;
   event_page(): Promise<void> | void;
   health(): Promise<void> | void;
-  account_refresh(body: JsonValue): Promise<void> | void;
+  account_refresh(): Promise<void> | void;
   audio_create(body: JsonValue): Promise<void> | void;
-  audio_login(body: JsonValue): Promise<void> | void;
-  remote_pair(body: JsonValue): Promise<void> | void;
-  remote_enable(body: JsonValue): Promise<void> | void;
-  remote_disable(body: JsonValue): Promise<void> | void;
+  audio_login(): Promise<void> | void;
+  remote_pair(): Promise<void> | void;
+  remote_enable(): Promise<void> | void;
+  remote_disable(): Promise<void> | void;
   browser_observation(body: JsonValue): Promise<void> | void;
   command(body: JsonValue): Promise<void> | void;
   assess(body: JsonValue): Promise<void> | void;
@@ -61,7 +61,7 @@ export interface HttpPrimitives {
   browser_command(command: JsonValue): Promise<void>;
 }
 /** The only HTTP plan consumer selects physical primitives after generated decoding. */
-export async function interpretHttpPlan(input: unknown, bodyObserved: boolean, frameBytes: number, io: HttpPrimitives): Promise<unknown | null> {
+export async function interpretHttpPlan(input: unknown, frameBytes: number, io: HttpPrimitives): Promise<unknown | null> {
   const plan = decodeHttpPlan(input);
   switch (plan.action) {
     case 'respond': io.respond(plan.status, plan.value); return null;
@@ -105,21 +105,20 @@ export async function interpretHttpPlan(input: unknown, bodyObserved: boolean, f
     case 'command':
     case 'assess':
     case 'connection_command':
-      if (!bodyObserved) {
+      // Omission requests physical reading; a present JSON null is already observed.
+      if (plan.body === undefined) {
         const maximum = plan.action === 'account_refresh' || plan.action === 'audio_login' ? 1024
           : plan.action === 'remote_pair' || plan.action === 'remote_enable' || plan.action === 'remote_disable'
             || plan.action === 'remote_approve' || plan.action === 'remote_revoke' ? 8192 : frameBytes;
         return io.readBody(plan.action, maximum);
       }
-      // DEFENSE: The HTTP body stage must attach its admitted JSON value before an execution primitive can run.
-      if (plan.body === undefined) throw new TypeError('HTTP body plan has no body');
       switch (plan.action) {
-        case 'account_refresh': { await io.account_refresh(plan.body); return null; }
+        case 'account_refresh': { await io.account_refresh(); return null; }
         case 'audio_create': { await io.audio_create(plan.body); return null; }
-        case 'audio_login': { await io.audio_login(plan.body); return null; }
-        case 'remote_pair': { await io.remote_pair(plan.body); return null; }
-        case 'remote_enable': { await io.remote_enable(plan.body); return null; }
-        case 'remote_disable': { await io.remote_disable(plan.body); return null; }
+        case 'audio_login': { await io.audio_login(); return null; }
+        case 'remote_pair': { await io.remote_pair(); return null; }
+        case 'remote_enable': { await io.remote_enable(); return null; }
+        case 'remote_disable': { await io.remote_disable(); return null; }
         case 'remote_approve': { const body = decodeHttpRemoteApprovalBody(plan.body); await io.remote_approve(body.request_id, decodeHttpRemotePermissions(body.permissions)); return null; }
         case 'remote_revoke': { const body = decodeHttpRemoteRevokeBody(plan.body); await io.remote_revoke(body.controller_id); return null; }
         case 'browser_command': { const body = decodeHttpBrowserCommandBody(plan.body); await io.browser_command(body.command); return null; }
@@ -159,14 +158,11 @@ export function resolveBrowserPath(input: unknown, canonicalize: (value: JsonVal
 }
 export interface DispatchControlPrimitives {
   rollbackWorkspace(): void;
-  retainWorkspace(): void;
   await(generation: DomainNatural): void;
   state(state: JsonValue): void;
   start(generation: DomainNatural): void;
   cancel(generation: DomainNatural, provider: boolean): void;
   retryFailure(): void;
-  settled(): void;
-  retire(): void;
 }
 export function interpretDispatchControl(input: unknown, io: DispatchControlPrimitives): void {
   const transition = decodeDispatchTransition(input);
@@ -177,11 +173,8 @@ export function interpretDispatchControl(input: unknown, io: DispatchControlPrim
       case 'start': io.start(action.generation); break;
       case 'await': io.await(action.generation); break;
       case 'rollback_workspace': io.rollbackWorkspace(); break;
-      case 'retain_workspace': io.retainWorkspace(); break;
       case 'cancel': io.cancel(action.generation, action.provider); break;
       case 'retry_failure': io.retryFailure(); break;
-      case 'settled': io.settled(); break;
-      case 'retire': io.retire(); break;
       default: { const unreachable: never = action; return unreachable; }
     }
   }
@@ -222,15 +215,15 @@ export async function interpretAudioControl(input: unknown, io: AudioControlPrim
 
 export function dispatchControlResult(input: unknown) {
   const starts: DomainNatural[] = [], awaits: DomainNatural[] = [], cancellations: Array<{generation: DomainNatural; provider: boolean}> = [];
-  let state: JsonValue = null, settled = false, retryFailure = false, retire = false, rollbackWorkspace = false;
+  let state: JsonValue = null, retryFailure = false, rollbackWorkspace = false;
   interpretDispatchControl(input, {
-    rollbackWorkspace: () => { rollbackWorkspace = true; }, retainWorkspace: () => {},
+    rollbackWorkspace: () => { rollbackWorkspace = true; },
     await: generation => { awaits.push(generation); },
     state: value => { state = value; }, start: generation => { starts.push(generation); },
     cancel: (generation, provider) => { cancellations.push({ generation, provider }); },
-    settled: () => { settled = true; }, retryFailure: () => { retryFailure = true; }, retire: () => { retire = true; },
+    retryFailure: () => { retryFailure = true; },
   });
-  return { state, starts, awaits, cancellations, settled, retryFailure, retire, rollbackWorkspace };
+  return { state, starts, awaits, cancellations, retryFailure, rollbackWorkspace };
 }
 export function browseDirectoryLocation(plan: Extract<BrowserObservationPlan, {kind: 'browse-directories'}>,
   resolve: () => unknown, canonicalize: (value: JsonValue) => Promise<JsonValue>): Promise<JsonValue> {

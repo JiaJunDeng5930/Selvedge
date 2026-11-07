@@ -5,12 +5,7 @@ Definition codex_auto_review_model := "codex-auto-review".
 Definition is_codex_auto_review (value : profile) :=
  String.eqb (profile_provider value) "chatgpt" && String.eqb (profile_model value) codex_auto_review_model.
 
-Definition account_prefix := AccountNamespace.prefix.
-Definition hash_digit := AccountNamespace.hex_digit.
-Definition chatgpt_account_hash_digits := AccountNamespace.hash_digits.
 Definition chatgpt_account_profile_key := AccountNamespace.is_profile_key.
-Definition generated_account_prefix (value : string) :=
- if chatgpt_account_profile_key value then String.substring 0 (String.length AccountNamespace.prefix + AccountNamespace.hash_width + 1) value else "".
 Definition valid_reviewer_profile (value : profile) :=
  negb (String.eqb (profile_reasoning value) "auto") &&
  match profile_policy value with

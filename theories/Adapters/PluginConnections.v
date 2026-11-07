@@ -74,9 +74,9 @@ Definition connection_config source := P.render_outcome configuration_json (admi
 Definition connection_grants source := P.render_outcome (fun values =>
  JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values))) (admit_configuration source).
 (** Secret values never enter Gallina: this is a plan for the opaque credential interpreter. *)
-Definition credential_plan := JObject [("operation",JString "base64url-bearer");("minimum",number 32);
+Definition credential_plan := JObject [("minimum",number 32);
   ("maximum",number 256);("alphabet",JString "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-");
-  ("distinct",JBool true);("prefix",JString "Bearer ")].
+  ("prefix",JString "Bearer ")].
 Definition client_endpoint_valid source := String.eqb (str source "protocol") "http:" &&
   (String.eqb (str source "hostname") "127.0.0.1" || String.eqb (str source "hostname") "[::1]") &&
   negb (boolean_field source "username_present") && negb (boolean_field source "password_present") &&
@@ -88,13 +88,10 @@ Definition client_settings source :=
    | Some identity => success (JObject [("endpoint",get source "origin");("connection",JString (decimal (proj1_sig identity)));("credential_plan",credential_plan)])
    | None => err "SELVEDGE_CONNECTION_ID must name a configured connection" end
  | _ => err "SELVEDGE_CONNECTION_ID must name a configured connection" end.
-Definition settings_file source := if negb (boolean_field source "absolute") then err "SELVEDGE_CONNECTION_FILE must be absolute"
-  else if String.eqb (str source "phase") "path" then success JNull
-  else if String.eqb (str source "phase") "metadata" then
-    if boolean_field source "nofollow" && boolean_field source "regular" && canonical_natural (get source "bytes") &&
-      (num source "bytes" <=? 4096) && uint32 (get source "mode") && (num source "mode" mod 64 =? 0) &&
+Definition settings_file source := if String.eqb (str source "phase") "metadata" then
+    if uint32 (get source "mode") && (num source "mode" mod 64 =? 0) &&
       equal (get source "owner_uid") (get source "current_uid") then success JNull
-    else err "The connection file must be a private, owned regular file of at most 4096 bytes"
+    else err "The connection file must be private and owned by this user"
   else if String.eqb (str source "phase") "keys" then
     if boolean_field source "object" && forallb (fun key => existsb (String.eqb (text key))
       ["SELVEDGE_URL";"SELVEDGE_CONNECTION_ID";"SELVEDGE_CONNECTION_TOKEN"]) (items (get source "keys")) then success JNull

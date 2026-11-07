@@ -6,14 +6,13 @@ From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks.
-From Selvedge.Programming Require Import FeatureRequest DecisionComposition.
+From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition entry := FeatureRequestAdmission.title_entry.
 Definition configure (revision:N) (task_prompt agent_prompt : Titles.instruction) (value:world) :=
  let current:=Selvedge.Features.Domain.feature_title_settings (world_features value) in
  if negb (N.eqb revision (Selvedge.Features.Domain.title_revision current)) then
@@ -30,14 +29,7 @@ Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.conf
    (Selvedge.Generated.Commands.configure_title_settings_task_prompt_admitted p)
    (Selvedge.Generated.Commands.configure_title_settings_agent_prompt_admitted p) value.
 
-Definition first_request := Observation.first_request.
-Definition split_slash := FeatureRequestAdmission.split_slash.
-Definition account_prefix := FeatureRequestAdmission.account_prefix.
-Definition capable := FeatureRequestAdmission.capable_profile.
 Definition ordinary := FeatureRequestAdmission.ordinary_profile.
-Definition selected_profile := FeatureRequestAdmission.selected_title_profile.
-Definition prompt := Titles.prompt_with.
-Definition accepts := FeatureRequestAdmission.title_accepts.
 Definition storage (features : Selvedge.Features.Domain.state) owner :=
  Receiver.At.field features Selvedge.Features.Domain.feature_titles
    (Receiver.At.inject (Selvedge.Features.Domain.TitleEntry owner)
@@ -60,11 +52,6 @@ Definition plan {before} (request : FeatureRequestAdmission.resolved_title befor
 Definition issue {before} (request : FeatureRequestAdmission.resolved_title before) : CommandResult.change :=
  let issued := FeatureRequest.feature_issue_change (plan request) in
  CommandResult.Change JNull (CommandResult.change_world issued) (CommandResult.change_effects issued).
-Definition start (id:N) (result:decision) :decision :=
- match FeatureRequestAdmission.resolve_title id (decision_world result) with
- | None => result
- | Some request => DecisionComposition.follow result (CommandResult.accept (issue request))
- end.
 Definition reception features id := Completion.direct
  (Receiver.field world_features (Receiver.path (storage features id))).
 Definition completed_name (ok : bool) (text : string)

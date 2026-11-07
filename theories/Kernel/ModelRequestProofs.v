@@ -11,7 +11,7 @@ Theorem selected_model_request_uses_the_measured_scope : forall value request,
    (ModelRequest.scope request))).
 Proof.
  intros value request Positive.
- unfold Observation.effect_json, Observation.effect_fields; cbn; rewrite Positive, !map_id; reflexivity.
+ unfold Observation.effect_json; cbn; rewrite Positive, !map_id; reflexivity.
 Qed.
 Theorem unselected_model_request_uses_portable_context : forall value request,
  ModelRequest.reserve request = 0%N ->
@@ -20,13 +20,13 @@ Theorem unselected_model_request_uses_portable_context : forall value request,
    (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request)))).
 Proof.
  intros value request Zero.
- unfold Observation.effect_json, Observation.effect_fields; cbn; rewrite Zero; cbn; rewrite map_id; reflexivity.
+ unfold Observation.effect_json; cbn; rewrite Zero; cbn; rewrite map_id; reflexivity.
 Qed.
 Theorem model_request_preserves_the_frozen_reserve : forall value request,
  field "output_reserve_tokens" (Observation.effect_json value (RequestModel request)) =
  Some (Numbers.number (ModelRequest.reserve request)).
 Proof.
- intros; unfold Observation.effect_json, Observation.effect_fields;
+ intros; unfold Observation.effect_json;
  destruct (0 <? ModelRequest.reserve request)%N; reflexivity.
 Qed.
 Theorem model_request_uses_its_unique_sent_mode : forall value request,
@@ -42,7 +42,7 @@ Theorem model_request_uses_its_unique_callable_set : forall value request,
  field "callable" (Observation.effect_json value (RequestModel request)) =
  Some (JArray (map JString (ModelRequest.callable request))).
 Proof.
- intros; unfold Observation.effect_json, Observation.effect_fields;
+ intros; unfold Observation.effect_json;
  destruct (0 <? ModelRequest.reserve request)%N; reflexivity.
 Qed.
 Theorem evaluator_history_obeys_its_transport_budget : forall history,

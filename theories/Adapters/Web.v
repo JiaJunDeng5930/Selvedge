@@ -35,7 +35,6 @@ Definition method name fields handler
  `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
  O.Operation name fields handler invalid_source H.
 Definition operations := [
- method "web.messages" [required "history" (D.Array D.Any)] WebHistory.messages;
  method "web.tools" [required "effect" D.RawObject] WebHistory.tools;
  method "web.resource" [raw "value";raw "model";raw "body";raw "tools"]
    (fun value model body tools => WebResources.resource (missing value) (missing model) (missing body) (items (missing tools)));
@@ -59,8 +58,8 @@ Definition operations := [
    required "deferred" (D.Array D.Any);required "output_count" positive_natural;required "input_hash" nonempty_text;
    required "store_identity" nonempty_text;raw "binding";raw "contract";raw "tools"] receipt_entry;
  method "web.sse_step" [required "state" (D.OpenObject stream_fields);required "chunk" (D.Value Schema.KText);
-   required "eof" D.Boolean;required "maximum" safe_natural]
-   (fun state chunk eof maximum => WebStream.sse_step (stream_value state) chunk eof (proj1_sig maximum));
+   required "maximum" safe_natural]
+   (fun state chunk maximum => WebStream.sse_step (stream_value state) chunk (proj1_sig maximum));
  method "web.http" [required "record" D.RawObject;required "status" safe_natural]
    (fun record status => WebResources.http record (proj1_sig status));
  method "web.commit" [raw "resource"] (fun resource => WebResources.commit (missing resource));
@@ -68,8 +67,8 @@ Definition operations := [
    (fun body deferred limits => WebResources.request_bounds (missing body) (missing deferred) (num (missing limits) "frame_bytes"));
  method "web.owner" [required "effect" D.RawObject] WebCommon.owner;
  method "web.headers" [raw "version";raw "content_type"] (fun version content_type => WebStream.headers (missing version) (missing content_type));
- O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "profile";raw "record";raw "binding"])
-   (fun action confirm profile record binding => WebStore.recovery (recovery_action_value action) confirm (missing profile) (missing record) (missing binding))
+ O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "record";raw "binding"])
+   (fun action confirm record binding => WebStore.recovery (recovery_action_value action) confirm (missing record) (missing binding))
    "Invalid ChatGPT Web recovery action";
  method "web.recovery_result" [raw "action";raw "value";raw "record"]
    (fun action value record => WebStore.recovery_result (missing action) (missing value) (missing record));
@@ -84,10 +83,8 @@ Definition operations := [
    (fun effect => let effect := history_value effect in WebCommon.position effect.(effect_kind) effect.(effect_history));
  method "web.contract" [required "request" D.RawObject;required "tools" (D.Array D.Any)] contract;
  method "web.store_metadata" [required "rows" (D.Array D.Any);required "new_identity" (D.Value Schema.KText);required "created" D.Boolean] WebStore.store_metadata;
- method "web.frame" [required "frame" (D.OpenObject frame_fields)] (fun frame => WebResources.frame (fst (frame_value frame)));
  method "web.event_header" [required "frame" (D.OpenObject frame_fields)]
    (fun frame => let '(data,name) := frame_value frame in WebResources.event true name data JNull JNull [] JNull);
- O.diagnostic_method "web.recovery_shape" WebStore.recovery_fields (fun _ _ => success JNull) "Invalid ChatGPT Web recovery action";
  method "web.recovery_connection" [raw "profile";raw "record"] (fun profile record => WebStore.recovery_connection (missing profile) (missing record));
  method "web.options" [required "effect" D.RawObject] options;
  method "web.invocation" [required "effect" D.RawObject;required "profile" D.RawObject;required "body" D.RawObject;

@@ -105,7 +105,6 @@ Definition binding_of_values (values : D.denote binding_declaration) : option N 
  match fst (proj1_sig values) with
  | inl owner => Some (proj1_sig owner) | inr (inl _) => None
  | inr (inr impossible) => match impossible with end end.
-Definition parse_workspace_binding source := option_map binding_of_values (D.decode binding_declaration source).
 Definition guidance_declaration := Guidance.declaration.
 Definition guidance_member (workspace : workspace) (guidance : Guidance.t) := match guidance with
  | None => true | Some observed => match workspace_primary workspace with
@@ -195,8 +194,6 @@ Definition task_text_model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString "default")].
 Definition with_reasoning := Domain.with_reasoning.
-Definition parse_reasoning_policy := Domain.parse_reasoning_policy.
-Definition profile_options := Domain.profile_options.
 Definition parse_profile := Domain.parse_profile.
 Definition tool_json (value : tool) := JObject [
  ("name", JString (tool_name value)); ("description", JString (tool_description value));
@@ -269,7 +266,7 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
  | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
- | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
+ | ApprovalReceipt owner operation call outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",project_call invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]

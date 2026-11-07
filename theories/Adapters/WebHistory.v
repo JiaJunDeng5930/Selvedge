@@ -59,7 +59,6 @@ Arguments JSON:
   | Some HistoryRole.Provider => context_message (get item "content")
   | Some HistoryRole.Replacement | None => reject ("Unsupported ChatGPT Web history role: " ++ role) end.
 Definition history values := bind (traverse history_item values) (fun chunks => Accepted (List.concat chunks)).
-Definition messages values := render_outcome JArray (history values).
 Definition flat_character character :=
   ProviderCatalog.env_letter character || ProviderCatalog.env_digit character ||
   existsb (Ascii.eqb character) ["$"%char;"."%char;"-"%char].

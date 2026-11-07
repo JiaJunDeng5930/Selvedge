@@ -60,7 +60,7 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     Creation, manual fork and owned final settlement do not require all
     background work to succeed atomically. Their business change is delivered
     with [ContinueScheduling]; the journal commits it before that continuation
-    can issue physical work. The manual-fork contract reaches [ForkCommit.packet]
+    can issue physical work. The manual-fork contract finalizes the actual [ForkCommit.select]
     with the admitted candidate and output budget. The native-fork contract
     reaches [Packet.packet] under the actual invocation selection and delivery
     budget. The terminal-settlement contract also reaches [Packet.packet], including
@@ -148,7 +148,10 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     not imply an empty operation list.
 
     The existing control and input definitions give these operations their
-    meaning. Their changes use the same frame-preserving Task construction. *)
+    meaning. Their changes use the same frame-preserving Task construction.
+    [steering_replaces_inference_and_preserves_independent_work] additionally
+    constrains the actual admitted steering transition, including its new input
+    and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
   TasksProofs NativeAuthorityProofs.
 Export Selvedge.Kernel.Tasks(control_transition, input_changes, input_effects).
@@ -157,7 +160,8 @@ Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_s
   stopped_tasks_can_finish_an_already_accepted_call).
 Export CallbacksProofs(an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand).
 Export TasksProofs(stopped_idle_receive_reactivates,
-  archived_send_rejects_without_changing_world).
+  archived_send_rejects_without_changing_world,
+  steering_replaces_inference_and_preserves_independent_work).
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
 
 (** ** Approval concerns one captured operation
@@ -166,7 +170,11 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     obtains the authority needed for its requested execution. Approval grants
     one captured operation; it does not change the Task's persistent settings or
     authorize subsequent commands. A pending operation retains its reviewer and
-    ticket, so a later configuration change cannot choose who approved it.
+    ticket until settlement. Its completed history retains the actual command
+    and decision reason so the user can understand what was approved or denied;
+    the reviewer's complete profile is not a second historical configuration.
+    A before-tool hook can rewrite the original call, so this explanation must
+    retain the effective invocation that reached approval.
     Denial follows the same frozen result-hook chain as an execution result.
 
     The authority constructor and granted-operation interpreter bind the
@@ -180,5 +188,5 @@ Export OperationEvent(plan).
 Export Scheduler(granted_operation).
 Export NativeAuthorityProofs(actual_approval_uses_the_frozen_reviewer).
 Export ApprovalEvidenceProofs(pending_approval_selection_retains_the_frozen_actor,
-  human_approval_command_records_its_actual_reviewer,
+  approval_decision_retains_its_command_and_outcome,
   an_approval_denial_runs_the_frozen_result_chain).

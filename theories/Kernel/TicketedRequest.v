@@ -33,9 +33,6 @@ Definition publication_changes (task : task) :=
   FunctionOutput (call_id (operation_call operation)) (operation_notice operation) false :: rest) [] (task_operations task) in
  [TaskChange.AppendHistory notices; TaskChange.operation_change (map announce_operation)].
 Definition publish_operations current := TaskChange.apply (publication_changes current) current.
-Definition last_configuration := ReasoningPlan.last_configuration.
-Definition trailing_configuration := ReasoningPlan.trailing_configuration.
-Definition generation := ReasoningPlan.generation.
 
 Module Scoped.
 Import TaskScope.
@@ -92,7 +89,7 @@ Definition can_observe (publish : bool) (current : task) (before : world) :=
 Definition can_infer (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
  | Running ReadyForModel _ => true | _ => false end.
-Definition admitted_action (before : world) (owner : N) (current : task) (source : action) : Prop := match source with
+Definition admitted_action (before : world) (current : task) (source : action) : Prop := match source with
  | AuthorizeCall _ _ _ _ _ | StartCall _ _ _ _ => call_action current = Some source
  | ResumeOperation operation tool reviewer =>
    can_execute current = true /\
@@ -107,7 +104,7 @@ Definition admitted_action (before : world) (owner : N) (current : task) (source
 Record plan (before : world) := Plan {
  target : task_reference before;
  intent : action;
- operation_observed : admitted_action before (owner target) (selected target) intent
+ operation_observed : admitted_action before (selected target) intent
 }.
 Arguments target {before}.
 Arguments intent {before}.

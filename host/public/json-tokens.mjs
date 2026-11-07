@@ -4,7 +4,6 @@ import { boundary } from './model-boundary.mjs';
 export class JsonNumber {
   constructor(source) {
     this.source = source;
-    Object.freeze(this);
   }
 
   toJSON() { return JSON.rawJSON(this.source); }

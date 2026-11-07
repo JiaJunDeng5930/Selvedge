@@ -21,7 +21,7 @@ Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
  Tasks.resolve_settings (task_current_profile parent) options
    (Tasks.fork_settings_base origin parent before) before = Some selected ->
  Tasks.admit_fork_selection parent before selected = Some selection ->
- let decision := Tasks.fork_with_caller Tasks.ManualFork origin owner count messages options before in
+ let decision := (CommandResult.decide before (Tasks.fork_result Tasks.ManualFork origin owner count messages options before)) in
  bool_default "ok" (decision_reply decision) false = true /\
  exists retained,
    find_task owner (decision_world decision) = Some retained /\
@@ -32,7 +32,7 @@ Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
 Proof.
  intros origin owner count messages options before parent operations selected selection
    Found Available Running Count Messages Capacity Resolved Fixed.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Available.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found, Available.
  unfold Tasks.fork_parent_ready; rewrite Running.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold allocate_ticket. cbn [andb CommandResult.decide CommandResult.resolve CommandResult.accept

@@ -3,14 +3,16 @@
     A Work groups an undertaking, a Task executes a conversation, a graph routes
     replies, and a board card records planned work. Linking them does not merge
     their identity, authority or lifecycle. Independent names and shared source
-    must remain editable without rewriting the execution they describe. *)
+    must remain editable without rewriting the execution they describe.
+    Refusal contracts require failure, unchanged state and no emitted effects;
+    human-readable diagnostic wording is not part of that behavior. *)
 
 From Selvedge.Features Require WorkProofs.
 Export WorkProofs(witnessed_root_birth_records_its_work,
   new_root_ownership_preserves_existing_roots,
   stale_ui_is_atomic, failed_patch_is_atomic,
   admitted_patch_updates_shared_source,
-  shared_ui_patch_preserves_task_ownership).
+  shared_ui_patch_preserves_task_ownership, ui_requires_task_call).
 
 (** ** Work ownership and shared source
 
@@ -73,7 +75,9 @@ From Selvedge.Programming Require FeatureRequestProofs.
 From Selvedge.Kernel Require TitleCommit.
 From Selvedge.Programming Require CardScopeProofs.
 Export CardScopeProofs(stale_card_is_atomic).
-Export BoardProofs(linked_execution_inputs_are_immutable,
+Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
+  automatic_queue_follows_pin_priority_and_board_order,
+  linked_execution_inputs_are_immutable,
   archive_busy_card_retains_task_authority,
   card_title_result_preserves_conversation,
   saving_card_preserves_conversations_and_their_titles).
@@ -82,7 +86,8 @@ Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
 Export TitleRuntime(issue).
 Export TitleCommit(candidate).
-Export TitleProofs(title_configuration_preserves_generation_entries,
+Export TitleProofs(admitted_title_issues_observed_request,
+  title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
 
@@ -94,14 +99,20 @@ Export TitleProofs(title_configuration_preserves_generation_entries,
     remain immutable. Archival may request the ordinary Task interruption but
     cannot invent new cancellation authority from old receipt data.
 
-    Board eligibility, concurrency and ordering belong to [Board]. Filtering
+    Ordinary creation retains the requested draft. Automatic execution selects
+    pinned cards first, then urgent through unprioritized cards, retaining manual
+    board order within each group; only runnable cards enter this selection.
+    [automatic_queue_follows_pin_priority_and_board_order] constrains that actual
+    queue. Board eligibility and concurrency belong to [Board]. Filtering
     changes the view, not the stored card. The bounded scheduler requests a
     continuation when work remains. Automatic title selection uses
     [FeatureRequestAdmission.resolve_title]. Its admission theorem retains the
     actually observed Task and selected profile; a pending entry prevents
     another selection. [TitleCommit.candidate] calls [TitleRuntime.issue], which
     constructs the shared feature-request plan containing the frozen profile
-    and prompt. The shared receiver theorem governs that construction.
+    and prompt. [admitted_title_issues_observed_request] binds its emitted request
+    to the observed owner, selected profile and prompt. The shared receiver
+    theorem governs installation of the receiver.
     [tests/title-request-settings.test.mjs] exercises the automatic request's
     frozen settings and its completed title through public read. The selected
     theorems constrain admission and receiver construction; the public test
@@ -123,9 +134,14 @@ Export TitleProofs(title_configuration_preserves_generation_entries,
     Closing the supporting presentation only changes the view.
 
     The birth theorem establishes the captured guidance and initial cursor.
-    [return_side] and [returned_content] are the executable definitions of return
-    and content selection; the birth theorem does not establish return delivery. *)
+    A successful return advances that cursor to the observed history length;
+    repeating it without new history cannot resend the same content. Refusal
+    preserves the complete world and emits no effects. These guarantees apply
+    to the actual [return_side] transition; diagnostic wording is not part of
+    the no-repeat contract. *)
 From Selvedge.Kernel Require SideConversationProofs CommandExecution History.
-Export SideConversationProofs(successful_open_side_records_private_birth_guidance).
+Export SideConversationProofs(successful_open_side_records_private_birth_guidance,
+  successful_side_return_consumes_the_observed_suffix,
+  a_refused_side_return_keeps_the_world_and_effects).
 Export CommandExecution(return_side).
 Export History(returned_content).

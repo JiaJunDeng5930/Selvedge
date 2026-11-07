@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Kernel Require Import ToolArguments.
+From Selvedge.Kernel Require Import Images ToolArguments.
 From Selvedge.Adapters Require Import Common Observation HostProcess.
 Import ListNotations.
 Open Scope string_scope.
@@ -53,7 +53,7 @@ Definition image_arguments (source : json) :=
  match ToolArguments.decode_arguments ReadImage (get source "arguments") with
  | Some arguments => success (JObject [("path",JString (proj1_sig (ToolArguments.image_path arguments)));
      ("detail",JString (match ToolArguments.image_detail arguments with Some value => proj1_sig value | None => "auto" end));
-     ("timeout",number 30000);("maximum",number 10485760)])
+     ("timeout",number 30000);("maximum",number Images.image_byte_limit)])
  | None => type_error "Malformed image read effect" end.
 Definition artifact (name : string) (output value : json) :=
   optional (boolean_field output "truncated" && negb (is_null value)) name value.

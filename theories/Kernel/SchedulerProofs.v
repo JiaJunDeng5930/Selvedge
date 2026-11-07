@@ -10,7 +10,7 @@ Import ListNotations.
 Theorem publishing_live_operations_only_marks_them_announced :
  forall task phase operations,
  task_lifecycle task = Running phase operations ->
- task_operations (Scheduler.publish_operations task) = map Scheduler.announce_operation operations.
+ task_operations (TicketedRequest.publish_operations task) = map TicketedRequest.announce_operation operations.
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
    phase operations RunningTask.
@@ -21,7 +21,7 @@ Theorem operation_publication_preserves_its_completion_owner :
  forall task phase operations operation,
  task_lifecycle task = Running phase operations ->
  In operation operations ->
- exists published, In published (task_operations (Scheduler.publish_operations task)) /\
+ exists published, In published (task_operations (TicketedRequest.publish_operations task)) /\
    operation_id published = operation_id operation /\
    operation_call published = operation_call operation /\
    operation_stage published = operation_stage operation /\
@@ -29,22 +29,22 @@ Theorem operation_publication_preserves_its_completion_owner :
 Proof.
  intros task phase operations operation RunningTask Member.
  rewrite (publishing_live_operations_only_marks_them_announced task phase operations RunningTask).
- exists (Scheduler.announce_operation operation); split.
+ exists (TicketedRequest.announce_operation operation); split.
  - apply in_map; exact Member.
- - unfold Scheduler.announce_operation; repeat split; reflexivity.
+ - unfold TicketedRequest.announce_operation; repeat split; reflexivity.
 Qed.
 
-Theorem exhausted_schedule_requests_another_step : forall execute permitted value effects,
+Theorem exhausted_schedule_requests_another_step :
+ forall advance execute permitted value effects accepted retained,
  existsb Scheduler.effect_requires_commit effects = false ->
- existsb (fun entry => let '(id, task) := entry in
-   match Scheduler.next_runnable_step permitted id task (SideContext.reconcile value) with Some _ => true | None => false end)
-   (Selvedge.Foundation.Registry.indexed (fun id task => (id, task)) 0 (world_tasks (SideContext.reconcile value))) = true ->
- Scheduler.schedule 0 execute permitted value effects =
-   (SideContext.reconcile value, effects ++ [ContinueScheduling]).
+ advance (SideContext.reconcile value) effects = Some (accepted,retained) ->
+ Scheduler.has_runnable_work permitted accepted = true ->
+ Scheduler.schedule_with advance 0 execute permitted value effects =
+   (accepted,retained ++ [ContinueScheduling]).
 Proof.
- intros execute permitted value effects NoCommit Work.
- cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted]; rewrite NoCommit.
- unfold Scheduler.continue_runnable, Scheduler.has_runnable_work; rewrite Work; reflexivity.
+ intros advance execute permitted value effects accepted retained NoCommit Admitted Work.
+ cbn [Scheduler.schedule_with]; rewrite NoCommit,Admitted.
+ unfold Scheduler.continue_runnable; rewrite Work; reflexivity.
 Qed.
 
 Theorem a_required_commit_keeps_the_exact_scheduler_prefix :
@@ -102,13 +102,13 @@ Qed.
 Theorem an_admitted_task_cancellation_uses_the_dispatch_commit_boundary :
  forall advance execute permitted current owner,
  In (CancelTask owner) (decision_effects current) ->
- Scheduler.run_with advance execute permitted current =
+ (DecisionComposition.transform (Scheduler.scheduling_with advance execute permitted) current) =
  let '(value,effects) := Dispatch.prepare (decision_world current)
    (Scheduler.continue_runnable permitted (decision_world current) (decision_effects current)) in
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current owner Present.
- unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
+ unfold DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite task_cancellation_commits_before_further_scheduler_changes with (owner:=owner) by exact Present.
  unfold Scheduler.continue_runnable.
  destruct (Dispatch.prepare (decision_world current)
@@ -161,13 +161,13 @@ Qed.
 Theorem an_admitted_frozen_request_uses_the_dispatch_commit_boundary :
  forall advance execute permitted current,
  existsb Scheduler.frozen_inference (decision_effects current) = true ->
- Scheduler.run_with advance execute permitted current =
+ (DecisionComposition.transform (Scheduler.scheduling_with advance execute permitted) current) =
  let '(value,effects) := Dispatch.prepare (decision_world current)
    (Scheduler.continue_runnable permitted (decision_world current) (decision_effects current)) in
  Decision value (decision_reply current) effects.
 Proof.
  intros advance execute permitted current Frozen.
- unfold Scheduler.run_with,DecisionComposition.transform,Scheduler.scheduling_with.
+ unfold DecisionComposition.transform,Scheduler.scheduling_with.
  rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
  unfold Scheduler.continue_runnable.
  destruct (Dispatch.prepare (decision_world current)
@@ -196,8 +196,8 @@ Theorem unfinished_bash_keeps_its_completion_owner_across_inference :
  task_lifecycle task = Running (PendingCalls []) operations ->
  In operation operations ->
  Scheduler.process_needs_model operation = true ->
- task_lifecycle (Scheduler.continue_after_calls task) = Running WantsModel operations /\
- In operation (task_operations (Scheduler.continue_after_calls task)).
+ task_lifecycle (TaskChange.apply (Scheduler.continue_after_calls_changes task) task) = Running WantsModel operations /\
+ In operation (task_operations (TaskChange.apply (Scheduler.continue_after_calls_changes task) task)).
 Proof.
  intros task operations operation Pending Member NeedsModel.
  assert (Promoted : task_lifecycle (TaskWake.promote task) = Running WantsModel operations \/

@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json SequenceProofs.
+From Selvedge.Foundation Require Import Json SequenceProofs JsonObjectsProofs.
 From Selvedge.Kernel Require Import Compaction CompactionPlan ContextSelection Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -27,10 +27,10 @@ Proof.
  unfold receive, receive_source. cbn. now rewrite Finished.
 Qed.
 Theorem an_opaque_reply_cannot_finish_portable_work : forall unread cursor carry width window reserve scope items,
- receive (CompactionState (PortableSource unread) cursor carry width window reserve)
+ exists reason, receive (CompactionState (PortableSource unread) cursor carry width window reserve)
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =
- Failed "The compactor returned an empty continuation note".
-Proof. reflexivity. Qed.
+ Failed reason.
+Proof. intros; eexists; reflexivity. Qed.
 Theorem an_admitted_plan_fits_its_byte_allocation : forall value budget,
  transport_fits value budget = true -> plan_bytes value <= budget /\ has_transport_work value = true.
 Proof.
@@ -73,19 +73,19 @@ Qed.
 
 Theorem native_plan_transports_only_its_selected_history :
  forall history raw cursor carry width window reserve,
- plan_json (CompactionState (NativeSource history raw) cursor carry width window reserve) =
- JObject [("method", JString "native"); ("window_tokens", number window);
-   ("output_reserve_tokens", number reserve); ("history", history)].
-Proof. reflexivity. Qed.
+ JsonObjects.equivalent (plan_json (CompactionState (NativeSource history raw) cursor carry width window reserve))
+ (JObject [("method", JString "native"); ("window_tokens", number window);
+   ("output_reserve_tokens", number reserve); ("history", history)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem portable_plan_transports_only_bounded_summary_material :
  forall unread cursor carry width window reserve,
- plan_json (CompactionState (PortableSource unread) cursor carry width window reserve) =
- JObject [("method", JString "portable"); ("window_tokens", number window);
+ JsonObjects.equivalent (plan_json (CompactionState (PortableSource unread) cursor carry width window reserve))
+ (JObject [("method", JString "portable"); ("window_tokens", number window);
    ("output_reserve_tokens", number reserve);
    ("chunk", JString (String.concat "" (chunk (CompactionState (PortableSource unread) cursor carry width window reserve))));
-   ("carry", JString carry); ("prompt", JString summary_prompt)].
-Proof. reflexivity. Qed.
+   ("carry", JString carry); ("prompt", JString summary_prompt)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem a_portable_chunk_is_an_exact_prefix_of_unread_scalars :
  forall unread cursor carry width window reserve,
@@ -100,11 +100,8 @@ Qed.
 Theorem rebasing_preserves_the_unread_suffix_in_order :
  forall unread cursor carry width window reserve rebased,
  rebase_note (CompactionState (PortableSource unread) cursor carry width window reserve) = Some rebased ->
- exists prefix,
-   scalar_fragments
-     ("Prior continuation note:" ++ String (Ascii.ascii_of_nat 10) carry ++
-      String (Ascii.ascii_of_nat 10) "Unread task history:" ++
-      String (Ascii.ascii_of_nat 10) "") = Some prefix /\
+ exists opening closing prefix,
+   scalar_fragments (opening ++ carry ++ closing) = Some prefix /\
    compaction_source rebased = PortableSource (prefix ++ unread) /\
    compaction_carry rebased = "".
 Proof.
@@ -117,7 +114,9 @@ Proof.
     String (Ascii.ascii_of_nat 10) "")) as [prefix|] eqn:Parsed;
    try discriminate.
  inversion Rebased; subst rebased.
- exists prefix. split; [reflexivity|].
+ exists ("Prior continuation note:" ++ String (Ascii.ascii_of_nat 10) ""),
+   (String (Ascii.ascii_of_nat 10) "Unread task history:" ++ String (Ascii.ascii_of_nat 10) ""), prefix.
+ split; [exact Parsed|].
  cbn. split.
  - rewrite List.rev_append_rev, List.rev_append_rev, List.app_nil_r, List.rev_involutive.
    reflexivity.

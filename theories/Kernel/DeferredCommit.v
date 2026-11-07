@@ -10,8 +10,6 @@ Import ListNotations.
    The existing continuation performs ordinary scheduling in the next turn. *)
 Definition continuation : DecisionComposition.transformation := fun reply value effects =>
  (value,if Codec.bool_default "ok"%string reply false then effects ++ [ContinueScheduling] else effects).
-Definition continue := DecisionComposition.transform continuation.
-
 Definition continue_result (before : world) (result : CommandResult.result CommandResult.change) :=
  CommandResult.commit before (CommandResult.append_effects [ContinueScheduling]) result.
 
@@ -23,5 +21,3 @@ Definition admit_with_status (durable : bool) (before : world) (result : decisio
 
 Definition select (durable : bool) (source : option input) (before : world) (candidate : decision) :=
  CommitPacket.choose durable source (admit_with_status durable before candidate).
-Definition packet (source : option input) (before : world) (candidate : decision) : world * json :=
- CommitPacket.finalize before (select true source before candidate).

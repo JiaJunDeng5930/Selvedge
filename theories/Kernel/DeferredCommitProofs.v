@@ -54,18 +54,18 @@ Qed.
 
 Theorem a_constructed_candidate_with_its_actual_budget_is_committed : forall source before candidate,
  Dispatch.retain_live_effects candidate = candidate -> Delivery.fits true candidate = true ->
- DeferredCommit.packet source before candidate =
+ (CommitPacket.finalize before (DeferredCommit.select true source before candidate)) =
  (with_sequence (N.succ (world_sequence before)) (decision_world candidate),
   Notifications.envelope true true source before candidate).
 Proof.
  intros source before candidate Live Budget.
- unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose, DeferredCommit.admit_with_status.
+ unfold DeferredCommit.select, CommitPacket.choose, DeferredCommit.admit_with_status.
  rewrite Live; unfold Delivery.deliver_with_status; rewrite Budget; reflexivity.
 Qed.
 
 Theorem a_business_refusal_commits_its_exact_receipt : forall command before code message,
  Delivery.fits true (reject code message before) = true ->
- DeferredCommit.packet (Some (UserCommand command)) before (reject code message before) =
+ (CommitPacket.finalize before (DeferredCommit.select true (Some (UserCommand command)) before (reject code message before))) =
  (with_sequence (N.succ (world_sequence before)) before,Observation.envelope true (reject code message before)).
 Proof.
  intros command before code message Fits.

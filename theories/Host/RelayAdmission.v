@@ -12,7 +12,6 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Inductive route := Health | Enrollment | Host | Pairing | Tickets | Control.
-Inductive state := AwaitRequest | Routed (destination : route) (host_id : string).
 Inductive observation :=
  | HttpRequest (protocol hostname path method : string) (local_test : bool) (query : list json)
  | Authorization (destination : route) (header : string)
@@ -123,19 +122,17 @@ Definition json_content media :=
   match skip_media_space (substring 16 (String.length lowered) lowered) with
   | EmptyString=>true | String character _=>Ascii.eqb character ";" end).
 Definition maximum_body_bytes : N := 4096.
-Definition step current event : state * list action :=
+Definition admit event : action :=
  match event with
  | HttpRequest protocol hostname path method local_test query=>
-   let chosen:=route_admission protocol hostname path method local_test query in
-   match chosen with Dispatch destination host_id=>(Routed destination host_id,[chosen]) | _=>(current,[chosen]) end
- | Authorization destination header=>(current,[authorize destination header])
- | JsonBody destination body=>(current,[match decode_body destination body with
+   route_admission protocol hostname path method local_test query
+ | Authorization destination header=>authorize destination header
+ | JsonBody destination body=>match decode_body destination body with
    | Some value => BodyAccepted destination value
-   | None => Reject 400 (match destination with Enrollment=>"invalid_registration"|Pairing=>"invalid_pairing_request"|_=>"invalid_ticket_request" end) end])
- | Content media declared received=>(current,[if negb (json_content media) then Reject 415 "invalid_request" else
+   | None => Reject 400 (match destination with Enrollment=>"invalid_registration"|Pairing=>"invalid_pairing_request"|_=>"invalid_ticket_request" end) end
+ | Content media declared received=>if negb (json_content media) then Reject 415 "invalid_request" else
    if (maximum_body_bytes <? received) || (match parse_natural declared with Some size=>maximum_body_bytes <? size|None=>false end)
-   then Reject 413 "invalid_request" else ContentAccepted])
-
+   then Reject 413 "invalid_request" else ContentAccepted
  end.
 Definition action_json chosen := match chosen with
  | Reject status code=>JObject [("action",JString "reject");("status",number status);("code",JString code)]
@@ -144,19 +141,19 @@ Definition action_json chosen := match chosen with
  | BodyAccepted destination value=>body_json destination value | ContentAccepted=>number 0
  end.
 
-Definition execute current event := match snd (step current event) with chosen::_=>action_json chosen | _=>JNull end.
+Definition execute event := action_json (admit event).
 Definition call operation source :=
  if String.eqb operation "control.remote.enrollment_credential" then
  JBool (match source with JString text=>EnrollmentCredential.valid text|_=>false end)
- else if String.eqb operation "control.remote.relay_route" then execute AwaitRequest
+ else if String.eqb operation "control.remote.relay_route" then execute
  (HttpRequest (str source "protocol") (str source "hostname") (str source "path") (str source "method")
  (equal (get source "local_test") (JBool true)) (items (get source "query")))
- else if String.eqb operation "control.remote.relay_content" then execute AwaitRequest
+ else if String.eqb operation "control.remote.relay_content" then execute
  (Content (str source "content_type") (str source "content_length") (num source "received_bytes"))
  else match read_route (str source "route") with
  | None=>action_json (Reject 404 "not_found")
  | Some destination=>
- if String.eqb operation "control.remote.relay_body" then execute AwaitRequest (JsonBody destination (get source "body"))
- else if String.eqb operation "control.remote.relay_credential" then execute AwaitRequest (Authorization destination (str source "header"))
+ if String.eqb operation "control.remote.relay_body" then execute (JsonBody destination (get source "body"))
+ else if String.eqb operation "control.remote.relay_credential" then execute (Authorization destination (str source "header"))
  else JNull end.
 

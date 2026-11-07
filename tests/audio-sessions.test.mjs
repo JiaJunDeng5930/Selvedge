@@ -80,7 +80,8 @@ test('voice control resolves referenced turns, commits before publication and fl
   socket.provider({ type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'next-work', user_bidi_turn_id: 'turn', content: [] } });
   socket.provider({ type: 'turn.created', turn: { role: 'user', id: 'turn', transcript: 'Please explain the answer' } });
   const accepted = await eventually(() => socket.sent.find(event => event.type === 'delegation.context.append' && event.delegation_item_id === 'work'));
-  assert.match(accepted.content[0].text, /accepted the requested work/);
+  assert.ok(accepted.content.some(part => typeof part.text === 'string' && part.text.trim()),
+    'The committed delegation supplies feedback to the voice session');
   assert.ok((await read()).some(message => message.role === 'speech_delegation_receipt' && message.delegation_id === 'work' && message.content === 'Please explain the answer'));
   await eventually(() => socket.sent.some(event => event.type === 'delegation.context.append' && event.delegation_item_id === 'next-work'));
   assert.deepEqual((await read()).filter(message => message.role === 'speech_delegation_receipt').map(message => message.delegation_id), ['work', 'next-work']);
@@ -196,8 +197,8 @@ test('accepted Task progress reaches the active voice provider', async t => {
   assert.equal((await service.command({ op: 'send', task_id, message: messages[1] })).reply.ok, true);
   await eventually(async () => (await read()).filter(message => message.role === 'model_context' && message.content?.item?.role === 'assistant').length === 2);
   await eventually(() => {
-    const progress = wire.sockets[0].sent.flatMap(event => event.content ?? []).map(part => part.text ?? '')
-      .filter(text => text.includes('progress ('));
+    const progress = wire.sockets[0].sent.filter(event => ['session.context.append', 'delegation.context.append'].includes(event.type))
+      .flatMap(event => event.content ?? []).map(part => part.text ?? '');
     return messages.every(message => progress.some(text => text.includes(message)));
   });
   await service.audioStop(session.id, 'browser');

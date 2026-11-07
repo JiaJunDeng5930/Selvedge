@@ -7,7 +7,7 @@ Open Scope string_scope.
 Theorem stop_closes_stream : forall state message,
   AudioState.phase (fst (AudioState.stop state message)) = AudioState.Closed.
 Proof.
-  intros [identity generation phase sequence user assistant turns pending] message.
+  intros [identity phase sequence user assistant turns pending] message.
   destruct phase; unfold AudioState.stop; cbn [AudioState.phase AudioState.user_tail AudioState.assistant_tail AudioState.completed];
     destruct (String.eqb user ""); destruct (String.eqb assistant ""); reflexivity.
 Qed.

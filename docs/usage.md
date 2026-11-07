@@ -136,9 +136,10 @@ owner's instance, and an instance cannot be recycled while another task uses it.
 To use voice with a cloud task, create the task first, then start voice in its
 conversation.
 
-Failed setup reclaims its allocation and retains the setup log under
-`<service home>/cloud-workspaces/<journal namespace>/task-<id>.log`. If reclamation
-fails, the task retains the failure and resource association;
+Failed setup reclaims its allocation. Setup output is written under
+`<service home>/cloud-workspaces/<journal namespace>/task-<id>.log`; a log write
+failure is reported through service diagnostics without blocking preparation
+or cleanup. If reclamation fails, the task retains the failure and resource association;
 `retry_worktree_archive` retries cleanup. Restart recovery reconciles the
 persisted allocation receipt with the same task resource.
 Archiving the owning task recycles its cloud instance after active IO has settled.
@@ -200,7 +201,7 @@ maximum 65,536), excluding the omission marker. The combined `read_process` outp
 has one buffer of the same size; the tool result byte budget can reduce these
 limits. Previews keep the newest output;
 metadata reports raw byte counts and omitted character counts. Truncated streams
-carry private artifact paths, SHA-256 revisions and explicit retention limits.
+carry private artifact paths and explicit retention limits.
 An artifact capped at 8 MiB retains the latest raw output bytes. Inspect
 it through Bash. Nonzero exits, deadlines and cancellation are tool errors, and
 shell descendants are terminated when the shell exits.
@@ -384,11 +385,11 @@ provide the ChatGPT audio connection.
 ## Persistence
 
 Back up the service home, including its journal, attachments and retained provider
-receipts. The journal commits admitted inputs and decisions before dispatching
-external effects. Restart checks its hash chain and replays those decisions with
-the current kernel; incompatible formats or decisions fail explicitly. An ordinary
-source update does not itself require a new home. Only the current journal format
-is accepted; keep an incompatible existing home separate.
+receipts. The journal commits admitted inputs before dispatching external effects.
+Restart replays those inputs with the current kernel without executing their
+effects. Only the current journal format is accepted; keep an incompatible
+existing home separate. A source update that changes the meaning of stored
+inputs requires a new journal format.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,

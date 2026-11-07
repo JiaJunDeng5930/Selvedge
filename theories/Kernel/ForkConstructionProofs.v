@@ -39,16 +39,16 @@ Proof.
 Qed.
 Theorem fork_does_not_write_unrelated_existing_tasks : forall entry origin id count messages settings before other existing,
  other <> id -> find_task other before = Some existing ->
- find_task other (decision_world (Tasks.fork_with_caller entry origin id count messages settings before)) = Some existing.
+ find_task other (decision_world (CommandResult.decide before (Tasks.fork_result entry origin id count messages settings before))) = Some existing.
 Proof.
  intros entry origin id count messages settings before other existing Different Found.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta.
  destruct (find_task id before) as [parent|]; [|exact Found].
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count before).
- 2: { unfold Tasks.fork_refusal; destruct entry;
+ 2: { unfold CommandResult.reject; destruct entry;
       try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Found. }
  destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
  cbn.
@@ -69,10 +69,10 @@ Qed.
 Theorem accepted_native_fork_never_reconfigures_its_parent : forall invocation remaining origin id count messages settings before parent,
  find_task id before = Some parent ->
  find_task id (decision_world
-   (Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages settings before)) = Some parent.
+   (CommandResult.decide before (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages settings before))) = Some parent.
 Proof.
  intros invocation remaining origin id count messages settings before parent Found.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found.
  destruct (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&

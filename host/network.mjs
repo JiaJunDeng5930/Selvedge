@@ -23,20 +23,9 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  const source = { response: { status: response.status, ok: response.ok, status_text: response.statusText,
-    url: response.url, type: response.type, redirected: response.redirected,
-    headers: [...response.headers] }, text };
-  let decoded;
-  try { decoded = boundary('web.http_json', source); }
-  catch (error) {
-    // DEFENSE: A successful HTTP response containing malformed JSON is a protocol failure with a SyntaxError cause.
-    if (error.code === 'http_json_parse') {
-      throw new Error(error.message, { cause: new SyntaxError('Invalid JSON response') });
-    }
-    throw error;
-  }
+  const decoded = boundary('web.http_json', { response: { ok: response.ok }, text });
   const value = decoded.present ? decoded.value : undefined;
-  return { status: response.status, ok: response.ok, value, text, headers: response.headers };
+  return { status: response.status, ok: response.ok, value, text };
 }
 
 /** SSE framing is independent of HTTP chunks, including UTF-8 and CRLF splits. */
@@ -51,14 +40,13 @@ export async function* sseEvents(body, maximum) {
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let state = { pending: '', data: [], size: 0, name: 'message', after_cr: false };
   for await (const chunk of body) {
-    const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum, eof: false });
+    const transition = boundary('web.sse_step', { state, chunk: decoder.decode(chunk, { stream: true }), maximum });
     state = transition.state;
     for (const frame of transition.frames) yield frame;
     // DEFENSE: An SSE peer can exceed the frame byte budget before terminating a frame.
     if (transition.error) throw new RangeError(transition.error);
   }
-  const transition = boundary('web.sse_step', { state, chunk: decoder.decode(), maximum, eof: true });
-  for (const frame of transition.frames) yield frame;
-  // DEFENSE: EOF can truncate an SSE frame; surface the framing failure instead of returning incomplete event data.
-  if (transition.error) throw new Error(transition.error);
+  // SSE discards an unfinished event at EOF; each provider owns its terminal response check.
+  // DEFENSE: The peer can stop inside a UTF-8 sequence; flushing must still reject those incomplete bytes.
+  decoder.decode();
 }

@@ -41,8 +41,7 @@ Qed.
 
 Open Scope string_scope.
 
-(** Audit faces retain the admitted event. Approval records include the reviewer
-    frozen when the decision ran, rather than a later profile lookup. *)
+(** Audit faces retain the admitted event. *)
 Inductive kind := ToolInvocation | ToolResult | Reasoning | ContextChange
  | PermissionDecision | Diagnostic | TaskRelation.
 Definition kind_of message := match text "role" message with

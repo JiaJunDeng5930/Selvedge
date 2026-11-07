@@ -102,10 +102,6 @@ Definition reasoning_allowed effort value :=
  | FixedReasoning => Utf8.nonblank effort && negb (String.eqb effort "auto") &&
      match profile_reasoning_options value with [] => true | options => existsb (String.eqb effort) options end
  end.
-Definition profile_reasoning_valid value :=
- if String.eqb (profile_reasoning value) "default"
- then String.eqb (profile_reasoning value) (profile_default value)
- else reasoning_allowed (profile_reasoning value) value.
 Definition same_profile (left right : profile) :=
  Json.equal (profile_metadata left) (profile_metadata right) &&
  String.eqb (profile_reasoning left) (profile_reasoning right).
@@ -207,7 +203,7 @@ Inductive message :=
 | SpeechTranscript (owner : N) (session item : string) (who : speaker) (completion : speech_completion) (text : string)
 | SpeechDelegation (owner : N) (session delegation mode text : string)
 | HookReceipt (owner : N) (invocation : call) (plugin outcome : json)
-| ApprovalReceipt (owner operation : N) (invocation : call) (reviewed_by : reviewer) (outcome : json)
+| ApprovalReceipt (owner operation : N) (invocation : call) (outcome : json)
 | ToolReceipt (owner operation : N) (invocation : call) (result : json) (error : bool)
 | AfterReceipt (owner operation : N) (plugin outcome : json)
 | ForkReceipt (owner : N) (invocation : call) (branch : N).
@@ -291,9 +287,8 @@ Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cur
 (* Only committed input not included in the latest actual model request can
    demand a later inference; model output and administrative receipts do not. *)
 Definition unseen_model_input (value : task) := existsb (fun item => match item with
- | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ _ => true | _ => false end)
+ | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
  (skipn (task_model_cursor value) (task_history value)).
-Definition with_queued (queued : list content) (value : task) := set task_queued (fun _ => queued) value.
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=
  set task_current_settings (fun _ => settings) (set task_current_profile (fun _ => chosen) value).
 Definition with_side_cursor (cursor : N) (value : task) := set task_side_cursor (fun _ => cursor) value.
@@ -315,8 +310,6 @@ Definition change_operations (change : list operation -> list operation) (state 
   end.
 Definition with_activity (phase : activity) (value : task) :=
   with_lifecycle (change_activity phase (task_lifecycle value)) value.
-Definition with_operations (ops : list operation) (value : task) :=
-  with_lifecycle (change_operations (fun _ => ops) (task_lifecycle value)) value.
 Definition activity_busy (phase : activity) :=
   match phase with Idle => false | _ => true end.
 Definition task_busy (value : task) :=

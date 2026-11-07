@@ -5,7 +5,6 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition catalog := success (JArray ProviderCatalog.catalog).
 Definition profile_head source :=
   let profile := get source "profile" in let key := str source "key" in
   if negb (nonempty (get source "key")) then err "profile key must be a nonempty string"
@@ -23,7 +22,7 @@ Definition profile source :=
   let profile := if has original "timeout_ms" then original else set original "timeout_ms" (number 300000) in
   let adaptive := get source "adaptive" in let key := str source "key" in
   let web := ProviderCatalog.web profile in
-  if is_object adaptive && (match connection_of profile with Some Offline => true | _ => false end) then
+  if is_object adaptive && (match backend profile with Some Offline => true | _ => false end) then
     err "The offline echo provider cannot select model reasoning effort"
   else if web && negb (existsb (String.eqb (str profile "model"))
     ["chatgpt-web/light";"chatgpt-web/medium";"chatgpt-web/high";"chatgpt-web/xhigh";"chatgpt-web/pro"])
@@ -65,9 +64,6 @@ Definition request_size source :=
     (num source "bytes" <=? if wire_content_has_images (items (get (get source "request") "input"))
       then 33554432 else num (get source "limits") "frame_bytes")
   then success JNull else range_error "Provider request exceeds the configured limit".
-Definition context_limit source := success (JBool
-  (JsonObjects.equivalent (get source "status") (number 400) && String.eqb (str source "code") "context_length_exceeded" &&
-   negb (boolean_field source "output_started"))).
 Definition http_headers source :=
   if JsonObjects.equivalent (get source "status") (number 401) && boolean_field source "authorization" &&
     negb (boolean_field source "refreshed") then action "refresh"
@@ -77,7 +73,10 @@ Definition http_headers source :=
   else success (JObject [("action",JString "failure");("message",JString "Provider did not return an SSE response");("cancel",JBool true)]).
 Definition http_failure source := success (JObject [("action",JString "failure");
   ("message",JString ("Model request failed with HTTP " ++ display_field source "status"));
-  ("recoverable",get (context_limit source) "value")]).
+  ("recoverable",JBool
+    (JsonObjects.equivalent (get source "status") (number 400) &&
+     String.eqb (str source "code") "context_length_exceeded" &&
+     negb (boolean_field source "output_started")))]).
 Definition support source :=
   let profile := get source "profile" in let effect := get source "effect" in
   if negb (account profile) && history_has_images (items (get effect "history")) then
@@ -110,13 +109,11 @@ Definition profile_catalog_entry key profile :=
 Definition profile_catalog source := success (JArray (map (fun field => profile_catalog_entry (fst field) (snd field))
   (object_fields (get (get source "config") "profiles")))).
 Definition call (select_history : list json -> string -> list json) operation source :=
-  if String.eqb operation "backend.catalog" then catalog
-  else if String.eqb operation "backend.profile_catalog" then profile_catalog source
+  if String.eqb operation "backend.profile_catalog" then profile_catalog source
   else if String.eqb operation "backend.profile_head" then profile_head source
   else if String.eqb operation "backend.endpoint" then chosen_endpoint source
   else if String.eqb operation "backend.profile" then profile source
   else if String.eqb operation "backend.prepare" then BackendRequests.prepare source
-  else if String.eqb operation "backend.input" then BackendRequests.input select_history source
   else if String.eqb operation "backend.output" then BackendResponses.output source
   else if String.eqb operation "backend.observe_text_output" then OutputObservations.observe_text_output source
   else if String.eqb operation "backend.request" then BackendRequests.request select_history source
@@ -126,9 +123,7 @@ Definition call (select_history : list json -> string -> list json) operation so
   else if String.eqb operation "backend.http_headers" then http_headers source
   else if String.eqb operation "backend.http_failure" then http_failure source
   else if String.eqb operation "backend.stream_step" then BackendResponses.stream_step source
-  else if String.eqb operation "backend.stream_end" then BackendResponses.stream_end source
   else if String.eqb operation "backend.retry" then BackendRetry.retry source
-  else if String.eqb operation "backend.context_limit" then context_limit source
   else if String.eqb operation "backend.support" then support source
   else if String.eqb operation "backend.echo" then echo source
   else if String.eqb operation "backend.image_content" then image_content source

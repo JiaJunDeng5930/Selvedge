@@ -4,7 +4,7 @@ From Selvedge.Programming Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 
-Inductive phase := Starting | Running | Draining | Completed.
+Inductive phase := Starting | Running | Completed.
 Inductive mode := Pipe | Pty.
 Definition dimension_declaration := ArgumentDeclaration.Natural 1 65535.
 Definition dimension := ArgumentDeclaration.denote dimension_declaration.
@@ -28,38 +28,28 @@ Record state := State {
   process_phase : phase;
   stdin_open : bool;
   write_busy : bool;
-  output_drained : bool;
   process_reason : option failure
 }.
-Definition initial := State Starting true false false None.
+Definition initial := State Starting true false None.
 Definition public_status (current : phase) :=
-  match current with Starting => "starting" | Running | Draining => "running" | Completed => "completed" end.
+  match current with Starting => "starting" | Running => "running" | Completed => "completed" end.
 Definition active (current : state) :=
   match current.(process_phase) with Completed => false | _ => true end.
 Definition with_reason current reason :=
-  State current.(process_phase) current.(stdin_open) current.(write_busy) current.(output_drained)
+  State current.(process_phase) current.(stdin_open) current.(write_busy)
     (match current.(process_reason) with Some existing => Some existing | None => Some reason end).
 Definition cancelled := Failure "cancelled" "The task was cancelled".
-Inductive event := Started | ShellExited | OutputDrained | InputClosed | WriteFinished | Finished | Failed.
+Inductive event := Started | InputClosed | WriteFinished | Finished.
 Definition observe (current : state) (input : event) :=
   match input with
-  | Started => match current.(process_phase) with
-    | Starting => State Running current.(stdin_open) current.(write_busy) current.(output_drained) current.(process_reason)
-    | _ => current end
-  | ShellExited => match current.(process_phase) with
-    | Running => State Draining false current.(write_busy) current.(output_drained) current.(process_reason)
-    | _ => current end
-  | OutputDrained => State current.(process_phase) current.(stdin_open) current.(write_busy) true current.(process_reason)
-  | InputClosed => State current.(process_phase) false current.(write_busy) current.(output_drained) current.(process_reason)
-  | WriteFinished => State current.(process_phase) current.(stdin_open) false current.(output_drained) current.(process_reason)
-  | Finished => match current.(process_phase),current.(output_drained) with
-    | Draining,true => State Completed false current.(write_busy) true current.(process_reason)
-    | _,_ => current end
-  | Failed => State Completed false current.(write_busy) current.(output_drained) current.(process_reason)
+  | Started => State Running current.(stdin_open) current.(write_busy) current.(process_reason)
+  | InputClosed => State current.(process_phase) false current.(write_busy) current.(process_reason)
+  | WriteFinished => State current.(process_phase) current.(stdin_open) false current.(process_reason)
+  | Finished => State Completed false current.(write_busy) current.(process_reason)
   end.
 Definition reserve_write (current : state) : failure + state :=
   if current.(write_busy) then inl (Failure "process_input_busy" "Another input write is still pending for this process")
-  else inr (State current.(process_phase) current.(stdin_open) true current.(output_drained) current.(process_reason)).
+  else inr (State current.(process_phase) current.(stdin_open) true current.(process_reason)).
 Definition admit_write (current : state) (terminal : mode) (eof : bool)
  (resize : option terminal_size) : option failure :=
   match current.(process_phase) with
@@ -110,14 +100,8 @@ Definition ring_slices capacity current :=
     [ByteSlice current.(ring_position) (Nat.sub current.(ring_length) current.(ring_position)) 0;
      ByteSlice 0 current.(ring_position) 0]
   else [ByteSlice 0 current.(ring_length) 0].
-Definition artifact_persisted capture_complete file_synced batch_synced parent_synced :=
-  capture_complete && file_synced && batch_synced && parent_synced.
-
-Inductive cleanup_step := TerminateEnvironment | TerminateGroup | TerminateSession | CloseInput | ArmDrainDeadline.
-Definition cleanup_plan := [TerminateEnvironment; TerminateGroup; TerminateSession; CloseInput; ArmDrainDeadline].
-Inductive drain_step := CleanupProcess | WaitSession | WaitEnvironment | WaitOutput | WaitOutputClose | WaitInput | MarkDrained | ClearDrainDeadline.
-Definition drain_plan := [CleanupProcess; WaitSession; WaitEnvironment; WaitOutput; WaitOutputClose; WaitInput; MarkDrained; ClearDrainDeadline].
-Definition drain_deadline_ms : N := 2000.
+Definition artifact_persisted capture_complete paths_published :=
+  capture_complete && paths_published.
 
 Record registry_entry := Entry { entry_key : string; entry_mode : mode; entry_failure : option failure }.
 Record registry := Registry { entries : list registry_entry; completed : list string }.

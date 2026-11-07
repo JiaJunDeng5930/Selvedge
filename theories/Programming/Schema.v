@@ -1,12 +1,12 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json BoundedInteger.
 From Selvedge.Foundation Require Export Numbers.
 Import ListNotations.
 Open Scope string_scope.
 
 Record decimal : Type := Decimal { spelling : string; spelling_valid : number_lexeme spelling = true }.
 
-(** Enum choices are nonempty, so both default construction and selection are total. *)
+(** An enum declaration always provides at least one selectable value. *)
 Inductive kind : Type :=
 | KText | KBool | KNatural | KInteger | KDecimal | KJson
 | KArray (element : kind)
@@ -80,8 +80,8 @@ Fixpoint decode_value (description : kind) : json -> option (denote description)
   match description as description return json -> option (denote description) with
   | KText => as_string
   | KBool => as_bool
-  | KNatural => fun value => match as_number value with Some s => parse_natural s | None => None end
-  | KInteger => fun value => match as_number value with Some s => parse_integer s | None => None end
+  | KNatural => fun value => match as_number value with Some s => decode_unbounded_natural s | None => None end
+  | KInteger => fun value => match as_number value with Some s => decode_unbounded_integer s | None => None end
   | KDecimal => fun value => match value with
     | JNumber text => match number_lexeme text as valid return
         number_lexeme text = valid -> option decimal with
@@ -109,18 +109,6 @@ Fixpoint encode_value (description : kind) : denote description -> json :=
   | KOptional element => fun value => match value with
       None => JNull | Some value => encode_value element value end
   | KEnum _ _ => fun value => JString (proj1_sig value)
-  end.
-Definition default_value (description : kind) : denote description :=
-  match description as description return denote description with
-  | KText => "" | KBool => false | KNatural => 0%N | KInteger => 0%Z
-  | KDecimal => Decimal "0" eq_refl | KJson => JNull
-  | KArray _ => [] | KOptional _ => None
-  | KEnum first rest => exist _ first (or_introl eq_refl)
-  end.
-Fixpoint defaults (description : schema) : fields description :=
-  match description with
-  | [] => FNil
-  | field :: rest => FCons (default_value (field_representation field)) (defaults rest)
   end.
 Definition encode_field (field : field_spec) : field_value field -> option json :=
   match field as field return field_value field -> option json with
@@ -180,26 +168,10 @@ Fixpoint decode_fields (description : schema) (source : list (string * json)) : 
 Definition decode (description : schema) (source : json) : option (fields description) :=
   match source with
   | JObject source =>
-      if schema_valid description && unique_names (source_keys source) && keys_declared description source
+      if unique_names (source_keys source) && keys_declared description source
       then decode_fields description source else None
   | _ => None
   end.
-Fixpoint lookup_field {description} (name : string) (values : fields description) : option json :=
-  match values with
-  | FNil => None
-  | @FCons field rest value values =>
-      if String.eqb name (field_name field) then encode_field field value
-      else lookup_field name values
-  end.
-Fixpoint update_field {description} (name : string) (source : json) (values : fields description) : option (fields description) :=
-  match values in fields description return option (fields description) with
-  | FNil => None
-  | @FCons field rest value values =>
-      if String.eqb name (field_name field) then
-        option_map (fun value => FCons value values) (decode_field field (Some source))
-      else option_map (fun values => FCons value values) (update_field name source values)
-  end.
-
 Record command_spec := Command { command_name : string; command_fields : schema }.
 Inductive command_value : list command_spec -> Type :=
 | CFirst : forall command rest, fields (command_fields command) -> command_value (command :: rest)
@@ -250,11 +222,6 @@ Inductive field_at : schema -> field_spec -> Set :=
 | AtTail : forall first rest field, field_at rest field -> field_at (first :: rest) field.
 Arguments AtHead {field rest}.
 Arguments AtTail {first rest field} _.
-Fixpoint project {description field} (position : field_at description field)
- : fields description -> field_value field :=
- match position in field_at description field return fields description -> field_value field with
- | AtHead => fun values => head values
- | AtTail prior => fun values => project prior (tail values) end.
 Fixpoint extend_projection {description field} (position : field_at description field) (suffix : schema)
  : field_at (description ++ suffix)%list field :=
  match position in field_at description field return field_at (description ++ suffix)%list field with

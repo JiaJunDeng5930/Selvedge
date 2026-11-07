@@ -34,6 +34,15 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    Shipped execution paths determine the build artifacts. The generated
+    command declarations are checked with their production consumers; inspection
+    can use those definitions or the public service entry. An installed plugin
+    must run from its built package without the original checkout or compiler.
+    Its model build produces the extracted runtime and packaging selects the
+    shipped files. Source and compiler fingerprints control build-cache reuse;
+    placing a second manifest beside the executable would provide no
+    independent runtime authentication.
+
     ** Choose constructions that fit the domain
 
     [theories/Programming] owns the project's existing reusable languages,
@@ -84,16 +93,30 @@ Export Focus(modification_has_its_selected_value, modifications_compose,
     An external value is admitted once into the declared constrained type;
     consumers use that value instead of serializing and parsing it again.
     Internal types do not admit external JSON on the caller's behalf. The common
-    admission law connects the actual check to the declared condition. *)
+    admission law connects the actual check to the declared condition.
+
+    Schema declarations originate in code; protocol and input-route constructors
+    establish field-name uniqueness. Rechecking those declarations on every
+    decode adds no external-input guarantee. Incoming object keys still require
+    duplicate-name and declared-field admission. *)
 Export ArgumentDeclarationProofs(admitted_value_retains_its_constraint).
 
-(** Public bounded integer fields denote exact mathematical integers. Ordinary
-    internal naturals remain unrestricted; JSON transport does not silently
-    round them through JavaScript numbers. The separate bounded decoder is used
-    only where the field's contract requires that bound. UTF-8 and physical
-    byte interpretation are checked at their owning transport boundaries. *)
+(** Public integer declarations admit exact mathematical values, including
+    decimal and exponent forms. Each bounded field supplies its own numerical
+    range; JSON transport must not silently round through JavaScript numbers.
+    The shared decimal conversion constrains its exponent before expanding it,
+    so a short external number cannot request astronomical allocation.
+
+    Ordinary internal naturals and canonical integer input remain unrestricted.
+    For unbounded fields, noncanonical exponent expansion has a deliberate
+    4096-digit-or-input-length budget. Representing still larger exponent forms
+    without expansion would add a second number model for no current user need.
+    Such inputs are rejected; they are never rounded or reported as admitted.
+    UTF-8 and physical byte interpretation belong to their transport boundaries. *)
 Export NumbersProofs(natural_print_parse).
-Export BoundedIntegerCorrectness(decode_safe_integer_mathematical_iff).
+Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
+  decode_safe_integer_mathematical_iff, decode_natural_mathematical_iff,
+  unbounded_natural_print_parse).
 
 (** * Local extension without repeated shared obligations
 

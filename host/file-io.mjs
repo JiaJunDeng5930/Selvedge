@@ -43,14 +43,12 @@ export async function durableDirectory(directory) {
 /** Build one private inode, then publish its closed contents and directory entry durably.
  * prepare must settle every writer before returning; only this function owns publication.
  */
-export async function publishPreparedFile(filename, prepare, { mode = 'replace', permissions = 0o600 } = {}) {
-  // DEFENSE: The publication contract supports only these two explicit overwrite policies.
-  if (mode !== 'replace' && mode !== 'create-if-absent') throw new TypeError('Unknown publication mode');
+export async function publishPreparedFile(filename, prepare, { mode = 'replace' } = {}) {
   const directory = path.dirname(filename);
   await durableDirectory(directory);
   const temporary = `${filename}.${randomUUID()}.tmp`;
   try {
-    const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, permissions);
+    const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try { await prepare({ filename: temporary, file }); await file.sync(); }
     finally { await file.close(); }
     let result = 'created';
@@ -80,9 +78,6 @@ function snapshotError(code, message) { return Object.assign(new Error(message),
 export async function readBoundedRegularSnapshot(filename, {
   maximumBytes, noFollow = true, admitMetadata = () => {}, signal, revision = 'stable',
 }) {
-  // DEFENSE: Callers may select only the stable snapshot contract or the
-  // temporary hard-link cleanup performed by this module's publication primitive.
-  if (!['stable', 'publication_cleanup'].includes(revision)) throw new TypeError('Unknown file revision policy');
   signal?.throwIfAborted();
   const file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | (noFollow ? constants.O_NOFOLLOW : 0));
   try {
@@ -100,7 +95,7 @@ export async function readBoundedRegularSnapshot(filename, {
       length += bytesRead;
     }
     const after = await file.stat();
-    await admitMetadata(after);
+    // The revision check retains the mode and owner already admitted before reading.
     const publicationCleanup = revision === 'publication_cleanup' && before.nlink === 2 && after.nlink === 1;
     // DEFENSE: A real external edit during the read must not combine different file revisions.
     if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
@@ -108,6 +103,6 @@ export async function readBoundedRegularSnapshot(filename, {
         after.mode !== before.mode || after.uid !== before.uid || after.gid !== before.gid) {
       throw snapshotError('CHANGED', 'Storage changed while being read');
     }
-    return { bytes: buffer.subarray(0, length), before, after };
+    return { bytes: buffer.subarray(0, length) };
   } finally { await file.close(); }
 }

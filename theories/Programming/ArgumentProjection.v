@@ -47,7 +47,7 @@ Fixpoint compile (target : kind) (declaration : D.t)
      | _ => None end
    | KNatural => fun declaration => match declaration as declaration return
        option (D.denote declaration -> N) with
-     | D.Natural _ _ | D.UnboundedNatural _ => Some (fun value => proj1_sig value)
+     | D.Natural _ _ => Some (fun value => proj1_sig value)
      | _ => None end
    | KInteger => fun declaration => match declaration as declaration return
        option (D.denote declaration -> Z) with

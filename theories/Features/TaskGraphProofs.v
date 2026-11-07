@@ -34,12 +34,12 @@ Theorem resolved_installation_follows_the_typed_plan : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) plans
  (Resolved : TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
    (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans),
- TaskGraph.install_cached id owner checked =
- TaskGraph.install_plan id (TaskGraph.GraphPlan checked plans Resolved).
+ CommandResult.decide original (TaskGraph.install_cached_result id owner checked) =
+ CommandResult.accept (TaskGraph.install_change id (TaskGraph.GraphPlan checked plans Resolved)).
 Proof.
  intros original caller owner id checked plans Resolved.
- unfold TaskGraph.install_cached,TaskGraph.install_cached_result,TaskGraph.install_resolution,
-   TaskGraph.install_plan,TaskGraph.install_change.
+ unfold TaskGraph.install_cached_result,TaskGraph.install_resolution,
+   TaskGraph.install_change.
  cbn [TaskGraph.graph_checked TaskGraph.graph_plans].
  now rewrite Resolved.
 Qed.
@@ -47,7 +47,7 @@ Theorem resolved_installation_succeeds : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) plans,
  TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
    (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans ->
- bool_default "ok"%string (decision_reply (TaskGraph.install_cached id owner checked)) false = true.
+ bool_default "ok"%string (decision_reply (CommandResult.decide original (TaskGraph.install_cached_result id owner checked))) false = true.
 Proof.
  intros; rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ H).
  apply CommandResult.acceptance_has_a_success_reply.
@@ -56,10 +56,10 @@ Theorem refused_plan_is_atomic : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) reason,
  TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original
    (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Rejected reason ->
- TaskGraph.install_cached id owner checked = CommandResult.reject original reason.
+ CommandResult.decide original (TaskGraph.install_cached_result id owner checked) = CommandResult.reject original reason.
 Proof.
  intros original caller owner id checked reason Refused.
- unfold TaskGraph.install_cached,TaskGraph.install_cached_result,TaskGraph.install_resolution,
+ unfold TaskGraph.install_cached_result,TaskGraph.install_resolution,
    TaskGraph.install_change.
  cbn [TaskGraph.graph_checked TaskGraph.graph_plans].
  now rewrite Refused.
@@ -306,7 +306,7 @@ Proof.
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
  { intros. unfold K.find_task. now rewrite recording_receipt_preserves_tasks. }
  rewrite tasks_same.
- exists (Tasks.receive [TextPart (TaskGraph.delivery_text item)] task).
+ exists (TaskChange.apply (Tasks.receive_changes [TextPart (TaskGraph.delivery_text item)] task) task).
  split; [now apply find_put_task with task|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
  cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.
@@ -339,10 +339,10 @@ Qed.
 Theorem installed_plan_associates_its_work : forall original caller
  (owner : Work.owner_scope original) id (plan : TaskGraph.graph_plan original caller (Some owner)),
  F.association id (F.feature_graph_owners (world_features
-   (decision_world (TaskGraph.install_plan id plan)))) = Some (Work.owner_identity owner).
+   (decision_world (CommandResult.accept (TaskGraph.install_change id plan))))) = Some (Work.owner_identity owner).
 Proof.
  intros original caller owner id plan.
- unfold TaskGraph.install_plan,TaskGraph.install_change,CommandResult.accept.
+ unfold TaskGraph.install_change,CommandResult.accept.
  destruct (fold_left (fun progress node => TaskGraph.birth (Some owner) node progress)
    (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)) as [prepared frame nodes effects].
  unfold F.association,K.with_features,Selvedge.Features.State.with_graph_owners.
@@ -357,7 +357,7 @@ Theorem resolved_installation_associates_its_work : forall original caller
  TaskGraph.prepare_nodes (TaskGraph.scope_identity (Some owner)) caller original
    (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans ->
  F.association id (F.feature_graph_owners (world_features
-   (decision_world (TaskGraph.install_cached id (Some owner) checked)))) = Some (Work.owner_identity owner).
+   (decision_world (CommandResult.decide original (TaskGraph.install_cached_result id (Some owner) checked))))) = Some (Work.owner_identity owner).
 Proof.
  intros original caller owner id checked plans Prepared.
  rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ Prepared).
@@ -462,7 +462,7 @@ Qed.
 Theorem installed_plan_preserves_original_task_references : forall original caller
  (owner : option (Work.owner_scope original)) id (plan : TaskGraph.graph_plan original caller owner) task_id task,
  find_task task_id original=Some task ->
- find_task task_id (decision_world (TaskGraph.install_plan id plan))=Some task.
+ find_task task_id (decision_world (CommandResult.accept (TaskGraph.install_change id plan)))=Some task.
 Proof.
  intros original caller owner id plan task_id task Found.
  pose proof (WorktreeProofs.a_batch_preserves_original_task_observations original
@@ -470,13 +470,13 @@ Proof.
      (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)))
    (TaskGraph.born_frame (fold_left (fun progress node=>TaskGraph.birth owner node progress)
      (TaskGraph.graph_plans plan) (TaskGraph.initial_births original))) task_id task Found) as Retained.
- unfold TaskGraph.install_plan,TaskGraph.install_change,CommandResult.accept.
+ unfold TaskGraph.install_change,CommandResult.accept.
  destruct owner; exact Retained.
 Qed.
 Theorem installation_preserves_original_task_references : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) task_id task,
  find_task task_id original=Some task ->
- find_task task_id (decision_world (TaskGraph.install_cached id owner checked))=Some task.
+ find_task task_id (decision_world (CommandResult.decide original (TaskGraph.install_cached_result id owner checked)))=Some task.
 Proof.
  intros original caller owner id checked task_id task Found.
  destruct (TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) caller original

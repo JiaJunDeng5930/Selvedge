@@ -21,5 +21,3 @@ Definition candidate (request : Commands.create_payload) (before : world) :=
 Definition select (request : Commands.create_payload) (before : world) :=
  CommitPacket.choose true (Some (Inputs.UserCommand (Commands.Cmd_create request)))
    (Delivery.deliver_with_status true (candidate request before) before).
-Definition packet (request : Commands.create_payload) (before : world) : world * json :=
- CommitPacket.finalize before (select request before).

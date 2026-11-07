@@ -71,7 +71,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const selected = rows.find(item => item.id === id);
     const capability = boundary('audio.capability', selected ?? { id, authorized: false });
     const authorization = await authority.authorize(capability.id, { signal });
-    return { source: capability.source, authorization };
+    return { authorization };
   }
 
   async function capabilities({ signal } = {}) {
@@ -102,7 +102,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.request_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
     const bytes = audio instanceof Blob ? audio.size : audio.byteLength;
-    const plan = boundary('audio.asr_request', { connection: connectionId, source: selected.source, authorized: true, bytes, mime, language });
+    const plan = boundary('audio.asr_request', { bytes, mime, language });
     const body = new FormData();
     body.append('file', new Blob([audio], { type: plan.mime }), plan.filename);
     if (plan.language !== null) body.append('language', plan.language);
@@ -111,12 +111,11 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     return boundary('audio.asr_response', { status: response.status, value });
   }
 
-  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), generation = randomUUID(), initial_items = [], signal }) {
+  async function createSession({ connection: connectionId, task_id, sdp, id, generation, initial_items, signal }) {
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.connect_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
-    const body = boundary('audio.session_request', { connection: connectionId, source: selected.source, authorized: true,
-      task_id, sdp, id, initial_items });
+    const body = boundary('audio.session_request', { sdp, id, initial_items });
     const sessionHeaders = boundary('control.audio.headers', { task_id, id });
     const response = await authenticatedFetch(limits.calls_url, { method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
@@ -124,7 +123,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
     const activation = boundary('control.audio.transport_initial', { id, task_id, generation });
     let finish;
-    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id,
+    const record = { socket: null, retryTimer: null,
       state: activation.state, finished: new Promise(resolve => { finish = resolve; }) };
     Object.defineProperties(record, {
       closed: { get: () => record.state.phase !== 'live' },
@@ -245,7 +244,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       for (const operation of pending) operation.controller.abort(new Error('Audio host is closed'));
       const released = await Promise.allSettled([
         authority.close(),
-        ...[...sessions.values()].map(record => stopSession(record.id)),
+        ...[...sessions.keys()].map(id => stopSession(id)),
         ...pending.map(operation => operation.promise.then(() => {}, error => {
           // The owner close cancelled these operations; their callers already receive the cancellation rejection.
           if (!operation.controller.signal.aborted) throw error;
@@ -261,10 +260,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       signal => capabilities({ ...options, signal })),
     transcribe: options => track(`transcribe:${randomUUID()}`, options.signal,
       signal => transcribe({ ...options, signal })),
-    createSession: options => {
-      const id = options.id ?? randomUUID();
-      return track(id, options.signal, signal => createSession({ ...options, id, signal }));
-    },
+    createSession: options => track(options.id, options.signal, signal => createSession({ ...options, signal })),
     startLogin: (options = {}) => track(`login:${randomUUID()}`, options.signal,
       signal => authority.startLogin({ ...options, signal })),
     appendContext, stopSession, close,

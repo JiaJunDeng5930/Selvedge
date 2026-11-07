@@ -1,15 +1,15 @@
-import type { DomainNatural, Effect } from './generated/model-schema.ts';
+import type { DomainNatural } from './generated/model-schema.ts';
+import type { RunningEffect } from './effect-dispatch.ts';
 import { naturalKey } from './public/json-tokens.mjs';
 import type { dispatchControlResult } from './model-api.ts';
 
 const handleBrand: unique symbol = Symbol('running effect');
 export type EffectHandle = Readonly<{ generation: DomainNatural; [handleBrand]: true }>;
 type ControlResult = ReturnType<typeof dispatchControlResult>;
-type Outcome = 'accepted' | 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
+type Outcome = 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
 type Control = (observation: unknown) => ControlResult;
 export interface ActiveEffect {
-  task: DomainNatural | undefined;
-  effect: Effect;
+  effect: RunningEffect;
   controller: AbortController;
   handle: EffectHandle;
   promise: Promise<unknown>;
@@ -19,12 +19,12 @@ export interface CommitResult {
 }
 
 /** Install the complete active record before the interpreter can observe it. */
-export function launchEffect(control: Control, active: Map<string, ActiveEffect>, effect: Effect,
+export function launchEffect(control: Control, active: Map<string, ActiveEffect>, effect: RunningEffect,
   run: (handle: EffectHandle, signal: AbortSignal) => Promise<unknown>): Promise<unknown> {
   const generation = control({ kind: 'launch', effect }).starts[0];
   // DEFENSE: Startup reconciliation may reach a dispatcher retired by a journal failure.
   if (generation === undefined) return Promise.reject(new Error('Effect dispatcher is retired'));
-  const handle: EffectHandle = Object.freeze({ generation, [handleBrand]: true as const });
+  const handle: EffectHandle = { generation, [handleBrand]: true };
   const key = naturalKey(generation);
   const controller = new AbortController();
   // The microtask cannot execute run until its rejecting promise is installed.
@@ -32,7 +32,7 @@ export function launchEffect(control: Control, active: Map<string, ActiveEffect>
     control({ kind: 'complete', generation: handle.generation });
     active.delete(key);
   });
-  active.set(key, { task: 'task_id' in effect ? effect.task_id : undefined, effect, controller, handle, promise });
+  active.set(key, { effect, controller, handle, promise });
   return promise;
 }
 
@@ -50,13 +50,14 @@ export async function settleEffect(control: Control, handle: EffectHandle, initi
     let outcome: Outcome;
     try {
       result = await execute(input);
-      outcome = result.reply.ok ? 'accepted' : result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
+      // A successful journal acknowledgement remains accepted even if shutdown has begun.
+      if (result.reply.ok) return result;
+      outcome = result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
     } catch (caught) {
       error = caught;
       outcome = classifyError(caught);
     }
     const actions = control({ kind: 'settlement', generation: handle.generation, outcome });
-    if (actions.settled && result !== undefined) return result;
     if (actions.retryFailure) {
       input = await failure();
       continue;

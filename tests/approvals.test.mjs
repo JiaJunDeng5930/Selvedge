@@ -10,7 +10,7 @@ import { home, responsesServer, shellQuote, taskIdle } from './support.mjs';
 
 const probe = fileURLToPath(new URL('./fixtures/approved-tool.mjs', import.meta.url));
 
-test('a real process sees its committed grant and intent, and journal reopen never executes it again', async t => {
+test('an approved process uses its workspace and granted access, and restart never executes it again', async t => {
   const base = await realpath(await home(t));
   const workspace = path.join(base, 'workspace');
   const state = path.join(base, 'state');
@@ -20,7 +20,7 @@ test('a real process sees its committed grant and intent, and journal reopen nev
   const previous = process.env[key];
   process.env[key] = 'local-fixture-only';
   t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-  const command = [process.execPath, probe, path.join(state, 'journal.sqlite'), marker, 'approval-shell']
+  const command = [process.execPath, probe, marker, workspace]
     .map(shellQuote).join(' ');
   const upstream = await responsesServer(t, (_, index) => index === 0 ? [
     { type: 'function_call', call_id: 'approval-shell', name: 'bash', arguments: JSON.stringify({ command,
@@ -36,23 +36,24 @@ test('a real process sees its committed grant and intent, and journal reopen nev
     workspace: { roots: [workspace], primary_root: workspace }, approval: { mode: 'ask-for-approval' },
   } });
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const taskId = created.reply.result.task_id;
   let operation;
   for (let attempt = 0; attempt < 500 && !operation; attempt++) {
-    const page = (await service.command({ op: 'read', task_id: 0 })).reply.result;
+    const page = (await service.command({ op: 'read', task_id: taskId })).reply.result;
     operation = page.task.operations.find(value => value.status === 'awaiting_approval');
     if (!operation) await delay(10);
   }
   assert.ok(operation, 'The real provider must reach the approval boundary');
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
-  const approved = await service.command({ op: 'review_approval', task_id: 0, operation_id: operation.operation_id,
+  const approved = await service.command({ op: 'review_approval', task_id: taskId, operation_id: operation.operation_id,
     decision: 'allow', reason: 'The user requested this exact file.' });
   assert.equal(approved.reply.ok, true, JSON.stringify(approved.reply));
-  const completed = await taskIdle(service);
+  const completed = await taskIdle(service, taskId);
   assert.equal(await readFile(marker, 'utf8'), 'ran\n');
   const requests = upstream.requests.length;
   await service.close();
   service = await Service.open(options);
-  assert.deepEqual((await taskIdle(service)).messages, completed.messages);
+  assert.deepEqual((await taskIdle(service, taskId)).messages, completed.messages);
   assert.equal(await readFile(marker, 'utf8'), 'ran\n');
   assert.equal(upstream.requests.length, requests);
   assert.deepEqual(upstream.failures, []);

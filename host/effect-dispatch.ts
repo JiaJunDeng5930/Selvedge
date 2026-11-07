@@ -52,7 +52,7 @@ export interface PerformPrimitives {
   tool(effect: Of<'tool'>): Promise<unknown>;
 }
 export type Performed = { kind: 'settled' } | { kind: 'completion'; input: unknown };
-export async function performEffect(effect: Effect, io: PerformPrimitives): Promise<Performed> {
+export async function performEffect(effect: RunningEffect, io: PerformPrimitives): Promise<Performed> {
   let result: unknown;
   switch (effect.kind) {
     case 'worktree_create': case 'worktree_archive':
@@ -67,9 +67,6 @@ export async function performEffect(effect: Effect, io: PerformPrimitives): Prom
     case 'hook': result = await io.hook(effect); break;
     case 'after_hook': result = await io.afterHook(effect); break;
     case 'tool': result = await io.tool(effect); break;
-    case 'reset_model_session': case 'plugin_events': case 'cancel': case 'cancel_ticket':
-    case 'continue': case 'compaction_clock': case 'compaction_cancel': case 'chatgpt_cancel':
-      throw new TypeError('An immediate effect cannot run as an asynchronous operation');
     default: return unreachable(effect);
   }
   return { kind: 'completion', input: boundary('effect.completion', { effect, result }) };

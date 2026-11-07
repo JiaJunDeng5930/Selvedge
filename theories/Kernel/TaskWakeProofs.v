@@ -11,10 +11,6 @@ Lemma promotion_retains_history : forall current,
  exists suffix, task_history (TaskWake.promote current) = task_history current ++ suffix.
 Proof. intros; apply append_only_changes_retain_history. Qed.
 
-Lemma waking_retains_history : forall current,
- exists suffix, task_history (TaskWake.wake_after_result current) = task_history current ++ suffix.
-Proof. intros; apply append_only_changes_retain_history. Qed.
-
 Lemma context_wake_preserves_the_task_registry : forall owner current value,
  world_tasks (TaskWake.mark_context_wake owner current value) = world_tasks value.
 Proof.

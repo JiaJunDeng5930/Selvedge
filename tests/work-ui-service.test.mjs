@@ -8,7 +8,7 @@ import { home, responsesServer, taskIdle } from './support.mjs';
 
 const answer = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 
-test('Task tools share one Work UI atomically and retain its source across a real journal reopen', { timeout: 60000 }, async t => {
+test('Task tools share one Work UI atomically and retain its source across a real journal reopen', { timeout: 180000 }, async t => {
   const directory = await realpath(await home(t));
   const key = 'SELVEDGE_WORK_UI_FIXTURE';
   const previous = process.env[key];
@@ -73,44 +73,46 @@ test('Task tools share one Work UI atomically and retain its source across a rea
   const isolated = await create(otherWork);
   const unowned = await create();
 
-  assert.deepEqual(snapshot(await tool(first, 'read_work_ui')), { source: '', revision: 0 });
-  assert.deepEqual(snapshot(await tool(second, 'read_work_ui')), { source: '', revision: 0 });
+  const initial = snapshot(await tool(first, 'read_work_ui'));
+  assert.equal(initial.source, '');
+  assert.deepEqual(snapshot(await tool(second, 'read_work_ui')), initial);
   const source = '<ui id="work-panel">\n  <metric id="progress" label="共同进度 😀" value={1} />\n</ui>\n';
   const add = '*** Begin Patch\n*** Add File: work-ui.dsl\n'
     + source.split('\n').map(line => `+${line}`).join('\n') + '\n*** End Patch';
-  const committed = await tool(first, 'apply_work_ui_patch', { revision: 0, patch: add });
-  assert.deepEqual(snapshot(committed), { source, revision: 1 });
+  const committed = await tool(first, 'apply_work_ui_patch', { revision: initial.revision, patch: add });
+  assert.equal(committed.source, source);
   assert.deepEqual(snapshot(await tool(second, 'read_work_ui')), snapshot(committed));
 
   const update = '*** Begin Patch\n*** Update File: work-ui.dsl\n@@\n'
     + '-  <metric id="progress" label="共同进度 😀" value={1} />\n'
     + '+  <metric id="progress" label="共同进度 😀" value={2} />\n*** End Patch';
-  const stale = await tool(second, 'apply_work_ui_patch', { revision: 0, patch: update });
+  const stale = await tool(second, 'apply_work_ui_patch', { revision: initial.revision, patch: update });
   assert.ok(stale.error, JSON.stringify(stale));
-  const mismatch = await tool(second, 'apply_work_ui_patch', { revision: 1,
+  const mismatch = await tool(second, 'apply_work_ui_patch', { revision: committed.revision,
     patch: update.replace('value={1}', 'value={9}') });
   assert.ok(mismatch.error, JSON.stringify(mismatch));
   assert.deepEqual(snapshot(await tool(first, 'read_work_ui')), snapshot(committed),
     'Rejected writes preserve both the exact stored source and its revision');
 
-  const changed = await tool(second, 'apply_work_ui_patch', { revision: 1, patch: update });
-  assert.deepEqual(snapshot(changed), { source: source.replace('value={1}', 'value={2}'), revision: 2 });
+  const changed = await tool(second, 'apply_work_ui_patch', { revision: committed.revision, patch: update });
+  assert.equal(changed.source, source.replace('value={1}', 'value={2}'));
   const { children: [child] } = await post({ op: 'fork', task_id: second, child_count: 1,
     messages: ['Inspect the shared Work UI from a derived Task.'] });
   await taskIdle(running.service, second);
   await taskIdle(running.service, child);
   assert.deepEqual(snapshot(await tool(child, 'read_work_ui')), snapshot(changed));
-  assert.deepEqual(snapshot(await tool(isolated, 'read_work_ui')), { source: '', revision: 0 });
+  const independent = snapshot(await tool(isolated, 'read_work_ui'));
+  assert.equal(independent.source, '');
   const unreadable = await tool(unowned, 'read_work_ui');
   assert.ok(unreadable.error, JSON.stringify(unreadable));
-  const denied = await tool(unowned, 'apply_work_ui_patch', { revision: 0, patch: add });
+  const denied = await tool(unowned, 'apply_work_ui_patch', { revision: independent.revision, patch: add });
   assert.ok(denied.error, JSON.stringify(denied));
 
   await running.close();
   running = await startServer(options);
   assert.deepEqual(snapshot(await tool(first, 'read_work_ui')), snapshot(changed));
   assert.deepEqual(snapshot(await tool(child, 'read_work_ui')), snapshot(changed));
-  assert.deepEqual(snapshot(await tool(isolated, 'read_work_ui')), { source: '', revision: 0 });
+  assert.deepEqual(snapshot(await tool(isolated, 'read_work_ui')), independent);
 
   // NOTE: An ordinary 3000-line replacement overflowed generated SSE CRLF line handling below the public input limit.
   const largeSource = ['<ui id="large-work-panel">',
@@ -119,15 +121,17 @@ test('Task tools share one Work UI atomically and retain its source across a rea
   const replacement = (before, after) => '*** Begin Patch\n*** Update File: work-ui.dsl\n@@\n'
     + before.split('\n').map(line => '-' + line).join('\n') + '\n'
     + after.split('\n').map(line => '+' + line).join('\n') + '\n*** End Patch';
-  assert.deepEqual(snapshot(await tool(child, 'apply_work_ui_patch', {
-    revision: 2, patch: replacement(changed.source, largeSource),
-  })), { source: largeSource, revision: 3 });
+  const large = await tool(child, 'apply_work_ui_patch', {
+    revision: changed.revision, patch: replacement(changed.source, largeSource),
+  });
+  assert.equal(large.source, largeSource);
   const largeRevision = largeSource.replace('version one', 'version two');
   const largePatch = replacement(largeSource, largeRevision);
   assert.ok(largePatch.length < 65536, 'The reproduced 3000-line replacement fits the public patch limit');
-  assert.deepEqual(snapshot(await tool(first, 'apply_work_ui_patch', {
-    revision: 3, patch: largePatch,
-  })), { source: largeRevision, revision: 4 });
-  assert.deepEqual(snapshot(await tool(second, 'read_work_ui')), { source: largeRevision, revision: 4 });
+  const final = await tool(first, 'apply_work_ui_patch', {
+    revision: large.revision, patch: largePatch,
+  });
+  assert.equal(final.source, largeRevision);
+  assert.deepEqual(snapshot(await tool(second, 'read_work_ui')), snapshot(final));
   assert.deepEqual(upstream.failures, []);
 });

@@ -22,34 +22,26 @@ Definition authorized (source : json) := boolean_field source "authorized" && St
 Definition eligible (source : json) := authorized source && nonempty_text (get source "id").
 Definition capability (source : json) := JObject [("id",get source "id");("label",JString "ChatGPT");
   ("source",JString "chatgpt_audio");("asr",JBool true);("voice",JBool true)].
-Definition request_connection (source : json) := nonempty_text (get source "connection") && authorized source.
 Fixpoint before_semicolon (value : string) : string :=
   match value with EmptyString => "" | String c rest =>
     if Ascii.eqb c ";" then "" else String c (before_semicolon rest) end.
 Definition mime_subtype (value : string) := before_semicolon (String.substring 6 (String.length value) value).
 Definition asr_request (source : json) :=
-  admit (request_connection source && bound (get source "bytes") 1 asr_max_bytes &&
+  admit (bound (get source "bytes") 1 asr_max_bytes &&
     starts (str source "mime") "audio/" && negb (String.eqb (mime_subtype (str source "mime")) "") &&
     (is_null (get source "language") || nonempty_text (get source "language")))
     (JObject [("mime",get source "mime");("language",get source "language");
       ("filename",JString ("recording." ++ mime_subtype (str source "mime")))])
-    "Audio transcription requires a signed-in ChatGPT connection and 1 to 26214400 audio bytes".
-Definition initial_item (item : json) :=
-  String.eqb (str item "type") "message" && existsb (String.eqb (str item "role")) ["user";"assistant"] &&
-  is_array (get item "content") && forallb (fun content =>
-    existsb (String.eqb (str content "type")) ["input_text";"output_text"] && nonempty_text (get content "text")) (items (get item "content")).
+    "Audio transcription requires 1 to 26214400 audio bytes, an audio MIME type and an optional language".
 Definition session_instructions :=
   "You are speaking with the user in Selvedge. Converse naturally. Delegate explicit requests to perform work to the client; transcript events alone never start work. Use delegation context updates as the authoritative progress of accepted work. Ending this voice call does not cancel accepted tasks.".
 Definition session_request (source : json) :=
-  let initial := get source "initial_items" in
-  admit (request_connection source && bound (get source "task_id") 0 9007199254740991 &&
-    nonempty_text (get source "id") && nonempty_text (get source "sdp") &&
-    (is_null initial || (is_array initial && forallb initial_item (items initial))))
+  admit (nonempty_text (get source "sdp"))
     (JObject [("sdp",get source "sdp");("session",JObject [("model",JString "gpt-live-1-codex");
       ("delegation",JObject [("type",JString "client")]);("audio",JObject [("output",JObject [("voice",JString "arbor")])]);
       ("instructions",JString session_instructions);("voice_session_id",get source "id");
-      ("initial_items",if is_array initial then initial else JArray [])])])
-    "Voice requires a signed-in ChatGPT connection, an existing task and an SDP offer".
+      ("initial_items",get source "initial_items")])])
+    "Voice requires an SDP offer".
 Definition response_failure (source : json) := failure "audio_upstream_rejected"
   ("ChatGPT audio request failed with HTTP " ++ diagnostic (get source "status")).
 Definition asr_response (source : json) :=
@@ -150,12 +142,9 @@ Definition call (transport : json -> json) (assistant : json -> bool) (content :
   else if String.eqb operation "audio.asr_response" then asr_response source
   else if String.eqb operation "audio.session_request" then session_request source
   else if String.eqb operation "audio.session_response" then session_response source
-  else if String.eqb operation "audio.event" then event source
   else if String.eqb operation "audio.context" then context source
   else if String.eqb operation "audio.initial_context_plan" then initial_context_plan source
   else if String.eqb operation "audio.initial_context" then initial_context assistant content source
-  else if String.eqb operation "audio.task_progress" then task_progress assistant content source
-  else if String.eqb operation "audio.transcript_tail" then transcript_tail source
   else if String.eqb operation "audio.login_target" then login_target source
   else if String.eqb operation "audio.transport" then transport source
   else err "Unknown audio operation".

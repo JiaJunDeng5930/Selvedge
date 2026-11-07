@@ -41,7 +41,6 @@ Definition item_calls (items : list model_item) := fold_right (fun item rest =>
 Definition settle_model_changes (task : task) :=
  let phase := if unseen_model_input task then WantsModel else Idle in
  TaskChange.ChangePhase phase :: TaskWake.promote_changes (with_activity phase task).
-Definition settle_model (task : task) := TaskChange.apply (settle_model_changes task) task.
 Definition model_result_changes (owner ticket : N) (allowed : list string) (mode : output_mode)
  (outcome : model_outcome) (task : task) :=
  let settle messages := TaskChange.AppendHistory messages ::
@@ -59,9 +58,6 @@ Definition model_result_changes (owner ticket : N) (allowed : list string) (mode
    | calls => [TaskChange.ChangePhase (PendingCalls calls)] end
    else settle [FailureMessage "Invalid model reply: previously used call identity or unavailable tool"]
  end.
-Definition model_result (owner ticket : N) (allowed : list string) (mode : output_mode)
- (outcome : model_outcome) (task : task) :=
- TaskChange.apply (model_result_changes owner ticket allowed mode outcome task) task.
 Definition model_completed (id ticket : N) (outcome : model_outcome) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_phase RequestReceiver.ModelReceiver ticket)
    (fun target payload => let '(allowed,mode) := payload in
@@ -113,35 +109,18 @@ Definition context_completed (id ticket : N) (observations : option (list contex
     else match task_lifecycle task with
       | Running _ _ => Reasoning.context_retry id value
       | _ => context_ready false id task value end).
-Definition operation_executing := RequestReceiver.operation_executing.
-Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
 
 Definition settle_operation_plan := OperationEvent.settle.
-Definition settle_operation_changes (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskResult.result_changes (settle_operation_plan operation result error) task.
-Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskChange.apply (settle_operation_changes operation result error task) task.
 Definition after_plugins := OperationEvent.after_plugins.
 Definition begin_result_plan (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  OperationEvent.plan owner (OperationEvent.Returned operation result error) task.
-Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskResult.result_changes (begin_result_plan owner operation result error task) task.
-Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
- TaskChange.apply (begin_result_changes owner operation result error task) task.
 Definition tool_completed (id ticket : N) (result : json) (error : bool) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_tool ticket)
    (fun target operation => acknowledged (TaskResult.interpret_result target
      (begin_result_plan id operation result error (TaskScope.selected target)))).
-Definition find_pending_approval := RequestReceiver.find_approval.
 Definition approval_decision_plan (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  OperationEvent.plan owner (OperationEvent.Reviewed operation reviewed_by outcome) task.
-Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
- (outcome : approval_outcome) (task : task) :=
- TaskResult.result_changes (approval_decision_plan owner operation reviewed_by outcome task) task.
-Definition approval_decision (owner : N) (operation : operation) (reviewed_by : reviewer)
- (outcome : approval_outcome) (task : task) :=
- TaskChange.apply (approval_decision_changes owner operation reviewed_by outcome task) task.
 Definition approval_completed (id ticket : N) (outcome : approval_outcome) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_approval ticket)
    (fun target payload => let '(operation,actor) := payload in

@@ -61,7 +61,12 @@ test('post-commit plugin events keep their order and replay never redelivers the
   assert.deepEqual(delivered.map(value => [value.sequence, value.ordinal]),
     delivered.map(value => [value.sequence, value.ordinal]).sort((left, right) => left[0] - right[0] || left[1] - right[1]));
 
-  const rejected = await command({ op: 'send', task_id: 999, message: 'No task owns this input.' });
+  const listed = await command({ op: 'list' });
+  assert.equal(listed.ok, true, JSON.stringify(listed));
+  const taskIds = new Set(listed.result.tasks.map(task => task.id));
+  let missingTask = 0;
+  while (taskIds.has(missingTask)) missingTask++;
+  const rejected = await command({ op: 'send', task_id: missingTask, message: 'No task owns this input.' });
   assert.equal(rejected.ok, false);
   assert.equal(rejected.error.code, 'task_not_found');
   assert.equal((await events()).length, delivered.length, 'A rejected unchanged command publishes no invented event');

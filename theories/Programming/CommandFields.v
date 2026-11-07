@@ -6,10 +6,6 @@ Open Scope string_scope.
 Open Scope list_scope.
 Module D := ArgumentDeclaration.
 
-Definition from_fields := D.of_schema.
-Definition natural := D.of_kind KNatural.
-Definition enum (first : string) (rest : list string) := D.of_kind (KEnum first rest).
-
 (** A field declares its internal representation and its external admission in
     one place. The observed interpretation differs only for host-owned evidence.
     Generated internal messages retain ordinary naturals; admitted messages

@@ -22,13 +22,9 @@ Definition admit (observed : bool) (source : json) :=
  | Some name => Selvedge.Programming.CommandDeclarations.decode_invocation
      observed Commands.command_declarations name source
  | None => None end.
-Definition public_command :=
- Selvedge.Programming.CommandDeclarations.invocation false Commands.command_declarations.
 Definition observed_command :=
  Selvedge.Programming.CommandDeclarations.invocation true Commands.command_declarations.
 Definition admit_public := admit false.
 Definition admit_observed := admit true.
 Definition public_json :=
  Selvedge.Programming.CommandDeclarations.encode_invocation false Commands.command_declarations.
-Definition observed_json :=
- Selvedge.Programming.CommandDeclarations.encode_invocation true Commands.command_declarations.

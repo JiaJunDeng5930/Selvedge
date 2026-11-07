@@ -28,22 +28,13 @@ Definition creation_base (options : option settings_request) (caller : task_sett
      else defaults
    | None => defaults end
  | _, _, _ => defaults end.
-Definition resolve_creation (name : string) (settings : option settings_request) (caller : option N) (value : world) :=
- let defaults := creation_defaults (world_environment value) in
- match caller with
- | None => resolve_for_profile name settings defaults value
- | Some id => match find_task id value with
-   | None => None
-   | Some caller => resolve_for_profile name settings (creation_base settings (task_current_settings caller) value) value
-   end
- end.
 Definition creation_allowed (settings : option settings_request) (selected : task_settings) (caller : option N) (value : world) :=
  match caller with
  | None => true
  | Some id => match find_task id value with
    | None => false
    | Some task => native_creation_allowed settings selected (task_current_settings task) value end end.
-Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
+Definition resolve_context_start (name : string)
  (effort : option string) (contents : content) (settings : option settings_request) (idle : bool)
  (caller : option N) (value : world) : Tasks.start_resolution :=
  let defaults := creation_defaults (world_environment value) in
@@ -52,7 +43,7 @@ Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
  | Some id => match find_task id value with
    | None => defaults
    | Some task => creation_base settings (task_current_settings task) value end end in
- Tasks.resolve_start entry name effort contents settings idle base value.
+ Tasks.resolve_start name effort contents settings idle base value.
 Definition create_project (name : D.denote Workspace.project_name_declaration) (source : D.denote workspace_declaration)
  (guidance : option (D.denote guidance_declaration)) (worktree : option bool)
  (resource : option (D.denote binding_declaration)) (value : world) :=
@@ -176,7 +167,9 @@ Definition return_side (id : N) (value : world) :=
    | None => reject "not_side_conversation" "The task has no side conversation parent" value
    | Some parent =>
      let through := N.of_nat (List.length (task_history side)) in
-     let after := N.min through (task_side_cursor side) in
+     (* Side history only grows; birth initializes this cursor, and accepted
+        return is the only operation that advances it. *)
+     let after := task_side_cursor side in
      let messages := filter History.returned_content (skipn (N.to_nat after) (task_history side)) in
      match messages with
      | [] => reject "no_side_content" "This side conversation has no new content to return" value

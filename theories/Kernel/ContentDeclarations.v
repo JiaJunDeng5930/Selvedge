@@ -1,8 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Programming Require Import Schema.
-From Selvedge.Foundation Require Import SchemaJson.
-From Selvedge.Programming Require Import Arguments.
+From Selvedge.Programming Require Import Schema ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -26,10 +24,3 @@ Definition image_part_declaration := D.Object [("type",true,D.Const (JString "im
 Definition part_declaration := D.Union [text_part_declaration;image_part_declaration].
 Definition content_declaration := D.Union [D.text;D.Array part_declaration].
 Definition images_declaration := D.Array reference_declaration.
-Definition fields_of source := match source with JObject fields => fields | _ => [] end.
-Definition reference_schema := D.schema reference_declaration.
-Definition content_schema := fields_of (D.schema content_declaration).
-Definition images_schema := fields_of (D.schema images_declaration).
-Definition native_argument_fields (command : string) :=
- if String.eqb command "create_work_task"
- then [("message",content_schema);("images",images_schema)] else [].

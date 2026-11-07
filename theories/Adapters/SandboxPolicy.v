@@ -26,28 +26,28 @@ Definition decode_plan (source : json) : option execution_plan :=
     else None
   | _,_ => None
   end.
-Definition within (root : string) (parents : list json) (separator : string) :=
-  existsb (fun parent => String.eqb root (text parent) || starts root (text parent ++ separator)) parents.
-Definition strictly_within (root : string) (parents : list json) (separator : string) :=
-  existsb (fun parent => starts root (text parent ++ separator)) parents.
-Definition any_within (roots parents : list json) (separator : string) :=
-  existsb (fun root => within (text root) parents separator) roots.
+Definition within (root : string) (parents : list json) :=
+  existsb (fun parent => String.eqb root (text parent) || starts root (text parent ++ "/")) parents.
+Definition strictly_within (root : string) (parents : list json) :=
+  existsb (fun parent => starts root (text parent ++ "/")) parents.
+Definition any_within (roots parents : list json) :=
+  existsb (fun root => within (text root) parents) roots.
 Definition paths_valid (paths : list json) := forallb Workspaces.path_valid paths.
 Definition managed_writable_roots (source : json) :=
   let root := get source "managedWorktreeRoot" in
-  filter (fun value => negb (is_null root) && within (text value) [root] (str source "separator"))
+  filter (fun value => negb (is_null root) && within (text value) [root])
     (items (get source "writableRoots")).
 Definition protected_workspace (source : json) :=
   if boolean_field source "projectOnly" && any_within (items (get (get source "workspace") "roots"))
-    (items (get source "protectedRoots")) (str source "separator")
+    (items (get source "protectedRoots"))
   then err "A ChatGPT Workspace cannot be inside the private service home" else success JNull.
 Definition managed_worktree_admission (source : json) :=
   let root := get source "managedWorktreeRoot" in
   if equal root (get (get source "options") "managedWorktreeRoot") &&
     (is_null root || (paths_valid [root] && negb (boolean_field source "projectOnly") &&
-      strictly_within (text root) (items (get source "protectedRoots")) (str source "separator") &&
-      negb (any_within (items (get source "protectedRoots")) [root] (str source "separator")) &&
-      within (str (get source "workspace") "primary_root") [root] (str source "separator")))
+      strictly_within (text root) (items (get source "protectedRoots")) &&
+      negb (any_within (items (get source "protectedRoots")) [root]) &&
+      within (str (get source "workspace") "primary_root") [root]))
   then success JNull else err "Managed Worktree does not match its committed Workspace and private service home".
 Definition removed_environment_name (name : string) :=
   existsb (String.eqb name) ["BASH_ENV";"ENV";"TMPDIR";"TMP";"TEMP";"HISTFILE"] || starts name "LD_" || starts name "DYLD_".

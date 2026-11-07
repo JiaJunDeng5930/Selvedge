@@ -282,7 +282,7 @@ export class RemoteHostRelay {
           socket.serializeAttachment(this.step(state, { kind: 'hello' }).state);
           return;
         }
-        await this.hostFrame(socket, state, frame);
+        await this.hostFrame(socket, frame);
       } else if (this.controllerCurrent(state)) {
         const frame = parseRemoteFrame(message, request => {
           const admitted = remoteControl('relay_request', { connection: state, request });
@@ -302,7 +302,7 @@ export class RemoteHostRelay {
     }
   }
 
-  async hostFrame(socket, state, frame) {
+  async hostFrame(socket, frame) {
     switch (frame.type) {
       case 'grants': {
         const next = new Map(frame.grants.map(grant => [grant.controller_id, grant.grant_epoch]));

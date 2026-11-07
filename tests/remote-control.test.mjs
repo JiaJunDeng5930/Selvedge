@@ -4,7 +4,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -20,15 +19,6 @@ async function until(condition) {
     await delay(10);
   }
   throw new Error('Remote fixture did not reach its physical boundary');
-}
-
-function remoteRows(directory, request_id) {
-  const database = new DatabaseSync(path.join(directory, 'journal.sqlite'), { readOnly: true });
-  try {
-    return database.prepare('SELECT input, decision FROM journal ORDER BY seq').all()
-      .map(row => ({ input: JSON.parse(row.input), decision: JSON.parse(row.decision) }))
-      .filter(row => row.input.kind === 'remote_command' && row.input.request_id === request_id);
-  } finally { database.close(); }
 }
 
 test('private identity publication and lost remote command receipts survive restart', async t => {
@@ -119,9 +109,9 @@ test('private identity publication and lost remote command receipts survive rest
   await symlink(filename, guidance);
   const retried = await service.remoteCommand(controller_id, grant.grant_epoch, { request_id, command });
   assert.deepEqual(retried.reply, reply);
-  const saved = remoteRows(directory, request_id);
-  assert.equal(saved.length, 1);
-  assert.deepEqual(saved[0].decision.reply, reply);
+  const listed = await service.command({ op: 'list' });
+  assert.equal(listed.reply.ok, true, JSON.stringify(listed.reply));
+  assert.deepEqual(listed.reply.result.tasks.map(task => task.id), [reply.result.task_id]);
   await service.close();
   await unlink(filename);
   await promisify(execFile)('mkfifo', ['-m', '600', filename]);

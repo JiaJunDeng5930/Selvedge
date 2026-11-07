@@ -65,28 +65,20 @@ Definition refresh_admission source accepted :=
   else err identity_failure.
 Definition issuer_admission source := if same (get (get source "value") "issuer") (get source "issuer")
   then success (get source "value") else err "ChatGPT credential belongs to a different issuer; sign in again".
-Definition refresh_registration source := refresh_admission source (success JNull).
-Inductive refresh_action := Keep | AwaitEarliest | Refresh.
+Inductive refresh_action := Keep | Refresh.
 Definition rejected_current source := has source "rejectedToken" &&
   same (get source "rejectedToken") (get (get source "value") "access_token").
 Definition before_expiration source := epoch_greater (get (get source "dates") "expires_at") (get source "threshold").
-Definition initial_action source :=
-  if before_expiration source && negb (rejected_current source) then Keep
-  else if negb (is_null (get (get source "value") "earliest_refresh_at")) && negb (has source "rejectedToken")
-    then AwaitEarliest else Refresh.
+Definition refresh_action_for source :=
+  if (before_expiration source && negb (rejected_current source)) ||
+    (negb (is_null (get (get source "value") "earliest_refresh_at")) &&
+      epoch_greater (get (get source "dates") "earliest_refresh_at") (get source "now_date") &&
+      negb (has source "rejectedToken"))
+  then Keep else Refresh.
 Definition refresh_action_name action := match action with
-  | Keep => "keep" | AwaitEarliest => "earliest" | Refresh => "refresh" end.
-Definition refresh_initial source := refresh_admission source
-  (success (JString (refresh_action_name (initial_action source)))).
-Definition reusable source :=
-  (before_expiration source && negb (rejected_current source)) ||
-  (negb (is_null (get (get source "value") "earliest_refresh_at")) &&
-    epoch_greater (get (get source "dates") "earliest_refresh_at") (get source "now_date") &&
-    negb (has source "rejectedToken")).
-Definition refresh source :=
-  if negb (same (get (get source "value") "issuer") (get source "issuer"))
-  then err "ChatGPT credential belongs to a different issuer; sign in again"
-  else refresh_admission source (success (JBool (reusable source))).
+  | Keep => "keep" | Refresh => "refresh" end.
+Definition refresh source := refresh_admission source
+  (success (JString (refresh_action_name (refresh_action_for source)))).
 
 Fixpoint mantissa_nonzero source := match source with
   | EmptyString => false | String first rest =>
@@ -117,12 +109,6 @@ Definition token_subject source :=
   else if claims_valid source then success
     (if is_object (get source "claims") then get (get source "claims") "sub" else get (get source "previous") "subject")
   else err identity_message.
-Definition token_times source :=
-  if negb (is_object (get source "expires")) then range_error "Invalid time value"
-  else if is_null (get (get source "tokens") "earliest_refresh_at") || is_text (get (get source "earliest") "iso")
-    then success JNull else err "Invalid ChatGPT token refresh time".
-Definition token_expiration source := if is_object (get source "expires")
-  then success JNull else range_error "Invalid time value".
 Definition identity_field claims previous claim name :=
   if is_object claims then if nonempty (get claims claim) then get claims claim else JNull else get previous name.
 Definition token_record source :=
@@ -137,11 +123,11 @@ Definition token_record source :=
     ("scope",default (get tokens "scope") (get previous "scope"));
     ("expires_at",get (get source "expires") "iso");("earliest_refresh_at",get (get source "earliest") "iso");
     ("last_refresh",get (get source "now_date") "iso")].
+(* The host admits the grant and principal through [token_subject] before
+   deriving the account identity. This step admits the observed dates and
+   the constructed credential before it can be published. *)
 Definition token source :=
-  if negb (token_grant source) then err grant_message
-  else if String.eqb (str source "phase") "grant" then success JNull
-  else if negb (claims_valid source) then err identity_message
-  else if negb (is_object (get source "expires")) then range_error "Invalid time value"
+  if negb (is_object (get source "expires")) then range_error "Invalid time value"
   else if negb (is_null (get (get source "tokens") "earliest_refresh_at") || is_text (get (get source "earliest") "iso"))
     then err "Invalid ChatGPT token refresh time"
   else credential (JObject [("audio",JBool (is_audio (kind_of source)));("value",token_record source);

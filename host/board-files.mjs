@@ -6,12 +6,9 @@ import { parseJson, stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { durableDirectory, syncDirectory, readBoundedRegularSnapshot } from './file-io.mjs';
 
-export const BOARD_FILE_LIMIT = 10 * 1024 * 1024;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
-function filename(value) { return boundary('effect.filename', { value }); }
-
-export function mediaType(bytes) {
+function mediaType(bytes) {
   return boundary('effect.attachment_media_type', { prefix: Array.from(bytes.subarray(0, 12)) });
 }
 
@@ -21,7 +18,7 @@ async function vault(home, { create }) {
   if (create) await durableDirectory(directory);
   const stat = await lstat(directory);
   // DEFENSE: Replacing the attachment vault with a link must not redirect attachment reads or writes outside the service home.
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
+  if (!stat.isDirectory() || await realpath(directory) !== directory) {
     throw new Error('The attachment vault must be a real directory inside the service home');
   }
   return directory;
@@ -37,26 +34,27 @@ export async function readBoardAttachment(home, id) {
   const directory = path.join(root, id);
   const stat = await lstat(directory);
   // DEFENSE: A replaced attachment directory must not redirect reads outside its content-addressed vault.
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
+  if (!stat.isDirectory() || await realpath(directory) !== directory) {
     throw new Error('Attachment directories cannot be symbolic links');
   }
   const record = parseJson((await regularFile(path.join(directory, 'metadata.json'), 2048)).toString('utf8'));
-  const data = await regularFile(path.join(directory, 'content'), BOARD_FILE_LIMIT);
-  const attachment = boundary('effect.attachment', { home, id, record, bytes: data.length,
+  const maximum = boundary('effect.attachment_budget', { size: record.bytes });
+  const data = await regularFile(path.join(directory, 'content'), maximum);
+  const attachment = boundary('effect.attachment', { id, record, bytes: data.length,
     mime: mediaType(data), hash: hash(data), path: path.join(directory, 'content') });
   return { attachment, data };
 }
 
 export async function saveBoardAttachment(home, name, stream, { signal } = {}) {
   signal?.throwIfAborted();
-  filename(name);
+  boundary('effect.filename', { value: name });
   const chunks = [];
   let size = 0;
   for await (const part of stream) {
     signal?.throwIfAborted();
     const bytes = Buffer.from(part);
     size += bytes.length;
-    boundary('effect.attachment_budget', { home, name, size });
+    boundary('effect.attachment_budget', { size });
     chunks.push(bytes);
   }
   const data = Buffer.concat(chunks, size);
@@ -101,7 +99,7 @@ export async function saveBoardAttachment(home, name, stream, { signal } = {}) {
   } finally { await rm(pending, { recursive: true, force: true }); }
 }
 
-export function observeBoardClock() {
+function observeBoardClock() {
   const seconds = Math.floor(Date.now() / 1000);
   return boundary('effect.board_clock', { seconds });
 }
@@ -118,15 +116,15 @@ export async function observeMessageImages(command, home) {
 
 /** Capture external observations. Card transitions and eligibility stay native. */
 export async function observeBoardCommand(command, home) {
-  const observation = boundary('effect.board_command', { command, home });
+  const observation = boundary('effect.board_command', { command });
   if (!observation.observe) return command;
   const result = { ...command, observed_at: observeBoardClock() };
   if (observation.attachments) {
-    const references = boundary('effect.board_references', { command, home });
+    const references = boundary('effect.board_references', { command });
     result.attachments = [];
     for (const value of references) {
       const { attachment } = await readBoardAttachment(home, value.id);
-      boundary('effect.reference_match', { command, home, value, attachment });
+      boundary('effect.reference_match', { value, attachment });
       result.attachments.push(attachment);
     }
   }

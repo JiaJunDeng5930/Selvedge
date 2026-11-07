@@ -7,14 +7,12 @@ export class Plugin extends StdioRpc {
   #queue = [];
   #queuedBytes = 0;
   #pump;
-  #stopping = false;
   #observer = new AbortController();
 
   constructor(name, config, limits, definition) {
     super(name, config, limits, { label: 'Plugin', timeoutMs: limits.plugin_timeout_ms });
     this.definition = definition;
     this.on('unavailable', () => {
-      this.#stopping = true;
       this.#queue = [];
       this.#queuedBytes = 0;
     });
@@ -28,31 +26,29 @@ export class Plugin extends StdioRpc {
     if (!this.available) throw new Error(`Plugin ${this.name} became unavailable during initialization`);
     const admitted = boundary('plugin.manifest', { name: this.name, manifest,
       definition: this.definition, limits: this.limits });
-    this.reference = Object.freeze(admitted.reference);
-    this.descriptor = Object.freeze({ ...admitted.descriptor, reference: this.reference,
-      events: Object.freeze(admitted.descriptor.events) });
+    this.descriptor = admitted.descriptor;
     this.tools = admitted.tools;
     return this.descriptor;
   }
 
   matches(reference) {
-    return boundary('plugin.matches', { reference, expected: this.reference });
+    return boundary('plugin.matches', { reference, expected: this.descriptor.reference });
   }
 
   async before(effect, { signal } = {}) {
-    const request = boundary('plugin.before_request', { effect, reference: this.reference, descriptor: this.descriptor });
+    const request = boundary('plugin.before_request', { effect, descriptor: this.descriptor });
     const outcome = await this.request('beforeTool', request, { signal });
     return boundary('plugin.before_result', { outcome });
   }
 
   async call(effect, { signal } = {}) {
-    const request = boundary('plugin.call_request', { effect, reference: this.reference });
+    const request = boundary('plugin.call_request', { effect, reference: this.descriptor.reference });
     const result = await this.request('callTool', request, { signal });
     return boundary('plugin.call_result', { result });
   }
 
   async after(effect, { signal } = {}) {
-    const request = boundary('plugin.after_request', { effect, reference: this.reference, descriptor: this.descriptor });
+    const request = boundary('plugin.after_request', { effect, descriptor: this.descriptor });
     const outcome = await this.request('afterTool', request, { signal });
     return boundary('plugin.after_result', { outcome });
   }
@@ -62,7 +58,7 @@ export class Plugin extends StdioRpc {
   // recovery. sequence/ordinal allows an extension to make its own sink idempotent.
   enqueue(event) {
     const bytes = Buffer.byteLength(stringifyJson(event));
-    const decision = boundary('plugin.enqueue', { stopping: this.#stopping,
+    const decision = boundary('plugin.enqueue', { stopping: !this.available,
       queue_count: this.#queue.length, queued_bytes: this.#queuedBytes, event, event_bytes: bytes,
       config: this.config, limits: this.limits, name: this.name });
     // DEFENSE: A slow plugin can overflow its bounded observer queue; publish the native dropped-event diagnostic.
@@ -70,34 +66,32 @@ export class Plugin extends StdioRpc {
     this.#queue.push(...decision.append);
     this.#queuedBytes = decision.next_queued_bytes;
     if (decision.accepted) this.#startPump();
-    return decision.accepted;
   }
 
   #startPump() {
-    // DEFENSE: Enqueuing during an active observer request must not start a second delivery loop or restart one after shutdown.
-    if (this.#pump || this.#stopping) return;
+    // DEFENSE: Enqueuing during an active observer request must not start a second delivery loop.
+    if (this.#pump) return;
     this.#pump = Promise.resolve().then(() => this.#drain()).finally(() => {
       this.#pump = undefined;
-      if (this.#queue.length && !this.#stopping) this.#startPump();
+      if (this.#queue.length) this.#startPump();
     });
   }
 
   async #drain() {
-    while (this.#queue.length && !this.#stopping) {
+    while (this.#queue.length) {
       const { event, bytes } = this.#queue.shift();
       this.#queuedBytes -= bytes;
       try { await this.request('event', event, { signal: this.#observer.signal, timeoutMs: this.config.event_timeout_ms ?? this.limits.plugin_event_timeout_ms }); }
       // DEFENSE: A plugin observer can time out, reject or lose its transport; delivery is explicitly best-effort, so diagnose the lost event without replay.
       catch (error) {
         // DEFENSE: Closing intentionally aborts the observer; report delivery errors only while this plugin is still serving events.
-        if (!this.#stopping) this.emit('diagnostic', { message: `Plugin ${this.name} observer failed: ${error.message}`,
+        if (this.available) this.emit('diagnostic', { message: `Plugin ${this.name} observer failed: ${error.message}`,
           event_id: { sequence: event.sequence, ordinal: event.ordinal } });
       }
     }
   }
 
   async close() {
-    this.#stopping = true;
     this.#queue = [];
     this.#queuedBytes = 0;
     this.#observer.abort(new Error('Plugin observer stopped'));

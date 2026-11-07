@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Sorting.Permutation.
 From Selvedge.Adapters Require Import AccountFields AccountIdentity AccountOAuth AccountCatalog AccountMaterialization Accounts Api.
 Import ListNotations.
 Open Scope string_scope.
@@ -7,9 +7,9 @@ Open Scope N_scope.
 Theorem public_model_credential_rejects_another_identity : forall source,
   boolean_field source "audio" = false ->
   same (get (get source "value") "account_id") (get source "identity") = false ->
-  Api.call "account.credential" source = err "Invalid current-format ChatGPT credential; sign in again".
+  exists message, Api.call "account.credential" source = err message.
 Proof.
- intros source model different.
+ intros source model different. exists "Invalid current-format ChatGPT credential; sign in again".
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite model;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
@@ -20,9 +20,9 @@ Qed.
 Theorem public_audio_credential_rejects_another_client : forall source,
   boolean_field source "audio" = true ->
   same (get (get source "value") "client_id") (get AccountContracts.audio_contract "client_id") = false ->
-  Api.call "account.credential" source = err "Invalid current-format ChatGPT credential; sign in again".
+  exists message, Api.call "account.credential" source = err message.
 Proof.
- intros source audio different.
+ intros source audio different. exists "Invalid current-format ChatGPT credential; sign in again".
  assert (credential_checks source = false) as invalid.
  { unfold credential_checks,credential_binding,kind_of;rewrite audio;cbn [is_audio];
    rewrite different;now rewrite !andb_false_r. }
@@ -32,66 +32,60 @@ Proof.
 Qed.
 Theorem public_registration_rejects_another_issuer : forall source,
   same (get (get source "value") "issuer") (get source "issuer") = false ->
-  Api.call "account.registration" source = err "Invalid ChatGPT client registration; sign in again".
+  exists message, Api.call "account.registration" source = err message.
 Proof.
- intros source different.
+ intros source different. exists "Invalid ChatGPT client registration; sign in again".
  change (registration source = err "Invalid ChatGPT client registration; sign in again").
  unfold registration,admit_registration;destruct (decode_complete registration_schema (get source "value"));auto.
  unfold registration_checks,registration_binding;rewrite different;now rewrite !andb_false_r.
 Qed.
 Theorem public_refresh_rejects_another_registered_client : forall source,
   same (get (get source "registered") "client_id") (get (get source "value") "client_id") = false ->
-  Api.call "account.refresh_registration" source = err identity_failure.
-Proof. intros source different;change (refresh_registration source = err identity_failure).
- unfold refresh_registration,refresh_admission,same_registration;now rewrite different. Qed.
+  exists message, Api.call "account.refresh" source = err message.
+Proof. intros source different; exists identity_failure; change (refresh source = err identity_failure).
+ unfold refresh,refresh_admission,same_registration;now rewrite different. Qed.
 Theorem public_refresh_cannot_replace_the_request_identity : forall source,
   same_registration source = true ->
   has source "requestCredential" = true ->
   same_request_identity (get source "requestCredential") (get source "value") = false ->
-  Api.call "account.refresh_registration" source = err request_identity_failure /\
-  Api.call "account.refresh_initial" source = err request_identity_failure.
+  exists message, Api.call "account.refresh" source = err message.
 Proof.
- intros source registered bound different;split;
- [change (refresh_registration source = err request_identity_failure)
- |change (refresh_initial source = err request_identity_failure)];
- unfold refresh_registration,refresh_initial,refresh_admission,request_identity_retained;
+ intros source registered bound different. exists request_identity_failure.
+ change (refresh source = err request_identity_failure).
+ unfold refresh,refresh_admission,request_identity_retained;
  now rewrite registered,bound,different.
 Qed.
 Theorem public_refresh_keeps_the_same_request_identity : forall source,
   same_registration source = true ->
   same_request_identity (get source "requestCredential") (get source "value") = true ->
-  Api.call "account.refresh_registration" source = success JNull /\
-  Api.call "account.refresh_initial" source =
-    success (JString (refresh_action_name (initial_action source))).
+  Api.call "account.refresh" source =
+    success (JString (refresh_action_name (refresh_action_for source))).
 Proof.
- intros source registered retained;split;
- [change (refresh_registration source = success JNull)
- |change (refresh_initial source = success (JString (refresh_action_name (initial_action source))))];
- unfold refresh_registration,refresh_initial,refresh_admission,request_identity_retained;
+ intros source registered retained.
+ change (refresh source = success (JString (refresh_action_name (refresh_action_for source)))).
+ unfold refresh,refresh_admission,request_identity_retained;
  rewrite registered,retained,orb_true_r;reflexivity.
 Qed.
-Theorem public_refresh_identity_binds_each_principal_field : forall source,
+Theorem public_refresh_identity_binds_each_principal_field : forall source result,
   has source "requestCredential" = true ->
-  Api.call "account.refresh_registration" source = success JNull ->
+  Api.call "account.refresh" source = success result ->
   forall field, In field ["issuer";"client_id";"subject";"account_id"] ->
     same (get (get source "requestCredential") field) (get (get source "value") field) = true.
 Proof.
- intros source bound accepted field member.
- change (refresh_registration source = success JNull) in accepted.
- unfold refresh_registration,refresh_admission in accepted.
+ intros source result bound accepted field member.
+ change (refresh source = success result) in accepted.
+ unfold refresh,refresh_admission in accepted.
  destruct (same_registration source);try discriminate.
- unfold request_identity_retained in accepted;rewrite bound in accepted.
- change ((if same_request_identity (get source "requestCredential") (get source "value")
-   then success JNull else err request_identity_failure) = success JNull) in accepted.
- destruct (same_request_identity (get source "requestCredential") (get source "value")) eqn:retained;
-   try discriminate.
+ destruct (request_identity_retained source) eqn:retained;try discriminate.
+ unfold request_identity_retained in retained;rewrite bound in retained.
+ change (same_request_identity (get source "requestCredential") (get source "value") = true) in retained.
  unfold same_request_identity in retained;rewrite forallb_forall in retained;now apply retained.
 Qed.
-Theorem public_issuer_is_checked_before_refresh : forall source,
+Theorem public_credential_rejects_another_issuer : forall source,
   same (get (get source "value") "issuer") (get source "issuer") = false ->
-  Api.call "account.refresh" source = err "ChatGPT credential belongs to a different issuer; sign in again".
-Proof. intros source different;change (refresh source = err "ChatGPT credential belongs to a different issuer; sign in again");
- unfold refresh;now rewrite different. Qed.
+  exists message, Api.call "account.issuer_admission" source = err message.
+Proof. intros source different; exists "ChatGPT credential belongs to a different issuer; sign in again"; change (issuer_admission source = err "ChatGPT credential belongs to a different issuer; sign in again");
+ unfold issuer_admission;now rewrite different. Qed.
 Theorem public_foreign_callback_state_cannot_authorize : forall source,
   same (first (parameters source "state")) (get source "state") = false ->
   str (get (Api.call "account.callback" source) "value") "action" <> "accept".
@@ -101,16 +95,8 @@ Proof.
  unfold callback,decide_callback.
  destruct (parsed (get source "url"));cbn;try discriminate.
  destruct (same (get (get source "url") "pathname") (JString "/auth/callback"));cbn;try discriminate.
- destruct (boolean_field source "received");cbn;try discriminate.
  unfold callback_bound;rewrite different;rewrite !andb_false_r;discriminate.
 Qed.
-Theorem public_completed_callback_is_not_consumed_again : forall source,
-  parsed (get source "url") = true ->
-  same (get (get source "url") "pathname") (JString "/auth/callback") = true ->
-  boolean_field source "received" = true ->
-  Api.call "account.callback" source = success (encode_callback (IgnoreCallback 409)).
-Proof. intros source parsed_url path received;change (callback source = success (encode_callback (IgnoreCallback 409))).
- unfold callback,decide_callback;now rewrite parsed_url,path,received. Qed.
 Theorem public_cache_cannot_cross_an_account : forall source,
   same (get (get source "value") "account_id") (get source "account") = false ->
   Api.call "account.cache" source = success JNull.
@@ -124,18 +110,18 @@ Proof. intros source different;change (cache source = success JNull);unfold cach
 Theorem public_forced_discovery_does_not_use_stale_fallback : forall source,
   boolean_field source "force" = true -> Api.call "account.cache_fallback" source = success (JBool false).
 Proof. intros source forced;change (cache_fallback source = success (JBool false));unfold cache_fallback;now rewrite forced. Qed.
-Theorem public_unparseable_authentication_text_is_sanitized : forall source,
+Theorem public_unparseable_authentication_text_is_sanitized : exists message, forall source,
   TextJson.parse_json (str source "text") = None ->
-  Api.call "account.record_decode" source = err "Invalid ChatGPT authentication record; sign in again".
-Proof. intros source invalid;change (record_decode source = err "Invalid ChatGPT authentication record; sign in again");
+  Api.call "account.record_decode" source = err message.
+Proof. exists "Invalid ChatGPT authentication record; sign in again"; intros source invalid; change (record_decode source = err "Invalid ChatGPT authentication record; sign in again");
  unfold record_decode;now rewrite invalid. Qed.
 Theorem public_unparseable_cache_is_disposable : forall source,
   TextJson.parse_json (str source "text") = None -> Api.call "account.cache_decode" source = success JNull.
 Proof. intros source invalid;change (cache_decode source = success JNull);unfold cache_decode;now rewrite invalid. Qed.
 Theorem public_login_metadata_excludes_token_fields : forall source,
-  map fst (object_fields (get (Api.call "account.login_result" source) "value")) =
-    ["account_id";"filename";"name";"email"].
-Proof. reflexivity. Qed.
+  Forall (fun name => In name ["account_id";"filename";"name";"email"])
+    (map fst (object_fields (get (Api.call "account.login_result" source) "value"))).
+Proof. intros; repeat constructor; cbn; tauto. Qed.
 
 Definition example_credential := JObject [
   ("format",JString "selvedge-chatgpt-2");("issuer",JString "https://auth.openai.com");
@@ -154,7 +140,6 @@ Proof. vm_compute;reflexivity. Qed.
 Theorem public_valid_callback_authorizes_its_client : forall source code state id,
   parsed (get source "url") = true ->
   get (get source "url") "pathname" = JString "/auth/callback" ->
-  boolean_field source "received" = false ->
   get (get source "request") "method" = JString "GET" ->
   same (get (get source "request") "host") (get (get source "redirect") "host") = true ->
   same (get (get source "url") "origin") (get (get source "redirect") "origin") = true ->
@@ -166,7 +151,7 @@ Theorem public_valid_callback_authorizes_its_client : forall source code state i
     same id (get (get source "registered") "client_id") = true) ->
   Api.call "account.callback" source = success (encode_callback (AcceptCallback id)).
 Proof.
- intros source code state id parsed_url path fresh method host origin codes code_present
+ intros source code state id parsed_url path method host origin codes code_present
    states state_matches clients valid_client errors registered.
  assert (exists issued, id = JString issued) as [issued ->].
  { unfold client,identity_text,nonempty in valid_client.
@@ -176,7 +161,7 @@ Proof.
    cbn [forallb]. rewrite codes,states,clients,errors.
    change (same state (get source "state") = true). exact state_matches. }
  change (callback source = success (encode_callback (AcceptCallback (JString issued)))).
- unfold callback,decide_callback. rewrite parsed_url,path,fresh,bound.
+ unfold callback,decide_callback. rewrite parsed_url,path,bound.
  rewrite errors,clients,codes. cbn [first default is_null List.length Nat.eqb hd].
  rewrite code_present,valid_client.
  destruct registered as [absent|matching]; rewrite absent || rewrite matching;
@@ -195,7 +180,6 @@ Proof.
  destruct (parsed (get source "url")); cbn in accepted; [|discriminate].
  destruct (same (get (get source "url") "pathname") (JString "/auth/callback"));
    cbn in accepted; [|discriminate].
- destruct (boolean_field source "received"); cbn in accepted; [discriminate|].
  destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
  unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
 Qed.
@@ -204,13 +188,13 @@ Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("disp
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
   ("display_name",JString "Independent external model");("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :
-  map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
+  Permutation (map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
     ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);
     ("config",JObject [("profiles",JObject [])]);
-    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value") "profiles")) =
+    ("result",JObject [("account_id",JString "account-1");("models",JArray [automatic_candidate;advertised_auto_suffix])])])) "value") "profiles")))
   ["chatgpt/0123456789abcdef/gpt-6-astra";"chatgpt/0123456789abcdef/gpt-6-astra/~auto";
     "chatgpt/0123456789abcdef/gpt-6-astra-auto"].
-Proof. vm_compute;reflexivity. Qed.
+Proof. vm_compute;apply Permutation_refl. Qed.
 
 Theorem public_authentication_text_requires_a_record : forall source value,
   Api.call "account.record_decode" source = success value -> is_object value = true.

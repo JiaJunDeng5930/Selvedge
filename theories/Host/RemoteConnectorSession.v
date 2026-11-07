@@ -15,12 +15,9 @@ Open Scope N_scope.
 Open Scope list_scope.
 
 Definition grant := RP.wire_authority.
-Definition controller := RP.authority_controller.
-Definition epoch := RP.authority_epoch.
 Record connection := Connection { connection_identity : RP.identifier; authority : grant; after_notice : option N }.
 Definition connection_id value := RP.identifier_text (connection_identity value).
 Definition pairing := RP.pairing_announcement.
-Definition code := RP.pairing_code.
 Definition expires := RP.pairing_expiry.
 Record queued := Queued { owner : string; bytes : N; queued_notice : option N }.
 Record session := Session { pairing_code : option pairing; grants : RP.grant_set;
@@ -55,7 +52,6 @@ Definition subscription data id after := Session (pairing_code data) (grants dat
 Definition notice_queued data id notice := existsb (fun job =>
  String.eqb (owner job) id && same_notice (queued_notice job) (Some notice)) (pending data).
 Definition frame := RP.relay_frame.
-Definition Request := RP.RelayRequest.
 Inductive observation := Retire | SetPairing (value : pairing) (now : N) | CurrentPairing (now : N)
  | Grants (values : RP.grant_set) | Enqueue (id : string) (size : N) (notice : option N)
  | Dequeue (id : string) (size : N) (notice : option N)

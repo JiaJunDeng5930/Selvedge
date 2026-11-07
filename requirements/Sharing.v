@@ -31,13 +31,33 @@ Export SharingProofs(connection_without_project_grant_cannot_execute,
     private configuration; environment inheritance is not a portable package
     contract. Local stdio and deployed tunnel packaging choose their actual
     route without embedding credentials or a fabricated registered application
-    identity. Real tunnel and filesystem isolation remain physical checks. *)
+    identity. The tunnel launcher forwards profile names and tunnel identifiers
+    unchanged as arguments to the official client, which owns their validation
+    and profile-file selection. A second spelling or length policy here would
+    reject values the actual client supports without adding local authority.
+    The launcher still owns its supported options and propagates client failure.
+    The shared bounded descriptor reader establishes file kind,
+    no-follow access and size; plugin admission adds the private file's owner,
+    permissions and configuration fields. Each boundary consumes the
+    observations already established by its owner.
+
+    Client settings retain the admitted authorization header: repeating token
+    admission for each request adds no new authority. Setup persists the same
+    validated raw credential in the private connection file, while runtime
+    requests use the header established when that configuration was loaded.
+
+    Packaging exports an explicit set of shipped files, keeping private
+    connection data outside the package. Its output may be a new directory
+    within the source tree because that directory cannot enter the fixed input
+    set. Exclusive directory creation preserves existing deployments. Explicit
+    relative paths use the process working directory, as ordinary filesystem
+    paths do. Real tunnel and filesystem isolation remain physical checks. *)
 
 From Selvedge.Features Require RemoteProofs RemoteEntryProofs.
 Export RemoteProofs(check_satisfies_complete_access_contract,
   authorize_satisfies_complete_request_contract,
   revoked_remote_controller_cannot_replay, remote_replay_has_no_effect,
-  oversized_remote_reply_rolls_back).
+  prepared_remote_permissions_are_required, oversized_remote_reply_rolls_back).
 Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 (** ** Revocation precedes retained-result access
@@ -45,6 +65,14 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     A remote receipt is reusable only under current authority. The independent
     access and request contracts in [RemoteProofs] derive fresh admission and
     replay from grants, componentwise permissions, bounds and stored receipts.
+    Refusal requires a failed admission condition. Diagnostic identifiers,
+    wording and the choice among simultaneous failures do not determine access
+    or replay, so these contracts leave them unspecified.
+    Admission after asynchronous preparation uses the current world. Within
+    that pure transition the request and receipt cannot change; checking the
+    prepared command's permissions suffices without admitting that packet again.
+    [prepared_remote_permissions_are_required] prevents preparation from using
+    permissions absent from the current grant through the actual executor.
     [revoked_remote_controller_cannot_replay] prevents retained results from
     bypassing revocation. [remote_replay_has_no_effect] avoids repeated execution.
     Oversized complete replies roll back instead of partly committing a result.
@@ -76,11 +104,20 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
     as JavaScript numbers; opaque command and event JSON retains its numeric
     tokens. An unrelated header limit cannot silently narrow enrollment.
 
+    Session transitions own admission of their actual frames. An HTTP request
+    is admitted from its supplied observation; facts needed across socket
+    hibernation instead remain in the session attachment. This distinction
+    keeps retained state tied to a real lifetime.
+
     Closed transport states distinguish probing, negotiation, online operation,
     scheduled retry and rejected identity. Randomness, status and clock values
     are observations, not host permission to reconnect. Authorization checks
     retain their bounded sequence comparison; capture requires equality with
     the current committed sequence in that observation.
+
+    Each capture attempt retains only its pending check stage across native
+    observations. Capture, denial and disconnection end the awaited invocation;
+    they do not create a retained authorization state.
 
     New semantic state is installed before sending or accepting sockets. Ticket
     consumption precedes authorization. After asynchronous hashing, the relay
@@ -100,8 +137,10 @@ Export RemoteRelaySessionProofs(consumption_removes_ticket,
 
     Opening the intended loopback URL establishes an HttpOnly browser session so
     product JavaScript need not handle its secret. Origin and host admission
-    remain necessary. CLI Bearer credentials and plugin grants retain their
-    separate lifetimes. Build provenance identifies an artifact; persisted
-    protocol compatibility identifies replayable work. Only the current
-    persisted formats are accepted, without manufacturing authority from older
-    attachment or receipt shapes. *)
+    remain necessary. The host compares credentials as byte buffers and reports
+    that authorization result; credential shape metadata adds no independent
+    authority. The expected Host comes from the actual listening address.
+    CLI Bearer credentials and plugin grants retain their
+    separate lifetimes. Persisted protocol compatibility identifies replayable
+    work. Only the current persisted formats are accepted, without manufacturing
+    authority from older attachment or receipt shapes. *)

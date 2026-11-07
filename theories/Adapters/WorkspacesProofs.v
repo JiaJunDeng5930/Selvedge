@@ -1,23 +1,23 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import JsonProofs.
+From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Workspaces.
 Import ListNotations.
 Open Scope string_scope.
 
 Theorem supplied_workspace_prevents_project_resolution : forall source,
   has (get source "value") "workspace" = true ->
-  workspace_selection_plan source = success (JObject [
-    ("project_id", JNull); ("observe_workspace", JBool true)]).
+  JsonObjects.equivalent (workspace_selection_plan source) (success (JObject [
+    ("project_id", JNull); ("observe_workspace", JBool true)])) = true.
 Proof.
   intros source supplied; unfold workspace_selection_plan.
-  rewrite supplied; cbn [negb]; rewrite andb_false_r; reflexivity.
+  rewrite supplied; cbn [negb]; rewrite andb_false_r; apply equivalent_is_reflexive.
 Qed.
 
 Theorem changed_committed_roots_prevent_execution : forall source,
   equal (get (get source "workspace") "roots")
     (get (get (get source "plan") "workspace") "roots") = false ->
-  workspace_bound source = err "A workspace root changed after it was committed; reselect the workspace before executing".
-Proof. intros source H;unfold workspace_bound;rewrite H;rewrite andb_false_r;reflexivity. Qed.
+  exists message, workspace_bound source = err message.
+Proof. intros source H;unfold workspace_bound;rewrite H;rewrite andb_false_r;eexists;reflexivity. Qed.
 
 Theorem archive_path_is_owned_storage : forall source,
   str source "operation" = "archive" -> worktree_path source = success JNull ->

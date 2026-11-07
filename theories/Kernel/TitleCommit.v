@@ -23,8 +23,5 @@ Definition input (decoded : option Inputs.input) (before : world) :=
  match decoded with Some Continue => resolve before | _ => None end.
 Definition candidate {before : world} (request : plan before) :=
  DeferredCommit.continue_result before (CommandResult.Accepted (TitleRuntime.issue request)).
-Definition packet {before : world} (request : plan before) (raw : json) :=
- DeferredCommit.packet (Some Continue) before (candidate request).
 Definition enqueue_title : DecisionComposition.transformation := fun _ value effects =>
  (value,match resolve value with Some _ => effects ++ [ContinueScheduling] | None => effects end).
-Definition enqueue := DecisionComposition.transform enqueue_title.

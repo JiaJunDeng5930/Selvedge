@@ -7,5 +7,3 @@ Definition fits (durable : bool) (value : decision) := fits_json (Observation.en
 Definition deliver_with_status (durable : bool) (value : decision) (previous : world) :=
  if fits durable value then (true,value) else
  (false,reject "output_limit" "The complete decision exceeds the native output bound; no state change or effect was committed" previous).
-Definition deliver (durable : bool) (value : decision) (previous : world) :=
- snd (deliver_with_status durable value previous).

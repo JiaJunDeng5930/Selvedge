@@ -3,28 +3,21 @@ import { boundary } from '../generated/model-boundary.mjs';
 import { interpretCredential } from '../generated/opaque-credentials.mjs';
 import { parseJson } from '../generated/json-tokens.mjs';
 import { readBoundedRegularSnapshot } from '../generated/file-io.mjs';
-import path from 'node:path';
-import { requirePackagedModel } from '../scripts/build-model.mjs';
-
-await requirePackagedModel();
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** Installed clients supply PLUGIN_DATA instead of inheriting arbitrary credentials. */
 export async function loadSettings(env = process.env) {
   if (!env.SELVEDGE_CONNECTION_FILE) return settings(env);
-  const absolute = path.isAbsolute(env.SELVEDGE_CONNECTION_FILE);
-  boundary('plugin.settings_file', { phase: 'path', absolute });
   const { bytes } = await readBoundedRegularSnapshot(env.SELVEDGE_CONNECTION_FILE, { maximumBytes: 4096,
     admitMetadata(stat) {
-      boundary('plugin.settings_file', { phase: 'metadata', absolute, nofollow: true,
-        regular: stat.isFile(), bytes: stat.size, mode: stat.mode,
+      boundary('plugin.settings_file', { phase: 'metadata', mode: stat.mode,
         owner_uid: stat.uid, current_uid: process.getuid() });
     } });
   let value;
   try { value = parseJson(utf8Decoder.decode(bytes)); }
   // DEFENSE: A manually edited credential file can contain invalid UTF-8/JSON; parser diagnostics must not expose its contents.
   catch { throw new Error('Invalid connection file JSON'); }
-  boundary('plugin.settings_file', { phase: 'keys', absolute,
+  boundary('plugin.settings_file', { phase: 'keys',
     object: value !== null && typeof value === 'object' && !Array.isArray(value),
     keys: value !== null && typeof value === 'object' ? Object.keys(value) : [] });
   return settings(value);
@@ -36,14 +29,16 @@ export function settings(env = process.env) {
     protocol: endpoint.protocol, hostname: endpoint.hostname, pathname: endpoint.pathname,
     search: endpoint.search, hash: endpoint.hash, origin: endpoint.origin,
     username_present: !!endpoint.username, password_present: !!endpoint.password,
-    connection: env.SELVEDGE_CONNECTION_ID ?? null, keys: Object.keys(env),
+    connection: env.SELVEDGE_CONNECTION_ID ?? null,
   });
   const token = env.SELVEDGE_CONNECTION_TOKEN;
+  const credential = interpretCredential(token, normalized.credential_plan, null);
   // DEFENSE: The selected environment or private connection file can omit the dedicated credential or contain invalid header bytes.
-  if (interpretCredential(token, normalized.credential_plan, null) === null) {
+  if (credential === null) {
     throw new Error('SELVEDGE_CONNECTION_TOKEN must contain the dedicated connection credential');
   }
-  return { endpoint: normalized.endpoint, connection: normalized.connection, token };
+  return { endpoint: normalized.endpoint, connection: normalized.connection,
+    authorization: credential.toString() };
 }
 
 /** A narrow, bounded loopback client. It does not load Selvedge's admin token or execute files. */
@@ -58,7 +53,7 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
     // follows a redirect or an inherited HTTP_PROXY to a different server.
     const request = http.request(new URL(`/api/chatgpt/${config.connection}`, config.endpoint), {
       method: 'POST', signal: cancellation,
-      headers: { authorization: interpretCredential(config.token, boundary('plugin.credential_plan', null), null).toString(), 'content-type': 'application/json',
+      headers: { authorization: config.authorization, 'content-type': 'application/json',
         accept: 'application/json', 'content-length': Buffer.byteLength(body) },
     }, response => {
       const chunks = [];

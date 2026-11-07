@@ -13,10 +13,6 @@ interface LocalPrimitives {
   local_remove(state: State): Promise<JsonValue>;
   local_archive(state: State): Promise<JsonValue>;
   local_observe(state: State): Promise<JsonValue>;
-  local_sync_registration(state: State): Promise<void>;
-  local_sync_ready(state: State): Promise<void>;
-  local_sync_archive(state: State): Promise<void>;
-  local_sync_release(state: State): Promise<void>;
 }
 
 /** The decoded action selects one physical primitive; its acknowledgement is
@@ -40,8 +36,6 @@ export async function runLocalResourceController(initial: unknown, transition: T
         case 'local_remove': observation = await io.local_remove(state); break;
         case 'local_archive': observation = await io.local_archive(state); break;
         case 'local_observe': observation = await io.local_observe(state); break;
-        case 'local_sync_registration': case 'local_sync_ready': case 'local_sync_archive': case 'local_sync_release':
-          await io[action](state); observation = { kind: 'local_synchronized' }; break;
         // DEFENSE: A cloud action cannot execute through a local reservation's physical handle.
         case 'allocate': case 'prepare': case 'credentials': case 'scan': case 'terminate':
         case undefined: throw new TypeError('Invalid local resource primitive');
@@ -49,8 +43,7 @@ export async function runLocalResourceController(initial: unknown, transition: T
       }
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
-      observation = { kind: action === 'persist' ? 'persistence_failed'
-        : action === 'local_remove' ? 'local_remove_failed' : 'local_failed' };
+      observation = { kind: action === 'persist' ? 'persistence_failed' : 'local_failed' };
     }
     plan = decodeResourceTransition(transition(state, observation));
   }
@@ -63,11 +56,10 @@ interface CloudPrimitives {
   credentials(state: State): Promise<JsonValue>;
   scan(state: State): Promise<JsonValue>;
   terminate(state: State): Promise<JsonValue>;
-  terminateFailure(state: State): Promise<JsonValue>;
 }
-export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives, initialErrors: string[] = []) {
+export async function runCloudResourceController(initial: unknown, transition: Transition, io: CloudPrimitives) {
   let plan = decodeResourceTransition(initial);
-  const errors = initialErrors;
+  const errors: string[] = [];
   for (;;) {
     const { state, effects } = plan;
     const action = effects[0];
@@ -84,7 +76,6 @@ export async function runCloudResourceController(initial: unknown, transition: T
         // DEFENSE: A local filesystem action cannot execute with a cloud allocation's provider handle.
         case 'local_reserve': case 'local_create': case 'local_prepare': case 'local_classify':
         case 'local_release': case 'local_remove': case 'local_archive': case 'local_observe':
-        case 'local_sync_registration': case 'local_sync_ready': case 'local_sync_archive': case 'local_sync_release':
         case undefined: throw new TypeError('Invalid cloud resource primitive');
         default: { const unreachable: never = action; throw new TypeError(`Unknown cloud resource primitive: ${unreachable}`); }
       }
@@ -96,7 +87,7 @@ export async function runCloudResourceController(initial: unknown, transition: T
         case 'prepare': errors.push(`Cloud preparation failed: ${message}`); observation = { kind: 'preparation_failed' }; break;
         case 'credentials': errors.push(`Cloud recovery needs credentials: ${message}`); observation = { kind: 'credentials_failed' }; break;
         case 'scan': errors.push(`Cloud allocation reconciliation incomplete: ${message}`); observation = { kind: 'scan_failed' }; break;
-        case 'terminate': errors.push(`Cloud destruction failed: ${message}`); observation = await io.terminateFailure(state); break;
+        case 'terminate': errors.push(`Cloud destruction failed: ${message}`); observation = { kind: 'termination_failed' }; break;
         default: throw error;
       }
     }

@@ -13,12 +13,9 @@ function closeDatabase(db) {
   } finally { db.close(); }
 }
 
-export function retainedRequest(record) {
-  const value = boundary('web.retained', { record });
-  const error = new Error(value.message);
-  error.name = 'ChatGPTWebRetainedRequest';
-  error.requestKey = value.request_key;
-  error.responseId = value.response_id;
+export function retainedRequest(record, message = boundary('web.retained', { record })) {
+  const error = new Error(message);
+  error.requestKey = record.request_key;
   return error;
 }
 
@@ -37,8 +34,7 @@ export class WebRequestStore {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(`task:${taskId}`);
-      const writes = boundary('web.reset_session', { rows, records, task_id: taskId,
-        created: false, new_identity: randomUUID() });
+      const writes = boundary('web.reset_session', { rows, records, task_id: taskId });
       for (const write of writes) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
@@ -57,10 +53,8 @@ export class WebRequestStore {
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
-      const source = { rows, created: false, new_identity: randomUUID() };
-      boundary('web.store_metadata', source);
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
-      const selected = boundary('web.retire_existing', { ...source, records, owner, ticket });
+      const selected = boundary('web.retire_existing', { rows, records, owner, ticket });
       for (const write of selected) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
@@ -108,7 +102,7 @@ export class WebRequestStore {
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
-      const metadata = boundary('web.store_metadata', { rows, created: false, new_identity: randomUUID() });
+      const metadata = boundary('web.store_metadata', { rows, created: false, new_identity: '' });
       db.exec('COMMIT');
       db.exec('PRAGMA journal_mode=WAL');
       // Another opener can observe the complete published inode before its
@@ -173,7 +167,7 @@ export class WebRequestStore {
   }
 
   retire(record) {
-    const { updates } = boundary('web.store_retire', { record });
+    const { updates } = boundary('web.store_retire', {});
     this.db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(updates.retired, record.request_key);
   }
 }

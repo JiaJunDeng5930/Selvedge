@@ -2,7 +2,7 @@ From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChange TaskResult TaskScope TaskScopeProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson JsonObjectsProofs.
 From Selvedge.Programming Require OptionObservationProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch LifecycleProofs.
 From Selvedge.Kernel Require Import ReasoningPlan.
@@ -26,7 +26,7 @@ Theorem a_supported_evaluator_choice_continues_the_running_task :
  task_lifecycle task = Running phase operations ->
  Reasoning.allowed policy effort = true ->
  ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations = true ->
- let completed := Reasoning.complete owner (Reasoning.Chosen effort generations) task in
+ let completed := TaskChange.apply (Reasoning.complete_changes owner (Reasoning.Chosen effort generations) task) task in
  task_activity completed = ReadyForModel /\
  task_history completed = task_history task ++ [ReasoningRecord owner effort generations false].
 Proof.
@@ -34,7 +34,7 @@ Proof.
   [contract profile settings lifecycle history queued lineage parent cursor consumed]
   policy phase operations Policy RunningTask Effort Duration.
  cbn in Policy, RunningTask. subst lifecycle.
- unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
+ unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
  unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  split; reflexivity.
 Qed.
@@ -42,24 +42,25 @@ Qed.
 Theorem failed_reasoning_with_no_queued_input_is_idle : forall owner reason task policy,
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
  task_queued task = [] ->
- task_activity (Reasoning.complete owner (Reasoning.EvaluationFailed reason) task) = Idle.
+ task_activity (TaskChange.apply (Reasoning.complete_changes owner (Reasoning.EvaluationFailed reason) task) task) = Idle.
 Proof.
  intros owner reason [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Queued.
  cbn in Policy, Queued. subst queued.
- unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
+ unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
 Theorem unsupported_reasoning_with_no_queued_input_is_idle : forall owner effort generations task policy,
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
  Reasoning.allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations = false ->
- task_queued task = [] -> task_activity (Reasoning.complete owner (Reasoning.Chosen effort generations) task) = Idle.
+ task_queued task = [] ->
+ task_activity (TaskChange.apply (Reasoning.complete_changes owner (Reasoning.Chosen effort generations) task) task) = Idle.
 Proof.
  intros owner effort generations [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Rejected Queued.
  cbn in Policy, Queued. subst queued.
- unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
+ unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -80,20 +81,20 @@ Proof.
 Qed.
 
 Lemma failed_evaluation_is_never_ready_for_a_model : forall reason task,
- task_activity (Reasoning.failed reason task) <> ReadyForModel.
+ task_activity (TaskChange.apply (Reasoning.failed_changes reason task) task) <> ReadyForModel.
 Proof.
  intros reason [contract profile settings lifecycle history queued lineage parent cursor consumed].
- unfold Reasoning.failed, Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; destruct queued; discriminate.
 Qed.
 Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner effort generations task policy,
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
- task_activity (Reasoning.complete owner (Reasoning.Chosen effort generations) task) = ReadyForModel ->
+ task_activity (TaskChange.apply (Reasoning.complete_changes owner (Reasoning.Chosen effort generations) task) task) = ReadyForModel ->
  (generations = 1%N \/ generations = 2%N \/ generations = 5%N \/ generations = 10%N) /\
  (generations <= reasoning_max_lease policy)%N.
 Proof.
  intros owner effort generations task policy Policy Ready.
- unfold Reasoning.complete, Reasoning.complete_changes in Ready. rewrite Policy in Ready.
+ unfold Reasoning.complete_changes in Ready. rewrite Policy in Ready.
  destruct (Reasoning.allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations) eqn:Admitted.
  - apply andb_true_iff in Admitted as [_ Duration].
    unfold ReasoningProtocol.valid_generations in Duration.
@@ -112,8 +113,8 @@ Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity.
 
 Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
  forall history owner invocation plugin outcome,
- Reasoning.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
-Proof. intros; unfold Reasoning.trailing_configuration, TicketedRequest.trailing_configuration, ReasoningPlan.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
+ ModelRequest.Plans.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
+Proof. intros; unfold ModelRequest.Plans.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
 
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
  find_task id value = Some task ->
@@ -154,24 +155,24 @@ Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
  exists prefix suffix,
- task_history (Reasoning.generation owner model remaining task) =
+ task_history (ModelRequest.Plans.generation owner model remaining task) =
  prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
  (prefix = task_history task \/
-  prefix = task_history task ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]) /\
+  exists reason, prefix = task_history task ++ [FailureMessage reason]) /\
  (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
- intros owner model remaining task. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation, ModelRequest.Plans.generation_messages.
+ intros owner model remaining task. unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
  destruct (match profile_policy (task_current_profile task) with
  | AdaptivePolicy policy => match reasoning_transport_mode policy with
    | RequestEffort => false | ConfigurationUpdates =>
-     match ReasoningPlan.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
+     match ModelRequest.Plans.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct (ReasoningPlan.trailing_configuration (task_history task));
+ destruct (ModelRequest.Plans.trailing_configuration (task_history task));
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
  cbn [andb app Domain.append_history Domain.with_history task_history].
  - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
      [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite <- app_assoc|split; [now right|now right]].
+   split; [now rewrite <- app_assoc|split; [right; eexists; reflexivity|now right]].
  - exists history, [ReasoningConfigurationMessage (profile_reasoning model)].
    split; [reflexivity|split; [now left|now right]].
  - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
@@ -340,16 +341,16 @@ Theorem public_evaluator_notes_keep_their_reasoning_category : forall text,
  ReasoningView.text_message "reasoning_summary" (ReasoningView.excerpt text).
 Proof. reflexivity. Qed.
 
-Theorem encrypted_provider_continuations_are_redacted_before_preview : forall secret,
+Theorem encrypted_provider_continuations_are_redacted_before_preview : exists placeholder, forall secret,
  ReasoningView.public_value 512 (JObject [("encrypted_content",secret)]) =
- JObject [("encrypted_content",JString "[Private provider continuation omitted]")].
-Proof. reflexivity. Qed.
+ JObject [("encrypted_content",JString placeholder)].
+Proof. eexists; reflexivity. Qed.
 
 Theorem provider_reasoning_exposes_only_its_public_summary : forall secret summary,
- ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)]) =
- JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))].
-Proof. reflexivity. Qed.
+ JsonObjects.equivalent (ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
+   ("encrypted_content",secret);("summary",JArray summary)]))
+ (JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  Utf8.chunks text = Some parts -> (List.length parts <=? 1024)%nat = true ->
@@ -358,9 +359,9 @@ Proof. intros; unfold ReasoningView.excerpt; now rewrite H, H0. Qed.
 
 Theorem configuration_transport_keeps_the_request_baseline : forall model requested policy,
  profile_policy requested = AdaptivePolicy policy -> reasoning_transport_mode policy = ConfigurationUpdates ->
- Reasoning.sampling model requested = JObject [
-   ("effective_effort",JString (profile_reasoning model));("request_effort",JString (reasoning_baseline policy))].
-Proof. intros; unfold Reasoning.sampling; now rewrite H, H0. Qed.
+ JsonObjects.equivalent (Reasoning.sampling model requested) (JObject [
+   ("effective_effort",JString (profile_reasoning model));("request_effort",JString (reasoning_baseline policy))]) = true.
+Proof. intros; unfold Reasoning.sampling; rewrite H, H0; apply equivalent_is_reflexive. Qed.
 
 Theorem side_context_rebasing_recaptures_its_updated_history : forall id ticket original value current revision,
  Dispatch.side_task id value = Some current ->

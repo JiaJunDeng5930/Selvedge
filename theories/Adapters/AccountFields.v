@@ -19,7 +19,6 @@ Definition nullable value := is_null value || nonempty value.
 Definition utf16_within limit source := match TextMetrics.utf16_units source with
   | Some units => units <=? limit | None => false end.
 Definition bounded_name value := negb (String.eqb value "") && utf16_within 256 value.
-Definition bounded_text value := match value with JString value => bounded_name value | _ => false end.
 (* DEFENSE: Account hashes separate issuer, client and subject with NUL; admitting
    that delimiter inside a component would alias distinct identity tuples. *)
 Definition identity_text value := nonempty value && Utf8.no_nul (text value).

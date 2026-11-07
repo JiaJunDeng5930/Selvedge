@@ -13,10 +13,40 @@ From Selvedge.Programming Require Import AdapterResult.
     model and audio credentials retain their own grants. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
     [AccountsProofs] binds these refresh, callback and credential rules to the
-    public account operations. [BackendProofs] binds frozen-account checks and
+    public account operations. Refusal contracts retain failure and the actual
+    control decision without fixing diagnostic wording. Errors for malformed
+    credential text must be independent of the rejected bytes so they cannot
+    disclose a credential. Refresh eligibility uses one admitted, locked
+    credential; its expiry margin and earliest refresh time are evaluated
+    against the same observed time. Callback admission binds the actual HTTP
+    request to the login; repeated browser callbacks must not replace its chosen
+    code or repeat the authorization exchange and credential publication.
+    The login awaits one callback Promise before exchanging the accepted code.
+    Single-settlement Promise semantics gives that continuation one outcome; each
+    HTTP callback still undergoes its own method, target, origin, state and
+    issued-client admission. Signature, nonce and PKCE verification belong to
+    the OpenID client. Callback response wording or a duplicate-receipt status
+    does not establish whether the exchange ran once.
+    [BackendProofs] binds frozen-account checks and
     complete-response retention to the public backend operations.
+    The account transport can omit output from its terminal response after
+    reporting finalized items separately. Those items must survive until that
+    terminal response, in provider index order, including their coordinates.
+    A finalized coordinate names one item; conflicting contents cannot authorize
+    a completed answer. External JSON integer fields denote mathematical values:
+    decimal or exponent notation does not select another coordinate, token count
+    or advertised model budget. Admission retains the declared field ranges.
+    The shared exact integer construction supplies canonical naturals before
+    internal indexing and budget calculations; host floating-point conversion
+    cannot establish those bounds.
     Transient stream items do not acquire durable-output authority merely by
     arriving before a terminal response.
+    SSE framing dispatches only complete events and discards unfinished data at
+    EOF, as required by the HTML event-stream protocol. Provider completion still
+    requires its own terminal response; framing does not invent that completion.
+    An HTTP context-limit failure permits automatic recovery only before output;
+    replaying a request after visible output would
+    execute the same turn twice.
 
     These are requirements on the extracted decisions from supplied observations.
     Issuer signature verification, atomic credential replacement, live account
@@ -28,11 +58,16 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_valid_callback_authorizes_its_client,
  public_credential_requires_unambiguous_identity,
  public_audio_credential_rejects_another_client,
- public_malformed_encoded_cache_is_disposable).
+ public_malformed_encoded_cache_is_disposable,
+ public_unparseable_authentication_text_is_sanitized).
 Export BackendProofs(public_frozen_account_rejects_another_identity,
  public_matching_account_is_usable,
+ public_finalized_output_retains_every_item,
+ public_conflicting_finalized_output_fails,
  public_completed_response_preserves_durable_output,
+ public_completed_response_retains_finalized_output,
  public_nonterminal_events_cannot_release_durable_output,
+ public_http_context_limit_recovers_before_output,
  independent_requests_have_no_tool_authority).
 
 (** * Exact retry decisions precede timer conversion

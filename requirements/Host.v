@@ -6,72 +6,131 @@
     media have their own lifetimes; they cannot silently replace domain policy. *)
 
 From Stdlib Require Import List NArith.
-From Selvedge.Host Require Import Transaction.
-From Selvedge.Kernel Require JournalProofs.
-Export JournalProofs(batches_preserve_input_and_receipt_order,
-  replay_projects_the_actual_trace,
-  every_input_retains_one_complete_receipt,
-  extending_a_trace_never_rewrites_prior_receipts).
-Export Transaction(publication_requires_commit_ack).
+From Selvedge.Kernel Require PacketProofs.
+Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
 
-    The Worker owns the opaque world initialized by the kernel. A journal stores
-    admitted inputs and complete receipts and restores it by replaying the same
-    entry; replay does not publish physical effects. [JournalProofs] establishes
-    input/receipt order and retained earlier receipts, not SQLite durability.
+    A journal stores admitted inputs and restores the world by replaying the
+    same entry; replay does not publish physical effects. Queries preserve the
+    world, emit no effects and require no journal row. A committed row must
+    retain the input evaluated by the Worker so recovery reconstructs that
+    execution. The submitted frame is also the retained replay input: one
+    serialization owner avoids a second representation whose interpretation
+    could differ from the committed execution. Replay submits that retained
+    frame to the same admission entry.
+    [actual_query_preserves_world_and_emits_no_effect] constrains that actual
+    packet entry. Public restart tests cover ordered replay and retained state;
+    SQLite supplies transaction durability. Exclusive writer ownership and the
+    acknowledged transaction establish journal authority. An authenticated
+    audit history would require an independent trust anchor and is outside this
+    restart contract. Changes to input meaning require a new persistent format
+    so restart cannot silently reinterpret prior work.
 
-    [publication_requires_commit_ack] is the safety direction. The positive
-    requirement below also rules out a controller that never publishes accepted
-    work. The expected primitives are stated independently of the transition's
-    implementation and concern [Transaction.step], the operation interpreted by
-    the host. *)
+    The Journal owns serialization through the entire Worker response and
+    storage commit, so another input cannot observe an uncommitted world.
+    Assessments use that same owner. With one outstanding request and one Worker
+    response per request, the pending invocation supplies response correlation.
+    Worker message delivery remains a runtime premise; timeout or failure
+    retires that Worker before another invocation can use its uncertain world.
+    Closing drains the invocation queue and awaits Worker termination.
 
-Theorem acknowledged_commit_publishes_and_resolves : forall generation,
-  Transaction.step
-    (Transaction.State Transaction.CommitPending generation)
-    Transaction.CommitAck =
-  (Transaction.State Transaction.Committed generation,
-    [Transaction.Publish; Transaction.Resolve]).
-Proof. intros; reflexivity. Qed.
+    Publication and successful completion of durable mutations require
+    acknowledgement of the commit. A failure during COMMIT has an unknown outcome. It
+    retires the current world, so reopening establishes the durable result;
+    neither completion retry nor resource rollback is authorized by uncertainty.
+    A failure before COMMIT is a definite rejection.
 
-(** A failure during COMMIT has an unknown outcome. Retiring the current world
-    forces reopening to establish the durable result; neither completion retry
-    nor resource rollback is authorized by uncertainty. This differs from a
-    definite pre-commit rejection. *)
+    These are requirements on the physical transaction, including its storage
+    call, returned promise and observers. [tests/journal.test.mjs] checks that
+    failed storage cannot publish or launch paid work, and that lost COMMIT
+    acknowledgement retires execution while reopening recovers the accepted
+    input once. [tests/service.test.mjs] covers successful publication through
+    the public service and event stream. *)
 
-Theorem uncertain_commit_retires_the_world : forall current generation,
-  Transaction.step (Transaction.State current generation) Transaction.CommitUnknown =
-  (Transaction.State Transaction.Retired generation,
-    [Transaction.RejectUnknown; Transaction.Retire]).
-Proof. intros; reflexivity. Qed.
+From Selvedge.Adapters Require RpcProofs ApiProofs.
+Export RpcProofs(correlation_matches_the_pending_numeric_value).
+Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
+  public_issued_plain_rpc_result_resolves_its_pending_request,
+  public_issued_media_rpc_result_reserves_before_materialization,
+  public_rpc_frame_admission_matches_its_byte_budget,
+  public_rpc_write_admission_matches_its_byte_budgets,
+  public_rpc_reservation_matches_available_capacity,
+  public_rpc_reservation_returns_a_bounded_pending_set).
 
-From Selvedge.Host Require Dispatch.
+(** ** RPC responses retain the issued numeric identity
+
+    JSON-RPC correlates a response with the value of the issued identifier.
+    Equivalent JSON Number spellings therefore identify the same pending
+    request. The existing bounded-integer decoder supplies its exact value;
+    strings, fractional values and unrelated identities cannot consume that
+    request. The correlation law gives both directions, and the actual API
+    contracts connect it to ordinary settlement and media reservation.
+    A result retired during asynchronous materialization remains retired.
+
+    External stdout, a slow pipe and concurrent Task calls can otherwise retain
+    unbounded frames or pending replies. The frame and write admission contracts
+    constrain the actual byte observations supplied by framing and encoding,
+    including the outbound queue. Reservation admission also constrains the
+    returned pending set together with still-running materialization work.
+    A cancelled reply can leave its physical work active, so freeing only the
+    reply identity must not free that capacity. These contracts retain usable
+    admission within the budgets without prescribing the diagnostic selected
+    when several limits fail together.
+
+    Closure withdraws write admission before invoking cancellation, and
+    successful completion awaits the admitted physical work. Cancellation
+    callbacks can run synchronously before the async close call returns its
+    completion Promise. The immediate admission observation therefore cannot
+    simply be replaced by that Promise: doing so would defer cancellation or
+    require another publication mechanism. The retirement laws concern semantic
+    ownership; the transport's synchronous sequencing establishes this physical
+    order. The full-service shutdown case in [tests/session-boundaries.test.mjs]
+    exercises cancellation of an unanswered extension hook and release of its
+    peer. *)
+
+From Selvedge.Host Require Dispatch DispatchAdapterProofs.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,
   uncertain_never_retries, reduced_callback_never_retries,
-  shutdown_preserves_an_accepted_callback,
+  terminal_settlement_prevents_new_work,
   shutdown_never_cancels_provider,
   ticket_provider_cancellation_keeps_registered_handle,
   task_provider_cancellation_only_stops_independent_entries).
+Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
 
 (** ** Each physical effect keeps its own generation
 
     [launch_installs_handle_before_run] requires ownership before interpretation.
     Completion uses a physical generation so an old finalizer can be separated
     from a replacement with the same logical key. The existing
-    [completion_only_removes_its_generation] establishes the surviving-entry
-    direction: every retained entry existed before and differs from the completed
-    generation. Recovery uses this same runner, including its original rejecting
+    [completion_only_removes_its_generation] retains exactly the entries from
+    other generations. Completing one invocation must leave concurrent work
+    registered so later cancellation and cleanup still reach it.
+    Recovery uses this same runner, including its original rejecting
     promise, so a failed recovery cannot become successful startup through a
     background error observer.
 
-    Dispatcher retirement blocks new launches and reductions, but does not undo
-    a commit already accepted while shutdown was starting.
-    [shutdown_preserves_an_accepted_callback] retains that acknowledgement.
+    A successful journal acknowledgement returns directly from the runner's
+    awaited execution, before consulting retirement control. Shutdown cannot
+    turn that accepted commit into a failure. That runner owns settlement and
+    retains its physical handle until completion. Cancellation and shutdown
+    observe the handle without creating another settlement continuation, so
+    their state need not mirror the Promise's completed continuation. External
+    callback tickets have a different lifetime: independent external results
+    can arrive late and still require ticket admission.
+
+    A terminal failure retires dispatch before its settlement promise rejects.
+    Other queued continuations can resume before the failure observer runs;
+    [terminal_settlement_prevents_new_work] blocks new launches and reductions
+    during that interval.
     Size-rejected callbacks may be reduced once; a further rejection retires
-    execution instead of retrying indefinitely.
+    execution instead of retrying indefinitely. The returned state must retain
+    that reduction, retirement and generation ownership when the next invocation
+    reads it. [dispatch_step_returns_its_next_state] binds the actual control
+    response, its effects and its decoded successor to the pure transition;
+    an independent codec law would not require the response to include state.
 
     Closing an observer is different from cancelling a provider invocation.
     [shutdown_never_cancels_provider] preserves remote work for recovery.
@@ -84,30 +143,46 @@ Export Dispatch(launch_installs_handle_before_run,
     effect. Strict checking includes the real runner and settlement consumer,
     not only a declaration that a handwritten caller might misread. *)
 
-From Selvedge.Host Require ProcessProofs.
-Export ProcessProofs(finished_requires_exit_and_drain,
-  reserved_write_is_exclusive, append_tail_is_bounded,
-  append_tail_preserves_absolute_cursor,
-  artifact_publication_requires_all_barriers).
+From Selvedge.Host Require ProcessProofs ProcessAdapterProofs.
+Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
+  append_tail_preserves_absolute_cursor, completed_retention_is_bounded,
+  completion_retains_exactly_unexpired_entries,
+  artifact_metadata_requires_complete_published_capture).
+Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
 
 (** ** Process progress is bounded without copying its complete buffer
 
-    A process finishes after exit and output drain. Stdin reservations prevent
-    concurrent writes, and absolute output cursors survive bounded tail
-    retention. [finished_requires_exit_and_drain], [reserved_write_is_exclusive]
-    and [append_tail_preserves_absolute_cursor] bind those requirements to the
-    pure controller. The physical scalar buffer stays in the host; the model
-    controls counts and slice instructions. Sending the whole tail through
+    Successful completion follows actual exit and output drain. The private
+    execution's awaited IO establishes that order; [tests/process.test.mjs]
+    exercises the physical boundary. Stdin reservations prevent concurrent
+    writes, and absolute output cursors survive bounded tail retention.
+    [reserved_write_is_exclusive] and [append_tail_preserves_absolute_cursor]
+    bind those requirements to the pure controller. The physical scalar buffer
+    stays in the host; the model controls counts and slice instructions. Sending the whole tail through
     semantic JSON per chunk adds cost without stronger authority.
+    A completed process remains queryable within the retained completion window.
+    Completion bounds that window and removes exactly its expired entries,
+    preserving all other running and retained processes. Physical handles follow
+    the same returned retirement list. The actual completion response must
+    carry the retained registry, including the completion queue, into the next
+    invocation. [registry_completion_returns_its_retained_processes] connects
+    that response and its retirement list to the pure retention operation;
+    otherwise dropping the queue at the boundary would defeat the bound.
 
     PTY execution keeps its fresh terminal session and the admitted command as
     the foreground job so resize and keyboard signals reach it. Pipe execution
     has its own session behavior. Job-control wrapping passes the command as an
     argument rather than evaluating it again. Process groups, sandbox enforcement
     and terminal semantics require physical evidence. Durable output publication
-    waits for all selected file and parent barriers. Bounded readers observe the
-    opened descriptor before and after the bounded read, not a prior path size. *)
+    waits for all selected file and parent barriers.
+    [artifact_metadata_requires_complete_published_capture] constrains the
+    actual reported metadata from capture and path-publication observations;
+    the physical publisher supplies those observations after its awaited IO.
+    Bounded readers observe the opened descriptor before and after the bounded read, not a prior path size. *)
 
+From Selvedge.Adapters Require AudioProofs.
+Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,
+  initial_context_constructs_protocol_messages).
 From Selvedge.Kernel Require SpeechProofs.
 From Selvedge.Host Require AudioProofs AudioSession AudioTransport AudioConnection.
 Export SpeechProofs(a_new_transcript_changes_only_the_task_history,
@@ -134,7 +209,21 @@ Export AudioConnection(step).
     state, while ordinary creation keeps its initial-message requirement.
 
     Account audio capability is distinct from the Task's model profile and from
-    public inference authorization. Media signaling may finish before the control
+    public inference authorization. [audio_capability_matches_account_authority]
+    constrains the selected connection's actual admission. The host then awaits
+    account authorization before sending media; copying a constant authorization
+    flag into a later body builder would add no authority. Discovery and sign-in
+    belong to the installation's audio account. Stateless transcription authorizes
+    its selected connection for one request and has no host browser owner. These
+    operations need no browser identity; local HTTP authentication still guards
+    them. Browser ownership begins when a voice session is created.
+
+    The Service admits the Task and creates the session identity before building
+    its request. [initial_context_constructs_protocol_messages] guarantees that
+    its committed history projection constructs valid voice messages. The request
+    retains those constructed values directly instead of revalidating them or
+    silently substituting empty history. The externally supplied SDP still needs
+    admission. Media signaling may finish before the control
     connection is ready; microphone admission waits for both connections and
     initialization. Raw audio and secrets never become journal inputs.
 

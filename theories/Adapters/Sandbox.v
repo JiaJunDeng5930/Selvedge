@@ -57,16 +57,9 @@ Definition launch_context (source : json) :=
   JObject [("plan",get source "plan");("options",get source "options");("workspace",get source "workspace");
     ("cwd",get bound "cwd");("projectOnly",get bound "projectOnly");("writableRoots",get bound "writableRoots");
     ("scratch",get source "scratch");("protectedRoots",get source "protectedRoots");
-    ("managedWorktreeRoot",get source "managedWorktreeRoot");("separator",get source "separator");("runtimeReads",get source "runtimeReads")].
-Definition optional_coordinate (source context : json) (key : string) :=
-  negb (has source key) || equal (get source key) (get context key).
+    ("managedWorktreeRoot",get source "managedWorktreeRoot");("runtimeReads",get source "runtimeReads")].
 Definition resources_admission (source : json) :=
-  let context := launch_context source in
-  admit (forallb (optional_coordinate source context) ["cwd";"projectOnly";"writableRoots"] &&
-    (negb (has source "networkAccess") || equal (get source "networkAccess") (get (get (get source "plan") "sandbox") "network_access")) &&
-    (negb (has source "platform") || equal (get source "platform") (get (get source "options") "platform")) &&
-    is_text (get source "separator") && String.eqb (str source "separator") "/" &&
-    paths_valid [get source "scratch"] && is_array (get source "protectedRoots") && paths_valid (items (get source "protectedRoots")) &&
+  admit (paths_valid [get source "scratch"] && is_array (get source "protectedRoots") && paths_valid (items (get source "protectedRoots")) &&
     is_array (get (get source "options") "readOnlyPaths") &&
     Nat.eqb (List.length (items (get source "protectedRoots"))) (List.length (items (get (get source "options") "readOnlyPaths"))))
     "Sandbox observations do not match the admitted security context".
@@ -104,13 +97,10 @@ Definition darwin_launch (source : json) :=
     (if boolean_field context "projectOnly" then ancestor_rows (items (get source "readAncestors"))
       (items (get (Seatbelt.seatbelt_input context) "readableRoots") ++ [get source "scratch"])
      else equal (get source "readAncestors") (JArray []))) "Sandbox ancestor observations do not match their source paths")
-    (next profile (next (admit (negb (has source "profile") || equal (get source "profile") (get profile "value"))
-      "Sandbox profile does not match the admitted security context")
-      (success (JObject [("prefix",darwin_prefix (JObject [("profile",get profile "value")]));("cwd",get context "cwd")])))).
+    (next profile (success (JObject [("prefix",darwin_prefix (JObject [("profile",get profile "value")]));("cwd",get context "cwd")]))).
 Definition sandbox_prepare (source : json) :=
   next (plan_admission source) (next (workspace_admission source) (next (security_admission source)
-    (let context := launch_context source in success (JObject [("cwd",get context "cwd");("projectOnly",get context "projectOnly");
-      ("bindings",bindings context);("writableRoots",get context "writableRoots");("seatbeltInput",Seatbelt.seatbelt_input context)])))).
+    (success (JObject [("bindings",bindings (launch_context source))])))).
 Definition sandbox_launch (source : json) :=
   next (plan_admission source) (next (workspace_admission source) (next (security_admission source)
     (next (runtime_admission source)
@@ -120,5 +110,4 @@ Definition unrestricted_launch (source : json) :=
   next (plan_admission source) (next (workspace_admission source)
     (next (admit (String.eqb (str (get source "plan") "access") "unrestricted" && negb (String.eqb (str (get source "plan") "scope") "project"))
       "Unrestricted execution is unavailable for this committed plan")
-      (next (admit (optional_coordinate source (JObject [("cwd",cwd)]) "cwd") "Unrestricted execution cwd does not match the admitted Workspace")
-        (success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)]))))).
+      (success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)])))).

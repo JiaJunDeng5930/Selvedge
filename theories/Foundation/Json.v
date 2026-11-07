@@ -59,7 +59,6 @@ Definition has_field (name : string) (source : json) : bool :=
 Definition is_object (source : json) : bool := match source with JObject _ => true | _ => false end.
 Definition is_array (source : json) : bool := match source with JArray _ => true | _ => false end.
 Definition is_string (source : json) : bool := match source with JString _ => true | _ => false end.
-Definition is_number (source : json) : bool := match source with JNumber _ => true | _ => false end.
 Definition is_bool (source : json) : bool := match source with JBool _ => true | _ => false end.
 Definition is_null (source : json) : bool := match source with JNull => true | _ => false end.
 Definition starts_with (beginning text : string) : bool := String.prefix beginning text.

@@ -109,7 +109,9 @@ Definition message_image_match (source : json) :=
     then success (D.encode ContentDeclarations.reference_declaration admitted) else invalid
   | None => invalid end.
 Definition attachment_budget (source : json) :=
-  if bound (get source "size") 0 Images.image_byte_limit then success JNull else range_error "Each board attachment is limited to 10 MiB".
+  match D.decode (D.Natural 0 Images.image_byte_limit) (get source "size") with
+  | Some bytes => success (number (proj1_sig bytes))
+  | None => range_error "Each board attachment is limited to 10 MiB" end.
 Definition artifact_limit (source : json) :=
   if bound (get (get source "limits") "artifact_bytes") 1 9007199254740991 then success JNull else type_error "Invalid artifact byte limit".
 Definition board_clock (source : json) :=

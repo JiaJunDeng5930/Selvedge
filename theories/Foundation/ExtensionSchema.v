@@ -17,8 +17,12 @@ Definition object_keys (source : json) (names : list string) := match source wit
  | _ => false end.
 Definition natural (value : json) := match value with
  | JNumber source => parse_natural source | _ => None end.
-Definition bound_or (value : option json) (fallback : N) :=
- match value with Some value => match natural value with Some number => number | None => fallback end | None => fallback end.
+Definition natural_bound (value : option json) (fallback : N) : option N :=
+ match value with
+ | None | Some JNull => Some fallback
+ | Some source => match natural source with
+   | Some number => if number <=? D.maximum_natural then Some number else None
+   | None => None end end.
 Definition optional_nonnull_text (value : option json) := match value with
  | None | Some (JString _) => true | _ => false end.
 Fixpoint strings (values : list json) : option (list string) := match values with
@@ -30,10 +34,6 @@ Definition enum_choices (value : option json) : option (option (list string)) :=
  | _ => None end.
 Definition optional_text (value : option json) := match value with
  | None | Some JNull | Some (JString _) => true | _ => false end.
-Definition optional_natural (value : option json) := match value with
- | None | Some JNull => true
- | Some source => match natural source with
-   | Some number => number <=? D.maximum_natural | None => false end end.
 Definition closed (value : option json) := match value with
  | None | Some JNull | Some (JBool false) => true | _ => false end.
 Definition required_names (properties : list (string * json)) (value : option json) :=
@@ -58,12 +58,12 @@ Fixpoint parse_fuel (fuel : nat) (source : json) : option D.t :=
            D.maximum_natural false false false choices))
        | None => None end else None
      | Some "integer" =>
-       let lower := bound_or (field "minimum" source) 0 in
-       let upper := bound_or (field "maximum" source) D.maximum_natural in
-       if object_keys source ["type";"description";"title";"minimum";"maximum"] &&
-          optional_natural (field "minimum" source) &&
-          optional_natural (field "maximum" source) && (lower <=? upper)
-       then Some (D.Natural lower upper) else None
+       if object_keys source ["type";"description";"title";"minimum";"maximum"] then
+       match natural_bound (field "minimum" source) 0,
+         natural_bound (field "maximum" source) D.maximum_natural with
+       | Some lower, Some upper =>
+         if lower <=? upper then Some (D.Natural lower upper) else None
+       | _, _ => None end else None
      | Some "null" =>
        if object_keys source ["type";"description";"title"] then Some D.Null else None
      | Some "boolean" =>

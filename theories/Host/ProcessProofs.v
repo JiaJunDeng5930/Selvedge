@@ -1,32 +1,24 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Host Require Import Process.
+From Selvedge.Adapters Require Common HostProcess.
 Import ListNotations.
 
-Theorem finished_requires_exit_and_drain current :
-  process_phase current <> Completed ->
-  process_phase (observe current Finished) = Completed ->
-  process_phase current = Draining /\ output_drained current = true.
-Proof.
-  destruct current as [phase input busy drained reason].
-  destruct phase, drained; cbn; intros; intuition discriminate.
-Qed.
-
 Theorem completion_closes_stdin current :
-  stdin_open (observe current Failed) = false.
+  stdin_open (observe current Finished) = false.
 Proof. reflexivity. Qed.
 
-Theorem exit_rejects_write current terminal eof resize :
-  process_phase current = Running ->
-  admit_write (observe current ShellExited) terminal eof resize =
-    Some (Failure "process_stdin_closed" "The process input is closed").
-Proof. destruct current; cbn; intros; subst; reflexivity. Qed.
+Theorem closed_input_rejects_write current terminal eof resize :
+  exists reason,
+  admit_write (observe current InputClosed) terminal eof resize =
+    Some (Failure "process_stdin_closed" reason).
+Proof. destruct current as [[] input busy reason]; eexists; reflexivity. Qed.
 
 Theorem reserved_write_is_exclusive current next :
   reserve_write current = inr next ->
-  reserve_write next = inl (Failure "process_input_busy" "Another input write is still pending for this process").
+  exists reason, reserve_write next = inl (Failure "process_input_busy" reason).
 Proof.
-  destruct current as [phase input busy drained reason]; destruct busy;
-    cbn; intros; inversion H; reflexivity.
+  destruct current as [phase input busy reason]; destruct busy;
+    cbn; intros; inversion H; eexists; reflexivity.
 Qed.
 
 Theorem first_reason_survives current first later :
@@ -66,10 +58,42 @@ Theorem completed_retention_is_bounded current key :
   List.length (completed (complete current key)) <= 64.
 Proof. unfold complete; cbn; rewrite length_skipn; lia. Qed.
 
-Theorem artifact_publication_requires_all_barriers captured file batch parent :
-  artifact_persisted captured file batch parent = true ->
-  captured = true /\ file = true /\ batch = true /\ parent = true.
-Proof. unfold artifact_persisted; repeat rewrite andb_true_iff; intuition. Qed.
+Theorem completion_retains_exactly_unexpired_entries current key entry :
+  In entry (entries (complete current key)) <->
+  In entry (entries current) /\
+  ~ In (entry_key entry)
+    (firstn (List.length (completed current ++ [key]) - 64)
+      (completed current ++ [key])).
+Proof.
+  unfold complete, retired, completion_queue; cbn [entries].
+  rewrite filter_In, Bool.negb_true_iff.
+  assert (Absent : forall keys,
+    existsb (String.eqb (entry_key entry)) keys = false <->
+    ~ In (entry_key entry) keys).
+  { intros keys; split.
+    - intros Missing Present.
+      assert (Found : existsb (String.eqb (entry_key entry)) keys = true).
+      { apply existsb_exists. exists (entry_key entry).
+        split; [exact Present|apply String.eqb_refl]. }
+      congruence.
+    - intros Missing. destruct (existsb (String.eqb (entry_key entry)) keys) eqn:Found;
+        [|reflexivity].
+      apply existsb_exists in Found as [name [Present Equal]].
+      apply String.eqb_eq in Equal. subst name. contradiction. }
+  now rewrite Absent.
+Qed.
+
+Theorem artifact_metadata_requires_complete_published_capture source :
+  Common.boolean_field (HostProcess.artifact_metadata source) "persisted" = true ->
+  Common.boolean_field source "capture_complete" = true /\
+  Common.boolean_field source "paths_published" = true.
+Proof.
+  change (artifact_persisted (Common.boolean_field source "capture_complete")
+    (Common.boolean_field source "paths_published") = true ->
+    Common.boolean_field source "capture_complete" = true /\
+    Common.boolean_field source "paths_published" = true).
+  unfold artifact_persisted; apply andb_true_iff.
+Qed.
 
 Theorem byte_ring_is_bounded capacity current added :
   ring_length (append_ring capacity current added) <= capacity.

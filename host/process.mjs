@@ -2,7 +2,6 @@ import { boundary } from './public/model-boundary.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtemp, open, readdir, readFile } from 'node:fs/promises';
 import { readSync, writeSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { prepareSandbox } from './sandbox.mjs';
@@ -56,18 +55,18 @@ async function killSession(session) {
   }
 }
 
-export function capture(limit) {
+function captureText(limit) {
   const chunks = [];
   let retained = 0;
-  let total = 0;
+  let truncated = false;
   return {
     add(chunk) {
-      total += chunk.length;
-      const keep = Math.min(chunk.length, Math.max(0, limit - retained));
+      const keep = Math.min(chunk.length, limit - retained);
+      truncated ||= keep < chunk.length;
       if (keep) { chunks.push(Buffer.from(chunk.subarray(0, keep))); retained += keep; }
     },
-    result() { return { text: new TextDecoder().decode(Buffer.concat(chunks, retained), { stream: total > retained }),
-      truncated: total > retained, total_bytes: total }; },
+    // A byte limit can cut a UTF-8 sequence; leave that incomplete suffix undecoded.
+    result() { return new TextDecoder().decode(Buffer.concat(chunks, retained), { stream: truncated }); },
   };
 }
 
@@ -104,7 +103,7 @@ function processOutput(limit, combined) {
     result() {
       const result = tail.read();
       return { text: result.output, truncated: result.omitted_characters > 0, total_bytes: bytes,
-        total_characters: Number(result.next_cursor), omitted_characters: result.omitted_characters };
+        omitted_characters: result.omitted_characters };
     },
   };
 }
@@ -141,8 +140,7 @@ function outputArtifact(file, filename, limit) {
         writeAll(retained, 0);
         await file.sync();
         // Directory barriers publish both output names together after both files finish.
-        return { path: filename, revision: createHash('sha256').update(retained).digest('hex'),
-          ring, capture_complete: !failed, file_synced: true };
+        return { path: filename, ring, capture_complete: !failed };
       } finally { await file.close(); }
     },
     close: () => file.close(),
@@ -176,7 +174,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   let startupError;
   let timer;
   let forcedClose;
-  let inputCloseStarted = false;
   let inputClose = Promise.resolve();
   let outputClose = Promise.resolve();
   let sessionClose;
@@ -190,8 +187,8 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   let terminalResolve;
   const terminalEnded = new Promise(resolve => { terminalResolve = resolve; });
   function closeInput() {
-    if (inputCloseStarted) return;
-    inputCloseStarted = true;
+    // DEFENSE: Exit, cancellation and explicit EOF can converge on the same stdin close.
+    if (!control.stdin_open) return;
     observe('input_closed');
     terminalWrite?.reject(processInputError('process_exited', 'The process exited before input was flushed'));
     terminalWrite = undefined;
@@ -221,32 +218,19 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     terminalResolve();
   }
   function cleanupGroup() {
-    const plan = boundary('control.process.cleanup_plan', {});
-    for (const step of plan.steps) {
-      switch (step) {
-        case 'terminate_environment':
-          if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
-            // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
-            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
-          });
-          break;
-        case 'terminate_group':
-          try { killGroup(child); }
-          // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
-          catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
-          break;
-        case 'terminate_session':
-          sessionClose ??= killSession(child.pid).catch(error => {
-            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
-          });
-          break;
-        case 'close_input': closeInput(); break;
-        case 'arm_deadline':
-          // DEFENSE: Descendants can leave their session while retaining inherited output handles.
-          forcedClose ??= setTimeout(forceOutputClose, plan.deadline_ms);
-          break;
-      }
-    }
+    if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
+      // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
+      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
+    });
+    try { killGroup(child); }
+    // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
+    catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
+    sessionClose ??= killSession(child.pid).catch(error => {
+      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
+    });
+    closeInput();
+    // DEFENSE: Descendants can leave their session while retaining inherited output handles.
+    forcedClose ??= setTimeout(forceOutputClose, 2_000);
   }
 
   function stop(reason, event) {
@@ -299,7 +283,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         ...(mode === 'pty' ? { terminal: { cols, rows,
           data(terminal, chunk) { captureChunk(Buffer.from(chunk), stdout, artifacts[0]); },
           drain() { terminalWrite?.resolve(); terminalWrite = undefined; },
-          exit(terminal) {
+          exit() {
             terminalResolve();
             terminalWrite?.reject(processInputError('process_stdin_closed', 'The terminal closed before input was flushed'));
             terminalWrite = undefined;
@@ -317,37 +301,29 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       if (signal?.aborted) onAbort();
       if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
-      observe('exited');
-      for (const step of boundary('control.process.drain_plan', {})) {
-        switch (step) {
-          case 'cleanup': cleanupGroup(); break;
-          case 'wait_session': await sessionClose; break;
-          case 'wait_environment': await environmentClose; break;
-          case 'wait_output': await Promise.all(outputTasks); break;
-          case 'wait_output_close': await outputClose; break;
-          case 'wait_input': await inputClose; break;
-          case 'mark_drained': observe('drained'); break;
-          case 'clear_deadline': clearTimeout(forcedClose); break;
-        }
-      }
+      cleanupGroup();
+      await sessionClose;
+      await environmentClose;
+      await Promise.all(outputTasks);
+      await outputClose;
+      await inputClose;
+      clearTimeout(forcedClose);
       const candidates = await Promise.all(artifacts.map(async artifact => {
         try { return await artifact.finish(); }
         // DEFENSE: Real artifact sync/close failures must not publish a successfully persisted artifact.
         catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not finalize command output: ${error.message}` }); return undefined; }
       }));
-      let batchSynced = false;
-      let parentSynced = false;
+      let pathsPublished = false;
       if (artifactBatch) {
         try {
           await syncDirectory(artifactBatch);
-          batchSynced = true;
           await syncDirectory(artifactDirectory);
-          parentSynced = true;
+          pathsPublished = true;
         // DEFENSE: A failed directory barrier leaves the output names unconfirmed after successful file sync.
         } catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not publish command output: ${error.message}` }); }
       }
       const retained = candidates.map(candidate => candidate && boundary('control.process.artifact_metadata', {
-        ...candidate, batch_synced: batchSynced, parent_synced: parentSynced,
+        ...candidate, paths_published: pathsPublished,
       }));
       try { await launch.cleanup(); }
       // DEFENSE: Scratch-directory or sandbox-descriptor cleanup can fail after the process exits.
@@ -367,7 +343,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       await environmentClose;
       await outputClose;
       await Promise.allSettled([...artifacts.map(artifact => artifact.close()), launch?.cleanup()]);
-      observe('failed');
+      observe('finished');
       throw error;
     } finally {
       clearTimeout(timer);
@@ -401,7 +377,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
             await child.stdin.flush();
           }
         }
-        if (eof) { observe('input_closed'); inputCloseStarted = true; await child.stdin.end(); }
+        if (eof) { observe('input_closed'); await child.stdin.end(); }
         return boundary('control.process.write_result', { mode, input, eof, cols: nextCols, rows: nextRows });
       } finally { observe('write_finished'); }
     },
@@ -412,7 +388,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
 export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
-export async function runReadImage(arguments_, limits, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
+export async function runReadImage(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
   signal?.throwIfAborted();
   const { path: filename, detail, timeout, maximum } = boundary('effect.image_arguments', { arguments: arguments_ });
   const quoted = "'" + filename.replaceAll("'", "'\"'\"'") + "'";
@@ -421,7 +397,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
     ? await environment.prepareBash({ command }, execution, { signal })
     : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
   const chunks = [];
-  const stderr = capture(4096);
+  const stderr = captureText(4096);
   let bytes = 0;
   let child;
   let timer;
@@ -447,7 +423,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
       child.once('error', reject);
       child.once('close', code => {
         if (failure) reject(failure);
-        else if (code !== 0) reject(new Error(stderr.result().text.trim() || `Image read failed with exit code ${code}`));
+        else if (code !== 0) reject(new Error(stderr.result().trim() || `Image read failed with exit code ${code}`));
         else resolve();
       });
     });

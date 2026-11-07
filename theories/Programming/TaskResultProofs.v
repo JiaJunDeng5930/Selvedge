@@ -2,7 +2,7 @@ From Stdlib Require Import List Bool NArith.
 From Selvedge.Programming Require TaskChange TaskResult.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Kernel Require Import Domain State TaskWakeProofs.
-From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChangeProofs.
+From Selvedge.Programming Require Import TaskScope TaskChangeProofs.
 Import ListNotations.
 
 Lemma prefixed_results_apply_the_prefix_once : forall prefix update current,
@@ -37,19 +37,4 @@ Proof.
  destruct update; rewrite ?context_wake_preserves_every_task_lookup;
    unfold find_task, put_task, with_tasks; cbn;
    eapply registry_replace_selected; exact (TaskScope.observed target).
-Qed.
-
-Lemma commit_result_expression : forall id update before,
- TaskResult.commit_result id update before =
- match find_task id before with
- | Some current => TaskResult.apply_result id current (update current) before
- | None => before end.
-Proof.
- intros. unfold TaskResult.commit_result.
- pattern (TaskScope.select id before) at 1.
- apply selected_reference_elimination.
- - intros reference Owner.
-   pose proof (TaskScope.observed reference) as Selected; rewrite Owner in Selected.
-   rewrite Selected. unfold TaskResult.interpret_result. now rewrite Owner.
- - intros Missing. now rewrite Missing.
 Qed.

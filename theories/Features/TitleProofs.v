@@ -11,44 +11,36 @@ Module F:=Selvedge.Features.Domain.
 Definition execution_core (value : world) :=
  (world_sequence value, world_tasks value, world_next_ticket value,
   world_environment value, world_projects value).
-Theorem pending_request_is_frozen : forall value id result item,
- decision_world result = value -> TitleRuntime.entry id value = Some item ->
- TitleRuntime.start id result = result.
-Proof.
- intros value id result item World Found; unfold TitleRuntime.start.
- rewrite World, (a_pending_title_is_not_resolved_again id value item Found); reflexivity.
-Qed.
-
-(** The public title start is justified by the task actually observed at its
-    owner, rather than an unrelated task supplied alongside the identity. *)
-Theorem title_start_with_observed_owner : forall id task result selected,
- find_task id (decision_world result) = Some task ->
- TitleRuntime.entry id (decision_world result) = None ->
- TitleRuntime.accepts task = true ->
- Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task)) = true ->
- TitleRuntime.selected_profile task (decision_world result) = Some selected ->
- let before := decision_world result in
- let prompt := TitleRuntime.prompt (F.title_agent_instructions (F.feature_title_settings (world_features before)))
-   (TitleRuntime.first_request (task_history task)) in
- decision_effects (TitleRuntime.start id result) =
-   decision_effects result ++ [RequestFeature (RequestTypes.Packet
+(** Admission supplies the actual observed owner; the production issuer freezes
+    that owner's selected profile and title prompt in its emitted request. *)
+Theorem admitted_title_issues_observed_request : forall id task before selected,
+ find_task id before = Some task ->
+ FeatureRequestAdmission.title_entry id before = None ->
+ FeatureRequestAdmission.title_accepts task = true ->
+ Selvedge.Foundation.Utf8.nonblank (Observation.first_request (task_history task)) = true ->
+ FeatureRequestAdmission.selected_title_profile task before = Some selected ->
+ exists request : FeatureRequestAdmission.resolved_title before,
+ FeatureRequestAdmission.resolve_title id before = Some request /\
+ CommandResult.change_effects (TitleRuntime.issue request) =
+   [RequestFeature (RequestTypes.Packet
      (RequestTypes.release (TitleRuntime.protocol (world_features before) id))
-     (RequestEnvelope.Envelope (world_next_ticket before) (selected,prompt)))].
+     (RequestEnvelope.Envelope (world_next_ticket before)
+       (selected,FeatureRequestAdmission.title_prompt task before)))].
 Proof.
- intros id task result selected Found Absent Accepts Nonblank Chosen.
- destruct (admitted_title_resolves_without_rechecking id task (decision_world result) selected
+ intros id task before selected Found Absent Accepts Nonblank Chosen.
+ destruct (admitted_title_resolves_without_rechecking id task before selected
    Found Absent Accepts Nonblank Chosen) as [request [Resolved [Owner [Current Selected]]]].
- cbv zeta; unfold TitleRuntime.start; rewrite Resolved.
- change (decision_effects result ++ [RequestFeature (RequestTypes.Packet
-   (RequestTypes.release (TitleRuntime.protocol (world_features (decision_world result))
+ exists request; split; [exact Resolved|].
+ change ([RequestFeature (RequestTypes.Packet
+   (RequestTypes.release (TitleRuntime.protocol (world_features before)
      (TaskScope.owner (FeatureRequestAdmission.title_reference request))))
-   (RequestEnvelope.Envelope (world_next_ticket (decision_world result))
+   (RequestEnvelope.Envelope (world_next_ticket before)
      (FeatureRequestAdmission.title_profile request,
-      FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result))))] =
-   decision_effects result ++ [RequestFeature (RequestTypes.Packet
-     (RequestTypes.release (TitleRuntime.protocol (world_features (decision_world result)) id))
-     (RequestEnvelope.Envelope (world_next_ticket (decision_world result))
-       (selected,FeatureRequestAdmission.title_prompt task (decision_world result))))]).
+      FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before)))] =
+   [RequestFeature (RequestTypes.Packet
+     (RequestTypes.release (TitleRuntime.protocol (world_features before) id))
+     (RequestEnvelope.Envelope (world_next_ticket before)
+       (selected,FeatureRequestAdmission.title_prompt task before)))]).
  rewrite Owner,Current,Selected; reflexivity.
 Qed.
 

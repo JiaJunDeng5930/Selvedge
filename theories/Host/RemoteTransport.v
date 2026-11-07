@@ -71,17 +71,15 @@ Definition step cfg s event : state * list action := match event with
 
 (** A capture may follow only the very observation whose sequence still equals
     the committed snapshot. Four constructors make the retry budget structural. *)
-Inductive authorization := FirstCheck | SecondCheck | ThirdCheck | LastCheck
- | Authorized | Denied | RevisionChanged.
+Inductive authorization := FirstCheck | SecondCheck | ThirdCheck | LastCheck.
 Inductive grant_observation := GrantChecked (active allowed : bool) (checked current : N).
 Inductive grant_action := CheckAgain | Capture | Deny | Disconnect.
 Definition authorize s event : authorization * grant_action :=
- match s with Authorized | Denied => (s,Deny) | RevisionChanged => (s,Disconnect)
- | _ => match event with GrantChecked active allowed checked current =>
-   if negb active || negb allowed then (Denied,Deny)
-   else if N.eqb checked current then (Authorized,Capture)
+ match event with GrantChecked active allowed checked current =>
+   if negb active || negb allowed then (s,Deny)
+   else if N.eqb checked current then (s,Capture)
    else match s with FirstCheck => (SecondCheck,CheckAgain) | SecondCheck => (ThirdCheck,CheckAgain)
-     | ThirdCheck => (LastCheck,CheckAgain) | _ => (RevisionChanged,Disconnect) end end end.
+     | ThirdCheck => (LastCheck,CheckAgain) | LastCheck => (s,Disconnect) end end.
 
 Theorem stale_transport_observation s cfg n now sample : current s n = false ->
  step cfg s (Lost n now sample) = (s,[]).
@@ -94,7 +92,7 @@ Proof.
  rewrite N.eqb_refl; reflexivity.
 Qed.
 Theorem last_changed_revision_disconnects checked current : N.eqb checked current = false ->
- authorize LastCheck (GrantChecked true true checked current) = (RevisionChanged,Disconnect).
+ authorize LastCheck (GrantChecked true true checked current) = (LastCheck,Disconnect).
 Proof. intros H; cbn; now rewrite H. Qed.
 Theorem capture_requires_current_revision s active allowed checked current :
  snd (authorize s (GrantChecked active allowed checked current)) = Capture ->

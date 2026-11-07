@@ -67,8 +67,8 @@ function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audi
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release" {
- switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe"; case "local_sync_registration": return "local_sync_registration"; case "local_sync_ready": return "local_sync_ready"; case "local_sync_archive": return "local_sync_archive"; case "local_sync_release": return "local_sync_release";
+function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" {
+ switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
@@ -306,10 +306,7 @@ export type RemoteAuthorizationState =
   | {"phase": "first"; }
   | {"phase": "second"; }
   | {"phase": "third"; }
-  | {"phase": "last"; }
-  | {"phase": "authorized"; }
-  | {"phase": "denied"; }
-  | {"phase": "revision_changed"; };
+  | {"phase": "last"; };
 export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizationState {
   const source = decodeObject(input);
   switch (source["phase"]) {
@@ -317,9 +314,6 @@ export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizat
     case "second": exactFields(source, ["phase"]); return {"phase": "second"};
     case "third": exactFields(source, ["phase"]); return {"phase": "third"};
     case "last": exactFields(source, ["phase"]); return {"phase": "last"};
-    case "authorized": exactFields(source, ["phase"]); return {"phase": "authorized"};
-    case "denied": exactFields(source, ["phase"]); return {"phase": "denied"};
-    case "revision_changed": exactFields(source, ["phase"]); return {"phase": "revision_changed"};
     // DEFENSE: External boundary values must name a declared RemoteAuthorizationState variant.
     default: throw new TypeError('Unknown RemoteAuthorizationState discriminant');
   }
@@ -445,23 +439,17 @@ export function decodeBrowserObservationPlan(input: unknown): BrowserObservation
 export type DispatchAction =
   | {"kind": "start"; "generation": DomainNatural}
   | {"kind": "rollback_workspace"; }
-  | {"kind": "retain_workspace"; }
   | {"kind": "await"; "generation": DomainNatural}
   | {"kind": "cancel"; "generation": DomainNatural; "provider": boolean}
-  | {"kind": "retry_failure"; }
-  | {"kind": "settled"; }
-  | {"kind": "retire"; };
+  | {"kind": "retry_failure"; };
 export function decodeDispatchAction(input: unknown): DispatchAction {
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "start": exactFields(source, ["kind","generation"]); return {"kind": "start", "generation": decodeNatural(source["generation"])};
     case "rollback_workspace": exactFields(source, ["kind"]); return {"kind": "rollback_workspace"};
-    case "retain_workspace": exactFields(source, ["kind"]); return {"kind": "retain_workspace"};
     case "await": exactFields(source, ["kind","generation"]); return {"kind": "await", "generation": decodeNatural(source["generation"])};
     case "cancel": exactFields(source, ["kind","generation","provider"]); return {"kind": "cancel", "generation": decodeNatural(source["generation"]), "provider": decodeBoolean(source["provider"])};
     case "retry_failure": exactFields(source, ["kind"]); return {"kind": "retry_failure"};
-    case "settled": exactFields(source, ["kind"]); return {"kind": "settled"};
-    case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     // DEFENSE: External boundary values must name a declared DispatchAction variant.
     default: throw new TypeError('Unknown DispatchAction discriminant');
   }
@@ -519,12 +507,7 @@ export function decodeRemoteConnectorSessionTransition(input: unknown): RemoteCo
  const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeJson(source["action"])};
 }
 
-export type CloudReadinessTransition = {"state": JsonValue; "actions": Array<JsonValue>};
-export function decodeCloudReadinessTransition(input: unknown): CloudReadinessTransition {
- const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
-}
-
-export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release">};
+export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe">};
 export function decodeResourceTransition(input: unknown): ResourceTransition {
  const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum3(item))};
 }

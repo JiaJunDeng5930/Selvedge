@@ -1,13 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, chmod } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
-import { parseJson, stringifyJson, integer } from './codec.mjs';
+import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
-import { boundary } from './public/model-boundary.mjs';
 
 const outcomes = new WeakMap();
 export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
@@ -17,17 +15,12 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-12';
+export const journalFormat = 'selvedge-rocq-journal-13';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
-  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, decision TEXT NOT NULL, previous TEXT NOT NULL, digest TEXT NOT NULL) STRICT',
+  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL) STRICT',
 };
-const normalize = sql => sql.replace(/\s+/g, ' ').trim();
-const genesis = namespace => createHash('sha256').update(journalFormat).update('\0').update(namespace).digest('hex');
-const digest = (previous, sequence, input, decision) => createHash('sha256')
-  .update(previous).update('\0').update(String(sequence)).update('\0')
-  .update(input).update('\0').update(decision).digest('hex');
 
 function closeJournalDatabase(database) {
   // DEFENSE: Failed startup can reach cleanup before either SQLite handle was opened.
@@ -40,17 +33,15 @@ function closeJournalDatabase(database) {
 
 /** A serialized, durable input journal. It deliberately stores no task table. */
 export class Journal extends EventEmitter {
-  #control = boundary('control.transaction.initial', {});
   #database;
   #lock;
+  #kernel;
   #tail = Promise.resolve();
   #failure;
   #closing = false;
-  #previous;
 
   static async open(filename, { kernelOptions } = {}) {
     const journal = new Journal();
-    journal.filename = filename;
     journal.sequence = 0;
     try {
       await durableDirectory(path.dirname(filename));
@@ -60,30 +51,21 @@ export class Journal extends EventEmitter {
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       await chmod(filename, 0o600);
       journal.#openSchema();
-      journal.#previous = genesis(journal.namespace);
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
-      journal.kernel = new Kernel(kernelOptions);
-      journal.description = await journal.kernel.initialize();
-      journal.program = journal.kernel.initialProgram;
-      for (const row of journal.#database.prepare('SELECT * FROM journal ORDER BY seq').iterate()) {
-        // DEFENSE: Persisted rows can be truncated, reordered or edited outside the service; reject a broken hash chain before replay.
-        if (row.seq !== journal.sequence + 1 || row.previous !== journal.#previous ||
-            row.digest !== digest(row.previous, row.seq, row.input, row.decision)) {
-          throw new Error(`Journal integrity failure at sequence ${row.seq}`);
-        }
-        const [request] = journal.#advance({ kind: 'begin', replay: true });
-        const replayed = await journal.kernel.replay(parseJson(row.input));
-        journal.#advance({ kind: 'worker_result', generation: request.generation, durable: true });
-        journal.#advance({ kind: 'finish' });
-        // DEFENSE: Saved decisions from a different kernel contract must fail reopen without executing their effects.
-        if (!replayed.value.durable || !isDeepStrictEqual(replayed.value, parseJson(row.decision))) {
-          throw new Error(`Committed decision incompatibility at sequence ${row.seq}: current kernel replay disagrees with the saved decision`);
+      journal.#kernel = new Kernel(kernelOptions);
+      const initial = await journal.#kernel.initialize();
+      journal.description = initial.description;
+      journal.program = initial.program;
+      for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
+        const replayed = await journal.#kernel.replay(row.input);
+        // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
+        if (!replayed.value.durable) {
+          throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
         }
         journal.sequence = row.seq;
-        journal.#previous = row.digest;
       }
       if (journal.sequence > 0) {
-        const snapshot = await journal.kernel.request({ kind: 'command', command: { op: 'describe' } });
+        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
         journal.program = snapshot.program;
       }
       return journal;
@@ -95,16 +77,13 @@ export class Journal extends EventEmitter {
   }
 
   #openSchema() {
-    const objects = this.#database.prepare("SELECT name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name").all();
-    if (objects.length === 0) {
+    const existing = this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+    if (!existing) {
       this.#database.exec('BEGIN IMMEDIATE');
       for (const sql of Object.values(schema)) this.#database.exec(sql);
       this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
       this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('namespace', randomBytes(16).toString('hex'));
       this.#database.exec('COMMIT');
-    // DEFENSE: A nonempty database can have an obsolete or foreign schema; accept only the current journal schema.
-    } else if (objects.length !== Object.keys(schema).length || objects.some(row => normalize(row.sql) !== normalize(schema[row.name] ?? ''))) {
-      throw new Error('The database does not have the current Selvedge Rocq journal schema');
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     // DEFENSE: Existing databases can have unknown formats or damaged namespace metadata; they must fail without conversion.
@@ -116,20 +95,11 @@ export class Journal extends EventEmitter {
     throw new Error('The database does not have the current Selvedge Rocq journal format');
   }
 
-  #advance(observation) {
-    const transition = boundary('control.transaction.step', { state: this.#control, observation });
-    this.#control = transition.state;
-    return transition.effects;
-  }
-
-  #poison(error, observation = 'worker_failed') {
-    const actions = this.#advance({ kind: observation });
-    rejected(error, observation === 'commit_unknown' ? 'unknown' : 'rejected');
+  #poison(error, outcome = 'rejected') {
+    rejected(error, outcome);
     this.#failure = error;
-    if (actions.some(action => action.kind === 'retire')) {
-      this.kernel?.abort(error);
-      this.emit('retired', error);
-    }
+    this.#kernel.abort(error);
+    this.emit('retired', error);
   }
 
   assess(candidate) {
@@ -138,7 +108,7 @@ export class Journal extends EventEmitter {
     const result = this.#tail.then(async () => {
       // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
       if (this.#failure) throw this.#failure;
-      const request = this.kernel.assess(candidate);
+      const request = this.#kernel.assess(candidate);
       try { return (await request).value; }
       // DEFENSE: A worker failure during assessment retires that world, so later journal commands must also fail.
       catch (error) { if (!isKernelInputRejection(error)) this.#poison(error); throw error; }
@@ -155,55 +125,47 @@ export class Journal extends EventEmitter {
       // DEFENSE: A prior SQLite/Worker failure leaves the in-memory world ahead of durable storage; never execute another input.
       if (this.#failure) throw this.#failure;
       let inputText;
-      try { inputText = stringifyJson(input); }
-      // DEFENSE: Invalid external JSON is rejected before any kernel transition or durable write.
-      catch (error) { throw rejected(error, 'rejected'); }
-      const [request] = this.#advance({ kind: 'begin', replay: false });
       let response;
       let pending;
-      try { pending = this.kernel.request(input); }
-      // DEFENSE: Encoding validates the input before the Worker receives its request.
+      try {
+        const submitted = this.#kernel.request(input);
+        inputText = submitted.text;
+        pending = submitted.result;
+      }
+      // DEFENSE: Invalid or oversized external JSON fails before the Worker receives a frame or a journal write starts.
       catch (error) {
-        this.#advance({ kind: 'input_rejected', generation: request.generation });
         throw rejected(error, 'rejected');
       }
       try { response = await pending; }
       catch (error) {
         if (isKernelInputRejection(error)) {
-          this.#advance({ kind: 'input_rejected', generation: request.generation });
+          rejected(error, 'rejected');
         } else this.#poison(error);
         // No journal write has started, including when the Worker failed after advancing its private world.
-        throw rejected(error, 'rejected');
+        throw error;
       }
-      const actions = this.#advance({ kind: 'worker_result', generation: request.generation, durable: response.value.durable });
-      if (!actions.some(action => action.kind === 'commit')) {
+      if (!response.value.durable) {
         this.program = response.program;
-        this.#advance({ kind: 'finish' });
         return { sequence: this.sequence, program: this.program, ...response.value };
       }
       const sequence = this.sequence + 1;
-      const hash = digest(this.#previous, sequence, inputText, response.text);
       let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
-        this.#database.prepare('INSERT INTO journal (seq, input, decision, previous, digest) VALUES (?, ?, ?, ?, ?)')
-          .run(sequence, inputText, response.text, this.#previous, hash);
+        this.#database.prepare('INSERT INTO journal (seq, input) VALUES (?, ?)')
+          .run(sequence, inputText);
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
       } catch (error) {
-        const outcome = committing ? 'unknown' : 'rejected';
-        this.#poison(error, committing ? 'commit_unknown' : 'commit_rejected');
-        throw rejected(error, outcome);
+        this.#poison(error, committing ? 'unknown' : 'rejected');
+        throw error;
       }
-      const publication = this.#advance({ kind: 'commit_ack' });
       this.program = response.program;
       this.sequence = sequence;
-      this.#previous = hash;
       const committed = { sequence, input, program: this.program, ...response.value };
-      this.#advance({ kind: 'finish' });
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
-      for (const observer of publication.some(action => action.kind === 'publish') ? this.listeners('commit') : []) {
+      for (const observer of this.listeners('commit')) {
         try { observer(committed); }
         catch (error) { this.emit('observerFailure', error); }
       }
@@ -223,13 +185,14 @@ export class Journal extends EventEmitter {
       .all(after, limit).map(row => ({ sequence: row.seq }));
   }
 
+  abort(error) { this.#kernel.abort(error); }
+
   async close() {
     // DEFENSE: Startup cleanup and server shutdown can both close this journal.
     if (this.#closing) return;
     this.#closing = true;
     await this.#tail;
-    this.#advance({ kind: 'close' });
-    await this.kernel?.close();
+    await this.#kernel?.close();
     try { closeJournalDatabase(this.#database); }
     finally { closeJournalDatabase(this.#lock); }
   }

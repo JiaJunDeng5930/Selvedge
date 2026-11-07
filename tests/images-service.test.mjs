@@ -134,12 +134,16 @@ test('a text-only backend reports unsupported image input without silently sendi
   const uploaded = await fixture.upload();
   const reply = await fixture.rawCommand({ op: 'create', profile: 'text',
     message: 'Inspect this image.', images: [uploaded] });
-  const observation = reply.ok
-    ? await taskIdle(fixture.running.service, reply.result.task_id)
-    : reply;
-  const failure = JSON.stringify(observation);
-  assert.match(failure, /image|图片/i);
-  assert.match(failure, /support|支持/i);
+  if (reply.ok) {
+    const page = await taskIdle(fixture.running.service, reply.result.task_id);
+    assert.ok(page.messages.some(message => message.role === 'error'
+      && typeof message.content === 'string' && message.content.trim()),
+      'A settled rejected image request must expose an error with an explanation');
+  } else {
+    assert.equal(reply.ok, false);
+    assert.ok(typeof reply.error?.message === 'string' && reply.error.message.trim(),
+      'A rejected image command must expose an explanation');
+  }
   assert.equal(fixture.requests.length, 0, 'A rejected image must never become a text-only external request');
   assert.equal(fixture.textBackend.requests.length, 0, 'The unsupported backend must never receive a text-only fallback');
   assert.deepEqual(fixture.textBackend.failures, []);

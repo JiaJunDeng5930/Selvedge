@@ -6,44 +6,41 @@ Open Scope N_scope.
 
 Inductive stream_phase := Connecting | Ready | Closed.
 Record audio_state := AudioState {
-  identity : json; generation : json; phase : stream_phase; sequence : N;
+  identity : json; phase : stream_phase; sequence : N;
   user_tail : string; assistant_tail : string; turns : list json; pending : list json
 }.
-Inductive primitive := Emit (event : json) | CloseTransport | MarkReady.
+Inductive primitive := Emit (event : json) | MarkReady.
 Definition event_type (kind : string) := JObject [("type",JString kind)].
-Definition stream_initial (source : json) := AudioState source (get source "generation") Connecting 0 "" "" [] [].
+Definition stream_initial (source : json) := AudioState source Connecting 0 "" "" [] [].
 Definition stream_json (s : audio_state) := JObject [
-  ("identity",identity s);("generation",generation s);
+  ("identity",identity s);
   ("phase",JString (match phase s with Connecting => "connecting" | Ready => "ready" | Closed => "closed" end));
   ("sequence",number (sequence s));("user_tail",JString (user_tail s));("assistant_tail",JString (assistant_tail s));
   ("turns",JArray (turns s));("pending",JArray (pending s))].
-Definition stream_of (source : json) := AudioState (get source "identity") (get source "generation")
+Definition stream_of (source : json) := AudioState (get source "identity")
   (if String.eqb (str source "phase") "closed" then Closed else if String.eqb (str source "phase") "ready" then Ready else Connecting)
   (num source "sequence") (str source "user_tail") (str source "assistant_tail")
   (items (get source "turns")) (items (get source "pending")).
-Definition primitive_json (s : audio_state) (effect : primitive) := match effect with
-  | Emit event => JObject [("type",JString "emit");("event",set (set (set event "session_id" (get (identity s) "id"))
-      "task_id" (get (identity s) "task_id")) "generation" (generation s))]
-  | CloseTransport => event_type "close"
-  | MarkReady => event_type "ready"
-  end.
-Definition tails (s : audio_state) (role text : string) := AudioState (identity s) (generation s) (phase s) (sequence s)
+Definition event_json (s : audio_state) event :=
+  set (set (set event "session_id" (get (identity s) "id"))
+    "task_id" (get (identity s) "task_id")) "generation" (get (identity s) "generation").
+Definition tails (s : audio_state) (role text : string) := AudioState (identity s) (phase s) (sequence s)
   (if String.eqb role "user" then text else user_tail s) (if String.eqb role "assistant" then text else assistant_tail s)
   (turns s) (pending s).
-Definition with_pending (s : audio_state) (values : list json) := AudioState (identity s) (generation s) (phase s)
+Definition with_pending (s : audio_state) (values : list json) := AudioState (identity s) (phase s)
   (sequence s) (user_tail s) (assistant_tail s) (turns s) values.
-Definition remember_turn (s : audio_state) (id : json) (text : string) := AudioState (identity s) (generation s) (phase s)
+Definition remember_turn (s : audio_state) (id : json) (text : string) := AudioState (identity s) (phase s)
   (sequence s) (user_tail s) (assistant_tail s)
   (JObject [("turn_id",id);("text",JString text)] :: filter (fun turn => negb (equal (get turn "turn_id") id)) (turns s)) (pending s).
 Definition ready (s : audio_state) : audio_state * list primitive := match phase s with
-  | Connecting => (AudioState (identity s) (generation s) Ready (sequence s) (user_tail s) (assistant_tail s) (turns s) (pending s),
+  | Connecting => (AudioState (identity s) Ready (sequence s) (user_tail s) (assistant_tail s) (turns s) (pending s),
       [MarkReady; Emit (event_type "ready")])
   | _ => (s,[]) end.
 Definition completed (s : audio_state) (event : json) (completion : string) : audio_state * primitive :=
   let next := sequence s + 1 in
   let item := if Audio.nonempty_text (get event "item_id") then get event "item_id"
     else JString (str (identity s) "id" ++ ":" ++ decimal next) in
-  (AudioState (identity s) (generation s) (phase s) next (user_tail s) (assistant_tail s) (turns s) (pending s),
+  (AudioState (identity s) (phase s) next (user_tail s) (assistant_tail s) (turns s) (pending s),
    Emit (set (set (set (set event "type" (JString "transcript")) "item_id" item) "completion" (JString completion)) "final" (JBool true))).
 Definition stop (s : audio_state) (message : string) : audio_state * list primitive := match phase s with
   | Closed => (s,[])
@@ -56,8 +53,8 @@ Definition stop (s : audio_state) (message : string) : audio_state * list primit
       ("error",JString "Voice delegation is missing its referenced user turn");("item_id",get raw "id")])) (pending s) in
     let failure := if String.eqb message "" then [] else [Emit (JObject [("type",JString "error");("error",JString message)])] in
     let closed := Emit (JObject [("type",JString "closed");("reason",if String.eqb message "" then JString "stopped" else JString "error")]) in
-    (AudioState (identity s) (generation s) Closed (sequence s2) "" "" [] [],
-      CloseTransport :: List.concat [user;assistant;unresolved;failure;[closed]])
+    (AudioState (identity s) Closed (sequence s2) "" "" [] [],
+      List.concat [user;assistant;unresolved;failure;[closed]])
   end.
 Fixpoint remember_pending (values : list json) (id raw : json) : list json :=
   let entry := JObject [("id",id);("raw",raw)] in
@@ -92,8 +89,8 @@ Fixpoint resolve_pending (values : list json) (s : audio_state) : audio_state * 
     let '(next,effects) := if String.eqb (str event "type") "delegation" then consume s raw event else (s,[]) in
     let '(final,following) := resolve_pending rest next in (final,List.app effects following) end.
 Inductive observation := Opened | ProviderEvent (raw : json) | StopRequested (message : string) | StartupTimeout (message : string).
-Definition step (s : audio_state) (observed_generation : json) (observed : observation) : audio_state * list primitive :=
-  if negb (equal (generation s) observed_generation) then (s,[]) else match phase s with Closed => (s,[]) | _ =>
+Definition step (s : audio_state) (observed : observation) : audio_state * list primitive :=
+  match phase s with Closed => (s,[]) | _ =>
     match observed with
     | Opened => ready s
     | StopRequested message => stop s message
@@ -106,9 +103,6 @@ Definition step (s : audio_state) (observed_generation : json) (observed : obser
       else stop s (str decoded "error")
     end end.
 
-Theorem closed_stream_is_inert : forall s generation observation,
-  phase s = Closed -> step s generation observation = (s,[]).
-Proof. intros s generation observation H. unfold step. destruct (negb _); auto. rewrite H. reflexivity. Qed.
-Theorem stale_stream_is_inert : forall s observed_generation observation,
-  equal (generation s) observed_generation = false -> step s observed_generation observation = (s,[]).
-Proof. intros s observed_generation observation H. unfold step. rewrite H. reflexivity. Qed.
+Theorem closed_stream_is_inert : forall s observation,
+  phase s = Closed -> step s observation = (s,[]).
+Proof. intros s observation H. unfold step. rewrite H. reflexivity. Qed.

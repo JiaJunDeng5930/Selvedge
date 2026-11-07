@@ -23,5 +23,4 @@ Definition properties := [
  ("max_output_length",true,D.Natural 1 8192)].
 Definition declaration := D.Object properties.
 Definition arguments := D.denote declaration.
-Definition args_schema := D.schema declaration.
 Definition encode := D.encode declaration.

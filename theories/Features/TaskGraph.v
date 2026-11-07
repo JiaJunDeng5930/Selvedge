@@ -21,7 +21,6 @@ Definition remove (id : N) := Receiver.install (slot id) None.
 Definition resolve (key:string) (nodes:list Selvedge.Features.Domain.resolved_node) := option_map Selvedge.Features.Domain.node_task (find (fun node=>String.eqb key (Selvedge.Features.Domain.node_key node)) nodes).
 Definition maximum_message_depth := TaskGraphDeclarations.maximum_message_depth.
 Definition maximum_message_nodes := TaskGraphDeclarations.maximum_message_nodes.
-Definition maximum_rule_actions := TaskGraphDeclarations.maximum_rule_actions.
 Fixpoint message_of_fields (depth : nat) :
  ArgumentDeclaration.denote (TaskGraphDeclarations.message_declaration depth) -> Selvedge.Features.Domain.graph_message :=
  match depth as depth return ArgumentDeclaration.denote (TaskGraphDeclarations.message_declaration depth) -> _ with
@@ -96,7 +95,6 @@ Definition cache_node (caller:option N) (original:world) (node:Selvedge.Features
  | Selvedge.Features.Domain.ExistingNode key id=>CachedExisting key id
  | Selvedge.Features.Domain.SpawnNode key profile effort contents settings=>
    CachedSpawn key settings (CommandExecution.resolve_context_start
-     (Worktree.creation_entry Worktree.GraphTaskCreation caller)
      profile (Some effort) contents (Some settings) false caller original) end.
 Definition cached_allowed (caller:option N) (original:world) (node:cached_node) :=
  match node with CachedExisting _ _=>true
@@ -209,8 +207,6 @@ Definition install_change (id : N) {original caller owner} (plan : graph_plan or
      (Selvedge.Features.Domain.feature_graph_owners (world_features installed)))
    (world_features installed)) installed end in
  CommandResult.Change (Observation.graph_json id graph) owned (born_effects progress).
-Definition install_plan (id : N) {original caller owner} (plan : graph_plan original caller owner) :=
- CommandResult.accept (install_change id plan).
 Definition install_resolution (id : N) {caller original}
  (owner : option (Work.owner_scope original)) (checked : checked_cached caller original)
  (resolved : nodes_resolution original (scope_identity owner))
@@ -226,8 +222,6 @@ Definition install_cached_result (id : N) {caller original} (owner : option (Wor
  (checked : checked_cached caller original) :=
  install_resolution id owner checked
    (prepare_nodes (scope_identity owner) caller original (cached_nodes (checked_cache checked))) eq_refl.
-Definition install_cached (id : N) {caller original} (owner : option (Work.owner_scope original))
- (checked : checked_cached caller original) := CommandResult.decide original (install_cached_result id owner checked).
 Definition graph_capacity (value:world) :=
  Nat.ltb (List.length (filter (fun graph=>match graph with Some _=>true | None=>false end) (registry value))) 32.
 Definition declare_result (creating:bool) (id:N) (owner:option N)

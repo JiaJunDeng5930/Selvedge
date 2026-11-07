@@ -70,13 +70,13 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
  Tasks.admit_fork_selection task value selected = Some selection ->
  Tasks.no_resource_observation options = true ->
  settings_approval (task_current_settings task) = FullAccess ->
- decision_world (Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value) =
+ decision_world (CommandResult.decide value (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value)) =
    Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
      (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value.
 Proof.
  intros invocation origin id count messages options value task selected selection remaining operations
    Found Available Pending Count Messages Capacity Resolved Fixed Observed Full.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending, Available.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending, Available.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
@@ -95,7 +95,7 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id value) =
  [RequestApproval id (world_next_ticket value) reviewer invocation
-   (TaskWake.promote (Scheduler.append_operation
+   (TaskWake.promote (TicketedRequest.append_operation
      (Operation (world_next_ticket value) invocation false
        (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
@@ -120,7 +120,7 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute id
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (TaskWake.promote task))].
+ decision_effects result = [ObserveContext id (world_next_ticket value) (TicketedRequest.publish_operations (TaskWake.promote task))].
 Proof.
  intros execute id task value operations Found ObserveAllowed Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
@@ -156,10 +156,10 @@ Proof.
  rewrite CallbackChangesProofs.model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Phase, N.eqb_refl.
  eexists; split; [reflexivity|].
- unfold Callbacks.model_result, Callbacks.model_result_changes; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
+ unfold Callbacks.model_result_changes; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
  assert (NoOutput : append_history [] task = task).
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
- change (task_lifecycle (Callbacks.settle_model (append_history [] task)) = Running WantsModel operations).
+ change (task_lifecycle (TaskChange.apply (Callbacks.settle_model_changes (append_history [] task)) (append_history [] task)) = Running WantsModel operations).
  rewrite NoOutput. rewrite CallbackChangesProofs.settle_model_expression; rewrite Unseen.
  destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
  cbn in Phase; subst lifecycle; destruct queued; reflexivity.
@@ -197,7 +197,7 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
  Tasks.admit_fork_selection task value selected = Some selection ->
  Workspace.may_delegate (Tasks.fork_selected task value selection) (task_current_settings task) = true ->
  Tasks.no_resource_observation options = true ->
- Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value =
+ (CommandResult.decide value (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value)) =
  accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset))
    (seq 0 (N.to_nat count))))])
    (Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
@@ -205,7 +205,7 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
 Proof.
  intros invocation remaining origin id count messages options value task selected selection
    Found Available Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
- rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Available, Eligible, Count, Messages, Capacity, Resolved, Fixed.
+ rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found, Available, Eligible, Count, Messages, Capacity, Resolved, Fixed.
  cbn [andb]. rewrite Delegated, Observed. cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
 Qed.

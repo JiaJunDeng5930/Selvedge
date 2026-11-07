@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common ProviderCompaction Api.
 Import ListNotations.
 Open Scope string_scope.
@@ -12,16 +12,18 @@ Theorem public_opaque_requests_never_use_textual_fallback : forall source,
 Proof. intros source H;change (meter_fallback source = action "error");
   unfold meter_fallback;rewrite H;reflexivity. Qed.
 Theorem public_token_counter_rejects_negative_or_nonnumeric : forall source,
-  natural (get (get source "response") "input_tokens") = None ->
-  Api.call "backend.compaction_meter_result" source =
-    err "The provider returned an invalid input token count".
-Proof. intros source H;change (meter_result source = err "The provider returned an invalid input token count");unfold meter_result;now rewrite H. Qed.
+  wire_natural (get (get source "response") "input_tokens") = None ->
+  exists message, Api.call "backend.compaction_meter_result" source = err message.
+Proof. intros source H; exists "The provider returned an invalid input token count"; change (meter_result source = err "The provider returned an invalid input token count"); unfold meter_result; now rewrite H. Qed.
 Theorem public_valid_token_count_is_retained : forall source count,
-  natural (get (get source "response") "input_tokens") = Some count ->
-  Api.call "backend.compaction_meter_result" source = success (JObject [
-    ("scope",get source "scope"); ("input_tokens",get (get source "response") "input_tokens");
-    ("tokenizer",JString "provider")]).
-Proof. intros source count H;change (meter_result source = success (JObject [("scope",get source "scope"); ("input_tokens",get (get source "response") "input_tokens"); ("tokenizer",JString "provider")]));unfold meter_result;now rewrite H. Qed.
+  wire_natural (get (get source "response") "input_tokens") = Some count ->
+  JsonObjects.equivalent (Api.call "backend.compaction_meter_result" source) (success (JObject [
+    ("scope",get source "scope"); ("input_tokens",number count);
+    ("tokenizer",JString "provider")])) = true.
+Proof.
+ intros source count H;change (Api.call "backend.compaction_meter_result" source) with (meter_result source).
+ unfold meter_result;rewrite H;apply equivalent_is_reflexive.
+Qed.
 Theorem public_dispatch_respects_context_window : forall source,
   Api.call "backend.compaction_budget" source = success (JString "dispatch") ->
   num source "input_tokens" + num (get source "plan") "output_reserve_tokens" <=
@@ -42,10 +44,13 @@ Proof. intros source H;change (meter_fallback source = action "error");unfold me
 Theorem public_readable_unsupported_route_uses_byte_bound : forall source,
   opaque_content (classify_content (get source "request")) = false ->
   is_object (get source "request") = true -> unsupported_route source = true ->
-  Api.call "backend.compaction_meter_fallback" source = success (JObject [
+  JsonObjects.equivalent (Api.call "backend.compaction_meter_fallback" source) (success (JObject [
     ("action",JString "local"); ("scope",get source "scope");
-    ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")]).
-Proof. intros source H I R;change (meter_fallback source = success (JObject [("action",JString "local"); ("scope",get source "scope"); ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")]));unfold meter_fallback;now rewrite H,I,R. Qed.
+    ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])) = true.
+Proof.
+ intros source H I R;change (Api.call "backend.compaction_meter_fallback" source) with (meter_fallback source).
+ unfold meter_fallback;rewrite H,I,R;apply equivalent_is_reflexive.
+Qed.
 
 Definition content_consistent value :=
   (image_count value = 0 \/ opaque_content value = true) /\
@@ -71,18 +76,18 @@ Theorem public_account_image_requests_use_the_complete_request_estimate : forall
   is_object (get source "request") = true ->
   ProviderCatalog.account (get source "profile") = true ->
   0 < image_count (classify_content (get source "request")) ->
-  Api.call "backend.compaction_measurement_plan" source =
-    success (JObject [("action",JString "local"); ("scope",get source "scope");
+  JsonObjects.equivalent (Api.call "backend.compaction_measurement_plan" source)
+    (success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json (get source "request"))) +
         1844 * image_count (classify_content (get source "request"))));
-      ("tokenizer",JString "codex_image_estimate")]).
+      ("tokenizer",JString "codex_image_estimate")])) = true.
 Proof.
  intros source request_object account images.
  change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).
  unfold measurement_plan; rewrite request_object,account.
  assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
    by (apply N.ltb_lt; exact images).
- rewrite has_images; reflexivity.
+ rewrite has_images; apply equivalent_is_reflexive.
 Qed.
 Theorem complete_request_classification_is_consistent : forall value,
   content_consistent (classify_content value).

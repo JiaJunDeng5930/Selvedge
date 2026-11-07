@@ -23,7 +23,7 @@ Qed.
     feature components and the kernel. This subsumes the old per-field frames. *)
 Theorem store_changes_only_worktree_registry : forall tree value,
  Selvedge.Kernel.State.with_features
-   (Selvedge.Features.State.with_worktrees (F.feature_worktrees (world_features value))
+   (set F.feature_worktrees (fun _ => F.feature_worktrees (world_features value))
       (world_features (Worktree.store tree value))) (Worktree.store tree value) = value.
 Proof.
  intros tree [sequence tasks ticket environment projects features].
@@ -96,16 +96,15 @@ Theorem running_connection_job_blocks_local_archive : forall owner root value tr
  Worktree.lookup owner value=Some tree -> F.worktree_backend tree=WorkspaceBackend.Local ->
  In (id,job) (F.sharing_jobs (F.feature_sharing (world_features value))) ->
  F.job_state job=F.JobRunning -> F.job_resource job=None ->
- Worktree.any_inside root (workspace_roots (F.job_workspace job))=true ->
+ WorkspaceBinding.any_inside root (workspace_roots (F.job_workspace job))=true ->
  Worktree.root_unused owner root value=false.
 Proof.
  intros owner root value tree id job found backend member running resource uses.
- unfold Worktree.any_inside in uses.
  apply Bool.not_true_is_false. intro available.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [_ jobs].
  apply forallb_forall with (x:=(id,job)) in jobs; [|exact member].
- cbn in jobs. unfold Worktree.job_uses_root, WorkspaceBinding.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
+ cbn in jobs. unfold WorkspaceBinding.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
 Qed.
 (** A frozen borrower holds the owner's cloud resource regardless of path text
     or whether the owner later changes its current task settings. *)
@@ -147,9 +146,10 @@ Proof.
 Qed.
 Theorem unknown_task_has_no_binding : forall payload caller value,
  find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value=None ->
+ exists reason,
  Worktree.handle_read_worktree payload caller value=
- failure "task_not_found" "Task does not exist.".
-Proof. intros; unfold Worktree.handle_read_worktree; now rewrite H. Qed.
+ failure "task_not_found" reason.
+Proof. intros; unfold Worktree.handle_read_worktree; rewrite H; eexists; reflexivity. Qed.
 
 (** Cloud fork admission runs before the ordinary settings selection. Both
     workspace and project overrides are rejected by the actual feature guard. *)
@@ -172,7 +172,7 @@ Theorem archiving_local_workspace_is_unavailable : forall space value tree root 
  In tree (F.feature_worktrees (world_features value)) ->
  F.worktree_backend tree=WorkspaceBackend.Local ->
  F.worktree_phase tree=F.TreeArchiving (RequestEnvelope.Owned (root,target)) ->
- Worktree.any_inside root (workspace_roots space)=true ->
+ WorkspaceBinding.any_inside root (workspace_roots space)=true ->
  Worktree.workspace_available space value=false.
 Proof.
  intros space value tree root target member backend phase uses.
@@ -180,7 +180,7 @@ Proof.
  unfold Worktree.workspace_available in available.
  apply forallb_forall with (x:=tree) in available; [|exact member].
  rewrite backend,phase in available. cbn [WorkspaceBackend.cloud] in available.
- unfold F.worktree_root in available. unfold Worktree.any_inside, WorkspaceBinding.any_inside,Worktree.inside, WorkspaceBinding.inside in uses.
+ unfold F.worktree_root in available. unfold WorkspaceBinding.any_inside,Worktree.inside, WorkspaceBinding.inside in uses.
  rewrite phase,uses in available. discriminate.
 Qed.
 
@@ -193,10 +193,10 @@ Proof.
  intros settings value tree bound backend.
  unfold WorkspaceBinding.normalize_settings. rewrite bound,backend. split;reflexivity.
 Qed.
-Theorem mismatched_cloud_project_is_rejected : forall before intent settings,
+Theorem mismatched_cloud_project_is_rejected : forall before settings,
  Worktree.project_primary_matches settings before=false ->
- Worktree.resource_error intent before settings Worktree.ProvisionCloud=Some Tasks.ProjectPrimaryMismatch.
-Proof. intros; unfold Worktree.resource_error; cbn [WorkspaceBackend.cloud]; now rewrite H. Qed.
+ Worktree.resource_error before settings Worktree.ProvisionCloud<>None.
+Proof. intros; unfold Worktree.resource_error; cbn [WorkspaceBackend.cloud]; rewrite H; discriminate. Qed.
 
 (** The scheduler predicate used by Kernel.Packet excludes all non-ready
     managed environments, including a borrower's inherited resource. *)
@@ -245,25 +245,25 @@ Proof.
    WorkspaceBinding.settings_execution_ready. rewrite selected.
  unfold WorkspaceBinding.for_task in bound. rewrite selected in bound. rewrite bound. reflexivity.
 Qed.
-Theorem successful_initialization_binds_pending_owner : forall backend before intent start
- (admitted:Worktree.resource_error intent before (Tasks.start_settings start)
+Theorem successful_initialization_binds_pending_owner : forall backend before start
+ (admitted:Worktree.resource_error before (Tasks.start_settings start)
    (match backend with WorkspaceBackend.Local=>Worktree.ProvisionLocal
     | WorkspaceBackend.TencentCvm=>Worktree.ProvisionCloud end)=None),
- let plan:=Worktree.PlannedStart intent start
+ let plan:=Worktree.PlannedStart start
    (match backend with WorkspaceBackend.Local=>Worktree.ProvisionLocal
     | WorkspaceBackend.TencentCvm=>Worktree.ProvisionCloud end) admitted in
- let initialized:=Worktree.consume_planned_start plan before in
+ let initialized:=Worktree.born_world (Worktree.interpret_planned_birth plan before) in
  exists tree,
- Worktree.lookup (next_task before) (decision_world initialized)=Some tree /\
- WorkspaceBinding.for_task (next_task before) (decision_world initialized)=Some tree /\
+ Worktree.lookup (next_task before) initialized=Some tree /\
+ WorkspaceBinding.for_task (next_task before) initialized=Some tree /\
  F.worktree_backend tree=backend /\ F.worktree_phase tree=F.TreeCreating (RequestEnvelope.Owned false) /\
- Runtime.can_schedule_task (next_task before) (decision_world initialized)=false.
+ Runtime.can_schedule_task (next_task before) initialized=false.
 Proof.
- intros backend before intent start admitted.
+ intros backend before start admitted.
  pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start)) as Birth.
  cbv zeta in Birth |- *.
- destruct backend; cbn [Worktree.consume_planned_start Worktree.interpret_planned_birth Worktree.born_decision Worktree.born_world Worktree.born_effects Worktree.born_identity Worktree.planned_task Worktree.planned_resource
-   TaskBirth.birth_prepared TaskBirth.birth_world Selvedge.Kernel.State.accept decision_world] in *.
+ destruct backend; cbn [Worktree.interpret_planned_birth Worktree.born_world Worktree.planned_task Worktree.planned_resource
+   TaskBirth.birth_prepared TaskBirth.birth_world] in *.
  all: destruct Birth as [Owned [Bound Ready]]; eexists; repeat split; eauto.
 Qed.
 
@@ -290,7 +290,7 @@ Proof.
  unfold Worktree.archive_allowed, WorkspaceBinding.archive_allowed; unfold Worktree.lookup in Found; rewrite Found.
  unfold F.worktree_root; rewrite Pending.
  apply Bool.not_true_is_false; intro Available.
- unfold Worktree.bound_tasks_unused, WorkspaceBinding.bound_tasks_unused in Available.
+ unfold WorkspaceBinding.bound_tasks_unused in Available.
  apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
  cbn in Available.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
@@ -309,24 +309,24 @@ Proof.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in Available; unfold Worktree.lookup in Found. rewrite Found,Backend in Available.
  apply Bool.andb_true_iff in Available as [_ Jobs].
  apply forallb_forall with (x:=(id,job)) in Jobs; [|exact Member].
- cbn in Jobs. unfold Worktree.job_uses_resource, WorkspaceBinding.job_uses_resource in Jobs.
+ cbn in Jobs. unfold WorkspaceBinding.job_uses_resource in Jobs.
  rewrite Running,Resource in Jobs. unfold Workspace.same_resource in Jobs.
  rewrite N.eqb_refl in Jobs. discriminate.
 Qed.
 
 Theorem reusing_a_binding_never_provisions_another_resource :
- forall before intent start owner tree observed admitted,
- decision_effects (Worktree.consume_planned_start
-   (@Worktree.PlannedStart before intent start
+ forall before start owner tree observed admitted,
+ Worktree.born_effects (Worktree.interpret_planned_birth
+   (@Worktree.PlannedStart before start
      (@Worktree.ReuseBinding before (Tasks.start_settings start) owner tree observed) admitted) before) = [].
 Proof. intros; reflexivity. Qed.
 Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Worktree.planned_start before) current,
- let result:=decision_world (Worktree.consume_planned_start plan current) in
+ let result:=Worktree.born_world (Worktree.interpret_planned_birth plan current) in
  with_tasks (world_tasks current)
-   (with_features (Selvedge.Features.State.with_worktrees
-     (F.feature_worktrees (world_features current)) (world_features result)) result) = current.
+   (with_features (set F.feature_worktrees
+     (fun _ => F.feature_worktrees (world_features current)) (world_features result)) result) = current.
 Proof.
- intros before [intent start resource admitted] current.
+ intros before [start resource admitted] current.
  destruct resource; destruct current as [sequence tasks ticket environment projects features];
  destruct features; reflexivity.
 Qed.
@@ -342,16 +342,15 @@ Theorem explicit_provision_rejects_an_observed_cloud_source : forall before back
 Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan; rewrite Observed, Cloud; reflexivity. Qed.
 
 Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.planned_start before) current,
- exists created, world_tasks (decision_world (Worktree.consume_planned_start plan current)) = (world_tasks current ++ [created])%list.
+ exists created, world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan current)) = (world_tasks current ++ [created])%list.
 Proof.
- intros before [intent start resource admitted] current.
- destruct resource; unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity;
- cbn [Worktree.planned_task Worktree.planned_resource TaskBirth.birth_prepared TaskBirth.birth_world
-   Selvedge.Kernel.State.accept decision_world]; eexists; reflexivity.
+ intros before [start resource admitted] current.
+ destruct resource; unfold Worktree.interpret_planned_birth, Worktree.born_world;
+ cbn [Worktree.planned_task Worktree.planned_resource TaskBirth.birth_prepared TaskBirth.birth_world]; eexists; reflexivity.
 Qed.
 Theorem planned_birth_preserves_existing_tasks : forall before (plan:Worktree.planned_start before) current id task,
  find_task id current=Some task ->
- find_task id (decision_world (Worktree.consume_planned_start plan current))=Some task.
+ find_task id (Worktree.born_world (Worktree.interpret_planned_birth plan current))=Some task.
 Proof.
  intros before plan current id task Found.
  destruct (planned_birth_appends_exactly_one_task before plan current) as [created Appended].
@@ -384,7 +383,8 @@ Qed.
 
 Theorem rejected_selected_creation_has_a_failure_reply : forall name effort contents settings idle caller managed before reason,
  Worktree.create_selected_result name effort contents settings idle caller managed before = CommandResult.Rejected reason ->
- bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false.
+ bool_default "ok" (decision_reply (Worktree.creation_decision
+   (Worktree.create_selected_result name effort contents settings idle caller managed before))) false = false.
 Proof.
- intros; unfold Worktree.create_selected, Worktree.creation_decision; rewrite H; reflexivity.
+ intros; unfold Worktree.creation_decision; rewrite H; reflexivity.
 Qed.

@@ -53,8 +53,8 @@ Definition configure_execution_expression (id : N)
    (Tasks.configure_execution id name reasoning sandbox_source approval_source value) in
  derive_task_lookup_view constr:(Tasks.configure_execution id name reasoning sandbox_source approval_source value) body id value reduce_task_plan).
 
-Definition fork_with_caller_expression (entry : fork_entry) (origin : fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
+Definition fork_result_decision_expression (entry : fork_entry) (origin : fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
  (messages : list content) (settings : option settings_request) (value : world) := ltac:(
- let body := eval cbv beta iota zeta delta [Tasks.fork_with_caller Tasks.fork_result] in
-   (Tasks.fork_with_caller entry origin id count messages settings value) in
- derive_task_lookup_view constr:(Tasks.fork_with_caller entry origin id count messages settings value) body id value reduce_task_plan).
+ let body := eval cbv beta iota zeta delta [CommandResult.decide Tasks.fork_result] in
+   (CommandResult.decide value (Tasks.fork_result entry origin id count messages settings value)) in
+ derive_task_lookup_view constr:(CommandResult.decide value (Tasks.fork_result entry origin id count messages settings value)) body id value reduce_task_plan).

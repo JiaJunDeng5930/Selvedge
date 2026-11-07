@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
   PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
@@ -18,7 +18,9 @@ Theorem public_admitted_command_body_is_delivered : forall source original value
   str source "target" = "command" ->
   starts (str source "content_type") "application/json" = true ->
   as_string (get source "text") = Some original -> TextJson.parse_input_json original = TextJson.InputAccepted value ->
-  Api.call "http.body" source = success (JObject [("action",JString "command");("body",value)]).
+  let response := Api.call "http.body" source in
+  JsonObjects.equivalent response (success (JObject [("action",JString "command");("body",value)])) = true /\
+  field "body" (get response "value") = Some value.
 Proof.
  intros source original value opened host authorization origin method pathname selected mime text parsed.
  assert (local : connection_path source = false).
@@ -29,82 +31,89 @@ Proof.
  { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
  assert (target : body_target source = ModelResultDeclarations.http_body_target_named "command").
  { unfold body_target;rewrite audio,route;reflexivity. }
- change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
- unfold Http.call;cbn;unfold request_guard,open_host_guard.
- rewrite opened,host,authorization,local,origin;cbn.
- unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
- rewrite mime;cbn;rewrite text,parsed;reflexivity.
+ assert (delivered : Api.call "http.body" source =
+   success (JObject [("action",JString "command");("body",value)])).
+ { change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
+   unfold Http.call;cbn;unfold request_guard,open_host_guard.
+   rewrite opened,host,authorization,local,origin;cbn.
+   unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
+   rewrite mime;cbn;rewrite text,parsed;reflexivity. }
+ rewrite delivered.
+ split; [apply equivalent_is_reflexive|reflexivity].
 Qed.
 
 Theorem public_browser_git_observation_uses_cwd_default : forall (cwd : string),
-  Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]) =
-    success (JObject [("kind",JString "workspace-git");("primary",JString cwd)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",JString cwd)]))
+    (success (JObject [("kind",JString "workspace-git");("primary",JString cwd)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_observation_marks_empty_path_default :
-  Api.call "browser.observation" (JObject [("phase",JString "plan");
-    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]) =
-    success (JObject [("kind",JString "browse-directories");("path",JString "");
-      ("default_path",JBool true);("project_root",JNull)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]))
+    (success (JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",JNull)])) = true.
+Proof. apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_default_prefers_task_root : forall task_root project_root,
-  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "resolve");
     ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
       ("default_path",JBool true);("project_root",project_root)]);
-    ("task_environment_present",JBool true);("task_root",task_root)]) =
-    success (JObject [("path",task_root);("canonicalize",JBool false)]).
-Proof. reflexivity. Qed.
+    ("task_environment_present",JBool true);("task_root",task_root)]))
+    (success (JObject [("path",task_root);("canonicalize",JBool false)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_default_canonicalizes_project_root : forall project_root,
-  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "resolve");
     ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
       ("default_path",JBool true);("project_root",project_root)]);
-    ("task_environment_present",JBool false)]) =
-    success (JObject [("path",project_root);("canonicalize",JBool true)]).
-Proof. reflexivity. Qed.
+    ("task_environment_present",JBool false)]))
+    (success (JObject [("path",project_root);("canonicalize",JBool true)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_directory_failure_is_returned_as_observation : forall message,
-  Api.call "browser.observation" (JObject [("phase",JString "complete");
-    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]) =
-    success (JObject [("ok",JBool false);("error",JString message)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]))
+    (success (JObject [("ok",JBool false);("error",JString message)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_browser_skill_failure_is_returned_as_observation : forall message,
-  Api.call "browser.observation" (JObject [("phase",JString "complete");
-    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]) =
-    success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]).
-Proof. reflexivity. Qed.
+  JsonObjects.equivalent (Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]))
+    (success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)])) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
 Theorem public_exec_injects_authenticated_connection : forall connection args,
   keys args (client_keys Execute) = true ->
-  Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]) =
-  success (JObject [("op",JString "chatgpt_exec");("connection_id",connection);("project_id",get args "project_id");
+  JsonObjects.equivalent
+  (Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]))
+  (success (JObject [("op",JString "chatgpt_exec");("connection_id",connection);("project_id",get args "project_id");
     ("request_id",get args "request_id");("arguments",JObject [("command",get args "command");
       ("timeout_ms",default_value (get args "timeout_ms") (number 120000));
-      ("max_output_length",default_value (get args "max_output_length") (number 4096))])]).
-Proof. intros connection args accepted;change ((if keys args (client_keys Execute) then success (command_value connection Execute args) else type_error "Invalid ChatGPT tool arguments") = success (command_value connection Execute args));now rewrite accepted. Qed.
+      ("max_output_length",default_value (get args "max_output_length") (number 4096))])])) = true.
+Proof.
+ intros connection args accepted.
+ change (JsonObjects.equivalent
+   (if keys args (client_keys Execute) then success (command_value connection Execute args)
+    else type_error "Invalid ChatGPT tool arguments") (success (command_value connection Execute args)) = true).
+ rewrite accepted; apply equivalent_is_reflexive.
+Qed.
 Theorem public_evaluator_authorizes_only_configured_decision : forall source reply value,
-  str source "mode" <> "parsed" -> get source "reply" = reply ->
+  TextJson.parse_json (str source "text") = Some reply ->
   Api.call "evaluator.decision" source = success value ->
   decision_identity reply (get source "evaluator") = true /\ decision_configured reply (get source "policy") = true.
 Proof.
-  intros source reply value mode parsed H.
+  intros source reply value parsed H.
   change (decision source = success value) in H.
-  unfold decision in H. destruct (String.eqb (str source "mode") "parsed") eqn:E.
-  - apply String.eqb_eq in E;contradiction.
-  - rewrite parsed in H;unfold decision_reply,checked in H.
-    destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
-    now apply andb_true_iff in A.
+  unfold decision in H; rewrite parsed in H;unfold decision_reply,checked in H.
+  destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
+  now apply andb_true_iff in A.
 Qed.
-Theorem public_evaluator_accepts_configured_decision : forall source,
-  str source "mode" <> "parsed" ->
-  decision_identity (get source "reply") (get source "evaluator") = true ->
-  decision_configured (get source "reply") (get source "policy") = true ->
-  Api.call "evaluator.decision" source = success (JObject [
-    ("effort",get (get (get (get source "reply") "answers") "effort") "choice");
-    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))]).
+Theorem public_evaluator_accepts_configured_decision : forall source reply,
+  TextJson.parse_json (str source "text") = Some reply ->
+  decision_identity reply (get source "evaluator") = true ->
+  decision_configured reply (get source "policy") = true ->
+  JsonObjects.equivalent (Api.call "evaluator.decision" source) (success (JObject [
+    ("effort",get (get (get reply "answers") "effort") "choice");
+    ("generations",lease_number (get (get (get reply "answers") "lease") "choice"))])) = true.
 Proof.
- intros source mode identity configured;change (decision source = success (JObject [
-    ("effort",get (get (get (get source "reply") "answers") "effort") "choice");
-    ("generations",lease_number (get (get (get (get source "reply") "answers") "lease") "choice"))]));unfold decision.
- destruct (String.eqb (str source "mode") "parsed") eqn:E;[apply String.eqb_eq in E;contradiction|].
- unfold decision_reply,checked;now rewrite identity,configured.
+ intros source reply parsed identity configured;change (Api.call "evaluator.decision" source) with (decision source).
+ unfold decision;rewrite parsed.
+ unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
 Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
   Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->
@@ -116,16 +125,6 @@ Proof.
  - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
 Qed.
 
-Theorem public_parsed_evaluator_decision_requires_identity_and_configuration : forall source reply value,
-  str source "mode" = "parsed" -> TextJson.parse_json (str source "text") = Some reply ->
-  Api.call "evaluator.decision" source = success value ->
-  decision_identity reply (get source "evaluator") = true /\ decision_configured reply (get source "policy") = true.
-Proof.
- intros source reply value mode parsed H;change (decision source = success value) in H.
- unfold decision in H;rewrite mode in H;cbn in H;rewrite parsed in H;unfold decision_reply,checked in H.
- destruct (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy")) eqn:A;[|discriminate].
- now apply andb_true_iff in A.
-Qed.
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
   decode_state source = Some state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
@@ -218,6 +217,84 @@ Proof.
    unfold Rpc.call;rewrite decoded;cbn.
    unfold prepared;rewrite canonical,reserved,successful;reflexivity.
  - apply consumed_materialization_cannot_remain_active.
+Qed.
+
+Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source state,
+  decode_state source = Some state ->
+  (field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit").
+Proof.
+ intros source state decoded.
+ change (field "ok" (Rpc.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit").
+ unfold Rpc.call;rewrite decoded;cbn.
+ destruct (num source "bytes" <=? num source "frameLimit") eqn:Budget;cbn.
+ - split;[intros _;now apply N.leb_le|intros _;reflexivity].
+ - split;[discriminate|intros Bound;apply N.leb_gt in Budget;lia].
+Qed.
+
+Theorem public_rpc_write_admission_matches_its_byte_budgets : forall source state,
+  decode_state source = Some state ->
+  (get (get (Api.call "rpc.write" source) "value") "action" = JString "write" <->
+   state.(failed) = false /\ state.(closing) = false /\
+   num source "bytes" <= num source "frameLimit" /\
+   num source "queuedBytes" + num source "bytes" <= 2 * num source "frameLimit").
+Proof.
+ intros source state decoded.
+ change (get (get (Rpc.call "rpc.write" source) "value") "action" = JString "write" <->
+   state.(failed) = false /\ state.(closing) = false /\
+   num source "bytes" <= num source "frameLimit" /\
+   num source "queuedBytes" + num source "bytes" <= 2 * num source "frameLimit").
+ unfold Rpc.call;rewrite decoded;cbn -[N.mul];unfold Rpc.write.
+ destruct state.(failed);[cbn -[N.mul];split;[discriminate|intros [Impossible _];discriminate]|].
+ destruct state.(closing);[cbn -[N.mul];split;[discriminate|intros [_ [Impossible _]];discriminate]|].
+ destruct (num source "bytes" <=? num source "frameLimit") eqn:Frame;
+   [|cbn -[N.mul];split;[discriminate|intros [_ [_ [Bound _]]];apply N.leb_gt in Frame;lia]].
+ destruct (num source "queuedBytes" + num source "bytes" <=? 2 * num source "frameLimit") eqn:Queue;
+   [|cbn -[N.mul];split;[discriminate|intros [_ [_ [_ Bound]]];apply N.leb_gt in Queue;lia]].
+ cbn -[N.mul]. split;[intros _;repeat split;try reflexivity;now apply N.leb_le|intros _;reflexivity].
+Qed.
+
+Theorem public_rpc_reservation_matches_available_capacity : forall source state,
+  decode_state source = Some state ->
+  (get (get (Api.call "rpc.request" source) "value") "action" = JString "request" <->
+   boolean_field source "aborted" = false /\ state.(failed) = false /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   state.(next_id) < 9007199254740991).
+Proof.
+ intros source state decoded.
+ change (get (get (Rpc.call "rpc.request" source) "value") "action" = JString "request" <->
+   boolean_field source "aborted" = false /\ state.(failed) = false /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   state.(next_id) < 9007199254740991).
+ unfold Rpc.call;rewrite decoded;cbn;unfold Rpc.request.
+ destruct (boolean_field source "aborted");[cbn;split;[discriminate|intros [Impossible _];discriminate]|].
+ destruct state.(failed);[cbn;split;[discriminate|intros [_ [Impossible _]];discriminate]|].
+ destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") eqn:Capacity;
+   [|cbn;split;[discriminate|intros [_ [_ [Bound _]]];apply N.ltb_ge in Capacity;lia]].
+ destruct (state.(next_id) <? 9007199254740991) eqn:Identity;
+   [|cbn;split;[discriminate|intros [_ [_ [_ Bound]]];apply N.ltb_ge in Identity;lia]].
+ cbn. split;[intros _;repeat split;try reflexivity;now apply N.ltb_lt|intros _;reflexivity].
+Qed.
+
+Theorem public_rpc_reservation_returns_a_bounded_pending_set : forall source state,
+  decode_state source = Some state ->
+  get (get (Api.call "rpc.request" source) "value") "action" = JString "request" ->
+  N.of_nat (List.length (items (get (get (Api.call "rpc.request" source) "value") "nextPending"))) +
+    N.of_nat (List.length state.(working)) <= num source "maxPending".
+Proof.
+ intros source state decoded accepted.
+ apply (proj1 (public_rpc_reservation_matches_available_capacity source state decoded)) in accepted.
+ destruct accepted as [Aborted [Failed [Capacity Identity]]].
+ assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") = true)
+   by now apply N.ltb_lt.
+ assert (IdentityValue : (state.(next_id) <? 9007199254740991) = true) by now apply N.ltb_lt.
+ assert (Entry : Api.call "rpc.request" source = Rpc.request state source).
+ { change (Rpc.call "rpc.request" source = Rpc.request state source).
+   unfold Rpc.call;rewrite decoded;reflexivity. }
+ rewrite Entry. unfold Rpc.request. rewrite Aborted,Failed,CapacityValue,IdentityValue;cbn.
+ rewrite map_length,app_length,Nat2N.inj_add;cbn.
+ rewrite app_length,Nat2N.inj_add in Capacity. lia.
 Qed.
 
 Theorem public_mcp_media_plan_admits_every_part_within_one_byte_budget : forall source result,

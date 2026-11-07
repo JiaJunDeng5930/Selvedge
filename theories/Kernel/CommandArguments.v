@@ -16,7 +16,6 @@ Module D := ArgumentDeclaration.
 
 Definition identity := D.Natural 0 4294967295.
 Definition workspace_declaration := Codec.workspace_declaration.
-Definition sandbox_declaration := Codec.sandbox_declaration.
 Definition sandbox_patch_declaration := Codec.sandbox_patch_declaration.
 Definition approval_declaration := Codec.approval_declaration.
 Definition guidance_declaration := Codec.guidance_declaration.

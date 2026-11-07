@@ -32,9 +32,7 @@ Definition request_base evaluator policy context := JObject [
 Definition request_value evaluator policy context := let base := request_base evaluator policy context in let provider := str evaluator "provider" in
  if String.eqb provider "vercel" then set base "providerOptions" (JObject [("gateway",JObject [("only",JArray [JString "typesafe-ai"])])])
  else if String.eqb provider "openrouter" then set base "provider" (JObject [("only",JArray [JString "typesafe"]);("allow_fallbacks",JBool false)]) else base.
-Definition request source := if negb (truthy (get source "policy")) then type_error "The native evaluator effect has no adaptive endpoint policy"
- else if String.eqb (str source "phase") "policy" then success (action "context")
- else let construction := get source "construction" in
+Definition request source := let construction := get source "construction" in
    render_outcome (request_value (get source "evaluator") (get source "policy"))
      (PublicContext.finish (get construction "effect") (items (get construction "budgeted"))).
 Definition request_budget_error := range_error "The public reasoning-evaluator context exceeds its local token/byte budget; compact the task before retrying".
@@ -49,7 +47,10 @@ Definition request_admission source := let phase := str source "phase" in
      checked (truthy profile && JsonObjects.equivalent (get profile "provider") (get model "provider")) evaluator "Error" "The frozen model provider is no longer configured"
  else if String.eqb phase "credential" then checked (boolean_field (get source "observation") "present" && negb (boolean_field (get source "observation") "whitespace"))
    (get source "evaluator") "Error" ("Set " ++ str (get source "evaluator") "api_key_env" ++ " for the configured reasoning evaluator")
- else if bytes_allowed source && (String.eqb phase "bytes" || bounded (get (get source "observation") "tokens") request_tokens)
+ (* DEFENSE: A captured request can exceed the frame budget before tokenization
+    or the local token budget before dispatch; each stage admits its new observation. *)
+ else if (if String.eqb phase "bytes" then bytes_allowed source
+   else bounded (get (get source "observation") "tokens") request_tokens)
    then success (action (if String.eqb phase "bytes" then "count" else "fetch")) else request_budget_error.
 Definition digit ch := Nat.leb 48 (nat_of_ascii ch) && Nat.leb (nat_of_ascii ch) 57.
 Fixpoint digits value := match value with EmptyString => true | String ch rest => digit ch && digits rest end.
@@ -75,9 +76,8 @@ Definition decision_configured reply policy := let effort := get (get reply "ans
 Definition decision_reply source reply := checked (decision_identity reply (get source "evaluator") && decision_configured reply (get source "policy"))
  (JObject [("effort",get (get (get reply "answers") "effort") "choice");("generations",lease_number (get (get (get reply "answers") "lease") "choice"))])
  "Error" "Jev returned an invalid model/provider, effort or lease; no model request was authorized".
-Definition decision source := if String.eqb (str source "mode") "parsed" then
- match parse_json (str source "text") with Some reply => decision_reply source reply | None => err "Jev returned an invalid JSON response" end
- else decision_reply source (get source "reply").
+Definition decision source :=
+ match parse_json (str source "text") with Some reply => decision_reply source reply | None => err "Jev returned an invalid JSON response" end.
 Definition retry_error message := JObject [("action",JString "fail");("error",JString message)].
 Definition retry_wait source milliseconds := JObject [("action",JString "wait");("milliseconds",milliseconds);("next_attempt",number (num source "attempt"+1))].
 Definition retry_eligible source := negb (boolean_field source "ok") &&

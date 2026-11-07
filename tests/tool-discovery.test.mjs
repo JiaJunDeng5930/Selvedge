@@ -6,10 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { home, responsesServer, taskIdle } from './support.mjs';
+import { home, responsesServer, taskIdle, asyncToolResult } from './support.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/discovery-tools.mjs', import.meta.url));
-const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
 const call = (name, arguments_) => ({ name, arguments: arguments_ });
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 const waiting = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Waiting for the tool result.' }] }];
@@ -49,10 +48,12 @@ test('MCP discovery preserves the provider prefix and frozen invocation policy a
     assert.equal(searched.tools[0].name, 'mcp__fixture__deliver');
     assert.equal(searched.tools[0].parameters.properties.text.description, 'PRIVATE_DELIVERY_PARAMETER_DEFINITION');
     const exact = discovered(yield call('discover_tools', { names: [...exactNames, missingName], limit: 1 }));
-    assert.deepEqual(exact.tools.map(tool => tool.name), exactNames, 'Every exact name bypasses the semantic ranking limit');
+    assert.deepEqual(exact.tools.map(tool => tool.name).sort(), [...exactNames].sort(),
+      'Every exact name bypasses the semantic ranking limit');
     assert.deepEqual(exact.missing, [missingName]);
-    for (let index = 0; index < exactNames.length; index++) {
-      assert.equal(exact.tools[index].parameters.properties.code.description, `PRIVATE_EXACT_PARAMETER_DEFINITION_${index}`);
+    for (const [index, name] of exactNames.entries()) {
+      const definition = exact.tools.find(tool => tool.name === name);
+      assert.equal(definition.parameters.properties.code.description, `PRIVATE_EXACT_PARAMETER_DEFINITION_${index}`);
     }
     const stillDenied = yield call('mcp__fixture__deliver', { text: 'deny-by-fixture' });
     assert.equal(stillDenied.is_error, true);
@@ -88,10 +89,8 @@ test('MCP discovery preserves the provider prefix and frozen invocation policy a
     previous = body;
     for (const item of body.input) {
       if (item.type === 'function_call_output') immediate.set(item.call_id, JSON.parse(item.output));
-      if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith(completionPrefix)) {
-        const result = JSON.parse(item.content.slice(completionPrefix.length));
-        completed.set(result.call_id, result);
-      }
+      const result = asyncToolResult(item);
+      if (result) completed.set(result.call_id, result);
     }
     if (finished) {
       resumed = true;

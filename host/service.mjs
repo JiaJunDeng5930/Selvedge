@@ -152,7 +152,7 @@ export class Service extends EventEmitter {
     this.#failure = error;
     this.notify({ type: 'fatal', message: error.message });
     this.#cancelRunning({ kind: 'shutdown' }, error);
-    this.journal.kernel.abort(error);
+    this.journal.abort(error);
   }
 
   #configuration({ project = this.project, instructions = this.instructions } = {}) {
@@ -196,8 +196,6 @@ export class Service extends EventEmitter {
   #cancelRunning(observation, reason) {
     for (const action of this.#dispatchControl(observation).cancellations) {
       const active = this.#running.get(naturalKey(action.generation));
-      // DEFENSE: A promise can finish after cancellation was planned and before its AbortController is visited.
-      if (!active) continue;
       // Keep the registered invocation through synchronous receipt retirement;
       // aborting its observer must not retarget a later task request.
       if (action.provider) this.#cancelProvider(active.effect);
@@ -321,10 +319,10 @@ export class Service extends EventEmitter {
       const resources = await Promise.all(running.map(active => active.effect.execution
         ? active.effect.execution.resource
         : Object.hasOwn(active.effect, 'resource') ? active.effect.resource
-        : active.task === undefined ? undefined : this.#worktree(active.task)));
+        : active.effect.task_id === undefined ? undefined : this.#worktree(active.effect.task_id)));
       const plan = this.#dispatchControl({ kind: 'workspace_barrier', effect,
         running: running.map((active, index) => ({ generation: active.handle.generation,
-          task: active.task ?? null, resource: resources[index] ?? null,
+          task: active.effect.task_id ?? null, resource: resources[index] ?? null,
           local_overlap: effect.backend === 'local' && !!active.effect.execution && !resources[index] &&
             active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root)) })) });
       await Promise.all(plan.awaits.map(generation => this.#running.get(naturalKey(generation))?.promise));
@@ -391,7 +389,7 @@ export class Service extends EventEmitter {
             if (effect.tool.source.program.kind === 'ReadImage') {
               const executionOptions = { signal, execution: effect.execution,
                 ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
-              return runReadImage(materializeCallArguments(effect.call), this.limits, executionOptions);
+              return runReadImage(materializeCallArguments(effect.call), executionOptions);
             }
             return this.#processTool(effect);
           }
@@ -451,7 +449,8 @@ export class Service extends EventEmitter {
   }
 
   #workspaceOptions(signal) {
-    return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal };
+    return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal,
+      onDiagnostic: message => this.notify({ type: 'diagnostic', message }) };
   }
 
   #settleCompletion(input, failure, handle) {
@@ -465,7 +464,7 @@ export class Service extends EventEmitter {
     return this.#settleCompletion(completion, () =>
       this.#dispatchControl({ kind: 'workspace_limit', effect, completion }).rollbackWorkspace
         ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
-        : boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+        : boundary('effect.completion', { effect, result: { ok: false, root: completion.root,
           message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), handle);
   }
 
@@ -477,7 +476,7 @@ export class Service extends EventEmitter {
     if (!result.reply.ok) throw new Error(`Task resource lookup rejected: ${result.reply.error.message}`);
     const entry = result.reply.result.worktrees.find(entry => sameNatural(entry.task_id, resource.task_id));
     // DEFENSE: A frozen effect can race managed-resource archival; never substitute the host filesystem.
-    if (!entry || !sameNatural(entry.task_id, resource.task_id) || entry.backend !== resource.backend || entry.status !== 'ready') {
+    if (!entry || entry.backend !== resource.backend || entry.status !== 'ready') {
       throw new Error('The committed task workspace binding is unavailable');
     }
     return entry.backend === 'local' ? { managedWorktreeRoot: entry.root }
@@ -487,10 +486,6 @@ export class Service extends EventEmitter {
   async #taskWorkspace(taskId, signal) {
     const entry = await this.#worktree(taskId);
     return entry ? this.#resourceWorkspace({ task_id: entry.task_id, backend: entry.backend }, signal) : {};
-  }
-
-  async #workspaceEnvironment(resource, signal) {
-    return (await this.#resourceWorkspace(resource, signal)).environment;
   }
 
   async #observationEnvironment(observation) {
@@ -721,14 +716,14 @@ export class Service extends EventEmitter {
     return this.audio.capabilities(options);
   }
 
-  audioLogin({ browser_id }, options) {
+  audioLogin(options) {
     // DEFENSE: A sign-in HTTP request can already be in flight when service shutdown starts.
     if (this.#closing || this.#failure) throw this.#failure ?? new Error('Service is stopping');
     return this.audio.startLogin(options);
   }
 
-  async audioTranscribe({ browser_id, connection, audio, mime, language, elapsed_ms, signal }) {
-    this.#audioAdmission('transcribe', { browser_id, body_bytes: audio.byteLength, elapsed_ms, mime });
+  async audioTranscribe({ connection, audio, mime, language, elapsed_ms, signal }) {
+    this.#audioAdmission('transcribe', { body_bytes: audio.byteLength, elapsed_ms, mime });
     return this.audio.transcribe({ connection, audio, mime, language, signal });
   }
 
@@ -747,7 +742,7 @@ export class Service extends EventEmitter {
       const observed = await this.command({ op: 'read', task_id, ...contextPlan });
       if (!observed.reply.ok) throw new Error(observed.reply.error.message);
       const page = observed.reply.result;
-      const initial_items = boundary('audio.initial_context', { messages: page.messages, task: page.task });
+      const initial_items = boundary('audio.initial_context', { messages: page.messages });
       await this.#applyAudio(session, { kind: 'cursor', page, generation });
       const result = await this.audio.createSession({ id, generation, connection, task_id, sdp, initial_items, signal });
       // DEFENSE: A page can disappear after receiving the SDP response but before opening its owner event stream.

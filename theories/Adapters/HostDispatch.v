@@ -13,11 +13,11 @@ Definition effect_provider effect := if String.eqb (str effect "kind") "model" t
   else if String.eqb (str effect "kind") "approval" then IndependentProvider else NoProvider.
 Definition running_json (entry : running) := JObject [("generation",number (handle entry));
   ("key",JString (key entry));("task",match task entry with Some owner => number owner | None => JNull end);
-  ("cancellable",JBool (cancellable entry));("provider",provider_json (provider entry));("reduced",JBool (reduced entry));("settled",JBool (settled entry))].
+  ("cancellable",JBool (cancellable entry));("provider",provider_json (provider entry));("reduced",JBool (reduced entry))].
 Definition state_json (s : state) := JObject [("retired",JBool (retired s));
   ("next",number (next_handle s));("active",JArray (map running_json (active s)))].
 Definition running_of (entry : json) := Running (num entry "generation") (str entry "key")
-  (natural (get entry "task")) (boolean_field entry "cancellable") (provider_of (get entry "provider")) (boolean_field entry "reduced") (boolean_field entry "settled").
+  (natural (get entry "task")) (boolean_field entry "cancellable") (provider_of (get entry "provider")) (boolean_field entry "reduced").
 Definition state_of (source : json) := State (boolean_field source "retired") (num source "next")
   (map running_of (items (get source "active"))).
 Definition effect_key (effect : json) :=
@@ -27,8 +27,7 @@ Definition effect_key (effect : json) :=
   else if String.eqb kind "board_text" then "board:" ++ Common.decimal (num effect "card_id") ++ ":" ++ Common.decimal (num effect "ticket")
   else Common.decimal (num effect "task_id") ++ ":" ++ Common.decimal (num effect "ticket").
 Definition outcome_of (name : string) :=
-  if String.eqb name "accepted" then Some Accepted
-  else if String.eqb name "input_limit" then Some InputLimit
+  if String.eqb name "input_limit" then Some InputLimit
   else if String.eqb name "output_limit" then Some OutputLimit
   else if String.eqb name "rejected" then Some Rejected
   else if String.eqb name "uncertain" then Some Uncertain else None.
@@ -56,12 +55,9 @@ Definition observation_of (source : json) :=
 Definition primitive_packet (p : primitive) := match p with
 | Start generation => Variant.pack ModelResultDeclarations.dispatch_start [!generation!]
 | RollbackWorkspace => Variant.pack ModelResultDeclarations.dispatch_rollback_workspace [!!]
-| RetainWorkspace => Variant.pack ModelResultDeclarations.dispatch_retain_workspace [!!]
 | Await generation => Variant.pack ModelResultDeclarations.dispatch_await [!generation!]
 | Cancel generation provider => Variant.pack ModelResultDeclarations.dispatch_cancel [!generation;provider!]
-| RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!]
-| Settled => Variant.pack ModelResultDeclarations.dispatch_settled [!!]
-| Retire => Variant.pack ModelResultDeclarations.dispatch_retire [!!] end.
+| RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!] end.
 Definition primitive_json p := Variant.encode_packet (primitive_packet p).
 
 Definition call (operation : string) (source : json) : json :=

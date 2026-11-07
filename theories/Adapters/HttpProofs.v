@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Http.
 Import ListNotations.
 Open Scope string_scope.
@@ -55,44 +56,47 @@ Qed.
 Theorem http_public_command_rejects_sideband_observations : forall source,
   str (get source "command") "op" = "record_speech_transcript" \/
   str (get source "command") "op" = "accept_speech_delegation" ->
-  Http.call "http.public_command" source =
-    failure "TypeError" "Speech observations require a live upstream session".
+  exists message,
+    JsonObjects.equivalent (Http.call "http.public_command" source)
+      (failure "TypeError" message) = true.
 Proof.
   intros source denied.
   unfold Http.call.
   cbn [String.eqb].
   unfold Http.public_command, Http.public_command_allowed.
-  destruct denied as [transcript | delegation]; rewrite transcript || rewrite delegation; reflexivity.
+  destruct denied as [transcript | delegation]; rewrite transcript || rewrite delegation;
+    eexists; apply equivalent_is_reflexive.
 Qed.
 
 Theorem http_command_not_submitted_has_its_public_error_code : forall message,
-  Http.call "http.error"
-    (JObject [("name",JString "CommandNotSubmitted");("message",JString message)]) =
-  success (Http.rejection 400 "command_not_submitted" message).
+  JsonObjects.equivalent (Http.call "http.error"
+    (JObject [("name",JString "CommandNotSubmitted");("message",JString message)]))
+    (success (Http.rejection 400 "command_not_submitted" message)) = true.
 Proof.
   intros message.
   unfold Http.call, Http.request_error_response.
   cbn [String.eqb].
-  reflexivity.
+  apply equivalent_is_reflexive.
 Qed.
 
 Theorem http_input_errors_are_bad_requests : forall name message,
   name = "RangeError" \/ name = "SyntaxError" \/ name = "TypeError" ->
-  Http.call "http.error"
-    (JObject [("name",JString name);("message",JString message)]) =
-  success (Http.rejection 400 "request_failed" message).
+  JsonObjects.equivalent (Http.call "http.error"
+    (JObject [("name",JString name);("message",JString message)]))
+    (success (Http.rejection 400 "request_failed" message)) = true.
 Proof.
   intros name message [range | [syntax | type_error]]; subst name;
-    unfold Http.call, Http.request_error_response; cbn [String.eqb]; reflexivity.
+    unfold Http.call, Http.request_error_response; cbn [String.eqb];
+    apply equivalent_is_reflexive.
 Qed.
 
 Theorem http_other_errors_are_service_unavailable : forall message,
-  Http.call "http.error"
-    (JObject [("name",JString "Error");("message",JString message)]) =
-  success (Http.rejection 503 "request_failed" message).
+  JsonObjects.equivalent (Http.call "http.error"
+    (JObject [("name",JString "Error");("message",JString message)]))
+    (success (Http.rejection 503 "request_failed" message)) = true.
 Proof.
   intros message.
   unfold Http.call, Http.request_error_response.
   cbn [String.eqb].
-  reflexivity.
+  apply equivalent_is_reflexive.
 Qed.

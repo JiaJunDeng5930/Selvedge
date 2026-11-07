@@ -25,8 +25,14 @@ Definition owner_agent (owner:Selvedge.Features.Domain.owner) (value:world) := m
  | Selvedge.Features.Domain.AgentOwner id=>lookup_agent id value | _=>None end.
 Definition active_for (owner:Selvedge.Features.Domain.owner) (value:world) := N.of_nat (List.length (filter
  (fun candidate=>match candidate with Some card=>String.eqb (Selvedge.Features.Domain.owner_name owner) (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) && busy card value | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)))).
-Definition runnable (card:Selvedge.Features.Domain.card) (value:world) := mutable card value && unlinked card &&
- match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with Some agent=>N.ltb (active_for (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value) (Selvedge.Features.Domain.agent_concurrency agent) | None=>false end.
+Definition runnable_agent (card:Selvedge.Features.Domain.card) (value:world) :=
+ if mutable card value && unlinked card then
+ match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with
+ | Some agent=>if N.ltb (active_for (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value)
+     (Selvedge.Features.Domain.agent_concurrency agent) then Some agent else None
+ | None=>None end else None.
+Definition runnable (card:Selvedge.Features.Domain.card) (value:world) :=
+ match runnable_agent card value with Some _=>true | None=>false end.
 Fixpoint latest_failure_events (history:list message) := match history with
  | []=>false | FailureMessage _::_=>true | UserMessage _::_|AssistantMessage _ _::_|ModelContext _ _::_=>false | _::rest=>latest_failure_events rest end.
 Definition latest_failure (task:task) := latest_failure_events (rev (task_history task)).
