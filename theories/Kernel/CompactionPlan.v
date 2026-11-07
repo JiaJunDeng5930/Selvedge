@@ -37,7 +37,6 @@ Definition with_width (width : N) (value : compaction_state) := set compaction_c
 Definition has_transport_work (value : compaction_state) :=
  match compaction_source value with NativeSource _ _ => true
  | PortableSource [] => true | PortableSource (_ :: _) => 0 <? compaction_chunk_chars value end.
-Definition transport_fits (value : compaction_state) (budget : N) := has_transport_work value && (plan_bytes value <=? budget).
 Definition rebase_note (value : compaction_state) :=
  match compaction_source value with
  | NativeSource _ _ => None
@@ -55,7 +54,7 @@ Definition fit_portable (value : compaction_state) (budget : N) :=
 Definition fit_transport (value : compaction_state) (budget : N) :=
  match compaction_source value with
  | PortableSource _ => fit_portable value budget
- | NativeSource _ _ => if transport_fits value budget then Some value
+ | NativeSource _ _ => if plan_bytes value <=? budget then Some value
    else match to_portable value with Some value => fit_portable value budget | None => None end end.
 
 Inductive step := Next (state : compaction_state) | Compacted (candidate : artifact) | Failed (reason : string).

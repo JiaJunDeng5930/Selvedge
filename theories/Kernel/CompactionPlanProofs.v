@@ -31,12 +31,6 @@ Theorem an_opaque_reply_cannot_finish_portable_work : forall unread carry width 
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =
  Failed reason.
 Proof. intros; eexists; reflexivity. Qed.
-Theorem an_admitted_plan_fits_its_byte_allocation : forall value budget,
- transport_fits value budget = true -> plan_bytes value <= budget /\ has_transport_work value = true.
-Proof.
- intros. apply andb_true_iff in H as [work fits]. apply N.leb_le in fits. auto.
-Qed.
-
 Theorem native_start_retains_history_and_rebuild_material :
  forall captured history raw input_tokens window reserve,
  (forall entry, In entry captured -> History.message_images entry = []) ->
@@ -136,13 +130,13 @@ Proof.
  - reflexivity.
 Qed.
 
-Theorem zero_width_cannot_admit_nonempty_portable_work :
- forall unread carry window reserve budget,
+Theorem zero_width_cannot_process_nonempty_portable_work :
+ forall unread carry window reserve,
  unread <> [] ->
- transport_fits (CompactionState (PortableSource unread) carry 0 window reserve) budget = false.
+ has_transport_work (CompactionState (PortableSource unread) carry 0 window reserve) = false.
 Proof.
- intros unread carry window reserve budget Nonempty.
- unfold transport_fits, has_transport_work.
+ intros unread carry window reserve Nonempty.
+ unfold has_transport_work.
  destruct unread; [contradiction|]. reflexivity.
 Qed.
 

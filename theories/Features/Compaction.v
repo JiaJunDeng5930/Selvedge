@@ -125,7 +125,7 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
  let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input scope in
  match Selvedge.Kernel.CompactionPlan.fit_transport progress available with
  | Some fitted =>
-   if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
+   if Selvedge.Kernel.CompactionPlan.has_transport_work fitted &&
      (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input fitted scope))) <=? limit)
    then run_request id (R.CompactRequest (CompactInput input purpose fitted scope) entry) value
    else failed id task entry "The configured compaction request exceeds the transport budget" value

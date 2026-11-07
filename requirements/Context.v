@@ -199,7 +199,11 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Provider token counts, endpoint scope, clocks and summary fidelity are
     observations, not static facts supplied by a budget type. A token window
     does not bound the escaped JSON transport. Complete encoded requests and
-    carried summary metadata must fit their actual byte budgets; bounded
+    carried summary metadata must fit their actual byte budgets. Plan fitting
+    subtracts the request metadata before choosing a native or portable plan;
+    admission checks the complete encoded request. A second plan-allocation
+    check at admission establishes no additional limit. Nonempty portable work
+    must still consume a positive number of scalars to advance. Bounded
     fragment processing must not assume that the whole source fits another
     model. No fallback is allowed to silently discard original history.
     Portable progress is the remaining ordered scalar list and its carried
