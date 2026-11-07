@@ -95,7 +95,7 @@ Inductive creation_entry := OrdinaryCreation | IdleCreation | NativeCreation
  | NativeFeatureCreation | Configuration | NativeForkEntry | ManagedCreation
  | WorkspaceCreation | WorktreeCreation.
 Inductive failure_cause := UnknownProfile | InvalidSettings | InvalidReasoning
- | EmptyInput | InvalidPolicy | AuthorityExpansion | DescendantCapacity | InvalidForkRequest
+ | EmptyInput | InvalidPolicy | AuthorityExpansion | InvalidForkRequest
  | MissingPrimaryWorkspace | WorkspaceUnavailable | ProjectPrimaryMismatch | InvalidWorkspace.
 Definition failure_code (entry : creation_entry) (cause : failure_cause) :=
  match cause with
@@ -109,7 +109,6 @@ Definition failure_code (entry : creation_entry) (cause : failure_cause) :=
    | NativeFeatureCreation => "invalid_native_feature"
    | NativeForkEntry => "approval_required"
    | _ => "invalid_settings" end
- | DescendantCapacity => "resource_limit"
  | InvalidForkRequest => "fork_unavailable"
  | MissingPrimaryWorkspace => match entry with
    | IdleCreation => "invalid_arguments"
@@ -126,7 +125,6 @@ Definition failure_message (cause : failure_cause) := match cause with
  | EmptyInput => input_required_message
  | InvalidPolicy => "The approval reviewer must be an existing fixed-reasoning profile"
  | AuthorityExpansion => "Task tools cannot expand the caller's workspace, sandbox or approval authority"
- | DescendantCapacity => "The task descendant capacity is exhausted"
  | InvalidForkRequest => "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit"
  | InvalidSettings => "Task settings do not resolve to a current project and workspace"
  | MissingPrimaryWorkspace => "Managed task creation requires a primary workspace root"
@@ -454,14 +452,6 @@ Definition fork_call_ids (task : Domain.task) : list string :=
 Definition manual_fork_identity (ticket : N) (task : Domain.task) : string :=
  FreshNames.fresh_name ("manual-fork-" ++ number_text ticket ++ "-") (fork_call_ids task).
 
-Definition fork_refusal_reason (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
- match entry with
- | ManualFork => if fork_parent_ready entry parent then
-     CommandResult.Refusal "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid"
-   else CommandResult.Refusal "task_busy" "A manual fork requires an active, idle task"
- | AcceptedNativeFork _ _ => start_refusal NativeForkEntry
-     (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity)
- end.
 Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : N) (count : TaskConstraints.fork_count)
  (messages : list content) (settings : option settings_request) (value : world) :=
  match TaskScope.select id value with
@@ -498,7 +488,7 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
       CommandResult.Accepted (CommandResult.Change (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children [])
       end
     end)
-   else CommandResult.Rejected (fork_refusal_reason entry id count task value)
+   else CommandResult.Rejected (start_refusal NativeForkEntry InvalidForkRequest)
  end.
 Definition open_side (id : N) (contents : content) (value : world) :=
  CommandResult.decide value

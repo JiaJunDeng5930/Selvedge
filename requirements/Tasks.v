@@ -53,12 +53,13 @@ Export ExecutionSettingsProofs(admitted_execution_settings_take_effect,
     history output boundary. Encoding and reparsing an internal outcome would
     introduce a failure case that the accepted callback cannot produce. *)
 
-From Selvedge.Kernel Require EntryBehaviorProofs ForkConstructionProofs
+From Selvedge.Kernel Require EntryBehaviorProofs ForkConstructionProofs TasksProofs
   ForkCommitProofs NativeForkPacketProofs PacketSettlementProofs.
 Export EntryBehaviorProofs(
   every_resolved_exported_creation_returns_and_installs_its_fresh_reference).
 Export ForkConstructionProofs(constructed_children_have_the_requested_count,
   constructed_children_have_the_parent_lineage).
+Export TasksProofs(actual_fork_rejects_observed_ancestor_capacity).
 Export ForkCommitProofs(a_fork_with_an_admitted_output_budget_is_delivered).
 Export NativeForkPacketProofs(a_selected_native_fork_commits_within_its_delivery_budget).
 Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_public_packet).
@@ -85,6 +86,10 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     of a native fork comes from the call context; a manual fork uses its command's
     requested Task. Comparing those two identity copies, or treating a native
     call as a manual one when they differ, adds no valid fork behavior.
+    Ancestor capacity failure must reject the whole fork without changing the
+    world, even when another admission condition also fails. A single refusal
+    lists the admission conditions; checking readiness or capacity again only
+    to prioritize an error label provides no additional fork behavior.
     The terminal-settlement contract also reaches [Packet.packet], including
     the matching final after-hook callback of an archived Task. Settlement
     does not restore ordinary execution authority to that Task.
@@ -216,7 +221,7 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     constrains the actual admitted steering transition, including its new input
     and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
-  TasksProofs NativeAuthorityProofs SchedulerProofs NativeForkCommitProofs.
+  NativeAuthorityProofs SchedulerProofs NativeForkCommitProofs.
 Export Selvedge.Kernel.Tasks(control_command, input_changes, input_effects).
 Export SchedulerLifecycleProofs(a_runnable_task_requests_context_before_inference,
   frozen_tasks_without_ready_results_do_not_take_scheduler_steps,

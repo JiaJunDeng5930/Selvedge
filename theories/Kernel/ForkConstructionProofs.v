@@ -47,9 +47,7 @@ Proof.
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_fits count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
-   Tasks.ancestors_fit (id :: task_lineage parent) count before).
- 2: { unfold CommandResult.reject; destruct entry;
-      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); exact Found. }
+   Tasks.ancestors_fit (id :: task_lineage parent) count before); [|exact Found].
  destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|exact Found].
  cbn.
  destruct (Tasks.resolve_settings (task_current_profile parent) settings (Tasks.fork_settings_base origin parent before) before)

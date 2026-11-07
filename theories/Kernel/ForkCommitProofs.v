@@ -24,9 +24,7 @@ Lemma the_fork_constructor_emits_no_unbound_effects : forall entry origin owner 
 Proof.
  intros; rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta.
  destruct (find_task owner before) as [parent|]; [|reflexivity].
- destruct (_ && _) eqn:Eligible.
- 2: { unfold CommandResult.reject,Tasks.fork_refusal_reason; destruct entry;
-      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity. }
+ destruct (_ && _) eqn:Eligible; [|reflexivity].
  destruct (Bool.bool_dec (WorkspaceBinding.input_available parent before) true) as [Available|Unavailable]; [|reflexivity].
  cbn.
  destruct (Tasks.resolve_settings _ _ _ _) as [selected|]; [|reflexivity].
