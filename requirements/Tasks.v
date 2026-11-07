@@ -6,7 +6,7 @@
     operation. *)
 
 From Selvedge.Programming Require TaskChangeProofs.
-From Selvedge.Kernel Require HistoryProofs WorkspaceProofs.
+From Selvedge.Kernel Require HistoryProofs WorkspaceProofs ExecutionSettingsProofs.
 Export TaskChangeProofs(append_only_changes_retain_history,
   field_changes_keep_the_immutable_task_identity,
   field_changes_keep_execution_configuration,
@@ -14,6 +14,8 @@ Export TaskChangeProofs(append_only_changes_retain_history,
 Export HistoryProofs(an_after_hook_retains_the_original_execution_receipt,
   native_results_append_their_completed_observation).
 Export WorkspaceProofs(updating_a_project_preserves_all_existing_tasks).
+Export ExecutionSettingsProofs(admitted_execution_settings_take_effect,
+  default_effort_restores_frozen_configuration).
 
 (** [append_only_changes_retain_history],
     [field_changes_keep_the_immutable_task_identity] and
@@ -22,7 +24,15 @@ Export WorkspaceProofs(updating_a_project_preserves_all_existing_tasks).
     progress and queued input; its history operation appends. An extension of
     that language therefore inherits these facts instead of repeating a proof
     for each command. [TaskChange.configure] is the distinct operation for
-    admitted execution settings.
+    admitted execution settings. An unarchived Task with no active or queued
+    work may change its current profile, reasoning, sandbox and approval policy.
+    [admitted_execution_settings_take_effect] requires that admitted choice to
+    succeed and become the current configuration, regardless of any retained
+    reasoning lease. Selecting default reasoning restores the captured profile
+    default while preserving the creation contract.
+    Approval selection uses the resolved model. An unknown model therefore
+    refuses configuration directly; consulting the current model only to prefer
+    a different refusal adds no configuration behavior.
 
     A fork continues recorded context and captures its own overrides. It must
     not reread mutable defaults as if they were the parent's original context,
@@ -63,7 +73,12 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     can issue physical work. The manual-fork contract finalizes the actual [ForkCommit.select]
     with the admitted candidate and output budget. The native-fork contract
     reaches [Packet.packet] under the actual invocation selection and delivery
-    budget. The terminal-settlement contract also reaches [Packet.packet], including
+    budget. Its final dispatch gate is justified by lookup in the selected
+    Task's frozen contract; that proof does not require retaining an otherwise
+    unused tool value in the commit plan.
+    A native fork already owns its issued invocation. Only the manual entry
+    allocates a correlation ticket for its newly recorded fork call.
+    The terminal-settlement contract also reaches [Packet.packet], including
     the matching final after-hook callback of an archived Task. Settlement
     does not restore ordinary execution authority to that Task.
 
@@ -132,10 +147,32 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     Owner-only protocols explicitly use [Completion.Owner]; this does not
     distinguish attempts after a later explicit retry.
 
+    A callback acknowledgement confirms that the service handled its submitted
+    observation. An expired or repeated result may successfully leave the world
+    unchanged. The receiver and packet outcomes determine ownership, durability
+    and further scheduling; a second acceptance marker in the reply has no
+    consumer. Startup recovery and shared feature issuance use the same success
+    envelope: their resulting state and effects establish recovery and request
+    ownership. These contracts require successful acknowledgement and the
+    appropriate world and effects, without prescribing a second result marker.
+    Speech transcripts and operation cancellation confirm successful handling
+    without repeating the supplied identities. Transcript history retains the
+    identity and content needed to reject conflicts and consume duplicates
+    without another history entry. Both new and matching repeated transcripts
+    acknowledge success; only explicit delegation requests execution. A
+    delegation's replay indicator remains meaningful because it prevents a
+    repeated receipt from requesting another scheduling pass.
+
     Field-name uniqueness, declaration-indexed callback coordinates and input
     grammar ownership are already enforced by [ModelDeclarations],
     [CallbackDeclarations], [SchemaProjection] and [InputRoute]. Physical dispatch
-    still has to preserve the committed identity and report the actual outcome. *)
+    still has to preserve the committed identity and report the actual outcome.
+
+    [Capabilities.callable] constructs a request's callable names by filtering
+    the Task's frozen tool contract. Completion checks returned names against
+    that captured set and rejects call identities already used in history.
+    Contract membership follows from that construction and the immutable
+    contract; another membership lookup adds no admission condition. *)
 
 (** ** Lifecycle controls retain their distinct purposes
 
@@ -147,19 +184,40 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     operations and queued follow-ups. An idle inference phase therefore does
     not imply an empty operation list.
 
+    A runnable Task with admitted context observation must issue it before
+    inference. [a_runnable_task_requests_context_before_inference] also requires
+    the correlation supply to advance. Callback owners compare ticket identity;
+    consecutive numeric labels add no correlation guarantee.
+
     The existing control and input definitions give these operations their
     meaning. Their changes use the same frame-preserving Task construction.
+    Lifecycle availability is a Boolean observation shared by the command and
+    its public control list. The accepted command builds its changes once;
+    constructing a second lifecycle only to discard it adds no execution meaning.
+    Refused controls, input submissions and configuration changes retain the
+    Task state and emit no newly authorized effects.
+    Successful replies acknowledge the admitted operation. Callers already
+    supplied its Task identity, so repeating that identity adds no result needed
+    for control, input delivery or execution configuration.
+    Diagnostic labels explain the current rejection; they do not authorize
+    lifecycle changes or select the pending operation's result-hook chain.
+    The actual command rejects every control on an archived Task without changing
+    the world or emitting effects. Its private edit
+    helper therefore does not need a second availability check or an identity
+    guarantee for that already-refused state.
     [steering_replaces_inference_and_preserves_independent_work] additionally
     constrains the actual admitted steering transition, including its new input
     and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
   TasksProofs NativeAuthorityProofs.
-Export Selvedge.Kernel.Tasks(control_transition, input_changes, input_effects).
-Export SchedulerLifecycleProofs(frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
+Export Selvedge.Kernel.Tasks(control_command, input_changes, input_effects).
+Export SchedulerLifecycleProofs(a_runnable_task_requests_context_before_inference,
+  frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
   stopped_inference_requests_settle_without_effects,
   stopped_tasks_can_finish_an_already_accepted_call).
 Export CallbacksProofs(an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand).
 Export TasksProofs(stopped_idle_receive_reactivates,
+  archived_controls_reject_without_changing_world,
   archived_send_rejects_without_changing_world,
   steering_replaces_inference_and_preserves_independent_work).
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
@@ -175,6 +233,9 @@ Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_tur
     the reviewer's complete profile is not a second historical configuration.
     A before-tool hook can rewrite the original call, so this explanation must
     retain the effective invocation that reached approval.
+    Escalation admission checks the bounded, nonblank justification in that
+    invocation. Review uses the same captured arguments, so process transport
+    does not need another stored permission value.
     Denial follows the same frozen result-hook chain as an execution result.
 
     The authority constructor and granted-operation interpreter bind the

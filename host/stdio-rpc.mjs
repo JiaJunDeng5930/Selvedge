@@ -25,7 +25,7 @@ export class StdioRpc extends EventEmitter {
         materializing: [...this.#pending].filter(([, entry]) => entry.phase === 'materializing').map(([id]) => id),
         working: [...this.#materializations].map(work => work.id),
         nextId: this.#nextId,
-        failure: this.#failure === undefined ? null : { message: this.#failure.message },
+        failure: this.#failure !== undefined,
         closing: this.#closing,
       },
       ...observation,
@@ -42,9 +42,9 @@ export class StdioRpc extends EventEmitter {
 
   get available() { return this.#decide('rpc.available'); }
 
-  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
+  constructor(name, config, limits, { label, timeoutMs }) {
     super();
-    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
+    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs });
     this.#child = spawn(config.command, config.args ?? [], {
       cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'ignore'],
     });
@@ -164,7 +164,7 @@ export class StdioRpc extends EventEmitter {
 
   request(method, params, { signal, timeoutMs = this.timeoutMs, prepareIncoming } = {}) {
     let decision;
-    try { decision = this.#decide('rpc.request', { method, params, maxPending: this.maxPending,
+    try { decision = this.#decide('rpc.request', { method, params,
       aborted: signal?.aborted ?? false }); }
     // DEFENSE: Queue pressure, exhausted request identities or a closed process can reject a new RPC call; report it through the request promise.
     catch (error) { return Promise.reject(error); }

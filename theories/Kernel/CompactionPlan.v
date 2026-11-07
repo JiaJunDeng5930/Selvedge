@@ -22,7 +22,7 @@ Fixpoint contains_image (value : json) : bool :=
    contains_image (snd entry)) fields
  | _ => false end.
 Definition start_with_images (has_images : bool) (history raw : json) (provider : string) (method : method) (input_tokens window reserve : N) :=
- let value := CompactionState (NativeSource history raw) 0 "" window window reserve in
+ let value := CompactionState (NativeSource history raw) "" window window reserve in
  if negb has_images && String.eqb provider "chatgpt" &&
     (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window)
  then Some value else to_portable value.
@@ -67,15 +67,14 @@ Inductive step := Next (state : compaction_state) | Compacted (candidate : artif
 Definition receive_source (value : compaction_state) (result : json) :=
  match compaction_source value with
  | NativeSource _ _ => match decode_artifact result with
-   | Some (NativeArtifact head tail first rest usage) => Compacted (NativeArtifact head tail first rest usage)
+   | Some (NativeArtifact head tail first rest) => Compacted (NativeArtifact head tail first rest)
    | _ => Failed "The native compactor returned an invalid replacement window" end
  | PortableSource unread => match string_field "summary_text" result with
    | Some (String head tail) =>
      let summary := String head tail in
      match skipn (N.to_nat (compaction_chunk_chars value)) unread with
-     | [] => Compacted (PortableArtifact (PortableMessage PortableAssistant summary) [] (value_or_null "usage" result))
-     | remaining => Next (CompactionState (PortableSource remaining)
-       (compaction_cursor value + N.of_nat (List.length (chunk value))) summary
+     | [] => Compacted (PortableArtifact (PortableMessage PortableAssistant summary) [])
+     | remaining => Next (CompactionState (PortableSource remaining) summary
        (compaction_chunk_chars value) (compaction_window_tokens value) (compaction_output_reserve value)) end
    | _ => Failed "The compactor returned an empty continuation note" end end.
 Definition resize (value : compaction_state) :=

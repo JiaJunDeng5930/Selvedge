@@ -5,29 +5,29 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Theorem an_unfinished_summary_keeps_every_unread_scalar : forall unread cursor carry width window reserve head tail usage remaining,
+Theorem an_unfinished_summary_keeps_every_unread_scalar : forall unread carry width window reserve head tail remaining,
  skipn (N.to_nat width) unread = remaining -> remaining <> [] ->
- receive (CompactionState (PortableSource unread) cursor carry width window reserve)
-  (JObject [("summary_text",JString (String head tail));("usage",usage)]) =
+ receive (CompactionState (PortableSource unread) carry width window reserve)
+  (JObject [("summary_text",JString (String head tail))]) =
  Next (CompactionState (PortableSource remaining)
-  (cursor + N.of_nat (List.length (firstn (N.to_nat width) unread))) (String head tail) width window reserve).
+  (String head tail) width window reserve).
 Proof.
  intros. unfold receive,receive_source. cbn. rewrite H. destruct remaining; [contradiction|].
- unfold chunk. rewrite take_equals_firstn. reflexivity.
+ reflexivity.
 Qed.
 
 Theorem a_finished_summary_publishes_its_returned_continuation :
- forall unread cursor carry width window reserve head tail usage,
+ forall unread carry width window reserve head tail,
  skipn (N.to_nat width) unread = [] ->
- receive (CompactionState (PortableSource unread) cursor carry width window reserve)
-  (JObject [("summary_text",JString (String head tail));("usage",usage)]) =
- Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) [] usage).
+ receive (CompactionState (PortableSource unread) carry width window reserve)
+  (JObject [("summary_text",JString (String head tail))]) =
+ Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) []).
 Proof.
- intros unread cursor carry width window reserve head tail usage Finished.
+ intros unread carry width window reserve head tail Finished.
  unfold receive, receive_source. cbn. now rewrite Finished.
 Qed.
-Theorem an_opaque_reply_cannot_finish_portable_work : forall unread cursor carry width window reserve scope items,
- exists reason, receive (CompactionState (PortableSource unread) cursor carry width window reserve)
+Theorem an_opaque_reply_cannot_finish_portable_work : forall unread carry width window reserve scope items,
+ exists reason, receive (CompactionState (PortableSource unread) carry width window reserve)
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =
  Failed reason.
 Proof. intros; eexists; reflexivity. Qed.
@@ -41,7 +41,7 @@ Theorem native_start_retains_history_and_rebuild_material :
  forall images history raw input_tokens window reserve,
  images = false -> input_tokens + reserve <= window ->
  start_with_images images history raw "chatgpt" Automatic input_tokens window reserve =
- Some (CompactionState (NativeSource history raw) 0 "" window window reserve).
+ Some (CompactionState (NativeSource history raw) "" window window reserve).
 Proof.
  intros images history raw input_tokens window reserve NoImages Fits.
  unfold start_with_images. rewrite NoImages.
@@ -52,17 +52,17 @@ Qed.
 
 Theorem images_force_portable_rebuilding : forall history raw provider method input_tokens window reserve,
  start_with_images true history raw provider method input_tokens window reserve =
- to_portable (CompactionState (NativeSource history raw) 0 "" window window reserve).
+ to_portable (CompactionState (NativeSource history raw) "" window window reserve).
 Proof. intros; reflexivity. Qed.
 
 Theorem native_rebuilding_uses_raw_history :
- forall history raw cursor carry width window reserve rebuilt,
- to_portable (CompactionState (NativeSource history raw) cursor carry width window reserve) = Some rebuilt ->
+ forall history raw carry width window reserve rebuilt,
+ to_portable (CompactionState (NativeSource history raw) carry width window reserve) = Some rebuilt ->
  exists fragments,
    scalar_fragments (TextJson.render_json raw) = Some fragments /\
    compaction_source rebuilt = PortableSource fragments.
 Proof.
- intros history raw cursor carry width window reserve rebuilt Rebuilt.
+ intros history raw carry width window reserve rebuilt Rebuilt.
  unfold to_portable, portable_source in Rebuilt.
  cbn [compaction_source] in Rebuilt.
  destruct (scalar_fragments (TextJson.render_json raw)) as [parts|] eqn:Parsed;
@@ -72,24 +72,24 @@ Proof.
 Qed.
 
 Theorem native_plan_transports_only_its_selected_history :
- forall history raw cursor carry width window reserve,
- JsonObjects.equivalent (plan_json (CompactionState (NativeSource history raw) cursor carry width window reserve))
+ forall history raw carry width window reserve,
+ JsonObjects.equivalent (plan_json (CompactionState (NativeSource history raw) carry width window reserve))
  (JObject [("method", JString "native"); ("window_tokens", number window);
    ("output_reserve_tokens", number reserve); ("history", history)]) = true.
 Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem portable_plan_transports_only_bounded_summary_material :
- forall unread cursor carry width window reserve,
- JsonObjects.equivalent (plan_json (CompactionState (PortableSource unread) cursor carry width window reserve))
+ forall unread carry width window reserve,
+ JsonObjects.equivalent (plan_json (CompactionState (PortableSource unread) carry width window reserve))
  (JObject [("method", JString "portable"); ("window_tokens", number window);
    ("output_reserve_tokens", number reserve);
-   ("chunk", JString (String.concat "" (chunk (CompactionState (PortableSource unread) cursor carry width window reserve))));
+   ("chunk", JString (String.concat "" (chunk (CompactionState (PortableSource unread) carry width window reserve))));
    ("carry", JString carry); ("prompt", JString summary_prompt)]) = true.
 Proof. intros; apply equivalent_is_reflexive. Qed.
 
 Theorem a_portable_chunk_is_an_exact_prefix_of_unread_scalars :
- forall unread cursor carry width window reserve,
- chunk (CompactionState (PortableSource unread) cursor carry width window reserve) =
+ forall unread carry width window reserve,
+ chunk (CompactionState (PortableSource unread) carry width window reserve) =
  firstn (N.to_nat width) unread.
 Proof.
  intros.
@@ -98,14 +98,14 @@ Proof.
 Qed.
 
 Theorem rebasing_preserves_the_unread_suffix_in_order :
- forall unread cursor carry width window reserve rebased,
- rebase_note (CompactionState (PortableSource unread) cursor carry width window reserve) = Some rebased ->
+ forall unread carry width window reserve rebased,
+ rebase_note (CompactionState (PortableSource unread) carry width window reserve) = Some rebased ->
  exists opening closing prefix,
    scalar_fragments (opening ++ carry ++ closing) = Some prefix /\
    compaction_source rebased = PortableSource (prefix ++ unread) /\
    compaction_carry rebased = "".
 Proof.
- intros unread cursor carry width window reserve rebased Rebased.
+ intros unread carry width window reserve rebased Rebased.
  unfold rebase_note in Rebased.
  cbn [compaction_source compaction_carry] in Rebased.
  destruct (scalar_fragments
@@ -126,7 +126,7 @@ Qed.
 Theorem zero_width_cannot_admit_nonempty_portable_work :
  forall unread carry window reserve budget,
  unread <> [] ->
- transport_fits (CompactionState (PortableSource unread) 0 carry 0 window reserve) budget = false.
+ transport_fits (CompactionState (PortableSource unread) carry 0 window reserve) budget = false.
 Proof.
  intros unread carry window reserve budget Nonempty.
  unfold transport_fits, has_transport_work.
@@ -134,13 +134,13 @@ Proof.
 Qed.
 
 Theorem native_unavailable_recovers_from_raw_history :
- forall history raw cursor carry width window reserve rebuilt,
- to_portable (CompactionState (NativeSource history raw) cursor carry width window reserve) = Some rebuilt ->
- receive (CompactionState (NativeSource history raw) cursor carry width window reserve)
+ forall history raw carry width window reserve rebuilt,
+ to_portable (CompactionState (NativeSource history raw) carry width window reserve) = Some rebuilt ->
+ receive (CompactionState (NativeSource history raw) carry width window reserve)
    (JObject [("action", JString "native_unavailable")]) = Next rebuilt.
 Proof.
- intros history raw cursor carry width window reserve rebuilt Rebuilt.
- change (match to_portable (CompactionState (NativeSource history raw) cursor carry width window reserve) with
+ intros history raw carry width window reserve rebuilt Rebuilt.
+ change (match to_portable (CompactionState (NativeSource history raw) carry width window reserve) with
    | Some converted => Next converted
    | None => Failed "Compaction history is not valid UTF-8"
    end = Next rebuilt).

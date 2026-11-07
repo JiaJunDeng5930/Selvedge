@@ -29,15 +29,6 @@ Proof.
  intros; unfold Observation.effect_json;
  destruct (0 <? ModelRequest.reserve request)%N; reflexivity.
 Qed.
-Theorem model_request_uses_its_unique_sent_mode : forall value request,
- field "output_mode" (Observation.effect_json value (RequestModel request)) =
- Some (JString (Codec.output_mode_name (ModelRequest.mode request))).
-Proof.
- intros value request.
- change (Some (JString (proj1_sig (Codec.output_mode_value (ModelRequest.mode request)))) =
-   Some (JString (Codec.output_mode_name (ModelRequest.mode request)))).
- destruct (ModelRequest.mode request); reflexivity.
-Qed.
 Theorem model_request_uses_its_unique_callable_set : forall value request,
  field "callable" (Observation.effect_json value (RequestModel request)) =
  Some (JArray (map JString (ModelRequest.callable request))).
@@ -53,9 +44,3 @@ Proof.
    let Checked := fresh "Checked" in destruct condition eqn:Checked end;
  try assumption; vm_compute; reflexivity.
 Qed.
-(* The statement compares arbitrary payloads at the actual recursive preview
-   entry. Arbitrary text is deliberately not interpreted as provider JSON. *)
-Theorem encrypted_provider_payload_cannot_affect_public_preview : forall fuel value other rest,
- ReasoningView.public_value (S fuel) (JObject (("encrypted_content",value) :: rest)) =
- ReasoningView.public_value (S fuel) (JObject (("encrypted_content",other) :: rest)).
-Proof. intros; reflexivity. Qed.

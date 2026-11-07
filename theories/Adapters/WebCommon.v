@@ -60,8 +60,7 @@ Fixpoint receipt_index history offset latest := match history with [] => latest 
 Definition cursor kind history := if String.eqb kind "model" then receipt_index history 0 JNull else JNull.
 Definition position kind history :=
   let index := cursor kind history in
-  success (JObject [("position",if is_null index then JNumber "-1" else index);
-    ("input_count",if is_null index then JNull else get (get
+  success (JObject [("input_count",if is_null index then JNull else get (get
       (nth_history history (nat_value index)) "content") "input_count")]).
 Definition replacement_suffix kind replacement := if String.eqb kind "model" then
   match Common.natural replacement with

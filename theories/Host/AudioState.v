@@ -68,11 +68,11 @@ Definition consume (s : audio_state) (raw event : json) : audio_state * list pri
     (tails s role ((if String.eqb role "user" then user_tail s else assistant_tail s) ++ str event "text"),[Emit event])
   else if String.eqb kind "transcript" then
     let role := str event "role" in
-    let remaining := get (Audio.transcript_tail (JObject [("pending",JString (if String.eqb role "user" then user_tail s else assistant_tail s));("completed",get event "text")])) "value" in
-    let next := tails s role (text remaining) in
+    let remaining := Audio.transcript_tail (if String.eqb role "user" then user_tail s else assistant_tail s) (str event "text") in
+    let next := tails s role remaining in
     let next := if String.eqb role "user" && Audio.nonempty_text (get event "item_id")
       then remember_turn next (get event "item_id") (str event "text") else next in
-    let '(next,effect) := completed next (set event "remaining" remaining) "completed" in (next,[effect])
+    let '(next,effect) := completed next (set event "remaining" (JString remaining)) "completed" in (next,[effect])
   else if String.eqb kind "turn" then
     (tails (remember_turn s (get event "turn_id") (str event "text")) "user" (str event "text"),[])
   else if String.eqb kind "delegation_pending" then

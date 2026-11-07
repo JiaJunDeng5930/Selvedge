@@ -10,7 +10,7 @@ Import ListNotations.
 Theorem publishing_live_operations_only_marks_them_announced :
  forall task phase operations,
  task_lifecycle task = Running phase operations ->
- task_operations (TicketedRequest.publish_operations task) = map TicketedRequest.announce_operation operations.
+ task_operations (TaskChange.apply (TicketedRequest.publication_changes task) task) = map TicketedRequest.announce_operation operations.
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
    phase operations RunningTask.
@@ -21,7 +21,7 @@ Theorem operation_publication_preserves_its_completion_owner :
  forall task phase operations operation,
  task_lifecycle task = Running phase operations ->
  In operation operations ->
- exists published, In published (task_operations (TicketedRequest.publish_operations task)) /\
+ exists published, In published (task_operations (TaskChange.apply (TicketedRequest.publication_changes task) task)) /\
    operation_id published = operation_id operation /\
    operation_call published = operation_call operation /\
    operation_stage published = operation_stage operation /\

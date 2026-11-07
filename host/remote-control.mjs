@@ -37,12 +37,8 @@ async function readIdentity(home, relayUrl) {
     }
     return value;
   } catch (error) {
-    // DEFENSE: Startup before remote init has no identity; selecting a symlink must not follow it to credential data.
+    // DEFENSE: Startup before remote init has no identity; a failed read must remain distinct from that missing file.
     if (error.code === 'ENOENT') throw remoteError('remote_identity_missing', 'Initialize this relay with remote init before enabling remote control');
-    if (error.code === 'ELOOP') throw remoteError('remote_identity_permissions', 'Remote identity must not be a symbolic link');
-    // DEFENSE: Snapshot rejection must not disclose private identity contents.
-    if (['NOT_REGULAR', 'TOO_LARGE'].includes(error.code)) throw remoteError('remote_identity_permissions', 'Remote identity must be a private regular file owned by this user');
-    if (error.code === 'CHANGED') throw remoteError('remote_identity_invalid', 'Remote identity changed while being read');
     throw error;
   }
 }
@@ -96,7 +92,7 @@ export class RemoteControl {
   #connector;
   #pairingState = { expires_at: 0, pending: [] };
   #pairingStep(kind, observation = {}) {
-    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, now: Date.now(), ...observation } });
+    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, ...observation } });
   }
   #closed = false;
   #dirty = false;
@@ -163,12 +159,12 @@ export class RemoteControl {
     const code = randomBytes(32).toString('base64url');
     const expires_at = Date.now() + REMOTE_PAIRING_TTL_MS;
     this.#pairingStep('begin', { expires_at });
-    await this.#connector.pair(code, expires_at);
+    this.#connector.pair(code, expires_at);
     return { code, expires_at, host_id: this.#identity.host_id, relay_url: this.#identity.relay_url };
   }
 
   pending() {
-    this.#pairingStep('observe');
+    this.#pairingStep('observe', { now: Date.now() });
     return this.#pairingState.pending.map(request => ({ ...request }));
   }
 
@@ -179,7 +175,7 @@ export class RemoteControl {
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');
     const result = unwrap(await this.#service.command({ op: 'remote_grant', controller_id: request.controller_id, permissions }));
-    this.#pairingStep('consume', { request_id });
+    this.#pairingStep('consume', { now: Date.now(), request_id });
     await this.reconcile();
     return result;
   }
@@ -188,11 +184,6 @@ export class RemoteControl {
     const result = unwrap(await this.#service.command({ op: 'remote_revoke', controller_id }));
     await this.reconcile();
     return result;
-  }
-
-  #pairRequested(request) {
-    if (this.#closed) return;
-    this.#pairingStep('receive', { request: { request_id: request.request_id, controller_id: request.controller_id, label: request.label } });
   }
 
   reconcile() {
@@ -224,7 +215,7 @@ export class RemoteControl {
       this.#connector = undefined;
       this.#grantsKey = undefined;
       this.#pairingStep('clear');
-      await connector?.close();
+      connector?.close();
       return;
     }
     if (!this.#connector) {
@@ -235,9 +226,9 @@ export class RemoteControl {
           const current = await this.#nativeStatus();
           return current.enabled ? current.grants : [];
         },
-        onPairRequest: request => this.#pairRequested(request),
+        onPairRequest: request => this.#pairingStep('receive', { now: Date.now(), request }),
       });
-      await this.#connector.start();
+      this.#connector.start();
     }
     const key = JSON.stringify(state.grants);
     if (key !== this.#grantsKey) {
@@ -249,7 +240,7 @@ export class RemoteControl {
   async close() {
     this.#closed = true;
     this.#pairingStep('clear');
-    await this.#connector?.close();
+    this.#connector?.close();
     await this.#reconciling;
     this.#connector = undefined;
   }

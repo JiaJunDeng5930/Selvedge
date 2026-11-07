@@ -65,7 +65,6 @@ Record validation := Candidate {
 Record compaction_input := CompactInput {
  compact_capture : capture;
  compact_reason : reason;
- compact_target : target;
  compact_progress : compaction_state;
  compact_scope : string
 }.
@@ -92,12 +91,10 @@ Record entry := Entry {
  entry_useful : N;
  entry_maintained : N;
  entry_attempted : N;
- entry_last_activity : N;
  entry_cache_deadline : N;
- entry_cache_history : list message;
- entry_cache_scope : string
+ entry_cache_history : list message
 }.
-Definition empty_entry := Entry None Unmeasured NoJob 0 0 0 0 0 [] ""%string.
+Definition empty_entry := Entry None Unmeasured NoJob 0 0 0 0 [].
 Record state := MaintenanceState {
  maintenance_policy : policy;
  maintenance_entries : list (N * entry);
@@ -116,6 +113,6 @@ Inductive inspection :=
 Inductive completion :=
 | Configure (policy : policy) (now : N)
 | Clock (now : N)
-| Activity (task_id source_length now : N) (scope : string)
+| Activity (task_id source_length now : N)
 | MeasuredInput (task_id ticket : N) (outcome : inspection)
 | Completed (task_id ticket : N) (value : json) (error : bool).

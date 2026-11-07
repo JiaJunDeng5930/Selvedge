@@ -58,23 +58,19 @@ Definition mcp_result source := let value := get source "result" in
   success (JObject [("value",value);("error",JBool (boolean_field value "isError"))]).
 Definition mcp_media_part (part observation : json) :=
   if String.eqb (str part "type") "image" then
-    is_text (get part "data") && boolean_field observation "canonical" &&
-    bound (get observation "bytes") 1 Images.image_byte_limit &&
+    boolean_field observation "canonical" &&
     existsb (String.eqb (str (attachment_media_type observation) "value")) Images.mime_types
   else true.
 Definition mcp_media_pairs source := combine (items (get (get source "result") "content")) (items (get source "observations")).
 Definition mcp_media_images source := filter (fun pair => String.eqb (str (fst (snd pair)) "type") "image")
   (combine (seq 0 (List.length (items (get (get source "result") "content")))) (mcp_media_pairs source)).
-Definition mcp_media_bytes source := fold_left (fun total pair => total + num (snd (snd pair)) "bytes") (mcp_media_images source) 0.
 Definition mcp_media_admitted source :=
-  Nat.eqb (List.length (items (get (get source "result") "content"))) (List.length (items (get source "observations"))) &&
-  forallb (fun pair => mcp_media_part (fst pair) (snd pair)) (mcp_media_pairs source) &&
-  (mcp_media_bytes source <=? num source "maximum").
+  forallb (fun pair => mcp_media_part (fst pair) (snd pair)) (mcp_media_pairs source).
 Definition mcp_media_plan source :=
   if negb (is_object (get source "result")) then err "MCP returned a malformed tool result"
   else if mcp_media_admitted source
   then success (JObject [("indices",JArray (map (fun pair => number (N.of_nat (fst pair))) (mcp_media_images source)))])
-  else type_error "MCP image content must use canonical base64, supported image bytes and the response byte budget".
+  else type_error "MCP image content must use canonical base64 and supported image bytes".
 Definition client_info := JObject [("name",JString "selvedge-rocq");("version",JString "0.1.0")].
 Definition initialize_request source := let definition := get source "definition" in let limits := get source "limits" in
   JObject [("protocolVersion",get definition "protocolVersion");("clientInfo",client_info);("workspace",get source "workspace");
@@ -82,8 +78,7 @@ Definition initialize_request source := let definition := get source "definition
 Definition mcp_initialize_request := JObject [("protocolVersion",JString "2025-11-25");("capabilities",JObject []);("clientInfo",client_info)].
 Definition mcp_version source := if existsb (String.eqb (str (get source "initialized") "protocolVersion"))
   ["2024-11-05";"2025-03-26";"2025-06-18";"2025-11-25"] then success JNull else err "MCP server selected an unsupported protocol version".
-Definition enqueue_stopped source := [("accepted",JBool false);("next_queued_bytes",get source "queued_bytes");
-  ("append",JArray [])].
+Definition enqueue_stopped source := [("accepted",JBool false);("next_queued_bytes",get source "queued_bytes")].
 Definition enqueue source :=
   if boolean_field source "stopping" then success (JObject (enqueue_stopped source)) else
   let maximum := nat_value (default_value (get (get source "config") "event_queue") (get (get source "limits") "plugin_event_queue")) in
@@ -91,8 +86,7 @@ Definition enqueue source :=
   if (maximum <=? num source "queue_count") || negb (next_bytes <=? 2 * num (get source "limits") "frame_bytes") then
     success (JObject (enqueue_stopped source ++ [("diagnostic",JObject [("message",JString ("Plugin " ++ str source "name" ++ " event queue is full; notification was not delivered"));
       ("event_id",JObject [("sequence",get (get source "event") "sequence");("ordinal",get (get source "event") "ordinal")])])]))
-  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes);
-    ("append",JArray [JObject [("event",get source "event");("bytes",get source "event_bytes")]])]).
+  else success (JObject [("accepted",JBool true);("next_queued_bytes",number next_bytes)]).
 Definition response_content value error := success (JObject [("content",JArray [JObject [("type",JString "text");("text",JString (render_json value))]]);
   ("structuredContent",value);("isError",JBool error)]).
 Definition connection_failure := response_content (JObject [("error",JObject [("code",JString "connection_failed");
@@ -101,7 +95,7 @@ Definition receipt_shape value := is_object value && has value "value" && is_boo
 Definition reply_result_shape route value := match route with
   | Projects | Operations => is_array value | Project => is_object value
   | Operation | Execute | Cancel => receipt_shape value
-  | Forget => is_object value && uint32 (get value "operation_id") end.
+  | Forget => true end.
 Definition reply_valid route reply := is_object reply && is_bool (get reply "ok") &&
   if boolean_field reply "ok" then keys reply ["ok";"result";"sequence"] && has reply "result" && reply_result_shape route (get reply "result")
   else keys reply ["ok";"error";"sequence"] && keys (get reply "error") ["code";"message"] &&
@@ -114,7 +108,7 @@ Definition http_response source := let content_type := lowercase (str source "co
   if negb (String.eqb content_type "application/json" || starts content_type "application/json;") then err "Selvedge returned a non-JSON response"
   else match parse_json (str source "text"),find_route (str source "tool") with
   | Some reply,Some route =>
-    if boolean_field reply "ok" && (300 <=? num source "status") then err ("Selvedge returned HTTP " ++ str source "status_text")
+    if boolean_field reply "ok" && (300 <=? num source "status") then err ("Selvedge returned HTTP " ++ decimal (num source "status"))
     else if reply_valid route reply then response_content (JObject [(if boolean_field reply "ok" then "result" else "error",
       get reply (if boolean_field reply "ok" then "result" else "error"))]) (receipt_error route reply)
     else err "Malformed Selvedge response"

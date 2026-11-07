@@ -13,7 +13,7 @@ export function createServer(config) {
       inputSchema: z.fromJSONSchema(tool.inputSchema), annotations: tool.annotations,
     }, async (args, extra) => {
       try {
-        return await callTool(config, tool.remote, args, { signal: extra.signal });
+        return await callTool(config, tool.remote, args, extra.signal);
       // DEFENSE: The loopback service can be unavailable, cancel the request, or return an invalid HTTP reply; return the declared MCP connection error.
       } catch {
         return boundary('plugin.connection_failure', {});

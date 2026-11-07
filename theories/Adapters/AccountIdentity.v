@@ -15,10 +15,8 @@ Definition credential_binding source :=
 Definition credential_content source :=
   let value := get source "value" in let dates := get source "dates" in
   nonempty (get value "access_token") && nonempty (get value "refresh_token") &&
-  nonempty (get value "id_token") &&
   (if is_audio (kind_of source) then nullable (get value "scope") else scope (get value "scope")) &&
   date_valid (get value "expires_at") (get dates "expires_at") &&
-  date_valid (get value "last_refresh") (get dates "last_refresh") &&
   (is_null (get value "earliest_refresh_at") || date_valid (get value "earliest_refresh_at") (get dates "earliest_refresh_at")) &&
   nullable (get value "name") && nullable (get value "email").
 Definition credential_checks source :=
@@ -64,7 +62,7 @@ Definition refresh_admission source accepted :=
     if request_identity_retained source then accepted else err request_identity_failure
   else err identity_failure.
 Definition issuer_admission source := if same (get (get source "value") "issuer") (get source "issuer")
-  then success (get source "value") else err "ChatGPT credential belongs to a different issuer; sign in again".
+  then success JNull else err "ChatGPT credential belongs to a different issuer; sign in again".
 Inductive refresh_action := Keep | Refresh.
 Definition rejected_current source := has source "rejectedToken" &&
   same (get source "rejectedToken") (get (get source "value") "access_token").
@@ -119,10 +117,8 @@ Definition token_record source :=
     ("account_id",get source "identity");("name",identity_field claims previous "name" "name");
     ("email",identity_field claims previous "email" "email");("access_token",get tokens "access_token");
     ("refresh_token",if is_audio (kind_of source) && is_null (get tokens "refresh_token") then get previous "refresh_token" else get tokens "refresh_token");
-    ("id_token",default (get tokens "id_token") (get previous "id_token"));
     ("scope",default (get tokens "scope") (get previous "scope"));
-    ("expires_at",get (get source "expires") "iso");("earliest_refresh_at",get (get source "earliest") "iso");
-    ("last_refresh",get (get source "now_date") "iso")].
+    ("expires_at",get (get source "expires") "iso");("earliest_refresh_at",get (get source "earliest") "iso")].
 (* The host admits the grant and principal through [token_subject] before
    deriving the account identity. This step admits the observed dates and
    the constructed credential before it can be published. *)
@@ -132,7 +128,7 @@ Definition token source :=
     then err "Invalid ChatGPT token refresh time"
   else credential (JObject [("audio",JBool (is_audio (kind_of source)));("value",token_record source);
     ("identity",get source "identity");("dates",JObject [("expires_at",get source "expires");
-      ("last_refresh",get source "now_date");("earliest_refresh_at",get source "earliest")])]).
+      ("earliest_refresh_at",get source "earliest")])]).
 Definition audio_identity source :=
   let previous := get source "previous" in let claims := get source "claims" in
   let identity := if is_object claims then get (get claims "https://api.openai.com/auth") "chatgpt_account_id"

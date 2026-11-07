@@ -9,8 +9,6 @@ Definition hex_digit character := let code := nat_of_ascii character in
 Definition hash_digits value := forallb hex_digit (list_ascii_of_string value).
 Definition hash_valid value := Nat.eqb (String.length value) hash_width && hash_digits value.
 Definition make hash := prefix ++ hash.
-Definition is_namespace value := String.prefix prefix value &&
-  hash_valid (substring (String.length prefix) (String.length value) value).
 Definition model_key namespace slug := namespace ++ "/" ++ slug.
 (** Admitted external slugs contain no tilde, so derived variants occupy a
     separate grammar rather than competing with an advertised model name. *)

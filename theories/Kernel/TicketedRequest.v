@@ -15,8 +15,6 @@ Open Scope list_scope.
 Inductive external_authority := Ordinary | Unrestricted | AskHuman | AskModel (reviewer : profile).
 Definition opening_changes (operation : operation) (remaining : list call) :=
  [TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)].
-Definition append_operation operation remaining current :=
- TaskChange.apply (opening_changes operation remaining) current.
 Definition operation_notice (value : operation) := JObject [
  ("status",JString (match operation_stage value with AwaitingApproval _ _ => "awaiting_approval"
   | Granted _ => "approved_waiting_to_run" | _ => "running" end));
@@ -32,7 +30,6 @@ Definition publication_changes (task : task) :=
  let notices := fold_right (fun operation rest => if operation_announced operation then rest else
   FunctionOutput (call_id (operation_call operation)) (operation_notice operation) false :: rest) [] (task_operations task) in
  [TaskChange.AppendHistory notices; TaskChange.operation_change (map announce_operation)].
-Definition publish_operations current := TaskChange.apply (publication_changes current) current.
 
 Module Scoped.
 Import TaskScope.
@@ -165,7 +162,7 @@ Definition issue {before} (value : plan before) :=
  let installed := match intent value with
  | ResumeOperation _ _ _ => TaskWake.mark_context_wake (owner target) (selected target) installed
  | _ => installed end in
- accept (JObject [("accepted",JBool true)]) installed effects.
+ accept JNull installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
  (evidence : can_observe publish (selected target) before = allowed) : option (plan before) :=
  match allowed as allowed

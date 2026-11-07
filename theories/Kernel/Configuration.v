@@ -14,7 +14,7 @@ Definition valid_plugin (source : json) :=
  match Schema.decode [Field "reference" KJson; Field "before_tool" KBool; Field "after_tool" KBool; Field "events" (KArray KText)] source with
  | None => false | Some values =>
    let events := head (tail (tail (tail values))) in
-   valid_reference (head values) && Schema.unique_names events &&
+   valid_reference (head values) &&
    forallb (fun event => existsb (String.eqb event) Limits.plugin_events) events end.
 Definition parse_global_instructions (source : json) : option ContextTypes.snapshot :=
  match Schema.decode ContextUpdates.global_guidance_fields source with

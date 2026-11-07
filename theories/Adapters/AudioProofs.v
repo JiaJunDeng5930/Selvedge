@@ -20,12 +20,12 @@ Qed.
 Theorem audio_capability_matches_account_authority : forall transport assistant content source result,
   Audio.call transport assistant content "audio.capability" source = success result <->
   boolean_field source "authorized" = true /\ str source "source" = "chatgpt_audio" /\
-  nonempty_text (get source "id") = true /\ result = capability source.
+  nonempty_text (get source "id") = true /\ result = get source "id".
 Proof.
   intros transport assistant content source result.
   split.
   - intros accepted.
-    change (admit (eligible source) (capability source) "ChatGPT audio sign-in is required" = success result) in accepted.
+    change (admit (eligible source) (get source "id") "ChatGPT audio sign-in is required" = success result) in accepted.
     unfold admit in accepted. destruct (eligible source) eqn:eligible; [|discriminate].
     inversion accepted; subst result.
     unfold Audio.eligible, authorized in eligible.
@@ -33,7 +33,7 @@ Proof.
     apply andb_true_iff in authority as [authority_flag source_kind].
     apply String.eqb_eq in source_kind. auto.
   - intros [authority_flag [source_kind [identity ->]]].
-    change (admit (eligible source) (capability source) "ChatGPT audio sign-in is required" = success (capability source)).
+    change (admit (eligible source) (get source "id") "ChatGPT audio sign-in is required" = success (get source "id")).
     unfold admit, eligible, authorized.
     rewrite authority_flag, source_kind, identity. reflexivity.
 Qed.
@@ -60,14 +60,10 @@ Proof.
   intros assistant content message. unfold initial_history_item.
   set (role := if assistant message then JString "assistant"
     else if String.eqb (str message "role") "speech_transcript" then get message "speaker" else get message "role").
-  rewrite forallb_app. apply andb_true_iff; split.
-  - destruct (existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)) eqn:accepted;
-      [|reflexivity].
-    apply andb_true_iff in accepted as [role_valid content_valid].
-    cbn [forallb]. rewrite (initial_message_is_valid _ _ role_valid content_valid). reflexivity.
-  - destruct (String.eqb (str message "role") "context_replacement" && nonempty_text (get message "content"));
-      [|reflexivity].
-    cbn [forallb]. rewrite initial_message_is_valid; reflexivity.
+  destruct (existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)) eqn:accepted;
+    [|reflexivity].
+  apply andb_true_iff in accepted as [role_valid content_valid].
+  cbn [forallb]. rewrite (initial_message_is_valid _ _ role_valid content_valid). reflexivity.
 Qed.
 
 Theorem initial_context_constructs_protocol_messages : forall transport assistant content source result,
@@ -76,20 +72,17 @@ Theorem initial_context_constructs_protocol_messages : forall transport assistan
 Proof.
   intros transport assistant content source result accepted.
   change (initial_context assistant content source = success result) in accepted.
-  unfold initial_context, admit in accepted.
-  destruct (is_array (get source "messages")); [|discriminate].
+  unfold initial_context in accepted.
   inversion accepted; subst result; clear accepted. split; [reflexivity|].
   change (forallb initial_item (flat_map (initial_history_item assistant content) (items (get source "messages"))) = true).
   induction (items (get source "messages")) as [|message rest remaining]; [reflexivity|].
   cbn [flat_map]. rewrite forallb_app, initial_history_items_are_valid, remaining. reflexivity.
 Qed.
 
-Theorem transcript_tail_preserves_unrelated_utterance : forall source,
-  is_text (get source "pending") = true -> is_text (get source "completed") = true ->
-  starts (str source "pending") (str source "completed") = false ->
-  starts (str source "completed") (str source "pending") = false ->
-  transcript_tail source = success (JString (str source "pending")).
+Theorem transcript_tail_preserves_unrelated_utterance : forall pending completed,
+  starts pending completed = false -> starts completed pending = false ->
+  transcript_tail pending completed = pending.
 Proof.
-  intros source pending completed H1 H2.
-  unfold transcript_tail,admit. rewrite pending,completed,H1,H2. reflexivity.
+  intros pending completed H1 H2.
+  unfold transcript_tail. now rewrite H1,H2.
 Qed.

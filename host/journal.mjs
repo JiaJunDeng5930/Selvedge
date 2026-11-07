@@ -15,7 +15,7 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-13';
+export const journalFormat = 'selvedge-rocq-journal-25';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
@@ -40,7 +40,7 @@ export class Journal extends EventEmitter {
   #failure;
   #closing = false;
 
-  static async open(filename, { kernelOptions } = {}) {
+  static async open(filename) {
     const journal = new Journal();
     journal.sequence = 0;
     try {
@@ -52,7 +52,7 @@ export class Journal extends EventEmitter {
       await chmod(filename, 0o600);
       journal.#openSchema();
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
-      journal.#kernel = new Kernel(kernelOptions);
+      journal.#kernel = new Kernel();
       const initial = await journal.#kernel.initialize();
       journal.description = initial.description;
       journal.program = initial.program;
@@ -163,7 +163,7 @@ export class Journal extends EventEmitter {
       }
       this.program = response.program;
       this.sequence = sequence;
-      const committed = { sequence, input, program: this.program, ...response.value };
+      const committed = { sequence, program: this.program, ...response.value };
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
       for (const observer of this.listeners('commit')) {
         try { observer(committed); }

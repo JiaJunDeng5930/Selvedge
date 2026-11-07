@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json JsonObjects.
-From Selvedge.Adapters Require Import Common Api ProviderCatalog RetryAfter RetryAfterProofs BackendRetry BackendProofs EvaluatorBudget EvaluatorPolicy.
+From Selvedge.Adapters Require Import Common Api ProviderCatalog RetryAfter RetryAfterProofs BackendRetry BackendProofs EvaluatorPolicy.
 Open Scope string_scope.
 Open Scope N_scope.
 
@@ -21,16 +21,6 @@ Proof.
   now apply integer_timer_meets_floor_and_exact_cap.
 Qed.
 
-Lemma successful_evaluator_retry_is_its_calculated_plan : forall source result,
-  EvaluatorPolicy.retry source = success result -> retry_calculation source = result.
-Proof.
-  intros source result accepted. unfold EvaluatorPolicy.retry in accepted.
-  destruct (String.eqb (str (retry_calculation source) "action") "fail").
-  - now inversion accepted.
-  - unfold checked in accepted.
-    destruct (bounded_retry source); [now inversion accepted|discriminate].
-Qed.
-
 Theorem public_evaluator_timer_respects_header_and_fixed_budget : forall source exact result,
   str source "phase" = "cancelled" ->
   parse_retry_after (str source "retry_after") (num source "now") = Some exact ->
@@ -41,8 +31,8 @@ Theorem public_evaluator_timer_respects_header_and_fixed_budget : forall source 
     100 <= milliseconds <= 5000.
 Proof.
   intros source exact result phase parsed accepted waiting.
-  change (EvaluatorPolicy.retry source = success result) in accepted.
-  apply successful_evaluator_retry_is_its_calculated_plan in accepted.
+  change (success (retry_calculation source) = success result) in accepted.
+  injection accepted as accepted.
   unfold retry_calculation in accepted. rewrite phase in accepted. cbn in accepted.
   destruct (retry_eligible source) eqn:plan.
   - unfold retry_header in accepted. unfold str in parsed.

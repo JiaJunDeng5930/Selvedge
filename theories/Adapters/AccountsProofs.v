@@ -126,13 +126,12 @@ Proof. intros; repeat constructor; cbn; tauto. Qed.
 Definition example_credential := JObject [
   ("format",JString "selvedge-chatgpt-2");("issuer",JString "https://auth.openai.com");
   ("client_id",JString "client-1");("subject",JString "subject-1");("account_id",JString "account-1");
-  ("access_token",JString "access");("refresh_token",JString "refresh");("id_token",JString "id");
+  ("access_token",JString "access");("refresh_token",JString "refresh");
   ("scope",JString "chatgpt.tokens.use.direct");("expires_at",JString "2030-01-01T00:00:00Z");
-  ("earliest_refresh_at",JNull);("last_refresh",JString "2029-01-01T00:00:00Z");("name",JNull);("email",JNull)].
+  ("earliest_refresh_at",JNull);("name",JNull);("email",JNull)].
 Theorem public_valid_credential_is_retained :
   Api.call "account.credential" (JObject [("value",example_credential);("identity",JString "account-1");
-    ("dates",JObject [("expires_at",JObject [("iso",JString "2030-01-01T00:00:00Z")]);
-      ("last_refresh",JObject [("iso",JString "2029-01-01T00:00:00Z")])])]) = success example_credential.
+    ("dates",JObject [("expires_at",JObject [("iso",JString "2030-01-01T00:00:00Z")])])]) = success example_credential.
 Proof. vm_compute;reflexivity. Qed.
 
 (* Callback admission binds the browser request to this login. Token signature,
@@ -183,10 +182,22 @@ Proof.
  destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
  unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
 Qed.
-Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");("display_name",JString "Astra");
+Definition automatic_candidate := JObject [("slug",JString "gpt-6-astra");
   ("visibility",JString "list");("supported_reasoning_levels",JArray [JObject [("effort",JString "low")]])].
+Theorem public_automatic_transport_follows_advertised_capability : forall supported : option bool,
+ let model := match supported with
+   | Some supported => set automatic_candidate "supports_reasoning_effort_updates" (JBool supported)
+   | None => automatic_candidate end in
+ let response := Api.call "account.materialize" (JObject [
+   ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);
+   ("config",JObject [("profiles",JObject [])]);
+   ("result",JObject [("account_id",JString "account-1");("models",JArray [model])])]) in
+ get (get (get (get (get response "value") "profiles")
+   "chatgpt/0123456789abcdef/gpt-6-astra/~auto") "adaptive_reasoning") "transport" =
+ JString (match supported with Some true => "configuration_update" | _ => "request_effort" end).
+Proof. intros [[|]|]; vm_compute; reflexivity. Qed.
 Definition advertised_auto_suffix := JObject [("slug",JString "gpt-6-astra-auto");
-  ("display_name",JString "Independent external model");("visibility",JString "list")].
+  ("visibility",JString "list")].
 Theorem public_advertised_auto_suffix_and_derived_variant_coexist :
   Permutation (map fst (object_fields (get (get (Api.call "account.materialize" (JObject [
     ("namespace",JString "chatgpt/0123456789abcdef");("connection",AccountContracts.defaults);

@@ -12,7 +12,8 @@ const failure = (code, status) => result({ error: { code } }, status);
 const admission = (operation, source) => remoteControl(`relay_${operation}`, source);
 const bearer = (request, route) => {
   const admitted = admission('credential', { route, header: request.headers.get('authorization') || '' });
-  if (!admitted.accepted) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  // DEFENSE: Public requests can omit or malform the required bearer credential.
+  if (admitted.action === 'reject') throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
   return admitted.credential;
 };
 const admitBody = (route, body) => {
@@ -132,7 +133,7 @@ export class RemoteHostRelay {
   }
 
   controllerCurrent(state) {
-    return state.role === 'controller' && remoteControl('delivery', { connection: state,
+    return remoteControl('delivery', { connection: state,
       generation: this.generation, grants: this.grantSnapshot(),
       host_ready: Boolean(this.host()) });
   }
@@ -240,7 +241,7 @@ export class RemoteHostRelay {
     if (!upgrade(request)) return failure('websocket_required', 426);
     const supplied = admission('credential', { route: 'control', header: `Bearer ${url.searchParams.get('ticket') || ''}` });
     // DEFENSE: A control URL can contain an invalid or missing ticket.
-    if (!supplied.accepted) return failure(supplied.code, supplied.status);
+    if (supplied.action === 'reject') return failure(supplied.code, supplied.status);
     const secret = supplied.credential;
     const secretDigest = await digest(secret);
     const host = this.host();
@@ -255,7 +256,7 @@ export class RemoteHostRelay {
     const [client, server] = Object.values(pair);
     const connectionId = crypto.randomUUID();
     const installed = remoteControl('relay_controller', { generation: this.generation,
-      connection_id: connectionId, ticket: consumed.ticket });
+      connection_id: connectionId, authority: consumed.authority });
     server.serializeAttachment(installed.state);
     this.ctx.acceptWebSocket(server, ['controller']);
     send(host, installed.host_frame);
@@ -345,10 +346,8 @@ export class RemoteHostRelay {
     }
   }
 
-  webSocketClose(socket, code, reason) {
+  webSocketClose(socket) {
     this.disconnect(socket);
-    // DEFENSE: Close events can report reserved 1005/1006 codes, which cannot be sent in a close frame.
-    socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
   }
 
   webSocketError(socket) {
@@ -357,18 +356,16 @@ export class RemoteHostRelay {
   }
 
   disconnect(socket) {
+    const host = this.host();
     const transition = admission('disconnect', { connection: socket.deserializeAttachment(),
-      generation: this.generation, host_ready: Boolean(this.host()) });
+      generation: this.generation, host_ready: Boolean(host) });
     socket.serializeAttachment(transition.state);
     if (transition.action === 'close_controllers') {
       for (const controller of this.controllers()) controller.close(1012, 'Remote host disconnected');
     } else if (transition.action === 'notify_host') {
-      const host = this.host();
-      if (host) {
-        try { send(host, { type: 'controller_close', connection_id: transition.connection_id }); }
-        // DEFENSE: The host can close before its controller-close notification is sent; retire that failed transport.
-        catch { host.close(1011, 'Remote connection failed'); }
-      }
+      try { send(host, { type: 'controller_close', connection_id: transition.connection_id }); }
+      // DEFENSE: The host can close before its controller-close notification is sent; retire that failed transport.
+      catch { host.close(1011, 'Remote connection failed'); }
     }
   }
 }

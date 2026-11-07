@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Kernel Require Import Domain Codec Conversation Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -8,8 +9,8 @@ Open Scope N_scope.
 Inductive portable_role := PortableUser | PortableAssistant.
 Record portable_message := PortableMessage { portable_speaker : portable_role; portable_text : string }.
 Inductive artifact :=
-| PortableArtifact (first : portable_message) (rest : list portable_message) (usage : json)
-| NativeArtifact (scope_head : ascii) (scope_tail : string) (first : json) (rest : list json) (usage : json).
+| PortableArtifact (first : portable_message) (rest : list portable_message)
+| NativeArtifact (scope_head : ascii) (scope_tail : string) (first : json) (rest : list json).
 
 Definition portable_message_json (message : portable_message) :=
  JObject [("role", JString (match portable_speaker message with PortableUser => "user" | PortableAssistant => "assistant" end));
@@ -19,37 +20,29 @@ Definition decode_portable_message (value : json) : option portable_message :=
  | Some "user", Some text => Some (PortableMessage PortableUser text)
  | Some "assistant", Some text => Some (PortableMessage PortableAssistant text)
  | _, _ => None end.
-Fixpoint decode_portable_messages (values : list json) : option (list portable_message) :=
- match values with
- | [] => Some []
- | value :: rest => match decode_portable_message value, decode_portable_messages rest with
-   | Some message, Some messages => Some (message :: messages) | _, _ => None end
- end.
+Definition decode_portable_messages := OptionList.traverse decode_portable_message.
 Definition decode_artifact (value : json) : option artifact :=
  match string_field "format" value, field "items" value with
  | Some "portable", Some (JArray (first :: rest)) =>
    match decode_portable_message first, decode_portable_messages rest with
-   | Some message, Some messages => Some (PortableArtifact message messages (value_or_null "usage" value))
+   | Some message, Some messages => Some (PortableArtifact message messages)
    | _, _ => None end
  | Some "native", Some (JArray (first :: rest)) =>
    match string_field "scope" value with
-   | Some (String head tail) => Some (NativeArtifact head tail first rest (value_or_null "usage" value))
+   | Some (String head tail) => Some (NativeArtifact head tail first rest)
    | _ => None end
  | _, _ => None end.
-Definition artifact_scope (value : artifact) :=
- match value with PortableArtifact _ _ _ => "" | NativeArtifact head tail _ _ _ => String head tail end.
 Definition artifact_items (value : artifact) :=
- match value with PortableArtifact first rest _ => map portable_message_json (first :: rest)
- | NativeArtifact _ _ first rest _ => first :: rest end.
-Definition artifact_usage (value : artifact) :=
- match value with PortableArtifact _ _ usage | NativeArtifact _ _ _ _ usage => usage end.
+ match value with PortableArtifact first rest => map portable_message_json (first :: rest)
+ | NativeArtifact _ _ first rest => first :: rest end.
 Definition artifact_format (value : artifact) :=
- match value with PortableArtifact _ _ _ => "portable" | NativeArtifact _ _ _ _ _ => "native" end.
-Definition artifact_json (value : artifact) := JObject [
- ("format", JString (artifact_format value)); ("scope", JString (artifact_scope value));
- ("items", JArray (artifact_items value)); ("usage", artifact_usage value)].
+ match value with PortableArtifact _ _ => "portable" | NativeArtifact _ _ _ _ => "native" end.
+Definition artifact_json (value : artifact) := JObject
+ (List.app [("format", JString (artifact_format value)); ("items", JArray (artifact_items value))]
+  match value with PortableArtifact _ _ => []
+  | NativeArtifact head tail _ _ => [("scope", JString (String head tail))] end).
 Definition consumes (value : artifact) (scope : string) :=
- match value with PortableArtifact _ _ _ => true | NativeArtifact head tail _ _ _ => String.eqb (String head tail) scope end.
+ match value with PortableArtifact _ _ => true | NativeArtifact head tail _ _ => String.eqb (String head tail) scope end.
 Inductive selection := Original | Replacement (source_length : N) (replacement : artifact).
 Definition select_event (position : N) (scope : string) (message : json) (previous : selection) :=
  if String.eqb (text_default "role" message "") "context_replacement" then
@@ -89,9 +82,12 @@ Definition scoped_messages (messages : list json) (scope : string) := flat_map (
 Definition image_parts (value : json) :=
  let parts := match value with JArray parts => parts | _ => array_default "content" value end in
  filter (fun part => String.eqb (text_default "type" part "") "image") parts.
+Definition reasoning_configuration (message : json) :=
+ String.eqb (text_default "role" message "") "task_context" &&
+ String.eqb (text_default "type" message "") "reasoning_configuration".
 Definition fixed_message (message : json) :=
  match string_field "role" message with
- | Some "task_context" => [message]
+ | Some "task_context" => if reasoning_configuration message then [] else [message]
  | Some "user" | Some "function_output" | Some "operation_result" =>
    match image_parts (value_or_null "content" message) with
    | [] => []
@@ -125,7 +121,7 @@ Definition settled_calls (snapshot whole : list message) :=
    therefore occur inside the same prefix, rather than only in a later suffix. *)
 Definition closed_prefix (history : list message) := settled_calls history history.
 Definition portable (summary : string) := PortableArtifact
- (PortableMessage PortableUser ("Task continuation summary (fallible; original records remain available through read_task):" ++ String (Ascii.ascii_of_nat 10) summary)) [] JNull.
+ (PortableMessage PortableUser ("Task continuation summary (fallible; original records remain available through read_task):" ++ String (Ascii.ascii_of_nat 10) summary)) [].
 Definition record (source_length : N) (value : artifact) := ContextReplacement
  (JObject (("source_length", number source_length) :: match artifact_json value with JObject fields => fields | _ => [] end)).
 Definition history_extends (snapshot current : list message) :=

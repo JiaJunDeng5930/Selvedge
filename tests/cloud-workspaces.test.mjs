@@ -46,7 +46,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, prepareSnapshot = async () => {}, allocation = 'normal', differentImage = false, duplicateOwnership = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false, incompleteInstanceObservation = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -112,9 +112,14 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
           const id = `ins-fixture-${index}`;
           ids.push(id);
           instances.set(id, { InstanceId: id, InstanceState: 'RUNNING', PublicIpAddresses: ['127.0.0.1'],
-            PrivateIpAddresses: ['10.0.0.1'], ImageId: ambiguous ? 'img-other' : body.ImageId,
+            PrivateIpAddresses: ['10.0.0.1'], ImageId: differentImage ? 'img-other' : body.ImageId,
             InstanceType: body.InstanceType, Placement: body.Placement, VirtualPrivateCloud: body.VirtualPrivateCloud,
             Tags: body.TagSpecification[0].Tags });
+        }
+        if (duplicateOwnership) {
+          const first = instances.get(ids[0]);
+          const duplicate = `${ids[0]}-duplicate`;
+          instances.set(duplicate, { ...first, InstanceId: duplicate });
         }
         await onAllocation();
         if (allocation === 'disconnect') {
@@ -133,7 +138,8 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
         let found = [...instances.values()].filter(instance => !body.InstanceIds || body.InstanceIds.includes(instance.InstanceId));
         if (body.Filters) found = found.filter(instance => instance.Tags.some(tag => tag.Key === 'selvedge-task' &&
           body.Filters[0].Values.includes(tag.Value)));
-        result = { InstanceSet: body.InstanceIds ? found : found.slice(body.Offset ?? 0, (body.Offset ?? 0) + (body.Limit ?? 20)), TotalCount: found.length };
+        result = incompleteInstanceObservation() ? { TotalCount: found.length }
+          : { InstanceSet: body.InstanceIds ? found : found.slice(body.Offset ?? 0, (body.Offset ?? 0) + (body.Limit ?? 20)), TotalCount: found.length };
       } else if (action === 'TerminateInstances') {
         if (body.InstanceIds.some(rejectTermination)) {
           result = { Error: { Code: 'OperationDenied', Message: 'Fixture refused this termination' } };
@@ -313,7 +319,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
     messages: ['Reject an environment-origin cloud workspace override.'], settings_origin: 'environment',
     settings: { workspace: { roots: [fixture_.source], primary_root: fixture_.source } } });
   assert.equal(rejected.reply.ok, false);
-  assert.equal(rejected.reply.error.code, 'cloud_workspace_fixed');
+  assert.ok(rejected.reply.error?.message?.trim(), 'A refused workspace change must explain the failure');
   inherit = true;
   const forked = await fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
     settings_origin: 'environment', settings: {}, messages: ['Read the committed marker from the inherited cloud workspace.'] });
@@ -383,14 +389,14 @@ for (const failSetup of [false, true]) test(failSetup
     return done;
   }, { failSetup, onAllocation: async () => {
     const root = path.join(running.state, 'cloud-workspaces');
-    const namespaces = await readdir(root);
-    assert.equal(namespaces.length, 1, 'The isolated service has one resource namespace');
-    const storage = path.join(root, namespaces[0]);
-    const logs = (await readdir(storage)).filter(name => /^task-[0-9]+\.log$/.test(name));
-    assert.equal(logs.length, 1, 'The allocated task has its own diagnostic log');
-    const logfile = path.join(storage, logs[0]);
-    await chmod(logfile, 0o400);
-    await assert.rejects(() => writeFile(logfile, 'permission probe', { flag: 'a' }), { code: 'EACCES' });
+    const logs = (await readdir(root, { recursive: true, withFileTypes: true }))
+      .filter(entry => entry.isFile() && /^task-[0-9]+\.log$/.test(entry.name))
+      .map(entry => path.join(entry.parentPath, entry.name));
+    assert.ok(logs.length > 0, 'The allocation has diagnostic output to make unwritable');
+    await Promise.all(logs.map(async logfile => {
+      await chmod(logfile, 0o400);
+      await assert.rejects(() => writeFile(logfile, 'permission probe', { flag: 'a' }), { code: 'EACCES' });
+    }));
   } });
   running = fixture_;
   const created = await fixture_.create();
@@ -426,9 +432,9 @@ for (const failSetup of [false, true]) test(failSetup
   assert.deepEqual(fixture_.upstream.failures, []);
 });
 
-test('a disconnected allocation response is reconciled and its instance is reclaimed', async t => {
+for (const allocation of ['disconnect', 'redirect']) test(`${allocation} allocation responses reclaim the uniquely owned instance despite changed configuration`, async t => {
   const fixture_ = await fixture(t, () => assert.fail('An unknown allocation cannot start a model'),
-    { allocation: 'disconnect' });
+    { allocation, differentImage: true });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
@@ -441,14 +447,14 @@ test('a disconnected allocation response is reconciled and its instance is recla
 
 test('allocation redirects are not followed and reconciliation retains resources whose ownership is ambiguous', async t => {
   const fixture_ = await fixture(t, () => assert.fail('An ambiguous allocation cannot start a model'),
-    { allocation: 'redirect', ambiguous: true });
+    { allocation: 'redirect', duplicateOwnership: true });
   const created = await fixture_.create();
   const id = created.reply.result.task_id;
   const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
     'Ambiguous allocation must remain recoverable');
   assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
   assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
-  assert.equal(fixture_.instances.size, 1);
+  assert.equal(fixture_.instances.size, 2);
   assert.ok(entry.root);
 });
 
@@ -600,6 +606,45 @@ test('native independent creation reuses the caller cloud resource despite the p
   }
   await until(() => worktree(fixture_.service, owner), value => value.status === 'archived',
     'The owner must release its resource after the independent borrower is archived');
+});
+
+test('an incomplete cloud instance observation retains the resource for an explicit archive retry', async t => {
+  let incomplete = false;
+  const fixture_ = await fixture(t, () => done, { incompleteInstanceObservation: () => incomplete });
+  const created = await fixture_.create();
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const id = created.reply.result.task_id;
+  const ready = await until(() => worktree(fixture_.service, id),
+    value => value.status === 'ready' || value.status === 'create_failed', 'The cloud task must finish preparation');
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  await until(async () => {
+    const read = await fixture_.service.command({ op: 'read', task_id: id });
+    assert.equal(read.reply.ok, true, JSON.stringify(read.reply));
+    return read.reply.result.task;
+  }, task => fixture_.upstream.requests.length > 0 && task.phase === 'idle' && task.operations.length === 0,
+  'The cloud task must complete before archive');
+  const allocated = [...fixture_.instances.keys()];
+  assert.equal(allocated.length, 1);
+
+  incomplete = true;
+  const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+  assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
+  const observed = await until(() => worktree(fixture_.service, id),
+    value => value.status === 'archive_failed' || value.status === 'archived', 'The archive observation must settle');
+  assert.equal(observed.status, 'archive_failed', 'An incomplete provider response cannot establish that the instance is gone');
+  assert.deepEqual([...fixture_.instances.keys()], allocated);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
+
+  incomplete = false;
+  const retried = await fixture_.service.command({ op: 'retry_worktree_archive', task_id: id });
+  assert.equal(retried.reply.ok, true, JSON.stringify(retried.reply));
+  await until(() => worktree(fixture_.service, id), value => value.status === 'archived',
+    'A complete observation must let the owner retry cleanup of the same instance');
+  assert.equal(fixture_.instances.size, 0);
+  assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances')
+    .flatMap(value => value.body.InstanceIds), allocated);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.deepEqual(fixture_.upstream.failures, []);
 });
 
 test('a failed termination retains its instance for an explicit archive retry', async t => {

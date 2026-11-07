@@ -25,8 +25,7 @@ Definition natural_bound (value : option json) (fallback : N) : option N :=
    | None => None end end.
 Definition optional_nonnull_text (value : option json) := match value with
  | None | Some (JString _) => true | _ => false end.
-Fixpoint strings (values : list json) : option (list string) := match values with
- | [] => Some [] | JString text :: rest => option_map (cons text) (strings rest) | _ => None end.
+Definition strings := OptionList.traverse as_string.
 Definition enum_choices (value : option json) : option (option (list string)) := match value with
  | None => Some None
  | Some (JArray ((_ :: _) as values)) => match strings values with Some names =>

@@ -88,8 +88,9 @@ async function runtimeReads(platform) {
  * Produce a process launch from a committed native plan. Failure never falls back
  * to unrestricted execution. Policy selection/approval is not implemented here.
  */
-export async function prepareSandbox(plan, { platform = process.platform, architecture = process.arch,
+export async function prepareSandbox(plan, {
   readOnlyPaths = [], managedWorktreeRoot, signal, processMode = 'pipe' } = {}) {
+  const platform = process.platform, architecture = process.arch;
   signal?.throwIfAborted();
   const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, processMode };
   boundary('effect.sandbox_admit', { plan, options });

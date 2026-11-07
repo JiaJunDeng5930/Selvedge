@@ -75,17 +75,16 @@ Definition parse_observation value := match string_field "error" value with
 Definition primitive_json value := JObject [("folder",JString (inspect_folder value));
  ("probes",JArray (map JString (inspect_probes value)));("entries",JBool (inspect_entries value));
  ("maximum",number (inspect_maximum value))].
-Definition reply s effects := success (JObject [("state",state_json s);("effects",JArray (map primitive_json effects));
- ("done",JBool (match effects with [] => true | _ => false end));("entries",JArray (map source_json (scan_sources s)));
- ("error",optional_json (scan_error s))]).
+Definition reply s := success (JObject [("state",state_json s);
+ ("effect",match next s with Some effect => primitive_json effect | None => JNull end)]).
 Definition initialize value := match ContextProtocol.parse_observer (get value "observer"),string_field "home" value,
  nullable_string (get (get value "workspace") "primary_root"),array_field "roots" (get value "workspace") with
  | Some observer,Some home,Some primary,Some roots => match mode_policy observer,Codec.traverse as_string roots with
-   | Some (mode,policy),Some roots => let s := start mode policy home primary roots in reply s (next s)
+   | Some (mode,policy),Some roots => reply (start mode policy home primary roots)
    | _,_ => type_error "Invalid context discovery initialization" end
  | _,_,_,_ => type_error "Invalid context discovery initialization" end.
 Definition advance value := match parse_state (get value "state"),parse_observation (get value "observation") with
- | Some state,Some observation => let '(state,effects) := step state observation in reply state effects
+ | Some state,Some observation => reply (step state observation)
  | _,_ => type_error "Invalid context discovery observation" end.
 
 Definition workspace_observer value := match value with

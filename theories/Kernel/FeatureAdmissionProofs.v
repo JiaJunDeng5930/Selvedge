@@ -50,9 +50,9 @@ Proof.
  intros identity project request arguments grant target before Authority Project Primary Retry Workspace Capacity.
  unfold resolve_connection.
  eapply observe_present; [exact Authority|]; intros Granted.
+ eapply observe_absent; [exact Retry|]; intros Fresh.
  eapply observe_present; [exact Project|]; intros Existing.
  apply CommandResult.require_satisfied; [exact Primary|]; intros HasPrimary.
- eapply observe_absent; [exact Retry|]; intros Fresh.
  apply CommandResult.require_satisfied; [exact Workspace|]; intros Ready.
  apply CommandResult.require_satisfied; [exact Capacity|]; intros Room.
  eexists; split; reflexivity.

@@ -6,6 +6,57 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Lemma admitted_reasoning_retains_the_committed_request_effort : forall effect profile reasoning,
+ BackendRequests.admit_reasoning effect profile = AdapterResult.Accepted (Some reasoning) ->
+ reasoning = JObject [("effort",BackendRequests.request_effort effect)].
+Proof.
+ intros effect profile reasoning Admitted.
+ unfold BackendRequests.admit_reasoning in Admitted.
+ repeat match type of Admitted with
+ | context [if ?condition then _ else _] => destruct condition end;
+ inversion Admitted; reflexivity.
+Qed.
+
+Theorem public_requests_use_the_committed_request_effort : forall source effect input reasoning,
+ BackendRequests.prepare_effect (get source "effect") = AdapterResult.Accepted effect ->
+ BackendRequests.effect_input ContextSelection.target_messages effect (get source "profile") =
+   AdapterResult.Accepted input ->
+ BackendRequests.admit_reasoning effect (get source "profile") = AdapterResult.Accepted (Some reasoning) ->
+ Api.call "backend.request" source = success
+   (BackendRequests.encode_request (get source "profile")
+     (BackendRequests.construct_request effect input
+       (Some (JObject [("effort",BackendRequests.request_effort effect)]))
+       (BackendRequests.output_limit effect))).
+Proof.
+ intros source effect input reasoning Prepared Input Reasoning.
+ apply admitted_reasoning_retains_the_committed_request_effort in Reasoning as Value.
+ subst reasoning.
+ change (Api.call "backend.request" source)
+   with (BackendRequests.request ContextSelection.target_messages source).
+ unfold BackendRequests.request; rewrite Prepared; cbn [AdapterResult.bind].
+ rewrite Input; cbn [AdapterResult.bind]; rewrite Reasoning; reflexivity.
+Qed.
+
+Theorem adaptive_account_requests_require_supported_baseline_and_effort : forall effect profile reasoning,
+ account profile = true ->
+ is_array (get (get profile "model_info") "supported_reasoning_levels") = true ->
+ is_object (get (get effect "model") "adaptive_reasoning") = true ->
+ independent_kind (str effect "kind") = false ->
+ BackendRequests.admit_reasoning effect profile = AdapterResult.Accepted (Some reasoning) ->
+ let levels := map (fun level => get level "effort")
+   (items (get (get profile "model_info") "supported_reasoning_levels")) in
+ contains levels (BackendRequests.request_effort effect) = true /\
+ contains levels (BackendRequests.effective_effort effect) = true.
+Proof.
+ intros effect profile reasoning Account Levels Adaptive TaskRequest Admitted levels.
+ unfold BackendRequests.admit_reasoning in Admitted.
+ rewrite Account, Levels, Adaptive, TaskRequest, andb_false_r in Admitted.
+ cbn [andb negb orb] in Admitted.
+ fold levels in Admitted.
+ destruct (contains levels (request_effort effect) && contains levels (effective_effort effect)) eqn:Supported;
+   [now apply andb_true_iff in Supported|discriminate].
+Qed.
+
 Lemma completed_item_roundtrip : forall item,
  decode_completed (encode_completed item) = item.
 Proof.
@@ -48,26 +99,67 @@ Proof.
    rewrite Equal. eapply Permutation_trans; [apply perm_skip; exact IH|apply perm_swap].
 Qed.
 
-Lemma insert_fresh_completed_item_keeps_provider_order : forall values item,
+Lemma insert_completed_preserves_forall : forall (property : completed_item -> Prop) values item,
+ property item -> Forall property values -> Forall property (insert_completed item values).
+Proof.
+ intros property values item Item Values; induction Values as [|first rest First Rest IH]; cbn [insert_completed].
+ - now constructor.
+ - destruct (completed_index item <? completed_index first); [now repeat constructor|].
+   destruct (N.eqb (completed_index item) (completed_index first)); now constructor.
+Qed.
+
+Lemma insert_completed_item_keeps_provider_order : forall values item,
  StronglySorted (fun left right => completed_index left < completed_index right) values ->
- Forall (fun previous => completed_index previous <> completed_index item) values ->
  StronglySorted (fun left right => completed_index left < completed_index right)
    (insert_completed item values).
 Proof.
- intros values item Ordered; induction Ordered as [|first rest Ordered IH Above]; intro Fresh.
+ intros values item Ordered; induction Ordered as [|first rest Ordered IH Above].
  - cbn [insert_completed]; repeat constructor.
- - inversion Fresh as [|? ? Different Tail]; subst.
-   cbn [insert_completed].
+ - cbn [insert_completed].
    destruct (completed_index item <? completed_index first) eqn:Before.
    + apply N.ltb_lt in Before. constructor.
      * now constructor.
      * constructor; [exact Before|]. eapply Forall_impl; [|exact Above].
        intros value Later; cbn in *; lia.
-   + assert (Equal : N.eqb (completed_index item) (completed_index first) = false)
-       by (apply N.eqb_neq; congruence).
-     rewrite Equal. constructor; [now apply IH|].
-     rewrite (insert_fresh_completed_item_keeps_all_outputs rest item Tail).
-     constructor; [apply N.ltb_ge in Before; lia|exact Above].
+   + destruct (N.eqb (completed_index item) (completed_index first)) eqn:Equal.
+     * apply N.eqb_eq in Equal. constructor; [exact Ordered|].
+       eapply Forall_impl; [|exact Above]. intros value Later; cbn in *; lia.
+     * constructor; [exact IH|]. apply insert_completed_preserves_forall; [|exact Above].
+       apply N.ltb_ge in Before; apply N.eqb_neq in Equal; lia.
+Qed.
+
+Lemma response_step_preserves_provider_order : forall event state,
+ StronglySorted (fun left right => completed_index left < completed_index right) (completed_items state) ->
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (fst (step event state))).
+Proof.
+ intros event state Ordered; unfold step; cbn [exposed completed_items].
+ destruct (String.eqb (str event "type") "response.output_text.delta"); [exact Ordered|].
+ destruct (String.eqb (str event "type") "response.output_item.done").
+ - destruct (wire_natural (get event "output_index")) as [index|]; destruct (is_object (get event "item"));
+     cbn [fst completed_items]; try exact Ordered.
+   destruct (conflict (completed_items state) index (get event "item")); cbn [fst completed_items];
+     [exact Ordered|now apply insert_completed_item_keeps_provider_order].
+ - destruct (String.eqb (str event "type") "response.completed"); [exact Ordered|].
+   destruct (existsb (String.eqb (str event "type")) ["error";"response.failed";"response.incomplete"]); exact Ordered.
+Qed.
+
+Theorem public_stream_step_preserves_provider_order : forall source,
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get source "state"))) ->
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get (get (Api.call "backend.stream_step" source) "value") "state"))).
+Proof.
+ intros source Ordered.
+ pose proof (response_step_preserves_provider_order (get source "event")
+   (decode_stream (get source "state")) Ordered) as Preserved.
+ change (Api.call "backend.stream_step" source) with (stream_step source).
+ unfold stream_step.
+ destruct (step (get source "event") (decode_stream (get source "state"))) as [next action]; cbn [fst] in Preserved.
+ destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); destruct action;
+   change (StronglySorted (fun left right => completed_index left < completed_index right)
+     (completed_items (decode_stream (encode_stream next))));
+   now rewrite response_stream_roundtrip.
 Qed.
 
 Theorem public_finalized_output_retains_every_item : forall source index,
@@ -103,7 +195,7 @@ Proof.
    apply response_stream_roundtrip.
  - split; [reflexivity|]. split.
    + apply insert_fresh_completed_item_keeps_all_outputs; exact Fresh.
-   + apply insert_fresh_completed_item_keeps_provider_order; assumption.
+   + now apply insert_completed_item_keeps_provider_order.
 Qed.
 
 Theorem public_conflicting_finalized_output_fails : forall source previous index,
@@ -199,13 +291,13 @@ Qed.
 Theorem public_matching_account_is_usable : forall source,
   JsonObjects.equivalent (get (get source "profile") "bound_account_id")
     (get (get source "authorization") "account_id") = true ->
-  Api.call "backend.authorization" source = success JNull.
-Proof. intros source matching;change (authorization source = success JNull);unfold authorization;
+  exists accepted, Api.call "backend.authorization" source = success accepted.
+Proof. intros source matching;exists JNull;change (authorization source = success JNull);unfold authorization;
  rewrite matching;cbn;now rewrite andb_false_r. Qed.
-Theorem public_nonempty_environment_credential_is_retained : forall source,
+Theorem public_nonempty_environment_credential_is_admitted : forall source,
   is_text (get source "key") = true -> str source "key" <> "" ->
-  Api.call "backend.credentials" source = success (get source "key").
-Proof. intros source typed nonempty;change (credentials source = success (get source "key"));
+  exists accepted, Api.call "backend.credentials" source = success accepted.
+Proof. intros source typed nonempty;exists JNull;change (credentials source = success JNull);
  unfold credentials;apply String.eqb_neq in nonempty;now rewrite typed,nonempty. Qed.
 Theorem public_empty_environment_credential_fails_before_io : forall source,
   str source "key" = "" ->

@@ -1,11 +1,11 @@
-import { initialTransport, observeTransport, transportRunning, transportCurrent, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
-import { randomUUID } from 'node:crypto';
+import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
 } from '../remote/protocol.mjs';
 
 const MAX_BUFFERED_BYTES = MAX_REMOTE_FRAME_BYTES * 2;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 
 /** Outbound relay transport only; disconnecting never cancels a native task. */
@@ -13,7 +13,6 @@ export class RemoteConnector {
   #service;
   #getGrants;
   #onPairRequest;
-  #onStatus;
   #hostToken;
   #hostUrl;
   #control = initialConnectorSession();
@@ -30,7 +29,6 @@ export class RemoteConnector {
       open: generation => this.#openSocket(generation),
       retry: (generation, deadline) => this.#scheduleRetry(generation, deadline),
       heartbeat: (generation, deadline) => this.#scheduleHeartbeat(generation, deadline),
-      online: () => this.#setStatus('online'),
       ping: () => this.#send(this.#session, { type: 'ping' }),
       retire: () => {
         clearTimeout(this.#retryTimer);
@@ -39,10 +37,8 @@ export class RemoteConnector {
         this.#probe = undefined;
         this.#retireSession();
       },
-      stopped: () => this.#setStatus('stopped'),
       authenticationFailed: () => {
         this.#service.off('notice', this.#noticeListener);
-        this.#setStatus('auth_failed', { last_error: 'relay_authentication_failed' });
       },
     });
   }
@@ -57,33 +53,35 @@ export class RemoteConnector {
   #probe;
   #lastError;
   #grantTail = Promise.resolve();
-  #incarnation = randomUUID();
-  #status = { state: 'stopped', connected: false, controller_count: 0 };
   #settings;
   #noticeListener;
 
-  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest = () => {}, onStatus = () => {},
+  constructor({ relayUrl, hostId, hostToken, service, getGrants, onPairRequest,
     allowLoopback = false, retryBaseMs = 1000, retryMaxMs = 30_000,
-    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000, connectTimeoutMs = 10_000,
-    createWebSocket = (url, options) => new WebSocket(url, options), fetch: fetchRequest = fetch } = {}) {
+    heartbeatMs = 15_000, heartbeatTimeoutMs = 45_000 }) {
     const origin = assertRelayUrl(relayUrl, { allowLoopback });
     this.#hostUrl = `${origin}/v1/hosts/${hostId}/host`;
     this.#hostToken = hostToken;
     this.#service = service;
     this.#getGrants = getGrants;
     this.#onPairRequest = onPairRequest;
-    this.#onStatus = onStatus;
-    this.#settings = { retryBaseMs, retryMaxMs, heartbeatMs, heartbeatTimeoutMs, connectTimeoutMs, createWebSocket, fetchRequest };
+    this.#settings = { retryBaseMs, retryMaxMs, heartbeatMs, heartbeatTimeoutMs };
     this.#noticeListener = notice => this.#notice(notice);
   }
 
-  status() { return { ...this.#status }; }
+  status() {
+    const transport = this.#transport;
+    return { state: transport.phase, connected: transport.phase === 'online',
+      controller_count: this.#session?.connections.size ?? 0,
+      ...(transport.phase === 'retrying'
+        ? { last_error: this.#lastError ?? 'connection_unavailable', next_retry_at: transport.deadline }
+        : transport.phase === 'auth_failed' ? { last_error: 'relay_authentication_failed' } : {}) };
+  }
 
   start() {
-    if (this.#running) return this.status();
+    if (this.#running) return;
     this.#service.on('notice', this.#noticeListener);
     this.#observe('enable');
-    return this.status();
   }
 
   close() {
@@ -101,7 +99,7 @@ export class RemoteConnector {
     // A single owner preserves native grant observation order across reconnects.
     const next = this.#grantTail.then(async () => {
       const session = this.#session;
-      if (!session?.ready) return;
+      if (!session || this.#control.phase !== 'ready') return;
       const grants = (await this.#getGrants()).map(({ controller_id, grant_epoch }) => ({ controller_id, grant_epoch }));
       // DEFENSE: Grant observation can complete after a reconnect or shutdown retired this socket.
       if (!this.#current(session)) return;
@@ -119,22 +117,16 @@ export class RemoteConnector {
     return next;
   }
 
-  #setStatus(state, detail = {}) {
-    this.#status = { state, connected: state === 'online', controller_count: this.#session?.connections.size ?? 0, ...detail };
-    this.#onStatus(this.status());
-  }
-
   async #connect(generation) {
     this.#step('install', { generation });
-    this.#setStatus('connecting');
     const probe = new AbortController();
     this.#probe = probe;
-    const timeout = setTimeout(() => probe.abort(), this.#settings.connectTimeoutMs);
+    const timeout = setTimeout(() => probe.abort(), CONNECT_TIMEOUT_MS);
     timeout.unref();
     try {
       // Bun's failed WebSocket handshake hides HTTP status. Probe the same
       // authenticated route and let the controller classify the observation.
-      const response = await this.#settings.fetchRequest(this.#hostUrl, {
+      const response = await fetch(this.#hostUrl, {
         headers: { authorization: `Bearer ${this.#hostToken}` }, redirect: 'error', signal: probe.signal,
       });
       await response.body?.cancel();
@@ -152,16 +144,15 @@ export class RemoteConnector {
   #openSocket(generation) {
     const url = new URL(this.#hostUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = this.#settings.createWebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
-    const session = { socket, generation, connections: new Map(), ready: false };
+    const socket = new WebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
+    const session = { socket, generation, connections: new Map() };
     this.#session = session;
-    session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), this.#settings.connectTimeoutMs);
+    session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), CONNECT_TIMEOUT_MS);
     session.timeout.unref();
     socket.addEventListener('open', () => {
       if (this.#current(session)) this.#send(session, { type: 'hello', version: REMOTE_PROTOCOL_VERSION });
     });
     socket.addEventListener('message', event => this.#receive(session, event.data));
-    socket.addEventListener('error', () => { /* Close reports the physical failure once. */ });
     socket.addEventListener('close', event => {
       // DEFENSE: A retired socket can deliver its close event after its replacement starts.
       if (!this.#current(session)) return;
@@ -171,7 +162,7 @@ export class RemoteConnector {
   }
 
   #current(session) {
-    return Boolean(session) && this.#session === session && transportCurrent(this.#transport, session.generation);
+    return Boolean(session) && this.#session === session;
   }
 
   #retireSession() {
@@ -196,7 +187,6 @@ export class RemoteConnector {
   }
 
   #scheduleRetry(generation, deadline) {
-    this.#setStatus('retrying', { last_error: this.#lastError ?? 'connection_unavailable', next_retry_at: deadline });
     this.#retryTimer = setTimeout(() => {
       this.#retryTimer = undefined;
       this.#observe('retry', { generation, now: Date.now() });
@@ -249,7 +239,6 @@ export class RemoteConnector {
       opened: connection => {
         session.connections.set(connection.connection_id, { id: connection.connection_id, controllerId: connection.controller_id, grantEpoch: connection.grant_epoch,
           active: true, tail: Promise.resolve() });
-        this.#setStatus('online');
       },
       request: accepted => {
         const connection = session.connections.get(accepted.connection_id);
@@ -259,7 +248,6 @@ export class RemoteConnector {
   }
 
   #ready(session) {
-    session.ready = true;
     this.syncGrants().then(() => {
       // DEFENSE: Grant synchronization can finish after disconnection or replacement.
       if (!this.#current(session)) return;
@@ -276,7 +264,6 @@ export class RemoteConnector {
     const connection = session.connections.get(id);
     if (connection) connection.active = false;
     session.connections.delete(id);
-    if (this.#current(session) && this.#status.state === 'online') this.#setStatus('online');
   }
 
   #enqueue(session, connection, bytes, operation, noticeSequence = null) {
@@ -301,7 +288,7 @@ export class RemoteConnector {
 
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
-    return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
+    return { namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
       streams: this.#service.browserStreams(), notice_sequence: this.#control.notice_sequence };
   }
 
@@ -333,11 +320,11 @@ export class RemoteConnector {
     this.#step('notice');
     const sequence = this.#control.notice_sequence;
     const session = this.#session;
-    if (!session?.ready) return;
+    if (!session || this.#control.phase !== 'ready') return;
     let event;
     let bytes;
     try {
-      event = { incarnation: this.#incarnation, notice_sequence: sequence, notice: notice };
+      event = { notice_sequence: sequence, notice: notice };
       bytes = Buffer.byteLength(encodeRemoteFrame(event));
     // DEFENSE: A committed notice can exceed the remote frame budget; close instead of buffering an undeliverable observation.
     } catch { this.#disconnect(session, 'observation_frame_rejected'); return; }

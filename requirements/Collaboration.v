@@ -5,7 +5,11 @@
     their identity, authority or lifecycle. Independent names and shared source
     must remain editable without rewriting the execution they describe.
     Refusal contracts require failure, unchanged state and no emitted effects;
-    human-readable diagnostic wording is not part of that behavior. *)
+    human-readable diagnostic wording is not part of that behavior.
+    Deletion, renaming and board settings need an acknowledgement of the
+    admitted change. Repeating their supplied fields adds no outcome.
+    Creation returns the new identity, versioned saves return the revision
+    needed for another edit, and derived results retain their observed data. *)
 
 From Selvedge.Features Require WorkProofs.
 Export WorkProofs(witnessed_root_birth_records_its_work,
@@ -39,7 +43,9 @@ Export GraphConstructionProofs(public_resolved_graph_installs_its_exact_typed_pl
 Export TaskGraphProofs(resolved_installation_succeeds,
   expansion_has_declared_meaning,
   pending_deliveries_obey_registry_order,
-  actual_delivery_reaches_idle_task).
+  actual_delivery_reaches_idle_task,
+  unchanged_history_has_no_new_outputs,
+  observed_provider_text_retains_its_requested_mode_and_is_routed).
 
 (** ** Graphs express connections using ordinary Task operations
 
@@ -56,9 +62,17 @@ Export TaskGraphProofs(resolved_installation_succeeds,
     [pending_deliveries_obey_registry_order] and
     [actual_delivery_reaches_idle_task] connect it to actual delivery. An
     implementation that emits no handoffs cannot satisfy the positive result.
-    Fresh ordinary assistant replies trigger reactions; installation does not
-    replay old outputs. Interactive output and tool calls are not ordinary
-    handoff text.
+    Fresh nonempty assistant replies trigger reactions; installation does not
+    replay old outputs. [unchanged_history_has_no_new_outputs] binds that
+    boundary to the committed history position. The request receiver already
+    consumes each model completion once, and inherited fork context retains its
+    original producer. Rechecking every old origin adds no routing authority.
+    Routing follows the returned assistant message, so the
+    source's requested output mode cannot silently discard its text.
+    [observed_provider_text_retains_its_requested_mode_and_is_routed] connects
+    that requirement to the actual provider callback and reaction hook.
+    Replies containing tool calls await their results instead of triggering a
+    handoff; nonassistant context is not handoff text.
 
     Reliable handoff is part of the committed transition and reuses normal
     input admission. A target refusal remains observable without discarding the
@@ -77,10 +91,13 @@ From Selvedge.Programming Require CardScopeProofs.
 Export CardScopeProofs(stale_card_is_atomic).
 Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
   automatic_queue_follows_pin_priority_and_board_order,
-  linked_execution_inputs_are_immutable,
+  admitted_card_edit_preserves_its_execution,
+  admitted_link_preserves_execution_and_drafting,
+  linked_assignment_cannot_be_transferred,
+  stopped_operation_retains_its_concurrency_slot,
   archive_busy_card_retains_task_authority,
-  card_title_result_preserves_conversation,
-  saving_card_preserves_conversations_and_their_titles).
+  current_board_text_retains_other_plan_fields,
+  board_text_without_current_lease_is_ignored).
 Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
   a_pending_title_is_not_resolved_again).
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
@@ -91,13 +108,52 @@ Export TitleProofs(admitted_title_issues_observed_request,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
 
-(** ** Plans and generated titles retain their own revisions
+(** ** Plans remain editable without rewriting execution
 
-    Launching a card freezes an ordinary Task request. Later role, Project or
-    title changes govern future requests rather than rewriting that accepted
-    execution. Revision conflict is an atomic refusal; linked execution inputs
-    remain immutable. Archival may request the ordinary Task interruption but
-    cannot invent new cancellation authority from old receipt data.
+    Launching a card captures an ordinary Task request. The card remains a plan:
+    its title, description, Project, attachments, priority and labels may change
+    while the linked Task runs. [admitted_card_edit_preserves_its_execution]
+    requires the actual update to save the exact patch and retain the complete
+    Task registry, its association and independent conversation titles.
+    Revision conflict is an atomic refusal. Archived plans must be restored
+    before editing. An active Task keeps its card in progress; same-column
+    ordering and pinning remain independent of that execution.
+
+    Cards, Board agent settings and title settings use revisions to reject
+    stale writes. Callers return the revision they observed; they do not
+    calculate its next value. Successful updates invalidate the previous
+    revision while retaining the requested content. A particular initial
+    revision or increment size is not part of that conflict contract.
+
+    The agent limit counts configured agents. Updating an existing agent keeps
+    that count, including at capacity; deleting an unassigned agent releases
+    one slot. Retained empty storage positions do not consume that capacity,
+    so their number is not part of the update or deletion contract.
+
+    The linked assignee is also the attribution used by the agent concurrency
+    limit. Changing it could free the old agent's slot while its Task still
+    runs, including a later resumed turn. [linked_assignment_cannot_be_transferred]
+    therefore freezes that association, while resubmitting its current value
+    is allowed. [stopped_operation_retains_its_concurrency_slot] requires active
+    operations to keep their slot after the next model turn has been stopped.
+    The same slot must settle before deleting its card. Archival may request
+    the ordinary Task interruption but cannot invent new cancellation authority
+    from old receipt data.
+
+    Card drafting owns a request ticket, not the whole card revision. Pinning,
+    ordering, plan metadata and linked Task progress do not invalidate its
+    prompt or chosen output fields. The current result amends the current card,
+    preserving those changes as [current_board_text_retains_other_plan_fields]
+    requires. Explicit title or description edits supersede that request;
+    archiving clears its receiver and deletion removes it. The shared receiver
+    then rejects stale results without waiting for the external invocation to
+    finish. A second generation is refused while the first remains current.
+    This keeps request ownership separate from optimistic edit conflicts.
+    Linking an existing Task also keeps the current drafting receiver and card
+    plan. [admitted_link_preserves_execution_and_drafting] requires that actual
+    successful association while preserving the Task registry and independent
+    conversation titles; linking must not recreate execution or lose a paid
+    request that still owns its receiver.
 
     Ordinary creation retains the requested draft. Automatic execution selects
     pinned cards first, then urgent through unprioritized cards, retaining manual
@@ -117,10 +173,10 @@ Export TitleProofs(admitted_title_issues_observed_request,
     frozen settings and its completed title through public read. The selected
     theorems constrain admission and receiver construction; the public test
     covers their composed delivery through the service.
-    A card title and its linked conversation title remain independent, as
-    [card_title_result_preserves_conversation] requires. Stale completions do
-    not overwrite a newer request; recovery marks interrupted generation as
-    failed instead of replaying uncertain inference.
+    A card title and its linked conversation title remain independent.
+    [board_text_without_current_lease_is_ignored] constrains the actual callback:
+    stale completions cannot overwrite a newer request. Recovery marks
+    interrupted generation as failed instead of replaying uncertain inference.
 
     Generated-title quality and external model completion remain provider
     observations. *)

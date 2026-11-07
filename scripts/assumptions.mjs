@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { root, run, targets, jsonEntries } from './build-tools.mjs';
-import { dependencyFlags, moduleName, moduleSelection, sourceFiles } from './rocq-sources.mjs';
+import { root, run } from './build-tools.mjs';
+import { dependencyFlags, moduleName } from './rocq-sources.mjs';
 
 // Comments are removed with nesting, so prose mentioning a theorem is not audited as a declaration.
 function withoutComments(source) {
@@ -14,11 +14,10 @@ function withoutComments(source) {
   }
   return result;
 }
-export async function auditAssumptions({ prefixes = [], sources = null, entries = null } = {}) {
+export async function auditAssumptions({ sources, entries }) {
   const declarations = [];
-  for (const filename of sources ?? await sourceFiles()) {
+  for (const filename of sources) {
     if (filename.startsWith('theories/Derive/')) continue;
-    if (prefixes.length && !prefixes.some(prefix => moduleSelection(filename).startsWith(`${prefix}.`))) continue;
     const module = moduleName(filename);
     const source = withoutComments(await readFile(path.join(root, filename), 'utf8'));
     // A continued tactic may use Admitted as a hypothesis name; only Admitted. closes an unchecked proof.
@@ -37,13 +36,10 @@ export async function auditAssumptions({ prefixes = [], sources = null, entries 
     }
   }
   const theorems = declarations.length;
-  const auditedEntries = entries ?? [...Object.values(targets).flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)), ...Object.values(jsonEntries)];
-  for (const entry of auditedEntries) {
-    if (prefixes.length && !prefixes.some(prefix => entry.startsWith(`${prefix}.`))) continue;
+  for (const entry of entries) {
     const module = `Selvedge.${entry.slice(0, entry.lastIndexOf('.'))}`;
     declarations.push({ module, name: `Selvedge.${entry}` });
   }
-  if (!declarations.length) throw new Error('No checked declarations found for assumption audit');
   const imports = [...new Set(declarations.map(item => item.module))].map(module => `Require Import ${module}.`).join('\n');
   const commands = declarations.map(item => `Print Assumptions ${item.name}.`).join('\n');
   await mkdir(path.join(root, '.build'), { recursive: true });
@@ -55,4 +51,3 @@ export async function auditAssumptions({ prefixes = [], sources = null, entries 
   if (closed !== declarations.length) throw new Error(`Incomplete assumption report (${closed}/${declarations.length}); inspect .build/assumptions.log`);
   console.log(`Assumptions: ${theorems} theorems and ${closed - theorems} production entries closed under the global context`);
 }
-if (process.argv[1]?.endsWith('/assumptions.mjs')) await auditAssumptions({ prefixes: process.argv.slice(2) });

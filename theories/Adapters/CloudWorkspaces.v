@@ -51,20 +51,20 @@ Definition receipt_keys := ["format";"namespace";"task_id";"source_root";"root";
 Definition recovery_authority (value : json) :=
   let scope := get value "scope" in
   is_object scope && is_text (get scope "account_id") && negb (String.eqb (str scope "account_id") "") &&
-  String.eqb (str scope "provider") "tencent_cvm" &&
-  equal (get scope "region") (get (get value "settings") "region") &&
-  is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "") &&
-  equal (get (get value "request") "ClientToken") (get value "token").
+  ArgumentDeclaration.check CloudConfiguration.nonempty_text (get scope "region") &&
+  is_text (get scope "endpoint") && negb (String.eqb (str scope "endpoint") "").
 Definition receipt_matches (source : json) :=
   let expected := get source "expected" in let value := get source "value" in
   is_object value && forallb (fun name => equal (get value name) (get expected name)) receipt_keys &&
-  CloudConfiguration.valid (JObject [("backend",get value "backend");
-    (WorkspaceBackend.name WorkspaceBackend.TencentCvm,get value "settings")]) &&
   (is_null (get source "bound_root") || equal (get value "root") (get source "bound_root")) &&
   contained_workspace (get value "workspace") (str value "root") && recovery_authority value && CloudResources.receipt_valid value.
 Definition receipt (source : json) :=
-  if receipt_matches source then success (get source "value")
-  else type_error "Cloud workspace receipt does not match its task".
+  match ArgumentDeclaration.decode CloudConfiguration.recovery_settings_declaration
+    (get (get source "value") "settings") with
+  | Some settings => if receipt_matches source then
+      success (ArgumentDeclaration.encode CloudConfiguration.recovery_settings_declaration settings)
+    else type_error "Cloud workspace receipt does not match its task"
+  | None => type_error "Cloud workspace receipt does not match its task" end.
 Definition workspace (source : json) :=
   let selected := get source "workspace" in
   let repository := str source "repository" in

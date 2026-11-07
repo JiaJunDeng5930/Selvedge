@@ -208,8 +208,7 @@ real final value that happens to contain `status: "running"` still is one.
 request/authorization/completion events but no fictional process-start event.
 `task_changed` reports the committed summary delta, not every intermediate
 scheduler state. Model lifecycle events identify tickets and outcomes without
-copying encrypted reasoning or project credentials. Summary requests are identified
-by `kind: "summary"` in their lifecycle payloads.
+copying encrypted reasoning or project credentials.
 
 The cursor is the exclusive history offset immediately after an occurrence. To
 read that record, issue public `read` with `after = cursor - 1` and `limit = 1`.

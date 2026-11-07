@@ -16,20 +16,24 @@ Proof.
  destruct (N.eqb checked current); cbn; intros; try discriminate; lia.
 Qed.
 
-(** Authentication failure is absorbing for every asynchronous observation.
-    Only a new explicit Enable may start another physical attempt. *)
 Theorem rejected_identity_ignores_async_observations cfg generation event :
  event <> Enable -> event <> Stop ->
- step cfg (AuthenticationFailed generation) event = (AuthenticationFailed generation,[]).
+ exists next_generation, generation <= next_generation /\
+ step cfg (AuthenticationFailed generation) event = (AuthenticationFailed next_generation,[]).
 Proof.
- destruct event; intros; try contradiction;
- unfold step, current, RemoteTransport.generation; try rewrite andb_false_r; reflexivity.
+ destruct event; intros; try contradiction.
+ all: exists generation; split; [apply N.le_refl|].
+ all: unfold step, current, RemoteTransport.generation; try rewrite andb_false_r; reflexivity.
 Qed.
 
-Theorem retry_observation_before_deadline_does_not_connect cfg generation tries deadline now :
- now < deadline ->
- step cfg (Retrying generation tries deadline) (Retry generation now) = (Retrying generation tries deadline,[]).
+Theorem current_retry_rearms_or_connects cfg generation tries deadline now :
+ match snd (step cfg (Retrying generation tries deadline) (Retry generation now)) with
+ | [RetryAt own scheduled] => own = generation /\ scheduled = deadline /\ now < deadline
+ | [Connect next] => generation < next /\ deadline <= now
+ | _ => False end.
 Proof.
- intros Before. cbn [step]. rewrite N.eqb_refl, (proj2 (N.leb_gt deadline now) Before).
- reflexivity.
+ cbn [step]. rewrite N.eqb_refl.
+ destruct (deadline <=? now) eqn:Due; cbn.
+ - split; [apply N.lt_succ_diag_r|now apply N.leb_le].
+ - repeat split; try reflexivity. now apply N.leb_gt.
 Qed.

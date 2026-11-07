@@ -36,13 +36,11 @@ Definition observe_context := effect "observe_context" (identity ++ [settings;re
  Field "definitions" (KArray KJson); Field "bindings" (KArray KJson)]) (Some Context).
 Definition plain_output_name := "plain".
 Definition interactive_output_name := "interactive-v1".
-Definition output_mode_kind := KEnum plain_output_name [interactive_output_name].
-Definition request_model := effect "model" (identity ++ [model;Field "output_mode" output_mode_kind;
- settings;resource;Field "sampling" KJson;history] ++ output ++
+Definition request_model := effect "model" (identity ++ [model;
+ resource;Field "sampling" KJson;history] ++ output ++
  [Field "context_replacement_source" (KOptional KNatural); Field "output_reserve_tokens" KNatural;
  Field "source_length" KNatural;tools;callable]) (Some Model).
-Definition reasoning := effect "reasoning" (identity ++ [model;history;Field "project_context" KJson;
- Field "history_preview" KBool;Field "history_preview_bytes" KNatural]) (Some Reasoning).
+Definition reasoning := effect "reasoning" (identity ++ [model;history;Field "project_context" KJson]) (Some Reasoning).
 Definition tool := effect "tool" (identity ++ [Field "operation_id" KNatural;Field "tool" KJson;invocation;execution]) (Some Tool).
 Definition approval := effect "approval" (identity ++ [model;invocation;Field "settings" KJson;
  Field "instructions" KText;Field "user_requests" (KArray KText)]) (Some Approval).
@@ -71,12 +69,10 @@ Definition context_scope_request := declare_request "context_scope" (OwnedTicket
  [model] (Compaction false).
 Definition context_scope := request_variant_view context_scope_request.
 Definition context_measure_request := declare_request "context_measure" (OwnedTicket "task_id")
- ([model;history] ++ output ++ [tools;settings;callable;Field "validating" KBool]) (Compaction false).
+ ([model;history] ++ output ++ [tools;callable]) (Compaction false).
 Definition context_measure := request_variant_view context_measure_request.
-Definition context_compaction_body := [model] ++ output ++
- [Field "method" KText;Field "window_tokens" KNatural;Field "output_reserve_tokens" KNatural].
 Definition context_compaction_request := declare_request "context_compaction" (OwnedTicket "task_id")
- (context_compaction_body ++ [Field "plan" KJson]) (Compaction true).
+ [model;Field "context_scope" KText;Field "plan" KJson] (Compaction true).
 Definition context_compaction := request_variant_view context_compaction_request.
 Definition compaction_clock := effect "compaction_clock" [Field "deadline" KNatural] None.
 Definition compaction_cancel := effect "compaction_cancel" identity None.

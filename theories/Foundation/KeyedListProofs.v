@@ -1,5 +1,4 @@
 From Stdlib Require Import List Bool.
-From Selvedge.Foundation Require Import KeyedList.
 Import ListNotations.
 
 (* Keyed associations preserve list order and the first matching entry. These
@@ -29,12 +28,3 @@ Proof.
  cbn [filter find]; destruct (same removed (key first)) eqn:Selected; cbn;
    rewrite ?Selected; apply IH.
 Qed.
-
-Lemma filtering_preserves_unique_keys : forall (A Key : Type) (key : A -> Key) keep entries,
- NoDup (map key entries) -> NoDup (map key (filter (fun entry => keep (key entry)) entries)).
-Proof. intros; rewrite <- filter_map_swap; apply NoDup_filter; assumption. Qed.
-
-Theorem keyed_retention_follows_each_lookup : forall Entry Key Value key lookup relation before after,
- (forall previous, In previous before -> relation previous (lookup (key previous) after) = true) ->
- @KeyedList.retains Entry Key Value key lookup relation before after = true.
-Proof. intros; apply forallb_forall; assumption. Qed.

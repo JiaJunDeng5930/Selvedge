@@ -63,9 +63,11 @@ export class Plugin extends StdioRpc {
       config: this.config, limits: this.limits, name: this.name });
     // DEFENSE: A slow plugin can overflow its bounded observer queue; publish the native dropped-event diagnostic.
     if (decision.diagnostic) this.emit('diagnostic', decision.diagnostic);
-    this.#queue.push(...decision.append);
     this.#queuedBytes = decision.next_queued_bytes;
-    if (decision.accepted) this.#startPump();
+    if (decision.accepted) {
+      this.#queue.push({ event, bytes });
+      this.#startPump();
+    }
   }
 
   #startPump() {

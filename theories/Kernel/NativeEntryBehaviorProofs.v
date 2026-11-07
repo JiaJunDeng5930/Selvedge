@@ -12,14 +12,14 @@ Theorem invalid_native_arguments_cannot_pass_final_dispatch_gate :
  tool_origin definition = NativeToolSource parameters program ->
  Capabilities.available (environment_tools (world_environment value)) definition = true ->
  NativeTools.arguments_valid definition invocation = false ->
- exists reason,
+ exists code reason,
  Scheduler.before_hook_step execute id definition invocation [] remaining task value =
- Scheduler.call_error id invocation "invalid_arguments" reason remaining value.
+ Scheduler.call_error id invocation code reason remaining value.
 Proof.
  intros execute id invocation remaining task value definition parameters program Native Available Invalid.
  unfold Scheduler.before_hook_step, Scheduler.execute_checked_call, Scheduler.call_admission.
  rewrite Available. cbn [negb].
- unfold Callbacks.model_call_arguments_valid; rewrite Native, Invalid. eexists; reflexivity.
+ unfold Callbacks.model_call_arguments_valid; rewrite Native, Invalid. do 2 eexists; reflexivity.
 Qed.
 
 (* Native fork completion commits both successful and refused business results. *)

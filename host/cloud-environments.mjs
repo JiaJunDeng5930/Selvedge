@@ -13,7 +13,7 @@ export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`
 export function cloudEnvironmentBackend(cloud) {
   const admitted = boundary('effect.cloud_backend', { cloud });
   const settings = admitted.tencent_cvm;
-  return { ...tencentCvmBackend(settings), settings };
+  return { ...tencentCvmBackend(settings), settings, retainedSettings: admitted.retained_settings };
 }
 
 const filesystemProgram = String.raw`
@@ -218,7 +218,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     try { const result = await child; return { ...result, exit_code: 0 }; }
     catch (error) {
       // DEFENSE: A remote command's nonzero exit is an execution result, while launch/transport I/O errors still throw.
-      if (Number.isInteger(error.code)) return { stdout: error.stdout ?? '', stderr: error.stderr ?? '', exit_code: error.code };
+      if (Number.isInteger(error.code)) return { stdout: error.stdout, stderr: error.stderr, exit_code: error.code };
       throw error;
     }
   }
@@ -237,7 +237,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     },
     async prepareBash(arguments_, execution, { signal } = {}) {
       signal?.throwIfAborted();
-      const cwd = execution.workspace.primary_root ?? receipt.root;
+      const cwd = execution.workspace.primary_root;
       const directory = `/tmp/selvedge-process-${randomUUID()}`;
       const marker = `${directory}/session`, cancelledPath = `${directory}/cancelled`;
       const reserved = await execute(`mkdir -m 700 -- ${shellQuote(directory)}`, { signal, timeout: 15_000 });
@@ -270,7 +270,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
         } };
     },
     async snapshotProject(limits, { signal } = {}) {
-      return snapshotProject(receipt.workspace?.primary_root ?? receipt.root, limits, { filesystem, signal });
+      return snapshotProject(receipt.workspace.primary_root, limits, { filesystem, signal });
     },
   };
 }

@@ -6,7 +6,7 @@ Import ListNotations.
 Fixpoint traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
  match values with
  | [] => Some []
- | value :: rest => match parse value, traverse parse rest with
-   | Some value, Some rest => Some (value :: rest)
-   | _, _ => None end
+ | value :: rest => match parse value with
+   | Some value => option_map (cons value) (traverse parse rest)
+   | None => None end
  end.

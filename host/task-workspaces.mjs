@@ -10,9 +10,10 @@ import { runCloudResourceController } from './resource-runtime.ts';
 import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from './cloud-environments.mjs';
+import { tencentCvmBackend } from './tencent-cvm.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-4';
+const receiptFormat = 'selvedge-cloud-workspace-7';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.
@@ -66,9 +67,9 @@ async function locations({ home, namespace }, taskId) {
 
 async function readReceipt(files, entry) {
   const receipt = await readControlRecord(files.receipt, { maximumBytes: 1024 * 1024, label: 'cloud workspace receipt' });
-  boundary('effect.cloud_receipt', { value: receipt, bound_root: entry.root ?? null, expected: { format: receiptFormat, namespace: files.namespace,
+  const settings = boundary('effect.cloud_receipt', { value: receipt, bound_root: entry.root ?? null, expected: { format: receiptFormat, namespace: files.namespace,
     task_id: entry.task_id, source_root: entry.source_root, root: files.root, token: files.token, backend: entry.backend } });
-  return receipt;
+  return { ...receipt, settings };
 }
 
 async function log(files, message, onDiagnostic) {
@@ -97,11 +98,11 @@ async function runResource(plan, { files, backend, signal, prepare }) {
     async persist(state) {
       await saveReceipt(files.receipt, resource('receipt', { state }));
     },
-    async allocate(state) { return { kind: 'allocated', ...await backend.create(state.request, { signal }) }; },
+    async allocate(state) { return { kind: 'allocated', ...await backend.create(state.token, state.task_id, { signal }) }; },
     async prepare(state) { return { kind: 'prepared', ...await prepare(state) }; },
     async credentials(state) {
       cleanupSignal = AbortSignal.timeout(120_000);
-      backend = cloudEnvironmentBackend({ backend: state.backend, [state.backend]: state.settings });
+      backend = tencentCvmBackend({ ...state.settings, region: state.scope.region });
       return { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
     },
     async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, { signal: cleanupSignal }) }; },
@@ -158,8 +159,7 @@ export async function createTaskWorkspace(effect, options = {}) {
       workspace: effect.workspace, repository: source.repository, root: files.root });
     const scope = await backend.scope({ signal: options.signal });
     const receipt = { format: receiptFormat, namespace: options.namespace, task_id: effect.task_id, backend: effect.backend,
-      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings, scope,
-      request: backend.request(files.token, effect.task_id) };
+      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings: backend.retainedSettings, scope };
     await log(files, `Requesting cloud environment (${effect.backend})`, options.onDiagnostic);
     const result = await runResource(resource('start', receipt), {
       files, backend, signal: options.signal,

@@ -84,7 +84,7 @@ Theorem a_stale_ready_measurement_is_planned_again :
  task_lifecycle current = Running ReadyForModel operations ->
  TicketedRequest.Scoped.resources_available current value = true ->
  A.enabled_target current (A.registry value) = Some target ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) ->
  entry_job entry = NoJob -> entry_measurement entry = Measured input scope tokens budget ->
  A.fresh (entry_measurement entry) current value = false ->
  A.synchronize id current value = Some (A.begin_scope id (A.capture_task current value) None entry value).
@@ -105,11 +105,11 @@ Qed.
     when their owned request has expired. Receiver admission is shared. *)
 Theorem an_unresolved_observation_retains_journal_ordering : forall event value,
  A.resolve event value = None ->
- A.completion event value = (true,true,A.acknowledged false value []).
+ A.completion event value = (true,true,A.acknowledged value []).
 Proof. intros; unfold A.completion; now rewrite H. Qed.
 Theorem clock_observation_uses_monotone_time : forall now value,
  A.completion (Clock now) value = (true,true,
- A.acknowledged true (A.store (set maintenance_timer (fun _ => 0) (A.with_now now (A.registry value))) value) []).
+ A.acknowledged (A.store (set maintenance_timer (fun _ => 0) (A.with_now now (A.registry value))) value) []).
 Proof. reflexivity. Qed.
 Lemma storing_maintenance_preserves_tasks : forall id state value,
  K.find_task id (A.store state value) = K.find_task id value.
@@ -177,11 +177,6 @@ Definition manual_waiting_world (id : N) (current : task) (before : K.world) :=
  A.store (A.with_entry id
    (manual_waiting_entry current (A.current_entry id (A.registry before)) before)
    (A.registry before)) before.
-Definition manual_waiting_decision (id : N) (current : task) (before : K.world) :=
- K.Decision (manual_waiting_world id current before)
-   (K.success (JObject [("task_id", number id)]))
-   (map K.MaintainContext (A.cancellations id (A.current_entry id (A.registry before)))).
-
 (** This is the public command with a live operation, not an assumed accepted
     helper result. The wait keeps the task, operation and queued demand intact;
     only obsolete maintenance requests are cancelled. *)
@@ -193,8 +188,11 @@ Theorem manual_compaction_accepts_an_open_prefix_and_waits :
  TicketedRequest.Scoped.resources_available current before = true ->
  A.job_pending (entry_job (A.current_entry id (A.registry before))) = false ->
  ContextSelection.closed_prefix (task_history current) = false ->
- A.handle_compact payload caller before =
- manual_waiting_decision id current before.
+ let result := A.handle_compact payload caller before in
+ bool_default "ok" (K.decision_reply result) false = true /\
+ K.decision_world result = manual_waiting_world id current before /\
+ K.decision_effects result =
+   map K.MaintainContext (A.cancellations id (A.current_entry id (A.registry before))).
 Proof.
  intros payload id current operations caller before Id Summary Found Lifecycle Available NoJob Open.
  destruct (selecting_an_existing_task_retains_its_key id before current Found)
@@ -212,19 +210,19 @@ Proof.
  unfold A.wait_for_context_selected; rewrite NoPlan.
  cbn [TaskScope.owner TaskScope.selected].
  unfold A.retain_context_wait; rewrite Available.
- unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry.
+ unfold manual_waiting_world, manual_waiting_entry.
  cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world K.decision_effects].
- now rewrite app_nil_r.
+ rewrite app_nil_r; repeat split; reflexivity.
 Qed.
 
 Theorem an_open_manual_wait_preserves_all_task_state : forall id current before,
- K.world_tasks (K.decision_world (manual_waiting_decision id current before)) = K.world_tasks before /\
+ K.world_tasks (manual_waiting_world id current before) = K.world_tasks before /\
  entry_job (A.current_entry id (A.registry
-   (K.decision_world (manual_waiting_decision id current before)))) =
+   (manual_waiting_world id current before))) =
  Resuming (A.capture_task current before) Manual.
 Proof.
  intros; split; [reflexivity|].
- unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry,
+ unfold manual_waiting_world, manual_waiting_entry,
    A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed, A.with_observation,
    A.with_measurement, A.with_job, K.with_features, Selvedge.Features.State.with_compaction, set;
  cbn. now rewrite N.eqb_refl.
@@ -238,7 +236,7 @@ Theorem a_closed_manual_wait_recaptures_its_current_prefix :
  task_lifecycle current = Running phase operations ->
  phase <> WantsModel -> (forall ticket revision, phase <> ObservingContext ticket revision) ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  A.relevant input current before = true ->
  ContextSelection.closed_prefix (task_history current) = true ->
@@ -259,7 +257,7 @@ Theorem an_open_manual_wait_keeps_waiting_without_io :
  forall id current before input entry operations,
  task_lifecycle current = Running Idle operations ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  A.relevant input current before = true ->
  ContextSelection.closed_prefix (task_history current) = false ->
@@ -278,7 +276,7 @@ Theorem a_closed_manual_wait_starts_a_fresh_context_read :
  task_lifecycle current = Running phase operations ->
  (phase = Idle \/ phase = ReadyForModel) ->
  TicketedRequest.Scoped.resources_available current before = true ->
- entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) ->
  entry_job entry = Resuming input Manual ->
  entry_observation (A.current_entry id (A.registry before)) = None ->
  A.relevant input current before = true ->
@@ -500,7 +498,7 @@ Proof.
  intros; unfold A.recover_entry, A.with_observation, A.with_measurement, A.with_job, set; cbn.
  split; [reflexivity|]. unfold A.resume, A.job_ticket.
  destruct (entry_job entry) as [|purpose|ticket purpose demand|input purpose|
-   [ticket [input purpose stage]]|[ticket [input purpose target progress scope]]|
+   [ticket [input purpose stage]]|[ticket [input purpose progress scope]]|
    [ticket [input [purpose candidate preview] stage]]]; reflexivity.
 Qed.
 
@@ -571,18 +569,18 @@ Proof.
    cbn; now rewrite N.eqb_refl.
 Qed.
 
-(** The feature callback forwards recovered progress with the complete retained
-    lease, including its target. The kernel planner
-    separately proves that recovered progress retains native raw history. *)
+(** The feature callback forwards the recovered plan with its captured input
+    and scope. The kernel planner separately proves that recovered progress
+    retains native raw history. *)
 Theorem native_unavailable_callback_dispatches_portable_rebuild :
- forall id task input purpose progress scope entry value target portable,
+ forall id task input purpose progress scope entry value portable,
  A.relevant input task value = true ->
  P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
- A.compacted_result id task (CompactInput input purpose target progress scope)
+ A.compacted_result id task (CompactInput input purpose progress scope)
    (JObject [("action",JString "native_unavailable")]) false entry value =
- A.dispatch_compact id task input purpose target portable scope entry value.
+ A.dispatch_compact id task input purpose portable scope entry value.
 Proof.
- intros id task input purpose progress scope entry value target portable Relevant Recovered.
+ intros id task input purpose progress scope entry value portable Relevant Recovered.
  unfold A.compacted_result. rewrite Relevant,Recovered. reflexivity.
 Qed.
 
@@ -591,22 +589,22 @@ Qed.
     These contracts cover both actual validation exits, not a retry counter in
     a separate Host interpreter. *)
 Theorem an_oversized_portable_validation_stops :
- forall id task input purpose first rest usage preview scope tokens budget entry value,
+ forall id task input purpose first rest preview scope tokens budget entry value,
  A.relevant input task value = true ->
  A.same_history preview
-   (ContextSelection.adopt (captured_history input) (PortableArtifact first rest usage) (task_history task)) = true ->
+   (ContextSelection.adopt (captured_history input) (PortableArtifact first rest) (task_history task)) = true ->
  (tokens + reserve_tokens budget <=? window_tokens budget) = false ->
- exists reason, A.finish_validation id task input purpose (PortableArtifact first rest usage)
+ exists reason, A.finish_validation id task input purpose (PortableArtifact first rest)
    preview scope tokens budget entry value = A.failed id task entry reason value.
 Proof.
- intros id task input purpose first rest usage preview scope tokens budget entry value Relevant Preview Oversized.
+ intros id task input purpose first rest preview scope tokens budget entry value Relevant Preview Oversized.
  unfold A.finish_validation; rewrite Relevant; cbn [ContextSelection.consumes].
  rewrite Preview, Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_native_validation_keeps_portable_fallback :
- forall id task input purpose head tail first rest usage preview scope tokens budget entry value,
- let candidate := NativeArtifact head tail first rest usage in
+ forall id task input purpose head tail first rest preview scope tokens budget entry value,
+ let candidate := NativeArtifact head tail first rest in
  A.relevant input task value = true -> ContextSelection.consumes candidate scope = true ->
  A.same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) = true ->
  ((tokens + reserve_tokens budget <=? window_tokens budget) &&
@@ -615,27 +613,27 @@ Theorem an_oversized_native_validation_keeps_portable_fallback :
  A.finish_validation id task input purpose candidate preview scope tokens budget entry value =
  A.force_portable id task scope entry value.
 Proof.
- intros id task input purpose head tail first rest usage preview scope tokens budget entry value candidate Relevant Consumes Preview Oversized.
+ intros id task input purpose head tail first rest preview scope tokens budget entry value candidate Relevant Consumes Preview Oversized.
  unfold candidate in *.
  unfold A.finish_validation; now rewrite Relevant, Consumes, Preview, Oversized.
 Qed.
 
 Theorem an_oversized_portable_validation_frame_stops :
- forall id task input scope purpose first rest usage preview entry value,
- let candidate := R.ValidateCandidate (Candidate purpose (PortableArtifact first rest usage) preview) in
+ forall id task input scope purpose first rest preview entry value,
+ let candidate := R.ValidateCandidate (Candidate purpose (PortableArtifact first rest) preview) in
  let request := R.MeasureRequest input candidate scope entry in
  (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
  exists reason, A.measured_call id task input scope candidate entry value =
  A.failed id task entry reason value.
 Proof.
- intros id task input scope purpose first rest usage preview entry value candidate request Oversized.
+ intros id task input scope purpose first rest preview entry value candidate request Oversized.
  unfold A.measured_call. fold request. rewrite Oversized; eexists; reflexivity.
 Qed.
 
 Theorem an_oversized_measurement_without_a_portable_candidate_can_rebuild :
  forall id task input scope purpose entry value,
- (forall first rest usage, R.purpose_candidate purpose <> Some (PortableArtifact first rest usage)) ->
+ (forall first rest, R.purpose_candidate purpose <> Some (PortableArtifact first rest)) ->
  let request := R.MeasureRequest input purpose scope entry in
  (N.of_nat (String.length (TextJson.render_json (R.preview_json id (K.world_next_ticket value) request value)))
    <=? Limits.frame_bytes / 4) = false ->
@@ -652,14 +650,14 @@ Theorem a_portable_source_can_only_finish_with_a_portable_candidate :
  forall progress result candidate unread,
  Selvedge.Kernel.Compaction.compaction_source progress = Selvedge.Kernel.Compaction.PortableSource unread ->
  P.receive_source progress result = P.Compacted candidate ->
- exists first rest usage, candidate = PortableArtifact first rest usage.
+ exists first rest, candidate = PortableArtifact first rest.
 Proof.
  intros progress result candidate unread Portable Finished.
  unfold P.receive_source in Finished; rewrite Portable in Finished.
  destruct (string_field "summary_text" result) as [[|head tail]|]; try discriminate.
  destruct (skipn (N.to_nat (Selvedge.Kernel.Compaction.compaction_chunk_chars progress)) unread);
    try discriminate.
- inversion Finished; subst candidate. eexists; eexists; eexists; reflexivity.
+ inversion Finished; subst candidate. eexists; eexists; reflexivity.
 Qed.
 
 Lemma the_committed_compaction_entry_is_current : forall id entry value effects,
@@ -718,7 +716,7 @@ Qed.
 
 Lemma synchronizing_a_fresh_terminal_failure_emits_no_requests :
  forall id current value entry input result,
- entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) ->
  entry_job entry = NoJob -> entry_measurement entry = MeasurementFailed input ->
  entry_cache_deadline entry = 0 -> A.fresh (entry_measurement entry) current value = true ->
  A.synchronize id current value = Some result -> K.decision_effects result = [].
@@ -763,7 +761,7 @@ Proof.
  set (result := A.failed id current entry reason before) in *.
  set (stopped := compaction_failure_task current message) in *.
  set (saved := A.current_entry id (A.registry (K.decision_world result))) in *.
- set (next := A.synchronized_entry stopped saved (A.registry (K.decision_world result))).
+ set (next := A.synchronized_entry stopped saved).
  assert (NextState : entry_job next = NoJob /\
    entry_measurement next = MeasurementFailed (A.capture_task stopped (K.decision_world result)) /\
    entry_cache_deadline next = 0).

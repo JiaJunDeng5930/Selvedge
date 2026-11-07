@@ -23,12 +23,12 @@ export function terminateTestProcessGroup(proc) {
 }
 
 // Each invocation owns its process group, including descendants holding its pipes.
-export async function runTestProcess(label, command, { cwd, active = new Set(), env = {} }) {
+export async function runTestProcess(label, command, { cwd, active }) {
   console.log(`Running ${label}`);
   const started = performance.now();
   let proc;
   try {
-    proc = Bun.spawn(command, { cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', detached: true });
+    proc = Bun.spawn(command, { cwd, env: process.env, stdout: 'pipe', stderr: 'pipe', detached: true });
     active.add(proc);
     // Drain both pipes immediately; descendants can keep them open after the parent exits.
     const stdout = collectTestOutput(proc.stdout, process.stdout);
@@ -38,7 +38,7 @@ export async function runTestProcess(label, command, { cwd, active = new Set(), 
       return code;
     });
     const [exitCode, out, err] = await Promise.all([exited, stdout, stderr]);
-    return { exitCode, out, err, signal: proc.signalCode, pid: proc.pid };
+    return { exitCode, out, err, signal: proc.signalCode };
   } finally {
     // DEFENSE: Bun.spawn can fail before allocating the owned subprocess; only terminate a process that was created.
     if (proc) {

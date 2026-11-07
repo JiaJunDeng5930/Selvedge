@@ -27,21 +27,12 @@ Definition observe_item item (observations : fences) : outcome ModelWire.value :
      ("type",JString "provider_receipt");("item",assistant_message (JString (proj1_sig (fst (snd (snd fields))))));
      ("markdown_fences",encode_fences observations)])
  | Some (inr (inl invocation)) =>
-   if Nat.eqb (List.length observations) 0
-   then Accepted (ModelWire.call (CallWire.of_item invocation))
-   else reject "Tool output cannot carry Markdown fence observations"
+   Accepted (ModelWire.call (CallWire.of_item invocation))
  | _ => reject "Unsupported model output item for Markdown observation" end.
-Fixpoint observe_items outputs observations : outcome (list ModelWire.value) :=
- match outputs,observations with
- | [],[] => Accepted []
- | output::rest, fences::fence_rest =>
-     bind (observe_item output fences) (fun observed =>
-       bind (observe_items rest fence_rest) (fun observed_rest =>
-         Accepted (observed::observed_rest)))
- | _,_ => reject "Model output and Markdown fence observations are misaligned"
- end.
 Definition observe_text_output source :=
  match array_field "items" source,D.decode (D.Array fences_declaration) (get source "markdown_observations") with
- | Some outputs,Some observations => render_outcome ModelWire.encode_items (observe_items outputs observations)
- | _,_ => err "Model text output has no aligned Markdown fence observations"
+ (* The host maps Markdown observations over these exact output rows. *)
+ | Some outputs,Some observations => render_outcome ModelWire.encode_items
+     (traverse (fun pair => observe_item (fst pair) (snd pair)) (combine outputs observations))
+ | _,_ => err "Model text output requires Markdown fence observations"
  end.

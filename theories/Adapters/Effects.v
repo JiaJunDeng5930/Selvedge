@@ -9,7 +9,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.cloud_remote_names",CloudWorkspaces.remote_names);
   ("effect.cloud_receipt",CloudWorkspaces.receipt);
   ("effect.cloud_workspace",CloudWorkspaces.workspace);
-  ("effect.artifact_limit",Attachments.artifact_limit);
   ("effect.attachment",Attachments.attachment);
   ("effect.attachment_media_type",Attachments.attachment_media_type);
   ("effect.attachment_budget",Attachments.attachment_budget);

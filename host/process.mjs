@@ -8,10 +8,10 @@ import { prepareSandbox } from './sandbox.mjs';
 import { storeImageContent } from './files.mjs';
 import { durableDirectory, syncDirectory } from './file-io.mjs';
 
-export function killGroup(child, signal = 'SIGKILL') {
+export function killGroup(child) {
   // DEFENSE: A failed spawn has no PID and therefore owns no process group.
   if (!child?.pid) return;
-  try { process.kill(-child.pid, signal); }
+  try { process.kill(-child.pid, 'SIGKILL'); }
   // DEFENSE: The shell or its process group may exit before cancellation/exit cleanup sends its signal.
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
@@ -157,8 +157,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     ? { ...arguments_, command: { utf16: Array.from({ length: arguments_.command.length },
       (_, index) => arguments_.command.charCodeAt(index)) } }
     : arguments_;
-  const options = { artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot };
-  const { command: commandText, timeout, maximum, mode, cols, rows } = boundary('effect.bash_arguments', { arguments: observedArguments, limits, options });
+  const { command: commandText, timeout, maximum, mode, cols, rows } = boundary('effect.bash_arguments', { arguments: observedArguments, limits });
   const combined = new UnicodeTail(maximum);
   const stdout = processOutput(maximum, combined);
   const stderr = processOutput(maximum, combined);
@@ -264,7 +263,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         ? await environment.prepareBash({ command: commandText, mode }, execution, { signal })
         : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
-        boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
         await durableDirectory(artifactDirectory);
         artifactBatch = await mkdtemp(path.join(artifactDirectory, 'bash-'));
         for (const stream of ['stdout', 'stderr']) {
@@ -299,7 +297,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       signal?.addEventListener('abort', onAbort, { once: true });
       // DEFENSE: Cancellation can arrive between sandbox preparation and listener registration.
       if (signal?.aborted) onAbort();
-      if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
+      if (timeout !== null) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
       cleanupGroup();
       await sessionClose;
@@ -329,7 +327,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       // DEFENSE: Scratch-directory or sandbox-descriptor cleanup can fail after the process exits.
       catch (error) { recordReason({ code: 'sandbox_cleanup_failed', message: error.message }); }
       const snapshot = combined.read();
-      completedResult = boundary('effect.process_result', { arguments: arguments_, limits, options, exitCode,
+      completedResult = boundary('effect.process_result', { exitCode,
         exitSignal: child.signalCode, out: stdout.result(), err: stderr.result(), outArtifact: retained[0], errArtifact: retained[1], reason: control.reason,
         mode, start_cursor: snapshot.start_cursor, next_cursor: snapshot.next_cursor, omitted_characters: snapshot.omitted_characters });
       observe('finished');
@@ -383,9 +381,6 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     },
   };
 }
-
-/** Execute an already validated Bash effect and wait for its final result. */
-export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
 export async function runReadImage(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {

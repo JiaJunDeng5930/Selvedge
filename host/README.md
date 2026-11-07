@@ -11,8 +11,8 @@ its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits an admitted input before publishing
 its decision or starting an effect. On reopen it replays inputs through the current
 extracted kernel without executing effects.
-Only `selvedge-rocq-journal-13` is accepted. Other formats are rejected, without a
-conversion path.
+Only the current journal format declared in `journal.mjs` is accepted. Other
+formats are rejected, without a conversion path.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations

@@ -47,16 +47,12 @@ Inductive observation :=
  | DeliverPairing (now revision expiry : N)
  | IssueTicket (now : N) (grants : RP.grant_set) (value : ticket)
  | ConsumeTicket (now : N) (grants : RP.grant_set) (digest : string) (controller_count : N)
- | HostCurrent (generation : N) (require_ready : bool)
- | Delivery (generation : N) (grants : RP.grant_set) (host_ready : bool)
- | Frame (value : RP.host_frame)
  | Disconnected (generation : N) (host_ready : bool).
 Inductive verdict := Permit | Deny.
 Inductive reason := TicketLimit | HostOffline | ConnectionLimit | InvalidTicket.
 Inductive action := Decision (allowed : verdict)
- | TicketIssued (allowed : verdict) (why : reason)
- | TicketConsumed (selected : option ticket) (allowed : verdict) (why : reason)
- | CloseControllers | NotifyHost (id : RP.identifier) | AcceptedFrame (value : RP.host_frame) | NoAction.
+ | TicketIssued | TicketConsumed (authority : grant) | TicketRejected (why : reason)
+ | CloseControllers | NotifyHost (id : RP.identifier) | NoAction.
 
 Definition decide (allowed : bool) := if allowed then Permit else Deny.
 Definition permitted value := match value with Permit=>true|Deny=>false end.
@@ -85,18 +81,17 @@ Definition reason_text value := match value with TicketLimit=>"ticket_limit"|Hos
 
 Definition step (current : state) (event : observation) : state * action :=
  match event with
- | NewHost=>(Negotiating (N.succ (generation current)),Decision Permit)
- | Hello=>match current with
-   | Negotiating own=>(AwaitingGrants (HostData own initial_pairing),Decision Permit)
-   | AwaitingGrants _ | Ready _ _=>(current,Decision Permit)
-   | _=>(current,Decision Deny) end
- | GrantSnapshot grants=>match current with
-   | AwaitingGrants host=>(Ready host [],Decision Permit)
-   | Ready host tickets=>(Ready host (filter (fun value=>granted grants (ticket_grant value)) tickets),Decision Permit)
-   | _=>(current,Decision Deny) end
+ | NewHost=>(Negotiating (N.succ (generation current)),NoAction)
+ | Hello=>(match current with
+   | Negotiating own=>AwaitingGrants (HostData own initial_pairing)
+   | _=>current end,NoAction)
+ | GrantSnapshot grants=>(match current with
+   | AwaitingGrants host=>Ready host []
+   | Ready host tickets=>Ready host (filter (fun value=>granted grants (ticket_grant value)) tickets)
+   | _=>current end,NoAction)
  | BeginPairing=>match pairing_of current with
-   | Some previous=>(change_pairing current (fun _=>PairingState (N.succ previous.(pairing_revision)) None),Decision Permit)
-   | None=>(current,Decision Deny) end
+   | Some previous=>(change_pairing current (fun _=>PairingState (N.succ previous.(pairing_revision)) None),NoAction)
+   | None=>(current,NoAction) end
  | InstallPairing now revision value=>
    let allowed:=match pairing_of current with Some previous=>N.eqb previous.(pairing_revision) revision &&
      (now <? (pairing_expiry value)) && ((pairing_expiry value) <=? now + 300000) | None=>false end in
@@ -112,18 +107,21 @@ Definition step (current : state) (event : observation) : state * action :=
      let live:=filter (fun entry=>now <? (ticket_expiry entry)) tickets in
      let fresh:=current_ticket now grants value in
      let allowed:=(N.of_nat (List.length live) <? 8) && fresh in
-     (Ready host (if allowed then live++[value] else live),TicketIssued (decide allowed) (if fresh then TicketLimit else HostOffline))
-   | _=>(current,TicketIssued Deny HostOffline) end
+     (Ready host (if allowed then live++[value] else live),
+       if allowed then TicketIssued else TicketRejected (if fresh then TicketLimit else HostOffline))
+   | _=>(current,TicketRejected HostOffline) end
  | ConsumeTicket now grants digest count=>match current with
    | Ready host tickets=>
      let selected:=find (fun entry=>String.eqb (ticket_digest entry) digest) tickets in
-     let remaining:=filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets in
-     let fresh:=match selected with Some value=>current_ticket now grants value | None=>false end in
-     (Ready host remaining,TicketConsumed selected (decide (fresh && (count <? 32))) (if fresh then ConnectionLimit else InvalidTicket))
-   | _=>(current,TicketConsumed None Deny InvalidTicket) end
- | HostCurrent expected require_ready=>(current,Decision (decide (host_current current expected require_ready)))
- | Delivery expected grants host_ready=>(current,Decision (decide (can_deliver current expected grants host_ready)))
- | Frame frame=>(current,if frame_allowed current frame then AcceptedFrame frame else Decision Deny)
+     match selected with
+      | Some value=>if current_ticket now grants value then
+          if count <? 32 then
+            (Ready host (filter (fun entry=>negb (String.eqb (ticket_digest entry) digest)) tickets),
+             TicketConsumed (ticket_grant value))
+          else (current,TicketRejected ConnectionLimit)
+        else (current,TicketRejected InvalidTicket)
+      | None=>(current,TicketRejected InvalidTicket) end
+   | _=>(current,TicketRejected InvalidTicket) end
  | Disconnected expected host_ready=>(Closed,match current with
    | Negotiating own=>if N.eqb own expected then CloseControllers else NoAction
    | AwaitingGrants host | Ready host _=>if N.eqb host.(host_generation) expected then CloseControllers else NoAction
@@ -194,13 +192,12 @@ Definition decode_observation := F.decode_cases observation_decoders.
 Definition encode_result next output :=
  let fields:=[("state",encode_state next)] in JObject (fields++match output with
  | Decision allowed=>[("allowed",JBool (permitted allowed))]
- | TicketIssued allowed why=>[("allowed",JBool (permitted allowed));("reason",JString (reason_text why))]
- | TicketConsumed selected allowed why=>[("allowed",JBool (permitted allowed));("ticket",match selected with
-     Some value=>D.encode ticket_declaration value|None=>JNull end);("reason",JString (reason_text why))]
+ | TicketIssued=>[("allowed",JBool true)]
+ | TicketConsumed authority=>[("allowed",JBool true);("authority",D.encode RP.authority_declaration authority)]
+ | TicketRejected why=>[("allowed",JBool false);("reason",JString (reason_text why))]
  | CloseControllers=>[("action",JString "close_controllers")]
  | NotifyHost id=>[("action",JString "notify_host");("connection_id",JString (RP.identifier_text id))]
- | AcceptedFrame value=>[("frame",RP.encode_host_frame value)]
- | NoAction=>[("action",JString "none")] end).
+ | NoAction=>[] end).
 Definition relay_step source event := match decode_state source,decode_observation event with
  | Some state,Some event => let '(next,output):=step state event in Some (encode_result next output)
  | _,_ => None end.
@@ -217,20 +214,19 @@ Definition relay_host_current source := match F.decode [F.required "connection" 
  | None => None end.
 Definition relay_frame_allowed source := match F.decode [F.required "state" D.Any;F.required "frame" RP.host_frame_declaration] source with
  | Some (state,(frame,_)) => match decode_state state,RP.host_frame_from_arguments frame with
-   | Some state,Some frame => match snd (step state (Frame frame)) with
-     | AcceptedFrame value => Some (RP.encode_host_frame value) | _ => None end
+   | Some state,Some frame => if frame_allowed state frame then Some (RP.encode_host_frame frame) else None
    | _,_ => None end
  | None => None end.
 Definition forward_request source := match F.decode [F.required "connection" D.Any;
  F.required "request" RP.controller_request_declaration] source with
- | Some (connection,(request,_)) => match decode_state connection,RP.controller_request_from_arguments request with
-   | Some (Controller connection),Some request => Some (RP.encode_relay_frame
+ | Some (connection,(request,_)) => match decode_state connection with
+   | Some (Controller connection) => Some (RP.encode_relay_frame
        (RP.RelayRequest connection.(connection_id) connection.(connection_grant) request))
-   | _,_ => None end
+   | _ => None end
  | None => None end.
 Definition install_controller source := match F.decode [generation_field;F.required "connection_id" RP.identifier_declaration;
- F.required "ticket" ticket_declaration] source with
- | Some (generation,(id,(ticket,_))) => let authority := ticket_grant ticket in
+ F.required "authority" RP.authority_declaration] source with
+ | Some (generation,(id,(authority,_))) =>
    let connection := ControllerData generation id authority in
    Some (JObject [("state",encode_state (Controller connection));
      ("host_frame",RP.encode_relay_frame (RP.RelayControllerOpen id authority));

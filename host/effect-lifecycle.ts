@@ -3,7 +3,7 @@ import type { RunningEffect } from './effect-dispatch.ts';
 import { naturalKey } from './public/json-tokens.mjs';
 import type { dispatchControlResult } from './model-api.ts';
 
-const handleBrand: unique symbol = Symbol('running effect');
+declare const handleBrand: unique symbol;
 export type EffectHandle = Readonly<{ generation: DomainNatural; [handleBrand]: true }>;
 type ControlResult = ReturnType<typeof dispatchControlResult>;
 type Outcome = 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
@@ -24,7 +24,7 @@ export function launchEffect(control: Control, active: Map<string, ActiveEffect>
   const generation = control({ kind: 'launch', effect }).starts[0];
   // DEFENSE: Startup reconciliation may reach a dispatcher retired by a journal failure.
   if (generation === undefined) return Promise.reject(new Error('Effect dispatcher is retired'));
-  const handle: EffectHandle = { generation, [handleBrand]: true };
+  const handle = { generation } as EffectHandle;
   const key = naturalKey(generation);
   const controller = new AbortController();
   // The microtask cannot execute run until its rejecting promise is installed.
@@ -40,9 +40,6 @@ export function launchEffect(control: Control, active: Map<string, ActiveEffect>
 export async function settleEffect(control: Control, handle: EffectHandle, initial: unknown,
   execute: (input: unknown) => Promise<CommitResult>, failure: () => Promise<unknown> | unknown,
   classifyError: (error: unknown) => Outcome): Promise<CommitResult> {
-  // DEFENSE: Recovery previously omitted its handle at this unchecked JavaScript boundary;
-  // reject that omission before submitting any journal callback.
-  if (handle?.[handleBrand] !== true) throw new TypeError('Effect settlement requires its registered running handle');
   let input = initial;
   for (;;) {
     let result: CommitResult | undefined;

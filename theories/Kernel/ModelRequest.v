@@ -11,9 +11,9 @@ Definition failed_result (error : bool) (value : json) :=
 Inductive lease := NoLease | Lease (effort : string) (remaining : N).
 Definition lease_step (owner : N) (previous : lease) (message : message) :=
  match message with
- | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
+ | ReasoningRecord actual effort remaining => if N.eqb owner actual then Lease effort remaining else NoLease
  | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
- | FailureMessage _ | ContextReplacement _ => NoLease
+ | FailureMessage _ | ContextReplacement _ | SettingsMessage _ _ _ => NoLease
  | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
    if failed_result error value then NoLease else previous
  | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous
@@ -38,13 +38,9 @@ Definition next (owner : N) (task : task) :=
  end.
 Definition last_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage effort => Some effort | _ => previous end) history None.
-Definition trailing_configuration (history : list message) :=
- fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage _ => true
- | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
- | ApprovalReceipt _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
- | _ => false end) history false.
+ | ReasoningConfigurationMessage effort => Some effort
+ | ContextReplacement _ | SettingsMessage _ _ _ => None
+ | _ => previous end) history None.
 Definition generation_messages (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in
  let emit := match profile_policy (task_current_profile task) with
@@ -52,10 +48,9 @@ Definition generation_messages (owner : N) (model : profile) (remaining : N) (ta
    | RequestEffort => false | ConfigurationUpdates =>
      match last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous effort) end end
  | FixedReasoning => false end in
- (if emit && trailing_configuration (task_history task) then
-   [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."] else []) ++
- [ReasoningRecord owner effort (N.pred remaining) true] ++
- (if emit then [ReasoningConfigurationMessage effort] else []).
+ (* The control item precedes this generation's ordinary provider input. *)
+ (if emit then [ReasoningConfigurationMessage effort] else []) ++
+ [ReasoningRecord owner effort (N.pred remaining)].
 Definition generation owner model remaining source :=
  append_history (generation_messages owner model remaining source) source.
 

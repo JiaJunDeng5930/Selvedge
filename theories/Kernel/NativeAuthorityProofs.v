@@ -72,14 +72,14 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
  settings_approval (task_current_settings task) = FullAccess ->
  decision_world (CommandResult.decide value (Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) origin id count messages options value)) =
    Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
-     (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value.
+     (Tasks.AcceptedNativeFork invocation remaining) invocation value.
 Proof.
  intros invocation origin id count messages options value task selected selection remaining operations
    Found Available Pending Count Messages Capacity Resolved Fixed Observed Full.
  rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending, Available.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
- destruct (allocate_ticket value); reflexivity.
+ reflexivity.
 Qed.
 
 (* No catalog-membership premise is needed: the actual authorization request
@@ -95,9 +95,9 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id value) =
  [RequestApproval id (world_next_ticket value) reviewer invocation
-   (TaskWake.promote (TicketedRequest.append_operation
+   (TaskWake.promote (TaskChange.apply (TicketedRequest.opening_changes
      (Operation (world_next_ticket value) invocation false
-       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
+       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining) task))].
 Proof.
  intros id tool invocation remaining task value reviewer Found ExecuteAllowed Ready Known Room Bash Elevated Policy.
  destruct (starting_selects_the_current_call id value task tool invocation remaining
@@ -120,7 +120,8 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute id
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (TicketedRequest.publish_operations (TaskWake.promote task))].
+ decision_effects result = [ObserveContext id (world_next_ticket value)
+   (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task))].
 Proof.
  intros execute id task value operations Found ObserveAllowed Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
@@ -201,11 +202,11 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
  accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset))
    (seq 0 (N.to_nat count))))])
    (Tasks.fork_children (N.to_nat count) id task messages (Tasks.fork_selected task value selection)
-     (Tasks.AcceptedNativeFork invocation remaining) (next_task value) invocation value) [].
+     (Tasks.AcceptedNativeFork invocation remaining) invocation value) [].
 Proof.
  intros invocation remaining origin id count messages options value task selected selection
    Found Available Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
  rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found, Available, Eligible, Count, Messages, Capacity, Resolved, Fixed.
  cbn [andb]. rewrite Delegated, Observed. cbn [negb andb].
- destruct (allocate_ticket value); reflexivity.
+ reflexivity.
 Qed.

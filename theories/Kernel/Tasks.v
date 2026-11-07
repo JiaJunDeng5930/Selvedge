@@ -184,35 +184,28 @@ Definition unknown_operations (operations : list operation) :=
  map (History.interrupted_result "outcome_unknown"
  "The external operation may already have run. Its side effects cannot be inferred or undone; it will not be repeated automatically.") operations.
 Inductive control := Freeze | Unfreeze | Stop | Interrupt | Archive.
-Definition control_transition (command : control) (current : lifecycle) : option lifecycle :=
+Definition control_available (command : control) (current : lifecycle) : bool :=
  match command, current with
- | Freeze, Running phase operations => Some (Frozen phase operations)
- | Unfreeze, Frozen phase operations => Some (Running phase operations)
- | Stop, Running phase operations => Some (Stopped phase operations)
- | Interrupt, Archived _ | Archive, Archived _ => None
- | Interrupt, _ => Some (Stopped Idle [])
- | Archive, _ => Some (Archived [])
- | _,_ => None end.
-Definition control_target (command : control) (value : task) := control_transition command (task_lifecycle value).
+ | _, Archived _ => false
+ | Freeze, Running _ _ | Unfreeze, Frozen _ _ | Stop, Running _ _ => true
+ | Interrupt, _ | Archive, _ => true
+ | _,_ => false end.
 Definition control_name (value : control) := match value with Freeze => "freeze" | Unfreeze => "unfreeze"
  | Stop => "stop" | Interrupt => "interrupt" | Archive => "archive" end.
 Definition available_controls (value : lifecycle) := fold_right (fun request rest =>
- match control_transition request value with Some _ => JString (control_name request) :: rest | None => rest end)
+ if control_available request value then JString (control_name request) :: rest else rest)
  [] [Freeze;Unfreeze;Stop;Interrupt;Archive].
 Definition control_changes (command : control) (task : task) : list TaskChange.edit :=
- match control_target command task with
- | None => []
- | Some _ => match command with
-   | Freeze => [TaskChange.ChangeStatus TaskChange.FrozenStatus]
-   | Unfreeze => [TaskChange.ChangeStatus TaskChange.RunningStatus]
-   | Stop => [TaskChange.ChangeStatus TaskChange.StoppedStatus]
-   | Interrupt => [TaskChange.AppendHistory
-       (unknown_operations (task_operations task) ++ History.interrupted_phase (task_activity task));
-       TaskChange.ChangeStatus TaskChange.StoppedStatus; TaskChange.ChangePhase Idle; TaskChange.ClearOperations]
-   | Archive => [TaskChange.AppendHistory
-       (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task));
-       TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
-   end
+ match command with
+ | Freeze => [TaskChange.ChangeStatus TaskChange.FrozenStatus]
+ | Unfreeze => [TaskChange.ChangeStatus TaskChange.RunningStatus]
+ | Stop => [TaskChange.ChangeStatus TaskChange.StoppedStatus]
+ | Interrupt => [TaskChange.AppendHistory
+     (unknown_operations (task_operations task) ++ History.interrupted_phase (task_activity task));
+     TaskChange.ChangeStatus TaskChange.StoppedStatus; TaskChange.ChangePhase Idle; TaskChange.ClearOperations]
+ | Archive => [TaskChange.AppendHistory
+     (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task));
+     TaskChange.ChangeStatus TaskChange.ArchivedStatus; TaskChange.ClearOperations]
  end.
 Definition control_effects (id : N) (command : control) :=
  match command with
@@ -246,7 +239,7 @@ Definition input_effects (mode : input_mode) (id : N) (task : task) :=
 Definition receive_input {before : world} (reference : TaskScope.task_reference before)
  (_ : input_admission reference) (mode : input_mode) (contents : content) :=
  let current := TaskScope.selected reference in
- CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+ CommandResult.Change JNull
    (TaskChange.interpret (TaskChange.Plan before reference (input_changes mode contents current)))
    (input_effects mode (TaskScope.owner reference) current).
 Definition input_result (mode : input_mode) (id : N) (contents : content) (before : world) :=
@@ -279,16 +272,16 @@ Definition admit_control (command : control) {before : world} (target : TaskScop
 Definition perform_control (command : control) {before : world} (reference : TaskScope.task_reference before)
  (_ : control_admission command reference) :=
  let current := TaskScope.selected reference in
- CommandResult.Change (JObject [("task_id",number (TaskScope.owner reference))])
+ CommandResult.Change JNull
    (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
    (control_effects (TaskScope.owner reference) command).
 Definition control_result (id : N) (command : control) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"
- | Some target => match control_target command (TaskScope.selected target) with
-   | None => CommandResult.refuse "invalid_transition" "This lifecycle control is unavailable for the task"
-   | Some _ => CommandResult.map (perform_control command target) (admit_control command target)
-   end end.
+ | Some target => if control_available command (task_lifecycle (TaskScope.selected target)) then
+     CommandResult.map (perform_control command target) (admit_control command target)
+   else CommandResult.refuse "invalid_transition" "This lifecycle control is unavailable for the task"
+ end.
 Definition control_command (id : N) (command : control) (value : world) :=
  CommandResult.decide value (control_result id command value).
 Definition cancel_operation (id operation_id : N) (value : world) :=
@@ -301,7 +294,7 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
      let changes := [TaskChange.Edit
        (TaskChange.update (TaskChange.RemoveOperation (Domain.operation_id operation)))
        (Some [History.cancelled_operation operation])] in
-     accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
+     accept JNull
       (TaskResult.interpret_result target (TaskResult.WakeDemand changes))
       (match operation_stage operation with
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]
@@ -375,12 +368,13 @@ Definition fork_child (owner parent_id : N) (parent : task) (contents : option c
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
   (contract_max_fork (task_contract parent)) (contract_max_descendants (task_contract parent))
   (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
+ let history := fork_child_history owner parent_id parent settings side in
  Task contract chosen settings
  (Running (match contents with Some _ => WantsModel | None => Idle end) [])
- (fork_child_history owner parent_id parent settings side ++ optional_input contents) []
+ (history ++ optional_input contents) []
  (parent_id :: task_lineage parent)
  (if side then Some parent_id else None)
- (if side then N.of_nat (List.length (fork_child_history owner parent_id parent settings side)) else 0) 0.
+ (if side then N.of_nat (List.length history) else 0) 0.
 Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation : call) (child : task) :=
  let child := with_history (History.fork_receipt_history
    (ForkReceipt owner invocation (N.succ (owner-start)%N)) (task_history child)) child in
@@ -401,9 +395,10 @@ Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages :
    constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
  end.
 Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+ (settings : task_settings) (entry : fork_entry) (invocation : call) (value : world) : world :=
+ let start := next_task value in
  with_tasks (world_tasks value ++
-   constructed_children count id parent messages settings entry start (next_task value) invocation) value.
+   constructed_children count id parent messages settings entry start start invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
@@ -488,18 +483,18 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id : 
       if match entry with ManualFork => false | AcceptedNativeFork _ _ =>
         negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) end then
        CommandResult.Rejected (start_refusal NativeForkEntry AuthorityExpansion) else
-      let '(ticket, allocated) := allocate_ticket value in
-      let invocation := match entry with
-       | AcceptedNativeFork invocation _ => invocation
-       | ManualFork => Call (manual_fork_identity ticket task) "fork_task"
-         (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt end in
-      let retained := match entry with ManualFork =>
-        with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
-          [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel]))
-        | _ => value end in
+      let '(invocation,retained) := match entry with
+       | AcceptedNativeFork invocation _ => (invocation,value)
+       | ManualFork =>
+         let '(ticket, allocated) := allocate_identity TaskTicket value in
+         let invocation := Call (manual_fork_identity ticket task) "fork_task"
+           (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt in
+         (invocation,with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
+           [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel])))
+       end in
       let children := fork_children (N.to_nat count) id
         (match entry with ManualFork => append_history [FunctionCall invocation] task | _ => task end)
-        messages selected entry (next_task value) invocation retained in
+        messages selected entry invocation retained in
       CommandResult.Accepted (CommandResult.Change (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children [])
       end
     end)
@@ -514,13 +509,11 @@ Definition open_side (id : N) (contents : content) (value : world) :=
      CommandResult.refuse "side_unavailable" "Archived tasks cannot create a side conversation"
    else if ancestors_fit (id :: task_lineage task) 1 value then
      CommandResult.map (fun _ =>
-       CommandResult.Change (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
+       CommandResult.Change (JObject [("task_id", number (next_task value))])
          (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) [])
        (admit_input reference)
    else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
  end).
-(* The wire approval DTO names its reviewer. An explicit selection can replace
-   the frozen profile behind that same key, so wire equality is insufficient. *)
 Definition execution_reasoning (effort : option string) (current : profile) :=
  match effort with
  | Some value => if String.eqb value "default" then Some (with_reasoning (profile_default current) current)
@@ -538,36 +531,35 @@ Definition configure_execution (id : N)
    let model := match name with
     | None => Some (task_current_profile task)
     | Some name => find_profile name (environment_profiles (world_environment value)) end in
-   (* Reviewer selection precedes model, reasoning and busy failures. Omitted
-      fields retain the captured settings rather than re-resolving defaults. *)
-   let reviewer_model := match model with Some selected => selected
-     | None => task_current_profile task end in
-   match match approval_source with
-    | None => Some (settings_approval current)
-    | Some source => approval_of_values reviewer_model (environment_profiles (world_environment value)) source end with
-   | None => refuse_start Configuration InvalidPolicy value
-   | Some approval => match model with
-     | None => refuse_start Configuration UnknownProfile value
-     | Some profile => match execution_reasoning reasoning profile with
+   match model with
+   | None => refuse_start Configuration UnknownProfile value
+   | Some profile =>
+     (* Omitted fields retain the captured settings rather than re-resolving defaults. *)
+     match match approval_source with
+      | None => Some (settings_approval current)
+      | Some source => approval_of_values profile (environment_profiles (world_environment value)) source end with
+     | None => refuse_start Configuration InvalidPolicy value
+     | Some approval => match execution_reasoning reasoning profile with
        | None => refuse_start Configuration InvalidReasoning value
        | Some chosen =>
            let sandbox := match sandbox_source with
              | None => settings_sandbox current
              | Some source => sandbox_patch_of_values (settings_sandbox current) source end in
-           if quiescent task && negb (String.eqb (task_status task) "archived") &&
-            (match History.history_lease id (task_history task) with History.NoLease => true | _ => false end) then
+           if quiescent task && negb (String.eqb (task_status task) "archived") then
            let settings := WorkspaceBinding.normalize_settings
             (Settings (settings_workspace current) (settings_project current) sandbox approval
               (settings_guidance current) (settings_worktree current) (settings_resource current)) value in
+           (* The wire approval DTO names its reviewer. An explicit selection can replace
+              the frozen profile behind that same key, so wire equality is insufficient. *)
            let same := Domain.same_profile chosen (task_current_profile task) &&
              Json.equal (settings_json settings) (settings_json current) &&
              same_approval (settings_approval settings) (settings_approval current) in
            let receipt := if same then None else
              Some [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] in
-           accept (JObject [("task_id", number id)])
+           accept JNull
             (TaskChange.configure target chosen settings receipt)
             (if same then [] else [ResetModelSession id])
-           else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
+           else reject "task_busy" "Execution settings require a quiescent unarchived task" value
        end
      end
    end

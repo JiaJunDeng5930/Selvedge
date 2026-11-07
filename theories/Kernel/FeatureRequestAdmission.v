@@ -77,25 +77,25 @@ Definition resolve_connection identity project (request : ChatgptArguments.reque
  : CommandResult.result (connection_resolution before identity project (ChatgptArguments.request_text request)) :=
  let request := ChatgptArguments.request_text request in
  observe (connection_authority identity project (sharing_registry before)) (fun grant Authority =>
- observe (connection_project project before) (fun target Project =>
- CommandResult.require (connection_has_primary target) (fun Primary =>
  observe (connection_retry identity request (sharing_registry before)) (fun pair _ =>
    let '(id,job) := pair in
-   if N.eqb identity (F.job_connection job) && N.eqb project (F.job_project job) &&
+   if N.eqb project (F.job_project job) &&
       Json.equal (ChatgptArguments.encode arguments) (F.job_arguments_json job)
    then CommandResult.Accepted (ExistingConnection id job)
    else CommandResult.refuse "request_conflict" "This request_id already names a different command; do not retry with new arguments")
  (fun Retry =>
-   (* DEFENSE: Only a new physical execution needs an available managed root;
-      replaying its retained receipt must remain possible while archiving. *)
+   (* DEFENSE: A Project can be removed, emptied or its managed root archived
+      after an earlier job. Only a new execution needs the current context. *)
+   observe (connection_project project before) (fun target Project =>
+   CommandResult.require (connection_has_primary target) (fun Primary =>
    CommandResult.require (connection_workspace target before) (fun Workspace =>
    CommandResult.require (connection_capacity before) (fun Capacity =>
      CommandResult.Accepted (NewConnection (ResolvedConnection before identity project request
        arguments grant target Authority Project Primary Retry Workspace Capacity)))
    "operation_capacity" "Forget a completed operation before starting more work")
-   "worktree_unavailable" "The Project workspace belongs to an unavailable managed worktree"))
- "empty_workspace" "The project needs a primary Workspace root")
- (fun _ => CommandResult.refuse "project_not_found" "The project is unavailable"))
+   "worktree_unavailable" "The Project workspace belongs to an unavailable managed worktree")
+   "empty_workspace" "The project needs a primary Workspace root")
+   (fun _ => CommandResult.refuse "project_not_found" "The project is unavailable")))
  (fun _ => CommandResult.refuse "project_forbidden" "This connection has no grant for that project").
 
 Definition title_entry (owner : N) (before : world) :=

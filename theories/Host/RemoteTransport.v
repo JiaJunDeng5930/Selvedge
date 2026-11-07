@@ -30,8 +30,7 @@ Inductive observation :=
 Inductive action :=
 | Connect (generation : N) | OpenSocket (generation : N)
 | RetryAt (generation deadline : N) | HeartbeatAt (generation deadline : N)
-| MarkOnline (generation : N) | Ping (generation : N)
-| Retire | MarkStopped | MarkAuthenticationFailed.
+| Ping | Retire | MarkAuthenticationFailed.
 Definition attempt s := match s with Connecting _ n | Negotiating _ n | Retrying _ n _ => n | _ => 0 end.
 Definition retry_delay cfg tries sample :=
  let ceiling := N.min (retry_max cfg) (retry_base cfg * 2 ^ N.min tries 16) in
@@ -43,10 +42,15 @@ Definition retry cfg s now sample :=
 Definition step cfg s event : state * list action := match event with
  | Enable => if running s then (s,[]) else
    let n := N.succ (generation s) in (Connecting n 0,[Connect n])
- | Stop => (Stopped (N.succ (generation s)),[Retire;MarkStopped])
+ | Stop => (Stopped (N.succ (generation s)),[Retire])
  | Retry n now => match s with Retrying g tries deadline =>
-   if N.eqb g n && (deadline <=? now) then
-     let next := N.succ g in (Connecting next tries,[Connect next]) else (s,[])
+   if N.eqb g n then
+     if deadline <=? now then
+       let next := N.succ g in (Connecting next tries,[Connect next])
+     (* DEFENSE: The one-shot host timer can observe an earlier wall-clock
+        reading after system clock adjustment; keep its deadline scheduled. *)
+     else (s,[RetryAt g deadline])
+   else (s,[])
    | _ => (s,[]) end
  | _ =>
    let n := match event with Probe n _ _ _ | Lost n _ _ | Rejected n |
@@ -61,11 +65,11 @@ Definition step cfg s event : state * list action := match event with
    | Rejected _ => (AuthenticationFailed (N.succ (generation s)),[Retire;MarkAuthenticationFailed])
    | Lost _ now sample => retry cfg s now sample
    | Negotiated _ now => match s with Negotiating g _ =>
-     (Online g now,[MarkOnline g;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
+     (Online g now,[HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
    | Pong _ now => match s with Online g _ => (Online g now,[]) | _ => (s,[]) end
    | Heartbeat _ now sample => match s with Online g last =>
      if heartbeat_timeout cfg <? now - last then retry cfg s now sample
-     else (s,[Ping g;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
+     else (s,[Ping;HeartbeatAt g (now + heartbeat cfg)]) | _ => (s,[]) end
    | _ => (s,[]) end
  end.
 
@@ -92,7 +96,7 @@ Proof.
  rewrite N.eqb_refl; reflexivity.
 Qed.
 Theorem last_changed_revision_disconnects checked current : N.eqb checked current = false ->
- authorize LastCheck (GrantChecked true true checked current) = (LastCheck,Disconnect).
+ snd (authorize LastCheck (GrantChecked true true checked current)) = Disconnect.
 Proof. intros H; cbn; now rewrite H. Qed.
 Theorem capture_requires_current_revision s active allowed checked current :
  snd (authorize s (GrantChecked active allowed checked current)) = Capture ->

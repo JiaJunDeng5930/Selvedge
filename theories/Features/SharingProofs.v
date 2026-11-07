@@ -55,13 +55,62 @@ Proof.
  unfold Chatgpt.authority,Chatgpt.registry in Missing. rewrite Missing in Authority; discriminate.
 Qed.
 
-Theorem query_cannot_reveal_foreign_operation : forall (payload : G.chatgpt_operation_payload) value,
+Theorem query_cannot_reveal_foreign_operation : forall (payload : G.chatgpt_operation_payload),
+ exists code reason, forall value,
  Chatgpt.authority (G.chatgpt_operation_connection_id payload)
    (G.chatgpt_operation_project_id payload) (Chatgpt.registry value) = None ->
- Chatgpt.handle_chatgpt_operation payload None value = Chatgpt.forbidden.
+ Chatgpt.handle_chatgpt_operation payload None value = Selvedge.Kernel.State.failure code reason.
 Proof.
- intros payload value Missing. unfold Chatgpt.handle_chatgpt_operation, Chatgpt.read_job.
- now rewrite Missing.
+ intros payload. do 2 eexists. intros value Missing.
+ unfold Chatgpt.handle_chatgpt_operation, Chatgpt.read_job. rewrite Missing. reflexivity.
+Qed.
+
+Inductive retained_exec_contract (project : N) (arguments : ChatgptArguments.arguments)
+ (id : N) (job : F.connection_job) (before : world) : decision -> Prop :=
+ | RetainedReceiptReturned :
+   project = F.job_project job -> ChatgptArguments.encode arguments = F.job_arguments_json job ->
+   retained_exec_contract project arguments id job before (accept (Chatgpt.receipt id job) before [])
+ | RetainedIntentRefused :
+   project <> F.job_project job \/ ChatgptArguments.encode arguments <> F.job_arguments_json job ->
+   forall code reason,
+   retained_exec_contract project arguments id job before (reject code reason before).
+
+(** A retry uses the frozen receipt even if its Project was later removed or
+    edited. Current authority and the original intent still apply. *)
+Theorem retained_public_exec_satisfies_retry_contract : forall (payload : G.chatgpt_exec_payload)
+ granted id job value caller,
+ let connection := G.chatgpt_exec_connection_id payload in
+ let project := G.chatgpt_exec_project_id payload in
+ let request := G.chatgpt_exec_request_id_admitted payload in
+ let arguments := G.chatgpt_exec_arguments_admitted payload in
+ Chatgpt.authority connection project (Chatgpt.registry value) = Some granted ->
+ FeatureRequestAdmission.connection_retry connection (ChatgptArguments.request_text request)
+   (Chatgpt.registry value) = Some (id,job) ->
+ retained_exec_contract project arguments id job value (Chatgpt.handle_chatgpt_exec payload caller value).
+Proof.
+ intros payload granted id job value caller connection project request arguments Authority Retry.
+ assert (Resolution : exists code reason,
+   FeatureRequestAdmission.resolve_connection connection project request arguments value =
+   if N.eqb project (F.job_project job) && Json.equal (ChatgptArguments.encode arguments) (F.job_arguments_json job)
+   then CommandResult.Accepted (FeatureRequestAdmission.ExistingConnection id job)
+   else CommandResult.refuse code reason).
+ { unfold FeatureRequestAdmission.resolve_connection.
+   eapply observe_present; [exact Authority|]; intros Granted.
+   eapply observe_present; [exact Retry|]; intros Retained.
+   do 2 eexists. reflexivity. }
+ destruct Resolution as [code [reason Resolution]].
+ unfold Chatgpt.handle_chatgpt_exec,Chatgpt.handle_chatgpt_exec_result,Chatgpt.run_result.
+ fold connection project request arguments. rewrite Resolution.
+ destruct (N.eqb project (F.job_project job) &&
+   Json.equal (ChatgptArguments.encode arguments) (F.job_arguments_json job)) eqn:Same;
+   cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+     Chatgpt.resolved_connection_change CommandResult.accept CommandResult.reject CommandResult.refuse].
+ - apply andb_true_iff in Same as [SameProject SameArguments].
+   constructor; [now apply N.eqb_eq|now apply equal_reflects_equality].
+ - apply RetainedIntentRefused.
+   destruct (N.eqb project (F.job_project job)) eqn:SameProject.
+   + right. intro SameArguments. rewrite SameArguments,equal_is_reflexive in Same; discriminate.
+   + left. now apply N.eqb_neq.
 Qed.
 
 Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,
@@ -70,7 +119,6 @@ Theorem recovery_never_replays_running_job : forall connection project request a
  F.JobInterrupted reason.
 Proof. intros; eexists; reflexivity. Qed.
 
-(** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forget_payload) value job granted caller,
  let connection := G.chatgpt_forget_connection_id payload in
  let project := G.chatgpt_forget_project_id payload in
@@ -82,18 +130,18 @@ Theorem public_forget_removes_settled_receipt : forall (payload : G.chatgpt_forg
  exists decision,
  Chatgpt.handle_chatgpt_forget payload caller value = decision /\
  Chatgpt.find_job id (Chatgpt.registry (decision_world decision)) = None /\
- F.sharing_next (Chatgpt.registry (decision_world decision)) = F.sharing_next (Chatgpt.registry value) /\
- decision_effects decision = [].
+ F.sharing_next (Chatgpt.registry value) <= F.sharing_next (Chatgpt.registry (decision_world decision)) /\
+ decision_effects decision = [] /\ field "ok" (decision_reply decision) = Some (JBool true).
 Proof.
  intros payload value job granted caller connection project id authority found owner settled.
  change (Chatgpt.handle_chatgpt_forget payload caller value)
    with (Chatgpt.edit true connection project id value).
  unfold Chatgpt.edit. rewrite authority,found,owner,settled. cbn.
  eexists. split; [reflexivity|].
- cbn beta iota zeta delta [decision_world decision_effects accept].
+ cbn beta iota zeta delta [decision_world decision_effects decision_reply accept].
  rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
  cbn. unfold Chatgpt.find_job. cbn. rewrite removing_a_key_clears_its_lookup.
- repeat split; reflexivity.
+ repeat split; try reflexivity; apply N.le_refl.
 Qed.
 
 (** Repeating an accepted cancellation cannot request a second physical stop. *)

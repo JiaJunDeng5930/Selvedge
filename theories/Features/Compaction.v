@@ -23,10 +23,10 @@ Definition find_entry (id : N) (value : Selvedge.Features.CompactionTypes.state)
 Definition current_entry (id : N) (value : Selvedge.Features.CompactionTypes.state) := match find_entry id value with Some entry => entry | None => empty_entry end.
 Definition with_entry (id : N) (entry : entry) (value : Selvedge.Features.CompactionTypes.state) :=
  Receiver.install (Receiver.path (R.compaction_entries id value)) entry value.
-Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
- Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
+Definition acknowledged (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
+ Selvedge.Kernel.State.accept JNull value effects.
 Definition commit_change (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
- CommandResult.Change (JObject [("accepted", JBool true)])
+ CommandResult.Change JNull
    (store (with_entry id entry (registry value)) value) (map Selvedge.Kernel.State.MaintainContext effects).
 Definition commit (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
  CommandResult.accept (commit_change id entry value effects).
@@ -47,7 +47,7 @@ Definition same_input (input : capture) (task : task) (value : Selvedge.Kernel.S
 Definition relevant (input : capture) (task : task) (value : Selvedge.Kernel.State.world) :=
  alive task && same_description input task value && ContextSelection.history_extends (captured_history input) (task_history task).
 Definition useful (history : list message) := N.of_nat (List.length (filter (fun message => match message with
- | ContextReplacement _ | ReasoningRecord _ _ _ _ | FailureMessage _ => false | _ => true end) history)).
+ | ContextReplacement _ | ReasoningRecord _ _ _ | FailureMessage _ => false | _ => true end) history)).
 Definition job_pending (value : job) := match value with NoJob => false | _ => true end.
 Definition job_ticket (value : job) := match value with
  | AwaitingContext ticket _ _ | Preparing (RequestEnvelope.Envelope ticket _) | Compacting (RequestEnvelope.Envelope ticket _) | Validating (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
@@ -108,7 +108,7 @@ Definition resume (job : job) := match job with
  | NoJob | AwaitingContext _ _ _ => NoJob
  | WaitingForResource purpose => WaitingForResource purpose
  | Resuming input purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput input purpose _))
- | Compacting (RequestEnvelope.Envelope _ (CompactInput input purpose _ _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput input (Candidate purpose _ _) _)) => Resuming input purpose end.
+ | Compacting (RequestEnvelope.Envelope _ (CompactInput input purpose _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput input (Candidate purpose _ _) _)) => Resuming input purpose end.
 Definition recover_entry (entry : entry) := with_observation None
  (with_measurement Unmeasured (with_job (resume (entry_job entry)) entry)).
 Definition clear_entry (task : task) (entry : entry) :=
@@ -118,16 +118,16 @@ Definition cancel (id : N) (task : task) (entry : entry) (value : Selvedge.Kerne
  commit id (clear_entry task entry) value (cancellations id entry).
 Definition begin_scope (id : N) (input : capture) (purpose : option reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  run_request id (R.ScopeRequest input purpose entry) value.
-Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
+Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : reason)
  (progress : compaction_state) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let ticket := world_next_ticket value in
  let limit := Limits.frame_bytes / 4 in
- let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input target scope in
+ let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input scope in
  match Selvedge.Kernel.CompactionPlan.fit_transport progress available with
  | Some fitted =>
    if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
-     (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input target fitted scope))) <=? limit)
-   then run_request id (R.CompactRequest (CompactInput input purpose target fitted scope) entry) value
+     (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input fitted scope))) <=? limit)
+   then run_request id (R.CompactRequest (CompactInput input purpose fitted scope) entry) value
    else failed id task entry "The configured compaction request exceeds the transport budget" value
  | None => failed id task entry "Compaction history is not valid UTF-8" value end.
 Definition start (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
@@ -144,7 +144,7 @@ Definition start (id : N) (task : task) (input : capture) (purpose : reason) (ta
    (JArray (ContextSelection.dialogue (ContextSelection.raw_messages messages)))
    (profile_provider (captured_profile input)) (target_method target) tokens
    (window_tokens (target_budget target)) (reserve_tokens (target_budget target)) with
- | Some progress => dispatch_compact id task input purpose target progress scope entry value
+ | Some progress => dispatch_compact id task input purpose progress scope entry value
  | None => failed id task entry "Compaction history is not valid UTF-8" value end.
 Definition force_portable (id : N) (task : task) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  match configured_target task (registry value) with
@@ -163,7 +163,7 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
 Definition oversized_candidate (id : N) (task : task) (scope : string)
  (candidate : option artifact) (entry : entry) (message : string) (value : Selvedge.Kernel.State.world) :=
  match candidate with
- | Some (PortableArtifact _ _ _) => failed id task entry message value
+ | Some (PortableArtifact _ _) => failed id task entry message value
  | _ => force_portable id task scope entry value end.
 Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : R.inspection_purpose)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -193,7 +193,7 @@ Definition finish_validation (id : N) (task : task) (input : capture) (purpose :
  if relevant input task value && ContextSelection.consumes candidate scope then
  if same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) then
  if (tokens + reserve_tokens budget <=? window_tokens budget) &&
-    negb (match candidate with NativeArtifact _ _ _ _ _ =>
+    negb (match candidate with NativeArtifact _ _ _ _ =>
      policy_enabled (maintenance_policy (registry value)) &&
        (window_tokens budget * policy_blocking (maintenance_policy (registry value)) <=? tokens * 100)
      | _ => false end) then
@@ -277,7 +277,7 @@ Definition measurement_result (id ticket : N) (task : task) (outcome : inspectio
  | _ => receive_inspection entry_measurement Measuring measurement_finished (fun _ => R.MeterOnly) id ticket task outcome value end.
 Definition compacted_result (id : N) (task : task) (request : compaction_input)
  (result : json) (error : bool) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- let '(CompactInput input purpose target progress scope):=request in
+ let '(CompactInput input purpose progress scope):=request in
  if relevant input task value then
  if error then failed id task entry (match string_field "message" result with Some message => message
    | None => "The failed compaction outcome requires a message" end) value
@@ -285,7 +285,7 @@ Definition compacted_result (id : N) (task : task) (request : compaction_input)
  else match Selvedge.Kernel.CompactionPlan.receive progress result with
  | Selvedge.Kernel.CompactionPlan.Failed message => failed id task entry message value
  | Selvedge.Kernel.CompactionPlan.Compacted candidate => begin_validation id task input purpose candidate entry value
- | Selvedge.Kernel.CompactionPlan.Next progress => dispatch_compact id task input purpose target progress scope entry value end
+ | Selvedge.Kernel.CompactionPlan.Next progress => dispatch_compact id task input purpose progress scope entry value end
  else commit id (with_job NoJob entry) value [].
 Definition compact_result (id ticket : N) (task : task) (result : json) (error : bool)
  (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
@@ -297,12 +297,12 @@ Definition compact_result (id ticket : N) (task : task) (result : json) (error :
    else stopped_completion id task (Completion.Row.previous received) (Completion.Row.after received)
  | None => None end.
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
-Definition activity_result (id source now : N) (scope : string) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+Definition activity_result (id source now : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if source <=? N.of_nat (List.length (task_history task)) then
  let deadline := match configured_target task (registry value) with
  | Some target => if N.eqb (target_cache_ttl target) 0 then 0 else now + target_cache_ttl target | None => 0 end in
- let entry := set entry_last_activity (fun _ => now) (set entry_cache_deadline (fun _ => deadline)
-   (set entry_cache_scope (fun _ => scope) (set entry_cache_history (fun _ => firstn (N.to_nat source) (task_history task)) entry))) in
+ let entry := set entry_cache_deadline (fun _ => deadline)
+   (set entry_cache_history (fun _ => firstn (N.to_nat source) (task_history task)) entry) in
  Some (commit id entry (store (with_now now (registry value)) value) [])
  else None.
 Definition resolve_task_completion (id : N) (completion : completion) (value : Selvedge.Kernel.State.world) :=
@@ -310,7 +310,7 @@ Definition resolve_task_completion (id : N) (completion : completion) (value : S
  | None => None
  | Some task => let entry := current_entry id (registry value) in
    match completion with
-   | Activity _ source now scope => activity_result id source now scope task entry value
+   | Activity _ source now => activity_result id source now task entry value
    | MeasuredInput _ ticket outcome => measurement_result id ticket task outcome value
    | Completed _ ticket result error => compact_result id ticket task result error value
    | _ => None end
@@ -329,14 +329,14 @@ Definition resolve (completion : completion) (value : Selvedge.Kernel.State.worl
  match completion with
  | Configure policy now =>
    let before := registry value in
-   Some (acknowledged true (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
+   Some (acknowledged (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
        (maintenance_entries before)) (N.max now (maintenance_now before)) 0) (recover_context_tasks before value))
      (map Selvedge.Kernel.State.MaintainContext (pending_cancellations before)))
- | Clock now => Some (acknowledged true (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
- | Activity id _ _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
+ | Clock now => Some (acknowledged (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
+ | Activity id _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
 
 Definition validating (job : job) := match job with
- | WaitingForResource _ | AwaitingContext _ _ _ | Preparing _ | Validating _ | Resuming _ Manual | Compacting (RequestEnvelope.Envelope _ (CompactInput _ Manual _ _ _)) => true
+ | WaitingForResource _ | AwaitingContext _ _ _ | Preparing _ | Validating _ | Resuming _ Manual | Compacting (RequestEnvelope.Envelope _ (CompactInput _ Manual _ _)) => true
  | _ => false end.
 Definition pending_measurement (measurement : measurement) := match measurement with Measuring _ => true | _ => false end.
 Definition blocked (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -365,13 +365,13 @@ Definition idle_due (task : task) (entry : entry) (state : Selvedge.Features.Com
  ContextSelection.closed_prefix (task_history task) && (0 <? entry_cache_deadline entry) &&
  (entry_cache_deadline entry - policy_idle_lead (maintenance_policy state) <=? maintenance_now state) &&
  ContextSelection.history_extends (entry_cache_history entry) (task_history task).
-Definition synchronized_entry (task : task) (entry : entry) (state : Selvedge.Features.CompactionTypes.state) :=
+Definition synchronized_entry (task : task) (entry : entry) :=
  if entry_useful entry <? useful (task_history task) then
- set entry_useful (fun _ => useful (task_history task)) (set entry_last_activity (fun _ => maintenance_now state) entry)
+ set entry_useful (fun _ => useful (task_history task)) entry
  else entry.
 Definition resource_wait_purpose (value : job) := match value with
  | WaitingForResource purpose | AwaitingContext _ purpose _ => purpose
- | Resuming _ purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput _ purpose _)) | Compacting (RequestEnvelope.Envelope _ (CompactInput _ purpose _ _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput _ (Candidate purpose _ _) _)) => Some purpose
+ | Resuming _ purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput _ purpose _)) | Compacting (RequestEnvelope.Envelope _ (CompactInput _ purpose _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput _ (Candidate purpose _ _) _)) => Some purpose
  | NoJob => None end.
 Definition release_context_receiver (entry : entry) (task : task) :=
  match entry_job entry, task_activity task with
@@ -385,7 +385,7 @@ Definition wait_for_resource (id : N) (task : task) (entry : entry) (value : Sel
 Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  let state := registry value in
  let previous := find_entry id state in
- let entry := synchronized_entry task (match previous with Some entry => entry | None => empty_entry end) state in
+ let entry := synchronized_entry task (match previous with Some entry => entry | None => empty_entry end) in
  if negb (alive task) then match previous with Some _ => Some (cancel id task entry value) | None => None end
  else if negb (TicketedRequest.Scoped.resources_available task value) then
    match previous, enabled_target task state with
@@ -512,7 +512,7 @@ Definition recover (value : Selvedge.Kernel.State.world) :=
    process restart still uses [recover], since the new process has no running
    handles for its old requests. Recovery does not confirm remote cancellation. *)
 Definition reconfigure (value : Selvedge.Kernel.State.world) :=
- acknowledged true (recover value)
+ acknowledged (recover value)
    (map Selvedge.Kernel.State.MaintainContext (pending_cancellations (registry value))).
 Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
@@ -527,9 +527,9 @@ Definition supplied_change (id : N) (task : task) (summary : Compaction.summary)
 Definition manual_change {value} (target : TaskScope.task_reference value) :=
  let id := TaskScope.owner target in
  let entry := current_entry id (registry value) in
- let result := if job_pending (entry_job entry) then acknowledged false value []
+ let result := if job_pending (entry_job entry) then acknowledged value []
    else wait_for_context_selected target (Some Manual) entry in
- CommandResult.Change (JObject [("task_id", number id)]) (Selvedge.Kernel.State.decision_world result)
+ CommandResult.Change JNull (Selvedge.Kernel.State.decision_world result)
    ((map Selvedge.Kernel.State.MaintainContext (if job_pending (entry_job entry) then [] else cancellations id entry)) ++
      Selvedge.Kernel.State.decision_effects result)%list.
 Definition handle_compact_result (payload : Selvedge.Generated.Commands.compact_payload)
@@ -560,7 +560,7 @@ Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload
 
 Definition completion (event : Selvedge.Features.CompactionTypes.completion) (value : Selvedge.Kernel.State.world) :=
  (true,true,match resolve event value with
- | None => acknowledged false value [] | Some result => result end).
+ | None => acknowledged value [] | Some result => result end).
 Definition completion_inputs := List.map (InputRoute.map completion) Selvedge.Features.CompactionCodec.completion_inputs.
 Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  map (fun effect => match effect with

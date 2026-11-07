@@ -31,8 +31,8 @@ on loopback. Restart the server after changing its configuration or environment.
 
 The evaluator receives the original and current request, retained public notes,
 the frozen project context, and the last six tool calls paired with their results.
-Each call shares a 1,000-local-token result budget. Head/tail omissions are marked;
-the complete request is bounded by 28,000 local tokens and the native frame limit.
+The captured public history bounds its excerpts and marks omissions. The complete
+request is bounded by 28,000 local tokens and the native frame limit.
 The pinned `o200k_base` tokenizer is an estimate, not Jev's private tokenizer.
 Public task and tool content still leaves this computer for the chosen evaluator.
 
@@ -45,8 +45,10 @@ underlying model. Its only selectable reasoning setting is `auto`; the ordinary
 Astra profile remains available independently.
 
 The preset is ordinary profile data using the
-account's advertised effort levels, its default baseline, evaluator name `jev`,
-and `configuration_update` transport. It does not configure or authenticate Jev.
+account's advertised effort levels, its default baseline, and evaluator name `jev`.
+It uses `configuration_update` when the catalog advertises
+`supports_reasoning_effort_updates: true`; otherwise it uses `request_effort`.
+It does not configure or authenticate Jev.
 A manually configured profile under that auto key overrides the preset. The
 `/~auto` suffix cannot be an advertised model slug, so a provider's independent
 `gpt-6-astra-auto` model remains selectable alongside the generated preset. Like

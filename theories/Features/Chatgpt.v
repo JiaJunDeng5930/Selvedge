@@ -128,7 +128,7 @@ Definition edit (remove:bool) connection project id value :=
    | Some job=>if negb (owned connection project job) then Decision value missing_operation []
      else if remove then if pending job then reject "operation_running" "Cancel or finish the operation before forgetting it" value
        else let next:=set Selvedge.Features.Domain.sharing_jobs (filter (fun item=>negb (N.eqb id (fst item)))) (registry value) in
-       accept (JObject [("operation_id",number id)]) (store next value) []
+       accept JNull (store next value) []
      else if pending job then
        let stopped:=with_outcome (Selvedge.Features.Domain.JobInterrupted "Cancellation requested; physical changes are not undone") job in
        accept (receipt id stopped) (store (replace_job id stopped (registry value)) value) [CancelConnectionJob id]
@@ -163,7 +163,7 @@ Definition running (_ : unit) := Selvedge.Features.Domain.JobRunning.
 Definition settle id result error value :bool*bool*decision :=
  let '(accepted,next) := Completion.run (reception (world_features value) id) running Completion.AtAddress tt
    (fun _ => Completion.done (Selvedge.Features.Domain.JobFinished result error)) value in
- (accepted,accepted,accept (JObject [("accepted",JBool accepted)]) next []).
+ (accepted,accepted,accept JNull next []).
 Definition completion (received : Callback.decoded ModelDeclarations.ChatgptExec) value :=
  let '(existT _ ok (address,fields)) := received in
  settle (Schema.head address) (JObject (fst fields)) (negb ok) value.

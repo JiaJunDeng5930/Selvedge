@@ -41,11 +41,6 @@ export async function snapshotContextFile(filename, limits, { signal, filesystem
   catch (error) {
     // DEFENSE: Guidance files are optional and may be deleted between discovery and open.
     if (error.code === 'ENOENT') return null;
-    // DEFENSE: The shared descriptor reader reports physical snapshot failures;
-    // guidance retains its public context-specific diagnostics.
-    if (error.code === 'NOT_REGULAR') throw new Error('The path must resolve to a regular file');
-    if (error.code === 'TOO_LARGE') throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
-    if (error.code === 'CHANGED') throw new Error('File changed while being read; read it again');
     throw error;
   }
   return contextSnapshot(filename, snapshot.bytes);
@@ -54,10 +49,7 @@ export async function snapshotContextFile(filename, limits, { signal, filesystem
 function contextSnapshot(filename, bytes) {
   // DEFENSE: Guidance and skill files are externally editable; their content contract excludes NUL and invalid UTF-8.
   if (bytes.includes(0)) throw new Error('File contains NUL bytes; use a binary-aware tool');
-  let instructions;
-  // DEFENSE: TextDecoder rejects invalid UTF-8 in external instruction files rather than replacing bytes.
-  try { instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-  catch { throw new Error('File is not valid UTF-8'); }
+  const instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   return { path: filename, revision: createHash('sha256').update(bytes).digest('hex'), content: instructions };
 }
 

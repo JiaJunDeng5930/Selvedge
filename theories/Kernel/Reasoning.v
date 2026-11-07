@@ -18,7 +18,7 @@ Definition observe_scheduled_context (id : N) (value : world) :=
 Definition context_retry_wait (id : N) (current : task) (value : world) :=
  match task_lifecycle current with
  | Running (ObservingContext _ _) _ =>
-   accept (JObject [("accepted",JBool false)]) (put_task id (with_activity WantsModel current) value) []
+   accept JNull (put_task id (with_activity WantsModel current) value) []
  | _ => State.ignored value end.
 Definition context_retry (id : N) (value : world) :=
  match TaskScope.select id value with
@@ -43,7 +43,7 @@ Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
      (* DEFENSE: An external evaluator may return choices outside its frozen
         endpoint policy; that response must not start a model generation. *)
      if allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations
-     then let messages := [ReasoningRecord owner effort generations false] in
+     then let messages := [ReasoningRecord owner effort generations] in
        TaskChange.AppendHistory messages :: TaskChange.ChangePhase ReadyForModel ::
        TaskWake.promote_changes (with_activity ReadyForModel (append_history messages task))
      else failed_changes "the evaluator selected an unsupported effort or lease; no model request was sent" task
@@ -56,7 +56,7 @@ Definition sampling (model : profile) (requested : profile) :=
   ("request_effort",JString (match profile_policy requested with
   | AdaptivePolicy policy => match reasoning_transport_mode policy with ConfigurationUpdates => reasoning_baseline policy | RequestEffort => effective end
   | FixedReasoning => effective end))].
-Definition evaluator_history (_ : N) (task : task) := ReasoningView.history (task_history task).
+Definition evaluator_history (task : task) := ReasoningView.history (task_history task).
 
 (* Evaluators see the same committed project snapshot as the requested turn.
    Looking up a mutable Project here would change an already captured request. *)

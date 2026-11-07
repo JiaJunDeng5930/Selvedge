@@ -214,7 +214,6 @@ Record native_fork_step := NativeForkStep {
  native_fork_owner : N;
  native_fork_invocation : call;
  native_fork_remaining : list call;
- native_fork_tool : tool;
  native_fork_request : Commands.fork_payload
 }.
 Definition fork_dispatch_call (task : task) :=
@@ -240,7 +239,7 @@ Definition native_fork_ready (id : N) (task : task) (value : world) :=
        match call_admission definition invocation value, NativeTools.command id invocation with
        | None, Some (Commands.Cmd_fork request) =>
          if N.eqb id (Commands.fork_task_id request)
-         then Some (NativeForkStep id invocation remaining definition request) else None
+         then Some (NativeForkStep id invocation remaining request) else None
        | _,_ => None end
      else None
    | None => None end

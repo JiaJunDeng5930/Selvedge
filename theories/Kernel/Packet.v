@@ -52,7 +52,7 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | UserCommand command => execute_command command None value
  | Configure environment =>
    let result := Selvedge.Features.Runtime.reconfigure (with_environment environment value) in
-   Decision (decision_world result) (success (JObject [("configured",JBool true)])) (decision_effects result)
+   Decision (decision_world result) (success JNull) (decision_effects result)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)

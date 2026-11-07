@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json BoundedInteger.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Foundation Require Export Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -69,13 +70,7 @@ Fixpoint of_tuple (description : schema) : tuple description -> fields descripti
 Notation "'[!' '!]'" := tt.
 Notation "'[!' x ; .. ; y '!]'" := (x, .. (y, tt) ..).
 
-Fixpoint decode_list {A} (decode : json -> option A) (values : list json) : option (list A) :=
-  match values with
-  | [] => Some []
-  | value :: rest => match decode value, decode_list decode rest with
-    | Some value, Some rest => Some (value :: rest)
-    | _, _ => None end
-  end.
+Definition decode_list {A} (decode : json -> option A) := OptionList.traverse decode.
 Fixpoint decode_value (description : kind) : json -> option (denote description) :=
   match description as description return json -> option (denote description) with
   | KText => as_string

@@ -34,7 +34,7 @@ export class WebRequestStore {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(`task:${taskId}`);
-      const writes = boundary('web.reset_session', { rows, records, task_id: taskId });
+      const writes = boundary('web.reset_session', { rows, records });
       for (const write of writes) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
@@ -54,13 +54,12 @@ export class WebRequestStore {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
-      const selected = boundary('web.retire_existing', { rows, records, owner, ticket });
-      for (const write of selected) {
-        db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
+      const write = boundary('web.retire_existing', { rows, records, owner, ticket });
+      if (write !== null) {
+        db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.record.request_key);
       }
-      const record = selected[0]?.record;
       db.exec('COMMIT');
-      return record;
+      return write?.record;
     } finally { closeDatabase(db); }
   }
 
@@ -118,7 +117,7 @@ export class WebRequestStore {
   close() { this.db.close(); }
   latest(owner) {
     const records = this.db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
-    return boundary('web.store_latest', { records, owner });
+    return boundary('web.store_latest', { records });
   }
   find(key) { return this.db.prepare('SELECT * FROM requests WHERE request_key=?').get(key); }
 
@@ -146,19 +145,18 @@ export class WebRequestStore {
 
   identify(record, id) {
     const current = this.find(record.request_key);
-    const decision = boundary('web.store_identify', { record, current, id });
+    const { updates } = boundary('web.store_identify', { current, id });
     this.db.prepare('UPDATE requests SET response_id=?, rejected=? WHERE request_key=?')
-      .run(decision.updates.response_id, decision.updates.rejected, record.request_key);
-    Object.assign(record, decision.record);
+      .run(updates.response_id, updates.rejected, record.request_key);
+    Object.assign(record, updates);
   }
 
   finish(record, response) {
     const current = this.find(record.request_key);
-    const decision = boundary('web.store_finish', { record, current, response });
-    const write = decision.updates;
+    const { updates } = boundary('web.store_finish', { current, response });
     this.db.prepare('UPDATE requests SET response_id=?, response=?, rejected=? WHERE request_key=?')
-      .run(write.response_id, write.response, write.rejected, record.request_key);
-    Object.assign(record, decision.record);
+      .run(updates.response_id, updates.response, updates.rejected, record.request_key);
+    Object.assign(record, updates);
   }
 
   reject(record) {

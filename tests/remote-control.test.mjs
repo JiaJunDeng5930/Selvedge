@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -34,6 +34,7 @@ test('private identity publication and lost remote command receipts survive rest
   const registrations = [];
   let socket;
   let publishedGrants = [];
+  let lostReply;
   // This peer only delivers wire messages; grants and receipts come from the
   // production service and its actual SQLite journal.
   const relay = Bun.serve({ hostname: '127.0.0.1', port: 0,
@@ -56,6 +57,12 @@ test('private identity publication and lost remote command receipts survive rest
         if (frame.type === 'pairing') peer.send(JSON.stringify({ type: 'pair_request',
           request_id: pairing_id, controller_id, label: 'Local owner approved device' }));
         if (frame.type === 'ping') peer.send(JSON.stringify({ type: 'pong' }));
+        if (frame.type === 'response' && frame.response.id === 'lost') {
+          // The relay observes the committed response but loses it before
+          // controller delivery, using only the public wire boundary.
+          peer.terminate();
+          lostReply = frame.response.result.reply;
+        }
       },
     },
   });
@@ -67,7 +74,8 @@ test('private identity publication and lost remote command receipts survive rest
   assert.deepEqual(firstIdentity, secondIdentity);
   assert.deepEqual(registrations[0], registrations[1], 'Concurrent initializers register the same completed private identity');
   const filename = path.join(directory, 'remote-identity.json');
-  assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  assert.equal((await stat(filename)).mode & 0o477, 0o400,
+    'Published credentials must be owner-readable and deny group/other permissions');
   const identity = JSON.parse(await readFile(filename, 'utf8'));
   assert.equal(identity.host_id, firstIdentity.host_id);
   const config = { ...validateConfig({ ...defaultConfig, chatgpt: false }), remote: { relay_url: relayUrl } };
@@ -84,21 +92,11 @@ test('private identity publication and lost remote command receipts survive rest
   const request_id = randomUUID();
   const command = { op: 'create', profile: 'demo', message: 'Retain this remote command after reply loss.',
     settings: { workspace: { roots: [workspace], primary_root: workspace } } };
-  const committed = new Promise(resolve => {
-    const observe = decision => {
-      if (decision.input.kind !== 'remote_command' || decision.input.request_id !== request_id) return;
-      service.journal.off('commit', observe);
-      socket.terminate(); // Lose delivery after the actual command and receipt commit.
-      resolve(decision.reply);
-    };
-    service.journal.on('commit', observe);
-    t.after(() => service.journal.off('commit', observe));
-  });
   const connection = { connection_id: 'lost-reply', controller_id, grant_epoch: grant.grant_epoch };
   socket.send(JSON.stringify({ type: 'controller_open', ...connection }));
   socket.send(JSON.stringify({ type: 'request', ...connection,
     request: { id: 'lost', method: 'command', params: { request_id, command } } }));
-  const reply = await committed;
+  const reply = await until(() => lostReply);
   assert.equal(reply.ok, true, JSON.stringify(reply));
   await taskIdle(service, reply.result.task_id);
   await service.close();
@@ -115,5 +113,15 @@ test('private identity publication and lost remote command receipts survive rest
   await service.close();
   await unlink(filename);
   await promisify(execFile)('mkfifo', ['-m', '600', filename]);
-  await assert.rejects(provisionRemote(provision), { code: 'remote_identity_permissions' });
+  const existing = await lstat(filename, { bigint: true });
+  const registered = registrations.length;
+  await assert.rejects(provisionRemote(provision), error => {
+    assert.equal(String(error).includes(enrollmentToken), false, 'Refusal must not expose the enrollment credential');
+    return true;
+  });
+  const retained = await lstat(filename, { bigint: true });
+  assert.ok(retained.isFIFO(), 'Refusal must preserve the original non-regular identity path');
+  assert.equal(retained.dev, existing.dev);
+  assert.equal(retained.ino, existing.ino);
+  assert.equal(registrations.length, registered, 'An unusable existing identity must not cause another registration');
 });

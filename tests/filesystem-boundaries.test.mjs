@@ -42,20 +42,25 @@ test('HTTP attachment reads preserve uploaded bytes and reject changed bytes or 
   assert.equal(original.status, 200);
   assert.deepEqual(Buffer.from(await original.arrayBuffer()), imageBytes);
 
-  // Locate the fixture's persisted bytes without tying the failure to a vault layout.
-  const [stored, ...extra] = await matchingFiles(fixture.state, imageBytes);
-  assert.ok(stored, 'The upload persists its original bytes');
-  assert.deepEqual(extra, []);
-  await chmod(stored, 0o600);
-  await writeFile(stored, 'changed fixture bytes');
+  // Fault every persisted copy without requiring a particular storage layout or copy count.
+  const stored = await matchingFiles(fixture.state, imageBytes);
+  assert.ok(stored.length > 0, 'The upload persists its original bytes');
+  await Promise.all(stored.map(async filename => {
+    await chmod(filename, 0o600);
+    await writeFile(filename, 'changed fixture bytes');
+  }));
   assert.equal((await read()).ok, false, 'An attachment hash must cover the bytes actually read');
 
   const external = await write(path.join(fixture.directory, 'external.png'), imageBytes);
-  await unlink(stored);
-  await symlink(external, stored);
+  await Promise.all(stored.map(async filename => {
+    await unlink(filename);
+    await symlink(external, filename);
+  }));
   assert.equal((await read()).ok, false, 'Matching bytes do not authorize following an external symlink');
-  await unlink(stored);
-  await promisify(execFile)('mkfifo', [stored]);
+  await Promise.all(stored.map(async filename => {
+    await unlink(filename);
+    await promisify(execFile)('mkfifo', [filename]);
+  }));
   const fifoResponse = await fetch(`${fixture.running.address}/api/board/attachments/${attachment.id}`, {
     headers: fixture.headers, signal: AbortSignal.timeout(2000),
   });

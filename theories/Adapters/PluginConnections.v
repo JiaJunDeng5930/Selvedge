@@ -23,10 +23,7 @@ Definition valid_name name := match Utf8.decode name with Some (first::rest) =>
   ascii_letter first && forallb ascii_name rest && (N.of_nat (List.length rest) <=? 63) | _ => false end.
 Definition env_name name := match Utf8.decode name with Some (first::rest) =>
   (ascii_letter first || (first =? 95)) && forallb ascii_name rest | _ => false end.
-Definition uint32 := D.check G.identity_declaration.
 Definition identity_format := D.NaturalSpelling 0 (Some ChatgptArguments.identity_maximum).
-Fixpoint unique_values values := match values with
-  | [] => true | first::rest => negb (existsb (equal first) rest) && unique_values rest end.
 Definition default_sandbox := Domain.Sandbox Domain.WorkspaceWrite false.
 Definition default_value value fallback := match value with JNull => fallback | _ => value end.
 Definition connection_fields := [F.required "token_env" (D.Value Schema.KText);
@@ -71,8 +68,9 @@ Definition admit_configuration source : P.outcome Connections.t :=
    | None => P.reject "ChatGPT plugin connections must be an object with at most 32 entries" end
  | None => P.reject "Invalid ChatGPT plugin configuration" end.
 Definition connection_config source := P.render_outcome configuration_json (admit_configuration source).
-Definition connection_grants source := P.render_outcome (fun values =>
- JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values))) (admit_configuration source).
+Definition connection_grants source := success (JArray (map (fun '(identity,value) =>
+ JObject [("connection_id",JNumber identity);("project_ids",get value "project_ids");("sandbox",get value "sandbox")])
+ (object_fields (get source "connections")))).
 (** Secret values never enter Gallina: this is a plan for the opaque credential interpreter. *)
 Definition credential_plan := JObject [("minimum",number 32);
   ("maximum",number 256);("alphabet",JString "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-");
@@ -89,7 +87,7 @@ Definition client_settings source :=
    | None => err "SELVEDGE_CONNECTION_ID must name a configured connection" end
  | _ => err "SELVEDGE_CONNECTION_ID must name a configured connection" end.
 Definition settings_file source := if String.eqb (str source "phase") "metadata" then
-    if uint32 (get source "mode") && (num source "mode" mod 64 =? 0) &&
+    if (num source "mode" mod 64 =? 0) &&
       equal (get source "owner_uid") (get source "current_uid") then success JNull
     else err "The connection file must be private and owned by this user"
   else if String.eqb (str source "phase") "keys" then

@@ -47,8 +47,7 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
   if (!response.ok) {
     if (boundary('web.http', { record, status: response.status }).reject) store.reject(record);
     const text = await readText(response.body, limits.frame_bytes);
-    const decoded = boundary('web.http_json', { response: { ok: false }, text });
-    const value = decoded.present ? decoded.value : undefined;
+    const value = boundary('web.http_json', { response: { ok: false }, text }).value;
     throw failure(value?.error?.code, record, response.status);
   }
   let contentType;
@@ -165,8 +164,9 @@ export async function chatgptWebRequestAction(key, action, config, home, limits,
     const url = `${record.endpoint}/${encodeURIComponent(record.response_id)}${recovery.method === 'GET' ? '' : `/${action}`}`;
     const response = await requestJson(url, { method: recovery.method,
       body: recovery.method === 'GET' ? undefined : recovery.body,
-      headers: { authorization: `Bearer ${token}` }, signal, timeout: timeout ?? profile.timeout_ms, maximum: limits.frame_bytes });
-    const value = response.ok ? nativeJson(response.text) : response.value;
+      headers: { authorization: `Bearer ${token}` }, signal, timeout: timeout ?? profile.timeout_ms,
+      maximum: limits.frame_bytes, decodeSuccess: nativeJson });
+    const value = response.value;
     // DEFENSE: An HTTP failure from the recovery endpoint leaves the retained request available for explicit later action.
     if (!response.ok) throw failure(value?.error?.code, record, response.status);
     return boundary('web.recovery_result', { action, record, value });

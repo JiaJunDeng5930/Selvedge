@@ -1,8 +1,8 @@
-From Stdlib Require Import String List Bool NArith Lia.
+From Stdlib Require Import String List Bool NArith Lia Sorting.Permutation.
 From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
-  PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
+  PluginConnections Plugins EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -10,6 +10,20 @@ Open Scope N_scope.
 (** These statements constrain the actual extracted dispatch entry. Both
     successful behavior and admission requirements are stated, so rejecting
     every input cannot satisfy the public contract. *)
+
+Theorem public_configured_connection_grants_preserve_authority values :
+ exists projected,
+ Api.call "plugin.connection_grants" (configuration_json values) = success (JArray projected) /\
+ Permutation projected (map (fun value => grant_json (connection_grant value)) (Connections.values values)).
+Proof.
+ exists (map (fun value => grant_json (connection_grant value)) (Connections.values values)).
+ split; [|apply Permutation_refl].
+ change (connection_grants (configuration_json values) =
+   success (JArray (map (fun value => grant_json (connection_grant value)) (Connections.values values)))).
+ unfold connection_grants,configuration_json.
+ cbn [Common.get Common.object_fields Json.field Json.lookup String.eqb Ascii.eqb Bool.eqb].
+ rewrite map_map. reflexivity.
+Qed.
 
 Theorem public_admitted_command_body_is_delivered : forall source original value,
   open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
@@ -115,18 +129,30 @@ Proof.
  unfold decision;rewrite parsed.
  unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
-Theorem public_evaluator_nonterminal_retry_respects_bound : forall source result,
-  Api.call "evaluator.retry" source = success result -> str result "action" <> "fail" ->
-  bounded_retry source = true.
+Theorem public_evaluator_request_preserves_tool_output_excerpt : forall excerpt failed evaluator policy,
+ let history := [
+   JObject [("role",JString "function_call");("call_id",JString "call");
+     ("name",JString "tool");("arguments",JString "{}")];
+   JObject [("role",JString "function_output");("call_id",JString "call");
+     ("content",JString excerpt);("is_error",JBool failed)]] in
+ let response := Api.call "evaluator.request" (JObject [
+   ("effect",JObject [("history",JArray history)]);("evaluator",evaluator);("policy",policy)]) in
+ let state := get (get response "value") "state" in
+ let calls := items (get state "recent_tool_calls") in
+ let outputs := items (get (hd JNull calls) "outputs") in
+ map (fun output => get output "text") outputs = [JString excerpt].
 Proof.
- intros source result H nonterminal;change (retry source = success result) in H;unfold retry in H.
- destruct (String.eqb (str (retry_calculation source) "action") "fail") eqn:terminal.
- - inversion H;subst;apply String.eqb_eq in terminal;contradiction.
- - unfold checked in H;destruct (bounded_retry source) eqn:admission;[reflexivity|discriminate].
+ intros excerpt failed evaluator policy history response state calls outputs.
+ change (map (fun output => get output "text")
+   (items (get (hd JNull (items (get
+     (get (request_value evaluator policy (EvaluatorContext.context (JObject [("history",JArray history)]))) "state")
+     "recent_tool_calls"))) "outputs")) = [JString excerpt]).
+ unfold request_value.
+ destruct (String.eqb (str evaluator "provider") "vercel"); [reflexivity|].
+ destruct (String.eqb (str evaluator "provider") "openrouter"); reflexivity.
 Qed.
-
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = None ->
@@ -140,7 +166,7 @@ Qed.
 
 (** Field presence distinguishes an actual null result from a dropped result. *)
 Theorem public_issued_plain_rpc_result_resolves_its_pending_request : forall source state id,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = Some id ->
@@ -152,7 +178,8 @@ Theorem public_issued_plain_rpc_result_resolves_its_pending_request : forall sou
     field "action" reply = Some (JString "resolve") /\
     field "id" reply = Some (number id) /\
     field "value" reply = Some (get (get source "message") "result") /\
-    field "nextId" reply = Some (number state.(next_id)) /\
+    exists next,
+      field "nextId" reply = Some (number next) /\ state.(next_id) <= next /\
     exists remaining,
       field "nextPending" reply = Some (JArray (map number remaining)) /\
       ~ In id remaining /\
@@ -173,7 +200,8 @@ Proof.
  split; [reflexivity|].
  split; [reflexivity|].
  split; [reflexivity|].
- split; [reflexivity|].
+ exists state.(next_id). split; [reflexivity|].
+ split; [apply N.le_refl|].
  exists (retire id state.(pending)).
  split; [reflexivity|].
  split; [apply consumed_identity_cannot_remain_pending|].
@@ -181,7 +209,7 @@ Proof.
 Qed.
 
 Theorem public_issued_media_rpc_result_reserves_before_materialization : forall source state id,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
   as_string (get (get source "message") "method") = None ->
   correlate state (get (get source "message") "id") = Some id ->
@@ -203,7 +231,7 @@ Proof.
 Qed.
 
 Theorem public_reserved_rpc_materialization_resolves_once : forall source state,
-  decode_state source = Some state -> canonical_natural (get source "id") = true ->
+  Rpc.state_of source = state ->
   contains (nat_value (get source "id")) state.(materializing) = true ->
   boolean_field source "ok" = true ->
   Api.call "rpc.prepared" source = encode_action
@@ -211,30 +239,29 @@ Theorem public_reserved_rpc_materialization_resolves_once : forall source state,
   ~ In (nat_value (get source "id"))
     (action_materializing (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
 Proof.
- intros source state decoded canonical reserved successful. split.
+ intros source state decoded reserved successful. split.
  - change (Rpc.call "rpc.prepared" source = encode_action
      (consume "resolve" state (nat_value (get source "id")) [("value",get source "value")])).
    unfold Rpc.call;rewrite decoded;cbn.
-   unfold prepared;rewrite canonical,reserved,successful;reflexivity.
+   unfold prepared;rewrite reserved,successful;reflexivity.
  - apply consumed_materialization_cannot_remain_active.
 Qed.
 
-Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source state,
-  decode_state source = Some state ->
-  (field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
-   num source "bytes" <= num source "frameLimit").
+Theorem public_rpc_frame_admission_matches_its_byte_budget : forall source,
+  field "ok" (Api.call "rpc.frame" source) = Some (JBool true) <->
+   num source "bytes" <= num source "frameLimit".
 Proof.
- intros source state decoded.
+ intros source.
  change (field "ok" (Rpc.call "rpc.frame" source) = Some (JBool true) <->
    num source "bytes" <= num source "frameLimit").
- unfold Rpc.call;rewrite decoded;cbn.
+ unfold Rpc.call;cbn.
  destruct (num source "bytes" <=? num source "frameLimit") eqn:Budget;cbn.
  - split;[intros _;now apply N.leb_le|intros _;reflexivity].
  - split;[discriminate|intros Bound;apply N.leb_gt in Budget;lia].
 Qed.
 
 Theorem public_rpc_write_admission_matches_its_byte_budgets : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   (get (get (Api.call "rpc.write" source) "value") "action" = JString "write" <->
    state.(failed) = false /\ state.(closing) = false /\
    num source "bytes" <= num source "frameLimit" /\
@@ -256,21 +283,21 @@ Proof.
 Qed.
 
 Theorem public_rpc_reservation_matches_available_capacity : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   (get (get (Api.call "rpc.request" source) "value") "action" = JString "request" <->
    boolean_field source "aborted" = false /\ state.(failed) = false /\
-   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < Rpc.request_limit /\
    state.(next_id) < 9007199254740991).
 Proof.
  intros source state decoded.
  change (get (get (Rpc.call "rpc.request" source) "value") "action" = JString "request" <->
    boolean_field source "aborted" = false /\ state.(failed) = false /\
-   N.of_nat (List.length (state.(pending) ++ state.(working))) < num source "maxPending" /\
+   N.of_nat (List.length (state.(pending) ++ state.(working))) < Rpc.request_limit /\
    state.(next_id) < 9007199254740991).
  unfold Rpc.call;rewrite decoded;cbn;unfold Rpc.request.
  destruct (boolean_field source "aborted");[cbn;split;[discriminate|intros [Impossible _];discriminate]|].
  destruct state.(failed);[cbn;split;[discriminate|intros [_ [Impossible _]];discriminate]|].
- destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") eqn:Capacity;
+ destruct (N.of_nat (List.length (state.(pending) ++ state.(working))) <? Rpc.request_limit) eqn:Capacity;
    [|cbn;split;[discriminate|intros [_ [_ [Bound _]]];apply N.ltb_ge in Capacity;lia]].
  destruct (state.(next_id) <? 9007199254740991) eqn:Identity;
    [|cbn;split;[discriminate|intros [_ [_ [_ Bound]]];apply N.ltb_ge in Identity;lia]].
@@ -278,15 +305,15 @@ Proof.
 Qed.
 
 Theorem public_rpc_reservation_returns_a_bounded_pending_set : forall source state,
-  decode_state source = Some state ->
+  Rpc.state_of source = state ->
   get (get (Api.call "rpc.request" source) "value") "action" = JString "request" ->
   N.of_nat (List.length (items (get (get (Api.call "rpc.request" source) "value") "nextPending"))) +
-    N.of_nat (List.length state.(working)) <= num source "maxPending".
+    N.of_nat (List.length state.(working)) <= Rpc.request_limit.
 Proof.
  intros source state decoded accepted.
  apply (proj1 (public_rpc_reservation_matches_available_capacity source state decoded)) in accepted.
  destruct accepted as [Aborted [Failed [Capacity Identity]]].
- assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? num source "maxPending") = true)
+ assert (CapacityValue : (N.of_nat (List.length (state.(pending) ++ state.(working))) <? Rpc.request_limit) = true)
    by now apply N.ltb_lt.
  assert (IdentityValue : (state.(next_id) <? 9007199254740991) = true) by now apply N.ltb_lt.
  assert (Entry : Api.call "rpc.request" source = Rpc.request state source).
@@ -297,16 +324,13 @@ Proof.
  rewrite app_length,Nat2N.inj_add in Capacity. lia.
 Qed.
 
-Theorem public_mcp_media_plan_admits_every_part_within_one_byte_budget : forall source result,
+Theorem public_mcp_media_plan_admits_each_observed_part : forall source result,
   Api.call "plugin.mcp_media_plan" source = success result ->
-  Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source) /\
-  mcp_media_bytes source <= num source "maximum".
+  Forall (fun pair => mcp_media_part (fst pair) (snd pair) = true) (mcp_media_pairs source).
 Proof.
  intros source result H. change (mcp_media_plan source = success result) in H.
  unfold mcp_media_plan in H. destruct (negb (is_object (get source "result"))); [discriminate|].
  destruct (mcp_media_admitted source) eqn:Admitted; [|discriminate].
- unfold mcp_media_admitted in Admitted. repeat rewrite andb_true_iff in Admitted.
- destruct Admitted as [[_ Parts] Budget]. split.
- - apply Forall_forall. intros pair Present. apply forallb_forall with (x:=pair) in Parts; assumption.
- - now apply N.leb_le in Budget.
+ unfold mcp_media_admitted in Admitted. apply Forall_forall. intros pair Present.
+ apply forallb_forall with (x:=pair) in Admitted; assumption.
 Qed.

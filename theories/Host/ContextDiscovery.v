@@ -122,7 +122,7 @@ Definition transition (s : state) (task : job) (seen : observation) :=
          (children s entries)) end
    end end
  end.
-Definition next (s : state) : list primitive :=
+Definition next (s : state) : option primitive :=
  match scan_error s,scan_jobs s with
  | None,task :: _ =>
    let '(folder,probes,listing) := match task with
@@ -130,13 +130,13 @@ Definition next (s : state) : list primitive :=
    | Guidance _ folder _ | Skill _ folder _ _ => (folder,discovery_files (scan_policy s),false)
    | Containers _ folder _ => (folder,discovery_directories (scan_policy s),false)
    | Children _ folder _ _ _ => (folder,[],true) end in
-   [Inspect folder probes listing (discovery_max_entries (scan_policy s) - scan_entries s)]
- | _,_ => [] end.
-Definition step (s : state) seen : state * list primitive :=
- let updated := match scan_error s,scan_jobs s with
+   Some (Inspect folder probes listing (discovery_max_entries (scan_policy s) - scan_entries s))
+ | _,_ => None end.
+Definition step (s : state) seen : state :=
+ match scan_error s,scan_jobs s with
  | None,task :: rest => transition (rebuild s rest (scan_directories s) (scan_entries s)
      (scan_sources s) None) task seen
- | _,_ => s end in (updated,next updated).
+ | _,_ => s end.
 Definition start mode policy home primary roots :=
  let jobs := match mode with
  | HomeGuidance => [Guidance primary home true]
@@ -173,7 +173,7 @@ Theorem failed_collection_preserves_members previous fallback message :
  complete_collection previous fallback (IncompleteCollection message) =
  map (failed_member message) (match previous with [] => [fallback] | _ => map (field_value "key") previous end).
 Proof. reflexivity. Qed.
-Theorem failed_step_emits_no_io s message : snd (step s (FailedObservation message)) = [].
+Theorem failed_step_emits_no_io s message : next (step s (FailedObservation message)) = None.
 Proof. destruct s as [mode policy primary jobs dirs entries sources error].
  destruct error as [error|]; [reflexivity|]. destruct jobs; reflexivity. Qed.
 

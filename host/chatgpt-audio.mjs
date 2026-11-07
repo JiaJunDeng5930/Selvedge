@@ -4,31 +4,12 @@ import { Impit } from 'impit';
 import WebSocket from 'ws';
 import { createAudioAccount } from './chatgpt-account.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { readText } from './network.mjs';
 
 const contract = () => boundary('audio.contract', {});
 // NOTE: The transcription gateway challenges Bun's HTTP/TLS profile for requests that succeed through Chromium's network stack.
 const transcriptionClient = new Impit({ browser: 'chrome' });
 const transcriptionFetch = transcriptionClient.fetch.bind(transcriptionClient);
-
-async function responseText(response, maximum) {
-  const reader = response.body?.getReader();
-  if (!reader) return '';
-  const chunks = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      // DEFENSE: Provider replies cross the network boundary and can exceed the bounded transcription/control response budget.
-      if (bytes > maximum) throw new Error('ChatGPT audio response exceeds the response budget');
-      chunks.push(value);
-    }
-    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
-  } finally {
-    try { await reader.cancel(); } finally { reader.releaseLock(); }
-  }
-}
 
 function parsedJson(value) {
   // DEFENSE: Upstream gateways can return HTML or malformed JSON; native response admission receives absence instead of parser diagnostics containing raw response bytes.
@@ -69,8 +50,8 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
   async function connection(id, signal) {
     const rows = await authority.connections({ signal });
     const selected = rows.find(item => item.id === id);
-    const capability = boundary('audio.capability', selected ?? { id, authorized: false });
-    const authorization = await authority.authorize(capability.id, { signal });
+    const connectionId = boundary('audio.capability', selected ?? { id, authorized: false });
+    const authorization = await authority.authorize(connectionId, { signal });
     return { authorization };
   }
 
@@ -107,7 +88,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     body.append('file', new Blob([audio], { type: plan.mime }), plan.filename);
     if (plan.language !== null) body.append('language', plan.language);
     const response = await authenticatedFetch(limits.transcribe_url, { method: 'POST', body }, selected, lifetime, transcriptionFetch);
-    const value = parsedJson(await responseText(response, limits.response_max_bytes));
+    const value = parsedJson(await readText(response.body, limits.response_max_bytes));
     return boundary('audio.asr_response', { status: response.status, value });
   }
 
@@ -120,7 +101,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const response = await authenticatedFetch(limits.calls_url, { method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
     const answer = boundary('audio.session_response', { status: response.status,
-      sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
+      sdp: await readText(response.body, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
     const activation = boundary('control.audio.transport_initial', { id, task_id, generation });
     let finish;
     const record = { socket: null, retryTimer: null,
@@ -206,7 +187,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
   async function appendContext(id, source) {
     const record = sessions.get(id);
     // DEFENSE: Accepted task work outlives a hung-up voice call; an absent control session has no context receiver and does not cancel that work.
-    if (!record || record.closed) return false;
+    if (!record || record.closed) return;
     const content = boundary('audio.context', source);
     const maximum = contract().context_chunk_bytes;
     let chunk = '', bytes = 0;
@@ -221,20 +202,17 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       bytes += width;
     }
     if (chunk) send(chunk);
-    return true;
   }
 
   async function stopSession(id) {
     const pending = operations.get(id);
     const record = sessions.get(id);
-    if (!pending && !record) return false;
     pending?.controller.abort(new Error('Voice session stopped'));
     record?.stop();
     // A stop owns cancellation of its in-flight create; the create caller receives
     // that rejection while this caller waits for physical cleanup.
     if (pending) await Promise.allSettled([pending.promise]);
     if (record) await record.finished;
-    return true;
   }
 
   function close() {
@@ -245,10 +223,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       const released = await Promise.allSettled([
         authority.close(),
         ...[...sessions.keys()].map(id => stopSession(id)),
-        ...pending.map(operation => operation.promise.then(() => {}, error => {
-          // The owner close cancelled these operations; their callers already receive the cancellation rejection.
-          if (!operation.controller.signal.aborted) throw error;
-        })),
+        Promise.allSettled(pending.map(operation => operation.promise)),
       ]);
       const failed = released.find(result => result.status === 'rejected');
       if (failed) throw failed.reason;

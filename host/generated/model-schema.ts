@@ -67,14 +67,14 @@ function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audi
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" {
- switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe";
+function decodeEnum3(value: unknown): "persist" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "finish" {
+ switch (value) { case "persist": return "persist"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe"; case "finish": return "finish";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum4(value: unknown): "plain" | "interactive-v1" {
- switch (value) { case "plain": return "plain"; case "interactive-v1": return "interactive-v1";
+function decodeEnum4(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" {
+ switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
@@ -117,47 +117,33 @@ function decodeEnum10(value: unknown): "send" | "steer" {
 export function decodeHttpReplyStatus(input: unknown): number { return decodeSafeNatural(input); }
 export type RemoteConnectorSessionAction =
   | {"kind": "ignore"; }
-  | {"kind": "installed"; }
-  | {"kind": "retire"; }
   | {"kind": "pairing"; }
-  | {"kind": "pending"; }
-  | {"kind": "expired"; }
-  | {"kind": "grants"; }
   | {"kind": "enqueue"; }
-  | {"kind": "dequeue"; }
   | {"kind": "disconnect"; }
   | {"kind": "ready"; }
   | {"kind": "pong"; }
-  | {"kind": "notice"; }
   | {"kind": "snapshot"; }
   | {"kind": "unsubscribed"; }
   | {"kind": "deliver"; }
   | {"kind": "controller_open"; "connection_id": string; "controller_id": string; "grant_epoch": DomainInteger}
   | {"kind": "controller_close"; "connection_id": string}
-  | {"kind": "request"; "connection_id": string; "controller_id": string; "grant_epoch": DomainInteger; "request": JsonValue}
+  | {"kind": "request"; "connection_id": string; "request": JsonValue}
   | {"kind": "pair_request"; "request": JsonValue};
 export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnectorSessionAction {
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "ignore": exactFields(source, ["kind"]); return {"kind": "ignore"};
-    case "installed": exactFields(source, ["kind"]); return {"kind": "installed"};
-    case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
     case "pairing": exactFields(source, ["kind"]); return {"kind": "pairing"};
-    case "pending": exactFields(source, ["kind"]); return {"kind": "pending"};
-    case "expired": exactFields(source, ["kind"]); return {"kind": "expired"};
-    case "grants": exactFields(source, ["kind"]); return {"kind": "grants"};
     case "enqueue": exactFields(source, ["kind"]); return {"kind": "enqueue"};
-    case "dequeue": exactFields(source, ["kind"]); return {"kind": "dequeue"};
     case "disconnect": exactFields(source, ["kind"]); return {"kind": "disconnect"};
     case "ready": exactFields(source, ["kind"]); return {"kind": "ready"};
     case "pong": exactFields(source, ["kind"]); return {"kind": "pong"};
-    case "notice": exactFields(source, ["kind"]); return {"kind": "notice"};
     case "snapshot": exactFields(source, ["kind"]); return {"kind": "snapshot"};
     case "unsubscribed": exactFields(source, ["kind"]); return {"kind": "unsubscribed"};
     case "deliver": exactFields(source, ["kind"]); return {"kind": "deliver"};
     case "controller_open": exactFields(source, ["kind","connection_id","controller_id","grant_epoch"]); return {"kind": "controller_open", "connection_id": decodeText(source["connection_id"]), "controller_id": decodeText(source["controller_id"]), "grant_epoch": decodeInteger(source["grant_epoch"])};
     case "controller_close": exactFields(source, ["kind","connection_id"]); return {"kind": "controller_close", "connection_id": decodeText(source["connection_id"])};
-    case "request": exactFields(source, ["kind","connection_id","controller_id","grant_epoch","request"]); return {"kind": "request", "connection_id": decodeText(source["connection_id"]), "controller_id": decodeText(source["controller_id"]), "grant_epoch": decodeInteger(source["grant_epoch"]), "request": decodeJson(source["request"])};
+    case "request": exactFields(source, ["kind","connection_id","request"]); return {"kind": "request", "connection_id": decodeText(source["connection_id"]), "request": decodeJson(source["request"])};
     case "pair_request": exactFields(source, ["kind","request"]); return {"kind": "pair_request", "request": decodeJson(source["request"])};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionAction variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionAction discriminant');
@@ -167,13 +153,13 @@ export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnec
 export type RemoteConnectorSessionState =
   | {"phase": "offline"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
   | {"phase": "negotiating"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
-  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "grants": Array<JsonValue>; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
+  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
 export function decodeRemoteConnectorSessionState(input: unknown): RemoteConnectorSessionState {
   const source = decodeObject(input);
   switch (source["phase"]) {
     case "offline": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
     case "negotiating": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
-    case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","grants","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "grants": decodeArray(source["grants"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
+    case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionState variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionState discriminant');
   }
@@ -253,10 +239,8 @@ export type RemoteTransportAction =
   | {"kind": "open"; "generation": number}
   | {"kind": "retry"; "generation": number; "deadline": number}
   | {"kind": "heartbeat"; "generation": number; "deadline": number}
-  | {"kind": "online"; "generation": number}
-  | {"kind": "ping"; "generation": number}
+  | {"kind": "ping"; }
   | {"kind": "retire"; }
-  | {"kind": "stopped"; }
   | {"kind": "auth_failed"; };
 export function decodeRemoteTransportAction(input: unknown): RemoteTransportAction {
   const source = decodeObject(input);
@@ -265,10 +249,8 @@ export function decodeRemoteTransportAction(input: unknown): RemoteTransportActi
     case "open": exactFields(source, ["kind","generation"]); return {"kind": "open", "generation": decodeSafeNatural(source["generation"])};
     case "retry": exactFields(source, ["kind","generation","deadline"]); return {"kind": "retry", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
     case "heartbeat": exactFields(source, ["kind","generation","deadline"]); return {"kind": "heartbeat", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
-    case "online": exactFields(source, ["kind","generation"]); return {"kind": "online", "generation": decodeSafeNatural(source["generation"])};
-    case "ping": exactFields(source, ["kind","generation"]); return {"kind": "ping", "generation": decodeSafeNatural(source["generation"])};
+    case "ping": exactFields(source, ["kind"]); return {"kind": "ping"};
     case "retire": exactFields(source, ["kind"]); return {"kind": "retire"};
-    case "stopped": exactFields(source, ["kind"]); return {"kind": "stopped"};
     case "auth_failed": exactFields(source, ["kind"]); return {"kind": "auth_failed"};
     // DEFENSE: External boundary values must name a declared RemoteTransportAction variant.
     default: throw new TypeError('Unknown RemoteTransportAction discriminant');
@@ -489,7 +471,7 @@ export type AudioTransportAction =
   | {"type": "retry"; "attempt": DomainNatural; "delay": DomainNatural}
   | {"type": "ready"; }
   | {"type": "emit"; "event": JsonValue}
-  | {"type": "close"; "event": JsonValue};
+  | {"type": "close"; };
 export function decodeAudioTransportAction(input: unknown): AudioTransportAction {
   const source = decodeObject(input);
   switch (source["type"]) {
@@ -497,7 +479,7 @@ export function decodeAudioTransportAction(input: unknown): AudioTransportAction
     case "retry": exactFields(source, ["type","attempt","delay"]); return {"type": "retry", "attempt": decodeNatural(source["attempt"]), "delay": decodeNatural(source["delay"])};
     case "ready": exactFields(source, ["type"]); return {"type": "ready"};
     case "emit": exactFields(source, ["type","event"]); return {"type": "emit", "event": decodeJson(source["event"])};
-    case "close": exactFields(source, ["type","event"]); return {"type": "close", "event": decodeJson(source["event"])};
+    case "close": exactFields(source, ["type"]); return {"type": "close"};
     // DEFENSE: External boundary values must name a declared AudioTransportAction variant.
     default: throw new TypeError('Unknown AudioTransportAction discriminant');
   }
@@ -507,9 +489,14 @@ export function decodeRemoteConnectorSessionTransition(input: unknown): RemoteCo
  const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeJson(source["action"])};
 }
 
-export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe">};
-export function decodeResourceTransition(input: unknown): ResourceTransition {
- const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum3(item))};
+export type LocalResourceTransition = {"state": JsonValue; "action": "persist" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "finish"};
+export function decodeLocalResourceTransition(input: unknown): LocalResourceTransition {
+ const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeEnum3(source["action"])};
+}
+
+export type CloudResourceTransition = {"state": JsonValue; "action"?: "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | null};
+export function decodeCloudResourceTransition(input: unknown): CloudResourceTransition {
+ const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), ...(source["action"] === undefined ? {} : {"action": source["action"] === null ? null : decodeEnum4(source["action"])})};
 }
 
 export type RemoteTransportTransition = {"state": JsonValue; "actions": Array<JsonValue>};
@@ -579,8 +566,8 @@ export function decodeHttpBrowserCommandBody(input: unknown): HttpBrowserCommand
 
 export type Effect =
   | {"kind": "observe_context"; "task_id": DomainNatural; "ticket": DomainNatural; "settings": JsonValue; "resource": JsonValue; "definitions": Array<JsonValue>; "bindings": Array<JsonValue>}
-  | {"kind": "model"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "output_mode": "plain" | "interactive-v1"; "settings": JsonValue; "resource": JsonValue; "sampling": JsonValue; "history": Array<JsonValue>; "context_selected": boolean; "context_scope": string; "context_replacement_source"?: DomainNatural | null; "output_reserve_tokens": DomainNatural; "source_length": DomainNatural; "tools": Array<JsonValue>; "callable": Array<string>}
-  | {"kind": "reasoning"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "history": Array<JsonValue>; "project_context": JsonValue; "history_preview": boolean; "history_preview_bytes": DomainNatural}
+  | {"kind": "model"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "resource": JsonValue; "sampling": JsonValue; "history": Array<JsonValue>; "context_selected": boolean; "context_scope": string; "context_replacement_source"?: DomainNatural | null; "output_reserve_tokens": DomainNatural; "source_length": DomainNatural; "tools": Array<JsonValue>; "callable": Array<string>}
+  | {"kind": "reasoning"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "history": Array<JsonValue>; "project_context": JsonValue}
   | {"kind": "tool"; "task_id": DomainNatural; "ticket": DomainNatural; "operation_id": DomainNatural; "tool": JsonValue; "call": JsonValue; "execution": JsonValue}
   | {"kind": "approval"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "call": JsonValue; "settings": JsonValue; "instructions": string; "user_requests": Array<string>}
   | {"kind": "hook"; "task_id": DomainNatural; "ticket": DomainNatural; "plugin": JsonValue; "tool": JsonValue; "call": JsonValue}
@@ -597,16 +584,16 @@ export type Effect =
   | {"kind": "chatgpt_exec"; "operation_id": DomainNatural; "arguments": JsonValue; "execution": JsonValue}
   | {"kind": "chatgpt_cancel"; "operation_id": DomainNatural}
   | {"kind": "context_scope"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue}
-  | {"kind": "context_measure"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "history": Array<JsonValue>; "context_selected": boolean; "context_scope": string; "tools": Array<JsonValue>; "settings": JsonValue; "callable": Array<string>; "validating": boolean}
-  | {"kind": "context_compaction"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "context_selected": boolean; "context_scope": string; "method": string; "window_tokens": DomainNatural; "output_reserve_tokens": DomainNatural; "plan": JsonValue}
+  | {"kind": "context_measure"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "history": Array<JsonValue>; "context_selected": boolean; "context_scope": string; "tools": Array<JsonValue>; "callable": Array<string>}
+  | {"kind": "context_compaction"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "context_scope": string; "plan": JsonValue}
   | {"kind": "compaction_clock"; "deadline": DomainNatural}
   | {"kind": "compaction_cancel"; "task_id": DomainNatural; "ticket": DomainNatural};
 export function decodeEffect(input: unknown): Effect {
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "observe_context": exactFields(source, ["kind","task_id","ticket","settings","resource","definitions","bindings"]); return {"kind": "observe_context", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "settings": decodeJson(source["settings"]), "resource": decodeJson(source["resource"]), "definitions": decodeArray(source["definitions"], item => decodeJson(item)), "bindings": decodeArray(source["bindings"], item => decodeJson(item))};
-    case "model": exactFields(source, ["kind","task_id","ticket","model","output_mode","settings","resource","sampling","history","context_selected","context_scope","context_replacement_source","output_reserve_tokens","source_length","tools","callable"]); return {"kind": "model", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "output_mode": decodeEnum4(source["output_mode"]), "settings": decodeJson(source["settings"]), "resource": decodeJson(source["resource"]), "sampling": decodeJson(source["sampling"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), ...(source["context_replacement_source"] === undefined ? {} : {"context_replacement_source": source["context_replacement_source"] === null ? null : decodeNatural(source["context_replacement_source"])}), "output_reserve_tokens": decodeNatural(source["output_reserve_tokens"]), "source_length": decodeNatural(source["source_length"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "callable": decodeArray(source["callable"], item => decodeText(item))};
-    case "reasoning": exactFields(source, ["kind","task_id","ticket","model","history","project_context","history_preview","history_preview_bytes"]); return {"kind": "reasoning", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "history": decodeArray(source["history"], item => decodeJson(item)), "project_context": decodeJson(source["project_context"]), "history_preview": decodeBoolean(source["history_preview"]), "history_preview_bytes": decodeNatural(source["history_preview_bytes"])};
+    case "model": exactFields(source, ["kind","task_id","ticket","model","resource","sampling","history","context_selected","context_scope","context_replacement_source","output_reserve_tokens","source_length","tools","callable"]); return {"kind": "model", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "resource": decodeJson(source["resource"]), "sampling": decodeJson(source["sampling"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), ...(source["context_replacement_source"] === undefined ? {} : {"context_replacement_source": source["context_replacement_source"] === null ? null : decodeNatural(source["context_replacement_source"])}), "output_reserve_tokens": decodeNatural(source["output_reserve_tokens"]), "source_length": decodeNatural(source["source_length"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "callable": decodeArray(source["callable"], item => decodeText(item))};
+    case "reasoning": exactFields(source, ["kind","task_id","ticket","model","history","project_context"]); return {"kind": "reasoning", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "history": decodeArray(source["history"], item => decodeJson(item)), "project_context": decodeJson(source["project_context"])};
     case "tool": exactFields(source, ["kind","task_id","ticket","operation_id","tool","call","execution"]); return {"kind": "tool", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "operation_id": decodeNatural(source["operation_id"]), "tool": decodeJson(source["tool"]), "call": decodeJson(source["call"]), "execution": decodeJson(source["execution"])};
     case "approval": exactFields(source, ["kind","task_id","ticket","model","call","settings","instructions","user_requests"]); return {"kind": "approval", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "call": decodeJson(source["call"]), "settings": decodeJson(source["settings"]), "instructions": decodeText(source["instructions"]), "user_requests": decodeArray(source["user_requests"], item => decodeText(item))};
     case "hook": exactFields(source, ["kind","task_id","ticket","plugin","tool","call"]); return {"kind": "hook", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "plugin": decodeJson(source["plugin"]), "tool": decodeJson(source["tool"]), "call": decodeJson(source["call"])};
@@ -623,8 +610,8 @@ export function decodeEffect(input: unknown): Effect {
     case "chatgpt_exec": exactFields(source, ["kind","operation_id","arguments","execution"]); return {"kind": "chatgpt_exec", "operation_id": decodeNatural(source["operation_id"]), "arguments": decodeJson(source["arguments"]), "execution": decodeJson(source["execution"])};
     case "chatgpt_cancel": exactFields(source, ["kind","operation_id"]); return {"kind": "chatgpt_cancel", "operation_id": decodeNatural(source["operation_id"])};
     case "context_scope": exactFields(source, ["kind","task_id","ticket","model"]); return {"kind": "context_scope", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"])};
-    case "context_measure": exactFields(source, ["kind","task_id","ticket","model","history","context_selected","context_scope","tools","settings","callable","validating"]); return {"kind": "context_measure", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "settings": decodeJson(source["settings"]), "callable": decodeArray(source["callable"], item => decodeText(item)), "validating": decodeBoolean(source["validating"])};
-    case "context_compaction": exactFields(source, ["kind","task_id","ticket","model","context_selected","context_scope","method","window_tokens","output_reserve_tokens","plan"]); return {"kind": "context_compaction", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), "method": decodeText(source["method"]), "window_tokens": decodeNatural(source["window_tokens"]), "output_reserve_tokens": decodeNatural(source["output_reserve_tokens"]), "plan": decodeJson(source["plan"])};
+    case "context_measure": exactFields(source, ["kind","task_id","ticket","model","history","context_selected","context_scope","tools","callable"]); return {"kind": "context_measure", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "callable": decodeArray(source["callable"], item => decodeText(item))};
+    case "context_compaction": exactFields(source, ["kind","task_id","ticket","model","context_scope","plan"]); return {"kind": "context_compaction", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "context_scope": decodeText(source["context_scope"]), "plan": decodeJson(source["plan"])};
     case "compaction_clock": exactFields(source, ["kind","deadline"]); return {"kind": "compaction_clock", "deadline": decodeNatural(source["deadline"])};
     case "compaction_cancel": exactFields(source, ["kind","task_id","ticket"]); return {"kind": "compaction_cancel", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"])};
     // DEFENSE: External boundary values must name a declared Effect variant.

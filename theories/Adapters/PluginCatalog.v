@@ -41,17 +41,17 @@ Definition mcp_page source := let page := get source "page" in
   if negb (is_array (get page "tools")) then err "MCP tools/list did not return tools" else
   let result := collect_tools source true JNull (items (get page "tools")) (items (get source "tools")) in
   if negb (boolean_field result "ok") then result else
-    let previous := items (get source "cursors") in let cursor := get page "nextCursor" in
+    let cursor := get page "nextCursor" in
     if has page "nextCursor" then
-      if is_text cursor && negb (existsb (equal cursor) previous) then
-        success (JObject [("tools",get result "value");("cursors",JArray (previous ++ [cursor]));("done",JBool false);("nextCursor",cursor)])
-      else err "MCP returned an invalid or repeated pagination cursor"
-    else success (JObject [("tools",get result "value");("cursors",JArray previous);("done",JBool true)]).
+      if is_text cursor then
+        success (JObject [("tools",get result "value");("nextCursor",cursor)])
+      else err "MCP returned an invalid pagination cursor"
+    else success (JObject [("tools",get result "value")]).
 Definition manifest_valid value definition :=
   keys value ["protocolVersion";"revision";"beforeTool";"afterTool";"events";"tools"] &&
   equal (get value "protocolVersion") (get definition "protocolVersion") && Utf8.nonblank (str value "revision") &&
   (N.of_nat (String.length (str value "revision")) <=? 128) && is_bool (get value "beforeTool") && is_bool (get value "afterTool") &&
-  is_array (get value "events") && is_array (get value "tools") && unique_values (items (get value "events")) &&
+  is_array (get value "events") && is_array (get value "tools") &&
   forallb (fun event => existsb (equal event) (items (get definition "events"))) (items (get value "events")).
 Definition manifest source := let value := get source "manifest" in
   if negb (manifest_valid value (get source "definition")) then type_error ("Plugin " ++ str source "name" ++ " returned an invalid manifest") else

@@ -27,7 +27,7 @@ Theorem before_hook_dispatches_the_first_pending_plugin :
  find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  Capabilities.hook_available Capabilities.BeforeTool plugin
    (environment_plugins (world_environment value)) = true ->
- let '(ticket, allocated) := allocate_ticket value in
+ let '(ticket, allocated) := allocate_identity TaskTicket value in
  decision_effects (Scheduler.before_hook_step execute id tool invocation
    (plugin :: rest) remaining task value) =
    [CheckTool id ticket plugin tool invocation].
@@ -48,7 +48,7 @@ Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
  TicketedRequest.Scoped.operation_at (operation_id current) task = Some current ->
  Capabilities.hook_available Capabilities.AfterTool plugin
    (environment_plugins (world_environment value)) = true ->
- let '(ticket, allocated) := allocate_ticket value in
+ let '(ticket, allocated) := allocate_identity TaskTicket value in
  decision_effects (Scheduler.after_hooks_step id current value) =
    [CheckResult id ticket (operation_id current) plugin (operation_call current) result error].
 Proof.
@@ -96,18 +96,19 @@ Theorem denied_before_hook_ends_this_call_without_dispatch :
  forall id ticket plugin invocation pending remaining reason value task,
  find_task id value = Some task ->
  task_activity task = CheckingHook ticket plugin invocation pending remaining ->
+ exists code,
  HookCallbacks.hook_completed id ticket (HookDeny reason) value =
    acknowledged (put_task id
      (with_activity (PendingCalls remaining)
        (append_history [FunctionOutput (call_id invocation)
-         (State.failure "hook_denied" reason) true]
+         (State.failure code reason) true]
          (append_history [HookReceipt id invocation plugin
            (Inputs.hook_json (HookDeny reason))] task))) value) /\
  decision_effects (HookCallbacks.hook_completed id ticket (HookDeny reason) value) = [].
 Proof.
  intros id ticket plugin invocation pending remaining reason value task Found Checking.
  rewrite hook_completed_expression; rewrite Found, Checking, N.eqb_refl.
- split; [reflexivity|reflexivity].
+ eexists; split; [reflexivity|reflexivity].
 Qed.
 
 Theorem after_hook_rewrite_keeps_operation_owner_and_error_for_the_suffix :
@@ -174,10 +175,11 @@ Theorem denied_after_hook_ends_the_operation_chain :
  find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some current ->
  operation_stage current = AwaitingAfterHook expected plugin pending result error ->
  ticket = expected ->
+ exists code,
  HookCallbacks.after_completed id identity ticket (DenyResult reason) value =
    acknowledged (TaskWake.mark_context_wake id task (put_task id
      (TaskChange.apply (TaskResult.result_changes
-       (OperationEvent.settle current (State.failure "after_hook_denied" reason) true)
+       (OperationEvent.settle current (State.failure code reason) true)
        (append_history [AfterReceipt id (operation_id current) plugin
          (Inputs.after_json (DenyResult reason))] task)) (append_history [AfterReceipt id (operation_id current) plugin
          (Inputs.after_json (DenyResult reason))] task)) value)) /\
@@ -187,7 +189,7 @@ Proof.
    Found Owned Waiting Matches.
  subst ticket.
  rewrite after_completed_expression; rewrite Found, Owned, Waiting, N.eqb_refl.
- split; [reflexivity|reflexivity].
+ eexists; split; [reflexivity|reflexivity].
 Qed.
 
 Theorem before_hook_callback_for_a_missing_task_is_ignored :

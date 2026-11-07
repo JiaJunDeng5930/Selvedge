@@ -7,7 +7,8 @@
 
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require PacketProofs.
-Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
+Export PacketProofs(actual_query_preserves_world_and_emits_no_effect,
+  live_configuration_preserves_maintenance_cancellations).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
@@ -19,14 +20,34 @@ Import ListNotations.
     execution. The submitted frame is also the retained replay input: one
     serialization owner avoids a second representation whose interpretation
     could differ from the committed execution. Replay submits that retained
-    frame to the same admission entry.
+    frame to the same admission entry. Commit observers consume the outcome and
+    its effects; publishing another copy of the submitted input adds no restart
+    authority. Lost remote replies are exercised at the public transport boundary.
+    Recovery and new commands use the kernel
+    built for this service; binding the Worker directly to that bundle keeps
+    execution semantics independent of a private caller-supplied module path.
     [actual_query_preserves_world_and_emits_no_effect] constrains that actual
     packet entry. Public restart tests cover ordered replay and retained state;
     SQLite supplies transaction durability. Exclusive writer ownership and the
     acknowledged transaction establish journal authority. An authenticated
     audit history would require an independent trust anchor and is outside this
-    restart contract. Changes to input meaning require a new persistent format
-    so restart cannot silently reinterpret prior work.
+    restart contract. Persistent formats distinguish changes that would
+    reinterpret accepted work during replay: retained domain state, history or
+    receipts, and the admission or scheduling decisions that establish them.
+    A changed reply can affect output-budget admission and therefore scheduling.
+    Domain refusals of admitted mutations are also stored, so admission changes
+    must be followed through the actual durable input paths.
+    A transient refusal diagnostic needs no new format when refusal precedes
+    state changes and receipt retention, both replies fit the output budget,
+    and durability and cursor progression remain the same.
+    The current-format check must reject such earlier journals before replay,
+    retaining their bytes rather than converting or partially applying them.
+
+    Live configuration must carry the domain controller's maintenance
+    cancellations into the actual packet decision. That boundary need not
+    prescribe the controller's world-construction recipe. Successful admission
+    already acknowledges configuration; an additional configured marker has no
+    consumer and supplies no separate completion evidence.
 
     The Journal owns serialization through the entire Worker response and
     storage commit, so another input cannot observe an uncommitted world.
@@ -35,6 +56,10 @@ Import ListNotations.
     Worker message delivery remains a runtime premise; timeout or failure
     retires that Worker before another invocation can use its uncertain world.
     Closing drains the invocation queue and awaits Worker termination.
+
+    Startup sends a fixed internal description query before admitting caller
+    input. Its returned limits supply the frame policy for subsequent requests;
+    a separate bootstrap limit would constrain no external observation.
 
     Publication and successful completion of durable mutations require
     acknowledgement of the commit. A failure during COMMIT has an unknown outcome. It
@@ -68,6 +93,14 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     request. The correlation law gives both directions, and the actual API
     contracts connect it to ordinary settlement and media reservation.
     A result retired during asynchronous materialization remains retired.
+
+    The transport constructs its state observation from private Promise and
+    physical-work collections. The shared Map supplies the pending phases and
+    preparation membership, while issued identifiers supply callback identity.
+    [Rpc.state_of] consumes this constructed observation directly. Rechecking
+    its field shapes, uniqueness or subsets would add a second admission of the
+    transport's own bookkeeping. External peer messages still undergo JSON-RPC
+    parsing and numeric response correlation before any settlement.
 
     External stdout, a slow pipe and concurrent Task calls can otherwise retain
     unbounded frames or pending replies. The frame and write admission contracts
@@ -103,6 +136,10 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
 (** ** Each physical effect keeps its own generation
 
     [launch_installs_handle_before_run] requires ownership before interpretation.
+    Allocation advances the issued-handle counter and registers the matching
+    physical generation while retaining the other active handles. Freshness and
+    ownership require the retained counter to cover the issued generation; they
+    do not require equal counter and handle values or an active-list order.
     Completion uses a physical generation so an old finalizer can be separated
     from a replacement with the same logical key. The existing
     [completion_only_removes_its_generation] retains exactly the entries from
@@ -111,6 +148,9 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     Recovery uses this same runner, including its original rejecting
     promise, so a failed recovery cannot become successful startup through a
     background error observer.
+    Normal execution and recovery receive the runner-created handle; its
+    private brand serves type checking. Rechecking a runtime marker adds no
+    generation ownership to that construction.
 
     A successful journal acknowledgement returns directly from the runner's
     awaited execution, before consulting retirement control. Shutdown cannot
@@ -157,8 +197,9 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     exercises the physical boundary. Stdin reservations prevent concurrent
     writes, and absolute output cursors survive bounded tail retention.
     [reserved_write_is_exclusive] and [append_tail_preserves_absolute_cursor]
-    bind those requirements to the pure controller. The physical scalar buffer
-    stays in the host; the model controls counts and slice instructions. Sending the whole tail through
+    bind those requirements to the pure controller. Write refusal preserves
+    input ownership independently of its diagnostic code. The physical scalar
+    buffer stays in the host; the model controls counts and slice instructions. Sending the whole tail through
     semantic JSON per chunk adds cost without stronger authority.
     A completed process remains queryable within the retained completion window.
     Completion bounds that window and removes exactly its expired entries,
@@ -221,8 +262,16 @@ Export AudioConnection(step).
     The Service admits the Task and creates the session identity before building
     its request. [initial_context_constructs_protocol_messages] guarantees that
     its committed history projection constructs valid voice messages. The request
-    retains those constructed values directly instead of revalidating them or
-    silently substituting empty history. The externally supplied SDP still needs
+    uses a bounded recent conversation page. Model compaction retains those
+    original records; its replacement artifact describes a provider window,
+    not another spoken message or a string summary for audio initialization.
+    The request retains those constructed values directly instead of revalidating them or
+    silently substituting empty history. Committed reads also own the cursor and
+    message-array shape used by initial history and progress. Progress and
+    acknowledgement constructors supply their text, channel and admitted
+    delegation identity; internal transcript tails remain native strings.
+    These transformations do not introduce a second admission boundary for
+    their already constructed inputs. The externally supplied SDP still needs
     admission. Media signaling may finish before the control
     connection is ready; microphone admission waits for both connections and
     initialization. Raw audio and secrets never become journal inputs.

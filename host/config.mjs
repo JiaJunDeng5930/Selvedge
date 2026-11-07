@@ -45,7 +45,7 @@ function configurationHead(value, observer) {
 }
 
 /** Observe mutable context configuration without changing frozen task policy. */
-export function contextConfiguration(value, definitions = contextDefinitions) {
+export function contextConfiguration(value, definitions) {
   const observer = configurationObserver();
   const current = configurationHead(value, observer);
   const settings = Object.fromEntries(contextSettings(definitions).map(definition => {
@@ -98,7 +98,7 @@ export function validateConfig(value) {
       key, profile: source, adaptive, endpoint_observation: urlObservation(endpoint),
     });
     const backend = boundary('backend.support', { profile, effect: { model: { provider: profile.provider } } });
-    if (backend.auth === 'account') Object.assign(profile, accountConnection(profile));
+    if (backend.auth === 'account') Object.assign(profile, accountConfig(accountConnection(profile)));
     return [key, profile];
   }));
   config.compaction = profileBoundary('config.compaction', { config: { compaction: value.compaction }, profiles: compactionProfiles(config.profiles) });

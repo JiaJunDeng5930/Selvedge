@@ -1,7 +1,6 @@
-import { parentPort, workerData } from 'node:worker_threads';
-import { pathToFileURL } from 'node:url';
+import { parentPort } from 'node:worker_threads';
+import * as model from '../.build/kernel-model.mjs';
 
-const model = await import(pathToFileURL(workerData.module).href);
 let world = model.initial();
 let projectedWorld;
 let projection;

@@ -14,14 +14,10 @@ Definition encode_output index value := match value with
 Definition message_part part := is_object part &&
   ((String.eqb (str part "type") "output_text" && is_text (get part "text")) ||
    (String.eqb (str part "type") "refusal" && is_text (get part "refusal"))).
-Definition parse_output (profile item markdown_fences : json) : outcome provider_output :=
- match ArgumentDeclaration.decode OutputObservations.fences_declaration markdown_fences with
- | None => reject "Markdown fence observations are malformed"
- | Some observations =>
+Definition parse_output (profile item : json) (observations : OutputObservations.fences) : outcome provider_output :=
   if negb (is_object item) then reject "Provider returned an invalid output item"
   else if String.eqb (str item "type") "function_call" then
-    if negb (Nat.eqb (List.length observations) 0) then reject "Tool output cannot carry Markdown fence observations"
-    else if account profile && negb (JsonObjects.equivalent (get item "namespace") (JString local_tool_namespace))
+    if account profile && negb (JsonObjects.equivalent (get item "namespace") (JString local_tool_namespace))
       then reject "ChatGPT returned a function call outside the local tool namespace"
     else match CallWire.from_text CallWire.callback_argument_nesting
       (str item "call_id") (str item "name") (str item "arguments") with
@@ -32,32 +28,25 @@ Definition parse_output (profile item markdown_fences : json) : outcome provider
        forallb message_part (items (get item "content")) then Accepted (ContextItem (object_fields item) observations)
     else reject "Provider returned an unsupported assistant message"
   else if existsb (String.eqb (str item "type")) ["reasoning";"compaction"] then
-    if Nat.eqb (List.length observations) 0 then Accepted (ContextItem (object_fields item) observations)
-    else reject "Non-message provider output cannot carry Markdown fence observations"
-  else reject ("Unsupported provider output type: " ++ display_field item "type") end.
-Fixpoint valid_coordinates (previous : option N) values := match values with
-  | [] => true | value :: rest => match natural value with None => false | Some index =>
-    canonical_natural value && match previous with None => true | Some old => old <? index end &&
-      valid_coordinates (Some index) rest end end.
-Definition coordinates_valid values count := match values with [] => true
-  | _ => Nat.eqb (List.length values) count && valid_coordinates None values end.
-Fixpoint output_items profile values observations coordinates index : outcome (list json) :=
-  match values,observations with
-  | [],[] => Accepted []
-  | value :: rest,markdown_fences :: fence_rest =>
+    Accepted (ContextItem (object_fields item) [])
+  else reject ("Unsupported provider output type: " ++ display_field item "type").
+Fixpoint output_items profile values coordinates index : outcome (list json) :=
+  match values with
+  | [] => Accepted []
+  | (value,markdown_fences) :: rest =>
     let coordinate := match coordinates with [] => index | first :: _ => nat_value first end in
     bind (parse_output profile value markdown_fences) (fun parsed =>
-      bind (output_items profile rest fence_rest (tl coordinates) (index + 1))
+      bind (output_items profile rest (tl coordinates) (index + 1))
         (fun tail => Accepted (encode_output coordinate parsed :: tail)))
-  | _,_ => reject "Provider output and Markdown fence observations are misaligned"
   end.
 Definition output source :=
-  if is_array (get source "output") && is_array (get source "markdown_observations") &&
-    coordinates_valid (items (get source "output_indices"))
-    (List.length (items (get source "output")))
-  then render_outcome JArray (output_items (get source "profile") (items (get source "output"))
-    (items (get source "markdown_observations")) (items (get source "output_indices")) 0)
-  else err "Completed response requires output and Markdown fence observations".
+  match array_field "output" source,
+    ArgumentDeclaration.decode (ArgumentDeclaration.Array OutputObservations.fences_declaration)
+      (get source "markdown_observations") with
+  (* Provider output and its host observations share the same map order. *)
+  | Some values,Some observations => render_outcome JArray
+      (output_items (get source "profile") (combine values observations) (items (get source "output_indices")) 0)
+  | _,_ => err "Completed response requires output and Markdown fence observations" end.
 
 Record completed_item := CompletedItem { completed_index : N; completed_value : json }.
 Record response_stream := ResponseStream { output_started : bool; completed_items : list completed_item }.

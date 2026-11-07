@@ -92,40 +92,30 @@ Definition event (source : json) :=
   else if String.eqb kind "error" then success (JObject [("type",JString "error");("error",JString "ChatGPT voice control reported an error")])
   else success JNull.
 Definition context (source : json) :=
-  let id := get source "delegation_item_id" in let channel := get source "channel" in
-  admit (nonempty_text (get source "text") && (is_null id || nonempty_text id) &&
-    (is_null channel || existsb (String.eqb (text channel)) ["commentary";"speakable"]))
-    (JObject ([("type",JString (if is_null id then "session.context.append" else "delegation.context.append"));
-      ("channel",if is_null channel then JString "speakable" else channel);
+  let id := get source "delegation_item_id" in
+  success (JObject ([("type",JString (if is_null id then "session.context.append" else "delegation.context.append"));
+      ("channel",get source "channel");
       ("content",JArray [JObject [("type",JString "input_text");("text",get source "text")]])] ++
-      optional (negb (is_null id)) "delegation_item_id" id)) "Voice context requires text and an optional delegation identity".
+      optional (negb (is_null id)) "delegation_item_id" id)).
 Definition initial_context_plan (source : json) :=
-  admit (bound (get source "cursor") 0 9007199254740991)
-    (JObject [("after",number (num source "cursor" - 100));("limit",number 100)]) "Voice history requires a committed Task cursor".
+  success (JObject [("after",number (num source "cursor" - 100));("limit",number 100)]).
 Definition initial_message (role : string) (content : json) := JObject [("type",JString "message");("role",JString role);
   ("content",JArray [JObject [("type",JString (if String.eqb role "assistant" then "output_text" else "input_text"));("text",content)]])].
 Definition initial_history_item (assistant : json -> bool) (content : json -> json) (message : json) : list json :=
   let role := if assistant message then JString "assistant"
     else if String.eqb (str message "role") "speech_transcript" then get message "speaker" else get message "role" in
-  (if existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)
-   then [initial_message (text role) (content message)] else []) ++
-  if String.eqb (str message "role") "context_replacement" && nonempty_text (get message "content")
-  then [initial_message "user" (JString ("Previous Task context summary:
-" ++ str message "content"))] else [].
+  if existsb (String.eqb (text role)) ["user";"assistant"] && nonempty_text (content message)
+  then [initial_message (text role) (content message)] else [].
 Definition initial_context (assistant : json -> bool) (content : json -> json) (source : json) :=
-  admit (is_array (get source "messages"))
-    (JArray (flat_map (initial_history_item assistant content) (items (get source "messages")))) "Voice history requires committed Task messages".
+  success (JArray (flat_map (initial_history_item assistant content) (items (get source "messages")))).
 Definition task_progress (assistant : json -> bool) (content : json -> json) (source : json) :=
   let channel := if String.eqb (str (get source "task") "phase") "idle" then "speakable" else "commentary" in
-  admit (is_array (get source "messages")) (JArray (flat_map (fun message =>
+  flat_map (fun message =>
     if (assistant message || String.eqb (str message "role") "error") && nonempty_text (content message)
-    then [JObject [("text",content message);("channel",JString channel)]] else []) (items (get source "messages"))))
-    "Voice progress requires committed Task messages".
-Definition transcript_tail (source : json) :=
-  let pending := str source "pending" in let completed := str source "completed" in
-  admit (is_text (get source "pending") && is_text (get source "completed"))
-    (JString (if starts pending completed then String.substring (String.length completed) (String.length pending) pending
-      else if starts completed pending then "" else pending)) "Voice transcript completion requires its accumulated partial text".
+    then [JObject [("text",content message);("channel",JString channel)]] else []) (items (get source "messages")).
+Definition transcript_tail (pending completed : string) :=
+  if starts pending completed then String.substring (String.length completed) (String.length pending) pending
+  else if starts completed pending then "" else pending.
 Definition login_target (source : json) :=
   admit (nonempty_text (get source "url") && String.eqb (str source "protocol") "https:" &&
     String.eqb (str source "hostname") "auth.openai.com" && String.eqb (str source "pathname") "/oauth/authorize" &&
@@ -135,9 +125,9 @@ Definition login_target (source : json) :=
 Definition call (transport : json -> json) (assistant : json -> bool) (content : json -> json)
   (operation : string) (source : json) :=
   if String.eqb operation "audio.contract" then success contract
-  else if String.eqb operation "audio.capability" then admit (eligible source) (capability source) "ChatGPT audio sign-in is required"
-  else if String.eqb operation "audio.capabilities" then admit (is_array (get source "connections"))
-    (JArray (map capability (filter eligible (items (get source "connections"))))) "Audio account discovery requires ChatGPT account observations"
+  else if String.eqb operation "audio.capability" then admit (eligible source) (get source "id") "ChatGPT audio sign-in is required"
+  else if String.eqb operation "audio.capabilities" then
+    success (JArray (map capability (filter eligible (items (get source "connections")))))
   else if String.eqb operation "audio.asr_request" then asr_request source
   else if String.eqb operation "audio.asr_response" then asr_response source
   else if String.eqb operation "audio.session_request" then session_request source

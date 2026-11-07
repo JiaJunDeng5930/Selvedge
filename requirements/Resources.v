@@ -34,6 +34,20 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     today's Task state. A missing binding fails rather than executing locally.
     Process input, filesystem observations and image snapshots use this same
     binding. Project observations without a Task binding remain local.
+    Cloud commands use the primary root in their captured workspace.
+    Provisioning, workspace selection and connection-job admission establish
+    that primary; forks retain the selected workspace. Recovery metadata
+    identifies the resource and does not supply another command directory.
+    Local sandbox preparation observes the running platform and architecture
+    directly. No caller selects a different host platform when interpreting an
+    admitted execution plan.
+    [ToolArguments.bash_parameters] carries the admitted [Process.transport]
+    into Bash launch. Its closed constructors select pipe or PTY execution;
+    image reads use pipe execution. The internal sandbox adapter receives that
+    selection and needs no second admission rule for arbitrary mode strings.
+    The isolation contract governs execution authority, filesystem bindings and
+    the applied filter policy. Enumerating the numeric encodings of the closed
+    instruction constructors adds no isolation guarantee.
 
     An admitted setup result installs the observed workspace or stops its live
     owner. Successful setup records its settings and every queued user input
@@ -55,10 +69,13 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     can evolve without changing the bound environment or execution permissions. *)
 
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
+From Selvedge.Adapters Require CloudWorkspacesProofs.
+Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields,
+  a_matching_receipt_restores_the_admitted_connection).
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,
   retired_allocation_cannot_return, ssh_expiry_emits_no_probe,
   ssh_wait_fits_remaining_deadline,
-  reconciled_termination_requires_the_unique_owned_instance).
+  reconciled_termination_matches_the_unique_owned_instance).
 Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
   git_registration_requires_reservation_persisted_ack,
   preparation_requires_git_registration_persisted_ack,
@@ -67,8 +84,8 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
 
 (** ** A lost allocation response cannot authorize another allocation
 
-    Before an allocation is emitted, its complete request, unique token and
-    verified account/region/endpoint scope reach a durable control record.
+    Before an allocation is emitted, its unique token and verified
+    account/region/endpoint scope reach a durable control record.
     Identity observation and allocation use the same captured credential without
     persisting its secret. Recovery verifies the current credential against
     that scope and observes existing resources.
@@ -78,11 +95,19 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     allocation after intermediate observations as well as at startup.
     Each request allocates one instance. Reconciliation admits the matching
     instance under its unique management tag; empty, interrupted or unauthorized
-    observations preserve uncertainty. Only that match enters cleanup. The
-    actual reconciliation transition also retains the requested image, instance
-    type, zone and virtual network, as
-    [reconciled_termination_requires_the_unique_owned_instance] requires.
-    Matching a tag alone cannot authorize deletion of another configured resource.
+    observations preserve uncertainty. Only that match enters cleanup, and a
+    unique tagged instance must enter cleanup even when its configuration has
+    changed. [reconciled_termination_matches_the_unique_owned_instance] constrains
+    both directions of the actual selection. Image, instance type and network
+    settings describe preparation; requiring their old values during cleanup
+    can leave the owned instance running and billable. The first allocation
+    constructs its request from the captured backend settings and the recorded
+    token and Task identity. Recovery never repeats allocation, so its image,
+    instance type, network, price and startup settings stay with that attempt.
+    The verified scope supplies the API region for recovery. Connection settings
+    retain the optional API endpoint override and SSH fields. The override
+    configures both CVM and the identity service; the default CVM endpoint alone
+    cannot select that behavior.
     The reserved provider tag namespace must not be altered by operators while an
     intent is open: mutable tags are an operational assumption, not an
     unforgeable ownership proof.
@@ -127,17 +152,29 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     Cloud recovery records retain the outstanding instance or the fact that
     allocation remains unresolved. Failed cleanup retains its instance for an
     explicit archive retry. Allocation and destruction outcomes are observed
-    at the provider. The verified provider, account, region and endpoint identify
-    recovery authority; a label for the credential source adds no principal
-    identity. The allocated instance ID identifies the resource needed for
-    observation and cleanup. A provider request ID only supports diagnostics
+    at the provider. The admitted backend selects the provider; its verified
+    account, region and endpoint identify recovery authority. A constant
+    provider label in the scope repeats that backend, and a credential-source
+    label adds no principal identity. The allocated instance ID identifies the
+    resource needed for observation and cleanup. A provider request ID only supports diagnostics
     and cannot establish allocation ownership.
 
-    Receipt admission preserves the supplied JSON spelling. Cloud configuration
-    decoding at backend use also normalizes valid integer spellings before host
-    arithmetic: a receipt may spell its startup timeout as [1e3]. That conversion
-    remains necessary even after receipt validation has established the settings
-    shape and bounds.
+    An instance lookup requires the provider's [InstanceSet] array. A missing
+    list is an observation failure; it cannot establish that the instance no
+    longer exists. The existing cleanup failure retains the allocation for an
+    explicit archive retry. [tests/cloud-workspaces.test.mjs] exercises this
+    distinction through the public service and a real HTTP provider peer.
+
+    Receipt admission checks the original receipt retained by its physical
+    owner. [admitted_receipt_preserves_expected_fields] binds that admitted
+    input to its expected Task identity.
+    [a_matching_receipt_restores_the_admitted_connection] requires a matching
+    receipt to return its decoded connection settings. SSH uses that value,
+    including the normalized integer port, instead of interpreting the original
+    JSON number spelling. The existing configuration declaration supplies those
+    fields and their bounds; provisioning-only fields do not become recovery
+    prerequisites. The admitted workspace already contains its selected primary
+    root, so project revalidation reads that root directly.
 
     Setup logs aid diagnosis; they do not establish allocation or readiness.
     A log write failure is reported through service diagnostics without
@@ -150,10 +187,26 @@ Export ResourceProofs(local_recovery_trace_never_repeats_mutation,
     authority. Receipt admission uses the controller's decoded phase and adds
     the expected task identity and owned path; workspace declarations already
     admit the root text used by membership and containment checks.
-    Generated action unions and checked interpreters keep the host from
-    choosing another continuation. SSH readiness retries follow observed
+    Each resource controller selects one physical action before awaiting its
+    observation. The local plan carries one local action; a cloud transition
+    carries one cloud action or explicitly has no matching transition. Their
+    typed Schema encoders also supply the generated host declarations, retaining
+    both the backend's action range and its single-step meaning. There is no
+    unused action-list suffix for an interpreter to discard. A missing cloud
+    action remains an interpretation failure and grants no physical operation.
+    Checked interpreters keep the host from choosing another continuation.
+    SSH readiness retries follow observed
     transport failure and the controller's bounded deadline; a missing program
-    is a preparation failure. [ssh_wait_fits_remaining_deadline] requires each
+    is a preparation failure. Promisified [execFile] retains [stdout] and [stderr]
+    on both successful and failed commands; fixed UTF-8 encoding makes those
+    observations strings. SSH command results preserve them directly rather
+    than replacing absent fields with invented empty output. This uses the
+    Node API contract at https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback.
+    [ssh_expiry_emits_no_probe] requires an expired
+    readiness check to return refusal from the actual controller. The host
+    dispatches on the refusal constructor, so its diagnostic text may evolve
+    independently of the deadline contract.
+    [ssh_wait_fits_remaining_deadline] requires each
     probe timeout and retry delay to be positive and fit the deadline remaining
     at its clock observation. Zero must not disable the physical probe timeout.
     The awaited probe or delay already determines which observation comes next;

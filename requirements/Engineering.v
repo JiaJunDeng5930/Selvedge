@@ -34,6 +34,18 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    A reported runtime workload must finish its scheduled transitions before
+    replay is measured. The benchmark supplies deterministic external replies
+    and follows the kernel's continuation requests; pending maintenance cannot
+    stand for a completed workload. Its provenance identifies the published
+    bundles, without describing intermediate compiler files as runtime inputs.
+
+    Checking a selected proof closure must not depend on prerequisites used
+    only to ship an executable. OCaml and JavaScript extraction tools and the
+    JavaScript arithmetic runtime therefore cannot block a proof-only check.
+    Command generation still needs its pinned MetaRocq dependency when that
+    generator is part of the requested work.
+
     Shipped execution paths determine the build artifacts. The generated
     command declarations are checked with their production consumers; inspection
     can use those definitions or the public service entry. An installed plugin
@@ -87,6 +99,18 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     enumeration or of the number of operations later supplied. *)
 Export Focus(modification_has_its_selected_value, modifications_compose,
   modifications_keep_the_frame).
+
+(** ** Issued identities remain fresh
+
+    A late reply must not acquire authority over a later invocation. The actual
+    allocator issues an identity at or beyond its space's unused supply and
+    advances that supply past the issued value. Freshness does not require
+    choosing the first available value; skipped identities add no correlation
+    guarantee. Manual fork
+    receipts share this ticket space with asynchronous operations, so the same
+    allocator must establish freshness for both issuers. *)
+From Selvedge.Kernel Require StateProofs.
+Export StateProofs(identity_allocation_advances_its_supply).
 
 (** ** Admission retains the established meaning
 

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Adapters Require Import Common.
+From Selvedge.Programming Require Import Schema.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -58,11 +59,16 @@ Inductive observation := Persisted | PersistenceFailed | Reserved (owner : reser
  | GitRegistered | Prepared (root workspace guidance : json)
  | Classified (value : classification) | Removed | Moved (root workspace : json)
  | Observed (root workspace guidance : json) | Failed.
-Record plan := Plan { next_state : state; actions : list action }.
+Record plan := Plan { next_state : state; next_action : action }.
 Definition action_name value := match value with Persist=>"persist" | Reserve=>"local_reserve"
  | Register=>"local_create" | Prepare=>"local_prepare" | Classify=>"local_classify"
  | Release=>"local_release" | Remove=>"local_remove" | Move=>"local_archive"
  | Observe=>"local_observe" | Finish=>"finish" end.
+Definition action_kind := KEnum (action_name Persist)
+ (map action_name [Reserve;Register;Prepare;Classify;Release;Remove;Move;Observe;Finish]).
+Definition action_value (value : action) : Schema.denote action_kind.
+Proof. refine (exist _ (action_name value) _). destruct value; cbn; auto 12. Defined.
+Definition transition_fields := [Field "state" KJson;Field "action" action_kind].
 Definition intent_name value := match value with Create=>"create" | Archive=>"archive"
  | RecoverCreate=>"recover_create" | RecoverArchive=>"recover_archive" end.
 Definition owner_of value := match value with
@@ -77,10 +83,10 @@ Definition phase_name value := match value with InitialPersistence _=>"initial_p
  | TerminalPersistence _ _=>"terminal_persistence"
  | Complete _ _=>"complete" | NeedsResolution _=>"needs_resolution" end.
 Definition terminal_name value := match value with Released=>"released" | CheckoutReady=>"ready" | CheckoutArchived=>"archived" end.
-Definition change value phase actions := Plan (State value.(operation) value.(metadata) phase) actions.
-Definition finish value phase := change value phase [Finish].
+Definition change value phase action := Plan (State value.(operation) value.(metadata) phase) action.
+Definition finish value phase := change value phase Finish.
 Definition unresolved value := finish value (NeedsResolution (owner_of value.(current))).
-Definition acknowledge value owner result := change value (TerminalPersistence owner result) [Persist].
+Definition acknowledge value owner result := change value (TerminalPersistence owner result) Persist.
 Definition install value root workspace guidance :=
  State value.(operation) (set (set (set value.(metadata) "root" root) "workspace" workspace) "guidance" guidance) value.(current).
 
@@ -89,36 +95,36 @@ Definition install value root workspace guidance :=
 Definition step (value : state) (event : observation) : plan :=
  match value.(current),event with
  | InitialPersistence owner,Persisted =>
-   match value.(operation) with Create=>change value Reserving [Reserve]
-   | _=>change value (Classifying owner) [Classify] end
+   match value.(operation) with Create=>change value Reserving Reserve
+   | _=>change value (Classifying owner) Classify end
  | InitialPersistence _,PersistenceFailed => unresolved value
- | Reserving,Reserved owner => change value (ReservationPersistence owner) [Persist]
+ | Reserving,Reserved owner => change value (ReservationPersistence owner) Persist
  | Reserving,Failed => unresolved value
- | ReservationPersistence owner,Persisted => change value (Registering owner) [Register]
- | RegistrationPersistence owner,Persisted => change value (Preparing owner) [Prepare]
+ | ReservationPersistence owner,Persisted => change value (Registering owner) Register
+ | RegistrationPersistence owner,Persisted => change value (Preparing owner) Prepare
  | ReservationPersistence owner,PersistenceFailed
  | RegistrationPersistence owner,PersistenceFailed
- | Registering owner,Failed | Preparing owner,Failed => change value (Classifying (Some owner)) [Classify]
- | Registering owner,GitRegistered => change value (RegistrationPersistence owner) [Persist]
+ | Registering owner,Failed | Preparing owner,Failed => change value (Classifying (Some owner)) Classify
+ | Registering owner,GitRegistered => change value (RegistrationPersistence owner) Persist
  | Preparing owner,Prepared root workspace guidance => acknowledge (install value root workspace guidance) owner CheckoutReady
  | Classifying owner,Classified Missing =>
    match owner with Some owner=>acknowledge value owner Released | None=>unresolved value end
  | Classifying (Some owner),Classified OwnedUnregistered =>
    match value.(operation) with RecoverCreate | RecoverArchive=>unresolved value
-   | _=>change value (Releasing owner) [Release] end
+   | _=>change value (Releasing owner) Release end
  | Classifying (Some owner),Classified Registered =>
    match value.(operation) with
-   | Create=>change value (Removing owner) [Remove]
-   | Archive=>change value (Moving owner) [Move]
+   | Create=>change value (Removing owner) Remove
+   | Archive=>change value (Moving owner) Move
    | RecoverCreate=>if String.eqb (str value.(metadata) "status") "ready"
-       then change value (Observing owner) [Observe] else unresolved value
-   | RecoverArchive=>change value (Observing owner) [Observe] end
+       then change value (Observing owner) Observe else unresolved value
+   | RecoverArchive=>change value (Observing owner) Observe end
  | Releasing owner,Removed | Removing owner,Removed => acknowledge value owner Released
  | Moving owner,Moved root workspace => acknowledge (install value root workspace JNull) owner CheckoutArchived
  | Observing owner,Observed root workspace guidance => acknowledge (install value root workspace guidance) owner
      (match value.(operation) with RecoverCreate=>CheckoutReady | _=>CheckoutArchived end)
  | TerminalPersistence owner CheckoutReady,PersistenceFailed =>
-   match value.(operation) with Create=>change value (Classifying (Some owner)) [Classify]
+   match value.(operation) with Create=>change value (Classifying (Some owner)) Classify
    | _=>unresolved value end
  | TerminalPersistence owner result,Persisted => finish value (Complete owner result)
  | _,_ => unresolved value
@@ -141,8 +147,8 @@ Definition state_json value :=
  | TerminalPersistence _ result | Complete _ result=>set base "status" (JString (terminal_name result))
  | NeedsResolution _=>set base "status" (JString "needs_resolution")
  | _=>base end.
-Definition encode_plan value := JObject [("state",state_json value.(next_state));
- ("effects",JArray (map (fun action=>JString (action_name action)) value.(actions)))].
+Definition encode_plan value := Schema.encode transition_fields
+ (Schema.of_tuple transition_fields [!state_json value.(next_state);action_value value.(next_action)!]).
 Definition parse_intent source :=
  if String.eqb source "create" then Some Create else if String.eqb source "archive" then Some Archive
  else if String.eqb source "recover_create" then Some RecoverCreate
@@ -233,10 +239,10 @@ Definition begin source :=
  let previous_status := str receipt "status" in
  let receipt := set receipt "status" (JString (match intent with Create=>"creating" | Archive=>"archiving" | _=>str receipt "status" end)) in
  let value := State intent receipt (Classifying owner) in
- encode_plan (match intent with Create=>change value (InitialPersistence None) [Persist]
+ encode_plan (match intent with Create=>change value (InitialPersistence None) Persist
  | Archive=>match owner,parse_terminal previous_status with
    Some owner,Some Released=>finish value (Complete owner Released)
    | Some owner,Some CheckoutArchived=>finish value (Complete owner CheckoutArchived)
    | None,_=>unresolved value
-   | Some owner,_=>change value (InitialPersistence (Some owner)) [Persist] end
- | _=>change value (Classifying owner) [Classify] end).
+   | Some owner,_=>change value (InitialPersistence (Some owner)) Persist end
+ | _=>change value (Classifying owner) Classify end).

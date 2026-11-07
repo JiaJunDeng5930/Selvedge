@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskBirth TaskChangeProofs TaskResult.
 From Selvedge.Programming Require CommandResult.
-From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
@@ -146,10 +146,10 @@ Proof.
 Qed.
 Theorem unknown_task_has_no_binding : forall payload caller value,
  find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value=None ->
- exists reason,
+ exists code reason,
  Worktree.handle_read_worktree payload caller value=
- failure "task_not_found" reason.
-Proof. intros; unfold Worktree.handle_read_worktree; rewrite H; eexists; reflexivity. Qed.
+ failure code reason.
+Proof. intros; unfold Worktree.handle_read_worktree; rewrite H; do 2 eexists; reflexivity. Qed.
 
 (** Cloud fork admission runs before the ordinary settings selection. Both
     workspace and project overrides are rejected by the actual feature guard. *)

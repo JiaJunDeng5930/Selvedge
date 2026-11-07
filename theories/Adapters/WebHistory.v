@@ -1,10 +1,9 @@
-From Stdlib Require Import String List Bool NArith Ascii.
+From Stdlib Require Import String List Bool.
 From Selvedge.Kernel Require Import NativeTools.
-From Selvedge.Adapters Require Import WebCommon ProviderCatalog BackendHistory BackendRequests.
+From Selvedge.Adapters Require Import WebCommon BackendHistory BackendRequests.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
-Open Scope N_scope.
 
 Definition message role content := JObject [("type",JString "message");("role",JString role);("content",content)].
 Definition context_part part := if is_null (get part "text") then get part "refusal" else get part "text".
@@ -28,11 +27,10 @@ Definition history_item item : outcome (list json) :=
   | Some HistoryRole.Delegation => Accepted []
   | Some HistoryRole.Data => history_data item
   | Some HistoryRole.Context =>
-    if negb (BackendHistory.context_valid (str item "type") item) then reject "Malformed or unsupported task context message"
-    else match str item "type" with
+    match str item "type" with
     | "environment_notice" => Accepted [message "developer" (get item "content")]
     | "context_change" => Accepted [message "developer" (JString (BackendHistory.context_change_text (get item "change")))]
-    | "reasoning_configuration" => Accepted [message "developer" (JString ("Committed reasoning effort for subsequent responses: " ++ str item "effort"))]
+    | "reasoning_configuration" => Accepted []
     | _ => history_data item end
   | Some HistoryRole.User => Accepted [message "user" (JString (BackendHistory.content_text_value (get item "content")))]
   | Some HistoryRole.Assistant => Accepted [message "assistant" (get item "content")]
@@ -59,23 +57,14 @@ Arguments JSON:
   | Some HistoryRole.Provider => context_message (get item "content")
   | Some HistoryRole.Replacement | None => reject ("Unsupported ChatGPT Web history role: " ++ role) end.
 Definition history values := bind (traverse history_item values) (fun chunks => Accepted (List.concat chunks)).
-Definition flat_character character :=
-  ProviderCatalog.env_letter character || ProviderCatalog.env_digit character ||
-  existsb (Ascii.eqb character) ["$"%char;"."%char;"-"%char].
-Definition flat_name value := nonempty value && Nat.leb (String.length (text value)) 256 &&
-  forallb flat_character (list_ascii_of_string (text value)).
-Fixpoint tool_names_valid values := match values with [] => true | item::rest =>
-  flat_name (get item "name") && negb (contains_name rest "name" (get item "name")) &&
-  is_object (get item "parameters") && tool_names_valid rest end.
 Definition request_tools values : outcome (list json) :=
  let values := NativeTools.presentation_catalog values in
- if tool_names_valid values then Accepted (map (fun value => JObject
+ (* DEFENSE: MCP names are normalized but not length-limited at discovery;
+    their combined server/tool name can exceed the Web transport limit. *)
+ if forallb (fun value => Nat.leb (String.length (str value "name")) 256) values then Accepted (map (fun value => JObject
    (("type",JString "function")::subset value ["name";"description";"parameters"])) values)
- else reject "ChatGPT Web requires unique flat function names and JSON Schema parameters".
+ else reject "ChatGPT Web requires function names of at most 256 characters".
 Definition effect_tools kind values : outcome (list json) :=
- if String.eqb kind "model" then match D.decode (D.Array D.Any) values with
- | Some values => request_tools values
- (* DEFENSE: A public model request must supply its declared tool array. *)
- | None => reject "Invalid ChatGPT Web JSON source" end
+ if String.eqb kind "model" then request_tools (items values)
  else Accepted [].
 Definition tools effect := render_outcome JArray (effect_tools (member_text effect "kind") (member effect "tools")).

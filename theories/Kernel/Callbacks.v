@@ -14,7 +14,7 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Definition ignored := State.ignored.
-Definition acknowledged (value : world) := accept (JObject [("accepted",JBool true)]) value [].
+Definition acknowledged (value : world) := accept JNull value [].
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
   | NativeToolSource _ _ => NativeTools.arguments_valid tool invocation
@@ -27,9 +27,7 @@ Definition permitted_items (items : list model_item) (allowed : list string) (ta
  forallb (fun item => match item with
  | CallItem invocation =>
    negb (call_known (call_id invocation) (task_history task)) &&
-   existsb (String.eqb (call_name invocation)) allowed &&
-   (match find_tool (call_name invocation) (contract_tools (task_contract task)) with
-   | None => false | Some _ => true end)
+   existsb (String.eqb (call_name invocation)) allowed
  | _ => true end) items.
 Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=
  map (fun item => match item with
@@ -80,21 +78,18 @@ Fixpoint context_diagnostics (diagnostics : list string) (history : list message
 Definition observed_context_history (observations : option (list context_observation))
  (diagnostic : string) (history : list message) :=
  match observations with
- | None => (false,context_diagnostic diagnostic history)
+ | None => context_diagnostic diagnostic history
  | Some observations =>
    let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings history) in
    let messages := map ContextObservation changes in
-   (Nat.eqb (List.length diagnostics) 0,
-    messages ++ context_diagnostics diagnostics (history ++ messages))
+   messages ++ context_diagnostics diagnostics (history ++ messages)
  end.
 Definition context_phase (task : task) :=
  match task_lifecycle task with Running _ _ => ReadyForModel | _ => WantsModel end.
-Definition context_response (accepted : bool) (value : world) :=
- accept (JObject [("accepted",JBool true);("observations_accepted",JBool accepted)]) value [].
-Definition context_ready (accepted : bool) (id : N) (task : task) (value : world) :=
+Definition context_ready (id : N) (task : task) (value : world) :=
  match TaskScope.select id value with
  | None => ignored value
- | Some target => context_response accepted
+ | Some target => acknowledged
    (TaskChange.interpret (TaskChange.Plan value target [TaskChange.ChangePhase (context_phase task)]))
  end.
 Definition context_completed (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) :=
@@ -103,12 +98,12 @@ Definition context_completed (id ticket : N) (observations : option (list contex
     (* DEFENSE: Source IO belongs to its captured history revision; concurrent
        tool or speech results require a new observation. *)
     if Nat.eqb revision (List.length (task_history task)) then
-      let '(accepted,messages) := observed_context_history observations diagnostic (task_history task) in
-      context_response accepted (TaskChange.interpret (TaskChange.Plan value target
+      let messages := observed_context_history observations diagnostic (task_history task) in
+      acknowledged (TaskChange.interpret (TaskChange.Plan value target
         [TaskChange.AppendHistory messages; TaskChange.ChangePhase (context_phase task)]))
     else match task_lifecycle task with
       | Running _ _ => Reasoning.context_retry id value
-      | _ => context_ready false id task value end).
+      | _ => context_ready id task value end).
 
 Definition settle_operation_plan := OperationEvent.settle.
 Definition after_plugins := OperationEvent.after_plugins.

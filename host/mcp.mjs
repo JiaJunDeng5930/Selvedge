@@ -18,18 +18,20 @@ export class Mcp extends StdioRpc {
   }
 
   async discover() {
-    let catalog = { tools: [], cursors: [], done: false };
-    while (!catalog.done) {
-      const page = await this.request('tools/list', catalog.nextCursor === undefined ? {} : { cursor: catalog.nextCursor });
-      catalog = boundary('plugin.mcp_page', { name: this.name, page, tools: catalog.tools,
-        cursors: catalog.cursors, limits: this.limits });
-    }
+    // DEFENSE: A server can keep returning empty pages with fresh cursors;
+    // one deadline bounds the whole discovery, including those pages.
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let catalog = { tools: [] };
+    do {
+      const page = await this.request('tools/list', catalog.nextCursor === undefined ? {} : { cursor: catalog.nextCursor }, { signal });
+      catalog = boundary('plugin.mcp_page', { name: this.name, page, tools: catalog.tools, limits: this.limits });
+    } while (catalog.nextCursor !== undefined);
     return catalog.tools;
   }
 
   async call(name, arguments_, options) {
     const value = await this.request('tools/call', boundary('plugin.mcp_call_request', { name, arguments: arguments_ }), {
-      ...options, prepareIncoming: (result, { signal }) => prepareMcpImages(result, this.mediaHome, this.limits, signal),
+      ...options, prepareIncoming: (result, { signal }) => prepareMcpImages(result, this.mediaHome, signal),
     });
     return boundary('plugin.mcp_result', { result: value });
   }
@@ -37,7 +39,7 @@ export class Mcp extends StdioRpc {
 
 // Only an admitted tools/call response can hold this RPC materialization token.
 // Decode every opaque byte string and admit the complete plan before any write.
-async function prepareMcpImages(result, home, limits, signal) {
+async function prepareMcpImages(result, home, signal) {
   signal.throwIfAborted();
   const parts = Array.isArray(result?.content) ? result.content : [];
   const decoded = new Map();
@@ -45,10 +47,10 @@ async function prepareMcpImages(result, home, limits, signal) {
     if (part?.type !== 'image' || typeof part.data !== 'string') return null;
     const bytes = Buffer.from(part.data, 'base64');
     decoded.set(index, bytes);
-    return { canonical: bytes.toString('base64') === part.data, bytes: bytes.length,
+    return { canonical: bytes.toString('base64') === part.data,
       prefix: Array.from(bytes.subarray(0, 12)) };
   });
-  const plan = boundary('plugin.mcp_media_plan', { result, observations, maximum: limits.frame_bytes });
+  const plan = boundary('plugin.mcp_media_plan', { result, observations });
   if (!plan.indices.length) return result;
   const content = [...parts];
   for (const index of plan.indices) {

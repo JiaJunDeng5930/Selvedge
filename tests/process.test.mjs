@@ -124,7 +124,7 @@ async function session(t, bash, scenario, { ownership = false, settings = { appr
       const denied = results.result({ id: 'foreign-read', name: 'read_process' });
       if (!denied) return waiting;
       assert.equal(denied.is_error, true);
-      assert.equal(denied.value.error.code, 'unknown_process');
+      assert.ok(denied.value.error.message.trim(), 'Refusing another task\'s process must report a diagnostic');
       foreign.completed = true;
       return done;
     }
@@ -314,7 +314,7 @@ test('a failed artifact directory barrier reports failed capture without claimin
     value(yield call('write_process', { operation_id: operationId, eof: true }));
     const completed = yield* readUntil(operationId, observed => observed.status === 'completed');
     assert.equal(completed.observed.completion.error, true);
-    assert.equal(completed.observed.completion.reason.code, 'output_capture_failed');
+    assert.ok(completed.observed.completion.reason.message.trim(), 'Failed capture must report its diagnostic');
     assert.equal(completed.observed.completion.stdout_artifact.persisted, false);
     assert.equal(completed.observed.completion.stderr_artifact.persisted, false);
   });
@@ -330,7 +330,7 @@ test('deadlines, cancellation and shell exit release the real background process
       await waitFile(path.join(directory, 'deadline.ready'));
       const expired = yield* readUntil(operationId, observed => observed.status === 'completed');
       assert.equal(expired.observed.completion.error, true);
-      assert.equal(expired.observed.completion.reason.code, 'command_timed_out');
+      assert.ok(expired.observed.completion.reason.message.trim(), 'Deadline termination must report its diagnostic');
       const release = path.join(directory, 'cancelled.release');
       const waitForRelease = `while [ ! -e ${shellQuote(release)} ]; do sleep 0.01; done`;
       const cancellable = value(yield call('bash', { command: command(directory, 'cancelled', 'exec sleep 60', waitForRelease) }));

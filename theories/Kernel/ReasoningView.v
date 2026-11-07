@@ -13,32 +13,11 @@ Definition excerpt (text : string) := match Utf8.chunks text with
    String.append (Utf8.render_chunks (firstn 768 parts))
     (String.append omission (Utf8.render_chunks (skipn (List.length parts - 256) parts)))
  | None => omission end.
-Definition public_parts (parts : list json) := fold_right (fun part rest =>
- match text_default "type" part "" with
- | "output_text" | "summary_text" => JObject [("text",JString (text_default "text" part ""))] :: rest
- | "refusal" => JObject [("text",JString (text_default "refusal" part ""))] :: rest
- | _ => rest end) [] parts.
-(* Tool results can contain another task's provider checkpoint. Project JSON
-   before rendering it, so encrypted continuations never become preview text. *)
-Fixpoint public_value (fuel : nat) (value : json) : json := match fuel with
- | O => JString "[Evaluator JSON preview: nesting or field limit reached]"
- | S fuel => match value with
-   | JArray (item :: rest) => match public_value fuel (JArray rest) with
-     | JArray rest => JArray (public_value fuel item :: rest)
-     | limit => JArray [public_value fuel item; limit] end
-   | JObject ((name,item) :: rest) =>
-     match text_default "type" value "" with
-     | "reasoning" => JObject [("type",JString "reasoning");("summary",JArray (public_parts (array_default "summary" value)))]
-     | "compaction" => JObject [("type",JString "compaction");("omitted",JString "Opaque provider checkpoint")]
-     | _ =>
-       let item := if String.eqb name "encrypted_content" then JString "[Private provider continuation omitted]" else public_value fuel item in
-       match public_value fuel (JObject rest) with
-       | JObject rest => JObject ((name,item) :: rest)
-       | limit => JObject [(name,item);("__selvedge_preview__",limit)] end end
-   | _ => value end end.
 Definition text_message role text := JObject [("role",JString role);("content",JString text)].
-Definition public_parts_text parts := String.concat "
-" (map (fun part => text_default "text" part "") (public_parts parts)).
+Definition public_parts_text (parts : list json) := String.concat "
+" (fold_right (fun part rest => match text_default "type" part "" with
+ | "output_text" | "summary_text" | "refusal" => provider_part_text part :: rest
+ | _ => rest end) [] parts).
 Definition public_context value := let value := provider_value value in
  match text_default "type" value "" with
  | "message" => Some (text_message "assistant" (public_parts_text (array_default "content" value)))
@@ -51,13 +30,14 @@ Definition public_message (message : message) := match message with
  | FailureMessage text => Some (text_message "error" text)
  | ModelContext _ value => public_context value
  | FunctionCall call => Some (JObject [("role",JString "function_call");("call_id",JString (call_id call));
-    ("name",JString (call_name call));("arguments",public_value 512 (call_arguments call))])
- | FunctionOutput id value error => Some (JObject [("role",JString "function_output");("call_id",JString id);("content",public_value 512 value);("is_error",JBool error)])
+    ("name",JString (call_name call));("arguments",call_arguments call)])
+ | FunctionOutput id value error => Some (JObject [("role",JString "function_output");("call_id",JString id);("content",value);("is_error",JBool error)])
  | OperationResult _ call value error => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
-    ("name",JString (call_name call));("content",public_value 512 value);("is_error",JBool error)])
+    ("content",value);("is_error",JBool error)])
  | _ => None end.
-(* Public filtering precedes previewing. Text crosses the JS bridge without
-   collapsing object members; an existing excerpt must not be quoted a second time. *)
+(* Domain messages identify provider output; arbitrary tool JSON remains evidence.
+   Text crosses the JS bridge without collapsing object members, and an existing
+   excerpt must not be quoted a second time. *)
 Definition preview_value value := match value with
  | JString text => JString (excerpt text)
  | _ => JString (excerpt (TextJson.render_json value)) end.

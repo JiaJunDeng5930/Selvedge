@@ -45,7 +45,7 @@ Definition feature_request {before} (request : feature_plan before) :=
 Definition feature_issue_change {before} (request : feature_plan before) : CommandResult.change :=
  let '(_,allocated) := allocate_identity (channel_space (feature_protocol request)) before in
  let sent := feature_request request in
- CommandResult.Change (JObject [("accepted",JBool true)])
+ CommandResult.Change JNull
    (with_features (RequestTypes.install sent (world_features allocated)) allocated)
    [RequestFeature sent].
 Definition feature_issue {before} (request : feature_plan before) : decision :=

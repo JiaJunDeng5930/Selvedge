@@ -35,7 +35,7 @@ Proof.
  rewrite TaskChangesProofs.fork_result_decision_expression; cbv beta zeta; rewrite Found, Available.
  unfold Tasks.fork_parent_ready; rewrite Running.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
- unfold allocate_ticket. cbn [andb CommandResult.decide CommandResult.resolve CommandResult.accept
+ cbn [allocate_identity next_identity andb CommandResult.decide CommandResult.resolve CommandResult.accept
    CommandResult.change_value CommandResult.change_world CommandResult.change_effects
    decision_world decision_reply accept success bool_default field value_or_null].
  split; [reflexivity|]. eexists; split.

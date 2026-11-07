@@ -49,13 +49,15 @@ Definition auto_policy profile model : outcome (option json) :=
       Accepted (Some (set profile "adaptive_reasoning" (JObject [
         ("evaluator",JString "jev");("efforts",JArray (map label_json values));
         ("baseline",label_json (baseline_value model values first));
-        ("transport",JString "configuration_update");("max_lease",number 10)])))
+        ("transport",JString (if model.(model_reasoning_updates) then "configuration_update" else "request_effort"));
+        ("max_lease",number 10)])))
     else reject "Adaptive reasoning requires an evaluator, distinct actual efforts, a supported baseline, transport, and a lease bound of 1..10" end
   else Accepted None.
 Definition review_info model :=
   match find (fun value => String.eqb (proj1_sig value) "low") (model_effort_values model) with
-  | Some low => ModelDescriptor model.(model_slug) model.(model_display) model.(model_visibility)
-    model.(model_priority) model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
+  | Some low => ModelDescriptor model.(model_slug) model.(model_visibility)
+    model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
+    model.(model_reasoning_updates)
   | None => model end.
 Definition model_profile source model := JObject (object_fields (get source "connection") ++
   [("model",JString (model_id model));("bound_account_id",get (get source "result") "account_id");("model_info",model_json model)]).
@@ -101,7 +103,6 @@ Definition materialization_diagnostic result models :=
 Definition materialization_summary result models := JObject [
   ("models",number (N.of_nat (Models.size (selectable models))));("cached",get result "cached");("stale",get result "stale")].
 Definition materialize source :=
-  if negb (AccountNamespace.is_namespace (str source "namespace")) then err "Invalid ChatGPT account namespace" else
   let result := get source "result" in
   render_outcome (fun result => result) (bind (decode_models (get result "models")) (fun models =>
     bind (materialize_list source false (Models.values (selectable models)) []) (fun generated =>

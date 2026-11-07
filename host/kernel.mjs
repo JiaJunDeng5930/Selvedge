@@ -1,8 +1,6 @@
 import { Worker } from 'node:worker_threads';
-import { fileURLToPath } from 'node:url';
 import { encodeInput, parseJson } from './codec.mjs';
 
-const defaultModule = fileURLToPath(new URL('../.build/kernel-model.mjs', import.meta.url));
 class KernelInputError extends TypeError {}
 class KernelInputRangeError extends RangeError {}
 const inputErrors = { TypeError: KernelInputError, RangeError: KernelInputRangeError };
@@ -15,10 +13,8 @@ export class Kernel {
   #failure;
   #closing = false;
 
-  constructor({ module = defaultModule, timeout = 30_000 } = {}) {
-    this.timeout = timeout;
-    this.maximum = 128 * 1024;
-    this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url), { workerData: { module } });
+  constructor() {
+    this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url));
     this.#worker.on('message', message => {
       // DEFENSE: A response can arrive after timeout or journal failure retired this Worker.
       if (this.#failure) return;
@@ -84,7 +80,7 @@ export class Kernel {
       // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
       // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
-      const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
+      const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), 30_000);
       // Journal owns request serialization through the complete SQLite transaction.
       this.#pending = { resolve, reject, timer };
       this.#worker.postMessage({ text, snapshot, operation });

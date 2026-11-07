@@ -56,12 +56,11 @@ Definition authorization source :=
   else success JNull.
 Definition credentials source :=
   (* DEFENSE: Environment credentials may be absent when the configured provider is first used. *)
-  if is_text (get source "key") && negb (String.eqb (str source "key") "") then success (get source "key")
+  if is_text (get source "key") && negb (String.eqb (str source "key") "") then success JNull
   else err ("Set " ++ display_field (get source "profile") "api_key_env" ++ " to use this provider").
 Definition request_size source :=
   (* DEFENSE: Encoded history can exceed the host request budget before network IO. *)
-  if canonical_natural (get (get source "limits") "frame_bytes") && canonical_natural (get source "bytes") &&
-    (num source "bytes" <=? if wire_content_has_images (items (get (get source "request") "input"))
+  if num source "bytes" <=? (if wire_content_has_images (items (get (get source "request") "input"))
       then 33554432 else num (get source "limits") "frame_bytes")
   then success JNull else range_error "Provider request exceeds the configured limit".
 Definition http_headers source :=
@@ -93,8 +92,7 @@ Definition support source :=
       else if String.eqb kind "context_compaction" then err "The offline echo profile cannot compact context; configure a model provider"
       else success (descriptor backend) end.
 Definition echo source :=
-  if history_has_images (items (get source "history")) then err "Image input is not supported by the offline echo backend"
-  else let last := fold_left (fun fallback item => if String.eqb (str item "role") "user" then
+  let last := fold_left (fun fallback item => if String.eqb (str item "role") "user" then
     default (get item "content") (JString "Task resumed.") else fallback)
     (items (get source "history")) (JString "Task resumed.") in
   success (JArray [JObject [("type",JString "text");("part",number 0);

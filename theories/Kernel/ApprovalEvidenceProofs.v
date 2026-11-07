@@ -39,7 +39,7 @@ Proof.
  unfold TicketedRequest.Scoped.external_authority_for; rewrite Review,Elevated; cbn [snd].
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
- unfold TicketedRequest.append_operation, TaskWake.promote.
+ unfold TaskWake.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
@@ -93,7 +93,7 @@ Qed.
 Theorem an_approval_denial_runs_the_frozen_result_chain :
  forall before (target : TaskScope.task_reference before) pending actor reason plugin rest,
  Callbacks.after_plugins (TaskScope.selected target) = plugin :: rest ->
- exists updated explanation,
+ exists updated code explanation,
  find_task (TaskScope.owner target)
    (TaskResult.interpret_result target
      (Callbacks.approval_decision_plan (TaskScope.owner target) pending actor (Denied reason)
@@ -102,12 +102,12 @@ Theorem an_approval_denial_runs_the_frozen_result_chain :
  map (fun current => if N.eqb (operation_id pending) (operation_id current)
    then Operation (operation_id current) (operation_call current) (operation_announced current)
      (AfterHooksReady (plugin :: rest)
-       (State.failure "approval_denied" explanation) true)
+       (State.failure code explanation) true)
    else current) (task_operations (TaskScope.selected target)).
 Proof.
  intros before target pending actor reason plugin rest Hooks.
  rewrite interpreted_results_keep_their_exact_task_update.
- eexists; eexists; split; [reflexivity|].
+ do 3 eexists; split; [reflexivity|].
  unfold Callbacks.approval_decision_plan, OperationEvent.plan.
  rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
  unfold OperationEvent.returned, OperationEvent.settle, TaskResult.result_changes.

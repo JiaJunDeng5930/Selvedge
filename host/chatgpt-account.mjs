@@ -35,7 +35,7 @@ function dateObservation(value, numeric = false) {
 }
 function credentialObservations(value, audio = false) {
   return { value, audio, identity: chatgptAccountIdentity(value?.issuer, value?.client_id, value?.subject),
-    dates: Object.fromEntries(['expires_at', 'earliest_refresh_at', 'last_refresh'].map(key => [key, dateObservation(value?.[key])])) };
+    dates: Object.fromEntries(['expires_at', 'earliest_refresh_at'].map(key => [key, dateObservation(value?.[key])])) };
 }
 function connectionObservations(value) {
   return { value, urls: { endpoint: urlObservation(value?.endpoint ?? defaultChatGPTAccount.endpoint),
@@ -45,8 +45,7 @@ export function accountConfig(value = {}) {
   return boundary('account.connection', connectionObservations(value));
 }
 export function accountConnection(profile) {
-  const connection = boundary('account.profile_connection', { profile });
-  return boundary('account.connection', connectionObservations(connection));
+  return boundary('account.profile_connection', { profile });
 }
 const locks = new Map();
 
@@ -152,8 +151,7 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
   const expires = dateObservation(expiration, true);
   const earliestValue = tokens.earliest_refresh_at;
   const earliest = dateObservation(typeof earliestValue === 'number' ? earliestValue * 1000 : earliestValue, typeof earliestValue === 'number');
-  return boundary('account.token', { ...source, metadata, identity, expires, earliest,
-    now_date: dateObservation(now, true) });
+  return boundary('account.token', { ...source, metadata, identity, expires, earliest });
 }
 
 async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential, audio = false } = {}) {
@@ -197,9 +195,8 @@ function authorizationView(credential, connection, home, audio = false) {
 }
 
 export async function authorize(profile, home, { signal, audio = false } = {}) {
-  const connection = accountConnection(profile);
-  const credential = await resolveCredential(connection, home, { signal, audio });
-  return authorizationView(credential, connection, home, audio);
+  const credential = await resolveCredential(profile, home, { signal, audio });
+  return authorizationView(credential, profile, home, audio);
 }
 
 async function hostIdentity(home) {
@@ -261,7 +258,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, aud
       const parameters = boundary('account.auth_parameters', { audio, registered, redirectUri, state, nonce,
         challenge: await oidc.calculatePKCECodeChallenge(verifier), ext_agent_host_id });
       const authorize = oidc.buildAuthorizationUrl(configuration(metadata, parameters.client_id, profile, lifetime, audio), parameters);
-      await onAuthorize(boundary('account.authorize_prompt', { url: authorize.href, redirectUri }));
+      await onAuthorize({ url: authorize.href });
       // The single await owns settlement; repeated HTTP callbacks cannot start another exchange.
       const { url, clientId } = await callback;
       registered = boundary('account.registration_record', { issuer: profile.issuer, clientId, registered });

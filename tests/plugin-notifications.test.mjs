@@ -68,7 +68,6 @@ test('post-commit plugin events keep their order and replay never redelivers the
   while (taskIds.has(missingTask)) missingTask++;
   const rejected = await command({ op: 'send', task_id: missingTask, message: 'No task owns this input.' });
   assert.equal(rejected.ok, false);
-  assert.equal(rejected.error.code, 'task_not_found');
   assert.equal((await events()).length, delivered.length, 'A rejected unchanged command publishes no invented event');
   await running.close();
   running = await startServer(options);

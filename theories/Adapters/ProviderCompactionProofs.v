@@ -6,7 +6,7 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Theorem public_opaque_requests_never_use_textual_fallback : forall source,
-  opaque_content (classify_content (get source "request")) = true ->
+  opaque_request (get source "request") = true ->
   Api.call "backend.compaction_meter_fallback" source =
     success (JObject [("action",JString "error")]).
 Proof. intros source H;change (meter_fallback source = action "error");
@@ -18,8 +18,7 @@ Proof. intros source H; exists "The provider returned an invalid input token cou
 Theorem public_valid_token_count_is_retained : forall source count,
   wire_natural (get (get source "response") "input_tokens") = Some count ->
   JsonObjects.equivalent (Api.call "backend.compaction_meter_result" source) (success (JObject [
-    ("scope",get source "scope"); ("input_tokens",number count);
-    ("tokenizer",JString "provider")])) = true.
+    ("scope",get source "scope"); ("input_tokens",number count)])) = true.
 Proof.
  intros source count H;change (Api.call "backend.compaction_meter_result" source) with (meter_result source).
  unfold meter_result;rewrite H;apply equivalent_is_reflexive.
@@ -42,86 +41,74 @@ Theorem public_missing_model_is_not_a_capability_failure : forall source,
 Proof. intros source H;change (meter_fallback source = action "error");unfold meter_fallback,unsupported_route;
   rewrite H;cbn;repeat rewrite andb_false_r;reflexivity. Qed.
 Theorem public_readable_unsupported_route_uses_byte_bound : forall source,
-  opaque_content (classify_content (get source "request")) = false ->
-  is_object (get source "request") = true -> unsupported_route source = true ->
+  opaque_request (get source "request") = false -> unsupported_route source = true ->
   JsonObjects.equivalent (Api.call "backend.compaction_meter_fallback" source) (success (JObject [
     ("action",JString "local"); ("scope",get source "scope");
-    ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])) = true.
+    ("input_tokens",get source "bytes")])) = true.
 Proof.
- intros source H I R;change (Api.call "backend.compaction_meter_fallback" source) with (meter_fallback source).
- unfold meter_fallback;rewrite H,I,R;apply equivalent_is_reflexive.
-Qed.
-
-Definition content_consistent value :=
-  (image_count value = 0 \/ opaque_content value = true) /\
-  (encrypted_content_present value = false \/ opaque_content value = true).
-Lemma combine_content_consistent : forall left right,
-  content_consistent left -> content_consistent right -> content_consistent (combine_content left right).
-Proof.
- intros [lo le li] [ro re ri] [Limage Lencrypted] [Rimage Rencrypted];
- unfold content_consistent,combine_content in *;cbn in *;split.
- - destruct Limage as [Limage|Limage];destruct Rimage as [Rimage|Rimage].
-   + left;lia.
-   + right;rewrite Rimage;apply orb_true_r.
-   + right;rewrite Limage;apply orb_true_l.
-   + right;rewrite Limage;apply orb_true_l.
- - destruct Lencrypted as [Lencrypted|Lencrypted];destruct Rencrypted as [Rencrypted|Rencrypted].
-   + left;now rewrite Lencrypted,Rencrypted.
-   + right;rewrite Rencrypted;apply orb_true_r.
-   + right;rewrite Lencrypted;apply orb_true_l.
-   + right;rewrite Lencrypted;apply orb_true_l.
+ intros source H R;change (Api.call "backend.compaction_meter_fallback" source) with (meter_fallback source).
+ unfold meter_fallback;rewrite H,R;apply equivalent_is_reflexive.
 Qed.
 
 Theorem public_account_image_requests_use_the_complete_request_estimate : forall source,
-  is_object (get source "request") = true ->
   ProviderCatalog.account (get source "profile") = true ->
-  0 < image_count (classify_content (get source "request")) ->
+  0 < request_image_count (get source "request") ->
   JsonObjects.equivalent (Api.call "backend.compaction_measurement_plan" source)
     (success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json (get source "request"))) +
-        1844 * image_count (classify_content (get source "request"))));
-      ("tokenizer",JString "codex_image_estimate")])) = true.
+        1844 * request_image_count (get source "request")))])) = true.
 Proof.
- intros source request_object account images.
+ intros source account images.
  change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).
- unfold measurement_plan; rewrite request_object,account.
- assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
+ unfold measurement_plan; rewrite account.
+ assert (has_images : N.ltb 0 (request_image_count (get source "request")) = true)
    by (apply N.ltb_lt; exact images).
  rewrite has_images; apply equivalent_is_reflexive.
 Qed.
-Theorem complete_request_classification_is_consistent : forall value,
-  content_consistent (classify_content value).
+Theorem public_other_requests_use_provider_measurement : forall source,
+  (ProviderCatalog.account (get source "profile") &&
+    N.ltb 0 (request_image_count (get source "request"))) = false ->
+  Api.call "backend.compaction_measurement_plan" source = success (JObject [("action",JString "remote")]).
 Proof.
- fix induction_json 1;intro value;destruct value as [|b|n|s|values|fields];
-   try (split;[left;reflexivity|left;reflexivity]).
- - cbn;induction values as [|head tail IH];[split;[left|left];reflexivity|].
-   apply combine_content_consistent;[apply induction_json|exact IH].
- - cbn;induction fields as [|[name item] tail IH];[split;[left|left];reflexivity|].
-   apply combine_content_consistent.
-   + unfold content_consistent;cbn;split.
-     * destruct (String.eqb name "image_asset" && is_object item);[right;apply orb_true_l|left];reflexivity.
-     * destruct (String.eqb name "encrypted_content" && is_text item && negb (String.eqb (text item) ""));
-       [right;apply orb_true_r|left];reflexivity.
-   + apply combine_content_consistent;[apply induction_json|exact IH].
+ intros source Remote.
+ change (measurement_plan source = success (JObject [("action",JString "remote")])).
+ unfold measurement_plan; now rewrite Remote.
 Qed.
-Theorem complete_request_image_count_is_opaque : forall value,
-  image_count (classify_content value) = 0 \/ opaque_content (classify_content value) = true.
-Proof. intros value;exact (proj1 (complete_request_classification_is_consistent value)). Qed.
+
+Definition encrypted_continuation (request : json) := exists item ciphertext,
+  In item (items (get request "input")) /\
+  (str item "type" = "reasoning" \/ str item "type" = "compaction") /\
+  get item "encrypted_content" = JString ciphertext /\ ciphertext <> "".
+
 Theorem complete_request_encrypted_continuation_is_opaque : forall value,
-  encrypted_content_present (classify_content value) = false \/ opaque_content (classify_content value) = true.
-Proof. intros value;exact (proj2 (complete_request_classification_is_consistent value)). Qed.
-Theorem public_image_requests_never_use_textual_fallback : forall source,
-  0 < image_count (classify_content (get source "request")) ->
+  encrypted_continuation value -> opaque_request value = true.
+Proof.
+ intros value [item [ciphertext [Member [Kind [Content Nonempty]]]]].
+ unfold opaque_request; apply orb_true_iff; left.
+ apply existsb_exists; exists item; split; [exact Member|].
+ unfold encrypted_input_item, str in *.
+ destruct Kind as [Kind|Kind]; rewrite Kind, Content; cbn;
+   apply negb_true_iff; now apply String.eqb_neq.
+Qed.
+Theorem public_image_requests_never_use_textual_fallback : forall source item image,
+  In item (items (get (get source "request") "input")) ->
+  In image (input_parts item) -> str image "type" = "input_image" ->
   Api.call "backend.compaction_meter_fallback" source = action "error".
 Proof.
- intros source positive;apply public_opaque_requests_never_use_textual_fallback.
- destruct (complete_request_image_count_is_opaque (get source "request")) as [zero|opaque];[lia|exact opaque].
+ intros source item image Item Image Kind.
+ apply public_opaque_requests_never_use_textual_fallback.
+ unfold opaque_request; apply orb_true_iff; right; apply N.ltb_lt.
+ assert (Member : In image (input_images (get source "request"))).
+ { unfold input_images; apply filter_In; split.
+   - apply in_flat_map; exists item; auto.
+   - now rewrite Kind. }
+ unfold request_image_count.
+ destruct (input_images (get source "request")); [contradiction|cbn; lia].
 Qed.
 Theorem public_encrypted_requests_never_use_textual_fallback : forall source,
-  encrypted_content_present (classify_content (get source "request")) = true ->
+  encrypted_continuation (get source "request") ->
   Api.call "backend.compaction_meter_fallback" source = action "error".
 Proof.
- intros source encrypted;apply public_opaque_requests_never_use_textual_fallback.
- destruct (complete_request_encrypted_continuation_is_opaque (get source "request")) as [absent|opaque];
-   [rewrite encrypted in absent;discriminate|exact opaque].
+ intros source Encrypted; apply public_opaque_requests_never_use_textual_fallback.
+ now apply complete_request_encrypted_continuation_is_opaque.
 Qed.

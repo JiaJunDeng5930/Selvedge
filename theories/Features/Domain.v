@@ -9,12 +9,14 @@ Import ListNotations.
 Inductive board_stage := Backlog | Todo | InProgress | InReview | Completed | Blocked.
 Inductive priority := NoPriority | Low | Medium | High | Urgent.
 Inductive owner := Unassigned | Self | ProfileOwner (profile : string) | AgentOwner (id : N).
+Definition owner_eq_dec : forall left right : owner, {left = right} + {left <> right}.
+Proof. decide equality; first [apply String.string_dec | apply N.eq_dec]. Defined.
 Record attachment := Attachment { attachment_id : string; attachment_name : string;
  attachment_mime : string; attachment_path : string; attachment_bytes : N }.
 Record card_draft := CardDraft { draft_title : string; draft_description : string;
  draft_stage : board_stage; draft_priority : priority; draft_owner : owner;
  draft_project : option N; draft_labels : list string; draft_attachments : list attachment }.
-Inductive enrichment := NoEnrichment | Enriching (request : RequestEnvelope.t (N * bool)) | EnrichmentFailed (reason : string).
+Inductive enrichment := NoEnrichment | Enriching (request : RequestEnvelope.t bool) | EnrichmentFailed (reason : string).
 Record card := Card { card_revision : N; card_contents : card_draft;
  card_task : option N; card_archived : bool; card_created_at : BoardClock.t; card_updated_at : BoardClock.t;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.

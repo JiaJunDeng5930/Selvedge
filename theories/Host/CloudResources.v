@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common.
+From Selvedge.Programming Require Import Schema.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -29,6 +30,11 @@ Inductive observation := Persisted | PersistenceFailed
 Inductive action := Persist | Allocate | Prepare | CredentialsLookup | Scan | Terminate | Finish.
 Definition action_name value := match value with Persist => "persist" | Allocate => "allocate" | Prepare => "prepare"
   | CredentialsLookup => "credentials" | Scan => "scan" | Terminate => "terminate" | Finish => "finish" end.
+Definition action_kind := KEnum (action_name Persist)
+  (map action_name [Allocate;Prepare;CredentialsLookup;Scan;Terminate;Finish]).
+Definition action_value (value : action) : Schema.denote action_kind.
+Proof. refine (exist _ (action_name value) _). destruct value; cbn; auto 9. Defined.
+Definition transition_fields := [Field "state" KJson;Field "action" (KOptional action_kind)].
 Definition terminal_name value := match value with NoAttempt => "no_attempt" | Destroyed => "destroyed"
   | DestroyFailed => "destroy_failed" | NeedsCredential => "needs_credential"
   | NeedsReconcile => "needs_reconcile" | NeedsResolution => "needs_resolution" end.
@@ -41,7 +47,7 @@ Fixpoint resources (value : state) : cleanup := match value with
   | Persisting next => resources next end.
 Definition with_recording_failure source := Context (metadata source) true.
 Definition mark_failed source := Cleanup (with_recording_failure (cleanup_context source)) (evidence source).
-Definition save value := (Persisting value, [Persist]).
+Definition save value := (Persisting value, Some Persist).
 Definition terminate_or_finish source := match evidence source with
   | KnownAllocation (Some instance) => save (Terminating (cleanup_context source) instance)
   | KnownAllocation None => save (Finished source Destroyed)
@@ -49,35 +55,28 @@ Definition terminate_or_finish source := match evidence source with
 Definition matching_tag source instance := existsb (fun tag =>
   String.eqb (str tag "Key") "selvedge-task" && equal (get tag "Value") (get (metadata source) "token"))
   (items (get instance "Tags")).
-Definition owned source instance :=
-  let request := get (metadata source) "request" in
-  matching_tag source instance && equal (get instance "ImageId") (get request "ImageId") &&
-  equal (get instance "InstanceType") (get request "InstanceType") &&
-  equal (get (get instance "Placement") "Zone") (get (get request "Placement") "Zone") &&
-  equal (get (get instance "VirtualPrivateCloud") "VpcId") (get (get request "VirtualPrivateCloud") "VpcId") &&
-  equal (get (get instance "VirtualPrivateCloud") "SubnetId") (get (get request "VirtualPrivateCloud") "SubnetId").
 Definition scan_page source instances total :=
   match instances with
   | [instance] =>
-      if N.eqb total 1 && owned source instance && is_text (get instance "InstanceId") &&
+      if N.eqb total 1 && matching_tag source instance && is_text (get instance "InstanceId") &&
          negb (String.eqb (str instance "InstanceId") "")
       then save (Terminating source (str instance "InstanceId"))
       else save (Finished (Cleanup source UnknownAllocation) NeedsResolution)
   | [] => save (Finished (Cleanup source UnknownAllocation) NeedsReconcile)
   | _ => save (Finished (Cleanup source UnknownAllocation) NeedsResolution)
   end.
-Definition run value : state * list action := match value with
-  | Allocating _ => (value,[Allocate]) | Preparing _ _ | Revalidating _ _ _ => (value,[Prepare])
-  | Authorizing _ => (value,[CredentialsLookup]) | Scanning _ => (value,[Scan])
-  | Terminating _ _ => (value,[Terminate]) | Persisting _ => (value,[Persist])
-  | Ready _ _ _ _ | Finished _ _ => (value,[Finish]) end.
-Definition step (value : state) (observed : observation) : state * list action :=
+Definition run value : state * option action := match value with
+  | Allocating _ => (value,Some Allocate) | Preparing _ _ | Revalidating _ _ _ => (value,Some Prepare)
+  | Authorizing _ => (value,Some CredentialsLookup) | Scanning _ => (value,Some Scan)
+  | Terminating _ _ => (value,Some Terminate) | Persisting _ => (value,Some Persist)
+  | Ready _ _ _ _ | Finished _ _ => (value,Some Finish) end.
+Definition step (value : state) (observed : observation) : state * option action :=
   match value, observed with
   | Persisting next, Persisted => run next
-  | Persisting (Allocating source), PersistenceFailed => (Finished (as_cleanup (with_recording_failure source) None) NoAttempt,[Finish])
+  | Persisting (Allocating source), PersistenceFailed => (Finished (as_cleanup (with_recording_failure source) None) NoAttempt,Some Finish)
   | Persisting (Preparing source instance), PersistenceFailed
   | Persisting (Ready source instance _ _), PersistenceFailed =>
-      (Authorizing (as_cleanup (with_recording_failure source) (Some instance)),[CredentialsLookup])
+      (Authorizing (as_cleanup (with_recording_failure source) (Some instance)),Some CredentialsLookup)
   | Persisting next, PersistenceFailed => run (match next with
       | Authorizing source => Authorizing (mark_failed source)
       | Scanning source => Scanning (with_recording_failure source)
@@ -88,11 +87,11 @@ Definition step (value : state) (observed : observation) : state * list action :
   | Allocating source, AllocationFailed => save (Authorizing (Cleanup source UnknownAllocation))
   | Preparing source instance, Prepared host guidance | Revalidating source instance _, Prepared host guidance => save (Ready source instance host guidance)
   | Preparing source instance, PreparationFailed | Revalidating source instance _, PreparationFailed => save (Authorizing (as_cleanup source (Some instance)))
-  | Ready source instance host _, Resume | Persisting (Ready source instance host _), Resume => (Revalidating source instance host,[Prepare])
-  | _, CleanupRequested => (Authorizing (resources value),[CredentialsLookup])
+  | Ready source instance host _, Resume | Persisting (Ready source instance host _), Resume => (Revalidating source instance host,Some Prepare)
+  | _, CleanupRequested => (Authorizing (resources value),Some CredentialsLookup)
   | Authorizing source, Credentials scope =>
       if equal (get (metadata (cleanup_context source)) "scope") scope then
-        match evidence source with UnknownAllocation => (Scanning (cleanup_context source),[Scan])
+        match evidence source with UnknownAllocation => (Scanning (cleanup_context source),Some Scan)
         | _ => terminate_or_finish source end
       else save (Finished source NeedsCredential)
   | Authorizing source, CredentialsFailed => save (Finished source NeedsCredential)
@@ -100,7 +99,7 @@ Definition step (value : state) (observed : observation) : state * list action :
   | Scanning source, ScanFailed => save (Finished (Cleanup source UnknownAllocation) NeedsReconcile)
   | Terminating source _, Terminated => save (Finished (as_cleanup source None) Destroyed)
   | Terminating source instance, TerminationFailed => save (Finished (as_cleanup source (Some instance)) DestroyFailed)
-  | _, _ => (value,[])
+  | _, _ => (value,None)
   end.
 
 Definition policy_fields := ["controller_phase";"controller_persisting";"status";"allocation_unknown";"instance_id";
@@ -135,8 +134,9 @@ Definition encode_state value :=
     | Revalidating _ _ host => [("host",JString host)]
     | _ => [] end in
   JObject (List.app (object_fields (metadata context)) (List.app fields specific)).
-Definition encode_result result := let '(next, actions) := result in JObject [
-  ("state",encode_state next);("effects",JArray (map (fun action => JString (action_name action)) actions))].
+Definition encode_result result := let '(next, action) := result in
+  Schema.encode transition_fields (Schema.of_tuple transition_fields
+    [!encode_state next;option_map action_value action!]).
 Definition decode_terminal name :=
   if String.eqb name "no_attempt" then Some NoAttempt else if String.eqb name "destroyed" then Some Destroyed
   else if String.eqb name "destroy_failed" then Some DestroyFailed else if String.eqb name "needs_credential" then Some NeedsCredential

@@ -43,9 +43,9 @@ Definition operations := [
  method "web.event" [required "frame" (D.OpenObject frame_fields);raw "body";raw "model";raw "tools";raw "index"]
    (fun frame body model tools index => let '(data,name) := frame_value frame in
     WebResources.event false name data (missing body) (missing model) (items (missing tools)) (missing index));
- method "web.store_identify" [required "record" D.RawObject;required "current" D.RawObject;raw "id"]
-   (fun record current id => WebStore.store_identify record current (missing id));
- method "web.store_finish" [required "record" D.RawObject;required "current" D.RawObject;required "response" D.RawObject] WebStore.store_finish;
+ method "web.store_identify" [required "current" D.RawObject;raw "id"]
+   (fun current id => WebStore.store_identify current (missing id));
+ method "web.store_finish" [required "current" D.RawObject;required "response" D.RawObject] WebStore.store_finish;
  method "web.store_reject" [required "record" D.RawObject] WebStore.store_reject;
  method "web.store_retire" [] WebStore.store_retire;
  method "web.store_prepare" [raw "record";required "request" (D.OpenObject WebStore.request_fields);raw "previous";required "new_key" (D.Value Schema.KText)]
@@ -91,15 +91,15 @@ Definition operations := [
    required "owner" (D.Value Schema.KText);required "stage" safe_natural;raw "binding";required "reset" D.Boolean]
    (fun effect profile body owner stage binding reset => WebStore.invocation effect profile body owner (proj1_sig stage) (missing binding) reset);
  method "web.cancellation" [raw "record"] (fun record => WebStore.cancellation (missing record));
- method "web.store_latest" [required "records" (D.Array D.Any);required "owner" (D.Value Schema.KText);raw "ticket"] WebStore.store_latest;
+ method "web.store_latest" [required "records" (D.Array D.Any)] WebStore.store_latest;
  method "web.exchange_start" [raw "record";raw "body";raw "model";raw "tools"]
    (fun record body model tools => WebStore.exchange_start (missing record) (missing body) (missing model) (items (missing tools)));
  method "web.exchange_result" [raw "resource"] (fun resource => WebStore.exchange_result (missing resource));
  method "web.catch" [raw "record";raw "error"] (fun record error => WebStore.catch (missing record) (missing error));
  method "web.http_json" [required "response" (D.OpenObject http_fields);required "text" (D.Value Schema.KText)]
    (fun response text => WebResources.http_json (http_value response) text);
- O.diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "task_id" safe_natural]
-   (fun rows records task => WebStore.reset_session rows records (proj1_sig task)) "Invalid ChatGPT Web reset source"
+ O.diagnostic_method "web.reset_session" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any)]
+   WebStore.reset_session "Invalid ChatGPT Web reset source"
 ].
 Definition select_operation name := find (fun operation => String.eqb name operation.(O.operation_name)) operations.
 Definition call name source := match select_operation name with

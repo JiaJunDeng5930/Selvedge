@@ -28,7 +28,7 @@ Theorem a_supported_evaluator_choice_continues_the_running_task :
  ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations = true ->
  let completed := TaskChange.apply (Reasoning.complete_changes owner (Reasoning.Chosen effort generations) task) task in
  task_activity completed = ReadyForModel /\
- task_history completed = task_history task ++ [ReasoningRecord owner effort generations false].
+ task_history completed = task_history task ++ [ReasoningRecord owner effort generations].
 Proof.
  intros owner effort generations
   [contract profile settings lifecycle history queued lineage parent cursor consumed]
@@ -106,15 +106,10 @@ Proof.
  - exfalso. eapply failed_evaluation_is_never_ready_for_a_model; exact Ready.
 Qed.
 
-Theorem task_settings_do_not_revoke_a_reasoning_lease : forall owner history settings profile effort,
+Theorem task_settings_revoke_a_reasoning_lease : forall owner history settings profile effort,
  History.history_lease owner (history ++ [SettingsMessage settings profile effort]) =
- History.history_lease owner history.
+ History.NoLease.
 Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity. Qed.
-
-Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
- forall history owner invocation plugin outcome,
- ModelRequest.Plans.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
-Proof. intros; unfold ModelRequest.Plans.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
 
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
  find_task id value = Some task ->
@@ -154,12 +149,10 @@ Proof.
 Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
- exists prefix suffix,
+ exists prefix,
  task_history (ModelRequest.Plans.generation owner model remaining task) =
- prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining) true] ++ suffix /\
- (prefix = task_history task \/
-  exists reason, prefix = task_history task ++ [FailureMessage reason]) /\
- (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
+ task_history task ++ prefix ++ [ReasoningRecord owner (profile_reasoning model) (N.pred remaining)] /\
+ (prefix = [] \/ prefix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
  intros owner model remaining task. unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
  destruct (match profile_policy (task_current_profile task) with
@@ -167,16 +160,53 @@ Proof.
    | RequestEffort => false | ConfigurationUpdates =>
      match ModelRequest.Plans.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct (ModelRequest.Plans.trailing_configuration (task_history task));
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
- cbn [andb app Domain.append_history Domain.with_history task_history].
- - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
-     [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [now rewrite <- app_assoc|split; [right; eexists; reflexivity|now right]].
- - exists history, [ReasoningConfigurationMessage (profile_reasoning model)].
-   split; [reflexivity|split; [now left|now right]].
- - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
- - exists history, []. repeat rewrite app_nil_r; split; [reflexivity|split; now left].
+ cbn [app Domain.append_history Domain.with_history task_history].
+ - exists [ReasoningConfigurationMessage (profile_reasoning model)].
+   split; [reflexivity|now right].
+ - exists []; split; [reflexivity|now left].
+Qed.
+
+Theorem a_generation_after_compaction_restates_its_effort :
+ forall owner model remaining task policy replacement,
+ profile_policy (task_current_profile task) = AdaptivePolicy policy ->
+ reasoning_transport_mode policy = ConfigurationUpdates ->
+ let resumed := append_history [ContextReplacement replacement;
+   ReasoningRecord owner (profile_reasoning model) remaining] task in
+ task_history (ModelRequest.Plans.generation owner model remaining resumed) =
+ task_history resumed ++ [ReasoningConfigurationMessage (profile_reasoning model);
+   ReasoningRecord owner (profile_reasoning model) (N.pred remaining)].
+Proof.
+ intros owner model remaining task policy replacement Policy Transport resumed.
+ unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
+ change (profile_policy (task_current_profile resumed)) with (profile_policy (task_current_profile task)).
+ rewrite Policy, Transport.
+ assert (Fresh : ModelRequest.Plans.last_configuration (task_history resumed) = None).
+ { change (ModelRequest.Plans.last_configuration (task_history task ++ [ContextReplacement replacement;
+     ReasoningRecord owner (profile_reasoning model) remaining]) = None).
+   unfold ModelRequest.Plans.last_configuration; rewrite fold_left_app; reflexivity. }
+ rewrite Fresh; destruct task; reflexivity.
+Qed.
+
+Theorem a_generation_after_settings_restates_its_effort :
+ forall owner model remaining task policy settings profile effort,
+ profile_policy (task_current_profile task) = AdaptivePolicy policy ->
+ reasoning_transport_mode policy = ConfigurationUpdates ->
+ let resumed := append_history [SettingsMessage settings profile effort;
+   ReasoningRecord owner (profile_reasoning model) remaining] task in
+ task_history (ModelRequest.Plans.generation owner model remaining resumed) =
+ task_history resumed ++ [ReasoningConfigurationMessage (profile_reasoning model);
+   ReasoningRecord owner (profile_reasoning model) (N.pred remaining)].
+Proof.
+ intros owner model remaining task policy settings profile effort Policy Transport resumed.
+ unfold ModelRequest.Plans.generation, ModelRequest.Plans.generation_messages.
+ change (profile_policy (task_current_profile resumed)) with (profile_policy (task_current_profile task)).
+ rewrite Policy, Transport.
+ assert (Fresh : ModelRequest.Plans.last_configuration (task_history resumed) = None).
+ { change (ModelRequest.Plans.last_configuration (task_history task ++ [SettingsMessage settings profile effort;
+     ReasoningRecord owner (profile_reasoning model) remaining]) = None).
+   unfold ModelRequest.Plans.last_configuration; rewrite fold_left_app; reflexivity. }
+ rewrite Fresh; destruct task; reflexivity.
 Qed.
 
 Theorem context_requests_capture_the_current_history_revision : forall id task value phase operations,
@@ -243,10 +273,13 @@ Theorem unavailable_context_retry_keeps_unsatisfied_demand :
  task_lifecycle task = Running (ObservingContext ticket revision) operations ->
  Nat.eqb revision (List.length (task_history task)) = false ->
  TicketedRequest.Scoped.resources_available task value = false ->
- Callbacks.context_completed id ticket observations diagnostic value =
- accept (JObject [("accepted"%string,JBool false)]) (put_task id (with_activity WantsModel task) value) [].
+ let result := Callbacks.context_completed id ticket observations diagnostic value in
+ bool_default "ok" (decision_reply result) false = true /\
+ decision_world result = put_task id (with_activity WantsModel task) value /\
+ decision_effects result = [].
 Proof.
  intros id ticket revision observations diagnostic value task operations Found Status Stale Resource.
+ cbn beta zeta.
  assert (Phase : task_activity task = ObservingContext ticket revision).
  { unfold task_activity; now rewrite Status. }
  rewrite context_completed_expression, Found, Phase, N.eqb_refl, Stale, Status.
@@ -261,7 +294,8 @@ Proof.
  { rewrite Current in Evidence; unfold TicketedRequest.Scoped.can_observe in Evidence.
    rewrite Resource in Evidence; cbn in Evidence; symmetry; exact Evidence. }
  revert Evidence; rewrite Unavailable; intro Evidence; cbn [TicketedRequest.Scoped.observe_allowed].
- rewrite Owner,Current; unfold Reasoning.context_retry_wait; now rewrite Status.
+ rewrite Owner,Current; unfold Reasoning.context_retry_wait; rewrite Status.
+ repeat split; reflexivity.
 Qed.
 
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
@@ -276,8 +310,7 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
-   unfold Callbacks.context_phase; rewrite FrozenTask.
+ - unfold Callbacks.context_phase; rewrite FrozenTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
    change (change_activity WantsModel (task_lifecycle task) =
@@ -302,8 +335,7 @@ Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
- - destruct (Callbacks.observed_context_history observations diagnostic (task_history task)) as [accepted messages].
-   unfold Callbacks.context_phase; rewrite StoppedTask.
+ - unfold Callbacks.context_phase; rewrite StoppedTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
    change (change_activity WantsModel (task_lifecycle task) =
@@ -316,8 +348,8 @@ Proof.
    now rewrite StoppedTask.
 Qed.
 
-Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall owner task,
- (String.length (TextJson.render_json (JArray (Reasoning.evaluator_history owner task))) <= 16384)%nat.
+Theorem actual_evaluator_history_is_bounded_in_encoded_bytes : forall task,
+ (String.length (TextJson.render_json (JArray (Reasoning.evaluator_history task))) <= 16384)%nat.
 Proof.
  intros; unfold Reasoning.evaluator_history, ReasoningView.history.
  match goal with |- context [if ?condition then _ else _] => destruct condition eqn:Full end;
@@ -341,16 +373,14 @@ Theorem public_evaluator_notes_keep_their_reasoning_category : forall text,
  ReasoningView.text_message "reasoning_summary" (ReasoningView.excerpt text).
 Proof. reflexivity. Qed.
 
-Theorem encrypted_provider_continuations_are_redacted_before_preview : exists placeholder, forall secret,
- ReasoningView.public_value 512 (JObject [("encrypted_content",secret)]) =
- JObject [("encrypted_content",JString placeholder)].
-Proof. eexists; reflexivity. Qed.
-
-Theorem provider_reasoning_exposes_only_its_public_summary : forall secret summary,
- JsonObjects.equivalent (ReasoningView.public_value 512 (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)]))
- (JObject [("type",JString "reasoning");("summary",JArray (ReasoningView.public_parts summary))]) = true.
-Proof. intros; apply equivalent_is_reflexive. Qed.
+Theorem evaluator_tool_evidence_keeps_the_original_json : forall invocation value error ticket,
+ option_map (value_or_null "arguments") (ReasoningView.public_message (FunctionCall invocation)) =
+   Some (call_arguments invocation) /\
+ option_map (value_or_null "content")
+   (ReasoningView.public_message (FunctionOutput (call_id invocation) value error)) = Some value /\
+ option_map (value_or_null "content")
+   (ReasoningView.public_message (OperationResult ticket invocation value error)) = Some value.
+Proof. intros; repeat split; reflexivity. Qed.
 
 Theorem short_unicode_evaluator_text_is_retained : forall text parts,
  Utf8.chunks text = Some parts -> (List.length parts <=? 1024)%nat = true ->
@@ -382,8 +412,20 @@ Theorem public_evaluator_assistant_content_remains_text : forall origin text,
  Some (ReasoningView.text_message "assistant" (ReasoningView.excerpt text)).
 Proof. reflexivity. Qed.
 
-Theorem model_context_preview_exposes_only_the_public_reasoning_summary : forall origin secret summary,
- ReasoningView.public_message (ModelContext origin (JObject [("type",JString "reasoning");
-   ("encrypted_content",secret);("summary",JArray summary)])) =
- Some (ReasoningView.text_message "reasoning_summary" (ReasoningView.public_parts_text summary)).
-Proof. reflexivity. Qed.
+Theorem model_context_preview_exposes_only_the_public_reasoning_summary : forall origin value,
+ text_default "type" (Conversation.provider_value value) "" = "reasoning" ->
+ ReasoningView.public_message (ModelContext origin value) =
+ Some (ReasoningView.text_message "reasoning_summary"
+   (ReasoningView.public_parts_text (array_default "summary" (Conversation.provider_value value)))).
+Proof.
+ intros origin value Kind. cbn [ReasoningView.public_message].
+ unfold ReasoningView.public_context. now rewrite Kind.
+Qed.
+
+Theorem model_context_compaction_has_no_public_preview : forall origin value,
+ text_default "type" (Conversation.provider_value value) "" = "compaction" ->
+ ReasoningView.public_message (ModelContext origin value) = None.
+Proof.
+ intros origin value Kind. cbn [ReasoningView.public_message].
+ unfold ReasoningView.public_context. now rewrite Kind.
+Qed.

@@ -22,10 +22,8 @@ Definition action_packet action := match action with
  | OpenSocket n => Variant.pack remote_open [!n!]
  | RetryAt n deadline => Variant.pack remote_retry [!n;deadline!]
  | HeartbeatAt n deadline => Variant.pack remote_heartbeat [!n;deadline!]
- | MarkOnline n => Variant.pack remote_mark_online [!n!]
- | Ping n => Variant.pack remote_ping [!n!]
+ | Ping => Variant.pack remote_ping [!!]
  | Retire => Variant.pack remote_retire [!!]
- | MarkStopped => Variant.pack remote_mark_stopped [!!]
  | MarkAuthenticationFailed => Variant.pack remote_mark_auth_failed [!!] end.
 Definition action_json action := Variant.encode_packet (action_packet action).
 Definition observation_of := Variant.decode_cases remote_observation_decoders.
@@ -48,7 +46,6 @@ Definition call operation source :=
  | None => type_error "Invalid remote transport state"
  | Some state =>
    if String.eqb operation "control.remote.transport_running" then success (JBool (running state))
-   else if String.eqb operation "control.remote.transport_current" then success (JBool (current state (num source "generation")))
    else if String.eqb operation "control.remote.transport" then
      match observation_of (get source "observation") with None => type_error "Invalid remote transport observation"
      | Some observation => let '(next,actions) := step (settings_of (get source "settings")) state observation in

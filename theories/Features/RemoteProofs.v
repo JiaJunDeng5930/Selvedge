@@ -14,7 +14,6 @@ Module F := Selvedge.Features.Domain.
 Module G := Selvedge.Generated.Commands.
 
 Definition request_valid request :=
- Remote.controller_valid (Remote.controller request) && Remote.epoch_valid (Remote.epoch request) &&
  Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request).
 
 Definition granted_permissions (required granted : F.rights) : Prop :=
@@ -43,10 +42,6 @@ Inductive access_contract (required : F.rights) (controller : string) (epoch : N
 | AccessDisabled : forall code reason, F.remote_enabled state = false ->
  access_contract required controller epoch state
    (Remote.Denied code reason)
-| AccessInvalid : forall code reason,
- Remote.controller_valid controller && Remote.epoch_valid epoch = false ->
- access_contract required controller epoch state
-   (Remote.Denied code reason)
 | AccessRevoked : forall code reason,
  Remote.find_grant controller state = None ->
  access_contract required controller epoch state
@@ -62,7 +57,6 @@ Inductive access_contract (required : F.rights) (controller : string) (epoch : N
  access_contract required controller epoch state
    (Remote.Denied code reason)
 | AccessAdmitted : forall issued, F.remote_enabled state = true ->
- Remote.controller_valid controller && Remote.epoch_valid epoch = true ->
  Remote.find_grant controller state = Some issued ->
  N.eqb epoch (F.grant_epoch issued) = true ->
  Remote.rights_allow required (F.grant_rights issued) = true ->
@@ -73,30 +67,25 @@ Theorem check_satisfies_complete_access_contract : forall required controller ep
 Proof.
  intros required controller epoch state; unfold Remote.check.
  destruct (F.remote_enabled state) eqn:Enabled; cbn [negb].
- - destruct (Remote.controller_valid controller && Remote.epoch_valid epoch) eqn:Identity; cbn [negb].
-   + destruct (Remote.find_grant controller state) as [issued|] eqn:Found.
-     * destruct (N.eqb epoch (F.grant_epoch issued)) eqn:Generation; cbn [negb].
-       -- destruct (Remote.rights_allow required (F.grant_rights issued)) eqn:Rights.
-          ++ eapply AccessAdmitted; eassumption.
-          ++ eapply AccessForbidden; eassumption.
-       -- eapply AccessExpired; eassumption.
-     * apply AccessRevoked; assumption.
-   + apply AccessInvalid; assumption.
+ - destruct (Remote.find_grant controller state) as [issued|] eqn:Found.
+   + destruct (N.eqb epoch (F.grant_epoch issued)) eqn:Generation; cbn [negb].
+     * destruct (Remote.rights_allow required (F.grant_rights issued)) eqn:Rights.
+       -- eapply AccessAdmitted; eassumption.
+       -- eapply AccessForbidden; eassumption.
+     * eapply AccessExpired; eassumption.
+   + apply AccessRevoked; assumption.
  - apply AccessDisabled; assumption.
 Qed.
 
 Inductive authorization_contract (required : F.rights) (request : Remote.request)
  (state : F.remote) : Remote.authorization -> Prop :=
-| RequestDisabled : forall code reason, F.remote_enabled state = false ->
- authorization_contract required request state
-   (Remote.Denied code reason)
 | RequestInvalid : forall code reason, request_valid request = false ->
  authorization_contract required request state
    (Remote.Denied code reason)
 | RequestAccessDenied : forall code reason,
  access_contract required (Remote.controller request) (Remote.epoch request) state (Remote.Denied code reason) ->
  authorization_contract required request state (Remote.Denied code reason)
-| RequestAdmitted : F.remote_enabled state = true -> request_valid request = true ->
+| RequestAdmitted : request_valid request = true ->
  access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
  find (Remote.key_matches request) (F.remote_receipts state) = None ->
  (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = true ->
@@ -106,7 +95,7 @@ Inductive authorization_contract (required : F.rights) (request : Remote.request
  (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = false ->
  authorization_contract required request state
    (Remote.Denied code reason)
-| RequestReplay : forall receipt, F.remote_enabled state = true -> request_valid request = true ->
+| RequestReplay : forall receipt, request_valid request = true ->
  access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
  find (Remote.key_matches request) (F.remote_receipts state) = Some receipt ->
  JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt) = true ->
@@ -127,10 +116,8 @@ Proof.
  { subst checked; apply check_satisfies_complete_access_contract. }
  destruct checked as [code reason| |reply].
  - apply RequestAccessDenied; assumption.
- - inversion Access as [| | | | |issued Enabled Identity Granted Epoch Allowed]; subst.
-   destruct (Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request)) eqn:Payload; cbn [negb].
-   + assert (Valid : request_valid request = true).
-     { unfold request_valid. rewrite Identity. exact Payload. }
+ - destruct (Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request)) eqn:Payload; cbn [negb].
+   + change (request_valid request = true) in Payload.
      destruct (find (Remote.key_matches request) (F.remote_receipts state)) as [receipt|] eqn:Found.
      * destruct (JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt)) eqn:Intent.
        -- eapply RequestReplay; eassumption.
@@ -138,7 +125,7 @@ Proof.
      * destruct (N.of_nat (List.length (F.remote_receipts state)) <? 1024) eqn:Capacity.
        -- apply RequestAdmitted; assumption.
        -- apply RequestFull; assumption.
-   + apply RequestInvalid. unfold request_valid. rewrite Identity. exact Payload.
+   + apply RequestInvalid. exact Payload.
  - inversion Access.
 Qed.
 
@@ -156,16 +143,9 @@ Theorem current_grant_admits_fresh_remote_request : forall required request stat
 Proof.
  intros required request state issued Enabled Valid Granted Epoch Allowed Fresh Space.
  apply declared_permissions_are_allowed in Allowed.
- assert (Identity : Remote.controller_valid (Remote.controller request) &&
-     Remote.epoch_valid (Remote.epoch request) = true).
- { unfold request_valid in Valid.
-   apply andb_true_iff in Valid as [Valid _].
-   now apply andb_true_iff in Valid as [Valid _]. }
- assert (Payload : Remote.identifier_valid (Remote.request_id request) &&
-   Remote.payload_valid (Remote.intent request) = true).
- { unfold request_valid in Valid. rewrite Identity in Valid. exact Valid. }
- unfold Remote.authorize, Remote.check. rewrite Enabled, Identity. cbn.
- rewrite Granted, Epoch, N.eqb_refl, Allowed, Payload. cbn.
+ unfold request_valid in Valid.
+ unfold Remote.authorize, Remote.check. rewrite Enabled. cbn.
+ rewrite Granted, Epoch, N.eqb_refl, Allowed, Valid. cbn.
  now rewrite Fresh, Space.
 Qed.
 
@@ -216,8 +196,6 @@ Proof.
    unfold Remote.with_command_rights. rewrite Rights.
    unfold Remote.check.
    destruct (F.remote_enabled (Remote.registry value)); cbn [negb]; [|repeat split;reflexivity].
-   destruct (Remote.controller_valid (Remote.controller request) && Remote.epoch_valid (Remote.epoch request));
-     cbn [negb]; [|repeat split;reflexivity].
    rewrite Granted.
    destruct (N.eqb (Remote.epoch request) (F.grant_epoch issued)); cbn [negb].
    + rewrite Forbidden. repeat split;reflexivity.
@@ -240,71 +218,95 @@ Theorem oversized_remote_reply_rolls_back : forall request before candidate,
  decision_effects (Remote.record_result request before candidate) = [].
 Proof. intros. unfold Remote.record_result. rewrite H. split;reflexivity. Qed.
 
-(** Receipt insertion cannot change the grant generation or grant authority. *)
 Theorem remote_receipt_preserves_authority : forall request before candidate,
  let current:=Remote.registry (decision_world (Remote.record_result request before candidate)) in
  F.remote_enabled current = F.remote_enabled (Remote.registry before) /\
- F.remote_grants current = F.remote_grants (Remote.registry before) /\
- F.remote_next_epoch current = F.remote_next_epoch (Remote.registry before).
+ (forall controller, Remote.find_grant controller current = Remote.find_grant controller (Remote.registry before)) /\
+ F.remote_next_epoch (Remote.registry before) <= F.remote_next_epoch current.
 Proof.
  intros request before candidate. cbv zeta. unfold Remote.record_result.
- destruct (Remote.payload_valid (decision_reply candidate)); cbn.
- - destruct (bool_default "ok" (decision_reply candidate) false); cbn;
-   try rewrite remote_registry_store; repeat split;reflexivity.
- - repeat split;reflexivity.
+ destruct (Remote.payload_valid (decision_reply candidate));
+   [destruct (bool_default "ok" (decision_reply candidate) false)|]; cbn;
+   try rewrite remote_registry_store.
+ all: split; [reflexivity|].
+ all: split; [intro controller; reflexivity|apply N.le_refl].
 Qed.
 
 (** A task-owned execution cannot administer native remote grants. *)
-Theorem delegated_remote_administration_is_denied : forall payload caller value,
- Remote.handle_remote_enable payload (Some caller) value = Remote.local_only value.
-Proof. reflexivity. Qed.
+Theorem delegated_remote_administration_is_denied : forall payload caller,
+ exists code reason, forall value,
+ Remote.handle_remote_enable payload (Some caller) value = reject code reason value.
+Proof. intros payload caller. do 2 eexists. intros value. reflexivity. Qed.
 
-(** Even an effectful supplied executor cannot mutate the world through a remote query. *)
+(** Even an effectful supplied executor cannot mutate the world or schedule work through a remote query. *)
 Theorem remote_query_is_read_only : forall execute prepared configuration request command value,
  Remote.observation_command command=true ->
- let '(_,_,result):=Remote.execute_remote execute prepared configuration request command value in
- decision_world result=value /\ decision_effects result=[].
+ let '(_,schedule,result):=Remote.execute_remote execute prepared configuration request command value in
+ schedule=false /\ decision_world result=value /\ decision_effects result=[].
 Proof.
  intros execute prepared configuration request command value readonly.
  unfold Remote.execute_remote. rewrite readonly.
  cbn beta iota zeta delta [negb].
- destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
+ destruct (Remote.configuration_allowed command configuration); [|repeat split;reflexivity].
  destruct (Remote.authorize_command command request (Remote.registry value)) as [code reason| |reply];
-   try (split;reflexivity).
- destruct (G.admit prepared) as [admitted|]; [|split;reflexivity].
+   try (repeat split;reflexivity).
+ destruct (G.admit prepared) as [admitted|]; [|repeat split;reflexivity].
  set (prepared_command := G.admitted_value admitted).
  cbn beta iota zeta.
- destruct (Remote.configuration_allowed prepared_command configuration); [|split;reflexivity].
+ destruct (Remote.configuration_allowed prepared_command configuration); [|repeat split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
-   [|split;reflexivity].
+   [|repeat split;reflexivity].
  destruct (Remote.with_command_rights prepared_command
    (fun rights=>Remote.check rights (Remote.controller request) (Remote.epoch request)
-     (Remote.registry value))); split;reflexivity.
+     (Remote.registry value))); repeat split;reflexivity.
 Qed.
 
-(** Successful public grants consume a fresh generation, including re-grants. *)
-Theorem public_grant_issues_generation : forall payload value,
+(** A successful public grant replaces its controller's authority and receipts.
+    Epoch ordering and lookups express that result without fixing allocation
+    strides or the registry's list layout. *)
+Theorem public_grant_replaces_authority_and_clears_old_receipts : forall payload value,
  let controller := proj1_sig (G.remote_grant_controller_id_admitted payload) in
+ let rights := Remote.rights_of_values (G.remote_grant_permissions_admitted payload) in
  (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch)=true ->
  (match Remote.find_grant controller (Remote.registry value) with
  | Some _=>true | None=>N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end)=true ->
- exists result,
- Remote.handle_remote_grant payload None value=result /\
- F.remote_next_epoch (Remote.registry (decision_world result))=N.succ (F.remote_next_epoch (Remote.registry value)).
+ let previous := Remote.registry value in
+ let result := Remote.handle_remote_grant payload None value in
+ let current := Remote.registry (decision_world result) in
+ exists issued,
+ JsonObjects.equivalent (decision_reply result) (success (Remote.grant_json issued)) = true /\
+ Remote.find_grant controller current = Some issued /\
+ F.grant_rights issued = rights /\
+ F.remote_next_epoch previous <= F.grant_epoch issued /\
+ F.grant_epoch issued < F.remote_next_epoch current /\
+ F.remote_enabled current = F.remote_enabled previous /\
+ (forall other, other <> controller ->
+   Remote.find_grant other current = Remote.find_grant other previous) /\
+ (forall receipt, In receipt (F.remote_receipts current) <->
+   In receipt (F.remote_receipts previous) /\ controller_text (F.remote_controller receipt) <> controller) /\
+ decision_effects result = [].
 Proof.
- intros payload value controller Epoch capacity.
+ intros payload value controller rights Epoch Capacity previous result current.
+ unfold current,result.
  unfold Remote.handle_remote_grant, Remote.admin_command, Remote.grant.
- fold controller. rewrite Epoch; cbn [negb]; rewrite capacity.
- eexists; split;[reflexivity|].
- cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
-Qed.
-
-Theorem revocation_never_reuses_generation : forall controller value,
- F.remote_next_epoch (Remote.registry (decision_world (Remote.revoke controller value)))=
- F.remote_next_epoch (Remote.registry value).
-Proof.
- intros. unfold Remote.revoke.
- cbn beta iota zeta delta [decision_world accept]. rewrite remote_registry_store. reflexivity.
+ fold controller rights. rewrite Epoch; cbn [negb]; rewrite Capacity.
+ cbn beta iota zeta delta [decision_world decision_reply decision_effects accept].
+ rewrite remote_registry_store. fold previous.
+ exists (F.RemoteGrant (ControllerId controller) (GrantEpoch (F.remote_next_epoch previous)) rights).
+ split; [apply equivalent_is_reflexive|].
+ split.
+ - unfold Remote.find_grant; cbn. now rewrite String.eqb_refl.
+ - split; [reflexivity|]. split; [apply N.le_refl|].
+   split; [apply N.lt_succ_diag_r|]. split; [reflexivity|].
+   split.
+   + intros other Different. unfold Remote.find_grant; cbn.
+     rewrite (proj2 (String.eqb_neq other controller) Different).
+     unfold Remote.remove_grants.
+     apply filtering_another_key_preserves_lookup; [intros; now apply String.eqb_eq|exact Different].
+   + split; [|reflexivity]. intro receipt.
+     unfold Remote.remove_receipts; cbn.
+     rewrite filter_In,negb_true_iff,String.eqb_neq.
+     split; intros [Present Different]; split; [exact Present|congruence|exact Present|congruence].
 Qed.
 
 Lemma recorded_remote_registry : forall request before candidate,
@@ -332,23 +334,16 @@ Theorem retained_remote_result_is_replayable : forall required request before ca
 Proof.
  intros required request before candidate issued Enabled Valid Granted Epoch Allowed Bounded.
  apply declared_permissions_are_allowed in Allowed.
- assert (Identity : Remote.controller_valid (Remote.controller request) &&
-     Remote.epoch_valid (Remote.epoch request) = true).
- { unfold request_valid in Valid.
-   apply andb_true_iff in Valid as [Valid _].
-   now apply andb_true_iff in Valid as [Valid _]. }
- assert (Payload : Remote.identifier_valid (Remote.request_id request) &&
-   Remote.payload_valid (Remote.intent request) = true).
- { unfold request_valid in Valid. rewrite Identity in Valid. exact Valid. }
+ unfold request_valid in Valid.
  assert (Checked : Remote.check required (Remote.controller request) (Remote.epoch request)
      (Remote.registry before) = Remote.Admitted).
- { unfold Remote.check. rewrite Enabled, Identity. cbn.
+ { unfold Remote.check. rewrite Enabled. cbn.
    now rewrite Granted, Epoch, N.eqb_refl, Allowed. }
  rewrite recorded_remote_registry by exact Bounded.
  set (retained := Remote.retain request (decision_reply candidate) (Remote.registry before)).
  assert (StillChecked : Remote.check required (Remote.controller request) (Remote.epoch request)
      retained = Remote.Admitted) by exact Checked.
- unfold Remote.authorize. rewrite StillChecked, Payload. cbn [negb].
+ unfold Remote.authorize. rewrite StillChecked, Valid. cbn [negb].
  cbn [retained Remote.retain Remote.key_matches].
  unfold Remote.key_matches. cbn.
  rewrite !String.eqb_refl, N.eqb_refl. cbn.
@@ -392,17 +387,22 @@ Proof.
  unfold Remote.complete_request. rewrite Admitted; cbn beta iota zeta. now rewrite Authorized.
 Qed.
 
-Theorem revoked_remote_controller_cannot_replay : forall required controller epoch id intent value,
+Theorem revoked_remote_controller_cannot_replay : forall required (payload : G.remote_revoke_payload) epoch id intent value,
+ let controller := G.remote_revoke_controller_id_admitted payload in
  let request := Remote.Request (ControllerId (proj1_sig controller)) epoch id intent in
+ let result := Remote.handle_remote_revoke payload None value in
+ field "ok" (decision_reply result) = Some (JBool true) /\
+ decision_effects result = [] /\
  exists code reason,
  Remote.authorize required request
-   (Remote.registry (decision_world (Remote.revoke controller value))) =
+   (Remote.registry (decision_world result)) =
  Remote.Denied code reason.
 Proof.
- intros required controller epoch id intent value request.
- set (after := decision_world (Remote.revoke controller value)).
+ intros required payload epoch id intent value controller request result.
+ split; [reflexivity|]. split; [reflexivity|].
+ set (after := decision_world result).
  assert (Removed : Remote.find_grant (Remote.controller request) (Remote.registry after) = None).
- { unfold after, Remote.revoke. cbn.
+ { unfold after, result, Remote.handle_remote_revoke, Remote.admin_command, Remote.revoke. cbn.
    rewrite remote_registry_store. unfold Remote.find_grant. cbn.
    unfold Remote.remove_grants; apply removing_a_key_clears_its_lookup. }
  pose proof (authorize_satisfies_complete_request_contract required request (Remote.registry after)) as Authorized.
@@ -414,24 +414,6 @@ Proof.
  - inversion Authorized; subst.
    match goal with Access : access_contract _ _ _ _ Remote.Admitted |- _ =>
      inversion Access; congruence end.
-Qed.
-
-Theorem local_grant_replaces_authority_and_clears_old_receipts :
- forall controller rights value,
- (F.remote_next_epoch (Remote.registry value) <=? RemoteIdentity.max_epoch) = true ->
- (match Remote.find_grant (proj1_sig controller) (Remote.registry value) with
- | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end) = true ->
- let previous := Remote.registry value in
- let issued := F.RemoteGrant (ControllerId (proj1_sig controller)) (GrantEpoch (F.remote_next_epoch previous)) rights in
- Remote.grant controller rights value =
- accept (Remote.grant_json issued)
-   (Remote.store (F.Remote (F.remote_enabled previous)
-     (issued :: Remote.remove_grants (proj1_sig controller) (F.remote_grants previous))
-     (N.succ (F.remote_next_epoch previous))
-     (Remote.remove_receipts (proj1_sig controller) (F.remote_receipts previous))) value) [].
-Proof.
- intros controller rights value Epoch Capacity.
- unfold Remote.grant. rewrite Epoch; cbn [negb]; now rewrite Capacity.
 Qed.
 
 Theorem full_registry_rejects_a_new_controller : forall controller rights value,

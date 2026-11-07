@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson ModelWire.
 From Selvedge.Programming Require Import DeclarationFields.
-From Selvedge.Kernel Require Import Context Conversation.
+From Selvedge.Kernel Require Import Conversation.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Adapters Require ProviderCatalog OutputObservations.
 From Selvedge.Programming Require AdapterResult.
@@ -9,51 +9,27 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Record request_content := RequestContent {
-  opaque_content : bool;
-  encrypted_content_present : bool;
-  image_count : N
-}.
-Definition combine_content (left right : request_content) :=
-  RequestContent (opaque_content left || opaque_content right)
-    (encrypted_content_present left || encrypted_content_present right)
-    (image_count left + image_count right).
-Definition empty_content := RequestContent false false 0.
-(* Image handles and encrypted continuations cannot be bounded by their textual
-   representation. The complete request, rather than an IO assertion, owns this fact. *)
-Fixpoint classify_content (value : json) : request_content :=
-  match value with
-  | JArray values =>
-      (fix scan (remaining : list json) :=
-       match remaining with [] => empty_content
-       | head :: tail => combine_content (classify_content head) (scan tail) end) values
-  | JObject fields =>
-      (fix scan (remaining : list (string * json)) :=
-       match remaining with [] => empty_content
-       | (name, item) :: tail =>
-         let image := String.eqb name "image_asset" && is_object item in
-         let encrypted := String.eqb name "encrypted_content" && is_text item &&
-           negb (String.eqb (text item) "") in
-         combine_content (RequestContent (image || encrypted) encrypted (if image then 1 else 0))
-           (combine_content (classify_content item) (scan tail)) end) fields
-  | _ => empty_content
-  end.
+Definition input_parts (item : json) := items (get item
+  (if String.eqb (str item "type") "function_call_output" then "output" else "content")).
+Definition input_images (request : json) := filter (fun part => String.eqb (str part "type") "input_image")
+  (flat_map input_parts (items (get request "input"))).
+Definition request_image_count (request : json) := N.of_nat (List.length (input_images request)).
+Definition encrypted_input_item (item : json) :=
+  (String.eqb (str item "type") "reasoning" || String.eqb (str item "type") "compaction") &&
+  is_text (get item "encrypted_content") && negb (String.eqb (str item "encrypted_content") "").
+(* Only input content carries images or provider continuations. JSON Schema
+   examples and defaults can use the same field names as ordinary text data. *)
+Definition opaque_request (request : json) :=
+  existsb encrypted_input_item (items (get request "input")) || N.ltb 0 (request_image_count request).
 Definition selected_request (meter : bool) (source : json) : json :=
   let names := List.app ["model"; "input"; "instructions"]
     (if meter then ["tools"; "tool_choice"; "parallel_tool_calls"] else []) in
   JObject (filter (fun field => existsb (String.eqb (fst field)) names)
     (object_fields (get source "request"))).
-Definition capability_message (message : json) : bool :=
-  let change := get message "change" in
-  let kind := definition_kind Context.interactive_markdown in
-  String.eqb (str message "role") "task_context" &&
-    (String.eqb (str (get change "key") "type") kind ||
-     String.eqb (str (get (get change "snapshot") "key") "type") kind).
-Definition helper_history (history : list json) := filter (fun m => negb (capability_message m)) history.
 Definition effect (source : json) : json :=
   let original := get source "effect" in let plan := get original "plan" in
   let history := if String.eqb (str plan "method") "native"
-    then helper_history (items (get plan "history"))
+    then items (get plan "history")
     else [JObject [("role",JString "user"); ("content",JString
       (str plan "prompt" ++ "
 
@@ -64,8 +40,7 @@ Previous continuation note:
 Next quoted history fragment:
 " ++ str plan "chunk"))]] in
   JObject [("kind",JString "context_compaction"); ("context_selected",JBool true);
-    ("model",get original "model"); ("sampling",get original "sampling");
-    ("tools",JArray []); ("callable",JArray []); ("history",JArray history)].
+    ("model",get original "model"); ("history",JArray history)].
 Definition portable_request (source : json) :=
   set (get source "request") "max_output_tokens"
     (get (get (get source "effect") "plan") "output_reserve_tokens").
@@ -75,21 +50,19 @@ Definition meter_result (source : json) :=
   match wire_natural count with
   | None => err "The provider returned an invalid input token count"
   | Some count => success (JObject [("scope",get source "scope");
-      ("input_tokens",number count); ("tokenizer",JString "provider")]) end.
+      ("input_tokens",number count)]) end.
 Definition native_result (source : json) :=
   let response := get source "response" in
   (* DEFENSE: A provider replacement window must be an array before it enters history. *)
   if is_array (get response "output") then success (JObject [
-    ("action",JString "native"); ("format",JString "native"); ("scope",get source "scope");
-    ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]]);
-    ("usage",get response "usage")])
+    ("format",JString "native"); ("scope",get source "scope");
+    ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]])])
   else err "The native compactor returned an invalid replacement window".
 Definition summary_result (source : json) := success (JObject [
   ("summary_text", JString (String.concat "" (map (fun item =>
     String.concat "" (map (fun part => str part "text")
       (items (get (Conversation.provider_value (get item "value")) "content"))))
-      (items (get source "items")))));
-  ("scope",get source "scope"); ("usage",get source "usage")]).
+      (items (get source "items")))))]).
 Definition scope (source : json) := success (JString (TextJson.render_json (JArray [
   get (get source "profile") "provider"; get (get source "profile") "endpoint";
   get source "model"; get source "account_id"]))).
@@ -111,31 +84,22 @@ Definition headers (source : json) := success (JString
    else if boolean_field source "ok" then "continue" else "read_error")).
 Definition scope_changed (source : json) :=
   let effect := get source "effect" in success (JObject [
-    ("action",JString "scope_changed"); ("scope",get source "scope");
+    ("scope",get source "scope");
     ("scope_changed",JBool ((boolean_field effect "context_selected" ||
       String.eqb (str effect "kind") "context_compaction") &&
       is_text (get effect "context_scope") &&
       negb (equal (get effect "context_scope") (get source "scope"))))]).
-Definition local_measurement (source : json) (content : request_content) :=
-  let plaintext := negb (opaque_content content) in success (JObject [
-    ("action",JString "local"); ("scope",get source "scope");
-    ("input_tokens",if plaintext && N.ltb (num source "window_tokens") (num source "bytes")
-      then get source "bytes" else get source "window_tokens");
-    ("tokenizer",JString (if plaintext then "utf8_upper_bound" else "request_bytes_exceeded"))]).
 Definition measurement_plan (source : json) :=
   let request := get source "request" in
-  (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
-  if negb (is_object request) then err "Context measurement requires the complete encoded request"
-  else let content := classify_content request in let images := N.ltb 0 (image_count content) in
-  if ProviderCatalog.account (get source "profile") && images then
+  let images := request_image_count request in
+  if ProviderCatalog.account (get source "profile") && N.ltb 0 images then
     (* The account transport does not promise the public token-count endpoint.
        Keep image requests usable with an encrypted continuation as well: the
        estimate includes the complete encoded request and each image. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
-        1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])
-  else if N.leb (num source "bytes") (if images then 33554432 else num (get source "limits") "frame_bytes")
-  then success (JObject [("action",JString "remote")]) else local_measurement source content.
+        1844 * images))])
+  else success (JObject [("action",JString "remote")]).
 Definition code_in (source : json) (codes : list string) :=
   existsb (String.eqb (str source "code")) codes.
 Definition status_is (source : json) (status : N) := equal (get source "status") (number status).
@@ -148,10 +112,9 @@ Definition action (name : string) := success (JObject [("action",JString name)])
 Definition meter_fallback (source : json) :=
   (* DEFENSE: Only explicit route-capability failures allow local measurement;
      encrypted continuations and image handles have no textual token bound. *)
-  if negb (opaque_content (classify_content (get source "request"))) &&
-     is_object (get source "request") && unsupported_route source then
+  if negb (opaque_request (get source "request")) && unsupported_route source then
     success (JObject [("action",JString "local"); ("scope",get source "scope");
-      ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")])
+      ("input_tokens",get source "bytes")])
   else action "error".
 Definition native_failure (source : json) :=
   (* DEFENSE: Only unsupported route/model responses authorize portable compaction. *)

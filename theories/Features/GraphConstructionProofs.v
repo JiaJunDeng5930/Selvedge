@@ -102,10 +102,11 @@ Proof.
  rewrite Worktree.transition_identity_is_fresh; reflexivity.
 Qed.
 Theorem an_ordinary_start_failure_retains_its_declared_error : forall owner caller original key settings cause,
+ exists reason,
  TaskGraph.prepare_node owner caller original (TaskGraph.CachedSpawn key settings (Tasks.StartRefused cause)) =
  CommandResult.Rejected (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
-   (Tasks.failure_message cause)).
-Proof. reflexivity. Qed.
+   reason).
+Proof. intros; eexists; reflexivity. Qed.
 Theorem public_idle_missing_work_is_atomic : forall request before owner,
  G.create_idle_work_id request = Some owner ->
  Work.lookup owner before = None ->

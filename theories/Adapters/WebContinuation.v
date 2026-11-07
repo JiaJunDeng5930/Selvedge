@@ -8,11 +8,11 @@ Open Scope N_scope.
 
 Record history_effect := HistoryEffect {
  effect_history : list json; effect_kind : string; effect_model : json; effect_task : json;
- effect_ticket : json; effect_replacement : json; effect_retitle : bool; effect_tools_value : json; effect_instructions : json }.
+ effect_replacement : json; effect_retitle : bool; effect_tools_value : json; effect_instructions : json }.
 Definition history_fields := [required "history" (D.Array D.Any);raw "kind";raw "model";raw "task_id";
- raw "ticket";raw "context_replacement_source";raw "retitle";raw "tools";raw "instructions"].
-Definition history_value := O.project history_fields (fun history kind model task ticket replacement retitle tools instructions =>
- HistoryEffect history (text (missing kind)) (missing model) (missing task) (missing ticket)
+ raw "context_replacement_source";raw "retitle";raw "tools";raw "instructions"].
+Definition history_value := O.project history_fields (fun history kind model task replacement retitle tools instructions =>
+ HistoryEffect history (text (missing kind)) (missing model) (missing task)
    (missing replacement) (flag (missing retitle)) (missing tools) (missing instructions)).
 Record continuation_input := ContinuationInput {
  continuation_effect : history_effect;
@@ -139,7 +139,7 @@ Definition receipt (history : list json) model task response record deferred
     ("input_count",number (N.of_nat (List.length history)));("input_hash",JString (proj1_sig input_hash));
     ("output_count",number (proj1_sig output_count));
     ("calls",JArray (if String.eqb (member_text response "status") "requires_action" then
-      map (fun call => JObject (subset call ["call_id";"name"])) (items (member response "output")) else []));("deferred",JArray deferred)])
+      map (fun call => JObject (subset call ["call_id"])) (items (member response "output")) else []));("deferred",JArray deferred)])
   else err "Invalid ChatGPT Web JSON source".
 Definition emitted_call call : outcome json :=
  match CallWire.from_text CallWire.callback_argument_nesting

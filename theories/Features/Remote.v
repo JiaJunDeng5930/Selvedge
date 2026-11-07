@@ -18,8 +18,6 @@ Module KCommands := Selvedge.Kernel.Commands.
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
 Definition identifier_valid := RemoteIdentity.request_valid.
-Definition controller_valid := RemoteIdentity.controller_valid.
-Definition epoch_valid := RemoteIdentity.epoch_valid.
 Definition payload_valid source := N.of_nat (String.length (TextJson.render_json source)) <=? 65536.
 Definition find_grant controller state := find (fun grant => String.eqb controller (Selvedge.Features.Domain.grant_controller grant)) (Selvedge.Features.Domain.remote_grants state).
 Definition remove_grants controller := filter (fun grant => negb (String.eqb controller (Selvedge.Features.Domain.grant_controller grant))).
@@ -53,7 +51,7 @@ Definition revoke (controller : D.denote RemoteIdentity.controller_declaration) 
  let state:=registry value in
  let next:=Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (remove_grants controller (Selvedge.Features.Domain.remote_grants state))
    (Selvedge.Features.Domain.remote_next_epoch state) (remove_receipts controller (Selvedge.Features.Domain.remote_receipts state)) in
- accept (JObject [("controller_id",JString controller);("revoked",JBool true)]) (store next value) [].
+ accept JNull (store next value) [].
 Definition handle_remote_status (_payload : Selvedge.Generated.Commands.remote_status_payload)
  (caller : option N) (value : world) : json :=
  match caller with None => Selvedge.Kernel.State.success (status (registry value))
@@ -109,7 +107,6 @@ Definition key_matches request receipt := String.eqb (controller request) (Selve
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
 Definition check required controller epoch state :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
- else if negb (controller_valid controller && epoch_valid epoch) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
  else match find_grant controller state with
  | None=>Denied "remote_controller_revoked" "This controller has no active local grant"
  | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then Denied "remote_grant_expired" "This device grant generation is no longer current"
@@ -137,7 +134,7 @@ Definition authorize_command command request state := with_command_rights comman
    else authorize rights request state).
 Definition probe_reply authorization value := match authorization with
  | Denied code reason=>reject code reason value
- | Admitted=>accept (JObject [("admitted",JBool true)]) value []
+ | Admitted=>accept JNull value []
  | Replay reply=>accept (JObject [("replayed",JBool true);("reply",reply)]) value [] end.
 Definition retain request reply state := Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (Selvedge.Features.Domain.remote_grants state)
  (Selvedge.Features.Domain.remote_next_epoch state) (Selvedge.Features.Domain.RemoteReceipt (controller request) (epoch request) (request_id request)
@@ -158,8 +155,8 @@ Definition configuration_allowed (original : G.command) configuration :=
 Definition prepared_world configuration value : option world := match configuration with
  | JNull=>Some value
  | _=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
-Definition schedules command result := bool_default "ok" (decision_reply result) false &&
- match command with Selvedge.Generated.Commands.Cmd_create_idle _ | Selvedge.Generated.Commands.Cmd_record_speech_transcript _=>false | _=>negb (observation_command command) end.
+Definition schedules (command : G.command) result := bool_default "ok" (decision_reply result) false &&
+ match command with Selvedge.Generated.Commands.Cmd_create_idle _=>false | _=>true end.
 Definition execute_remote (execute:Scheduler.executor) prepared configuration request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in

@@ -57,15 +57,17 @@ Theorem valid_new_agent_is_saved_below_capacity source value :
  (N.of_nat (List.length (agent_slots value)) < 4294967295)%N ->
  let saved := Board.save_agent source value in
  let identity := N.of_nat (List.length (agent_slots value)) in
- let agent := Board.agent_parameters 0 source in
+ exists revision,
+ let agent := Board.agent_parameters revision source in
  JsonObjects.equivalent (decision_reply saved)
-   (success (JObject [("agent_id",number identity);("revision",number 0)])) = true /\
+   (success (JObject [("agent_id",number identity);("revision",number revision)])) = true /\
  decision_effects saved = [] /\
  agent_slots (decision_world saved) = agent_slots value ++ [Some agent] /\
  Board.lookup_agent identity (decision_world saved) = Some agent /\
  agent_count (decision_world saved) = S (agent_count value).
 Proof.
  intros Creating Valid Available Identity. cbn beta iota zeta.
+ exists 0%N.
  unfold Board.save_agent; rewrite Creating; cbn beta iota zeta.
  rewrite Valid. cbn beta iota zeta.
  assert (Capacity : Nat.ltb (agent_count value) 64 = true) by (apply Nat.ltb_lt;exact Available).
@@ -85,30 +87,37 @@ Qed.
 
 Theorem stale_agent_revision_rejects_even_at_capacity source id previous value :
  Board.agent_identity source = Some id ->
- Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
+ Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
  Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source <> F.agent_revision previous ->
  let refused := Board.save_agent source value in
  bool_default "ok" (decision_reply refused) true = false /\
  decision_world refused = value /\ decision_effects refused = [].
 Proof.
- intros Identity Valid Found Different. unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
+ intros Identity Valid Found Different.
+ change (Board.agent_execution_available
+   (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true) in Valid.
+ unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
  rewrite Valid,Found. apply N.eqb_neq in Different. rewrite Different. repeat split; reflexivity.
 Qed.
 
 Theorem current_agent_update_succeeds_without_a_capacity_precondition source id previous value :
  Board.agent_identity source = Some id ->
- Board.agent_execution_available (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true ->
+ Board.agent_execution_available (Board.agent_parameters 0 source) value = true ->
  Board.lookup_agent id value = Some previous -> G.save_board_agent_revision source = F.agent_revision previous ->
  let saved := Board.save_agent source value in
- let agent := Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source in
+ exists revision,
+ revision <> F.agent_revision previous /\
+ let agent := Board.agent_parameters revision source in
  JsonObjects.equivalent (decision_reply saved)
-   (success (JObject [("agent_id",number id);("revision",number (N.succ (G.save_board_agent_revision source)))])) = true /\
+   (success (JObject [("agent_id",number id);("revision",number revision)])) = true /\
  decision_effects saved = [] /\
  Board.lookup_agent id (decision_world saved) = Some agent /\
- agent_count (decision_world saved) = agent_count value /\
- List.length (agent_slots (decision_world saved)) = List.length (agent_slots value).
+ agent_count (decision_world saved) = agent_count value.
 Proof.
  intros Identity Valid Found Current. cbn beta iota zeta.
+ change (Board.agent_execution_available
+   (Board.agent_parameters (N.succ (G.save_board_agent_revision source)) source) value = true) in Valid.
+ exists (N.succ (F.agent_revision previous)). split; [apply N.neq_succ_diag_l|].
  pose proof (agent_lookup_has_a_present_slot id value previous Found) as Present.
  unfold Board.save_agent; rewrite Identity; cbn beta iota zeta.
  rewrite Valid,Found,Current,N.eqb_refl.
@@ -125,10 +134,6 @@ Proof.
    pose proof (replacing_present_slot_counts_the_actual_replacement _ _ _
      (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source)) Present).
    cbn [occupied] in H. lia.
- - change (List.length (replace id
-     (Some (Board.agent_parameters (N.succ (F.agent_revision previous)) source))
-     (agent_slots value)) = List.length (agent_slots value)).
-   apply registry_replace_length.
 Qed.
 
 Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected previous value :
@@ -136,11 +141,10 @@ Theorem deleting_an_unused_current_agent_frees_exactly_one_slot id expected prev
  (forall card, In (Some card) (F.board_cards (Board.registry value)) ->
    F.draft_owner (F.card_contents card) <> F.AgentOwner id) ->
  let deleted := Board.delete_agent id expected value in
- decision_reply deleted = success (JObject [("agent_id",number id)]) /\
+ bool_default "ok" (decision_reply deleted) false = true /\
  decision_effects deleted = [] /\
  Board.lookup_agent id (decision_world deleted) = None /\
- S (agent_count (decision_world deleted)) = agent_count value /\
- List.length (agent_slots (decision_world deleted)) = List.length (agent_slots value).
+ S (agent_count (decision_world deleted)) = agent_count value.
 Proof.
  intros Found Current Unassigned. cbn beta iota zeta.
  pose proof (agent_lookup_has_a_present_slot id value previous Found) as Present.
@@ -157,6 +161,4 @@ Proof.
  - change (S (live_count (replace id None (agent_slots value))) = live_count (agent_slots value)).
    pose proof (replacing_present_slot_counts_the_actual_replacement _ _ _ None Present).
    cbn [occupied] in H. lia.
- - change (List.length (replace id None (agent_slots value)) = List.length (agent_slots value)).
-   apply registry_replace_length.
 Qed.

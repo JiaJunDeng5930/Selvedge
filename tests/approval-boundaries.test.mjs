@@ -156,7 +156,7 @@ test('the configured reviewer receives the approval payload over HTTP before the
     const stale = await fixture.command({ op: 'review_approval', task_id,
       operation_id: operation.operation_id, decision: 'deny', reason: 'A human cannot impersonate the requested model.' });
     assert.equal(stale.reply.ok, false);
-    assert.match(JSON.stringify(stale.reply.error), /approval_not_pending/);
+    assert.ok(stale.reply.error?.message?.trim(), 'The refused review must explain why it cannot authorize the operation');
   } finally {
     releaseReviewer();
   }

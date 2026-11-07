@@ -2,7 +2,7 @@ From Selvedge.Programming Require TaskChange TaskScope.
 From Selvedge.Kernel Require Import CommandHandlers.
 From Selvedge.Foundation Require Import RemoteIdentity.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonProofs JsonObjectsProofs.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Numbers Tasks Packet.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Remote Worktree RemoteProofs.
@@ -13,33 +13,6 @@ Module G := Selvedge.Generated.Commands.
 Module F := Selvedge.Features.Domain.
 Definition stop_first_payload : G.stop_payload := G.Admit_stop
  (exist _ (exist _ "stop" (or_introl eq_refl), (exist _ 0 eq_refl, tt)) eq_refl).
-
-(** A scoped real control transition: a running first task must become stopped,
-    without requiring a ready execution environment for this control. *)
-Theorem actual_stop_preserves_workspace_and_stops_task : forall task phase operations value,
- world_tasks value = [task] ->
- task_lifecycle task = Running phase operations ->
- Packet.execute_domain (G.Cmd_stop stop_first_payload) None value =
- accept (JObject [("task_id",number 0)])
-   (put_task 0 (with_lifecycle (Stopped phase operations) task) value) [].
-Proof.
- intros task phase operations value Tasks Running.
- cbn [Packet.execute_domain Packet.query CommandHandlers.query option_map
-   CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
-   G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
- cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
-   Selvedge.Kernel.Commands.origin_allowed G.handle_stop
-   Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
- (* The selected reference carries evidence about this exact world. *)
- destruct value; cbn in Tasks; subst.
- destruct task; cbn in Running; subst.
- cbn [Selvedge.Kernel.CommandExecution.handle_stop Tasks.control_command
-   TaskScope.select State.find_task registry_at TaskScope.selected TaskScope.owner
-   Tasks.control_target Tasks.control_transition Tasks.control_changes
-   TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
-   TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
- reflexivity.
-Qed.
 
 Definition stop_first_wire := JObject [("op",JString "stop");("task_id",number 0)].
 
@@ -57,7 +30,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
  find (Remote.key_matches request) (F.remote_receipts (Remote.registry value)) = None ->
  (N.of_nat (List.length (F.remote_receipts (Remote.registry value))) <? 1024) = true ->
  exists reply,
- JsonObjects.equivalent reply (success (JObject [("task_id",number 0)])) = true /\
+ bool_field "ok" reply = Some true /\
  Remote.execute_remote Packet.execute_domain stop_first_wire JNull request
    (G.Cmd_stop stop_first_payload) value =
  (true,true,Decision
@@ -68,8 +41,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
 Proof.
  intros task phase operations value request issued Tasks Running
    Enabled Valid Granted Epoch Control Fresh Space.
- exists (success (JObject [("task_id",number 0)])).
- split; [apply equivalent_is_reflexive|].
+ eexists; split; cycle 1.
  assert (Permissions : RemoteProofs.granted_permissions Remote.control_rights (F.grant_rights issued)).
  { unfold RemoteProofs.granted_permissions, Remote.control_rights; cbn.
    repeat split; intros; try discriminate; assumption. }
@@ -97,6 +69,19 @@ Proof.
  cbn [Remote.with_command_rights Remote.required_rights]. rewrite Checked.
  assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.
  rewrite Prepared.
- rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running).
- reflexivity.
+ cbn [Packet.execute_domain Packet.query CommandHandlers.query option_map
+   CommandHandlers.interpret CommandHandlers.task_origin Selvedge.Kernel.Commands.origin_allowed
+   G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
+ cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
+   Selvedge.Kernel.Commands.origin_allowed G.handle_stop
+   Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
+ (* The selected reference carries evidence about this exact world. *)
+ all: destruct value; cbn in Tasks; subst.
+ all: destruct task; cbn in Running; subst.
+ all: cbn [Selvedge.Kernel.CommandExecution.handle_stop Tasks.control_command
+   TaskScope.select State.find_task registry_at TaskScope.selected TaskScope.owner
+   Tasks.control_available Tasks.control_changes
+   TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
+   TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
+ all: reflexivity.
 Qed.

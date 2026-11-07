@@ -25,12 +25,7 @@ Definition optional_number (value : option N) :=
 Definition optional_string (value : option string) :=
  match value with Some value => JString value | None => JNull end.
 Definition nonempty (text : string) := Utf8.nonblank text.
-Fixpoint strings (values : list json) : option (list string) :=
- match values with
- | [] => Some []
- | JString text :: rest => option_map (cons text) (strings rest)
- | _ => None
- end.
+Definition strings := OptionList.traverse as_string.
 Definition workspace_json (value : workspace) := JObject [
  ("roots", JArray (map JString (workspace_roots value)));
  ("primary_root", optional_string (workspace_primary value))].
@@ -232,9 +227,6 @@ Definition model_item_of_fields (value : ModelWire.value) : model_item :=
  | inr (inr (inl context)) => let fields := proj1_sig context in ContextItem (fst (snd fields)) (JObject (fst (snd (snd fields))))
  | inr (inr (inr impossible)) => match impossible with end end.
 Definition model_items (batch : ModelWire.batch) := map model_item_of_fields (ModelWire.batch_values batch).
-Definition output_mode_value (mode : output_mode) : Schema.denote ModelDeclarations.output_mode_kind := match mode with
- | PlainOutput => exist _ ModelDeclarations.plain_output_name (or_introl eq_refl)
- | InteractiveOutput => exist _ ModelDeclarations.interactive_output_name (or_intror (or_introl eq_refl)) end.
 Definition output_mode_name (mode : output_mode) :=
  match mode with PlainOutput => ModelDeclarations.plain_output_name | InteractiveOutput => ModelDeclarations.interactive_output_name end.
 Definition origin_json (origin : output_origin) := JObject [
@@ -252,8 +244,8 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
  | FunctionOutput id value error => JObject [("role", JString "function_output"); ("call_id", JString id); ("content", value); ("is_error", JBool error)]
  | OperationResult ticket call value error => JObject [("role", JString "operation_result"); ("operation_id", number ticket); ("call_id", JString (call_id call)); ("tool", JString (call_name call)); ("content", value); ("is_error", JBool error)]
  | FailureMessage text => JObject [("role", JString "error"); ("content", JString text)]
- | ReasoningRecord owner effort remaining sampling => JObject [("role",JString "reasoning_record"); ("task_id",number owner);
-   ("content",JObject [("effort",JString effort);("remaining",number remaining);("sampling",JBool sampling)])]
+ | ReasoningRecord owner effort remaining => JObject [("role",JString "reasoning_record"); ("task_id",number owner);
+   ("content",JObject [("effort",JString effort);("remaining",number remaining)])]
  | ModelContext origin value => JObject [("role", JString "model_context"); ("origin", origin_json origin); ("content", value)]
  | ContextReplacement value => JObject [("role", JString "context_replacement"); ("content", value)]
  | ContextObservation change => JObject [("role", JString "task_context"); ("type", JString "context_change"); ("change", Context.change_json change)]

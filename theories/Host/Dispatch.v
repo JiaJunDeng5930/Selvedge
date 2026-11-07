@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Sorting.Permutation.
 Import ListNotations.
 Open Scope N_scope.
 Inductive provider_scope := NoProvider | TaskProvider | IndependentProvider.
@@ -148,9 +148,15 @@ Qed.
 
 Theorem launch_installs_handle_before_run s name owner cancellable provider :
   retired s = false ->
-  snd (step s (Launch name owner cancellable provider)) = [Start (N.succ (next_handle s))] /\
-  In (Running (N.succ (next_handle s)) name owner cancellable provider false)
-    (active (fst (step s (Launch name owner cancellable provider)))).
+  exists generation,
+  let result := step s (Launch name owner cancellable provider) in
+  next_handle s < generation /\
+  generation <= next_handle (fst result) /\
+  retired (fst result) = false /\
+  snd result = [Start generation] /\
+  Permutation (Running generation name owner cancellable provider false :: active s)
+    (active (fst result)).
 Proof.
-  intros H. unfold step. rewrite H. simpl. auto.
+  intros H. exists (N.succ (next_handle s)). unfold step. rewrite H. cbn.
+  repeat split; auto using N.le_refl, N.lt_succ_diag_r, Permutation_refl.
 Qed.

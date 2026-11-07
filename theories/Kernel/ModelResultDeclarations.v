@@ -3,7 +3,7 @@ From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Import Domain.
-From Selvedge.Host Require RemoteTransport RemoteConnectorSession.
+From Selvedge.Host Require RemoteTransport RemoteConnectorSession LocalResources CloudResources.
 Module RT := Selvedge.Host.RemoteTransport.
 Module RC := Selvedge.Host.RemoteConnectorSession.
 Import ListNotations.
@@ -108,7 +108,7 @@ Definition audio_transport_connect := variant "type" "connect" [Field "attempt" 
 Definition audio_transport_retry := variant "type" "retry" [Field "attempt" KNatural;Field "delay" KNatural] [].
 Definition audio_transport_ready := variant "type" "ready" [] [].
 Definition audio_transport_emit := variant "type" "emit" [Field "event" KJson] [].
-Definition audio_transport_close := variant "type" "close" [Field "event" KJson] [].
+Definition audio_transport_close := variant "type" "close" [] [].
 Definition audio_transport_actions := [audio_transport_connect;audio_transport_retry;audio_transport_ready;audio_transport_emit;audio_transport_close].
 Definition audio_actions := [audio_emit;audio_journal;audio_context;audio_contexts;audio_read;audio_stop;audio_release;audio_timer;audio_connect_timer;audio_reject].
 (** Remote transport state and observations are closed over their phase. *)
@@ -136,13 +136,11 @@ Definition remote_connect := remote_action "connect" [remote_generation].
 Definition remote_open := remote_action "open" [remote_generation].
 Definition remote_retry := remote_action "retry" [remote_generation;Field "deadline" KNatural].
 Definition remote_heartbeat := remote_action "heartbeat" [remote_generation;Field "deadline" KNatural].
-Definition remote_mark_online := remote_action "online" [remote_generation].
-Definition remote_ping := remote_action "ping" [remote_generation].
+Definition remote_ping := remote_action "ping" [].
 Definition remote_retire := remote_action "retire" [].
-Definition remote_mark_stopped := remote_action "stopped" [].
 Definition remote_mark_auth_failed := remote_action "auth_failed" [].
-Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;remote_mark_online;
- remote_ping;remote_retire;remote_mark_stopped;remote_mark_auth_failed].
+Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;
+ remote_ping;remote_retire;remote_mark_auth_failed].
 Definition remote_timed := [remote_generation;Field "now" KNatural].
 Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
 Definition remote_observation_decoders : list (Variant.decoder RT.observation) := [
@@ -185,12 +183,10 @@ Definition http_remote_approval_fields := [Field "request_id" KText;Field "permi
 Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition http_remote_revoke_fields := [Field "controller_id" KText].
 Definition http_browser_command_fields := [Field "command" KJson].
-Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
- "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
-Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
  ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" KJson]);
- ("ResourceTransition",resource_transition_fields);
+ ("LocalResourceTransition",LocalResources.transition_fields);
+ ("CloudResourceTransition",CloudResources.transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);
  ("WorkspaceCommandPlan",workspace_command_fields);

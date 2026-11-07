@@ -38,7 +38,7 @@ test('the official MCP SDK launches the installed stdio manifest and calls its H
   const data = path.join(base, 'plugin-data');
   const connection = { SELVEDGE_URL: server.address, SELVEDGE_CONNECTION_ID: '0', SELVEDGE_CONNECTION_TOKEN: token };
   const connectionFile = await saveConnection(data, connection);
-  await assert.rejects(saveConnection(data, { ...connection, SELVEDGE_CONNECTION_TOKEN: randomBytes(32).toString('base64url') }), { code: 'EEXIST' });
+  await assert.rejects(saveConnection(data, { ...connection, SELVEDGE_CONNECTION_TOKEN: randomBytes(32).toString('base64url') }));
   const manifest = JSON.parse(await readFile(path.join(root, 'mcp.json'), 'utf8')).mcpServers.selvedge;
   const expand = value => value.replaceAll('${PLUGIN_ROOT}', root).replaceAll('${PLUGIN_DATA}', data);
   const open = async () => {

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import { gunzipSync } from 'node:zlib';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
@@ -105,24 +107,19 @@ test('the previous durable journal format is rejected without replay or conversi
   const directory = await home(t);
   const options = { home: directory, cwd: directory,
     config: validateConfig({ ...defaultConfig, chatgpt: false }) };
-  const service = await Service.open(options);
-  await service.command({ op: 'create_card', title: 'Retain the previous journal' });
-  await service.close();
   const filename = path.join(directory, 'journal.sqlite');
-  const database = new DatabaseSync(filename);
-  const rows = database.prepare('SELECT * FROM journal ORDER BY seq').all();
-  database.prepare('UPDATE meta SET value = ? WHERE key = ?').run('selvedge-rocq-journal-6', 'format');
-  database.close();
+  // Recorded on 1515e4ce through create_idle, create_card, link_card and a rejected
+  // update_card. Replaying that refusal under the new editing rules could turn it into an edit.
+  const original = gunzipSync(await readFile(new URL('./fixtures/journal-format13.sqlite.gz', import.meta.url)));
+  await writeFile(filename, original, { mode: 0o600 });
 
-  await assert.rejects(Service.open(options), error => {
+  await assert.rejects(async () => {
+    const service = await Service.open(options);
+    await service.close();
+  }, error => {
     assert.ok(error instanceof Error);
     assert.notEqual(error.message.trim(), '');
     return true;
   });
-  const retained = new DatabaseSync(filename);
-  try {
-    assert.equal(retained.prepare('SELECT value FROM meta WHERE key = ?').get('format').value,
-      'selvedge-rocq-journal-6');
-    assert.deepEqual(retained.prepare('SELECT * FROM journal ORDER BY seq').all(), rows);
-  } finally { retained.close(); }
+  assert.deepEqual(await readFile(filename), original);
 });
