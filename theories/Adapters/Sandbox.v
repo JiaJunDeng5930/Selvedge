@@ -6,7 +6,7 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Definition launch_context (source : json) :=
-  let bound := get (Workspaces.workspace_bound source) "value" in
+  let bound := Workspaces.execution_context (get source "workspace") (get source "plan") in
   JObject [("plan",get source "plan");("options",get source "options");("workspace",get source "workspace");
     ("cwd",get bound "cwd");("projectOnly",get bound "projectOnly");("writableRoots",get bound "writableRoots");
     ("scratch",get source "scratch");("protectedRoots",get source "protectedRoots");
@@ -34,5 +34,5 @@ Definition sandbox_launch (source : json) :=
   if String.eqb (str (get source "options") "platform") "darwin"
   then darwin_launch source else linux_launch source.
 Definition unrestricted_launch (source : json) :=
-  let cwd := get (get (Workspaces.workspace_bound source) "value") "cwd" in
+  let cwd := get (Workspaces.execution_context (get source "workspace") (get source "plan")) "cwd" in
   success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)]).

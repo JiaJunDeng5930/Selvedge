@@ -38,6 +38,12 @@ Definition selection_value (source : json) :=
   JObject [("canonicalize",JBool (negb default));
     ("root",if default then hd JNull (items (get source "roots")) else value)].
 Definition workspace_selection (source : json) := success (selection_value source).
+Definition execution_context (workspace plan : json) :=
+  let primary := get workspace "primary_root" in
+  JObject [("cwd",if is_null primary then JString "/" else primary);
+    ("projectOnly",JBool (String.eqb (str plan "scope") "project"));
+    ("unrestricted",JBool (String.eqb (str plan "access") "unrestricted"));
+    ("writableRoots",if String.eqb (str (get plan "sandbox") "mode") "workspace-write" then get workspace "roots" else JArray [])].
 Definition workspace_bound (source : json) :=
   let workspace := get source "workspace" in let plan := get source "plan" in let committed := get plan "workspace" in
   if has committed "primary_root" && equal (get workspace "roots") (get committed "roots") &&
@@ -46,9 +52,7 @@ Definition workspace_bound (source : json) :=
     let primary := get workspace "primary_root" in
     if project && (is_null primary || equal primary (JString ""))
     then err "Project execution requires a primary Workspace root"
-    else success (JObject [("cwd",if is_null primary then JString "/" else primary);
-      ("projectOnly",JBool project);("unrestricted",JBool (String.eqb (str plan "access") "unrestricted"));
-      ("writableRoots",if String.eqb (str (get plan "sandbox") "mode") "workspace-write" then get workspace "roots" else JArray [])])
+    else success (execution_context workspace plan)
   else err "A workspace root changed after it was committed; reselect the workspace before executing".
 
 Inductive selection_path := CommandWorkspace | TaskWorkspace | NodeWorkspace (index : nat).
