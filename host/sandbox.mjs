@@ -85,7 +85,6 @@ export async function prepareSandbox(plan, {
   const platform = process.platform, architecture = process.arch;
   signal?.throwIfAborted();
   const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, processMode };
-  boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
   const source = { plan, options, workspace };
   const { projectOnly, unrestricted } = boundary('effect.workspace_bound', source);

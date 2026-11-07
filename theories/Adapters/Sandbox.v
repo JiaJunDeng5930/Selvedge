@@ -1,20 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy Seatbelt.
+From Selvedge.Adapters Require Import Common Workspaces SandboxPolicy Seatbelt.
 From Selvedge.Programming Require Import AdapterResult.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition plan_admission (source : json) :=
-  let options := get source "options" in
-  if has options "managedWorktreeRoot" && negb (paths_valid [get options "managedWorktreeRoot"])
-  then type_error "Invalid managed Worktree root"
-  else if negb (existsb (String.eqb (str options "platform")) ["linux";"darwin"])
-  then err "Selvedge supports Linux and macOS only"
-  else match decode_plan (get source "plan") with
-    | Some _ => success JNull
-    | None => type_error "Malformed committed sandbox execution plan"
-    end.
 Definition launch_context (source : json) :=
   let bound := get (Workspaces.workspace_bound source) "value" in
   JObject [("plan",get source "plan");("options",get source "options");("workspace",get source "workspace");
@@ -22,9 +12,8 @@ Definition launch_context (source : json) :=
     ("scratch",get source "scratch");("protectedRoots",get source "protectedRoots");
     ("managedWorktreeRoot",get source "managedWorktreeRoot");("runtimeReads",get source "runtimeReads")].
 Definition security_admission (source : json) :=
-  next (admit (String.eqb (str (get source "plan") "access") "sandboxed") "Malformed committed sandbox execution plan")
-    (next (managed_worktree_admission (launch_context source))
-      (protected_workspace (launch_context source))).
+  next (managed_worktree_admission (launch_context source))
+    (protected_workspace (launch_context source)).
 Fixpoint numbered_bindings (descriptor : N) (entries : list json) :=
   match entries with [] => [] | entry::rest =>
     JObject [("root",get entry "root");("readonly",get entry "readonly");("descriptor",number descriptor)] :: numbered_bindings (N.succ descriptor) rest end.
@@ -39,14 +28,11 @@ Definition darwin_launch (source : json) :=
   let profile := Seatbelt.seatbelt (seatbelt_source source) in
   success (JObject [("prefix",darwin_prefix (JObject [("profile",profile)]));("cwd",get context "cwd")]).
 Definition sandbox_prepare (source : json) :=
-  next (plan_admission source) (next (security_admission source)
-    (success (JObject [("bindings",bindings (launch_context source))]))).
+  next (security_admission source)
+    (success (JObject [("bindings",bindings (launch_context source))])).
 Definition sandbox_launch (source : json) :=
-  next (plan_admission source) (next (security_admission source)
-    (if String.eqb (str (get source "options") "platform") "darwin" then darwin_launch source else linux_launch source)).
+  if String.eqb (str (get source "options") "platform") "darwin"
+  then darwin_launch source else linux_launch source.
 Definition unrestricted_launch (source : json) :=
   let cwd := get (get (Workspaces.workspace_bound source) "value") "cwd" in
-  next (plan_admission source)
-    (next (admit (String.eqb (str (get source "plan") "access") "unrestricted" && negb (String.eqb (str (get source "plan") "scope") "project"))
-      "Unrestricted execution is unavailable for this committed plan")
-      (success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)]))).
+  success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)]).

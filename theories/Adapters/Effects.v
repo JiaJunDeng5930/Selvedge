@@ -20,7 +20,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.message_image_match",Attachments.message_image_match);
   ("effect.message_images",Attachments.message_images);
   ("effect.reference_match",fun source => Attachments.reference_match ["name";"mime";"path";"bytes"] (get source "value") (get source "attachment"));
-  ("effect.sandbox_admit",Sandbox.plan_admission);
   ("effect.sandbox_prepare",Sandbox.sandbox_prepare);
   ("effect.sandbox_launch",Sandbox.sandbox_launch);
   ("effect.unrestricted_launch",Sandbox.unrestricted_launch);

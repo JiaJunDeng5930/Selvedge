@@ -241,7 +241,17 @@ Export ProcessAdapterProofs(output_append_keeps_latest_output,
     over protected roots, iterating declared runtime candidates and mapping
     path ancestors establish the internal arrays' membership and shape.
     Their consumers need the resulting paths, without another encoding of the
-    same observations for length, field or path-syntax admission. *)
+    same observations for length, field or path-syntax admission.
+
+    The kernel constructs the access mode carried by a Task's committed
+    execution effect; Project connection jobs construct sandboxed plans. The
+    host selects its launch branch from those values. A second plan type and
+    rejection rules for that constructed JSON add no permission decision.
+    The service admits its platform at startup. After resolving physical paths,
+    sandbox preparation checks the managed Worktree's storage ownership and
+    keeps Project workspaces outside private service directories. Formatting
+    the resulting launch arguments does not require
+    another admission of the unchanged plan or path observations. *)
 
 From Selvedge.Adapters Require AudioProofs.
 Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,
