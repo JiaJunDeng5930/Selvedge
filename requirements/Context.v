@@ -145,6 +145,9 @@ Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
   suspended_manual_context_completion_cancels_its_job,
+  an_oversized_compaction_request_stops,
+  a_nonempty_zero_width_compaction_request_stops,
+  a_resize_callback_reduces_width_or_stops,
   a_compaction_failure_is_not_immediately_resubmitted).
 Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
   unselected_model_request_uses_portable_context,
@@ -203,7 +206,12 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     subtracts the request metadata before choosing a native or portable plan;
     admission checks the complete encoded request. A second plan-allocation
     check at admission establishes no additional limit. Nonempty portable work
-    must still consume a positive number of scalars to advance. Bounded
+    must still consume a positive number of scalars to advance. These admission
+    failures stop the actual dispatch before a provider request is issued.
+    A context-limit response must either reduce the next fragment's width or
+    stop with failure; repeating the same width cannot resolve that refusal.
+    [a_resize_callback_reduces_width_or_stops] connects this decrease to the
+    callback's next dispatch with the same captured input and scope. Bounded
     fragment processing must not assume that the whole source fits another
     model. No fallback is allowed to silently discard original history.
     Portable progress is the remaining ordered scalar list and its carried

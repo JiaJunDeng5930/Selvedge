@@ -591,6 +591,62 @@ Proof.
  rewrite Fragments. reflexivity.
 Qed.
 
+Theorem an_oversized_compaction_request_stops :
+ forall id task input purpose progress scope entry value fitted,
+ P.fit_transport progress (Limits.frame_bytes / 4 -
+   CC.compact_metadata_bytes id (K.world_next_ticket value) input scope) = Some fitted ->
+ Limits.frame_bytes / 4 < N.of_nat (String.length (TextJson.render_json
+   (CC.compact_json id (K.world_next_ticket value) input fitted scope))) ->
+ exists reason, A.dispatch_compact id task input purpose progress scope entry value =
+   A.failed id task entry reason value.
+Proof.
+ intros id task input purpose progress scope entry value fitted Fitted Oversized.
+ unfold A.dispatch_compact; rewrite Fitted.
+ apply N.leb_gt in Oversized; rewrite Oversized, andb_false_r.
+ eexists; reflexivity.
+Qed.
+
+Theorem a_nonempty_zero_width_compaction_request_stops :
+ forall id task input purpose progress scope entry value unread carry window reserve,
+ P.fit_transport progress (Limits.frame_bytes / 4 -
+   CC.compact_metadata_bytes id (K.world_next_ticket value) input scope) =
+   Some (Selvedge.Kernel.Compaction.CompactionState
+     (Selvedge.Kernel.Compaction.PortableSource unread) carry 0 window reserve) ->
+ unread <> [] ->
+ exists reason, A.dispatch_compact id task input purpose progress scope entry value =
+   A.failed id task entry reason value.
+Proof.
+ intros id task input purpose progress scope entry value unread carry window reserve Fitted Nonempty.
+ unfold A.dispatch_compact; rewrite Fitted.
+ destruct unread; [contradiction|]. eexists; reflexivity.
+Qed.
+
+Theorem a_resize_callback_reduces_width_or_stops :
+ forall id task input purpose progress scope entry value,
+ A.relevant input task value = true ->
+ (exists smaller,
+   (forall fitted, P.fit_transport smaller (Limits.frame_bytes / 4 -
+     CC.compact_metadata_bytes id (K.world_next_ticket value) input scope) = Some fitted ->
+     Selvedge.Kernel.Compaction.compaction_chunk_chars fitted <
+       Selvedge.Kernel.Compaction.compaction_chunk_chars progress) /\
+   A.compacted_result id task (CompactInput input purpose progress scope)
+     (JObject [("action",JString "resize")]) false entry value =
+   A.dispatch_compact id task input purpose smaller scope entry value) \/
+ (exists reason, A.compacted_result id task (CompactInput input purpose progress scope)
+   (JObject [("action",JString "resize")]) false entry value = A.failed id task entry reason value).
+Proof.
+ intros id task input purpose progress scope entry value Relevant.
+ destruct (resize_reduces_width_or_fails progress) as [[smaller [Resized Smaller]]|[reason Failed]].
+ - left; exists smaller; split.
+   + intros fitted Fitted. eapply N.le_lt_trans; [|exact Smaller].
+     eapply fitted_transport_does_not_increase_width; exact Fitted.
+   + change (P.receive progress (JObject [("action",JString "resize")]) = P.Next smaller) in Resized.
+     unfold A.compacted_result; now rewrite Relevant, Resized.
+ - right; exists reason.
+   change (P.receive progress (JObject [("action",JString "resize")]) = P.Failed reason) in Failed.
+   unfold A.compacted_result; now rewrite Relevant, Failed.
+Qed.
+
 (** The feature callback forwards the recovered plan with its captured input
     and scope. The kernel planner separately proves that recovered progress
     retains native raw history. *)

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json SequenceProofs JsonObjectsProofs.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Compaction CompactionPlan ContextSelection Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -130,14 +131,54 @@ Proof.
  - reflexivity.
 Qed.
 
-Theorem zero_width_cannot_process_nonempty_portable_work :
- forall unread carry window reserve,
- unread <> [] ->
- has_transport_work (CompactionState (PortableSource unread) carry 0 window reserve) = false.
+Local Lemma fitting_portable_does_not_increase_width : forall value budget fitted,
+ fit_portable value budget = Some fitted ->
+ compaction_chunk_chars fitted <= compaction_chunk_chars value.
 Proof.
- intros unread carry window reserve Nonempty.
- unfold has_transport_work.
- destruct unread; [contradiction|]. reflexivity.
+ intros value budget fitted Fitted; unfold fit_portable in Fitted.
+ destruct (plan_bytes (with_width 0 value) + 6 <=? budget).
+ - injection Fitted as <-. cbn [fitted_width with_width set compaction_chunk_chars].
+   apply N.le_min_l.
+ - destruct (rebase_note value) as [rebased|] eqn:Rebased; cbn [option_map] in Fitted; try discriminate.
+   injection Fitted as <-.
+   unfold rebase_note in Rebased.
+   destruct (compaction_source value); try discriminate.
+   match type of Rebased with
+   | context [scalar_fragments ?text] => destruct (scalar_fragments text)
+   end; try discriminate.
+   injection Rebased as <-.
+   cbn [fitted_width with_width set compaction_chunk_chars]. apply N.le_min_l.
+Qed.
+
+Lemma fitted_transport_does_not_increase_width : forall value budget fitted,
+ fit_transport value budget = Some fitted ->
+ compaction_chunk_chars fitted <= compaction_chunk_chars value.
+Proof.
+ intros value budget fitted Fitted; unfold fit_transport in Fitted.
+ destruct (compaction_source value) as [history raw|unread] eqn:Source.
+ - destruct (plan_bytes value <=? budget).
+   + injection Fitted as <-. apply N.le_refl.
+   + destruct (to_portable value) as [converted|] eqn:Converted; try discriminate.
+     apply fitting_portable_does_not_increase_width in Fitted.
+     unfold to_portable, portable_source in Converted; rewrite Source in Converted.
+     destruct (scalar_fragments (TextJson.render_json raw)); cbn [option_map] in Converted; try discriminate.
+     injection Converted as <-. exact Fitted.
+ - now apply fitting_portable_does_not_increase_width in Fitted.
+Qed.
+
+Lemma resize_reduces_width_or_fails : forall value,
+ (exists smaller, resize value = Next smaller /\
+   compaction_chunk_chars smaller < compaction_chunk_chars value) \/
+ (exists reason, resize value = Failed reason).
+Proof.
+ intros value; unfold resize.
+ destruct (1 <? compaction_chunk_chars value) eqn:Reducible.
+ - destruct (to_portable value) as [converted|].
+   + left; eexists; split; [reflexivity|].
+     cbn [with_width set compaction_chunk_chars].
+     apply N.div_lt; apply N.ltb_lt in Reducible; lia.
+   + right; eexists; reflexivity.
+ - right; eexists; reflexivity.
 Qed.
 
 Theorem native_unavailable_recovers_from_raw_history :
