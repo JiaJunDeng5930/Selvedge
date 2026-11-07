@@ -219,7 +219,14 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     [artifact_metadata_requires_complete_published_capture] constrains the
     actual reported metadata from capture and path-publication observations;
     the physical publisher supplies those observations after its awaited IO.
-    Bounded readers observe the opened descriptor before and after the bounded read, not a prior path size. *)
+    Bounded readers observe the opened descriptor before and after the bounded read, not a prior path size.
+
+    Linux directory handles are opened in the generated binding order. A child
+    descriptor follows its position in the spawn stdio array; returning that
+    derived number for equality admission supplies no further observation of
+    the opened directory. Isolation therefore relies on the committed access
+    plan, canonical path checks and opened handles without a second copy of
+    that numbering. *)
 
 From Selvedge.Adapters Require AudioProofs.
 Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,

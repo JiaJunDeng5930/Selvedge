@@ -129,14 +129,12 @@ export async function prepareSandbox(plan, {
     await writeFile(policyPath, seccompFilter(architecture, plan.sandbox.network_access), { mode: 0o600, flag: 'wx' });
     handles.push(await open(policyPath, constants.O_RDONLY | constants.O_NOFOLLOW));
     const observedRuntime = projectOnly ? await runtimeReads(platform) : [];
-    const bindings = preparation.bindings;
-    for (const binding of bindings) {
+    for (const binding of preparation.bindings) {
       // Pin each admitted source directory against replacement before execution.
       const handle = await open(binding.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       handles.push(handle);
-      binding.descriptor = handles.length + 2;
     }
-    const terminal = boundary('effect.sandbox_launch', { ...context, bindings, runtimeReads: observedRuntime });
+    const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: observedRuntime });
     return { file, ...terminal, env: environment(scratch, projectOnly), descriptors: handles.map(handle => handle.fd), cleanup };
   // DEFENSE: Sandbox binary/policy preparation can fail after allocating scratch space and pinned descriptors.
   } catch (error) { await cleanup(); throw error; }

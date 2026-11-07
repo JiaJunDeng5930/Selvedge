@@ -79,8 +79,7 @@ Fixpoint numbered_bindings (descriptor : N) (entries : list json) :=
 Definition expected_bindings (source : json) := JArray (numbered_bindings 4 (items (bindings (launch_context source)))).
 Definition linux_launch (source : json) :=
   let context := launch_context source in let expected := expected_bindings source in
-  next (admit (JsonObjects.equivalent (get source "bindings") expected) "Sandbox descriptor observations do not match their admitted bindings")
-    (success (JObject [("prefix",linux_prefix (set context "bindings" expected));("cwd",get context "cwd")])).
+  success (JObject [("prefix",linux_prefix (set context "bindings" expected));("cwd",get context "cwd")]).
 Fixpoint ancestor_rows (rows roots : list json) :=
   match rows,roots with [] ,[] => true | row::rest,_::tail => is_array row && paths_valid (items row) && ancestor_rows rest tail | _,_ => false end.
 Definition seatbelt_source (source : json) :=

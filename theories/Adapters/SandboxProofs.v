@@ -1,23 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy Seatbelt Sandbox.
 From Selvedge.Programming Require Import AdapterResult AdapterResultProofs.
 Import ListNotations.
 Open Scope string_scope.
-
-Theorem linux_sandbox_launch_preserves_binding_meaning : forall source result,
-  str (get source "options") "platform" = "linux" ->
-  sandbox_launch source = success result ->
-  same_json_meaning (get source "bindings") (expected_bindings source).
-Proof.
-  intros source result platform Accepted. unfold sandbox_launch in Accepted.
-  do 4 (apply successful_stage_runs_its_continuation in Accepted as [_ Accepted]).
-  rewrite platform in Accepted. change (linux_launch source = success result) in Accepted.
-  unfold linux_launch in Accepted.
-  apply successful_stage_runs_its_continuation in Accepted as [Bindings _].
-  apply successful_admission_means_its_condition in Bindings.
-  now apply equivalent_preserves_json_meaning.
-Qed.
 
 Theorem unrestricted_execution_cannot_be_project_scoped : forall source result,
   unrestricted_launch source = success result ->
