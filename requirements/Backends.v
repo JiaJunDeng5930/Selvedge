@@ -266,9 +266,9 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     could copy transport byte strings back into durable history.
     This decision consumes the captured history's user
     images and tool-result images through [History.message_images], the same
-    projection used by side returns. Tool arguments and other JSON fields named
-    [image] or [input_image] remain ordinary data; scanning them recursively would
-    change the compaction method without introducing image input. The image
+    projection used by side returns. A [type] field set to [image] or [input_image]
+    inside tool arguments remains ordinary data. Recursively scanning such fields
+    would change the compaction method without introducing image input. The image
     requirement therefore constrains the captured history used for the plan.
     Correcting that classification changes
     compaction plans and subsequent callback scheduling for previously accepted
