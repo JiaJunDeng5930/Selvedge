@@ -318,10 +318,10 @@ export class RemoteConnector {
   }
 
   #notice(notice) {
-    this.#step('notice');
-    const sequence = this.#control.notice_sequence;
     const session = this.#session;
     if (!session || this.#control.phase !== 'ready') return;
+    this.#step('notice');
+    const sequence = this.#control.notice_sequence;
     let event;
     let bytes;
     try {

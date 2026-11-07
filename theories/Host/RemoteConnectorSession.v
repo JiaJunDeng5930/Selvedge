@@ -21,17 +21,15 @@ Definition pairing := RP.pairing_announcement.
 Definition expires := RP.pairing_expiry.
 Record queued := Queued { owner : string; bytes : N }.
 Record session := Session { pairing_code : option pairing;
- connections : list connection; pending : list queued }.
-Inductive phase := Offline (generation : N) (pairing : option pairing)
+ connections : list connection; pending : list queued; notice_sequence : N }.
+Inductive state := Offline (generation : N) (pairing : option pairing)
  | Negotiating (generation : N) (pairing : option pairing)
  | Ready (generation : N) (data : session).
-Record state := State { current : phase; notice_sequence : N }.
-Definition initial := State (Offline 0 None) 0.
-Definition phase_generation s := match s with Offline n _ | Negotiating n _ | Ready n _ => n end.
-Definition generation s := phase_generation (current s).
+Definition initial := Offline 0 None.
+Definition generation s := match s with Offline n _ | Negotiating n _ | Ready n _ => n end.
 Definition pairing_of s := match s with Offline _ p | Negotiating _ p => p | Ready _ data => pairing_code data end.
 Definition set_pairing s pairing_value := match s with Offline n _ => Offline n pairing_value | Negotiating n _ => Negotiating n pairing_value
- | Ready n data => Ready n (Session pairing_value (connections data) (pending data)) end.
+ | Ready n data => Ready n (Session pairing_value (connections data) (pending data) (notice_sequence data)) end.
 Definition same_grant := RP.same_authority.
 Definition permitted values value := existsb (fun other => same_grant other value) (RP.grant_values values).
 Definition find_connection data id := find (fun entry => String.eqb (connection_id entry) id) (connections data).
@@ -46,7 +44,7 @@ Definition notice_eligible data id notice := match find_connection data id with
  | None => false end.
 Definition subscription data id after := Session (pairing_code data)
  (map (fun entry => if String.eqb (connection_id entry) id then Connection (connection_identity entry) (authority entry) after else entry)
-   (connections data)) (pending data).
+   (connections data)) (pending data) (notice_sequence data).
 Definition frame := RP.relay_frame.
 Inductive observation := Retire | SetPairing (value : pairing) (now : N) | CurrentPairing (now : N)
  | Grants (values : RP.grant_set) | Enqueue (id : string) (size : N) (notice : bool)
@@ -60,10 +58,13 @@ Inductive action := Ignore | PublishPairing | Enqueued | Disconnect | BecameRead
  | CapturedSnapshot | Unsubscribed | DeliverNotice.
 Definition deliver_notice data id notice :=
  if notice_eligible data id notice then DeliverNotice else Ignore.
-Definition phase_step sequence s event : phase * action := match event with
+Definition step s event : state * action := match event with
  | Install n => (Negotiating n (pairing_of s),Ignore)
- | Notice => (s,Ignore)
- | Observe n value => if negb (N.eqb (phase_generation s) n) then (s,Ignore) else
+ | Notice => match s with
+   | Ready n data => (Ready n (Session (pairing_code data) (connections data) (pending data)
+       (N.succ (notice_sequence data))),Ignore)
+   | _ => (s,Ignore) end
+ | Observe n value => if negb (N.eqb (generation s) n) then (s,Ignore) else
    match value with
    | Retire => (Offline n None,Ignore)
    | SetPairing pairing_value now => (set_pairing s (Some pairing_value),
@@ -73,21 +74,21 @@ Definition phase_step sequence s event : phase * action := match event with
      | None => (s,Ignore) end
    | _ => match s with
      | Offline _ _ => (s,Ignore)
-     | Negotiating g pairing_value => match value with Frame RP.RelayReady => (Ready g (Session pairing_value [] []),BecameReady)
+     | Negotiating g pairing_value => match value with Frame RP.RelayReady => (Ready g (Session pairing_value [] [] 0),BecameReady)
        | Frame _ => (s,Disconnect) | _ => (s,Ignore) end
      | Ready g data => match value with
        | Grants values => (Ready g (Session (pairing_code data)
-         (filter (fun entry => permitted values (authority entry)) (connections data)) (pending data)),Ignore)
+         (filter (fun entry => permitted values (authority entry)) (connections data)) (pending data) (notice_sequence data)),Ignore)
        | Enqueue id size notice => match find_connection data id with None => (s,Ignore) | Some entry =>
          if negb notice || match after_notice entry with Some _ => true | None => false end then
          if (queued_for data id <? 32) && (N.of_nat (List.length (pending data)) <? 256) &&
            (queued_bytes data + size <=? 33554432) then
-           (Ready g (Session (pairing_code data) (connections data) (Queued id size::pending data)),Enqueued)
+           (Ready g (Session (pairing_code data) (connections data) (Queued id size::pending data) (notice_sequence data)),Enqueued)
          else (s,Disconnect) else (s,Ignore) end
        | Dequeue id size => (Ready g (Session (pairing_code data) (connections data)
-         (release_budget (pending data) id size)),Ignore)
+         (release_budget (pending data) id size) (notice_sequence data)),Ignore)
        | Snapshot id subscribe => match find_connection data id with None => (s,Ignore) | Some _ =>
-         (Ready g (if subscribe then subscription data id (Some sequence) else data),CapturedSnapshot) end
+         (Ready g (if subscribe then subscription data id (Some (notice_sequence data)) else data),CapturedSnapshot) end
        | Unsubscribe id => match find_connection data id with None => (s,Ignore) | Some _ =>
          (Ready g (subscription data id None),Unsubscribed) end
        | Deliver id notice => (s,deliver_notice data id notice)
@@ -95,20 +96,16 @@ Definition phase_step sequence s event : phase * action := match event with
        | Frame (RP.RelayControllerOpen id requested) => let entry := Connection id requested None in
          match find_connection data (connection_id entry) with Some _ => (s,Disconnect) | None =>
          if N.of_nat (List.length (connections data)) <? 32 then
-           (Ready g (Session (pairing_code data) (entry::connections data) (pending data)),Opened entry)
+           (Ready g (Session (pairing_code data) (entry::connections data) (pending data) (notice_sequence data)),Opened entry)
          else (s,Disconnect) end
        | Frame (RP.RelayControllerClose id) => (Ready g (Session (pairing_code data)
-         (forget (connections data) (RP.identifier_text id)) (pending data)),Closed id)
+         (forget (connections data) (RP.identifier_text id)) (pending data) (notice_sequence data)),Closed id)
        | Frame (RP.RelayRequest id requested request) => match find_connection data (RP.identifier_text id) with
          Some entry => (s,if same_grant (authority entry) requested then Requested (connection_identity entry) request else Disconnect)
          | None => (s,Disconnect) end
        | Frame (RP.RelayPairRequest request) => (set_pairing s None,PairRequested request)
        | Frame RP.RelayPong => (s,ReceivedPong)
        | _ => (s,Ignore) end end end end.
-Definition step s event : state * action :=
- let '(next,action) := phase_step (notice_sequence s) (current s) event in
- (State next (match event with Notice => N.succ (notice_sequence s) | _ => notice_sequence s end),action).
-
 Definition natural := D.Value KNatural.
 Definition optional_natural := D.nullable natural.
 Definition natural_arguments (value : option N) : D.denote optional_natural :=
@@ -138,25 +135,25 @@ Definition queued_from_arguments (value : D.denote queued_declaration) :=
  let '(id,(bytes,_)) := proj1_sig value in Queued id bytes.
 Definition generation_field := F.required "generation" natural.
 Definition notice_field := F.required "notice_sequence" natural.
-Definition state_fields := [generation_field;F.required "pairing" optional_pairing;notice_field].
+Definition state_fields := [generation_field;F.required "pairing" optional_pairing].
 Definition state_declaration name extra
  `{DistinctNames ("phase" :: F.names (state_fields ++ extra))} := F.declare "phase" (JString name) (state_fields ++ extra).
 Definition offline := state_declaration "offline" [].
 Definition negotiating := state_declaration "negotiating" [].
-Definition ready := state_declaration "ready" [F.required "connections" (D.Array connection_declaration);
+Definition ready := state_declaration "ready" [notice_field;F.required "connections" (D.Array connection_declaration);
  F.required "pending" (D.Array queued_declaration)].
-Definition state_packet s := match current s with
- | Offline n pairing_value => F.Packet offline [!n;pairing_arguments pairing_value;notice_sequence s!]
- | Negotiating n pairing_value => F.Packet negotiating [!n;pairing_arguments pairing_value;notice_sequence s!]
- | Ready n data => F.Packet ready [!n;pairing_arguments (pairing_code data);notice_sequence s;
+Definition state_packet s := match s with
+ | Offline n pairing_value => F.Packet offline [!n;pairing_arguments pairing_value!]
+ | Negotiating n pairing_value => F.Packet negotiating [!n;pairing_arguments pairing_value!]
+ | Ready n data => F.Packet ready [!n;pairing_arguments (pairing_code data);notice_sequence data;
      map connection_arguments (connections data);map queued_arguments (pending data)!] end.
 Definition state_json s := F.encode_packet (state_packet s).
 Definition state_decoders : list (F.decoder state) := [
- F.Decoder offline (fun '(n,(pairing,(sequence,_))) => Some (State (Offline n (pairing_from_arguments pairing)) sequence));
- F.Decoder negotiating (fun '(n,(pairing,(sequence,_))) => Some (State (Negotiating n (pairing_from_arguments pairing)) sequence));
+ F.Decoder offline (fun '(n,(pairing,_)) => Some (Offline n (pairing_from_arguments pairing)));
+ F.Decoder negotiating (fun '(n,(pairing,_)) => Some (Negotiating n (pairing_from_arguments pairing)));
  F.Decoder ready (fun '(n,(pairing,(sequence,(connections,(pending,_))))) =>
-   Some (State (Ready n (Session (pairing_from_arguments pairing)
-     (map connection_from_arguments connections) (map queued_from_arguments pending))) sequence))].
+   Some (Ready n (Session (pairing_from_arguments pairing)
+     (map connection_from_arguments connections) (map queued_from_arguments pending) sequence)))].
 Definition state_of := F.decode_cases state_decoders.
 Definition event_decoder name description (construct : F.values description -> option event)
  `{DistinctNames ("kind" :: F.names description)} : F.decoder event :=
@@ -262,10 +259,7 @@ Definition pairing_step source observed := match pairing_state_of source,pairing
 
 Theorem stale_generation_is_ignored s n value : N.eqb (generation s) n = false ->
  step s (Observe n value) = (s,Ignore).
-Proof. destruct s as [phase sequence]. intro Stale.
- unfold step,phase_step,generation in *; cbn in *. rewrite Stale. reflexivity. Qed.
-Theorem retirement_discards_session_without_rewinding_notice_cursor s :
- let next := fst (step s (Observe (generation s) Retire)) in
- (exists n, current next = Offline n None) /\ notice_sequence s <= notice_sequence next.
-Proof. unfold step,phase_step,generation. rewrite N.eqb_refl.
- split; [eexists; reflexivity|apply N.le_refl]. Qed.
+Proof. intro Stale. unfold step. rewrite Stale. reflexivity. Qed.
+Theorem retirement_discards_session s :
+ exists n, fst (step s (Observe (generation s) Retire)) = Offline n None.
+Proof. unfold step. rewrite N.eqb_refl. eexists; reflexivity. Qed.
