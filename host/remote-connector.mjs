@@ -1,4 +1,5 @@
 import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
+import { stringifyJson } from './public/json-tokens.mjs';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
@@ -322,13 +323,8 @@ export class RemoteConnector {
     if (!session || this.#control.phase !== 'ready') return;
     this.#step('notice');
     const sequence = this.#control.notice_sequence;
-    let event;
-    let bytes;
-    try {
-      event = { notice_sequence: sequence, notice: notice };
-      bytes = Buffer.byteLength(encodeRemoteFrame(event));
-    // DEFENSE: A committed notice can exceed the remote frame budget; close instead of buffering an undeliverable observation.
-    } catch { this.#disconnect(session, 'observation_frame_rejected'); return; }
+    const event = { notice_sequence: sequence, notice: notice };
+    const bytes = Buffer.byteLength(stringifyJson(event));
     for (const [id, connection] of session.connections) {
       this.#enqueue(session, connection, bytes, async () => {
         await this.#authorize(session, connection, () => {

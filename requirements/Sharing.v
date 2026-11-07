@@ -304,6 +304,11 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     acknowledged work to go unrecorded and escape those limits.
     [completed_queue_work_releases_capacity] requires completion to release
     one operation and its bytes so settled work cannot keep consuming capacity.
+    A notice already passed the service's shared JSON encoding boundary.
+    Admission measures that payload for queue capacity. The wire-frame limit
+    applies to the complete routed frame at send. Enforcing it on the payload
+    before subscription admission can disconnect controllers that would not
+    receive the notice and does not establish that the complete frame fits.
     A grant observation filters the connector's live connections directly;
     retaining that entire snapshot supplies no later decision. Native commands
     and captures still check current journal authority, while the relay keeps
