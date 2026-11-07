@@ -10,6 +10,7 @@ From Selvedge.Kernel Require ContextProofs ReasoningProofs
   ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
+  an_accepted_patch_installs_its_captured_target,
   failed_context_observation_retains_the_last_admitted_binding).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
@@ -33,6 +34,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     and [an_observed_amendment_matches_its_baseline_and_patch] constrain the
     actual update interpreter. An external diff algorithm only proposes edits;
     admission checks both the baseline and captured result.
+    Accepted changes apply their captured targets and withdrawals in history
+    order. Side returns quote their histories as user-message data; they do not
+    import context events. Observation completion checks the captured history
+    revision before constructing changes, so replay needs no second baseline
+    check. [an_accepted_patch_installs_its_captured_target] ensures an accepted
+    amendment installs the value recorded in that event.
 
     Source failures retain the last admitted binding. Descriptor reads and
     UTF-8, JSON and YAML decoders already reject their invalid external input;

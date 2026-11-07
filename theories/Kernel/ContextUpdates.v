@@ -113,22 +113,8 @@ Definition valid_patch (key : context_key) (values : list field_patch) :=
  patches_editable key values && forallb (fun value => ordered_edits 0 (patch_edits value)) values.
 Definition apply_change (change : context_change) (values : list snapshot) : list snapshot :=
  match change with
- | Introduce value => value :: remove_snapshot (snapshot_key value) values
- | Remove key base => match find_snapshot key values with
-   | None => values
-   | Some previous =>
-     (* DEFENSE: A side return can carry a removal captured before the parent
-        admitted a newer observation of the same source. *)
-     if String.eqb (snapshot_revision previous) base then remove_snapshot key values else values
-   end
- | Amend target base _ => let key := snapshot_key target in
-   match find_snapshot key values with
-   | None => values
-   | Some previous =>
-     (* DEFENSE: A side return can carry an amendment captured against an older
-        baseline; installing its target must not overwrite newer context. *)
-     if String.eqb (snapshot_revision previous) base
-     then target :: remove_snapshot key values else values end
+ | Introduce value | Amend value _ _ => value :: remove_snapshot (snapshot_key value) values
+ | Remove key _ => remove_snapshot key values
  end.
 Definition bindings (history : list message) := fold_left
  (fun values message => match message with ContextObservation change => apply_change change values | _ => values end) history [].
