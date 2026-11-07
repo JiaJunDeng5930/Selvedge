@@ -204,8 +204,6 @@ Definition interpret_step (execute : executor) (id : N) (task : task) (value : w
  | StopInferenceStep => acknowledged (commit_changes id
      (fun task => TaskWake.promote_changes task ++ [TaskChange.ChangePhase Idle]) value)
  end.
-Definition task_step (execute : executor) (id : N) (task : task) (value : world) :=
- option_map (interpret_step execute id task value) (task_action task).
 Definition next_runnable_step (permitted : N -> world -> bool) (id : N) (task : task) (value : world) :=
  if permitted id value then task_action task
  else option_map OperationStep (ready_settlement (task_operations task)).

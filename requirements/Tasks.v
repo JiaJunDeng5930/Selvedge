@@ -196,8 +196,12 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     operations and queued follow-ups. An idle inference phase therefore does
     not imply an empty operation list.
 
-    A runnable Task with admitted context observation must issue it before
-    inference. [a_runnable_task_requests_context_before_inference] also requires
+    A Task permitted to run with admitted context observation must issue it
+    before inference. A frozen Task without a ready result must leave selection
+    of subsequent Tasks unchanged. These guarantees constrain the actual
+    [Scheduler.find_step]; a separately callable wrapper could satisfy them
+    while dispatch behavior changes.
+    [a_runnable_task_requests_context_before_inference] also requires
     the correlation supply to advance. Callback owners compare ticket identity;
     consecutive numeric labels add no correlation guarantee.
 

@@ -240,14 +240,16 @@ Proof.
    unfold with_activity; rewrite RunningTask; repeat split; reflexivity.
 Qed.
 
-Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute id task value operations,
+Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute permitted id task rest value operations,
+ permitted id value = true ->
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
- Scheduler.task_step execute id task value =
+ Scheduler.find_step execute permitted id (task :: rest) value =
  Some (Reasoning.observe_scheduled_context id value).
 Proof.
- intros execute id task value operations RunningTask NoOperation.
- unfold Scheduler.task_step, Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
+ intros execute permitted id task rest value operations Permitted RunningTask NoOperation.
+ cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ unfold Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 
 Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision observations diagnostic value task,
