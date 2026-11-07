@@ -188,7 +188,8 @@ Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
   append_tail_preserves_absolute_cursor, completed_retention_is_bounded,
   completion_retains_exactly_unexpired_entries,
   artifact_metadata_requires_complete_published_capture).
-Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
+Export ProcessAdapterProofs(output_append_keeps_latest_output,
+  registry_completion_returns_its_retained_processes).
 
 (** ** Process progress is bounded without copying its complete buffer
 
@@ -199,8 +200,13 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     [reserved_write_is_exclusive] and [append_tail_preserves_absolute_cursor]
     bind those requirements to the pure controller. Write refusal preserves
     input ownership independently of its diagnostic code. The physical scalar
-    buffer stays in the host; the model controls counts and slice instructions. Sending the whole tail through
-    semantic JSON per chunk adds cost without stronger authority.
+    buffer stays in the host; the model controls counts and slice instructions.
+    Each stream and the combined buffer must retain the latest capacity-sized
+    suffix of their previous contents followed by the decoded chunk, with the
+    same character order and matching retained length and absolute cursor.
+    [output_append_keeps_latest_output] connects both returned slice plans and
+    their metadata to that sequence. Sending the whole tail through semantic
+    JSON per chunk adds cost without stronger authority.
     A completed process remains queryable within the retained completion window.
     Completion bounds that window and removes exactly its expired entries,
     preserving all other running and retained processes. Physical handles follow
@@ -226,7 +232,16 @@ Export ProcessAdapterProofs(registry_completion_returns_its_retained_processes).
     derived number for equality admission supplies no further observation of
     the opened directory. Isolation therefore relies on the committed access
     plan, canonical path checks and opened handles without a second copy of
-    that numbering. *)
+    that numbering.
+
+    Workspace admission and canonicalization run before launch preparation;
+    comparing the result with the committed workspace detects changed path
+    authority. Repeating the same shape, selection and uniqueness checks on
+    that result adds no filesystem observation. Likewise, mapping realpath
+    over protected roots, iterating declared runtime candidates and mapping
+    path ancestors establish the internal arrays' membership and shape.
+    Their consumers need the resulting paths, without another encoding of the
+    same observations for length, field or path-syntax admission. *)
 
 From Selvedge.Adapters Require AudioProofs.
 Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,

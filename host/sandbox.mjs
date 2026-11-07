@@ -22,14 +22,6 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   return boundary('effect.workspace_selected', { roots, primary });
 }
 
-// These coordinates attest only standard path observations, never launch policy.
-function workspaceObservations(original, workspace) {
-  const observe = root => ({ root, absolute: typeof root === 'string' && path.isAbsolute(root) });
-  const selected = boundary('effect.workspace_selection', { value: original, roots: workspace.roots });
-  return { original: original.roots.map(observe), canonical: workspace.roots.map(observe),
-    ...(selected.canonicalize ? { primary: observe(selected.root), canonical_primary: observe(workspace.primary_root) } : {}) };
-}
-
 // Standard platform path observation; all permission rules are assembled natively.
 function ancestors(root, includeSelf) {
   const result = [];
@@ -95,7 +87,7 @@ export async function prepareSandbox(plan, {
   const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, processMode };
   boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
-  const source = { plan, options, workspace, root_observations: workspaceObservations(plan.workspace, workspace) };
+  const source = { plan, options, workspace };
   const { projectOnly, unrestricted } = boundary('effect.workspace_bound', source);
   if (unrestricted) {
     return { ...boundary('effect.unrestricted_launch', source), env: environment(tmpdir()),

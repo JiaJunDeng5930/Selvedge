@@ -11,7 +11,6 @@ Proof.
   intros source result H.
   unfold unrestricted_launch in H.
   apply successful_stage_runs_its_continuation in H as [_ H].
-  apply successful_stage_runs_its_continuation in H as [_ H].
   apply successful_stage_runs_its_continuation in H as [access _].
   apply successful_admission_means_its_condition in access.
   apply andb_true_iff in access as [_ scope].
@@ -24,7 +23,6 @@ Theorem sandbox_execution_requires_committed_sandbox_access : forall source resu
 Proof.
   intros source result H.
   unfold sandbox_launch in H.
-  apply successful_stage_runs_its_continuation in H as [_ H].
   apply successful_stage_runs_its_continuation in H as [_ H].
   apply successful_stage_runs_its_continuation in H as [security _].
   unfold security_admission,next in security.
