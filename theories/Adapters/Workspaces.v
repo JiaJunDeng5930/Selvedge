@@ -46,13 +46,9 @@ Definition execution_context (workspace plan : json) :=
     ("writableRoots",if String.eqb (str (get plan "sandbox") "mode") "workspace-write" then get workspace "roots" else JArray [])].
 Definition workspace_bound (source : json) :=
   let workspace := get source "workspace" in let plan := get source "plan" in let committed := get plan "workspace" in
-  if has committed "primary_root" && equal (get workspace "roots") (get committed "roots") &&
+  if equal (get workspace "roots") (get committed "roots") &&
     equal (get workspace "primary_root") (get committed "primary_root") then
-    let project := String.eqb (str plan "scope") "project" in
-    let primary := get workspace "primary_root" in
-    if project && (is_null primary || equal primary (JString ""))
-    then err "Project execution requires a primary Workspace root"
-    else success (execution_context workspace plan)
+    success (execution_context workspace plan)
   else err "A workspace root changed after it was committed; reselect the workspace before executing".
 
 Inductive selection_path := CommandWorkspace | TaskWorkspace | NodeWorkspace (index : nat).

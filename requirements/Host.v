@@ -184,6 +184,8 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     not only a declaration that a handwritten caller might misread. *)
 
 From Selvedge.Host Require ProcessProofs ProcessAdapterProofs.
+From Selvedge.Adapters Require WorkspacesProofs.
+Export WorkspacesProofs(workspace_binding_matches_committed_paths).
 Export ProcessProofs(reserved_write_is_exclusive, append_tail_is_bounded,
   append_tail_preserves_absolute_cursor, completed_retention_is_bounded,
   completion_retains_exactly_unexpired_entries,
@@ -234,10 +236,13 @@ Export ProcessAdapterProofs(output_append_keeps_latest_output,
     plan, canonical path checks and opened handles without a second copy of
     that numbering.
 
-    Workspace admission and canonicalization run before launch preparation;
-    comparing the result with the committed workspace detects changed path
-    authority. Repeating the same shape, selection and uniqueness checks on
-    that result adds no filesystem observation. Likewise, mapping realpath
+    Workspace admission and canonicalization run before launch preparation.
+    [workspace_binding_matches_committed_paths] requires the newly resolved
+    roots and primary to match the committed selection, and admits matching
+    paths. Execution plans already include primary_root, and the Project
+    request resolver requires a valid primary root before constructing its job.
+    Repeating those conditions or the same shape, selection and uniqueness
+    checks adds no filesystem observation. Likewise, mapping realpath
     over protected roots, iterating declared runtime candidates and mapping
     path ancestors establish the internal arrays' membership and shape.
     Their consumers need the resulting paths, without another encoding of the
