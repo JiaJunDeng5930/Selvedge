@@ -204,7 +204,7 @@ Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   current_retry_rearms_or_connects).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
-  delivered_notice_is_queued_and_beyond_the_current_cutoff,
+  delivered_notice_follows_the_current_subscription,
   every_observed_notice_advances_the_cursor,
   frame_observation_emits_only_frame_actions,
   capture_observations_emit_only_capture_actions,
@@ -354,12 +354,25 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     [issued_tickets_respect_capacity] bounds the actual retained ticket list.
 
     [subscription_capture_records_the_current_notice_cutoff] and
-    [delivered_notice_is_queued_and_beyond_the_current_cutoff] connect snapshot
+    [delivered_notice_follows_the_current_subscription] connect snapshot
     subscription and later notices. Unsubscribe, resubscribe and delayed queue completion
     share one cursor owner rather than separate JavaScript tests.
     The cursor orders notices relative to a subscription cutoff; it is not a
     count of delivered messages. Strict advancement is sufficient without
     requiring adjacent cursor values or an unchanged cursor during retirement.
+    A notification callback enters the Promise queue only after admission and
+    releases its capacity after finishing. Its captured notice identity is
+    therefore already bound to admitted work; retaining that identity again
+    solely to check queue membership adds no delivery authority. Pending jobs
+    retain only the connection and bytes needed to bound capacity. Jobs with
+    the same connection and byte size are interchangeable for that accounting.
+    The host assigns each notice its current cursor before enqueueing it, so a
+    future cursor cannot arrive on this internal path. Delivery must still
+    check the subscription cutoff: an earlier queued resubscription can capture
+    a newer snapshot, or an unsubscribe can end delivery, before the notice runs.
+    Promise reactions preserve the registered callback and await its returned
+    operation before the following completion reaction:
+    https://tc39.es/ecma262/2026/multipage/control-abstraction-objects.html#sec-performpromisethen .
 
     The journal remains command-idempotency authority; the relay does not keep
     another durable command database. Socket handles, cryptography, atomic

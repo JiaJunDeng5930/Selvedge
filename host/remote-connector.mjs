@@ -269,8 +269,9 @@ export class RemoteConnector {
   #enqueue(session, connection, bytes, operation, noticeSequence = null) {
     enqueueRemoteOperation(connection, bytes, operation, {
       current: () => this.#current(session),
-      observe: (kind, size) => this.#step(kind, { generation: session.generation, connection_id: connection.id,
+      enqueue: size => this.#step('enqueue', { generation: session.generation, connection_id: connection.id,
         bytes: size, notice_sequence: noticeSequence }),
+      dequeue: size => this.#step('dequeue', { generation: session.generation, connection_id: connection.id, bytes: size }),
       disconnect: reason => this.#disconnect(session, reason),
     });
   }

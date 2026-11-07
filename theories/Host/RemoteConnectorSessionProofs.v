@@ -35,7 +35,7 @@ Proof.
  destruct s as [phase sequence]. destruct phase as [g pairing|g pairing|g data];
  unfold step,phase_step; cbn; destruct (N.eqb g n); cbn; try exact I.
  unfold deliver_notice.
- destruct (notice_eligible sequence data id notice && notice_queued data id notice); exact I.
+ destruct (notice_eligible data id notice); exact I.
 Qed.
 
 Theorem enqueue_observation_emits_only_queue_actions s n id size notice :
@@ -60,7 +60,7 @@ Proof.
  destruct s as [phase sequence]. destruct phase as [g p|g p|g data]; unfold step,phase_step; cbn;
  destruct (N.eqb g n) eqn:Same; cbn; try discriminate.
  destruct (find_connection data id) eqn:Present; [|discriminate].
- destruct (match notice with Some value => notice_eligible sequence data id value | None => true end); [|discriminate].
+ destruct (match notice with Some value => notice_eligible data id value | None => true end); [|discriminate].
  destruct ((queued_for data id <? 32) && (N.of_nat (List.length (pending data)) <? 256) &&
    (queued_bytes data + size <=? 33554432)) eqn:Budget; [|discriminate].
  intro Accepted. apply N.eqb_eq in Same; subst n. exists data. split; [reflexivity|].
@@ -92,14 +92,17 @@ Proof.
  now rewrite Present.
 Qed.
 
-Theorem delivered_notice_is_queued_and_beyond_the_current_cutoff g data sequence id notice :
+Theorem delivered_notice_follows_the_current_subscription g data sequence id notice :
  snd (step (State (Ready g data) sequence) (Observe g (Deliver id notice))) = DeliverNotice ->
- notice_eligible sequence data id notice = true /\ notice_queued data id notice = true.
+ exists entry after, find_connection data id = Some entry /\
+ after_notice entry = Some after /\ after < notice.
 Proof.
  unfold step,phase_step. cbn. rewrite N.eqb_refl. cbn.
- unfold deliver_notice.
- destruct (notice_eligible sequence data id notice && notice_queued data id notice) eqn:Admitted;
-   cbn; [|discriminate]. intro Delivered. now apply andb_true_iff in Admitted.
+ unfold deliver_notice,notice_eligible.
+ destruct (find_connection data id) as [entry|] eqn:Found; [|discriminate].
+ destruct (after_notice entry) as [after|] eqn:Subscribed; [|discriminate].
+ destruct (after <? notice) eqn:Later; [|discriminate].
+ intros _. exists entry, after. repeat split; try assumption. now apply N.ltb_lt.
 Qed.
 
 Theorem every_observed_notice_advances_the_cursor s :
