@@ -10,28 +10,37 @@ Open Scope string_scope.
 
 (* Freeze suspends new work while accepted result processing can finish. *)
 Theorem frozen_tasks_without_ready_results_do_not_take_scheduler_steps :
- forall execute id task phase operations value,
+ forall execute permitted id task rest phase operations value,
  task_lifecycle task = Frozen phase operations ->
  Scheduler.ready_settlement operations = None ->
- Scheduler.task_step execute id task value = None.
-Proof. intros; unfold Scheduler.task_step; rewrite H, H0; reflexivity. Qed.
+ Scheduler.find_step execute permitted id (task :: rest) value =
+ Scheduler.find_step execute permitted (N.succ id) rest value.
+Proof.
+ intros execute permitted id task rest phase operations value Lifecycle NoReady.
+ cbn [Scheduler.find_step]. unfold Scheduler.next_runnable_step.
+ destruct (permitted id value).
+ - unfold Scheduler.task_action; rewrite Lifecycle, NoReady; reflexivity.
+ - unfold task_operations; rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
+Qed.
 
 (* Stop settles the current turn without issuing another inference request. *)
 Theorem stopped_inference_requests_settle_without_effects :
- forall execute id task phase value,
+ forall execute permitted id task rest phase value,
  find_task id value = Some task ->
+ permitted id value = true ->
  task_lifecycle task = Stopped phase [] ->
  (phase = WantsModel \/ phase = ReadyForModel) ->
- exists result, Scheduler.task_step execute id task value = Some result /\
+ exists result, Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  decision_effects result = [] /\
  exists settled, find_task id (decision_world result) = Some settled /\
  task_lifecycle settled = Stopped Idle [].
 Proof.
- intros execute id task phase value Owner Lifecycle [Phase|Phase]; subst phase;
- (unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_settlement];
+ intros execute permitted id task rest phase value Owner Permitted Lifecycle [Phase|Phase]; subst phase;
+ (cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted;
+ unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_settlement Scheduler.interpret_step];
  eexists; split; [reflexivity|]; split; [reflexivity|];
  exists (with_activity Idle task); split;
- [ cbn [decision_world Callbacks.acknowledged accept];
+ [ cbn [Scheduler.interpret_step decision_world Callbacks.acknowledged accept];
    rewrite (commit_changes_use_the_observed_owner id _ value task Owner);
    unfold TaskWake.promote_changes; rewrite Lifecycle;
    change (find_task id (put_task id (with_activity Idle task) value) = Some (with_activity Idle task));
@@ -41,29 +50,36 @@ Proof.
 Qed.
 
 Theorem stopped_tasks_can_finish_an_already_accepted_call :
- forall execute id task invocation remaining value,
+ forall execute permitted id task rest invocation remaining value,
+ permitted id value = true ->
  task_lifecycle task = Stopped (PendingCalls (invocation::remaining)) [] ->
- Scheduler.task_step execute id task value =
+ Scheduler.find_step execute permitted id (task :: rest) value =
  Some (Scheduler.start_call execute id invocation remaining task value).
-Proof. intros; unfold Scheduler.task_step; rewrite H; reflexivity. Qed.
+Proof.
+ intros execute permitted id task rest invocation remaining value Permitted Lifecycle.
+ cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ unfold Scheduler.task_action; rewrite Lifecycle; reflexivity.
+Qed.
 
 (* A runnable task actually issues context observation. This positive obligation
    excludes a scheduler that preserves safety by never doing any work. *)
 Theorem a_runnable_task_requests_context_before_inference :
- forall execute id task value,
+ forall execute permitted id task rest value,
  find_task id value = Some task ->
+ permitted id value = true ->
  TicketedRequest.Scoped.can_observe true task value = true ->
  task_lifecycle task = Running WantsModel [] ->
  exists result,
- Scheduler.task_step execute id task value = Some result /\
+ Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  In (ObserveContext id (world_next_ticket value)
    (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task)))
    (decision_effects result) /\
  (world_next_ticket value < world_next_ticket (decision_world result))%N.
 Proof.
- intros execute id task value Found ObserveAllowed Lifecycle.
- unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_operation].
- eexists; split; [reflexivity|]. unfold Reasoning.observe_scheduled_context.
+ intros execute permitted id task rest value Found Permitted ObserveAllowed Lifecycle.
+ cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_operation Scheduler.interpret_step].
+ eexists; split; [reflexivity|]. unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
    as [request [Selected [Owner [Current Intent]]]].
  unfold TicketedRequest.Scoped.run; rewrite Selected.

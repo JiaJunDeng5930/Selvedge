@@ -81,29 +81,10 @@ Theorem failed_context_observation_retains_the_last_admitted_binding : forall ke
  ContextUpdates.observation_changes (ObservationFailure key reason) bindings = Some [].
 Proof. reflexivity. Qed.
 
-Theorem a_stale_returned_amendment_preserves_the_current_binding : forall target base patches bindings current,
- ContextUpdates.find_snapshot (snapshot_key target) bindings = Some current -> snapshot_revision current <> base ->
- ContextUpdates.apply_change (Amend target base patches) bindings = bindings.
-Proof.
- intros target base patches bindings current Found Stale.
- cbn [ContextUpdates.apply_change]; rewrite Found.
- apply String.eqb_neq in Stale; rewrite Stale; reflexivity.
-Qed.
-
-Theorem a_stale_returned_removal_preserves_the_current_binding : forall key base bindings current,
- ContextUpdates.find_snapshot key bindings = Some current -> snapshot_revision current <> base ->
- ContextUpdates.apply_change (Remove key base) bindings = bindings.
-Proof.
- intros key base bindings current Found Stale.
- cbn [ContextUpdates.apply_change]; rewrite Found.
- apply String.eqb_neq in Stale; rewrite Stale; reflexivity.
-Qed.
-
-Theorem an_accepted_patch_installs_its_captured_target : forall bindings target previous patches,
- ContextUpdates.find_snapshot (snapshot_key target) bindings = Some previous ->
- ContextUpdates.apply_change (Amend target (snapshot_revision previous) patches) bindings =
+Theorem an_accepted_patch_installs_its_captured_target : forall bindings target base patches,
+ ContextUpdates.apply_change (Amend target base patches) bindings =
  target :: ContextUpdates.remove_snapshot (snapshot_key target) bindings.
-Proof. intros; cbn [ContextUpdates.apply_change]; rewrite H,String.eqb_refl; reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 Theorem unchanged_context_fields_do_not_append_a_revision_only_change : forall current patch previous bindings,
  ContextUpdates.find_snapshot (snapshot_key current) bindings = Some previous ->

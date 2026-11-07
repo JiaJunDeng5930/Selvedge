@@ -13,11 +13,18 @@ Proof.
   rewrite supplied; cbn [negb]; rewrite andb_false_r; apply equivalent_is_reflexive.
 Qed.
 
-Theorem changed_committed_roots_prevent_execution : forall source,
-  equal (get (get source "workspace") "roots")
-    (get (get (get source "plan") "workspace") "roots") = false ->
-  exists message, workspace_bound source = err message.
-Proof. intros source H;unfold workspace_bound;rewrite H;rewrite andb_false_r;eexists;reflexivity. Qed.
+Theorem workspace_binding_matches_committed_paths : forall source,
+  workspace_bound source = success (execution_context (get source "workspace") (get source "plan")) <->
+  get (get source "workspace") "roots" = get (get (get source "plan") "workspace") "roots" /\
+  get (get source "workspace") "primary_root" = get (get (get source "plan") "workspace") "primary_root".
+Proof.
+  intro source; split.
+  - unfold workspace_bound. destruct (_ && _) eqn:Matches; [|discriminate].
+    intros _. apply andb_true_iff in Matches. destruct Matches as [Roots Primary].
+    split; now apply equal_reflects_equality.
+  - intros [Roots Primary]. unfold workspace_bound.
+    rewrite Roots, Primary, !equal_is_reflexive. reflexivity.
+Qed.
 
 Theorem archive_path_is_owned_storage : forall source,
   str source "operation" = "archive" -> worktree_path source = success JNull ->

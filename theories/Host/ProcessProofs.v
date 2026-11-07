@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Host Require Import Process.
 From Selvedge.Adapters Require Common HostProcess.
 Import ListNotations.
+Open Scope list_scope.
 
 Theorem completion_closes_stdin current :
   stdin_open (observe current Finished) = false.
@@ -40,7 +41,7 @@ Theorem append_tail_preserves_absolute_cursor capacity current added :
     (total current + N.of_nat added)%N.
 Proof. reflexivity. Qed.
 
-Theorem append_plan_keeps_exact_buffer capacity current added :
+Lemma append_tail_matches_slice_lengths capacity current added :
   retained current - drop_old capacity current added + (added - drop_new capacity added) =
     retained (append_tail capacity current added).
 Proof.
@@ -48,6 +49,31 @@ Proof.
   pose proof (Nat.le_min_l (retained current) (capacity - Nat.min capacity added)).
   pose proof (Nat.le_min_r capacity added).
   lia.
+Qed.
+
+Theorem append_tail_keeps_latest_output {A} capacity current (previous added : list A) :
+  retained current = List.length previous ->
+  skipn (drop_old capacity current (List.length added)) previous ++
+    skipn (drop_new capacity (List.length added)) added =
+  skipn (List.length (previous ++ added) - capacity) (previous ++ added).
+Proof.
+  intros Length. unfold drop_old, drop_new, keep_old, keep_new; rewrite Length.
+  rewrite length_app, skipn_app.
+  destruct (Nat.le_ge_cases capacity (List.length added)) as [Large|Small].
+  - rewrite (Nat.min_l capacity (List.length added) Large).
+    rewrite Nat.sub_diag, Nat.min_0_r, Nat.sub_0_r, skipn_all.
+    rewrite (@skipn_all2 A (List.length previous + List.length added - capacity) previous) by lia.
+    replace (List.length previous + List.length added - capacity - List.length previous)
+      with (List.length added - capacity) by lia.
+    reflexivity.
+  - rewrite (Nat.min_r capacity (List.length added) Small).
+    rewrite Nat.sub_diag, skipn_O.
+    replace (List.length previous + List.length added - capacity - List.length previous)
+      with 0 by lia.
+    rewrite skipn_O.
+    f_equal. f_equal.
+    destruct (Nat.min_spec (List.length previous) (capacity - List.length added))
+      as [[Bound Minimum]|[Bound Minimum]]; rewrite Minimum; lia.
 Qed.
 
 Theorem read_cursor_never_exceeds_total current cursor :

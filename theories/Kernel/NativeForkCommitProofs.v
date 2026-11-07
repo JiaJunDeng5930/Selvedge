@@ -4,7 +4,7 @@ From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs.
-From Selvedge.Programming Require Import TaskScope TaskScopeProofs TaskChangeProofs.
+From Selvedge.Programming Require Import TaskScope TaskChangeProofs.
 From Selvedge.Kernel Require Import HistoryProofs NativeTools Scheduler NativeForkCommit NativeForkSchedulingProofs ForkCommit ForkCommitProofs.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
@@ -50,38 +50,19 @@ Proof.
  rewrite Observed in Selected; inversion Selected; subst current; exact Ready.
 Qed.
 
-Lemma a_native_fork_request_names_its_selected_owner : forall before (accepted : NativeForkCommit.plan before),
- G.fork_task_id (Scheduler.native_fork_request (NativeForkCommit.planned_step accepted)) =
- Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted).
-Proof.
- intros; pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
- destruct (a_ready_native_fork_carries_its_final_dispatch_gate _ _ _ _ Ready) as [_ [_ [_ [_ Owner]]]]; exact Owner.
-Qed.
-
-Lemma exhausted_descendant_capacity_refuses_the_actual_native_fork_handler :
- forall request invocation remaining messages before parent,
+Theorem a_native_fork_uses_its_calling_task : forall request owner invocation remaining before messages,
  Codec.traverse Images.message_content (message_sources request) = Some messages ->
- find_task (G.fork_task_id request) before = Some parent ->
- Tasks.ancestors_fit (G.fork_task_id request :: task_lineage parent)
-   (G.fork_child_count request) before = false ->
- CommandExecution.handle_fork_result request
-   (Some (Tasks.NativeCall (G.fork_task_id request) invocation remaining)) before =
- CommandResult.Rejected (Tasks.start_refusal Tasks.NativeForkEntry Tasks.DescendantCapacity).
+ CommandExecution.handle_fork_result request (Some (Tasks.NativeCall owner invocation remaining)) before =
+ Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) (settings_origin request)
+   owner (G.fork_child_count_admitted request) messages
+   (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before.
 Proof.
- intros request invocation remaining messages before parent Parsed Found Capacity.
- change (Tasks.ancestors_fit (@cons N (G.fork_task_id request) (task_lineage parent))
-   (TaskConstraints.fork_count_value (G.fork_child_count_admitted request)) before = false) in Capacity.
- unfold CommandExecution.handle_fork_result.
+ intros request owner invocation remaining before messages Parsed.
+ unfold CommandExecution.handle_fork_result; cbn zeta.
  match goal with |- match ?parsed with Some _ => _ | None => _ end = _ =>
-   change (parsed = Some messages) in Parsed end; rewrite Parsed.
- cbn [Tasks.native_owner Tasks.native_invocation Tasks.native_remaining].
- rewrite N.eqb_refl; unfold Tasks.fork_result.
- destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key _ _ _ Found)
-   as [target [Selected [_ Current]]].
- rewrite Selected; cbn beta iota zeta; rewrite Current,Capacity,andb_false_r.
- unfold Tasks.fork_refusal_reason; rewrite Capacity; reflexivity.
+   change (parsed = Some messages) in Parsed end.
+ rewrite Parsed; reflexivity.
 Qed.
-
 
 Theorem a_refused_native_call_records_its_error_and_releases_its_continuation :
  forall before (accepted : NativeForkCommit.plan before) code reason,

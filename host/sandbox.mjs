@@ -9,7 +9,7 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   const { realpath, stat } = filesystem;
   boundary('effect.workspace_admit', { value });
   const canonical = async root => {
-    boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root) });
+    boundary('effect.root_admit', { root, absolute: path.isAbsolute(root) });
     const resolved = await realpath(root);
     // DEFENSE: An explicitly selected external workspace path can name a file or change before stat.
     if (!(await stat(resolved)).isDirectory()) throw new TypeError('A workspace root must be a directory');
@@ -20,14 +20,6 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   const selected = boundary('effect.workspace_selection', { value, roots });
   const primary = selected.canonicalize ? await canonical(selected.root) : selected.root;
   return boundary('effect.workspace_selected', { roots, primary });
-}
-
-// These coordinates attest only standard path observations, never launch policy.
-function workspaceObservations(original, workspace) {
-  const observe = root => ({ root, absolute: typeof root === 'string' && path.isAbsolute(root) });
-  const selected = boundary('effect.workspace_selection', { value: original, roots: workspace.roots });
-  return { original: original.roots.map(observe), canonical: workspace.roots.map(observe),
-    ...(selected.canonicalize ? { primary: observe(selected.root), canonical_primary: observe(workspace.primary_root) } : {}) };
 }
 
 // Standard platform path observation; all permission rules are assembled natively.
@@ -93,9 +85,8 @@ export async function prepareSandbox(plan, {
   const platform = process.platform, architecture = process.arch;
   signal?.throwIfAborted();
   const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, processMode };
-  boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
-  const source = { plan, options, workspace, root_observations: workspaceObservations(plan.workspace, workspace) };
+  const source = { plan, options, workspace };
   const { projectOnly, unrestricted } = boundary('effect.workspace_bound', source);
   if (unrestricted) {
     return { ...boundary('effect.unrestricted_launch', source), env: environment(tmpdir()),
@@ -129,14 +120,12 @@ export async function prepareSandbox(plan, {
     await writeFile(policyPath, seccompFilter(architecture, plan.sandbox.network_access), { mode: 0o600, flag: 'wx' });
     handles.push(await open(policyPath, constants.O_RDONLY | constants.O_NOFOLLOW));
     const observedRuntime = projectOnly ? await runtimeReads(platform) : [];
-    const bindings = preparation.bindings;
-    for (const binding of bindings) {
+    for (const binding of preparation.bindings) {
       // Pin each admitted source directory against replacement before execution.
       const handle = await open(binding.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       handles.push(handle);
-      binding.descriptor = handles.length + 2;
     }
-    const terminal = boundary('effect.sandbox_launch', { ...context, bindings, runtimeReads: observedRuntime });
+    const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: observedRuntime });
     return { file, ...terminal, env: environment(scratch, projectOnly), descriptors: handles.map(handle => handle.fd), cleanup };
   // DEFENSE: Sandbox binary/policy preparation can fail after allocating scratch space and pinned descriptors.
   } catch (error) { await cleanup(); throw error; }

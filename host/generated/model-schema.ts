@@ -151,14 +151,14 @@ export function decodeRemoteConnectorSessionAction(input: unknown): RemoteConnec
 }
 
 export type RemoteConnectorSessionState =
-  | {"phase": "offline"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
-  | {"phase": "negotiating"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
+  | {"phase": "offline"; "generation": number; "pairing": JsonValue}
+  | {"phase": "negotiating"; "generation": number; "pairing": JsonValue}
   | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
 export function decodeRemoteConnectorSessionState(input: unknown): RemoteConnectorSessionState {
   const source = decodeObject(input);
   switch (source["phase"]) {
-    case "offline": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
-    case "negotiating": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
+    case "offline": exactFields(source, ["phase","generation","pairing"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"])};
+    case "negotiating": exactFields(source, ["phase","generation","pairing"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"])};
     case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionState variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionState discriminant');
@@ -171,8 +171,8 @@ export type RemoteConnectorSessionObservation =
   | {"kind": "pair"; "generation": number; "now": number; "frame": JsonValue}
   | {"kind": "pairing_current"; "generation": number; "now": number}
   | {"kind": "grants"; "generation": number; "grants": Array<JsonValue>}
-  | {"kind": "enqueue"; "generation": number; "connection_id": string; "bytes": number; "notice_sequence": JsonValue}
-  | {"kind": "dequeue"; "generation": number; "connection_id": string; "bytes": number; "notice_sequence": JsonValue}
+  | {"kind": "enqueue"; "generation": number; "connection_id": string; "bytes": number; "notice": boolean}
+  | {"kind": "dequeue"; "generation": number; "connection_id": string; "bytes": number}
   | {"kind": "notice"; }
   | {"kind": "capture"; "generation": number; "connection_id": string; "method": "snapshot" | "subscribe" | "unsubscribe"}
   | {"kind": "deliver"; "generation": number; "connection_id": string; "notice_sequence": number}
@@ -185,8 +185,8 @@ export function decodeRemoteConnectorSessionObservation(input: unknown): RemoteC
     case "pair": exactFields(source, ["kind","generation","now","frame"]); return {"kind": "pair", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"]), "frame": decodeJson(source["frame"])};
     case "pairing_current": exactFields(source, ["kind","generation","now"]); return {"kind": "pairing_current", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"])};
     case "grants": exactFields(source, ["kind","generation","grants"]); return {"kind": "grants", "generation": decodeSafeNatural(source["generation"]), "grants": decodeArray(source["grants"], item => decodeJson(item))};
-    case "enqueue": exactFields(source, ["kind","generation","connection_id","bytes","notice_sequence"]); return {"kind": "enqueue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"]), "notice_sequence": decodeJson(source["notice_sequence"])};
-    case "dequeue": exactFields(source, ["kind","generation","connection_id","bytes","notice_sequence"]); return {"kind": "dequeue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"]), "notice_sequence": decodeJson(source["notice_sequence"])};
+    case "enqueue": exactFields(source, ["kind","generation","connection_id","bytes","notice"]); return {"kind": "enqueue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"]), "notice": decodeBoolean(source["notice"])};
+    case "dequeue": exactFields(source, ["kind","generation","connection_id","bytes"]); return {"kind": "dequeue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"])};
     case "notice": exactFields(source, ["kind"]); return {"kind": "notice"};
     case "capture": exactFields(source, ["kind","generation","connection_id","method"]); return {"kind": "capture", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "method": decodeEnum0(source["method"])};
     case "deliver": exactFields(source, ["kind","generation","connection_id","notice_sequence"]); return {"kind": "deliver", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};

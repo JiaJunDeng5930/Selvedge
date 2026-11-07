@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json SequenceProofs JsonObjectsProofs.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Compaction CompactionPlan ContextSelection Numbers.
 Import ListNotations.
 Open Scope string_scope.
@@ -31,29 +32,36 @@ Theorem an_opaque_reply_cannot_finish_portable_work : forall unread carry width 
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =
  Failed reason.
 Proof. intros; eexists; reflexivity. Qed.
-Theorem an_admitted_plan_fits_its_byte_allocation : forall value budget,
- transport_fits value budget = true -> plan_bytes value <= budget /\ has_transport_work value = true.
-Proof.
- intros. apply andb_true_iff in H as [work fits]. apply N.leb_le in fits. auto.
-Qed.
-
 Theorem native_start_retains_history_and_rebuild_material :
- forall images history raw input_tokens window reserve,
- images = false -> input_tokens + reserve <= window ->
- start_with_images images history raw "chatgpt" Automatic input_tokens window reserve =
+ forall captured history raw input_tokens window reserve,
+ (forall entry, In entry captured -> History.message_images entry = []) ->
+ input_tokens + reserve <= window ->
+ start captured history raw "chatgpt" Automatic input_tokens window reserve =
  Some (CompactionState (NativeSource history raw) "" window window reserve).
 Proof.
- intros images history raw input_tokens window reserve NoImages Fits.
- unfold start_with_images. rewrite NoImages.
+ intros captured history raw input_tokens window reserve NoImages Fits.
+ assert (Empty : forallb (fun entry => match History.message_images entry with
+   | [] => true | _ => false end) captured = true).
+ { apply forallb_forall. intros entry Present. rewrite (NoImages entry Present); reflexivity. }
+ unfold start. rewrite Empty.
  assert (Budget : (input_tokens + reserve <=? window) = true).
  { apply N.leb_le. exact Fits. }
  now rewrite Budget.
 Qed.
 
-Theorem images_force_portable_rebuilding : forall history raw provider method input_tokens window reserve,
- start_with_images true history raw provider method input_tokens window reserve =
+Theorem images_force_portable_rebuilding : forall captured entry image history raw provider method input_tokens window reserve,
+ In entry captured -> In image (History.message_images entry) ->
+ start captured history raw provider method input_tokens window reserve =
  to_portable (CompactionState (NativeSource history raw) "" window window reserve).
-Proof. intros; reflexivity. Qed.
+Proof.
+ intros captured entry image history raw provider method input_tokens window reserve Present Image.
+ assert (Nonempty : forallb (fun entry => match History.message_images entry with
+   | [] => true | _ => false end) captured = false).
+ { apply not_true_is_false. intro Empty.
+   apply forallb_forall with (x := entry) in Empty; [|exact Present].
+   destruct (History.message_images entry); [contradiction|discriminate]. }
+ unfold start. rewrite Nonempty. reflexivity.
+Qed.
 
 Theorem native_rebuilding_uses_raw_history :
  forall history raw carry width window reserve rebuilt,
@@ -123,14 +131,54 @@ Proof.
  - reflexivity.
 Qed.
 
-Theorem zero_width_cannot_admit_nonempty_portable_work :
- forall unread carry window reserve budget,
- unread <> [] ->
- transport_fits (CompactionState (PortableSource unread) carry 0 window reserve) budget = false.
+Local Lemma fitting_portable_does_not_increase_width : forall value budget fitted,
+ fit_portable value budget = Some fitted ->
+ compaction_chunk_chars fitted <= compaction_chunk_chars value.
 Proof.
- intros unread carry window reserve budget Nonempty.
- unfold transport_fits, has_transport_work.
- destruct unread; [contradiction|]. reflexivity.
+ intros value budget fitted Fitted; unfold fit_portable in Fitted.
+ destruct (plan_bytes (with_width 0 value) + 6 <=? budget).
+ - injection Fitted as <-. cbn [fitted_width with_width set compaction_chunk_chars].
+   apply N.le_min_l.
+ - destruct (rebase_note value) as [rebased|] eqn:Rebased; cbn [option_map] in Fitted; try discriminate.
+   injection Fitted as <-.
+   unfold rebase_note in Rebased.
+   destruct (compaction_source value); try discriminate.
+   match type of Rebased with
+   | context [scalar_fragments ?text] => destruct (scalar_fragments text)
+   end; try discriminate.
+   injection Rebased as <-.
+   cbn [fitted_width with_width set compaction_chunk_chars]. apply N.le_min_l.
+Qed.
+
+Lemma fitted_transport_does_not_increase_width : forall value budget fitted,
+ fit_transport value budget = Some fitted ->
+ compaction_chunk_chars fitted <= compaction_chunk_chars value.
+Proof.
+ intros value budget fitted Fitted; unfold fit_transport in Fitted.
+ destruct (compaction_source value) as [history raw|unread] eqn:Source.
+ - destruct (plan_bytes value <=? budget).
+   + injection Fitted as <-. apply N.le_refl.
+   + destruct (to_portable value) as [converted|] eqn:Converted; try discriminate.
+     apply fitting_portable_does_not_increase_width in Fitted.
+     unfold to_portable, portable_source in Converted; rewrite Source in Converted.
+     destruct (scalar_fragments (TextJson.render_json raw)); cbn [option_map] in Converted; try discriminate.
+     injection Converted as <-. exact Fitted.
+ - now apply fitting_portable_does_not_increase_width in Fitted.
+Qed.
+
+Lemma resize_reduces_width_or_fails : forall value,
+ (exists smaller, resize value = Next smaller /\
+   compaction_chunk_chars smaller < compaction_chunk_chars value) \/
+ (exists reason, resize value = Failed reason).
+Proof.
+ intros value; unfold resize.
+ destruct (1 <? compaction_chunk_chars value) eqn:Reducible.
+ - destruct (to_portable value) as [converted|].
+   + left; eexists; split; [reflexivity|].
+     cbn [with_width set compaction_chunk_chars].
+     apply N.div_lt; apply N.ltb_lt in Reducible; lia.
+   + right; eexists; reflexivity.
+ - right; eexists; reflexivity.
 Qed.
 
 Theorem native_unavailable_recovers_from_raw_history :

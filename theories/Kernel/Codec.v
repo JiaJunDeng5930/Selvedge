@@ -232,6 +232,16 @@ Definition output_mode_name (mode : output_mode) :=
 Definition origin_json (origin : output_origin) := JObject [
  ("producer_task", number (origin_producer origin)); ("operation", number (origin_operation origin));
  ("part", number (origin_part origin)); ("mode", JString (output_mode_name (origin_mode origin)))].
+Definition hook_json (value : hook_outcome) := match value with
+ | HookAllow => JObject [("decision",JString "allow")]
+ | HookRewrite arguments => JObject [("decision",JString "rewrite");("arguments",JObject arguments)]
+ | HookDeny reason => JObject [("decision",JString "deny");("reason",JString reason)]
+ | HookFailure reason => JObject [("decision",JString "failed");("reason",JString reason)] end.
+Definition after_json (value : after_outcome) := match value with
+ | KeepResult => JObject [("decision",JString "allow")]
+ | RewriteResult result => JObject [("decision",JString "rewrite");("value",result)]
+ | DenyResult reason => JObject [("decision",JString "deny");("reason",JString reason)]
+ | AfterFailure reason => JObject [("decision",JString "failed");("reason",JString reason)] end.
 Definition message_json_with (project_call : call -> json) (owner : N) (value : message) :=
  match value with
  | InstructionMessage source value => JObject [("role", JString source); ("content", value)]
@@ -257,11 +267,11 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
    ("completion", JString (match completion with SpeechCompleted => "completed" | SpeechInterrupted => "interrupted" end)); ("content", JString text)]
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
- | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
+ | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", hook_json outcome)]
  | ApprovalReceipt owner operation call outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",project_call invocation);("content",result);("is_error",JBool error)]
- | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]
+ | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",after_json outcome)]
  | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call));
    ("content", number child); ("is_error", JBool false); ("receipt_kind", JString "fork_result")]
  end.

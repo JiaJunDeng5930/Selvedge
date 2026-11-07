@@ -47,14 +47,19 @@ Export ExecutionSettingsProofs(admitted_execution_settings_take_effect,
     that distinction. [OperationEvent] constructs the receipt and continuation
     from one observation; a caller does not supply those outcomes independently.
     Native operations directly construct their completed result processing,
-    without inventing an external execution callback. *)
+    without inventing an external execution callback.
+    Hook receipts retain the admitted outcome type. Execution and notification
+    authorization consume that same outcome; JSON encoding belongs to the
+    history output boundary. Encoding and reparsing an internal outcome would
+    introduce a failure case that the accepted callback cannot produce. *)
 
-From Selvedge.Kernel Require EntryBehaviorProofs ForkConstructionProofs
+From Selvedge.Kernel Require EntryBehaviorProofs ForkConstructionProofs TasksProofs
   ForkCommitProofs NativeForkPacketProofs PacketSettlementProofs.
 Export EntryBehaviorProofs(
   every_resolved_exported_creation_returns_and_installs_its_fresh_reference).
 Export ForkConstructionProofs(constructed_children_have_the_requested_count,
   constructed_children_have_the_parent_lineage).
+Export TasksProofs(actual_fork_rejects_observed_ancestor_capacity).
 Export ForkCommitProofs(a_fork_with_an_admitted_output_budget_is_delivered).
 Export NativeForkPacketProofs(a_selected_native_fork_commits_within_its_delivery_budget).
 Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_public_packet).
@@ -77,7 +82,14 @@ Export PacketSettlementProofs(every_owned_terminal_callback_commits_at_the_publi
     Task's frozen contract; that proof does not require retaining an otherwise
     unused tool value in the commit plan.
     A native fork already owns its issued invocation. Only the manual entry
-    allocates a correlation ticket for its newly recorded fork call.
+    allocates a correlation ticket for its newly recorded fork call. The source
+    of a native fork comes from the call context; a manual fork uses its command's
+    requested Task. Comparing those two identity copies, or treating a native
+    call as a manual one when they differ, adds no valid fork behavior.
+    Ancestor capacity failure must reject the whole fork without changing the
+    world, even when another admission condition also fails. A single refusal
+    lists the admission conditions; checking readiness or capacity again only
+    to prioritize an error label provides no additional fork behavior.
     The terminal-settlement contract also reaches [Packet.packet], including
     the matching final after-hook callback of an archived Task. Settlement
     does not restore ordinary execution authority to that Task.
@@ -184,8 +196,12 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     operations and queued follow-ups. An idle inference phase therefore does
     not imply an empty operation list.
 
-    A runnable Task with admitted context observation must issue it before
-    inference. [a_runnable_task_requests_context_before_inference] also requires
+    A Task permitted to run with admitted context observation must issue it
+    before inference. A frozen Task without a ready result must leave selection
+    of subsequent Tasks unchanged. These guarantees constrain the actual
+    [Scheduler.find_step]; a separately callable wrapper could satisfy them
+    while dispatch behavior changes.
+    [a_runnable_task_requests_context_before_inference] also requires
     the correlation supply to advance. Callback owners compare ticket identity;
     consecutive numeric labels add no correlation guarantee.
 
@@ -209,7 +225,7 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     constrains the actual admitted steering transition, including its new input
     and cancellation of the current inference ticket. *)
 From Selvedge.Kernel Require Tasks SchedulerLifecycleProofs CallbacksProofs
-  TasksProofs NativeAuthorityProofs.
+  NativeAuthorityProofs SchedulerProofs NativeForkCommitProofs.
 Export Selvedge.Kernel.Tasks(control_command, input_changes, input_effects).
 Export SchedulerLifecycleProofs(a_runnable_task_requests_context_before_inference,
   frozen_tasks_without_ready_results_do_not_take_scheduler_steps,
@@ -221,6 +237,24 @@ Export TasksProofs(stopped_idle_receive_reactivates,
   archived_send_rejects_without_changing_world,
   steering_replaces_inference_and_preserves_independent_work).
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
+Export NativeForkCommitProofs(a_native_fork_uses_its_calling_task).
+Export SchedulerProofs(continuation_tracks_available_work,
+  a_full_task_records_external_call_refusal,
+  a_full_task_refuses_native_result_work_before_execution).
+
+(** After an admitted scheduling pass exhausts its budget, the continuation
+    predicate must agree with whether an eligible step remains.
+    [continuation_tracks_available_work] connects that predicate to the actual
+    step interpreter. Both use the same
+    selected action, so readiness cannot drift from execution or require an
+    impossible-step fallback.
+
+    The public per-Task operation bound limits concurrent processes, pending
+    approval and result processing. At capacity, a new external call or a native
+    call that needs result hooks must record a call failure without starting
+    its execution or allocating another operation. The two refusal contracts
+    constrain those actual dispatch functions and retain the accepted work.
+    A synchronous native result with no result hooks needs no operation slot. *)
 
 (** ** Approval concerns one captured operation
 

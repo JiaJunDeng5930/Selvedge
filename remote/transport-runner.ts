@@ -123,15 +123,15 @@ export interface RemoteOperationQueue {
 }
 export interface RemoteQueueIO {
   current(): boolean;
-  observe(action: 'enqueue', bytes: number): QueueAction;
-  observe(action: 'dequeue', bytes: number): void;
+  enqueue(bytes: number): QueueAction;
+  dequeue(bytes: number): void;
   disconnect(reason: string): void;
 }
 export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: number,
   operation: () => Promise<void>, io: RemoteQueueIO): void {
   // DEFENSE: A controller can close while an earlier request or notice is still queued.
   if (!connection.active || !io.current()) return;
-  const action = io.observe('enqueue', bytes);
+  const action = io.enqueue(bytes);
   switch (action.kind) {
     case 'ignore': return;
     case 'disconnect': io.disconnect('request_queue_full'); return;
@@ -141,7 +141,7 @@ export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: 
   connection.tail = connection.tail.then(async () => {
     if (connection.active && io.current()) await operation();
   // DEFENSE: A queued native command can fail after its kernel or journal stops; retire transport without replaying it.
-  }).catch(() => { io.disconnect('request_processing_failed'); }).finally(() => { io.observe('dequeue', bytes); });
+  }).catch(() => { io.disconnect('request_processing_failed'); }).finally(() => { io.dequeue(bytes); });
 }
 export interface RemoteAuthorizationIO {
   check(): Promise<{reply: {ok: boolean}; sequence: DomainNatural}>;

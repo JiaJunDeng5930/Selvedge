@@ -144,6 +144,9 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    Permission checks do not inspect receipts and can only accept or refuse.
+    Only request admission can return a retained reply; keeping that result
+    out of permission checks removes unreachable replay paths.
     Grant issuance admits the controller declaration and allocates a positive,
     bounded generation. Access matches that stored controller and generation
     exactly. A malformed external identity fails those comparisons; repeating
@@ -196,13 +199,15 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 
 From Selvedge.Host Require RemoteTransportProofs
   RemoteConnectorSessionProofs RemoteRelaySessionProofs.
-Export RemoteConnectorSession(retirement_discards_session_without_rewinding_notice_cursor).
+Export RemoteConnectorSession(retirement_discards_session).
 Export RemoteTransportProofs(authorization_retry_decreases,
   rejected_identity_ignores_async_observations,
   current_retry_rearms_or_connects).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
-  delivered_notice_is_queued_and_beyond_the_current_cutoff,
-  every_observed_notice_advances_the_cursor,
+  notice_delivery_matches_the_current_subscription,
+  notice_queue_admission_matches_subscription, enqueued_work_respects_capacity,
+  completed_queue_work_releases_capacity,
+  session_notice_advances_the_cursor,
   frame_observation_emits_only_frame_actions,
   capture_observations_emit_only_capture_actions,
   delivery_observation_emits_only_delivery_actions,
@@ -293,6 +298,17 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     instead of publishing an earlier snapshot.
     Pending jobs determine connector queue counts and bytes; no independent
     counter can drift after revocation or a delayed completion.
+    [enqueued_work_respects_capacity] requires admission to add one pending
+    operation and its bytes, within the limits of 32 operations for that
+    connection, 256 overall and 32 MiB overall. Bounds alone would allow
+    acknowledged work to go unrecorded and escape those limits.
+    [completed_queue_work_releases_capacity] requires completion to release
+    one operation and its bytes so settled work cannot keep consuming capacity.
+    A notice already passed the service's shared JSON encoding boundary.
+    Admission measures that payload for queue capacity. The wire-frame limit
+    applies to the complete routed frame at send. Enforcing it on the payload
+    before subscription admission can disconnect controllers that would not
+    receive the notice and does not establish that the complete frame fits.
     A grant observation filters the connector's live connections directly;
     retaining that entire snapshot supplies no later decision. Native commands
     and captures still check current journal authority, while the relay keeps
@@ -304,9 +320,20 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     including pairing callbacks, without a second native generation query.
     Snapshot subscriptions and their later notices belong to that admitted
     session; a separate process UUID adds no ordering or authority.
+    Reconnection closes the old controllers and requires a fresh subscription
+    snapshot. The protocol offers no resumption through an earlier notice
+    cursor. Ordering therefore needs a cursor only in the ready session;
+    retaining it after retirement or advancing it while offline adds no
+    delivery guarantee.
     Native clock, probe and queue observations still carry their generations
     for semantic admission. Connector start, pair and close request their
     physical effects synchronously; their return does not promise delivery.
+    Retry jitter uses the host's bounded random sample directly. The sole
+    producer uses [Math.random], whose range is fixed by ECMAScript; another
+    native clamp cannot change an actual observation. Bounding the exponential
+    attempt calculation and requiring a positive delay still limit computation
+    and prevent immediate retry loops.
+    See https://tc39.es/ecma262/2026/multipage/numbers-and-dates.html#sec-math.random .
 
     The connector interprets each observation's possible actions. The actual
     transition's frame, capture, delivery and enqueue contracts establish these
@@ -314,9 +341,9 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     Impossible internal action categories need no second runtime refusal.
     Actions request work from their interpreter; state-only updates need no
     separate acknowledgement. Retirement removes the live session, its queued
-    work and pairing code by entering the offline phase, without rewinding the
-    notice cursor across a later connection. Its caller consumes the updated
-    state without a retirement acknowledgement or prescribed retired generation.
+    work and pairing code by entering the offline phase. Its caller consumes
+    the updated state without a retirement acknowledgement or prescribed
+    retired generation.
     Repeating already installed authority in a
     request action adds no authorization check. Immediate transport effects
     likewise use the installed session, while asynchronous callbacks retain
@@ -345,12 +372,37 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     [issued_tickets_respect_capacity] bounds the actual retained ticket list.
 
     [subscription_capture_records_the_current_notice_cutoff] and
-    [delivered_notice_is_queued_and_beyond_the_current_cutoff] connect snapshot
-    subscription and later notices. Unsubscribe, resubscribe and delayed queue completion
+    [notice_delivery_matches_the_current_subscription] connect snapshot
+    subscription and later notices. For a current connection, an authorized
+    notice requires the delivery action exactly when it is subscribed and the
+    notice follows its snapshot cutoff. A refusal-only property would also permit silently dropping
+    every eligible notice. Unsubscribe, resubscribe and delayed queue completion
     share one cursor owner rather than separate JavaScript tests.
     The cursor orders notices relative to a subscription cutoff; it is not a
     count of delivered messages. Strict advancement is sufficient without
-    requiring adjacent cursor values or an unchanged cursor during retirement.
+    requiring adjacent cursor values. [session_notice_advances_the_cursor]
+    constrains the actual notice transition within a ready session.
+    A notification callback enters the Promise queue only after admission and
+    releases its capacity after finishing. Its captured notice identity is
+    therefore already bound to admitted work; retaining that identity again
+    solely to check queue membership adds no delivery authority. Pending jobs
+    retain only the connection and bytes needed to bound capacity. Jobs with
+    the same connection and byte size are interchangeable for that accounting.
+    The host increments the notice cursor and enqueues the notice synchronously,
+    so the new notice already follows every existing subscription cutoff.
+    Admission needs only the distinction between requests and notifications,
+    without passing or comparing that new cursor again.
+    [notice_queue_admission_matches_subscription] requires a notice to enter
+    an available queue when subscribed and leave it unchanged when unsubscribed.
+    The same connection's Promise chain invokes each registered callback once
+    in order. Sending therefore need not update a second position for the last
+    delivered notice; the retained cutoff belongs to the subscription snapshot.
+    Delivery must still
+    check the subscription cutoff: an earlier queued resubscription can capture
+    a newer snapshot, or an unsubscribe can end delivery, before the notice runs.
+    Promise reactions preserve the registered callback and await its returned
+    operation before the following completion reaction:
+    https://tc39.es/ecma262/2026/multipage/control-abstraction-objects.html#sec-performpromisethen .
 
     The journal remains command-idempotency authority; the relay does not keep
     another durable command database. Socket handles, cryptography, atomic

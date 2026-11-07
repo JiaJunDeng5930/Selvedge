@@ -86,7 +86,7 @@ Theorem allowed_before_hook_resumes_the_same_call_before_its_suffix :
  HookCallbacks.hook_completed id ticket HookAllow value =
    acknowledged (put_task id
      (with_activity (ReadyForHooks invocation pending remaining)
-       (append_history [HookReceipt id invocation plugin (Inputs.hook_json HookAllow)] task)) value).
+       (append_history [HookReceipt id invocation plugin HookAllow] task)) value).
 Proof.
  intros id ticket plugin invocation pending remaining value task Found Checking.
  rewrite hook_completed_expression; rewrite Found, Checking, N.eqb_refl; reflexivity.
@@ -103,7 +103,7 @@ Theorem denied_before_hook_ends_this_call_without_dispatch :
        (append_history [FunctionOutput (call_id invocation)
          (State.failure code reason) true]
          (append_history [HookReceipt id invocation plugin
-           (Inputs.hook_json (HookDeny reason))] task))) value) /\
+           (HookDeny reason)] task))) value) /\
  decision_effects (HookCallbacks.hook_completed id ticket (HookDeny reason) value) = [].
 Proof.
  intros id ticket plugin invocation pending remaining reason value task Found Checking.
@@ -117,7 +117,7 @@ Theorem after_hook_rewrite_keeps_operation_owner_and_error_for_the_suffix :
  find (fun pending => N.eqb identity (operation_id pending)) (task_operations task) = Some current ->
  operation_stage current = AwaitingAfterHook ticket plugin (next :: rest) result error ->
  let updated := append_history
-   [AfterReceipt id (operation_id current) plugin (Inputs.after_json (RewriteResult replacement))] task in
+   [AfterReceipt id (operation_id current) plugin (RewriteResult replacement)] task in
  let continued := Operation (operation_id current) (operation_call current)
    (operation_announced current) (AfterHooksReady (next :: rest) replacement error) in
  HookCallbacks.after_completed id identity ticket (RewriteResult replacement) value =
@@ -181,8 +181,8 @@ Theorem denied_after_hook_ends_the_operation_chain :
      (TaskChange.apply (TaskResult.result_changes
        (OperationEvent.settle current (State.failure code reason) true)
        (append_history [AfterReceipt id (operation_id current) plugin
-         (Inputs.after_json (DenyResult reason))] task)) (append_history [AfterReceipt id (operation_id current) plugin
-         (Inputs.after_json (DenyResult reason))] task)) value)) /\
+         (DenyResult reason)] task)) (append_history [AfterReceipt id (operation_id current) plugin
+         (DenyResult reason)] task)) value)) /\
  decision_effects (HookCallbacks.after_completed id identity ticket (DenyResult reason) value) = [].
 Proof.
  intros id identity ticket expected plugin pending result error reason value task current
@@ -218,7 +218,7 @@ Theorem a_before_rewrite_preserves_call_identity_and_the_remaining_chain :
  acknowledged (put_task id
   (with_activity
    (ReadyForHooks (Call (call_id invocation) (call_name invocation) (JObject arguments) (call_origin invocation)) pending remaining)
-   (append_history [HookReceipt id invocation plugin (Inputs.hook_json (HookRewrite arguments))] task)) value).
+   (append_history [HookReceipt id invocation plugin (HookRewrite arguments)] task)) value).
 Proof.
  intros id ticket plugin invocation pending remaining arguments value task Found Checking.
  rewrite hook_completed_expression; rewrite Found, Checking, N.eqb_refl; reflexivity.

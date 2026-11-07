@@ -261,9 +261,19 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     same image across later requests and replay. Durable content retains image
     references in their original order. [ConversationProofs] owns that ordering;
     [ContextSelectionProofs] retains original images through summary selection.
-    [CompactionPlanProofs] selects portable rebuilding when images are present,
-    avoiding a provider continuation that could copy transport byte strings back
-    into durable history.
+    [captured_images_select_portable_compaction] connects captured image sources
+    to the feature's portable dispatch, avoiding a provider continuation that
+    could copy transport byte strings back into durable history.
+    This decision consumes the captured history's user
+    images and tool-result images through [History.message_images], the same
+    projection used by side returns. A [type] field set to [image] or [input_image]
+    inside tool arguments remains ordinary data. Recursively scanning such fields
+    would change the compaction method without introducing image input. The image
+    requirement therefore constrains the captured history used for the plan.
+    Correcting that classification changes
+    compaction plans and subsequent callback scheduling for previously accepted
+    inputs. Earlier journals must be rejected before replay under the current
+    format rule.
 
     [ProviderCompactionProofs] connects typed input-image classification to
     the account estimate and prevents a text-only fallback for opaque content.
@@ -291,7 +301,9 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
 From Selvedge.Kernel Require Import ConversationProofs ContextSelectionProofs CompactionPlanProofs.
 Export ConversationProofs(user_images_keep_their_place_between_the_original_text_parts).
 Export ContextSelectionProofs(selecting_a_summary_preserves_each_original_image).
-Export CompactionPlanProofs(images_force_portable_rebuilding).
+Export CompactionPlanProofs(native_start_retains_history_and_rebuild_material).
+From Selvedge.Features Require Import CompactionProofs.
+Export CompactionProofs(captured_images_select_portable_compaction).
 From Selvedge.Adapters Require Import ProviderCompactionProofs.
 Export ProviderCompactionProofs(public_account_image_requests_use_the_complete_request_estimate,
  public_other_requests_use_provider_measurement,

@@ -170,7 +170,7 @@ export class RemoteControl {
 
   async approve(request_id, permissions) {
     await this.#enabled();
-    this.pending();
+    this.#pairingStep('observe', { now: Date.now() });
     const request = this.#pairingState.pending.find(request => request.request_id === request_id);
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');

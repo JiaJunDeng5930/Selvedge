@@ -50,7 +50,7 @@ Definition after_result (operation : operation) (pending : list json) (error : b
 Definition after_checked (owner : N) (operation : operation) (plugin : json)
  (pending : list json) (result : json) (error : bool) (outcome : after_outcome) :=
  TaskResult.prefix_result [TaskChange.AppendHistory
-   [AfterReceipt owner (operation_id operation) plugin (Inputs.after_json outcome)]]
+   [AfterReceipt owner (operation_id operation) plugin outcome]]
    (after_result operation pending error (HookRules.after_apply result outcome)).
 Definition before_interruption_reason :=
  "Hook outcome unknown after restart; callback not repeated; tool not dispatched".
@@ -63,19 +63,19 @@ Definition plan (owner : N) (observation : event) (task : task) := match observa
      [TaskChange.ChangeOperationStage (operation_id operation) (Granted actor)]
    else returned owner operation
      (State.failure "approval_denied" ("Bash was not started. " ++ ApprovalProtocol.outcome_reason outcome)) true
-     (append_history receipt task))
+     task)
  | BeforeChecked plugin invocation pending remaining outcome =>
-   TaskResult.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin (Inputs.hook_json outcome)] ::
+   TaskResult.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin outcome] ::
     match HookRules.before_apply invocation outcome with
     | HookRules.Proceed invocation => [TaskChange.ChangePhase (ReadyForHooks invocation pending remaining)]
     | HookRules.Refuse code reason => call_result invocation (State.failure code reason) true remaining end)
  | BeforeInterrupted plugin invocation remaining =>
    TaskResult.KeepDemand (TaskChange.AppendHistory
-     [HookReceipt owner invocation plugin (Inputs.hook_json (HookFailure before_interruption_reason))] ::
+     [HookReceipt owner invocation plugin (HookFailure before_interruption_reason)] ::
      call_result invocation (State.failure "hook_interrupted" before_interruption_reason) true remaining)
  | AfterUnavailable operation plugin =>
    TaskResult.prefix_result [TaskChange.AppendHistory [AfterReceipt owner (operation_id operation) plugin
-     (Inputs.after_json (AfterFailure "The frozen result-processing plugin revision is unavailable"))]]
+     (AfterFailure "The frozen result-processing plugin revision is unavailable")]]
      (settle operation (State.failure "after_hook_unavailable"
        "The frozen result-processing plugin revision is unavailable; the tool has already completed") true)
  end.

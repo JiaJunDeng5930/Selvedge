@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia Sorting.Permutation.
-From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs.
+From Selvedge.Foundation Require Import Json Utf8 JsonObjectsProofs Registry.
 From Selvedge.Kernel Require Import ChatgptProtocol.
 From Selvedge.Adapters Require Import Common Observation Api Http
   PluginConnections Plugins EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
@@ -129,27 +129,67 @@ Proof.
  unfold decision;rewrite parsed.
  unfold decision_reply,checked;rewrite identity,configured;apply equivalent_is_reflexive.
 Qed.
-Theorem public_evaluator_request_preserves_tool_output_excerpt : forall excerpt failed evaluator policy,
- let history := [
-   JObject [("role",JString "function_call");("call_id",JString "call");
-     ("name",JString "tool");("arguments",JString "{}")];
-   JObject [("role",JString "function_output");("call_id",JString "call");
-     ("content",JString excerpt);("is_error",JBool failed)]] in
+Local Lemma evaluator_calls_preserve_preview_positions : forall history index,
+ EvaluatorContext.calls history index =
+ map (fun entry => JObject [("history_index",number (fst entry));
+   ("call_id",get (snd entry) "call_id");("name",get (snd entry) "name");
+   ("arguments",get (snd entry) "arguments")])
+ (filter (fun entry => String.eqb (str (snd entry) "role") "function_call")
+   (Registry.indexed (fun position item => (position,item)) index history)).
+Proof.
+ induction history as [|item rest IH]; intros index;
+   cbn [EvaluatorContext.calls Registry.indexed List.map List.filter fst snd]; [reflexivity|].
+ rewrite N.add_1_r, IH.
+ destruct (String.eqb (str item "role") "function_call"); reflexivity.
+Qed.
+
+Local Lemma evaluator_outputs_preserve_matching_previews : forall history call index,
+ EvaluatorContext.outputs history call index =
+ map (fun entry => JObject [("history_index",number (fst entry));
+   ("is_error",get (snd entry) "is_error");("text",get (snd entry) "content")])
+ (filter (fun entry => String.eqb (str (snd entry) "role") "function_output" &&
+   JsonObjects.equivalent (get (snd entry) "call_id") (get call "call_id"))
+   (Registry.indexed (fun position item => (position,item)) index history)).
+Proof.
+ induction history as [|item rest IH]; intros call index;
+   cbn [EvaluatorContext.outputs Registry.indexed List.map List.filter fst snd]; [reflexivity|].
+ rewrite N.add_1_r, IH.
+ destruct (String.eqb (str item "role") "function_output" &&
+   JsonObjects.equivalent (get item "call_id") (get call "call_id")); reflexivity.
+Qed.
+
+Theorem public_evaluator_request_keeps_calls_and_results : forall history evaluator policy,
  let response := Api.call "evaluator.request" (JObject [
    ("effect",JObject [("history",JArray history)]);("evaluator",evaluator);("policy",policy)]) in
  let state := get (get response "value") "state" in
- let calls := items (get state "recent_tool_calls") in
- let outputs := items (get (hd JNull calls) "outputs") in
- map (fun output => get output "text") outputs = [JString excerpt].
+ let indexed := Registry.indexed (fun position item => (position,item)) 0 history in
+ items (get state "recent_tool_calls") =
+ map (fun entry => let '(position,call) := entry in
+   JObject [("history_index",number position);("call_id",get call "call_id");
+     ("name",get call "name");("arguments",get call "arguments");
+     ("outputs",JArray (map (fun result =>
+       JObject [("history_index",number (fst result));("is_error",get (snd result) "is_error");
+         ("text",get (snd result) "content")])
+       (filter (fun result => String.eqb (str (snd result) "role") "function_output" &&
+         JsonObjects.equivalent (get (snd result) "call_id") (get call "call_id")) indexed)))])
+   (filter (fun entry => String.eqb (str (snd entry) "role") "function_call") indexed).
 Proof.
- intros excerpt failed evaluator policy history response state calls outputs.
- change (map (fun output => get output "text")
-   (items (get (hd JNull (items (get
-     (get (request_value evaluator policy (EvaluatorContext.context (JObject [("history",JArray history)]))) "state")
-     "recent_tool_calls"))) "outputs")) = [JString excerpt]).
- unfold request_value.
- destruct (String.eqb (str evaluator "provider") "vercel"); [reflexivity|].
- destruct (String.eqb (str evaluator "provider") "openrouter"); reflexivity.
+ intros history evaluator policy response state indexed.
+ assert (Selected : items (get state "recent_tool_calls") =
+   EvaluatorContext.pair_calls (EvaluatorContext.calls history 0) history).
+ { unfold state,response.
+   change (items (get (get (request_value evaluator policy
+     (EvaluatorContext.context (JObject [("history",JArray history)]))) "state") "recent_tool_calls") =
+     EvaluatorContext.pair_calls (EvaluatorContext.calls history 0) history).
+   unfold request_value.
+   destruct (String.eqb (str evaluator "provider") "vercel"); [reflexivity|].
+   destruct (String.eqb (str evaluator "provider") "openrouter"); reflexivity. }
+ rewrite Selected.
+ unfold EvaluatorContext.pair_calls,indexed.
+ rewrite evaluator_calls_preserve_preview_positions, map_map.
+ apply map_ext. intros [position call]. cbn [fst snd].
+ rewrite evaluator_outputs_preserve_matching_previews.
+ reflexivity.
 Qed.
 Theorem public_unissued_rpc_response_preserves_pending_requests : forall source state,
   Rpc.state_of source = state ->

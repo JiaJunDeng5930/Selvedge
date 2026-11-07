@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Programming Require ArgumentDeclaration.
 From Selvedge.Kernel Require CallbackDeclarations.
-From Selvedge.Kernel Require Import Domain Codec State Inputs.
+From Selvedge.Kernel Require Import Domain.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -21,8 +21,6 @@ Definition after_from_fields (value : ArgumentDeclaration.denote CallbackDeclara
  | inr (inr (inl reason)) => DenyResult (proj1_sig (fst (snd (proj1_sig reason))))
  | inr (inr (inr (inl reason))) => AfterFailure (proj1_sig (fst (snd (proj1_sig reason))))
  | inr (inr (inr (inr impossible))) => match impossible with end end.
-Definition parse_hook source := option_map hook_from_fields
- (ArgumentDeclaration.decode CallbackDeclarations.hook_schema source).
 Inductive before_action := Proceed (invocation : call) | Refuse (code reason : string).
 Definition before_apply (invocation : call) (outcome : hook_outcome) := match outcome with
  | HookAllow => Proceed invocation

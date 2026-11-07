@@ -11,6 +11,7 @@ Open Scope string_scope.
 Open Scope N_scope.
 Module G := Selvedge.Generated.Commands.
 Module F := Selvedge.Features.Domain.
+Module C := CommandResult.
 Definition stop_first_payload : G.stop_payload := G.Admit_stop
  (exist _ (exist _ "stop" (or_introl eq_refl), (exist _ 0 eq_refl, tt)) eq_refl).
 
@@ -49,12 +50,12 @@ Proof.
    Remote.control_rights request (Remote.registry value) issued
    Enabled Valid Granted Epoch Permissions Fresh Space) as Admitted.
  assert (Checked : Remote.check Remote.control_rights (Remote.controller request)
-   (Remote.epoch request) (Remote.registry value) = Remote.Admitted).
+   (Remote.epoch request) (Remote.registry value) = C.Accepted tt).
  { unfold Remote.authorize in Admitted.
    destruct (Remote.check Remote.control_rights (Remote.controller request)
-     (Remote.epoch request) (Remote.registry value)); try discriminate; reflexivity. }
+     (Remote.epoch request) (Remote.registry value)) as [[]|reason]; try discriminate; reflexivity. }
  assert (Authorize : Remote.authorize_command (G.Cmd_stop stop_first_payload)
-   request (Remote.registry value) = Remote.Admitted).
+   request (Remote.registry value) = C.Accepted None).
  { exact Admitted. }
  assert (Configuration : Remote.configuration_allowed
    (G.Cmd_stop stop_first_payload) JNull = true) by reflexivity.

@@ -76,7 +76,7 @@ Definition after_refusal (request : effect) : DecisionComposition.transformation
       than retry the same oversized request in every durable continuation.
       The ordinary callback owns the operation, receipt, result and wake rules. *)
    let settled := HookCallbacks.after_completed owner operation ticket
-     (Inputs.AfterFailure after_failure_message) value in
+     (Domain.AfterFailure after_failure_message) value in
    (decision_world settled,filter (fun effect => negb (same_after request effect)) effects)
  | _ => (value,effects) end.
 Definition normalization : DecisionComposition.transformation := fun reply value effects =>

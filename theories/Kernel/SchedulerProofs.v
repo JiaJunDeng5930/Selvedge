@@ -1,11 +1,82 @@
 From Selvedge.Kernel Require TaskWake.
-From Stdlib Require Import List Bool NArith.
+From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require DecisionComposition TaskResult.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
 From Selvedge.Programming Require Import TaskChangeProofs.
 From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs.
 From Selvedge.Kernel Require Import SchedulerChangesProofs TaskChangesProofs.
 Import ListNotations.
+Open Scope string_scope.
+Open Scope list_scope.
+
+Lemma runnable_selection_has_an_actual_step : forall execute permitted tasks first value,
+ existsb (fun entry => let '(id,task) := entry in
+   match Scheduler.next_runnable_step permitted id task value with Some _ => true | None => false end)
+   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) first tasks) =
+ match Scheduler.find_step execute permitted first tasks value with Some _ => true | None => false end.
+Proof.
+ intros execute permitted tasks; induction tasks as [|task rest IH]; intros first value; [reflexivity|].
+ cbn [Selvedge.Foundation.Registry.indexed existsb Scheduler.find_step].
+ destruct (Scheduler.next_runnable_step permitted first task value); [reflexivity|].
+ apply IH.
+Qed.
+
+Theorem continuation_tracks_available_work : forall execute permitted value,
+ Scheduler.has_runnable_work permitted value =
+ match Scheduler.find_step execute permitted 0 (world_tasks value) value with
+ | Some _ => true | None => false end.
+Proof. intros; apply runnable_selection_has_an_actual_step. Qed.
+
+Theorem a_full_task_records_external_call_refusal :
+ forall id before task tool invocation remaining authority,
+ find_task id before = Some task ->
+ TicketedRequest.Scoped.call_action task =
+   Some (TicketedRequest.Scoped.StartCall tool invocation remaining authority) ->
+ (Limits.operation_limit <= N.of_nat (List.length (task_operations task)))%N ->
+ exists code reason,
+ Scheduler.start_external id before =
+ Callbacks.acknowledged (put_task id
+   (with_activity (PendingCalls remaining)
+     (append_history [FunctionOutput (call_id invocation) (State.failure code reason) true] task)) before).
+Proof.
+ intros id before task tool invocation remaining authority Found Selected Full.
+ destruct (starting_selects_the_current_call id before task tool invocation remaining authority Found Selected)
+   as [request [Started [Owner [Current Intent]]]].
+ assert (NoRoom : N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = false)
+   by (apply N.ltb_ge; exact Full).
+ unfold Scheduler.start_external; rewrite Started,Current,NoRoom.
+ unfold Scheduler.call_error; rewrite (commit_changes_use_the_observed_owner id _ before task Found).
+ do 2 eexists; reflexivity.
+Qed.
+
+Theorem a_full_task_refuses_native_result_work_before_execution :
+ forall execute id definition invocation remaining task before,
+ find_task id before = Some task ->
+ Scheduler.call_admission definition invocation before = None ->
+ (NativeTools.admit_command id invocation <> None \/ call_name invocation = "discover_tools") ->
+ Callbacks.after_plugins task <> [] ->
+ (Limits.operation_limit <= N.of_nat (List.length (task_operations task)))%N ->
+ exists code reason,
+ Scheduler.execute_checked_call execute id definition invocation remaining task before =
+ Callbacks.acknowledged (put_task id
+   (with_activity (PendingCalls remaining)
+     (append_history [FunctionOutput (call_id invocation) (State.failure code reason) true] task)) before).
+Proof.
+ intros execute id definition invocation remaining task before Found Admitted Native Hooks Full.
+ assert (NoRoom : Scheduler.internal_result_available task = false).
+ { unfold Scheduler.internal_result_available.
+   destruct (Callbacks.after_plugins task); [contradiction|].
+   apply N.ltb_ge; exact Full. }
+ unfold Scheduler.execute_checked_call; rewrite Admitted.
+ destruct (NativeTools.admit_command id invocation) eqn:Command.
+ - rewrite NoRoom.
+   unfold Scheduler.call_error; rewrite (commit_changes_use_the_observed_owner id _ before task Found).
+   do 2 eexists; reflexivity.
+ - destruct Native as [Impossible|Name]; [contradiction|].
+   rewrite Name,String.eqb_refl,NoRoom.
+   unfold Scheduler.call_error; rewrite (commit_changes_use_the_observed_owner id _ before task Found).
+   do 2 eexists; reflexivity.
+Qed.
 
 Theorem publishing_live_operations_only_marks_them_announced :
  forall task phase operations,
@@ -229,7 +300,7 @@ Theorem a_blocked_environment_still_admits_archived_settlement :
  permitted owner value = false ->
  task_lifecycle task = Archived operations ->
  Scheduler.ready_settlement operations = Some pending ->
- Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.SettlementStep pending).
+ Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.OperationStep pending).
 Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
  unfold Scheduler.next_runnable_step; rewrite Blocked.

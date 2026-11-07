@@ -113,20 +113,22 @@ Qed.
 (* An announcement closes the provider call's immediate obligation. The
    underlying external operation may remain live during independent inference;
    queued input is promoted before that turn observes and captures context. *)
-Theorem announced_operations_allow_an_independent_model_turn : forall execute id task value operations,
+Theorem announced_operations_allow_an_independent_model_turn : forall execute permitted id task rest value operations,
  find_task id value = Some task ->
+ permitted id value = true ->
  TicketedRequest.Scoped.can_observe true task value = true ->
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  exists result,
- Scheduler.task_step execute id task value = Some result /\
+ Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  decision_effects result = [ObserveContext id (world_next_ticket value)
    (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task))].
 Proof.
- intros execute id task value operations Found ObserveAllowed Phase NoReady.
- unfold Scheduler.task_step; rewrite Phase, NoReady.
+ intros execute permitted id task rest value operations Found Permitted ObserveAllowed Phase NoReady.
+ cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ unfold Scheduler.task_action; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
- unfold Reasoning.observe_scheduled_context.
+ unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
    as [request [Selected [Owner [Current Intent]]]].
  unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.

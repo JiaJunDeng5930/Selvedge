@@ -184,6 +184,10 @@ Inductive speech_completion := SpeechCompleted | SpeechInterrupted.
 Inductive output_mode := PlainOutput | InteractiveOutput.
 Record output_origin := OutputOrigin { origin_producer : N; origin_operation : N; origin_part : N; origin_mode : output_mode }.
 Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
+Inductive hook_outcome := HookAllow | HookRewrite (arguments : list (string * json))
+ | HookDeny (reason : string) | HookFailure (reason : string).
+Inductive after_outcome := KeepResult | RewriteResult (value : json)
+ | DenyResult (reason : string) | AfterFailure (reason : string).
 Inductive message :=
 | InstructionMessage (source : string) (value : json)
 | SettingsMessage (settings : task_settings) (profile reasoning : string)
@@ -202,10 +206,10 @@ Inductive message :=
 | SideConversationBirth (owner parent start : N)
 | SpeechTranscript (owner : N) (session item : string) (who : speaker) (completion : speech_completion) (text : string)
 | SpeechDelegation (owner : N) (session delegation mode text : string)
-| HookReceipt (owner : N) (invocation : call) (plugin outcome : json)
+| HookReceipt (owner : N) (invocation : call) (plugin : json) (outcome : hook_outcome)
 | ApprovalReceipt (owner operation : N) (invocation : call) (outcome : json)
 | ToolReceipt (owner operation : N) (invocation : call) (result : json) (error : bool)
-| AfterReceipt (owner operation : N) (plugin outcome : json)
+| AfterReceipt (owner operation : N) (plugin : json) (outcome : after_outcome)
 | ForkReceipt (owner : N) (invocation : call) (branch : N).
 
 Inductive operation_state :=

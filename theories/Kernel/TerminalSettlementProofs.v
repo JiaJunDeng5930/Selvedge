@@ -24,7 +24,7 @@ Theorem final_after_completion_retires_its_archived_operation :
  task_lifecycle next = Archived
    (filter (fun operation => negb (N.eqb (operation_id original) (operation_id operation))) operations) /\
  task_history next = task_history current ++
-   [AfterReceipt owner (operation_id original) plugin (Inputs.after_json outcome);
+   [AfterReceipt owner (operation_id original) plugin outcome;
     History.operation_result original result error].
 Proof.
  intros owner current operations original plugin pending previous failed outcome ArchivedTask Terminal.

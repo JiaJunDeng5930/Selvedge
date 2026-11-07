@@ -1,38 +1,15 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Utf8 TextJson.
-From Selvedge.Adapters Require Import Common Observation Workspaces.
+From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Inductive filesystem_mode := ReadOnly | WorkspaceWrite.
-(** A project-scoped unrestricted execution has no constructor. *)
-Inductive execution_plan :=
-| TaskSandbox (mode : filesystem_mode) (network : bool)
-| TaskUnrestricted (mode : filesystem_mode) (network : bool)
-| ProjectSandbox (mode : filesystem_mode) (network : bool).
-Definition decode_plan (source : json) : option execution_plan :=
-  let sandbox := get source "sandbox" in
-  let mode := if String.eqb (str sandbox "mode") "read-only" then Some ReadOnly
-    else if String.eqb (str sandbox "mode") "workspace-write" then Some WorkspaceWrite else None in
-  match mode,as_bool (get sandbox "network_access") with
-  | Some mode,Some network =>
-    if is_object source then
-      if has source "scope" then
-        if String.eqb (str source "scope") "project" && String.eqb (str source "access") "sandboxed"
-        then Some (ProjectSandbox mode network) else None
-      else if String.eqb (str source "access") "sandboxed" then Some (TaskSandbox mode network)
-      else if String.eqb (str source "access") "unrestricted" then Some (TaskUnrestricted mode network) else None
-    else None
-  | _,_ => None
-  end.
 Definition within (root : string) (parents : list json) :=
   existsb (fun parent => String.eqb root (text parent) || starts root (text parent ++ "/")) parents.
 Definition strictly_within (root : string) (parents : list json) :=
   existsb (fun parent => starts root (text parent ++ "/")) parents.
 Definition any_within (roots parents : list json) :=
   existsb (fun root => within (text root) parents) roots.
-Definition paths_valid (paths : list json) := forallb Workspaces.path_valid paths.
 Definition managed_writable_roots (source : json) :=
   let root := get source "managedWorktreeRoot" in
   filter (fun value => negb (is_null root) && within (text value) [root])
@@ -44,7 +21,7 @@ Definition protected_workspace (source : json) :=
 Definition managed_worktree_admission (source : json) :=
   let root := get source "managedWorktreeRoot" in
   if equal root (get (get source "options") "managedWorktreeRoot") &&
-    (is_null root || (paths_valid [root] && negb (boolean_field source "projectOnly") &&
+    (is_null root || (negb (boolean_field source "projectOnly") &&
       strictly_within (text root) (items (get source "protectedRoots")) &&
       negb (any_within (items (get source "protectedRoots")) [root]) &&
       within (str (get source "workspace") "primary_root") [root]))

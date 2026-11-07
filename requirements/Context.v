@@ -10,6 +10,7 @@ From Selvedge.Kernel Require ContextProofs ReasoningProofs
   ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
+  an_accepted_patch_installs_its_captured_target,
   failed_context_observation_retains_the_last_admitted_binding).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
@@ -33,6 +34,12 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     and [an_observed_amendment_matches_its_baseline_and_patch] constrain the
     actual update interpreter. An external diff algorithm only proposes edits;
     admission checks both the baseline and captured result.
+    Accepted changes apply their captured targets and withdrawals in history
+    order. Side returns quote their histories as user-message data; they do not
+    import context events. Observation completion checks the captured history
+    revision before constructing changes, so replay needs no second baseline
+    check. [an_accepted_patch_installs_its_captured_target] ensures an accepted
+    amendment installs the value recorded in that event.
 
     Source failures retain the last admitted binding. Descriptor reads and
     UTF-8, JSON and YAML decoders already reject their invalid external input;
@@ -104,7 +111,15 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     evidence selection and excerpting. [ReasoningView]
     also constructs the effect's history roles and string previews. The evaluator
     adapter organizes those values directly without another admission of its
-    private input or a parallel text-part representation. The frozen adaptive
+    private input or a parallel text-part representation. Model-call admission
+    rejects reused identities, and manual forks construct fresh identities.
+    Results follow their calls in committed history. The adapter therefore
+    pairs the selected previews by identity without another recent-call limit,
+    duplicate-identity rule or ordering guard. Its already selected input cannot
+    reveal how many calls the original history omitted. The request must retain
+    every selected call and all of its selected results, with their content,
+    failure flags and preview positions in order; matching by identity prevents
+    one call from acquiring another call's evidence. The frozen adaptive
     policy has already passed domain admission, including its effort set,
     evaluator, transport and lease bound. The host consumes that policy without
     parsing it again. Credential and budget
@@ -130,6 +145,9 @@ Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
   suspended_manual_context_completion_cancels_its_job,
+  an_oversized_compaction_request_stops,
+  a_nonempty_zero_width_compaction_request_stops,
+  a_resize_callback_reduces_width_or_stops,
   a_compaction_failure_is_not_immediately_resubmitted).
 Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
   unselected_model_request_uses_portable_context,
@@ -184,7 +202,16 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     Provider token counts, endpoint scope, clocks and summary fidelity are
     observations, not static facts supplied by a budget type. A token window
     does not bound the escaped JSON transport. Complete encoded requests and
-    carried summary metadata must fit their actual byte budgets; bounded
+    carried summary metadata must fit their actual byte budgets. Plan fitting
+    subtracts the request metadata before choosing a native or portable plan;
+    admission checks the complete encoded request. A second plan-allocation
+    check at admission establishes no additional limit. Nonempty portable work
+    must still consume a positive number of scalars to advance. These admission
+    failures stop the actual dispatch before a provider request is issued.
+    A context-limit response must either reduce the next fragment's width or
+    stop with failure; repeating the same width cannot resolve that refusal.
+    [a_resize_callback_reduces_width_or_stops] connects this decrease to the
+    callback's next dispatch with the same captured input and scope. Bounded
     fragment processing must not assume that the whole source fits another
     model. No fallback is allowed to silently discard original history.
     Portable progress is the remaining ordered scalar list and its carried
@@ -291,4 +318,4 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
   public_evaluator_accepts_configured_decision,
-  public_evaluator_request_preserves_tool_output_excerpt).
+  public_evaluator_request_keeps_calls_and_results).

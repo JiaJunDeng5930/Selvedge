@@ -125,7 +125,7 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
  let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input scope in
  match Selvedge.Kernel.CompactionPlan.fit_transport progress available with
  | Some fitted =>
-   if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
+   if Selvedge.Kernel.CompactionPlan.has_transport_work fitted &&
      (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input fitted scope))) <=? limit)
    then run_request id (R.CompactRequest (CompactInput input purpose fitted scope) entry) value
    else failed id task entry "The configured compaction request exceeds the transport budget" value
@@ -133,14 +133,8 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
 Definition start (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
  (scope : string) (tokens : N) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let messages := ContextSelection.history_json id (captured_history input) in
- (* Argument text is a transport representation. Image selection observes the
-    original member AST through the shared serializer's public call projection. *)
- let semantic := map (Codec.public_message_json id) (captured_history input) in
- let images := Selvedge.Kernel.CompactionPlan.contains_image
-   (JArray (ContextSelection.dialogue (ContextSelection.target_messages semantic scope))) ||
-   Selvedge.Kernel.CompactionPlan.contains_image
-   (JArray (ContextSelection.dialogue (ContextSelection.raw_messages semantic))) in
- match Selvedge.Kernel.CompactionPlan.start_with_images images (JArray (ContextSelection.dialogue (ContextSelection.target_messages messages scope)))
+ match Selvedge.Kernel.CompactionPlan.start (captured_history input)
+   (JArray (ContextSelection.dialogue (ContextSelection.target_messages messages scope)))
    (JArray (ContextSelection.dialogue (ContextSelection.raw_messages messages)))
    (profile_provider (captured_profile input)) (target_method target) tokens
    (window_tokens (target_budget target)) (reserve_tokens (target_budget target)) with

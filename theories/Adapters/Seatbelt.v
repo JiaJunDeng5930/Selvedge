@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy.
+From Selvedge.Adapters Require Import Common SandboxPolicy.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -55,10 +55,7 @@ Definition rules (source : json) (writes reads : list json) : list string :=
 Definition seatbelt (source : json) :=
   let writes := List.app (items (get source "writableRoots")) [get source "scratch"] in
   let reads := List.app (items (get source "readableRoots")) [get source "scratch"] in
-  if paths_valid writes && paths_valid (items (get source "readOnlyPaths")) &&
-     paths_valid (items (get source "readOnlyExceptions")) && paths_valid reads
-  then success (JString (String.concat (String (Ascii.ascii_of_nat 10) "") (rules source writes reads)))
-  else type_error "Invalid sandbox path".
+  JString (String.concat (String (Ascii.ascii_of_nat 10) "") (rules source writes reads)).
 Definition seatbelt_input (source : json) := JObject
   ([("writableRoots",get source "writableRoots");("scratch",get source "scratch");
     ("processMode",get (get source "options") "processMode");
