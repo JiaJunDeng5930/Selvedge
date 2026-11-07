@@ -63,7 +63,7 @@ Definition plan (owner : N) (observation : event) (task : task) := match observa
      [TaskChange.ChangeOperationStage (operation_id operation) (Granted actor)]
    else returned owner operation
      (State.failure "approval_denied" ("Bash was not started. " ++ ApprovalProtocol.outcome_reason outcome)) true
-     (append_history receipt task))
+     task)
  | BeforeChecked plugin invocation pending remaining outcome =>
    TaskResult.KeepDemand (TaskChange.AppendHistory [HookReceipt owner invocation plugin outcome] ::
     match HookRules.before_apply invocation outcome with
