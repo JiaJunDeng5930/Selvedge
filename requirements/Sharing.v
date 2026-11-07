@@ -144,6 +144,9 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     Refusal requires a failed admission condition. Diagnostic identifiers,
     wording and the choice among simultaneous failures do not determine access
     or replay, so these contracts leave them unspecified.
+    Permission checks do not inspect receipts and can only accept or refuse.
+    Only request admission can return a retained reply; keeping that result
+    out of permission checks removes unreachable replay paths.
     Grant issuance admits the controller declaration and allocates a positive,
     bounded generation. Access matches that stored controller and generation
     exactly. A malformed external identity fails those comparisons; repeating
@@ -307,6 +310,12 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     Native clock, probe and queue observations still carry their generations
     for semantic admission. Connector start, pair and close request their
     physical effects synchronously; their return does not promise delivery.
+    Retry jitter uses the host's bounded random sample directly. The sole
+    producer uses [Math.random], whose range is fixed by ECMAScript; another
+    native clamp cannot change an actual observation. Bounding the exponential
+    attempt calculation and requiring a positive delay still limit computation
+    and prevent immediate retry loops.
+    See https://tc39.es/ecma262/2026/multipage/numbers-and-dates.html#sec-math.random .
 
     The connector interprets each observation's possible actions. The actual
     transition's frame, capture, delivery and enqueue contracts establish these

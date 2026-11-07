@@ -40,7 +40,6 @@ def request(value):
                     child = os.path.join(filename, entry.name)
                     observation = dict(value=facts(entry.stat(follow_symlinks=False)))
                     result['lstat'][child] = observation
-                    result['realpath'][child] = observed(lambda: (os.stat(child), os.path.realpath(child))[1])
                     entries.append(dict(name=entry.name, **observation['value']))
                     if len(entries) > value['maximum']: break
             return entries
@@ -48,7 +47,6 @@ def request(value):
         for candidate in value['candidates']:
             child = os.path.join(filename, candidate)
             result['lstat'][child] = observed(lambda: facts(os.lstat(child)))
-            result['realpath'][child] = observed(lambda: (os.stat(child), os.path.realpath(child))[1])
         return result
     if op == 'realpath':
         os.stat(filename)

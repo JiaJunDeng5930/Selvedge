@@ -34,7 +34,7 @@ Inductive action :=
 Definition attempt s := match s with Connecting _ n | Negotiating _ n | Retrying _ n _ => n | _ => 0 end.
 Definition retry_delay cfg tries sample :=
  let ceiling := N.min (retry_max cfg) (retry_base cfg * 2 ^ N.min tries 16) in
- N.max 1 (ceiling * (1000 + N.min sample 1000) / 2000).
+ N.max 1 (ceiling * (1000 + sample) / 2000).
 Definition retry cfg s now sample :=
  let deadline := now + retry_delay cfg (attempt s) sample in
  (Retrying (generation s) (N.succ (attempt s)) deadline,

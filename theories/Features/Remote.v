@@ -1,4 +1,4 @@
-From Selvedge.Programming Require InputRoute.
+From Selvedge.Programming Require CommandResult InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Programming Require Import Schema.
@@ -14,6 +14,7 @@ Module D := ArgumentDeclaration.
 Module F := Selvedge.Features.Domain.
 Module G := Selvedge.Generated.Commands.
 Module KCommands := Selvedge.Kernel.Commands.
+Module C := CommandResult.
 
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
@@ -101,41 +102,38 @@ Definition rights_allow required granted :=
  (negb (Selvedge.Features.Domain.may_control required) || Selvedge.Features.Domain.may_control granted) &&
  (negb (Selvedge.Features.Domain.may_configure required) || Selvedge.Features.Domain.may_configure granted) &&
  (negb (Selvedge.Features.Domain.may_approve required) || Selvedge.Features.Domain.may_approve granted).
-Inductive authorization := Denied (code reason:string) | Admitted | Replay (reply:json).
 Record request := Request { controller:controller_id; epoch:RemoteIdentity.grant_epoch; request_id:RemoteIdentity.request_id; intent:json }.
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
-Definition check required controller epoch state :=
- if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
+Definition check required controller epoch state : C.result unit :=
+ if negb (Selvedge.Features.Domain.remote_enabled state) then C.refuse "remote_disabled" "Remote control is disabled on this host"
  else match find_grant controller state with
- | None=>Denied "remote_controller_revoked" "This controller has no active local grant"
- | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then Denied "remote_grant_expired" "This device grant generation is no longer current"
-   else if rights_allow required (Selvedge.Features.Domain.grant_rights grant) then Admitted
-   else Denied "remote_permission_denied" "This device grant does not permit this operation"
+ | None=>C.refuse "remote_controller_revoked" "This controller has no active local grant"
+ | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then C.refuse "remote_grant_expired" "This device grant generation is no longer current"
+   else if rights_allow required (Selvedge.Features.Domain.grant_rights grant) then C.Accepted tt
+   else C.refuse "remote_permission_denied" "This device grant does not permit this operation"
  end.
-Definition authorize required request state :=
- match check required (controller request) (epoch request) state with
- | Admitted =>
+Definition authorize required request state : C.result (option json) :=
+ C.bind (check required (controller request) (epoch request) state) (fun _ =>
    if negb (identifier_valid (request_id request) && payload_valid (intent request))
-   then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds" else
+   then C.refuse "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds" else
    match find (key_matches request) (Selvedge.Features.Domain.remote_receipts state) with
-   | Some receipt=>if JsonObjects.equivalent (intent request) (Selvedge.Features.Domain.remote_intent receipt) then Replay (Selvedge.Features.Domain.remote_reply receipt)
-     else Denied "remote_request_conflict" "This request ID was already committed with different intent"
-   | None=>if N.of_nat (List.length (Selvedge.Features.Domain.remote_receipts state)) <? 1024 then Admitted
-     else Denied "remote_receipts_full" "Retained command receipts are full; revoke or replace this device grant before issuing a new request"
-   end
- | other=>other end.
+   | Some receipt=>if JsonObjects.equivalent (intent request) (Selvedge.Features.Domain.remote_intent receipt) then C.Accepted (Some (Selvedge.Features.Domain.remote_reply receipt))
+     else C.refuse "remote_request_conflict" "This request ID was already committed with different intent"
+   | None=>if N.of_nat (List.length (Selvedge.Features.Domain.remote_receipts state)) <? 1024 then C.Accepted None
+     else C.refuse "remote_receipts_full" "Retained command receipts are full; revoke or replace this device grant before issuing a new request"
+   end).
 Definition observation_command command := match required_rights command with Some rights=>Selvedge.Features.Domain.may_read rights | None=>false end.
-Definition with_command_rights command (decide : F.rights -> authorization) := match required_rights command with
- | None=>Denied "remote_command_forbidden" "Remote access cannot invoke this local management command"
+Definition with_command_rights {A} command (decide : F.rights -> C.result A) := match required_rights command with
+ | None=>C.refuse "remote_command_forbidden" "Remote access cannot invoke this local management command"
  | Some rights=>decide rights end.
 Definition authorize_command command request state := with_command_rights command
- (fun rights=>if F.may_read rights then check rights (controller request) (epoch request) state
+ (fun rights=>if F.may_read rights then C.map (fun _=>None) (check rights (controller request) (epoch request) state)
    else authorize rights request state).
 Definition probe_reply authorization value := match authorization with
- | Denied code reason=>reject code reason value
- | Admitted=>accept JNull value []
- | Replay reply=>accept (JObject [("replayed",JBool true);("reply",reply)]) value [] end.
+ | C.Rejected reason=>C.reject value reason
+ | C.Accepted None=>accept JNull value []
+ | C.Accepted (Some reply)=>accept (JObject [("replayed",JBool true);("reply",reply)]) value [] end.
 Definition retain request reply state := Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (Selvedge.Features.Domain.remote_grants state)
  (Selvedge.Features.Domain.remote_next_epoch state) (Selvedge.Features.Domain.RemoteReceipt (controller request) (epoch request) (request_id request)
    (intent request) reply :: Selvedge.Features.Domain.remote_receipts state).
@@ -162,9 +160,9 @@ Definition execute_remote (execute:Scheduler.executor) prepared configuration re
  let denied code reason:=(negb query,false,reject code reason value) in
  (* Check even for queries, whose execution deliberately skips prepared worlds. *)
  if configuration_allowed original configuration then match authorize_command original request (registry value) with
- | Denied code reason=>denied code reason
- | Replay reply=>(negb query,false,Decision value reply [])
- | Admitted=>match Selvedge.Generated.Commands.admit prepared with
+ | C.Rejected reason=>denied (C.refusal_code reason) (C.refusal_message reason)
+ | C.Accepted (Some reply)=>(negb query,false,Decision value reply [])
+ | C.Accepted None=>match Selvedge.Generated.Commands.admit prepared with
      | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command configuration then
        (* DEFENSE: A native prepared command can name another operation; only the original operation may execute. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
@@ -172,9 +170,8 @@ Definition execute_remote (execute:Scheduler.executor) prepared configuration re
           add fields requiring configuration rights, which still need admission. *)
        match with_command_rights command
          (fun rights=>check rights (controller request) (epoch request) (registry value)) with
-       | Denied code reason=>denied code reason
-       | Replay reply=>(negb query,false,Decision value reply [])
-       | Admitted=>if query then let result:=execute command None value in
+       | C.Rejected reason=>denied (C.refusal_code reason) (C.refusal_message reason)
+       | C.Accepted _=>if query then let result:=execute command None value in
          (false,false,Decision value (decision_reply result) []) else match prepared_world configuration value with
          | None=>denied "invalid_input" "The prepared remote environment is malformed"
          | Some prepared=>let result:=execute command None prepared in
@@ -210,6 +207,7 @@ Definition request_handler execute prepared fields :=
 Definition completion_inputs (execute : Scheduler.executor) := [
  InputRoute.object "remote_check" [Field "controller_id" KText;Field "grant_epoch" KNatural]
    (fun fields => Some (fun value => (false,false,
-     probe_reply (check read_rights (Schema.head fields) (Schema.head (Schema.tail fields)) (registry value)) value)));
+     C.resolve value (fun _=>accept JNull value [])
+       (check read_rights (Schema.head fields) (Schema.head (Schema.tail fields)) (registry value)))));
  InputRoute.object "remote_probe" (request_schema false) (request_handler execute false);
  InputRoute.object "remote_command" (request_schema true) (request_handler execute true)].
