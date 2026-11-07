@@ -9,7 +9,7 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   const { realpath, stat } = filesystem;
   boundary('effect.workspace_admit', { value });
   const canonical = async root => {
-    boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root) });
+    boundary('effect.root_admit', { root, absolute: path.isAbsolute(root) });
     const resolved = await realpath(root);
     // DEFENSE: An explicitly selected external workspace path can name a file or change before stat.
     if (!(await stat(resolved)).isDirectory()) throw new TypeError('A workspace root must be a directory');
