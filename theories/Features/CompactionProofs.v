@@ -8,7 +8,7 @@ From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs.
 From Selvedge.Programming Require Import ProtocolProofs.
-From Selvedge.Kernel Require Import ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan.
+From Selvedge.Kernel Require Import ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan CompactionPlanProofs.
 From Selvedge.Programming Require Import FeatureRequestProofs TaskScopeProofs.
 From Selvedge.Kernel Require Import ScopedRequestProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction CompactionRequestProofs.
@@ -567,6 +567,28 @@ Proof.
    unfold A.current_entry,A.find_entry,A.registry,A.store,A.with_entry, R.compaction_entries, Receiver.install, Receiver.field, Receiver.inject, Receiver.keyed,A.with_observation,
      A.with_measurement,A.with_job,K.with_features,Selvedge.Features.State.with_compaction,set;
    cbn; now rewrite N.eqb_refl.
+Qed.
+
+Theorem captured_images_select_portable_compaction :
+ forall id task input purpose target scope tokens entry value observed image fragments,
+ In observed (captured_history input) -> In image (History.message_images observed) ->
+ P.scalar_fragments (TextJson.render_json (JArray
+   (ContextSelection.dialogue (ContextSelection.raw_messages
+     (ContextSelection.history_json id (captured_history input)))))) = Some fragments ->
+ A.start id task input purpose target scope tokens entry value =
+ A.dispatch_compact id task input purpose
+   (Selvedge.Kernel.Compaction.CompactionState
+     (Selvedge.Kernel.Compaction.PortableSource fragments) ""
+     (window_tokens (target_budget target)) (window_tokens (target_budget target))
+     (reserve_tokens (target_budget target))) scope entry value.
+Proof.
+ intros id task input purpose target scope tokens entry value observed image fragments Present Image Fragments.
+ unfold A.start.
+ rewrite (images_force_portable_rebuilding (captured_history input) observed image
+   _ _ _ _ _ _ _ Present Image).
+ unfold P.to_portable,P.portable_source.
+ cbn [Selvedge.Kernel.Compaction.compaction_source].
+ rewrite Fragments. reflexivity.
 Qed.
 
 (** The feature callback forwards the recovered plan with its captured input

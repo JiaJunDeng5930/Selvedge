@@ -133,14 +133,8 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
 Definition start (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
  (scope : string) (tokens : N) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let messages := ContextSelection.history_json id (captured_history input) in
- (* Argument text is a transport representation. Image selection observes the
-    original member AST through the shared serializer's public call projection. *)
- let semantic := map (Codec.public_message_json id) (captured_history input) in
- let images := Selvedge.Kernel.CompactionPlan.contains_image
-   (JArray (ContextSelection.dialogue (ContextSelection.target_messages semantic scope))) ||
-   Selvedge.Kernel.CompactionPlan.contains_image
-   (JArray (ContextSelection.dialogue (ContextSelection.raw_messages semantic))) in
- match Selvedge.Kernel.CompactionPlan.start_with_images images (JArray (ContextSelection.dialogue (ContextSelection.target_messages messages scope)))
+ match Selvedge.Kernel.CompactionPlan.start (captured_history input)
+   (JArray (ContextSelection.dialogue (ContextSelection.target_messages messages scope)))
    (JArray (ContextSelection.dialogue (ContextSelection.raw_messages messages)))
    (profile_provider (captured_profile input)) (target_method target) tokens
    (window_tokens (target_budget target)) (reserve_tokens (target_budget target)) with

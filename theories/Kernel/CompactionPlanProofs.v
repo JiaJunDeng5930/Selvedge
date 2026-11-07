@@ -38,22 +38,35 @@ Proof.
 Qed.
 
 Theorem native_start_retains_history_and_rebuild_material :
- forall images history raw input_tokens window reserve,
- images = false -> input_tokens + reserve <= window ->
- start_with_images images history raw "chatgpt" Automatic input_tokens window reserve =
+ forall captured history raw input_tokens window reserve,
+ (forall entry, In entry captured -> History.message_images entry = []) ->
+ input_tokens + reserve <= window ->
+ start captured history raw "chatgpt" Automatic input_tokens window reserve =
  Some (CompactionState (NativeSource history raw) "" window window reserve).
 Proof.
- intros images history raw input_tokens window reserve NoImages Fits.
- unfold start_with_images. rewrite NoImages.
+ intros captured history raw input_tokens window reserve NoImages Fits.
+ assert (Empty : forallb (fun entry => match History.message_images entry with
+   | [] => true | _ => false end) captured = true).
+ { apply forallb_forall. intros entry Present. rewrite (NoImages entry Present); reflexivity. }
+ unfold start. rewrite Empty.
  assert (Budget : (input_tokens + reserve <=? window) = true).
  { apply N.leb_le. exact Fits. }
  now rewrite Budget.
 Qed.
 
-Theorem images_force_portable_rebuilding : forall history raw provider method input_tokens window reserve,
- start_with_images true history raw provider method input_tokens window reserve =
+Theorem images_force_portable_rebuilding : forall captured entry image history raw provider method input_tokens window reserve,
+ In entry captured -> In image (History.message_images entry) ->
+ start captured history raw provider method input_tokens window reserve =
  to_portable (CompactionState (NativeSource history raw) "" window window reserve).
-Proof. intros; reflexivity. Qed.
+Proof.
+ intros captured entry image history raw provider method input_tokens window reserve Present Image.
+ assert (Nonempty : forallb (fun entry => match History.message_images entry with
+   | [] => true | _ => false end) captured = false).
+ { apply not_true_is_false. intro Empty.
+   apply forallb_forall with (x := entry) in Empty; [|exact Present].
+   destruct (History.message_images entry); [contradiction|discriminate]. }
+ unfold start. rewrite Nonempty. reflexivity.
+Qed.
 
 Theorem native_rebuilding_uses_raw_history :
  forall history raw carry width window reserve rebuilt,

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 TextJson Sequence.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Codec Compaction ContextSelection.
+From Selvedge.Kernel Require Import Numbers Domain Codec Compaction ContextSelection History.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -14,16 +14,11 @@ Definition portable_source (value : source) : option source :=
  | NativeSource _ raw => option_map PortableSource (scalar_fragments (TextJson.render_json raw)) end.
 Definition to_portable (value : compaction_state) :=
  option_map (fun source => set compaction_source (fun _ => source) value) (portable_source (compaction_source value)).
-Fixpoint contains_image (value : json) : bool :=
- match value with
- | JArray values => existsb contains_image values
- | JObject fields => existsb (fun entry =>
-   (String.eqb (fst entry) "type" && (Json.equal (snd entry) (JString "image") || Json.equal (snd entry) (JString "input_image"))) ||
-   contains_image (snd entry)) fields
- | _ => false end.
-Definition start_with_images (has_images : bool) (history raw : json) (provider : string) (method : method) (input_tokens window reserve : N) :=
+Definition start (captured : list message) (history raw : json) (provider : string)
+ (method : method) (input_tokens window reserve : N) :=
  let value := CompactionState (NativeSource history raw) "" window window reserve in
- if negb has_images && String.eqb provider "chatgpt" &&
+ if forallb (fun entry => match History.message_images entry with [] => true | _ => false end) captured &&
+    String.eqb provider "chatgpt" &&
     (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window)
  then Some value else to_portable value.
 Definition chunk (value : compaction_state) :=

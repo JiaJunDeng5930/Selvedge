@@ -111,7 +111,15 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     evidence selection and excerpting. [ReasoningView]
     also constructs the effect's history roles and string previews. The evaluator
     adapter organizes those values directly without another admission of its
-    private input or a parallel text-part representation. The frozen adaptive
+    private input or a parallel text-part representation. Model-call admission
+    rejects reused identities, and manual forks construct fresh identities.
+    Results follow their calls in committed history. The adapter therefore
+    pairs the selected previews by identity without another recent-call limit,
+    duplicate-identity rule or ordering guard. Its already selected input cannot
+    reveal how many calls the original history omitted. The request must retain
+    every selected call and all of its selected results, with their content,
+    failure flags and preview positions in order; matching by identity prevents
+    one call from acquiring another call's evidence. The frozen adaptive
     policy has already passed domain admission, including its effort set,
     evaluator, transport and lease bound. The host consumes that policy without
     parsing it again. Credential and budget
@@ -298,4 +306,4 @@ Export ReasoningProofs(an_adaptive_profile_without_a_lease_requests_its_evaluato
 From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
   public_evaluator_accepts_configured_decision,
-  public_evaluator_request_preserves_tool_output_excerpt).
+  public_evaluator_request_keeps_calls_and_results).
