@@ -124,9 +124,9 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute id
    (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task))].
 Proof.
  intros execute id task value operations Found ObserveAllowed Phase NoReady.
- unfold Scheduler.task_step; rewrite Phase, NoReady.
+ unfold Scheduler.task_step, Scheduler.task_action; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
- unfold Reasoning.observe_scheduled_context.
+ unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
    as [request [Selected [Owner [Current Intent]]]].
  unfold TicketedRequest.Scoped.run; rewrite Selected,issued_effects.

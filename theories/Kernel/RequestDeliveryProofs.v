@@ -167,7 +167,7 @@ Theorem an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation :
  task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
    [AfterReceipt owner (operation_id operation) plugin
-     (Inputs.after_json (AfterFailure reason))] ++
+     (AfterFailure reason)] ++
    [History.operation_result operation
      (State.failure code reason) true] ++
    map UserMessage released /\
@@ -181,7 +181,7 @@ Proof.
  change (TaskResult.apply_result owner task
    (TaskResult.prefix_result [TaskChange.AppendHistory
      [AfterReceipt owner (operation_id operation) plugin
-       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))]]
+       (AfterFailure RequestDelivery.after_failure_message)]]
      (OperationEvent.settle operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
@@ -189,18 +189,18 @@ Proof.
      (TaskChange.apply (TaskResult.result_changes
        (OperationEvent.settle operation (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true)
        (append_history [AfterReceipt owner (operation_id operation) plugin
-         (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task)) (append_history [AfterReceipt owner (operation_id operation) plugin
-         (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))
+         (AfterFailure RequestDelivery.after_failure_message)] task)) (append_history [AfterReceipt owner (operation_id operation) plugin
+         (AfterFailure RequestDelivery.after_failure_message)] task))
      (decision_world current))).
  rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
  set (settled := with_lifecycle
    (change_operations (filter (fun pending => negb (N.eqb (operation_id operation) (operation_id pending))))
      (task_lifecycle (append_history [AfterReceipt owner (operation_id operation) plugin
-       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task)))
+       (AfterFailure RequestDelivery.after_failure_message)] task)))
    (append_history [History.operation_result operation
      (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true]
      (append_history [AfterReceipt owner (operation_id operation) plugin
-       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
+       (AfterFailure RequestDelivery.after_failure_message)] task))).
  pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
    as [Operations [released [History Released]]].
  exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released,

@@ -247,7 +247,7 @@ Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute 
  Some (Reasoning.observe_scheduled_context id value).
 Proof.
  intros execute id task value operations RunningTask NoOperation.
- unfold Scheduler.task_step; rewrite RunningTask, NoOperation; reflexivity.
+ unfold Scheduler.task_step, Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 
 Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision observations diagnostic value task,

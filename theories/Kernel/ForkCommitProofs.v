@@ -47,10 +47,11 @@ Lemma the_actual_fork_handler_interprets_its_message_admission : forall request 
  match Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) with
  | Some messages => CommandResult.decide before (Tasks.fork_result
    (match context with Some accepted =>
-     if N.eqb (Tasks.native_owner accepted) (G.fork_task_id request)
-     then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
-     else Tasks.ManualFork | None => Tasks.ManualFork end)
-   (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
+     Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
+     | None => Tasks.ManualFork end)
+   (settings_origin request)
+   (match context with Some accepted => Tasks.native_owner accepted | None => G.fork_task_id request end)
+   (G.fork_child_count_admitted request)
    messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before)
  | None => reject "invalid_message" reason before end.
 Proof.
@@ -60,10 +61,11 @@ Proof.
    (match Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request) with
     | Some messages => Tasks.fork_result
         (match context with Some accepted =>
-         if N.eqb (Tasks.native_owner accepted) (G.fork_task_id request)
-         then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
-         else Tasks.ManualFork | None => Tasks.ManualFork end)
-        (settings_origin request) (G.fork_task_id request) (G.fork_child_count_admitted request)
+         Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted)
+         | None => Tasks.ManualFork end)
+        (settings_origin request)
+        (match context with Some accepted => Tasks.native_owner accepted | None => G.fork_task_id request end)
+        (G.fork_child_count_admitted request)
         messages (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before
     | None => CommandResult.refuse "invalid_message" "Child messages contain invalid content parts" end).
  destruct (Selvedge.Kernel.Codec.traverse Images.message_content (message_sources request)); reflexivity.

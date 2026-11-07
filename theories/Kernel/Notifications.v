@@ -29,11 +29,9 @@ Definition authorized_call (identity : string) (history : list message) :=
  fold_left (fun previous message => match message with
  | FunctionCall invocation => if String.eqb identity (call_id invocation) then call_json invocation else previous
  | HookReceipt _ invocation _ outcome =>
-   if String.eqb identity (call_id invocation) then match HookRules.parse_hook outcome with
-   | Some outcome => match HookRules.before_apply invocation outcome with
+   if String.eqb identity (call_id invocation) then match HookRules.before_apply invocation outcome with
      | HookRules.Proceed updated => call_json updated
-     | HookRules.Refuse _ _ => JNull end
-   | None => JNull end else previous
+     | HookRules.Refuse _ _ => JNull end else previous
  | _ => previous end) history JNull.
 Definition settled (id : N) (value : task) (cursor : N) (identity : string) (result : json) (error : bool)
  (seen : list string) :=

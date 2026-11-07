@@ -14,7 +14,7 @@ Theorem frozen_tasks_without_ready_results_do_not_take_scheduler_steps :
  task_lifecycle task = Frozen phase operations ->
  Scheduler.ready_settlement operations = None ->
  Scheduler.task_step execute id task value = None.
-Proof. intros; unfold Scheduler.task_step; rewrite H, H0; reflexivity. Qed.
+Proof. intros; unfold Scheduler.task_step, Scheduler.task_action; rewrite H, H0; reflexivity. Qed.
 
 (* Stop settles the current turn without issuing another inference request. *)
 Theorem stopped_inference_requests_settle_without_effects :
@@ -28,10 +28,10 @@ Theorem stopped_inference_requests_settle_without_effects :
  task_lifecycle settled = Stopped Idle [].
 Proof.
  intros execute id task phase value Owner Lifecycle [Phase|Phase]; subst phase;
- (unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_settlement];
+ (unfold Scheduler.task_step, Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_settlement option_map Scheduler.interpret_step];
  eexists; split; [reflexivity|]; split; [reflexivity|];
  exists (with_activity Idle task); split;
- [ cbn [decision_world Callbacks.acknowledged accept];
+ [ cbn [Scheduler.interpret_step decision_world Callbacks.acknowledged accept];
    rewrite (commit_changes_use_the_observed_owner id _ value task Owner);
    unfold TaskWake.promote_changes; rewrite Lifecycle;
    change (find_task id (put_task id (with_activity Idle task) value) = Some (with_activity Idle task));
@@ -45,7 +45,7 @@ Theorem stopped_tasks_can_finish_an_already_accepted_call :
  task_lifecycle task = Stopped (PendingCalls (invocation::remaining)) [] ->
  Scheduler.task_step execute id task value =
  Some (Scheduler.start_call execute id invocation remaining task value).
-Proof. intros; unfold Scheduler.task_step; rewrite H; reflexivity. Qed.
+Proof. intros; unfold Scheduler.task_step, Scheduler.task_action; rewrite H; reflexivity. Qed.
 
 (* A runnable task actually issues context observation. This positive obligation
    excludes a scheduler that preserves safety by never doing any work. *)
@@ -62,8 +62,8 @@ Theorem a_runnable_task_requests_context_before_inference :
  (world_next_ticket value < world_next_ticket (decision_world result))%N.
 Proof.
  intros execute id task value Found ObserveAllowed Lifecycle.
- unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_operation].
- eexists; split; [reflexivity|]. unfold Reasoning.observe_scheduled_context.
+ unfold Scheduler.task_step, Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_operation option_map Scheduler.interpret_step].
+ eexists; split; [reflexivity|]. unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
    as [request [Selected [Owner [Current Intent]]]].
  unfold TicketedRequest.Scoped.run; rewrite Selected.

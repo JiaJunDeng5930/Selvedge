@@ -17,7 +17,6 @@ Proof.
  destruct (Scheduler.call_admission definition invocation before); try discriminate.
  destruct (NativeTools.command owner invocation) as [command|]; try discriminate.
  destruct command; try discriminate.
- destruct (N.eqb _ _) eqn:Owner; try discriminate.
  inversion Ready; reflexivity.
 Qed.
 
@@ -28,8 +27,7 @@ Theorem a_ready_native_fork_carries_its_final_dispatch_gate : forall owner task 
    Scheduler.call_admission definition (Scheduler.native_fork_invocation step) before = None) /\
  NativeTools.command owner (Scheduler.native_fork_invocation step) = Some (Commands.Cmd_fork (Scheduler.native_fork_request step)) /\
  Scheduler.internal_result_available task = true /\
- call_name (Scheduler.native_fork_invocation step) = "fork_task" /\
- Commands.fork_task_id (Scheduler.native_fork_request step) = owner.
+ call_name (Scheduler.native_fork_invocation step) = "fork_task".
 Proof.
  intros owner task before step Ready; unfold Scheduler.native_fork_ready in Ready.
  destruct (Scheduler.fork_dispatch_call task) as [[[invocation remaining] retry]|]; try discriminate.
@@ -38,13 +36,12 @@ Proof.
  destruct (Scheduler.call_admission definition invocation before) eqn:Admitted; try discriminate.
  destruct (NativeTools.command owner invocation) as [command|] eqn:Decoded; try discriminate.
  destruct command; try discriminate.
- destruct (N.eqb _ _) eqn:Owner; try discriminate.
  inversion Ready; subst step; cbn.
  apply andb_true_iff in Eligible as [Eligible Room].
  apply andb_true_iff in Eligible as [Retry Name].
- apply String.eqb_eq in Name; apply N.eqb_eq in Owner.
+ apply String.eqb_eq in Name.
  split; [exists definition; split; assumption|].
- repeat split; try assumption; symmetry; exact Owner.
+ repeat split; assumption.
 Qed.
 
 Lemma a_ready_native_fork_keeps_its_dispatch_call : forall owner task before step,
@@ -59,7 +56,6 @@ Proof.
  destruct (Scheduler.call_admission definition invocation before); try discriminate.
  destruct (NativeTools.command owner invocation) as [command|]; try discriminate.
  destruct command; try discriminate.
- destruct (N.eqb _ _) eqn:Owner; try discriminate.
  inversion Ready; subst step; exists retry; reflexivity.
 Qed.
 
@@ -74,9 +70,9 @@ Proof.
  intros permitted tasks; induction tasks as [|current rest IH]; intros before first step Selected; [discriminate|].
  cbn [Scheduler.first_native_fork] in Selected.
  destruct (Scheduler.next_runnable_step permitted first current before) as [next|] eqn:Next.
- - destruct next; [discriminate|].
-   pose proof (a_ready_native_fork_keeps_the_selected_owner first current before step Selected) as Owner.
-   exists 0%N,current; split; [reflexivity|]. split; [lia|]. now rewrite Owner.
+ - destruct next; try discriminate.
+   all: pose proof (a_ready_native_fork_keeps_the_selected_owner first current before step Selected) as Owner.
+   all: exists 0%N,current; split; [reflexivity|]; split; [lia|]; now rewrite Owner.
  - destruct (IH before (N.succ first) step Selected) as [offset [task [Found [Owner Ready]]]].
    exists (N.succ offset),task; split.
    + change (registry_at (N.succ offset) (current :: rest) = Some task).

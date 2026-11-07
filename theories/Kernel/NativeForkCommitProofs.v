@@ -50,12 +50,18 @@ Proof.
  rewrite Observed in Selected; inversion Selected; subst current; exact Ready.
 Qed.
 
-Lemma a_native_fork_request_names_its_selected_owner : forall before (accepted : NativeForkCommit.plan before),
- G.fork_task_id (Scheduler.native_fork_request (NativeForkCommit.planned_step accepted)) =
- Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted).
+Theorem a_native_fork_uses_its_calling_task : forall request owner invocation remaining before messages,
+ Codec.traverse Images.message_content (message_sources request) = Some messages ->
+ CommandExecution.handle_fork_result request (Some (Tasks.NativeCall owner invocation remaining)) before =
+ Tasks.fork_result (Tasks.AcceptedNativeFork invocation remaining) (settings_origin request)
+   owner (G.fork_child_count_admitted request) messages
+   (option_map (settings_request_of_values true) (G.fork_settings_admitted request)) before.
 Proof.
- intros; pose proof (every_native_fork_plan_has_its_actual_final_dispatch_gate before accepted) as Ready.
- destruct (a_ready_native_fork_carries_its_final_dispatch_gate _ _ _ _ Ready) as [_ [_ [_ [_ Owner]]]]; exact Owner.
+ intros request owner invocation remaining before messages Parsed.
+ unfold CommandExecution.handle_fork_result; cbn zeta.
+ match goal with |- match ?parsed with Some _ => _ | None => _ end = _ =>
+   change (parsed = Some messages) in Parsed end.
+ rewrite Parsed; reflexivity.
 Qed.
 
 Lemma exhausted_descendant_capacity_refuses_the_actual_native_fork_handler :
@@ -75,7 +81,7 @@ Proof.
  match goal with |- match ?parsed with Some _ => _ | None => _ end = _ =>
    change (parsed = Some messages) in Parsed end; rewrite Parsed.
  cbn [Tasks.native_owner Tasks.native_invocation Tasks.native_remaining].
- rewrite N.eqb_refl; unfold Tasks.fork_result.
+ unfold Tasks.fork_result.
  destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key _ _ _ Found)
    as [target [Selected [_ Current]]].
  rewrite Selected; cbn beta iota zeta; rewrite Current,Capacity,andb_false_r.
