@@ -13,12 +13,11 @@ Module G := Selvedge.Generated.Commands.
 Import ListNotations.
 Open Scope string_scope.
 
-(** Moving and linking a card are decisions about a card at an observed
-    revision. Terminals can inspect the alternatives before choosing a command.
-    The browser can open a selector or offer a drop target. Both must retain
-    the source revision and submit the proposal selected from the observation.
-    The service still assesses and executes the command against its own world,
-    which may change before submission. *)
+(** The shared card decision model supplies the choices, the observed card
+    revision and the proposal. The browser decides which choices to present
+    and requests assessment for the same proposal it can submit. A drag uses
+    the shared move command construction. The service still checks the current
+    world when the command is submitted. *)
 Theorem browser_card_choice_uses_published_opportunity snapshot state card decision key action :
   ObjectActions.active_decision state (CardActions card) = Some decision ->
   ObjectActions.resolve snapshot state (CardActions card) key = Some action ->
@@ -26,7 +25,8 @@ Theorem browser_card_choice_uses_published_opportunity snapshot state card decis
     CardDecisions.observe snapshot card = Some opportunity /\
     State.now state = Some now /\
     In selected (CardDecisions.choices decision opportunity) /\
-    ObjectActions.action_key action = ObjectActions.choice_key selected /\
+    key = ObjectActions.choice_key selected /\
+    ObjectActions.action_key action = key /\
     ObjectActions.action_operation action = ObjectActions.NativeCommand accepted /\
     ObjectActions.action_confirmation action = None /\
     ObjectActions.action_status action =
@@ -42,7 +42,7 @@ Proof.
   cbn [bind].
   destruct (find (fun candidate => String.eqb key (ObjectActions.choice_key candidate))
     (CardDecisions.choices decision opportunity)) as [selected|] eqn:Found; [|discriminate].
-  apply find_some in Found as [Selected Key].
+  apply find_some in Found as [Selected Key]. apply String.eqb_eq in Key.
   cbn [bind].
   unfold ObjectActions.choice_declaration, ObjectActions.native.
   destruct (Schema.decode_command K.command_specs
@@ -50,34 +50,39 @@ Proof.
     [|discriminate].
   intros Result. inversion Result; subst action.
   exists opportunity, now, selected, accepted.
-  repeat split; try assumption; reflexivity.
+  repeat split; try assumption; try reflexivity.
+  cbn [ObjectActions.observe ObjectActions.action_key]. symmetry. exact Key.
 Qed.
 
-Theorem browser_selector_dispatch_uses_current_choice snapshot state card decision key action layer rest :
+Theorem browser_selector_dispatch_uses_current_choice namespace snapshot lagged state card decision key action layer rest :
   State.layers (State.navigation_state state) = layer :: rest ->
   State.layer_panel layer = State.CardDecisionPanel card decision ->
   ObjectActions.resolve snapshot state (CardActions card) key = Some action ->
   exists accepted,
     ObjectActions.command action = Some accepted /\
-    ObjectActions.action_revision state (CardActions card) = State.layer_occurrence layer /\
     ObjectActions.action_status action =
       ObjectActions.availability snapshot state (CardActions card) action /\
-    Runtime.menu_action snapshot (CardActions card) key (State.layer_occurrence layer) state =
-      match ObjectActions.action_status action with
-      | ObjectActions.Available => Authoring.issue accepted State.DirectSubmission state
-      | _ => Authoring.fail state "This action has not been admitted against the current state."
-      end.
+    Authoring.refresh_input snapshot (Input.MenuAction (CardActions card) key (State.layer_occurrence layer)) state =
+      Authoring.ensure_request snapshot (ObjectActions.action_owner (CardActions card) action)
+        (State.layer_occurrence layer) accepted state /\
+    let result := Runtime.core namespace snapshot lagged
+      (Input.MenuAction (CardActions card) key (State.layer_occurrence layer)) state in
+    match ObjectActions.action_status action with
+    | ObjectActions.Available => result = Authoring.issue accepted State.DirectSubmission state
+    | _ => Authoring.result_effects result = []
+    end.
 Proof.
   intros Layers Panel Resolved.
   assert (Active : ObjectActions.active_decision state (CardActions card) = Some decision).
   { unfold ObjectActions.active_decision. now rewrite Layers, Panel, N.eqb_refl. }
   destruct (browser_card_choice_uses_published_opportunity _ _ _ _ _ _ Active Resolved)
-    as [opportunity [now [selected [accepted [_ [_ [_ [_ [Operation [Confirmation [Availability _]]]]]]]]]]].
-  exists accepted. repeat split.
-  - unfold ObjectActions.command. now rewrite Operation.
-  - unfold ObjectActions.action_revision. now rewrite Layers, Panel, N.eqb_refl.
-  - exact Availability.
-  - unfold Runtime.menu_action. rewrite Layers, Panel.
+    as [opportunity [now [selected [accepted [_ [_ [_ [_ [_ [Operation [Confirmation [Availability _]]]]]]]]]]]].
+  assert (Command : ObjectActions.command action = Some accepted).
+  { unfold ObjectActions.command. now rewrite Operation. }
+  exists accepted. repeat split; try assumption.
+  - cbn [Authoring.refresh_input]. rewrite Resolved, Command.
+    unfold ObjectActions.action_revision. now rewrite Layers, Panel, N.eqb_refl.
+  - cbn [Runtime.core]. unfold Runtime.menu_action. rewrite Layers, Panel.
     unfold Runtime.owns_action_panel. repeat rewrite N.eqb_refl.
     simpl. rewrite Resolved, Operation, Confirmation.
     now destruct (ObjectActions.action_status action).

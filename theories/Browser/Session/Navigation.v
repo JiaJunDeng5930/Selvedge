@@ -8,7 +8,6 @@ From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Browser Require Import DocumentState.
-From Selvedge.Interaction Require CardDecisions.
 From Selvedge.Browser.Session Require State.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Interaction.Experience Require Model Activity.
@@ -108,7 +107,7 @@ Definition panel_key panel:=match panel with
  |State.BoardSettingsPanel=>"board-settings"|State.BoardFiltersPanel=>"board-filters"|State.ArchivedCardsPanel=>"archived-cards"
  |State.NavigationPanel kind=>match kind with GlobalMenu=>"global-navigation"|WorkOverview=>"work-overview"|TasksDrawer=>"tasks-drawer"end
  |State.ObjectActionsPanel subject=>menu_key subject
- |State.CardDecisionPanel card decision=>"card-decision/"++show_natural card++"/"++CardDecisions.kind_name decision
+ |State.CardDecisionPanel card decision=>"card-decision/"++show_natural card++"/"++State.card_decision_key decision
  |State.InformationPanel kind=>information_key kind
  |State.Confirmation _ _ _=>"confirm/cancel"end.
 Definition initial_attention panel:=match panel with

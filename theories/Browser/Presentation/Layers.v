@@ -10,7 +10,7 @@ From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services ObjectActions.
 From Selvedge.Interaction Require Import Attachments.
-From Selvedge.Interaction Require CardDecisions.
+From Selvedge.Interaction Require CardDecisions ObjectDecisions.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Browser.Session Require State Observation Navigation.
@@ -44,10 +44,10 @@ Definition card_decision_title decision := match decision with
  |CardDecisions.MoveCard=>"Move card"|CardDecisions.LinkCard=>"Link task"end.
 Definition card_decision_controls snapshot subject parent :=
  match subject with
- |CardActions card=>if CardDecisions.has_card snapshot card then
-  map(fun decision=>let key:=CardDecisions.kind_name decision in
+ |CardActions card=>if ObjectDecisions.subject_exists snapshot subject then
+  map(fun decision=>let key:=State.card_decision_key decision in
    declared parent Roles.Button(secondary key(card_decision_title decision)
-     (Input.OpenCardDecision card decision(part parent key))))CardDecisions.kinds
+     (Input.OpenCardDecision card decision(part parent key))))State.card_decision_kinds
   else []
  |_=>[]end.
 Definition menu_nodes snapshot s subject occurrence parent :=

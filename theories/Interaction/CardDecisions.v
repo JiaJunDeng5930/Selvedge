@@ -10,9 +10,6 @@ Open Scope list_scope.
 Module G := Selvedge.Generated.Commands.
 
 Inductive kind := MoveCard | LinkCard.
-Definition kinds := [MoveCard; LinkCard].
-Definition kind_name decision := match decision with MoveCard => "move" | LinkCard => "link" end.
-Definition decode_kind name := match name with "move" => Some MoveCard | "link" => Some LinkCard | _ => None end.
 
 Inductive position :=
 | EndOfStage (stage : Domain.board_stage)
@@ -37,7 +34,6 @@ Record opportunity := Opportunity {
  move_choices : list position;
  link_choices : list task_target
 }.
-Definition has_card snapshot card := match Read.find_card card snapshot with Some _ => true | None => false end.
 Definition observe snapshot card :=
  source <- Read.find_card card snapshot;;
  cards <- Read.board_cards snapshot;;
@@ -59,15 +55,3 @@ Definition proposal opportunity observed selected :=
  | MoveTo place => move_proposal card revision observed (Domain.stage_name (position_stage place)) (position_target place)
  | LinkTo task => G.Cmd_link_card (G.Build_link_card card revision (Some (show_natural observed)) (Some (target_task task)))
  end.
-
-Definition encode_position place :=
- let stage := JString (Domain.stage_name (position_stage place)) in
- match place with
- | EndOfStage _ => JObject [("status", stage); ("before_card", JString "")]
- | BeforeCard _ target title => JObject [("status", stage); ("before_card", JString (show_natural target)); ("title", JString title)]
- end.
-Definition encode_target task := JObject [("task_id", number (target_task task)); ("title", JString (target_title task))].
-Definition encode_opportunity value :=
- JObject [("card_id", number (source_card value)); ("revision", number (source_revision value));
-   ("move_card", JArray (map encode_position (move_choices value)));
-   ("link_card", JArray (map encode_target (link_choices value)))].

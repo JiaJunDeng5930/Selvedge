@@ -88,11 +88,6 @@ Definition reading_decisions snapshot task :=
  operation_decisions snapshot task ++
  entries (return_decision snapshot task) ++ entries (worktree_retry_decision snapshot task).
 
-Definition encode_decision value := JObject[
- ("key",JString(decision_key value));("label",JString(decision_label value));
- ("command",G.encode(decision_proposal value));
- ("confirmation",Read.encode_optional JString(decision_confirmation value))].
-
 Definition subjects snapshot :=
  map (fun task=>TaskActions(Read.task_id task)) (value_or [] (Read.tasks snapshot)) ++
  map (fun project=>ProjectActions(Read.project_id project)) (value_or [] (Read.projects snapshot)) ++

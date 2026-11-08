@@ -7,7 +7,6 @@ From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require State.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Interaction Require CardDecisions.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -45,9 +44,11 @@ Definition encode_panel panel:=match panel with
  |State.ArchivedCardsPanel=>JObject[("kind",JString "archived_cards")]
  |State.NavigationPanel kind=>JObject[("kind",JString "navigation");("navigation",JString(navigation_panel_name kind))]
  |State.ObjectActionsPanel subject=>JObject[("kind",JString "actions");("subject",encode_object_subject subject)]
- |State.CardDecisionPanel card decision=>JObject[("kind",JString "card_decision");("card",number card);("decision",JString(CardDecisions.kind_name decision))]
+ |State.CardDecisionPanel card decision=>JObject[("kind",JString "card_decision");("card",number card);("decision",JString(State.card_decision_key decision))]
  |State.InformationPanel kind=>JObject[("kind",JString "information");("information",encode_information kind)]
  |State.Confirmation command caption destination=>JObject[("kind",JString "confirmation");("command",Schema.encode_command command);("caption",JString caption);("destination",encode_route destination)]end.
+Definition decode_card_decision_key key :=
+ find (fun decision=>String.eqb key (State.card_decision_key decision)) State.card_decision_kinds.
 Definition decode_panel value:=match string_field "kind" value with
  |Some "property"=>owner<-bind(field "owner" value)decode_editor;;request<-bind(field "request" value)decode_request;;Some(State.PropertyPanel owner request)
  |Some "editor"=>option_map State.EditorPanel(bind(field "owner" value)decode_editor)
@@ -56,7 +57,7 @@ Definition decode_panel value:=match string_field "kind" value with
  |Some "navigation"=>option_map State.NavigationPanel(bind(string_field "navigation" value)decode_navigation_panel)
  |Some "actions"=>option_map State.ObjectActionsPanel(bind(field "subject" value)decode_object_subject)
  |Some "card_decision"=>card<-natural_field "card" value;;
-   decision<-bind(string_field "decision" value)CardDecisions.decode_kind;;Some(State.CardDecisionPanel card decision)
+   decision<-bind(string_field "decision" value)decode_card_decision_key;;Some(State.CardDecisionPanel card decision)
  |Some "information"=>option_map State.InformationPanel(bind(field "information" value)decode_information)
  |Some "confirmation"=>command<-bind(field "command" value)(Schema.decode_command command_specs);;caption<-string_field "caption" value;;destination<-bind(field "destination" value)decode_route;;Some(State.Confirmation command caption destination)
  |_=>None end.
