@@ -55,6 +55,7 @@ export interface HttpPrimitives {
   browser_observation(body: JsonValue): Promise<void> | void;
   command(body: JsonValue): Promise<void> | void;
   assess(body: JsonValue): Promise<void> | void;
+  interaction(body: JsonValue): unknown;
   connection_command(body: JsonValue): Promise<void> | void;
   remote_approve(requestId: string, permissions: HttpRemotePermissions): Promise<void>;
   remote_revoke(controllerId: string): Promise<void>;
@@ -105,6 +106,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
     case 'command':
     case 'assess':
     case 'connection_command':
+    case 'interaction':
       // Omission requests physical reading; a present JSON null is already observed.
       if (plan.body === undefined) {
         const maximum = plan.action === 'account_refresh' || plan.action === 'audio_login' ? 1024
@@ -126,6 +128,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
         case 'command': { await io.command(plan.body); return null; }
         case 'assess': { await io.assess(plan.body); return null; }
         case 'connection_command': { await io.connection_command(plan.body); return null; }
+        case 'interaction': return io.interaction(plan.body);
       }
   }
   const unreachable: never = plan;

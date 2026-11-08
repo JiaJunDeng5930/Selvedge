@@ -61,8 +61,8 @@ function decodeEnum1(value: unknown): "TypeError" | "RangeError" {
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" {
- switch (value) { case "account_refresh": return "account_refresh"; case "audio_create": return "audio_create"; case "audio_login": return "audio_login"; case "remote_pair": return "remote_pair"; case "remote_enable": return "remote_enable"; case "remote_disable": return "remote_disable"; case "remote_approve": return "remote_approve"; case "remote_revoke": return "remote_revoke"; case "browser_command": return "browser_command"; case "browser_observation": return "browser_observation"; case "command": return "command"; case "assess": return "assess"; case "connection_command": return "connection_command";
+function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" | "interaction" {
+ switch (value) { case "account_refresh": return "account_refresh"; case "audio_create": return "audio_create"; case "audio_login": return "audio_login"; case "remote_pair": return "remote_pair"; case "remote_enable": return "remote_enable"; case "remote_disable": return "remote_disable"; case "remote_approve": return "remote_approve"; case "remote_revoke": return "remote_revoke"; case "browser_command": return "browser_command"; case "browser_observation": return "browser_observation"; case "command": return "command"; case "assess": return "assess"; case "connection_command": return "connection_command"; case "interaction": return "interaction";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
@@ -321,7 +321,7 @@ export function decodeRemoteAuthorizationAction(input: unknown): RemoteAuthoriza
 export type HttpPlan =
   | {"action": "respond"; "status": number; "value": JsonValue}
   | {"action": "throw"; "kind": "TypeError" | "RangeError"; "message": string}
-  | {"action": "observe_content_type"; "target": "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command"}
+  | {"action": "observe_content_type"; "target": "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" | "interaction"}
   | {"action": "observe_host"; }
   | {"action": "parse_url"; }
   | {"action": "observe_connection_authorization"; }
@@ -354,7 +354,8 @@ export type HttpPlan =
   | {"action": "browser_observation"; "body"?: JsonValue}
   | {"action": "command"; "body"?: JsonValue}
   | {"action": "assess"; "body"?: JsonValue}
-  | {"action": "connection_command"; "body"?: JsonValue};
+  | {"action": "connection_command"; "body"?: JsonValue}
+  | {"action": "interaction"; "body"?: JsonValue};
 export function decodeHttpPlan(input: unknown): HttpPlan {
   const source = decodeObject(input);
   switch (source["action"]) {
@@ -394,6 +395,7 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
     case "command": exactFields(source, ["action","body"]); return {"action": "command", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     case "assess": exactFields(source, ["action","body"]); return {"action": "assess", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     case "connection_command": exactFields(source, ["action","body"]); return {"action": "connection_command", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
+    case "interaction": exactFields(source, ["action","body"]); return {"action": "interaction", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     // DEFENSE: External boundary values must name a declared HttpPlan variant.
     default: throw new TypeError('Unknown HttpPlan discriminant');
   }

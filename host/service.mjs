@@ -877,8 +877,8 @@ export class Service extends EventEmitter {
     }
   }
 
-  browserSnapshot() {
-    // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
+  publishedSnapshot() {
+    // DEFENSE: An observation request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.journal.program };

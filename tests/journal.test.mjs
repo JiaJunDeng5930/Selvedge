@@ -55,13 +55,13 @@ test('the OS journal lock excludes a second owner and releases on close', async 
   const options = { home: directory, cwd: directory,
     config: validateConfig({ ...defaultConfig, chatgpt: false }) };
   const first = await Service.open(options);
-  const namespace = first.browserSnapshot().namespace;
+  const namespace = first.publishedSnapshot().namespace;
   t.after(() => first.close());
   await assert.rejects(Service.open(options), error => error instanceof Error && error.message.trim() !== '');
   await first.close();
   const second = await Service.open(options);
   t.after(() => second.close());
-  assert.equal(second.browserSnapshot().namespace, namespace);
+  assert.equal(second.publishedSnapshot().namespace, namespace);
   await second.close();
 });
 

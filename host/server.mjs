@@ -269,12 +269,12 @@ export async function startServer(options) {
           return;
         },
         browser_state: async () => {
-          const snapshot = service.browserSnapshot();
+          const snapshot = service.publishedSnapshot();
           json(response, 200, { ...snapshot, program: snapshot.program });
           return;
         },
         describe: async () => {
-          json(response, 200, { ok: true, result: service.description });
+          json(response, 200, { ok: true, result: service.description, sequence: service.journal.sequence });
           return;
         },
         remote_status: async () => {
@@ -361,6 +361,10 @@ export async function startServer(options) {
         assess: async (body) => {
           json(response, 200, await service.assess(body));
           return;
+        },
+        interaction: request => {
+          const { program } = service.publishedSnapshot();
+          return boundary('http.interaction', { request, snapshot: program });
         },
         connection_command: async (body) => {
           const result = await service.command(connectionCommand(Number(connectionId), body));

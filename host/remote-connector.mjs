@@ -281,7 +281,7 @@ export class RemoteConnector {
     return authorizeRemoteCapture({
       check: () => this.#service.remoteCheck(connection.controllerId, connection.grantEpoch),
       active: () => this.#current(session) && connection.active,
-      currentSequence: () => this.#service.browserSnapshot().sequence,
+      currentSequence: () => this.#service.publishedSnapshot().sequence,
       capture: authorized,
       deny: () => { this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' }); },
       disconnect: () => this.#disconnect(session, 'authorization_revision_changed'),
@@ -289,7 +289,7 @@ export class RemoteConnector {
   }
 
   #snapshot() {
-    const snapshot = this.#service.browserSnapshot();
+    const snapshot = this.#service.publishedSnapshot();
     return { namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
       streams: this.#service.browserStreams(), notice_sequence: this.#control.notice_sequence };
   }

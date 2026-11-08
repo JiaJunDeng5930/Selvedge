@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Http.
+From Selvedge.Interaction Require UserCommand.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -63,7 +64,7 @@ Proof.
   intros source denied.
   unfold Http.call.
   cbn [String.eqb].
-  unfold Http.public_command, Http.public_command_allowed.
+  unfold Http.public_command, Http.public_command_allowed, UserCommand.public_operation_allowed.
   destruct denied as [transcript | delegation]; rewrite transcript || rewrite delegation;
     eexists; apply equivalent_is_reflexive.
 Qed.
