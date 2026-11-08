@@ -161,7 +161,7 @@ export async function chatgptWebRequestAction(key, action, config, home, limits,
     if (recovery.retire) store.retire(record);
     // DEFENSE: Recovery cannot send a remote control request before the provider has supplied a response ID.
     if (recovery.retained) throw retainedRequest(record);
-    const url = `${record.endpoint}/${encodeURIComponent(record.response_id)}${recovery.method === 'GET' ? '' : `/${action}`}`;
+    const url = `${record.endpoint}/${encodeURIComponent(recovery.response_id)}${recovery.method === 'GET' ? '' : `/${action}`}`;
     const response = await requestJson(url, { method: recovery.method,
       body: recovery.method === 'GET' ? undefined : recovery.body,
       headers: { authorization: `Bearer ${token}` }, signal, timeout: timeout ?? profile.timeout_ms,

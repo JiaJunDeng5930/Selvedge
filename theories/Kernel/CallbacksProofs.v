@@ -20,10 +20,11 @@ Lemma waking_a_result_preserves_operations_and_only_releases_queued_input :
    task_history task ++ map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle as [phase operations|phase operations|phase operations|];
- try destruct phase as [ | | | observing revision | asking allowed mode | checking revision |
+ try destruct phase as [ | | | observing revision continuation | asking allowed mode | checking revision |
    calls | invocation plugins calls | checking plugin invocation plugins calls ];
+ try (destruct continuation as [|purpose resume]; [|destruct resume]);
  try destruct calls as [|first_call other_calls];
  destruct queued as [|first rest];
  cbn [ TaskWake.wake_after_result_changes TaskWake.promote TaskWake.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
@@ -46,9 +47,9 @@ Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
  find_task id (decision_world completed) = Some updated /\
  task_operations updated = (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) (task_operations task)) /\
  task_history updated = task_history task ++
-   [if operation_announced operation
-    then OperationResult (operation_id operation) (operation_call operation) result error
-    else FunctionOutput (call_id (operation_call operation)) result error] ++
+   [match operation_result_route operation with
+    | ProviderCall => FunctionOutput (call_id (operation_call operation)) result error
+    | PublishedOperation => OperationResult (operation_id operation) (operation_call operation) result error end] ++
    map UserMessage released /\
  (released = [] \/ released = task_queued task).
 Proof.
@@ -57,9 +58,9 @@ Proof.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
  change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
-   with (TaskWake.mark_context_wake id task (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value)).
+   with (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value).
  cbn [decision_effects decision_world acknowledged accept].
- rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
+ rewrite settle_operation_expression.
  split; [reflexivity|].
  set (settled := with_lifecycle
    (change_operations (filter (fun pending => negb (N.eqb (operation_id operation) (operation_id pending))))
@@ -70,7 +71,7 @@ Proof.
  exists (TaskChange.apply (TaskWake.wake_after_result_changes settled) settled), released; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
-   destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
    destruct lifecycle as [phase operations|phase operations|phase operations|];
    cbn [task_operations] in Owned; try discriminate;
    cbn [task_operations task_history task_queued change_operations append_history
@@ -160,7 +161,7 @@ Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  task_lifecycle (TaskChange.apply (TaskWake.wake_after_result_changes task) task) = Frozen WantsModel operations /\
  task_operations (TaskChange.apply (TaskWake.wake_after_result_changes task) task) = operations.
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed] operations Frozen.
+ intros [contract profile settings lifecycle history queued lineage handoff consumed] operations Frozen.
  cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.
 
@@ -174,7 +175,7 @@ Theorem freezing_settling_and_unfreezing_preserves_the_result_demand :
  task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Unfreeze settled) settled) =
    Running WantsModel (filter (fun removed_operation => negb (N.eqb (operation_id operation) (operation_id removed_operation))) operations).
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+ intros [contract profile settings lifecycle history queued lineage handoff consumed]
   operations operation result error Idle; cbn in Idle; subst lifecycle.
  split; reflexivity.
 Qed.
@@ -196,12 +197,11 @@ Proof.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
  change (TaskResult.apply_result id task (OperationEvent.settle operation result error) value)
-   with (TaskWake.mark_context_wake id task (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value)).
+   with (put_task id (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task) value).
  cbn [decision_world acknowledged accept].
- rewrite context_wake_preserves_every_task_lookup.
  exists (TaskChange.apply (TaskResult.result_changes (OperationEvent.settle operation result error) task) task); split.
  - apply find_put_task with task; exact Found.
- - destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ - destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
    cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.
 
@@ -220,8 +220,8 @@ Proof.
  intros id identity value task operations operation Found Frozen Owned.
  rewrite TaskChangesProofs.cancel_operation_expression, Found, Owned.
  apply find_some in Owned as [_ Identity]; apply N.eqb_eq in Identity; subst identity.
- cbn [decision_world accept]. rewrite context_wake_preserves_every_task_lookup.
+ cbn [decision_world accept].
  eexists; split; [apply find_put_task with task; exact Found|].
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
  cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.

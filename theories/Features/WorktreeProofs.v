@@ -273,7 +273,7 @@ Theorem a_frozen_borrower_stays_frozen_during_setup :
  task_lifecycle (Worktree.install_workspace (task_lifecycle task) space guidance task) = Frozen phase operations /\
  task_queued (Worktree.install_workspace (task_lifecycle task) space guidance task) = task_queued task.
 Proof.
- intros phase operations space guidance [contract profile settings lifecycle history queued lineage parent cursor consumed] Frozen;
+ intros phase operations space guidance [contract profile settings lifecycle history queued lineage handoff consumed] Frozen;
  cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.
 

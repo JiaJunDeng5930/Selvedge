@@ -11,7 +11,7 @@ Open Scope list_scope.
 Definition recovery_changes (owner : N) (value : task) :=
  [TaskChange.AppendHistory (Tasks.unknown_operations (task_operations value)); TaskChange.ClearOperations] ++
  match task_activity value with
- | ObservingContext _ _ | AskingModel _ _ _ | EvaluatingReasoning _ _ =>
+ | ObservingContext _ _ _ | AskingModel _ _ _ | EvaluatingReasoning _ _ =>
    [TaskChange.ChangePhase WantsModel]
  | CheckingHook _ plugin invocation _ remaining =>
    TaskResult.result_changes (OperationEvent.plan owner

@@ -162,13 +162,14 @@ Definition return_side (id : N) (value : world) :=
  | None => reject "task_not_found" "The side conversation does not exist" value
  | Some side => match task_lifecycle side with
    | Archived _ => reject "task_archived" "Returning side conversation content requires non-archived source and parent tasks" value
-   | _ => match task_side_parent side with
+   | _ => match task_side_handoff side with
    | None => reject "not_side_conversation" "The task has no side conversation parent" value
-   | Some parent =>
+   | Some handoff =>
+     let parent := handoff_parent handoff in
      let through := N.of_nat (List.length (task_history side)) in
      (* Side history only grows; birth initializes this cursor, and accepted
         return is the only operation that advances it. *)
-     let after := task_side_cursor side in
+     let after := handoff_through handoff in
      let messages := filter History.returned_content (skipn (N.to_nat after) (task_history side)) in
      match messages with
      | [] => reject "no_side_content" "This side conversation has no new content to return" value
@@ -183,7 +184,8 @@ Definition return_side (id : N) (value : world) :=
      let images := flat_map History.message_images messages in
      CommandResult.commit value (fun delivered => CommandResult.Change
        (JObject [("task_id",number parent);("after",number after);("through",number through)])
-       (put_task id (with_side_cursor through side) (CommandResult.change_world delivered))
+       (put_task id (with_side_handoff (advance_side_handoff through handoff) side)
+         (CommandResult.change_world delivered))
        (CommandResult.change_effects delivered))
        (Tasks.send_result parent (TextPart text :: images) value)
      end

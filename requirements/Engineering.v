@@ -122,6 +122,32 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
 Export Focus(modification_has_its_selected_value, modifications_compose,
   modifications_keep_the_frame).
 
+(** ** Objects own the state needed by their next operation
+
+    A domain object that persists across inputs must own the facts that give
+    its next operation meaning. When an object advances through phases with
+    different admissible inputs or continuations, represent those phases in
+    its domain type. Give each phase the data its operations need. A transition
+    must select the current object and establish its complete next phase or
+    retire it.
+
+    For a request that waits for an observation, keep its identity, the context
+    captured at issue, and the continuation that will consume the observation
+    in one authoritative request. Issuance, completion, retry and cancellation
+    use that owner. Other objects can refer to it by identity or use a projection
+    of its current phase. The operation that admits a reply must establish that
+    it belongs to the current request before applying the continuation.
+    [requirements/Tasks.v] selects the shared issuance and completion contracts.
+
+    Determine the phases from reachable histories. If the same input can
+    advance an object differently after two histories, identify the retained
+    fact that distinguishes them and the operation that owns its change. Keep
+    independent facts with their own owners and derive joint conditions from
+    them. A task's unfinished work, for example, can determine whether a linked
+    card can be deleted without storing another mutable phase on the card.
+    Wire fields and storage encodings are admitted at their boundaries and
+    projected from the domain model when published. *)
+
 (** ** Issued identities remain fresh
 
     A late reply must not acquire authority over a later invocation. The actual

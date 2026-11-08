@@ -5,10 +5,8 @@ From Selvedge.Kernel Require TaskWake.
 Import ListNotations.
 Open Scope list_scope.
 
-(* A result transition records whether it calls the shared wake operation.
-   Its interpreter also preserves that demand when maintenance temporarily
-   owns the task's ObservingContext phase. Running this interpreter keeps
-   both consequences of an actual wake together. *)
+(* The same wake edit handles an idle task and an observation whose
+   maintenance continuation needs to remember pending inference. *)
 Inductive result_update := KeepDemand (changes : list TaskChange.edit) | WakeDemand (changes : list TaskChange.edit).
 Definition result_changes (update : result_update) (current : task) := match update with
  | KeepDemand changes => changes
@@ -17,10 +15,7 @@ Definition prefix_result (prefix : list TaskChange.edit) (update : result_update
  | KeepDemand changes => KeepDemand (prefix ++ changes)
  | WakeDemand changes => WakeDemand (prefix ++ changes) end.
 Definition apply_result (owner : N) (current : task) (update : result_update) (before : world) :=
- let value := put_task owner (TaskChange.apply (result_changes update current) current) before in
- match update with
- | KeepDemand _ => value
- | WakeDemand _ => TaskWake.mark_context_wake owner current value end.
+ put_task owner (TaskChange.apply (result_changes update current) current) before.
 Definition interpret_result {before} (target : TaskScope.task_reference before) (update : result_update) :=
  apply_result (TaskScope.owner target) (TaskScope.selected target) update before.
 Definition commit_result (id : N) (update : task -> result_update) (before : world) :=

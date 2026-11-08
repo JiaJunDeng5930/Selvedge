@@ -28,29 +28,40 @@ Theorem successful_invalid_http_json_reports_protocol_error : forall source,
   TextJson.parse_json_members source = None ->
   exists message, WebResources.http_json true source = failure "http_json_parse" message.
 Proof. intros source parsed; unfold WebResources.http_json; rewrite parsed; eexists; reflexivity. Qed.
-Theorem response_identity_cannot_change : forall current id,
-  identity id = true -> truthy (member current "response_id") = true ->
-  same (member current "response_id") id = false ->
-  exists message, store_identify current id = err message.
-Proof. intros current id valid present changed; unfold store_identify; rewrite valid,present,changed; eexists; reflexivity. Qed.
-Theorem committed_response_cannot_change : forall current response updates,
-  store_finish current response = success updates ->
-  truthy (member current "response") = true ->
-  parsed_matches (member current "response") (JObject response) = true.
+Theorem stored_response_fields_round_trip : forall stage,
+  (match stage with
+   | IdentifiedResponse id | CommittedResponse id _ => response_identity (JString id) = true
+   | _ => True end) ->
+  read_response (response_fields stage) = Some stage.
 Proof.
- intros current response updates accepted committed.
- unfold store_finish in accepted.
- destruct (negb (boolean_field (store_identify current (member response "id")) "ok")) eqn:identified.
- - rewrite accepted in identified; discriminate.
- - rewrite committed in accepted; cbn in accepted.
-   destruct (parsed_matches (member current "response") (JObject response)) eqn:matches;
-     [reflexivity|discriminate].
+ intros [| |id|id body] admitted; try reflexivity.
+ - change ((if response_identity (JString id) then Some (IdentifiedResponse id) else None) = Some (IdentifiedResponse id)).
+   now rewrite admitted.
+ - change ((if response_identity (JString id) then Some (CommittedResponse id body) else None) = Some (CommittedResponse id body)).
+   now rewrite admitted.
 Qed.
-Theorem existing_request_reuse_requires_body_and_connection : forall record request previous key value,
-  stored_as Active record = true ->
-  store_prepare (Some record) request previous key = prepare_decision "reuse" value -> prepare_identity record request = true.
+Theorem response_identity_cannot_change : forall current id,
+  response_identity id = true -> truthy (response_id current) = true ->
+  same (response_id current) id = false ->
+  exists message, store_identify current id = err message.
 Proof.
- intros record request previous key value active reused;unfold store_prepare in reused;rewrite active in reused;cbn in reused.
+ intros [] candidate valid present changed; cbn [response_id] in present; try discriminate;
+   unfold store_identify,bind_identity; rewrite valid,changed; eexists; reflexivity.
+Qed.
+Theorem committed_response_cannot_change : forall id body response updates,
+  store_finish (CommittedResponse id body) response = success updates ->
+  parsed_matches (JString body) (JObject response) = true.
+Proof.
+ intros id body response updates accepted.
+ unfold store_finish,commit_response in accepted.
+ destruct (bind_identity (CommittedResponse id body) (member response "id")); [discriminate|].
+ destruct (parsed_matches (JString body) (JObject response)); [reflexivity|discriminate].
+Qed.
+Theorem existing_request_reuse_requires_body_and_connection : forall record request previous key,
+  stored_as Active record = true ->
+  store_prepare (Some record) request previous key = reuse_decision record -> prepare_identity record request = true.
+Proof.
+ intros record request previous key active reused;unfold store_prepare in reused;rewrite active in reused;cbn in reused.
  destruct (prepare_identity record request) eqn:identical;[reflexivity|discriminate].
 Qed.
 Theorem cancelled_request_cannot_reuse_a_different_connection : forall source,
@@ -70,15 +81,17 @@ Proof.
 Qed.
 Theorem receipt_is_bound_to_actual_task_connection_and_response : forall history model task response record deferred count hash store binding contract tools value,
   receipt history model task response record deferred count hash store binding contract tools = success value ->
-  same (member record "owner") (owner_parts "model" task JNull JNull) = true /\
-  same (member record "binding") binding = true /\ same (member record "response_id") (member response "id") = true.
+  same (stored_member record "owner") (owner_parts "model" task JNull JNull) = true /\
+  same (stored_member record "binding") binding = true /\ same (response_id record.(stored_response)) (member response "id") = true.
 Proof.
  intros history model task response record deferred count hash store binding contract tools value accepted.
  unfold receipt in accepted.
+ destruct record.(stored_response) as [| | identified | id raw]; try discriminate.
+ cbn [response_id].
  destruct ((String.eqb (member_text response "status") "completed" || String.eqb (member_text response "status") "requires_action") &&
-     same (member record "response_id") (member response "id") && same (member record "binding") binding &&
-     same (member record "owner") (owner_parts "model" task JNull JNull) &&
-     (match TextJson.parse_json (member_text record "response"),TextJson.parse_json (member_text record "body") with
+     same (JString id) (member response "id") && same (stored_member record "binding") binding &&
+     same (stored_member record "owner") (owner_parts "model" task JNull JNull) &&
+     (match TextJson.parse_json raw,TextJson.parse_json (text (stored_member record "body")) with
       | Some persisted,Some body => same (JObject response) persisted && resource_admissible response (get model "name") body tools
       | _,_ => false end)) eqn:bound;[|discriminate].
  repeat rewrite andb_true_iff in bound;tauto.
@@ -98,26 +111,28 @@ Proof.
 Qed.
 
 Definition retained_request_matches record invocation_prefix : Prop :=
- same (get record "rejected") (number 0) = true /\ match invocation_prefix with
+ record.(stored_response) <> RejectedResponse /\ match invocation_prefix with
  | None => True
  | Some prefix =>
-     (str record "invocation" = prefix ++ ":0" \/
-       String.prefix ((prefix ++ ":0") ++ ":context:") (str record "invocation") = true) \/
-     (str record "invocation" = prefix ++ ":1" \/
-       String.prefix ((prefix ++ ":1") ++ ":context:") (str record "invocation") = true)
+     (text (stored_member record "invocation") = prefix ++ ":0" \/
+       String.prefix ((prefix ++ ":0") ++ ":context:") (text (stored_member record "invocation")) = true) \/
+     (text (stored_member record "invocation") = prefix ++ ":1" \/
+       String.prefix ((prefix ++ ":1") ++ ":context:") (text (stored_member record "invocation")) = true)
  end.
 Lemma retire_match_true_iff : forall record invocation_prefix,
  retire_match record invocation_prefix = true <-> retained_request_matches record invocation_prefix.
 Proof.
  intros record [prefix|]; unfold retire_match, retained_request_matches.
  - rewrite andb_true_iff; unfold invocation_ticket.
-   repeat rewrite orb_true_iff; repeat rewrite String.eqb_eq; tauto.
- - rewrite andb_true_r; tauto.
+   repeat rewrite orb_true_iff; repeat rewrite String.eqb_eq.
+   destruct record.(stored_response); intuition discriminate.
+ - rewrite andb_true_r.
+   destruct record.(stored_response); intuition discriminate.
 Qed.
 Definition newest_matching_request records invocation_prefix selected : Prop := match selected with
  | Some record => In record records /\ retained_request_matches record invocation_prefix /\
      forall candidate, In candidate records -> retained_request_matches candidate invocation_prefix ->
-       num candidate "ordinal" <= num record "ordinal"
+       nat_value (stored_member candidate "ordinal") <= nat_value (stored_member record "ordinal")
  | None => forall candidate, In candidate records -> ~ retained_request_matches candidate invocation_prefix
  end.
 Lemma retire_candidate_is_newest_match : forall records invocation_prefix,
@@ -129,13 +144,13 @@ Proof.
      (if retire_match record invocation_prefix then Some
        (match retire_candidate records invocation_prefix with
         | None => record
-        | Some previous => if num previous "ordinal" <? num record "ordinal" then record else previous end)
+        | Some previous => if nat_value (stored_member previous "ordinal") <? nat_value (stored_member record "ordinal") then record else previous end)
       else retire_candidate records invocation_prefix)).
    destruct (retire_candidate records invocation_prefix) as [previous|];
      cbn [newest_matching_request] in IH.
    + destruct IH as [member [eligible maximal]].
      destruct (retire_match record invocation_prefix) eqn:matches.
-     * destruct (num previous "ordinal" <? num record "ordinal") eqn:newer;
+     * destruct (nat_value (stored_member previous "ordinal") <? nat_value (stored_member record "ordinal")) eqn:newer;
          cbn [newest_matching_request].
        -- split; [now left|]. split; [now apply retire_match_true_iff|].
           intros candidate [<-|present] admitted; [apply N.le_refl|].
@@ -160,7 +175,7 @@ Proof.
 Qed.
 Theorem latest_request_selects_newest_match : forall records,
  exists selected,
-   store_latest records = success (match selected with Some record => record | None => JNull end) /\
+   store_latest records = success (match selected with Some record => stored_json record | None => JNull end) /\
    newest_matching_request records None selected.
 Proof.
  intros records; exists (retire_candidate records None); split;
@@ -170,7 +185,7 @@ Theorem cancellation_selects_newest_match : forall rows records owner ticket,
  boolean_field (store_metadata rows "" false) "ok" = true ->
  exists selected,
    retire_existing rows records owner ticket = success (match selected with
-     | Some record => JObject [("record",record);("updates",JObject [("retired",retirement_code Cancelled)])]
+     | Some record => JObject [("record",stored_json record);("updates",JObject [("retired",retirement_code Cancelled)])]
      | None => JNull end) /\
    newest_matching_request records
      (option_map (fun ticket => owner ++ ":" ++ name_or_number ticket) ticket) selected.

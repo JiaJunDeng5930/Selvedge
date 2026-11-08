@@ -88,7 +88,7 @@ Definition native_result (owner ticket : N) (invocation : call) (remaining : lis
  TaskChange.apply (match after_plugins source with
  | [] => call_result invocation result error remaining
  | pending =>
-   let operation := Operation ticket invocation false (result_stage pending result error) in
+   let operation := Operation ticket invocation ProviderCall (result_stage pending result error) in
    [TaskChange.AppendHistory [result_receipt owner operation result error];
     TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)]
  end) source.

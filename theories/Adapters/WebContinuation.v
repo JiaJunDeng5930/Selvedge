@@ -126,21 +126,24 @@ Definition model_history_fields := [required "kind" (D.Const (JString "model"));
 Definition model_history_value := O.project model_history_fields (fun _ history model task => (history,missing model,missing task)).
 Definition receipt (history : list json) model task response record deferred
  (output_count : D.denote positive_natural) (input_hash store_identity : D.denote nonempty_text) binding contract tools :=
-  if (String.eqb (member_text response "status") "completed" || String.eqb (member_text response "status") "requires_action") &&
-     same (member record "response_id") (member response "id") && same (member record "binding") binding &&
-     same (member record "owner") (owner_parts "model" task JNull JNull) &&
-     (match TextJson.parse_json (member_text record "response"),TextJson.parse_json (member_text record "body") with
-      | Some persisted,Some body => same (JObject response) persisted && resource_admissible response (get model "name") body tools
-      | _,_ => false end)
-  then success (JObject [
-    ("type",JString "provider_receipt");("provider",JString "chatgpt-web");("store_id",JString (proj1_sig store_identity));
-    ("task_id",task);("binding",binding);("contract",contract);("request_key",member record "request_key");
-    ("response_id",member response "id");("status",member response "status");
-    ("input_count",number (N.of_nat (List.length history)));("input_hash",JString (proj1_sig input_hash));
-    ("output_count",number (proj1_sig output_count));
-    ("calls",JArray (if String.eqb (member_text response "status") "requires_action" then
-      map (fun call => JObject (subset call ["call_id"])) (items (member response "output")) else []));("deferred",JArray deferred)])
-  else err "Invalid ChatGPT Web JSON source".
+  match record.(stored_response) with
+  | CommittedResponse id raw =>
+    if (String.eqb (member_text response "status") "completed" || String.eqb (member_text response "status") "requires_action") &&
+       same (JString id) (member response "id") && same (stored_member record "binding") binding &&
+       same (stored_member record "owner") (owner_parts "model" task JNull JNull) &&
+       (match TextJson.parse_json raw,TextJson.parse_json (text (stored_member record "body")) with
+        | Some persisted,Some body => same (JObject response) persisted && resource_admissible response (get model "name") body tools
+        | _,_ => false end)
+    then success (JObject [
+      ("type",JString "provider_receipt");("provider",JString "chatgpt-web");("store_id",JString (proj1_sig store_identity));
+      ("task_id",task);("binding",binding);("contract",contract);("request_key",stored_member record "request_key");
+      ("response_id",member response "id");("status",member response "status");
+      ("input_count",number (N.of_nat (List.length history)));("input_hash",JString (proj1_sig input_hash));
+      ("output_count",number (proj1_sig output_count));
+      ("calls",JArray (if String.eqb (member_text response "status") "requires_action" then
+        map (fun call => JObject (subset call ["call_id"])) (items (member response "output")) else []));("deferred",JArray deferred)])
+    else err "Invalid ChatGPT Web JSON source"
+  | _ => err "Invalid ChatGPT Web JSON source" end.
 Definition emitted_call call : outcome json :=
  match CallWire.from_text CallWire.callback_argument_nesting
    (str call "call_id") (str call "name") (str call "arguments_json") with

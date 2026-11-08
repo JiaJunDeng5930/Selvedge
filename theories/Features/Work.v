@@ -14,12 +14,12 @@ Definition ui_json (id:N) (value:Selvedge.Features.Domain.work) := JObject [("wo
 Definition task_owner (id:N) (value:world) := match find_task id value with Some task=>Selvedge.Features.Domain.owner_id id (task_lineage task) (world_features value) | None=>None end.
 Definition task_ids (id:N) (value:world) := fold_right (fun entry rest=>let '(key,task):=entry in match Selvedge.Features.Domain.owner_id key (task_lineage task) (world_features value) with Some owner=>if N.eqb id owner then number key::rest else rest | None=>rest end) [] (indexed (fun key task=>(key,task)) 0 (world_tasks value)).
 Definition graph_ids (id:N) (value:world) :=
- (* Graph IDs are allocated in association order and never reused. Enumerating
-    the registry keeps that order independent of association-map updates. *)
  fold_right (fun entry rest=>let '(key,graph):=entry in
- match graph,Selvedge.Features.Domain.association key (Selvedge.Features.Domain.feature_graph_owners (world_features value)) with
- | Some _,Some owner=>if N.eqb id owner then number key::rest else rest
- | _,_=>rest end) []
+ match graph with
+ | Some graph => match Selvedge.Features.Domain.graph_work graph with
+   | Some owner => if N.eqb id owner then number key::rest else rest
+   | None => rest end
+ | None => rest end) []
  (indexed (fun key graph=>(key,graph)) 0 (Selvedge.Features.Domain.feature_graphs (world_features value))).
 Definition observe (id:N) (work:Selvedge.Features.Domain.work) (value:world) := JObject [("work_id",number id);("name",JString (Selvedge.Features.Domain.work_name work));
  ("ui_source",JString (Selvedge.Features.Domain.work_ui_source work));("ui_revision",number (Selvedge.Features.Domain.work_ui_revision work));

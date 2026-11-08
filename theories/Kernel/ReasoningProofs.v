@@ -31,7 +31,7 @@ Theorem a_supported_evaluator_choice_continues_the_running_task :
  task_history completed = task_history task ++ [ReasoningRecord owner effort generations].
 Proof.
  intros owner effort generations
-  [contract profile settings lifecycle history queued lineage parent cursor consumed]
+  [contract profile settings lifecycle history queued lineage handoff consumed]
   policy phase operations Policy RunningTask Effort Duration.
  cbn in Policy, RunningTask. subst lifecycle.
  unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
@@ -44,7 +44,7 @@ Theorem failed_reasoning_with_no_queued_input_is_idle : forall owner reason task
  task_queued task = [] ->
  task_activity (TaskChange.apply (Reasoning.complete_changes owner (Reasoning.EvaluationFailed reason) task) task) = Idle.
 Proof.
- intros owner reason [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Queued.
+ intros owner reason [contract profile settings lifecycle history queued lineage handoff consumed] policy Policy Queued.
  cbn in Policy, Queued. subst queued.
  unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
  unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
@@ -57,7 +57,7 @@ Theorem unsupported_reasoning_with_no_queued_input_is_idle : forall owner effort
  task_queued task = [] ->
  task_activity (TaskChange.apply (Reasoning.complete_changes owner (Reasoning.Chosen effort generations) task) task) = Idle.
 Proof.
- intros owner effort generations [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Rejected Queued.
+ intros owner effort generations [contract profile settings lifecycle history queued lineage handoff consumed] policy Policy Rejected Queued.
  cbn in Policy, Queued. subst queued.
  unfold Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
  unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
@@ -76,14 +76,14 @@ Proof.
  intros id ticket length outcome value task Found Phase Changed.
  rewrite !reasoning_completed_expression. rewrite Found, Phase, N.eqb_refl, Changed.
  split; [reflexivity|]. eexists; split; [eapply find_put_task; exact Found|].
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle; cbn in Phase; try discriminate; split; reflexivity.
 Qed.
 
 Lemma failed_evaluation_is_never_ready_for_a_model : forall reason task,
  task_activity (TaskChange.apply (Reasoning.failed_changes reason task) task) <> ReadyForModel.
 Proof.
- intros reason [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros reason [contract profile settings lifecycle history queued lineage handoff consumed].
  unfold Reasoning.failed_changes; unfold TaskWake.promote, TaskWake.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; destruct queued; discriminate.
 Qed.
@@ -160,7 +160,7 @@ Proof.
    | RequestEffort => false | ConfigurationUpdates =>
      match ModelRequest.Plans.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed];
  cbn [app Domain.append_history Domain.with_history task_history].
  - exists [ReasoningConfigurationMessage (profile_reasoning model)].
    split; [reflexivity|now right].
@@ -216,7 +216,7 @@ Theorem context_requests_capture_the_current_history_revision : forall id task v
  [ObserveContext id (world_next_ticket value) task] /\
  exists waiting,
  find_task id (decision_world (Reasoning.context_retry id value)) = Some waiting /\
- task_activity waiting = ObservingContext (world_next_ticket value) (List.length (task_history task)) /\
+ task_activity waiting = ObservingContext (world_next_ticket value) (List.length (task_history task)) (context_follow_up (task_activity task)) /\
  task_history waiting = task_history task /\ task_contract waiting = task_contract task.
 Proof.
  intros id task value phase operations Found ObserveAllowed RunningTask.
@@ -231,12 +231,12 @@ Proof.
    eexists; split; [reflexivity|].
    unfold TicketedRequest.Scoped.build; rewrite Intent,Current; cbn [fst app].
    change (task_activity (with_activity (ObservingContext (world_next_ticket value)
-     (List.length (task_history task))) task) = ObservingContext (world_next_ticket value)
-     (List.length (task_history task)) /\
+     (List.length (task_history task)) (context_follow_up (task_activity task))) task) = ObservingContext (world_next_ticket value)
+     (List.length (task_history task)) (context_follow_up (task_activity task)) /\
      task_history (with_activity (ObservingContext (world_next_ticket value)
-       (List.length (task_history task))) task) = task_history task /\
+       (List.length (task_history task)) (context_follow_up (task_activity task))) task) = task_history task /\
      task_contract (with_activity (ObservingContext (world_next_ticket value)
-       (List.length (task_history task))) task) = task_contract task).
+       (List.length (task_history task)) (context_follow_up (task_activity task))) task) = task_contract task).
    unfold with_activity; rewrite RunningTask; repeat split; reflexivity.
 Qed.
 
@@ -252,27 +252,27 @@ Proof.
  unfold Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 
-Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision observations diagnostic value task,
- find_task id value = Some task -> task_activity task = ObservingContext expected revision ->
+Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision continuation observations diagnostic value task,
+ find_task id value = Some task -> task_activity task = ObservingContext expected revision continuation ->
  N.eqb expected ticket = false ->
  Callbacks.context_completed id ticket observations diagnostic value = Callbacks.ignored value.
 Proof. intros; rewrite context_completed_expression; now rewrite H, H0, H1. Qed.
 
 Theorem an_actual_stale_context_result_restarts_from_the_current_prefix :
- forall id ticket revision observations diagnostic value task phase operations,
- find_task id value = Some task -> task_activity task = ObservingContext ticket revision ->
+ forall id ticket revision continuation observations diagnostic value task phase operations,
+ find_task id value = Some task -> task_activity task = ObservingContext ticket revision continuation ->
  task_lifecycle task = Running phase operations ->
  Nat.eqb revision (List.length (task_history task)) = false ->
  Callbacks.context_completed id ticket observations diagnostic value = Reasoning.context_retry id value.
 Proof.
- intros id ticket revision observations diagnostic value task phase operations Found Phase RunningTask Stale.
+ intros id ticket revision continuation observations diagnostic value task phase operations Found Phase RunningTask Stale.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl, Stale, RunningTask; reflexivity.
 Qed.
 
 Theorem unavailable_context_retry_keeps_unsatisfied_demand :
- forall id ticket revision observations diagnostic value task operations,
+ forall id ticket revision continuation observations diagnostic value task operations,
  find_task id value = Some task ->
- task_lifecycle task = Running (ObservingContext ticket revision) operations ->
+ task_lifecycle task = Running (ObservingContext ticket revision continuation) operations ->
  Nat.eqb revision (List.length (task_history task)) = false ->
  TicketedRequest.Scoped.resources_available task value = false ->
  let result := Callbacks.context_completed id ticket observations diagnostic value in
@@ -280,9 +280,9 @@ Theorem unavailable_context_retry_keeps_unsatisfied_demand :
  decision_world result = put_task id (with_activity WantsModel task) value /\
  decision_effects result = [].
 Proof.
- intros id ticket revision observations diagnostic value task operations Found Status Stale Resource.
+ intros id ticket revision continuation observations diagnostic value task operations Found Status Stale Resource.
  cbn beta zeta.
- assert (Phase : task_activity task = ObservingContext ticket revision).
+ assert (Phase : task_activity task = ObservingContext ticket revision continuation).
  { unfold task_activity; now rewrite Status. }
  rewrite context_completed_expression, Found, Phase, N.eqb_refl, Stale, Status.
  destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key id value task Found)
@@ -301,15 +301,15 @@ Proof.
 Qed.
 
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
- forall id ticket revision observations diagnostic value task phase operations,
- find_task id value = Some task -> task_activity task = ObservingContext ticket revision ->
+ forall id ticket revision continuation observations diagnostic value task phase operations,
+ find_task id value = Some task -> task_activity task = ObservingContext ticket revision continuation ->
  task_lifecycle task = Frozen phase operations ->
  decision_effects (Callbacks.context_completed id ticket observations diagnostic value) = [] /\
  exists waiting,
  find_task id (decision_world (Callbacks.context_completed id ticket observations diagnostic value)) = Some waiting /\
  task_lifecycle waiting = Frozen WantsModel operations.
 Proof.
- intros id ticket revision observations diagnostic value task phase operations Found Phase FrozenTask.
+ intros id ticket revision continuation observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
  - unfold Callbacks.context_phase; rewrite FrozenTask.
@@ -326,15 +326,15 @@ Proof.
 Qed.
 
 Theorem a_stopped_context_completion_waits_for_a_new_observation :
- forall id ticket revision observations diagnostic value task phase operations,
- find_task id value = Some task -> task_activity task = ObservingContext ticket revision ->
+ forall id ticket revision continuation observations diagnostic value task phase operations,
+ find_task id value = Some task -> task_activity task = ObservingContext ticket revision continuation ->
  task_lifecycle task = Stopped phase operations ->
  decision_effects (Callbacks.context_completed id ticket observations diagnostic value) = [] /\
  exists waiting,
  find_task id (decision_world (Callbacks.context_completed id ticket observations diagnostic value)) = Some waiting /\
  task_lifecycle waiting = Stopped WantsModel operations.
 Proof.
- intros id ticket revision observations diagnostic value task phase operations Found Phase StoppedTask.
+ intros id ticket revision continuation observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
  destruct (Nat.eqb revision (List.length (task_history task))).
  - unfold Callbacks.context_phase; rewrite StoppedTask.
@@ -395,14 +395,14 @@ Theorem configuration_transport_keeps_the_request_baseline : forall model reques
    ("effective_effort",JString (profile_reasoning model));("request_effort",JString (reasoning_baseline policy))]) = true.
 Proof. intros; unfold Reasoning.sampling; rewrite H, H0; apply equivalent_is_reflexive. Qed.
 
-Theorem side_context_rebasing_recaptures_its_updated_history : forall id ticket original value current revision,
+Theorem side_context_rebasing_recaptures_its_updated_history : forall id ticket original value current revision continuation,
  Dispatch.side_task id value = Some current ->
- task_activity current = ObservingContext ticket revision ->
+ task_activity current = ObservingContext ticket revision continuation ->
  Dispatch.capture_request (ObserveContext id ticket original) value =
  (put_task id (Reasoning.capture ticket current) value,
   ObserveContext id ticket (with_history (task_history current) original)).
 Proof.
- intros id ticket original value current revision Selected Phase.
+ intros id ticket original value current revision continuation Selected Phase.
  unfold Dispatch.side_task in Selected.
  destruct (find_task id value) as [task|] eqn:Found; [|discriminate].
  destruct (task_side_parent task); inversion Selected; subst task.

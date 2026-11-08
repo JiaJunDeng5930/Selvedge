@@ -10,14 +10,17 @@ Import ListNotations.
 Open Scope string_scope.
 
 Definition capture (ticket : N) (task : task) :=
- with_activity (ObservingContext ticket (List.length (task_history task))) task.
+ match task_activity task with
+ | ObservingContext _ _ continuation =>
+   with_activity (ObservingContext ticket (List.length (task_history task)) continuation) task
+ | _ => task end.
 Definition observe_scheduled_context (id : N) (value : world) :=
  TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id true value).
 (* A stale read has already completed. If its replacement cannot acquire the
    resource, retain demand rather than leaving the completed ticket pending. *)
 Definition context_retry_wait (id : N) (current : task) (value : world) :=
  match task_lifecycle current with
- | Running (ObservingContext _ _) _ =>
+ | Running (ObservingContext _ _ _) _ =>
    accept JNull (put_task id (with_activity WantsModel current) value) []
  | _ => State.ignored value end.
 Definition context_retry (id : N) (value : world) :=

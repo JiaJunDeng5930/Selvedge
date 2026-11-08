@@ -53,8 +53,10 @@ Definition public_codes := ["idempotency_conflict";"previous_response_pending";"
   "previous_response_unavailable";"messages_required";"tool_results_required";"tool_results_mismatch";
   "operation_interrupted";"operation_cancelled";"message_too_large";"tools_disabled";"invalid_request";
   "unauthorized";"model_unavailable";"invalid_output";"output_validation_failed"].
-Definition retained_message record := "ChatGPT Web request retained (" ++ member_text record "request_key" ++
-  (if truthy (member record "response_id") then ", response " ++ member_text record "response_id" else "") ++
+Definition retained_message record := "ChatGPT Web request retained (" ++ text (stored_member record "request_key") ++
+  (match record.(stored_response) with
+   | IdentifiedResponse id | CommittedResponse id _ => ", response " ++ id
+   | _ => "" end) ++
   "); inspect or resume that request before continuing, or explicitly compact to start a new page".
 Definition retained record := success (JString (retained_message record)).
 Definition failure_result record code status :=
@@ -101,7 +103,7 @@ Definition commit value :=
   then success (JObject [("action",JString "finish")])
   else success (JObject [("action",JString "failure");("code",if is_null (get (get value "error") "code")
     then JString ("operation_" ++ str value "status") else get (get value "error") "code")]).
-Definition http record status := success (JObject [("reject",JBool (negb (truthy (member record "response_id")) &&
+Definition http response status := success (JObject [("reject",JBool (negb (truthy (response_id response)) &&
   existsb (fun candidate => N.eqb candidate status) [400;401;403;404;413;422]))]).
 Definition request_bounds body deferred frame_bytes :=
   if Nat.eqb (List.length (items (get body "input"))) 0

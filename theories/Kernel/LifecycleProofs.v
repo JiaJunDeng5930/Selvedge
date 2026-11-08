@@ -18,7 +18,7 @@ Theorem archival_removes_all_execution_authority : forall value,
  task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = Archived [] /\
  task_operations (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = [].
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor] Live.
+ intros [contract profile settings lifecycle history queued lineage handoff consumed] Live.
  destruct lifecycle; cbn [task_archived task_lifecycle] in Live; try discriminate;
  split; reflexivity.
 Qed.

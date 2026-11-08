@@ -42,7 +42,7 @@ Proof.
  - apply fork_children_preserve_every_existing_task.
    unfold find_task, put_task, with_tasks, with_ticket; cbv [set]; cbn.
    eapply RegistryProofs.registry_replace_selected; exact Found.
- - destruct parent as [contract profile settings lifecycle history queued lineage side cursor consumed].
+ - destruct parent as [contract profile settings lifecycle history queued lineage handoff consumed].
    cbn in Running; subst lifecycle; repeat split; reflexivity.
 Qed.
 

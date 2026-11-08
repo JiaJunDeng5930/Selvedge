@@ -437,6 +437,18 @@ Qed.
     selects at most one retained request: the latest for the matching owner and
     ticket. An optional record represents that selection directly;
     resetting a whole session remains a separate operation over its requests.
+    A retained Web request owns its response lifecycle. [WebCommon.response_stage]
+    records whether a response is still unknown, rejected, identified, or
+    committed. Identifying the response enables recovery by provider ID.
+    Committing the response enables replay and continuation without another
+    submission. Reusing a rejected invocation returns its response to the
+    awaiting stage through the same prepare operation. Retirement records why
+    an invocation cannot be reused and can coexist with any response stage.
+    SQLite retains the current column layout. For admitted provider IDs,
+    [stored_response_fields_round_trip] connects the actual encoder and
+    decoder for the two nullable text columns and the integer rejection
+    flag. The store applies the updates returned by the lifecycle operations.
+
     The store queries each owner's rows with SQLite's [WHERE owner=?], so a
     second owner filter supplies no new observation. Those queries do not
     order their rows. Selection must exclude rejected requests, respect an
@@ -465,7 +477,8 @@ Qed.
     that decoder and need not return another copy of the raw response. *)
 From Selvedge.Adapters Require WebProofs.
 Export WebProofs(existing_request_reuse_requires_body_and_connection,
-  response_identity_cannot_change, committed_response_cannot_change,
+  stored_response_fields_round_trip, response_identity_cannot_change,
+  committed_response_cannot_change,
   receipt_is_bound_to_actual_task_connection_and_response,
   tool_continuation_requires_complete_unique_result_batch,
   cancelled_request_cannot_reuse_a_different_connection,

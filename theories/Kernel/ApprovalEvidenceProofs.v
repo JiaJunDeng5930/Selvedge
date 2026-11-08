@@ -40,7 +40,7 @@ Proof.
  rewrite TaskChangeProofs.apply_app.
  eexists; split; [reflexivity|].
  unfold TaskWake.promote.
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
+ destruct task as [contract profile settings lifecycle history queued lineage handoff model_cursor].
  cbn in Running; subst lifecycle; cbn; destruct queued; cbn; split; try reflexivity.
  now rewrite app_nil_r.
 Qed.
@@ -100,7 +100,7 @@ Theorem an_approval_denial_runs_the_frozen_result_chain :
        (TaskScope.selected target))) = Some updated /\
  task_operations updated =
  map (fun current => if N.eqb (operation_id pending) (operation_id current)
-   then Operation (operation_id current) (operation_call current) (operation_announced current)
+   then Operation (operation_id current) (operation_call current) (operation_result_route current)
      (AfterHooksReady (plugin :: rest)
        (State.failure code explanation) true)
    else current) (task_operations (TaskScope.selected target)).
@@ -111,6 +111,6 @@ Proof.
  unfold Callbacks.approval_decision_plan, OperationEvent.plan.
  rewrite prefixed_results_apply_the_prefix_once; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
  unfold OperationEvent.returned, OperationEvent.settle, TaskResult.result_changes.
- destruct (TaskScope.selected target) as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].
+ destruct (TaskScope.selected target) as [contract profile settings lifecycle history queued lineage handoff model_cursor].
  destruct lifecycle; unfold Callbacks.after_plugins, OperationEvent.after_plugins in *; cbn in *; rewrite Hooks; reflexivity.
 Qed.

@@ -9,7 +9,7 @@ Open Scope list_scope.
 Theorem recovery_retires_every_operation : forall owner current,
  task_operations (Recovery.recover_task owner current) = [].
 Proof.
- intros owner [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros owner [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle as [phase operations|phase operations|phase operations|operations];
  try destruct phase; destruct operations; reflexivity.
 Qed.
@@ -23,7 +23,7 @@ Proof. intros; apply append_only_changes_retain_history. Qed.
 Theorem task_recovery_is_idempotent : forall owner current,
  Recovery.recover_task owner (Recovery.recover_task owner current) = Recovery.recover_task owner current.
 Proof.
- intros owner [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros owner [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle as [phase operations|phase operations|phase operations|operations];
  try destruct phase; destruct operations;
  unfold Recovery.recover_task, Recovery.recovery_changes;

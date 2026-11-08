@@ -143,7 +143,7 @@ Proof.
      [SpeechDelegation id session identity "send" text] =
      task_history task ++ [UserMessage [TextPart text]; SpeechDelegation id session identity "send" text]).
    rewrite <- app_assoc; reflexivity.
-   destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
    cbn in IdleTask; subst lifecycle; reflexivity.
  - assert (Steered : Tasks.steer_result id [TextPart text] value =
      CommandResult.Accepted (CommandResult.Change JNull
@@ -157,7 +157,7 @@ Proof.
      unfold task_activity, task_operations; rewrite !IdleTask.
      cbn [History.interrupted_phase].
      unfold Tasks.inference_effects, task_activity; rewrite IdleTask.
-     destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+     destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
      cbn in IdleTask; subst lifecycle; reflexivity. }
    unfold CommandExecution.speech_delegation; cbn zeta; fold session identity text; rewrite Found, Fresh.
    cbn [proj1_sig].

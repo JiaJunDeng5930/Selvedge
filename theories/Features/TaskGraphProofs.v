@@ -1,10 +1,9 @@
 From Selvedge.Programming Require DecisionComposition.
-From Selvedge.Programming Require CommandResult.
+From Selvedge.Programming Require CommandResult TaskBirth.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Programming Require Import ReceiverProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Callbacks Tasks LifecycleProofs.
@@ -304,7 +303,7 @@ Proof.
  rewrite tasks_same.
  exists (TaskChange.apply (Tasks.receive_changes [TextPart (TaskGraph.delivery_text item)] task) task).
  split; [now apply find_put_task with task|].
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
  cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.
 Qed.
 
@@ -332,32 +331,38 @@ Qed.
 
 
 
-Theorem installed_plan_associates_its_work : forall original caller
- (owner : Work.owner_scope original) id (plan : TaskGraph.graph_plan original caller (Some owner)),
- F.association id (F.feature_graph_owners (world_features
-   (decision_world (CommandResult.accept (TaskGraph.install_change id plan))))) = Some (Work.owner_identity owner).
+Lemma graph_birth_frame_keeps_registry : forall original current
+ (frame : Worktree.birth_frame original current),
+ TaskGraph.registry current = TaskGraph.registry original.
 Proof.
- intros original caller owner id plan.
- unfold TaskGraph.install_change,CommandResult.accept.
- destruct (fold_left (fun progress node => TaskGraph.birth (Some owner) node progress)
-   (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)) as [prepared frame nodes effects].
- unfold F.association,K.with_features,Selvedge.Features.State.with_graph_owners.
- destruct (TaskGraph.store id
-   (F.TaskGraph (TaskGraph.declaration_name (TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)))) nodes
-     (TaskGraph.declaration_rules (TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)))) []) prepared)
-   as [sequence tasks ticket environment projects features].
- destruct features. unfold set. cbn -[N.eqb]; now rewrite N.eqb_refl.
+ intros original current frame; induction frame as [|current frame IH plan owner works]; [reflexivity|].
+ rewrite <- IH. destruct owner;
+ change (TaskGraph.registry (Worktree.born_world
+   (Worktree.interpret_planned_birth (Worktree.scoped_plan plan) current)) = TaskGraph.registry current);
+ destruct (Worktree.interpret_planned_birth (Worktree.scoped_plan plan) current)
+   as [birth resource]; destruct resource;
+ change (F.feature_graphs (world_features (TaskBirth.birth_world birth)) =
+   F.feature_graphs (world_features current));
+ now rewrite (TaskBirth.birth_features current birth).
 Qed.
-Theorem resolved_installation_associates_its_work : forall original caller
- (owner : Work.owner_scope original) id (checked : TaskGraph.checked_cached caller original) plans,
- TaskGraph.prepare_nodes (TaskGraph.scope_identity (Some owner)) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = CommandResult.Accepted plans ->
- F.association id (F.feature_graph_owners (world_features
-   (decision_world (CommandResult.decide original (TaskGraph.install_cached_result id (Some owner) checked))))) = Some (Work.owner_identity owner).
+
+Theorem installed_plan_associates_its_work : forall original caller
+ (owner : option (Work.owner_scope original)) id (plan : TaskGraph.graph_plan original caller owner),
+ Receiver.positioned (TaskGraph.receiver id) original ->
+ exists graph,
+ TaskGraph.lookup id (decision_world (CommandResult.accept (TaskGraph.install_change id plan))) = Some graph /\
+ F.graph_work graph = TaskGraph.scope_identity owner.
 Proof.
- intros original caller owner id checked plans Prepared.
- rewrite (resolved_installation_follows_the_typed_plan _ _ _ _ _ _ Prepared).
- apply installed_plan_associates_its_work.
+ intros original caller owner id plan Position.
+ unfold TaskGraph.install_change, CommandResult.accept.
+ set (progress := fold_left (fun progress node => TaskGraph.birth owner node progress)
+   (TaskGraph.graph_plans plan) (TaskGraph.initial_births original)).
+ eexists; split.
+ - apply (ReceiverProofs.installed (TaskGraph.receiver id)).
+   change (Receiver.positioned (Receiver.indexed id) (TaskGraph.registry (TaskGraph.born_world progress))).
+   rewrite (graph_birth_frame_keeps_registry _ _ (TaskGraph.born_frame progress)).
+   exact Position.
+ - reflexivity.
 Qed.
 
 Theorem graph_removal_preserves_other_identities : forall request caller value previous,
@@ -366,8 +371,6 @@ Theorem graph_removal_preserves_other_identities : forall request caller value p
  TaskGraph.handle_delete_task_graph request caller value = result /\
  TaskGraph.lookup (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
    (decision_world result) = None /\
- F.association (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
-   (F.feature_graph_owners (world_features (decision_world result))) = None /\
  forall other, Selvedge.Generated.Commands.delete_task_graph_graph_id request <> other ->
  TaskGraph.lookup other (decision_world result) = TaskGraph.lookup other value.
 Proof.
@@ -382,24 +385,19 @@ Proof.
      (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
      with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end = None).
    unfold TaskGraph.remove. rewrite ReceiverProofs.installed by exact Position. reflexivity.
- - split.
-   + change (F.association (Selvedge.Generated.Commands.delete_task_graph_graph_id request)
-       (filter (fun entry => negb (N.eqb (Selvedge.Generated.Commands.delete_task_graph_graph_id request) (fst entry)))
-         (F.feature_graph_owners (world_features value))) = None).
-     unfold F.association; rewrite removing_a_key_clears_its_lookup; reflexivity.
-   + intros other Different.
-     change (match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other
-       (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
-       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end =
-       match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other value
-       with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end).
-     unfold TaskGraph.remove. rewrite ReceiverProofs.other_address; [reflexivity|exact (not_eq_sym Different)].
+ - intros other Different.
+   change (match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other
+     (TaskGraph.remove (Selvedge.Generated.Commands.delete_task_graph_graph_id request) value)
+     with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end =
+     match Receiver.read_at (TaskGraph.slot (Selvedge.Generated.Commands.delete_task_graph_graph_id request)) other value
+     with Some graph => Constructor.project (@Some F.task_graph) graph | None => None end).
+   unfold TaskGraph.remove. rewrite ReceiverProofs.other_address; [reflexivity|exact (not_eq_sym Different)].
 Qed.
 
 Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value previous,
  TaskGraph.lookup id value = Some previous ->
  TaskGraph.lookup id (TaskGraph.record_receipt id receipt value) =
- Some (F.TaskGraph (F.graph_name previous) (F.graph_nodes previous) (F.graph_rules previous)
+ Some (F.TaskGraph (F.graph_work previous) (F.graph_name previous) (F.graph_nodes previous) (F.graph_rules previous)
    (skipn (List.length (F.graph_receipts previous ++ [receipt]) - 256)
      (F.graph_receipts previous ++ [receipt]))).
 Proof.
@@ -467,7 +465,7 @@ Proof.
    (TaskGraph.born_frame (fold_left (fun progress node=>TaskGraph.birth owner node progress)
      (TaskGraph.graph_plans plan) (TaskGraph.initial_births original))) task_id task Found) as Retained.
  unfold TaskGraph.install_change,CommandResult.accept.
- destruct owner; exact Retained.
+ exact Retained.
 Qed.
 Theorem installation_preserves_original_task_references : forall original caller
  (owner : option (Work.owner_scope original)) id (checked : TaskGraph.checked_cached caller original) task_id task,

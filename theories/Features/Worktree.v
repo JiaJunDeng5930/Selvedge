@@ -47,7 +47,7 @@ Definition resource_task (id : N) (backend : WorkspaceBackend.backend) (task : t
  let history:=if WorkspaceBackend.cloud backend then task_history task++[EnvironmentNotice environment_notice] else task_history task in
  Task contract (task_current_profile task) (resource_settings id backend (task_current_settings task))
  (match task_lifecycle task with Running activity operations=>Frozen activity operations | other=>other end)
- history (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task).
+ history (task_queued task) (task_lineage task) (task_side_handoff task) (task_model_cursor task).
 Definition project_primary_matches (settings : task_settings) (value : world) :=
  match settings_project settings with
  | None=>true
@@ -467,7 +467,7 @@ Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Gui
  let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
  TaskWake.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
- (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
+ (task_queued task) (task_lineage task) (task_side_handoff task) (task_model_cursor task)).
 Definition completed_task (space : workspace) (guidance : Guidance.t) (task : task) :=
  install_workspace (match task_lifecycle task with Frozen activity operations=>Running activity operations
   | other=>other end) space guidance task.

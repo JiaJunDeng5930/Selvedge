@@ -5,6 +5,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Receiver.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Tasks CommandExecution.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work Worktree TaskGraphDeclarations.
@@ -198,15 +199,10 @@ Definition install_change (id : N) {original caller owner} (plan : graph_plan or
  let progress := fold_left (fun progress node => birth owner node progress)
    (graph_plans plan) (initial_births original) in
  let source := cached_source (checked_cache (graph_checked plan)) in
- let graph := Selvedge.Features.Domain.TaskGraph (declaration_name source)
+ let graph := Selvedge.Features.Domain.TaskGraph (scope_identity owner) (declaration_name source)
    (born_nodes progress) (declaration_rules source) [] in
  let installed := store id graph (born_world progress) in
- let owned := match owner with None => installed
- | Some owner => with_features (Selvedge.Features.State.with_graph_owners
-   ((id,Work.owner_identity owner)::filter (fun entry => negb (N.eqb id (fst entry)))
-     (Selvedge.Features.Domain.feature_graph_owners (world_features installed)))
-   (world_features installed)) installed end in
- CommandResult.Change (Observation.graph_json id graph) owned (born_effects progress).
+ CommandResult.Change (Observation.graph_json id graph) installed (born_effects progress).
 Definition install_resolution (id : N) {caller original}
  (owner : option (Work.owner_scope original)) (checked : checked_cached caller original)
  (resolved : nodes_resolution original (scope_identity owner))
@@ -256,13 +252,17 @@ Definition handle_read_task_graph (payload:Selvedge.Generated.Commands.read_task
 Definition handle_create_task_graph (payload:Selvedge.Generated.Commands.create_task_graph_payload) (caller:option N) (value:world) :decision :=
  declare true (N.of_nat (List.length (registry value))) (Selvedge.Generated.Commands.create_task_graph_work_id payload) (create_declaration payload) caller value.
 Definition handle_update_task_graph (payload:Selvedge.Generated.Commands.update_task_graph_payload) (caller:option N) (value:world) :decision :=
- let id:=Selvedge.Generated.Commands.update_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>declare false id (Selvedge.Features.Domain.association id (Selvedge.Features.Domain.feature_graph_owners (world_features value))) (update_declaration payload) caller value end.
+ let id:=Selvedge.Generated.Commands.update_task_graph_graph_id payload in
+ match lookup id value with
+ | None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value
+ | Some graph=>declare false id (Selvedge.Features.Domain.graph_work graph) (update_declaration payload) caller value
+ end.
 Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_task_graph_payload) (caller:option N) (value:world) :decision :=
- let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in match lookup id value with None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value | Some _=>
- let removed:=remove id value in
- let features:=world_features removed in Selvedge.Kernel.State.accept JNull
- (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners
-   (filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners features)) features) removed) [] end.
+ let id:=Selvedge.Generated.Commands.delete_task_graph_graph_id payload in
+ match lookup id value with
+ | None=>Selvedge.Kernel.State.reject "task_graph_not_found" "The Task graph does not exist" value
+ | Some _=>Selvedge.Kernel.State.accept JNull (remove id value) []
+ end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
 Definition assistant_output (item:message) : option (output_origin * string) :=
@@ -287,7 +287,8 @@ Definition pending_deliveries (source:N) (output:string) (value:world) := flat_m
  flat_map (fun rule=>pending_rule source (fst pair) (Selvedge.Features.Domain.graph_nodes graph) rule output) (Selvedge.Features.Domain.graph_rules graph) end) (indexed (fun id graph=>(id,graph)) 0 (registry value)).
 Definition record_receipt (graph:N) (receipt:Selvedge.Features.Domain.graph_receipt) (value:world) := match lookup graph value with None=>value | Some graph_value=>
  let combined:=Selvedge.Features.Domain.graph_receipts graph_value++[receipt] in
- store graph (Selvedge.Features.Domain.TaskGraph (Selvedge.Features.Domain.graph_name graph_value) (Selvedge.Features.Domain.graph_nodes graph_value) (Selvedge.Features.Domain.graph_rules graph_value) (skipn (List.length combined-256) combined)) value end.
+ store graph (set Selvedge.Features.Domain.graph_receipts
+   (fun _ => skipn (List.length combined-256) combined) graph_value) value end.
 Definition send_delivery (source:N) (item:delivery) : DecisionComposition.step := fun value _ =>
  let sent:=Tasks.send (delivery_target item) [TextPart (delivery_text item)] value in
  DecisionComposition.Update

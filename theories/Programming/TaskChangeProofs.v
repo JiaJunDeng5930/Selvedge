@@ -28,7 +28,11 @@ Qed.
 Lemma one_append_only_edit_retains_history : forall change current,
  exists suffix, task_history (TaskChange.apply_edit change current) = task_history current ++ suffix.
 Proof.
- intros [update [messages|]] current.
+ intros [step] [contract profile settings lifecycle history queued lineage handoff consumed].
+ unfold TaskChange.apply_edit, Focus.modify, Focus.read, Focus.frame, TaskChange.edit_parts.
+ cbn [TaskChange.task_focus Focus.split TaskChange.task_parts transition
+   task_lifecycle task_history task_queued task_model_cursor fst snd].
+ destruct (step (Mutable lifecycle queued consumed)) as [next [messages|]].
  - exists messages; reflexivity.
  - exists []; rewrite app_nil_r; reflexivity.
 Qed.
@@ -49,17 +53,16 @@ Qed.
 Theorem field_changes_keep_the_immutable_task_identity : forall changes current,
  task_contract (TaskChange.apply changes current) = task_contract current /\
  task_lineage (TaskChange.apply changes current) = task_lineage current /\
- task_side_parent (TaskChange.apply changes current) = task_side_parent current.
+ task_side_handoff (TaskChange.apply changes current) = task_side_handoff current.
 Proof.
  intros changes current.
  pose proof (Focus.modifications_keep_the_frame _ _ _ TaskChange.task_focus
    TaskChange.edit_parts changes current) as Frame.
  change ((task_contract (TaskChange.apply changes current),
    task_current_profile (TaskChange.apply changes current), task_current_settings (TaskChange.apply changes current),
-   task_lineage (TaskChange.apply changes current), task_side_parent (TaskChange.apply changes current),
-    task_side_cursor (TaskChange.apply changes current)) =
+   task_lineage (TaskChange.apply changes current), task_side_handoff (TaskChange.apply changes current)) =
    (task_contract current, task_current_profile current, task_current_settings current,
-    task_lineage current, task_side_parent current, task_side_cursor current)) in Frame.
+    task_lineage current, task_side_handoff current)) in Frame.
  injection Frame; auto.
 Qed.
 
@@ -72,10 +75,9 @@ Proof.
    TaskChange.edit_parts changes current) as Frame.
  change ((task_contract (TaskChange.apply changes current),
    task_current_profile (TaskChange.apply changes current), task_current_settings (TaskChange.apply changes current),
-   task_lineage (TaskChange.apply changes current), task_side_parent (TaskChange.apply changes current),
-    task_side_cursor (TaskChange.apply changes current)) =
+   task_lineage (TaskChange.apply changes current), task_side_handoff (TaskChange.apply changes current)) =
    (task_contract current, task_current_profile current, task_current_settings current,
-    task_lineage current, task_side_parent current, task_side_cursor current)) in Frame.
+    task_lineage current, task_side_handoff current)) in Frame.
  injection Frame; auto.
 Qed.
 
@@ -110,10 +112,10 @@ Qed.
 
 Theorem changing_stage_retains_the_selected_operation : forall current pending stage,
  In pending (task_operations current) ->
- In (Operation (operation_id pending) (operation_call pending) (operation_announced pending) stage)
+ In (Operation (operation_id pending) (operation_call pending) (operation_result_route pending) stage)
    (task_operations (TaskChange.apply [TaskChange.ChangeOperationStage (operation_id pending) stage] current)).
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed] pending stage Member.
+ intros [contract profile settings lifecycle history queued lineage handoff consumed] pending stage Member.
  destruct lifecycle; cbn in *; apply in_map_iff; exists pending.
  all: split; [cbn; now rewrite N.eqb_refl|exact Member].
 Qed.

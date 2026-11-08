@@ -28,7 +28,7 @@ Theorem admitted_creation_stores_the_new_work : forall value chosen name,
  let updated := Work.create chosen value in
  Work.lookup id (decision_world updated) = Some (F.Work name "" 0) /\
  F.feature_task_owners (world_features (decision_world updated)) = F.feature_task_owners (world_features value) /\
- F.feature_graph_owners (world_features (decision_world updated)) = F.feature_graph_owners (world_features value) /\
+ F.feature_graphs (world_features (decision_world updated)) = F.feature_graphs (world_features value) /\
  decision_effects updated = [].
 Proof.
  intros value chosen name id Name Available; subst name.
@@ -43,7 +43,7 @@ Theorem rename_preserves_shared_ui_and_ownership : forall value id previous name
  let updated := decision_world (Work.rename id name value) in
  Work.lookup id updated = Some (F.Work (proj1_sig name) (F.work_ui_source previous) (F.work_ui_revision previous)) /\
  F.feature_task_owners (world_features updated) = F.feature_task_owners (world_features value) /\
- F.feature_graph_owners (world_features updated) = F.feature_graph_owners (world_features value) /\
+ F.feature_graphs (world_features updated) = F.feature_graphs (world_features value) /\
  world_tasks updated = world_tasks value.
 Proof.
  intros value id previous name Found; cbv zeta.
@@ -147,7 +147,7 @@ Theorem admitted_patch_updates_shared_source : forall value id previous patch so
  let updated:=decision_world (Work.patch_work id patch (F.work_ui_revision previous) value) in
  Work.lookup id updated=Some (F.Work (F.work_name previous) source (N.succ (F.work_ui_revision previous))) /\
  F.feature_task_owners (world_features updated)=F.feature_task_owners (world_features value) /\
- F.feature_graph_owners (world_features updated)=F.feature_graph_owners (world_features value) /\
+ F.feature_graphs (world_features updated)=F.feature_graphs (world_features value) /\
  world_tasks updated=world_tasks value.
 Proof.
  intros value id previous patch source found available applied.

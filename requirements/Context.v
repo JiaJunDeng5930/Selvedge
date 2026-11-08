@@ -134,7 +134,10 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     token budget without imposing another numeric-representation requirement. *)
 
 From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs.
-From Selvedge.Features Require CompactionProofs.
+From Selvedge.Features Require CompactionProofs CompactionRequestProofs.
+From Selvedge.Kernel Require TaskWakeProofs.
+Export CompactionRequestProofs(maintenance_context_installs_its_exact_continuation).
+Export TaskWakeProofs(an_actual_wake_keeps_its_pending_context_demand).
 Export ContextSelectionProofs(adoption_keeps_the_original_history,
   selected_replacement_keeps_the_exact_suffix,
   selected_replacement_drops_compacted_reasoning_updates,
@@ -145,6 +148,8 @@ Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
   suspended_manual_context_completion_cancels_its_job,
+  a_stale_context_completion_preserves_the_selected_maintenance,
+  live_reconfiguration_retains_the_saved_inference_demand,
   an_oversized_compaction_request_stops,
   a_nonempty_zero_width_compaction_request_stops,
   a_resize_callback_reduces_width_or_stops,
@@ -189,12 +194,20 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     its identifier in the reply supplies no new result. Successful admission,
     retained state and issued effects establish the command's behavior.
 
-    Compaction has its own feature state so preparatory work can coexist with
-    ordinary execution. Each physical invocation receives a fresh ticket;
-    retained useful-work revision and failure state prevent idle reissuance.
-    Cache maintenance uses the observed prefix and deadline. A separate last
-    activity timestamp or old consumer label cannot select further work; the
-    next maintenance request observes its consumer scope before dispatch.
+    Compaction retains its preparation and measurement state separately from
+    ordinary execution. A workspace observation uses the Task's own request.
+    The request carries the ticket, source revision and continuation, so a
+    stale result, revision retry or wake cannot update a separate copy of the
+    same pending request. [maintenance_context_installs_its_exact_continuation]
+    ties the emitted observation to the saved request.
+    [an_actual_wake_keeps_its_pending_context_demand] ties an inference wake
+    to that continuation. [a_stale_context_completion_preserves_the_selected_maintenance]
+    preserves the current maintenance when another ticket reports.
+
+    Each physical invocation receives a fresh ticket. Retained useful-work
+    revision and failure state prevent idle reissuance. Cache maintenance
+    couples the observed prefix to its deadline and retires them together.
+    The next maintenance request observes its consumer scope before dispatch.
     [a_compaction_failure_is_not_immediately_resubmitted] excludes treating
     every failure as permission to repeat. Recovery retires pending receivers
     while retaining the Task's actual inference demand.

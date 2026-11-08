@@ -32,38 +32,24 @@ Proof.
  - rewrite Missing in Ready; discriminate.
 Qed.
 
-Theorem maintenance_context_installs_the_exact_shared_ticket :
+Theorem maintenance_context_installs_its_exact_continuation :
  forall before (request : S.maintenance_context_plan before),
  let target := S.maintenance_context_target request in
  let current := TaskScope.selected target in
  let owner := TaskScope.owner target in
  let ticket := world_next_ticket before in
+ let continuation := ForMaintenance (S.maintenance_context_purpose request)
+   (match task_activity current with ReadyForModel => true | _ => false end) in
  let issued := S.maintenance_observe request in
  find_task owner (decision_world issued) =
-   Some (with_activity (ObservingContext ticket (List.length (task_history current))) current) /\
- (exists entry, S.compaction_entry owner (decision_world issued) = Some entry /\
-   C.entry_job entry = C.AwaitingContext ticket (S.maintenance_context_purpose request)
-     (match task_activity current with ReadyForModel => true | _ => false end)) /\
+   Some (with_activity (ObservingContext ticket (List.length (task_history current)) continuation) current) /\
  decision_effects issued = [ObserveContext owner ticket current].
 Proof.
  intros before request; cbn zeta.
  unfold S.maintenance_observe. cbn [allocate_identity next_identity decision_world decision_effects accept].
- split.
- - change (find_task (TaskScope.owner (S.maintenance_context_target request))
-     (put_task (TaskScope.owner (S.maintenance_context_target request))
-      (with_activity (ObservingContext (world_next_ticket before)
-        (List.length (task_history (TaskScope.selected (S.maintenance_context_target request)))))
-         (TaskScope.selected (S.maintenance_context_target request)))
-      (with_ticket (N.succ (world_next_ticket before)) before)) =
-     Some (with_activity (ObservingContext (world_next_ticket before)
-        (List.length (task_history (TaskScope.selected (S.maintenance_context_target request)))))
-         (TaskScope.selected (S.maintenance_context_target request)))).
-   unfold find_task, put_task, with_tasks; cbn.
-   eapply registry_replace_selected. exact (TaskScope.observed (S.maintenance_context_target request)).
- - split; [|reflexivity].
-   unfold S.compaction_entry,S.put_compaction,FeatureRequest.install_feature,S.compaction_slot,S.compaction_entries,
-     Receiver.field,Receiver.inject,Receiver.keyed,Receiver.install,with_features,set; cbn.
-   rewrite N.eqb_refl. eexists; split; reflexivity.
+ split; [|reflexivity].
+ unfold find_task, put_task, with_tasks, S.put_compaction, FeatureRequest.install_feature, with_features; cbn.
+ eapply registry_replace_selected. exact (TaskScope.observed (S.maintenance_context_target request)).
 Qed.
 
 Theorem maintenance_observation_uses_the_current_task : forall before

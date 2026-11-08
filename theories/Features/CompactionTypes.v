@@ -6,7 +6,7 @@ From Selvedge.Kernel Require Import Domain Compaction ContextSelection.
 Import ListNotations.
 Open Scope N_scope.
 
-Inductive reason := Background | Blocking | IdleMaintenance | Manual.
+Definition reason := compaction_reason.
 Record token_budget := TokenBudget { reserve_room : N; window_room : N }.
 Definition reserve_tokens (value : token_budget) := Compaction.minimum_reserve + reserve_room value.
 Definition window_tokens (value : token_budget) :=
@@ -77,11 +77,14 @@ Inductive measurement :=
 Inductive job :=
 | NoJob
 | WaitingForResource (purpose : option reason)
-| AwaitingContext (ticket : N) (purpose : option reason) (resume_model : bool)
 | Resuming (input : capture) (purpose : reason)
 | Preparing (request : RequestEnvelope.t (inspection_input reason))
 | Compacting (request : RequestEnvelope.t compaction_input)
 | Validating (request : RequestEnvelope.t (inspection_input validation)).
+Record cache_observation := CacheObservation {
+ cache_deadline : N;
+ cache_history : list message
+}.
 Record entry := Entry {
  (* This is the actual completed workspace observation. It is not reconstructed
     from the existence of a compaction job or a current task snapshot. *)
@@ -91,10 +94,11 @@ Record entry := Entry {
  entry_useful : N;
  entry_maintained : N;
  entry_attempted : N;
- entry_cache_deadline : N;
- entry_cache_history : list message
+ entry_cache : option cache_observation
 }.
-Definition empty_entry := Entry None Unmeasured NoJob 0 0 0 0 [].
+Definition empty_entry := Entry None Unmeasured NoJob 0 0 0 None.
+Definition entry_cache_deadline (value : entry) :=
+ match entry_cache value with Some cache => cache_deadline cache | None => 0 end.
 Record state := MaintenanceState {
  maintenance_policy : policy;
  maintenance_entries : list (N * entry);

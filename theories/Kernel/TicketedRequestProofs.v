@@ -24,7 +24,7 @@ Theorem issued_task : forall before (request : S.plan before),
 Proof.
  intros; unfold S.issue; cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
  destruct (S.build request (world_next_ticket before)); cbn [fst decision_world accept].
- destruct (S.intent request); rewrite ?context_wake_preserves_every_task_lookup;
+ destruct (S.intent request);
  unfold find_task,put_task,with_tasks,with_ticket; cbn;
  eapply registry_replace_selected; exact (TaskScope.observed (S.target request)).
 Qed.

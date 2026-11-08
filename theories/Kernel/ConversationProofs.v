@@ -60,7 +60,7 @@ Proof.
  split; [reflexivity|]. split.
  - rewrite settle_model_expression.
    destruct (unseen_model_input (append_history [FailureMessage duplicate_model_identity] task));
-     destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed];
+     destruct task as [contract chosen settings lifecycle history queued lineage handoff consumed];
      cbn in Pending; subst lifecycle; destruct queued;
      first [left; reflexivity | right; reflexivity].
  - rewrite settle_model_expression.

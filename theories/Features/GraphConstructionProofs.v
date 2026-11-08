@@ -37,8 +37,12 @@ Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request bef
  exists plan : TaskGraph.graph_plan before None owner,
  TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) = source /\
  TaskGraph.graph_plans plan = plans /\
+ let id := N.of_nat (List.length (TaskGraph.registry before)) in
  TaskGraph.handle_create_task_graph request None before =
-   CommandResult.accept (TaskGraph.install_change (N.of_nat (List.length (TaskGraph.registry before))) plan).
+   CommandResult.accept (TaskGraph.install_change id plan) /\
+ exists graph,
+ TaskGraph.lookup id (decision_world (CommandResult.accept (TaskGraph.install_change id plan))) = Some graph /\
+ F.graph_work graph = TaskGraph.scope_identity owner.
 Proof.
  intros request before owner plans source Owner Capacity Valid Prepared.
  unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
@@ -56,7 +60,9 @@ Proof.
    (TaskGraph.CheckedCached (TaskGraph.cache_declaration None before source) Authorized Admitted)
    plans Prepared).
  split; [reflexivity|split; [reflexivity|]].
- apply TaskGraphProofs.resolved_installation_follows_the_typed_plan.
+ split.
+ - apply TaskGraphProofs.resolved_installation_follows_the_typed_plan.
+ - apply TaskGraphProofs.installed_plan_associates_its_work; left; reflexivity.
 Qed.
 
 Theorem every_failed_graph_declaration_is_atomic : forall creating id owner source caller before,

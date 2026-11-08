@@ -34,7 +34,7 @@ Theorem interpreted_results_keep_their_exact_task_update : forall before target 
  Some (TaskChange.apply (TaskResult.result_changes update (TaskScope.selected target)) (TaskScope.selected target)).
 Proof.
  intros; unfold TaskResult.interpret_result, TaskResult.apply_result.
- destruct update; rewrite ?context_wake_preserves_every_task_lookup;
+
    unfold find_task, put_task, with_tasks; cbn;
    eapply registry_replace_selected; exact (TaskScope.observed target).
 Qed.

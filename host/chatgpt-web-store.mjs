@@ -129,12 +129,16 @@ export class WebRequestStore {
         previous: this.latest(request.owner) ?? null, new_key: randomUUID() });
       // DEFENSE: A prepared invocation with unresolved remote work must retain its original key instead of creating another request.
       if (decision.action === 'retained') throw retainedRequest(decision.record);
-      if (decision.action === 'reuse') {
-        this.db.prepare('UPDATE requests SET rejected=0 WHERE request_key=?').run(decision.record.request_key);
+      if (decision.updates) {
+        this.db.prepare('UPDATE requests SET rejected=? WHERE request_key=?')
+          .run(decision.updates.rejected, decision.record.request_key);
       } else if (decision.action === 'insert') {
         const row = decision.record;
-        this.db.prepare(`INSERT INTO requests (invocation, request_key, owner, profile, endpoint, binding, body)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`).run(row.invocation, row.request_key, row.owner, row.profile, row.endpoint, row.binding, row.body);
+        this.db.prepare(`INSERT INTO requests
+          (invocation, request_key, owner, profile, endpoint, binding, body, response_id, response, rejected, retired)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          row.invocation, row.request_key, row.owner, row.profile, row.endpoint, row.binding, row.body,
+          row.response_id, row.response, row.rejected, row.retired);
       }
       const selected = this.find(decision.record.request_key);
       this.db.exec('COMMIT');
@@ -160,8 +164,12 @@ export class WebRequestStore {
   }
 
   reject(record) {
-    const { updates } = boundary('web.store_reject', { record });
-    if (updates) this.db.prepare('UPDATE requests SET rejected=? WHERE request_key=?').run(updates.rejected, record.request_key);
+    const current = this.find(record.request_key);
+    const { updates } = boundary('web.store_reject', { record: current });
+    if (updates) {
+      this.db.prepare('UPDATE requests SET rejected=? WHERE request_key=?').run(updates.rejected, record.request_key);
+      Object.assign(record, updates);
+    }
   }
 
   retire(record) {

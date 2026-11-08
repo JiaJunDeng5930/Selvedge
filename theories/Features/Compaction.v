@@ -50,13 +50,19 @@ Definition useful (history : list message) := N.of_nat (List.length (filter (fun
  | ContextReplacement _ | ReasoningRecord _ _ _ | FailureMessage _ => false | _ => true end) history)).
 Definition job_pending (value : job) := match value with NoJob => false | _ => true end.
 Definition job_ticket (value : job) := match value with
- | AwaitingContext ticket _ _ | Preparing (RequestEnvelope.Envelope ticket _) | Compacting (RequestEnvelope.Envelope ticket _) | Validating (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
+ | Preparing (RequestEnvelope.Envelope ticket _) | Compacting (RequestEnvelope.Envelope ticket _) | Validating (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
 Definition measurement_ticket (value : measurement) := match value with Measuring (RequestEnvelope.Envelope ticket _) => Some ticket | _ => None end.
 Definition cancellations (id : N) (entry : entry) :=
  ((match measurement_ticket (entry_measurement entry) with Some ticket => [Cancel id ticket] | None => [] end) ++
  (match job_ticket (entry_job entry) with Some ticket => [Cancel id ticket] | None => [] end))%list.
-Definition pending_cancellations (state : Selvedge.Features.CompactionTypes.state) :=
- flat_map (fun pair => cancellations (fst pair) (snd pair)) (maintenance_entries state).
+Definition context_cancellations (id : N) (task : task) :=
+ match maintenance_context_ticket (task_activity task) with
+ | Some ticket => [Cancel id ticket] | None => [] end.
+Definition pending_cancellations (value : Selvedge.Kernel.State.world) :=
+ flat_map (fun pair => let '(id,entry) := pair in
+  (cancellations id entry ++ match Selvedge.Kernel.State.find_task id value with
+   | Some task => context_cancellations id task | None => [] end)%list)
+  (maintenance_entries (registry value)).
 Definition must_wait (policy : policy) (tokens : N) (budget : token_budget) :=
  (policy_enabled policy && (window_tokens budget * policy_blocking policy <=? tokens * 100)) ||
  negb (tokens + reserve_tokens budget <=? window_tokens budget).
@@ -71,7 +77,7 @@ Definition failed (id : N) (task : task) (entry : entry) (reason : string) (valu
  let task := with_activity (match task_activity task with ReadyForModel => Idle | phase => phase end)
   (set task_history (fun history => (history ++ [FailureMessage ("Context compaction: " ++ reason)])%list) task) in
  let entry := set entry_attempted (fun _ => useful (task_history task))
-  (set entry_cache_deadline (fun _ => 0) (with_job NoJob (with_measurement (MeasurementFailed (capture_task task value)) entry))) in
+  (set entry_cache (fun _ => None) (with_job NoJob (with_measurement (MeasurementFailed (capture_task task value)) entry))) in
  commit id entry (Selvedge.Kernel.State.put_task id task value) [].
 Definition with_observation (input : option capture) (value : entry) := set entry_observation (fun _ => input) value.
 Definition resume_activity (resume_model : bool) := if resume_model then ReadyForModel else Idle.
@@ -105,7 +111,7 @@ Definition run_request (id : N) (request : R.maintenance_action) (value : Selved
  | Some target => run_request_selected target request
  | None => Selvedge.Kernel.State.ignored value end.
 Definition resume (job : job) := match job with
- | NoJob | AwaitingContext _ _ _ => NoJob
+ | NoJob => NoJob
  | WaitingForResource purpose => WaitingForResource purpose
  | Resuming input purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput input purpose _))
  | Compacting (RequestEnvelope.Envelope _ (CompactInput input purpose _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput input (Candidate purpose _ _) _)) => Resuming input purpose end.
@@ -113,7 +119,7 @@ Definition recover_entry (entry : entry) := with_observation None
  (with_measurement Unmeasured (with_job (resume (entry_job entry)) entry)).
 Definition clear_entry (task : task) (entry : entry) :=
  set entry_attempted (fun _ => useful (task_history task))
-  (set entry_cache_deadline (fun _ => 0) (with_measurement Unmeasured (with_job NoJob entry))).
+  (set entry_cache (fun _ => None) (with_measurement Unmeasured (with_job NoJob entry))).
 Definition cancel (id : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  commit id (clear_entry task entry) value (cancellations id entry).
 Definition begin_scope (id : N) (input : capture) (purpose : option reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -293,10 +299,12 @@ Definition compact_result (id ticket : N) (task : task) (result : json) (error :
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
 Definition activity_result (id source now : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if source <=? N.of_nat (List.length (task_history task)) then
- let deadline := match configured_target task (registry value) with
- | Some target => if N.eqb (target_cache_ttl target) 0 then 0 else now + target_cache_ttl target | None => 0 end in
- let entry := set entry_cache_deadline (fun _ => deadline)
-   (set entry_cache_history (fun _ => firstn (N.to_nat source) (task_history task)) entry) in
+ let cache := match configured_target task (registry value) with
+ | Some target => if N.eqb (target_cache_ttl target) 0 then None
+   else Some (CacheObservation (now + target_cache_ttl target)
+     (firstn (N.to_nat source) (task_history task)))
+ | None => None end in
+ let entry := set entry_cache (fun _ => cache) entry in
  Some (commit id entry (store (with_now now (registry value)) value) [])
  else None.
 Definition resolve_task_completion (id : N) (completion : completion) (value : Selvedge.Kernel.State.world) :=
@@ -311,26 +319,26 @@ Definition resolve_task_completion (id : N) (completion : completion) (value : S
  end.
 (* Summary-context reads are not inference demand. Restart retires their
    exact receiver before the ordinary task recovery rule resumes inference. *)
-Definition recover_context_task (state : Selvedge.Features.CompactionTypes.state) (id : N) (task : task) :=
- match entry_job (current_entry id state), task_activity task with
- | AwaitingContext expected _ resume_model, ObservingContext actual _ =>
-   if N.eqb expected actual then with_activity (if resume_model then WantsModel else Idle) task else task
- | _, _ => task end.
-Definition recover_context_tasks (state : Selvedge.Features.CompactionTypes.state) (value : Selvedge.Kernel.State.world) :=
- Selvedge.Kernel.State.with_tasks
-   (Selvedge.Foundation.Registry.indexed (recover_context_task state) 0 (Selvedge.Kernel.State.world_tasks value)) value.
+Definition retire_context_task (task : task) :=
+ match task_activity task with
+ | ObservingContext _ _ (ForMaintenance _ resume_model) =>
+   with_activity (if resume_model then WantsModel else Idle) task
+ | _ => task end.
+Definition retire_context_tasks (value : Selvedge.Kernel.State.world) :=
+ Selvedge.Kernel.State.with_tasks (map retire_context_task
+   (Selvedge.Kernel.State.world_tasks value)) value.
 Definition resolve (completion : completion) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  match completion with
  | Configure policy now =>
    let before := registry value in
    Some (acknowledged (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
-       (maintenance_entries before)) (N.max now (maintenance_now before)) 0) (recover_context_tasks before value))
-     (map Selvedge.Kernel.State.MaintainContext (pending_cancellations before)))
+       (maintenance_entries before)) (N.max now (maintenance_now before)) 0) (retire_context_tasks value))
+     (map Selvedge.Kernel.State.MaintainContext (pending_cancellations value)))
  | Clock now => Some (acknowledged (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
  | Activity id _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
 
 Definition validating (job : job) := match job with
- | WaitingForResource _ | AwaitingContext _ _ _ | Preparing _ | Validating _ | Resuming _ Manual | Compacting (RequestEnvelope.Envelope _ (CompactInput _ Manual _ _)) => true
+ | WaitingForResource _ | Preparing _ | Validating _ | Resuming _ Manual | Compacting (RequestEnvelope.Envelope _ (CompactInput _ Manual _ _)) => true
  | _ => false end.
 Definition pending_measurement (measurement : measurement) := match measurement with Measuring _ => true | _ => false end.
 Definition blocked (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -356,26 +364,29 @@ Definition can_schedule_task (id : N) (value : Selvedge.Kernel.State.world) := m
 Definition idle_due (task : task) (entry : entry) (state : Selvedge.Features.CompactionTypes.state) :=
  policy_enabled (maintenance_policy state) && idle task && alive task && negb (job_pending (entry_job entry)) &&
  (entry_maintained entry <? useful (task_history task)) && (entry_attempted entry <? useful (task_history task)) &&
- ContextSelection.closed_prefix (task_history task) && (0 <? entry_cache_deadline entry) &&
- (entry_cache_deadline entry - policy_idle_lead (maintenance_policy state) <=? maintenance_now state) &&
- ContextSelection.history_extends (entry_cache_history entry) (task_history task).
+ ContextSelection.closed_prefix (task_history task) &&
+ match entry_cache entry with
+ | Some cache =>
+   (cache_deadline cache - policy_idle_lead (maintenance_policy state) <=? maintenance_now state) &&
+   ContextSelection.history_extends (cache_history cache) (task_history task)
+ | None => false end.
 Definition synchronized_entry (task : task) (entry : entry) :=
  if entry_useful entry <? useful (task_history task) then
  set entry_useful (fun _ => useful (task_history task)) entry
  else entry.
 Definition resource_wait_purpose (value : job) := match value with
- | WaitingForResource purpose | AwaitingContext _ purpose _ => purpose
+ | WaitingForResource purpose => purpose
  | Resuming _ purpose | Preparing (RequestEnvelope.Envelope _ (InspectInput _ purpose _)) | Compacting (RequestEnvelope.Envelope _ (CompactInput _ purpose _ _)) | Validating (RequestEnvelope.Envelope _ (InspectInput _ (Candidate purpose _ _) _)) => Some purpose
  | NoJob => None end.
-Definition release_context_receiver (entry : entry) (task : task) :=
- match entry_job entry, task_activity task with
- | AwaitingContext expected _ resume_model, ObservingContext actual _ =>
-   if N.eqb expected actual then with_activity (resume_activity resume_model) task else task
- | _, _ => task end.
 Definition wait_for_resource (id : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+ let '(purpose,next) := match task_activity task with
+   | ObservingContext _ _ (ForMaintenance purpose resume_model) =>
+     (purpose, with_activity (resume_activity resume_model) task)
+   | _ => (resource_wait_purpose (entry_job entry), task) end in
  commit id (with_observation None (with_measurement Unmeasured
-   (with_job (WaitingForResource (resource_wait_purpose (entry_job entry))) entry)))
-  (Selvedge.Kernel.State.put_task id (release_context_receiver entry task) value) (cancellations id entry).
+   (with_job (WaitingForResource purpose) entry)))
+  (Selvedge.Kernel.State.put_task id next value)
+  ((cancellations id entry ++ context_cancellations id task)%list).
 Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  let state := registry value in
  let previous := find_entry id state in
@@ -388,10 +399,9 @@ Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.wor
  else if running task then
  (* Model input is measured after the admitted workspace observation. Holding
     WantsModel here would prevent the observation that makes the count current. *)
- match task_activity task with WantsModel | ObservingContext _ _ => None | _ =>
+ match task_activity task with WantsModel | ObservingContext _ _ _ => None | _ =>
  match entry_job entry with
  | WaitingForResource purpose => Some (begin_scope id (capture_task task value) purpose (with_job NoJob entry) value)
- | AwaitingContext _ _ _ => None
  | Resuming input purpose =>
    if relevant input task value then
     if ContextSelection.closed_prefix (task_history task)
@@ -416,59 +426,51 @@ Definition suspended_context_task (purpose : option reason) (resume_model : bool
    [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task
    | _ => task end in
  TaskWake.promote (with_activity (if resume_model then WantsModel else Idle) task).
-Definition same_context_purpose (first second : option reason) := match first, second with
- | None, None | Some Background, Some Background | Some Blocking, Some Blocking
- | Some IdleMaintenance, Some IdleMaintenance | Some Manual, Some Manual => true
- | _, _ => false end.
-Definition awaiting_context_demand (ticket : N) (purpose : option reason) (entry : entry) :=
- match entry_job entry with
- | AwaitingContext actual current demanded =>
-   if N.eqb actual ticket && same_context_purpose current purpose then Some demanded else None
- | _ => None end.
-Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N)  : DecisionComposition.step := fun value effects =>
+Definition finish_context (id : N) (purpose : option reason) (resume_model : bool)
+ (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
+ match task_activity task, task_lifecycle task with
+ | ReadyForModel, Running _ _ =>
+   let task := with_activity (resume_activity resume_model) task in
+   let value := Selvedge.Kernel.State.put_task id task value in
+   let input := capture_task task value in
+   let entry := with_observation (Some input) (with_measurement Unmeasured (with_job NoJob entry)) in
+   DecisionComposition.from_decision (begin_scope id input purpose entry
+     (Selvedge.Kernel.State.decision_world (commit id entry value [])))
+ | ObservingContext _ _ _, _ => DecisionComposition.unchanged value
+ | WantsModel, Frozen _ _ | WantsModel, Stopped _ _ =>
+   let task := suspended_context_task purpose resume_model task in
+   DecisionComposition.from_decision (cancel id task entry (Selvedge.Kernel.State.put_task id task value))
+ | WantsModel, Running _ _ =>
+   if TicketedRequest.Scoped.resources_available task value then
+     DecisionComposition.from_decision (cancel id task entry value)
+   else
+     let task := with_activity (resume_activity resume_model) task in
+     DecisionComposition.from_decision (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
+ | _, _ => DecisionComposition.from_decision (cancel id task entry value) end.
+
+Definition observe_transition (before : Selvedge.Kernel.State.world)
+ (completed : option (N * N)) (id : N) : DecisionComposition.step := fun value effects =>
  let entry := current_entry id (registry value) in
+ let completed_ticket ticket := match completed with
+   | Some (owner, received) => N.eqb id owner && N.eqb ticket received
+   | None => false end in
  match Selvedge.Kernel.State.find_task id before, Selvedge.Kernel.State.find_task id value with
  | Some previous, Some task =>
    if cancelled_task id (effects) then
      DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
    else match task_activity previous with
-   | ObservingContext observed _ =>
-     match entry_job (current_entry id (registry before)) with
-     | AwaitingContext expected purpose resume_model =>
-       if N.eqb expected observed then
-       match awaiting_context_demand expected purpose entry with
-       | None => DecisionComposition.unchanged value
-       | Some demanded =>
-       if cancelled_ticket id expected (effects) then
-         DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
-       else let resume_model := resume_model || demanded in
+   | ObservingContext ticket _ (ForMaintenance purpose resume_model) =>
+     if cancelled_ticket id ticket effects then
+       DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
+     else if completed_ticket ticket then finish_context id purpose resume_model task entry value
+     else DecisionComposition.unchanged value
+   | ObservingContext ticket _ ForInference =>
+     if completed_ticket ticket then
        match task_activity task, task_lifecycle task with
        | ReadyForModel, Running _ _ =>
-         let task := with_activity (resume_activity resume_model) task in
-         let value := Selvedge.Kernel.State.put_task id task value in
-         let input := capture_task task value in
-         let entry := with_observation (Some input) (with_measurement Unmeasured (with_job NoJob entry)) in
-         let recorded := commit id entry value [] in
-         DecisionComposition.from_decision (begin_scope id input purpose entry (Selvedge.Kernel.State.decision_world recorded))
-       | ObservingContext next _, _ =>
-         (* A revision retry keeps the same purpose but owns its newly issued
-            ticket. A stale receiver cannot claim a later inference read. *)
-         DecisionComposition.from_decision (commit id (with_job (AwaitingContext next purpose resume_model) entry) value [])
-       | WantsModel, Frozen _ _ | WantsModel, Stopped _ _ =>
-         let task := suspended_context_task purpose resume_model task in
-         DecisionComposition.from_decision (cancel id task entry (Selvedge.Kernel.State.put_task id task value))
-       | WantsModel, Running _ _ =>
-         if TicketedRequest.Scoped.resources_available task value then
-           DecisionComposition.from_decision (cancel id task entry value)
-         else
-           let task := with_activity (resume_activity resume_model) task in
-           DecisionComposition.from_decision (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
-       | _, _ => DecisionComposition.from_decision (cancel id task entry value) end end
-       else DecisionComposition.unchanged value
-     | _ => match task_activity task, task_lifecycle task with
-       | ReadyForModel, Running _ _ =>
          DecisionComposition.from_decision (commit id (with_observation (Some (capture_task task value)) entry) value [])
-       | _, _ => DecisionComposition.unchanged value end end
+       | _, _ => DecisionComposition.unchanged value end
+     else DecisionComposition.unchanged value
    | _ => DecisionComposition.unchanged value end
  | _, _ => DecisionComposition.unchanged value end.
 Definition synchronize_task (id : N) : DecisionComposition.step := fun value _ =>
@@ -485,7 +487,13 @@ Definition earlier (left right : N) := if N.eqb left 0 || ((0 <? right) && (righ
 Definition arm_clock : DecisionComposition.step := fun value _ =>
  let state := registry value in
  let deadline := if policy_enabled (maintenance_policy state) then
- fold_right (fun pair rest => earlier (entry_deadline (snd pair) (maintenance_now state) (policy_idle_lead (maintenance_policy state))) rest)
+ fold_right (fun '(id,entry) rest =>
+  let due := entry_deadline entry (maintenance_now state) (policy_idle_lead (maintenance_policy state)) in
+  if N.eqb due 0 then rest else
+  match Selvedge.Kernel.State.find_task id value with
+  | Some task => match maintenance_context_ticket (task_activity task) with
+    | Some _ => rest | None => earlier due rest end
+  | None => earlier due rest end)
   0 (maintenance_entries state) else 0 in
  if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then DecisionComposition.unchanged value
  else DecisionComposition.Update (store (set maintenance_timer (fun _ => deadline) state) value)
@@ -493,24 +501,25 @@ Definition arm_clock : DecisionComposition.step := fun value _ =>
 Definition synchronize_all : DecisionComposition.step := fun value effects =>
  let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
  DecisionComposition.and_then (DecisionComposition.each identities synchronize_task) arm_clock value effects.
-Definition after_transition (before : Selvedge.Kernel.State.world) : DecisionComposition.step := fun value effects =>
+Definition after_transition (before : Selvedge.Kernel.State.world) (completed : option (N * N))
+ : DecisionComposition.step := fun value effects =>
  let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
- DecisionComposition.and_then (DecisionComposition.each identities (observe_manual before)) synchronize_all value effects.
+ DecisionComposition.and_then (DecisionComposition.each identities (observe_transition before completed)) synchronize_all value effects.
 Definition recover (value : Selvedge.Kernel.State.world) :=
  let state := registry value in
  store (MaintenanceState (maintenance_policy state)
   (map (fun pair => (fst pair, recover_entry (snd pair))) (maintenance_entries state)) (maintenance_now state) 0)
-   (recover_context_tasks state value).
+   (retire_context_tasks value).
 (* A live catalog change has physical requests to retire. Their exact tickets
    must be collected before recovery clears the corresponding receivers. A
    process restart still uses [recover], since the new process has no running
    handles for its old requests. Recovery does not confirm remote cancellation. *)
 Definition reconfigure (value : Selvedge.Kernel.State.world) :=
  acknowledged (recover value)
-   (map Selvedge.Kernel.State.MaintainContext (pending_cancellations (registry value))).
+   (map Selvedge.Kernel.State.MaintainContext (pending_cancellations value)).
 Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
-  (set entry_attempted (N.max (useful history)) (set entry_cache_deadline (fun _ => 0)
+  (set entry_attempted (N.max (useful history)) (set entry_cache (fun _ => None)
   (with_measurement Unmeasured (with_job NoJob entry))))).
 Definition supplied_change (id : N) (task : task) (summary : Compaction.summary) (value : Selvedge.Kernel.State.world) :=
  let history := task_history task in

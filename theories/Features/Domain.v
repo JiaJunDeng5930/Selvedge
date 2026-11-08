@@ -46,7 +46,7 @@ Inductive graph_node := ExistingNode (key : string) (task : N)
 Record resolved_node := ResolvedNode { node_key : string; node_task : N }.
 Record graph_receipt := GraphReceipt { receipt_source : N; receipt_rule : string;
  receipt_target : N; receipt_reply : json }.
-Record task_graph := TaskGraph { graph_name : string; graph_nodes : list resolved_node;
+Record task_graph := TaskGraph { graph_work : option N; graph_name : string; graph_nodes : list resolved_node;
  graph_rules : list graph_rule; graph_receipts : list graph_receipt }.
 Inductive worktree_status := Creating | CreatingArchived | Ready | CreationFailed | Archiving | ArchiveFailed | WorktreeArchived.
 Inductive tree_phase := TreeCreating (request : RequestEnvelope.owned bool)
@@ -109,7 +109,6 @@ Record state := State {
  feature_board : board;
  feature_works : list work;
  feature_task_owners : list (N * N);
- feature_graph_owners : list (N * N);
  feature_graphs : list (option task_graph);
  feature_worktrees : list worktree;
  feature_remote : remote;
@@ -118,7 +117,7 @@ Record state := State {
  feature_title_settings : title_settings;
  feature_compaction : CompactionTypes.state
 }.
-Definition initial := State (Board [] [] [] [] false ""%string) [] [] [] [] []
+Definition initial := State (Board [] [] [] [] false ""%string) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
  (TitleSettings 0 Titles.default_instructions Titles.default_instructions) CompactionTypes.initial.
 

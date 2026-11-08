@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require TaskWake.
+From Selvedge.Kernel Require OperationPublication.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require DecisionComposition TaskResult.
+From Selvedge.Programming Require DecisionComposition TaskResult Focus.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
 From Selvedge.Programming Require Import TaskChangeProofs.
 From Selvedge.Kernel Require Import TicketedRequest ScopedRequestProofs.
@@ -78,31 +79,33 @@ Proof.
    do 2 eexists; reflexivity.
 Qed.
 
-Theorem publishing_live_operations_only_marks_them_announced :
- forall task phase operations,
- task_lifecycle task = Running phase operations ->
- task_operations (TaskChange.apply (TicketedRequest.publication_changes task) task) = map TicketedRequest.announce_operation operations.
+Definition published (value : operation) :=
+ Operation (operation_id value) (operation_call value) PublishedOperation (operation_stage value).
+Definition first_publication_receipt (value : operation) :=
+ match operation_result_route value with
+ | ProviderCall => [FunctionOutput (call_id (operation_call value)) (OperationPublication.notice value) false]
+ | PublishedOperation => []
+ end.
+Lemma collect_publication_preserves_order_and_association : forall values,
+ OperationPublication.collect values =
+ (map published values,flat_map first_publication_receipt values).
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
-   phase operations RunningTask.
- cbn in RunningTask; subst lifecycle; reflexivity.
+ unfold OperationPublication.collect.
+ induction values as [|[id invocation route stage] rest IH]; [reflexivity|].
+ cbn [fold_right]; rewrite IH; destruct route; reflexivity.
 Qed.
 
-Theorem operation_publication_preserves_its_completion_owner :
- forall task phase operations operation,
- task_lifecycle task = Running phase operations ->
- In operation operations ->
- exists published, In published (task_operations (TaskChange.apply (TicketedRequest.publication_changes task) task)) /\
-   operation_id published = operation_id operation /\
-   operation_call published = operation_call operation /\
-   operation_stage published = operation_stage operation /\
-   operation_announced published = true.
+Theorem publishing_operations_routes_results_and_emits_each_first_notice : forall task,
+ let updated := TaskChange.apply_edit TaskChange.PublishOperations task in
+ task_operations updated = map published (task_operations task) /\
+ task_history updated = task_history task ++ flat_map first_publication_receipt (task_operations task).
 Proof.
- intros task phase operations operation RunningTask Member.
- rewrite (publishing_live_operations_only_marks_them_announced task phase operations RunningTask).
- exists (TicketedRequest.announce_operation operation); split.
- - apply in_map; exact Member.
- - unfold TicketedRequest.announce_operation; repeat split; reflexivity.
+ intros [contract profile settings lifecycle history queued lineage handoff consumed].
+ unfold TaskChange.apply_edit, Focus.modify, Focus.read, Focus.frame, TaskChange.edit_parts,
+   TaskChange.PublishOperations.
+ destruct lifecycle; cbn [TaskChange.task_focus Focus.split TaskChange.task_parts fst
+   TaskChange.transition TaskChange.current_lifecycle task_lifecycle task_operations lifecycle_operations];
+ rewrite collect_publication_preserves_order_and_association; split; reflexivity.
 Qed.
 
 Theorem exhausted_schedule_requests_another_step :
@@ -304,5 +307,5 @@ Theorem a_blocked_environment_still_admits_archived_settlement :
 Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
  unfold Scheduler.next_runnable_step; rewrite Blocked.
- unfold task_operations; rewrite ArchivedTask, Pending; reflexivity.
+ unfold task_operations, lifecycle_operations; rewrite ArchivedTask, Pending; reflexivity.
 Qed.
