@@ -16,11 +16,12 @@ structural duplication. Computational modules must not import MetaRocq or proof
 automation. Important theorems constrain the extracted operations callers use.
 No axioms, admitted obligations, unchecked recursion or fabricated observations.
 
-Read the existing domain model before adding a feature. Prefer reuse,
-composition, a justified common abstraction, or an extension inside the owning
-module before adding independent state or special cases. Keep requirements in
-the existing executable definitions and propositions. Keep current user and
-engineering reasons beside their selected contracts under requirements/.
+Read the existing domain model before adding a feature. Apply the
+[capability design requirements](requirements/README.md#capability-design)
+when adding functionality, designing interfaces or changing architecture.
+Keep behavioral requirements in the existing executable definitions and
+propositions. Keep current user and engineering reasons beside their selected
+contracts under requirements/.
 Select existing contracts with Rocq Export rather than copying their formulas.
 Production code must remain independent of the requirements logical root.
 Do not write or maintain architecture decision records (ADRs). Keep justified,
