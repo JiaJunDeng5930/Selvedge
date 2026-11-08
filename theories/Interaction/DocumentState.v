@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Import Codec Origin Identity.
+From Selvedge.Interaction Require World.
 From Selvedge.Kernel Require Import Streams.
 From Selvedge.Interaction.Interactive Require Types Bounds.
 Import ListNotations.
@@ -77,15 +78,10 @@ Record context := DocumentContext {
  context_connected : bool;
  context_revoked : bool
 }.
-Definition find_world collection identity value world :=
- find (fun item=>match natural_field identity item with Some found=>N.eqb value found|None=>false end)
-   (items collection world).
-Definition find_task task world := find_world "tasks" "id" task world.
-Definition find_work work world := find_world "works" "work_id" work world.
-Definition task_belongs work task world := match find_task task world with
- | None=>false
- | Some found=>match work with None=>true|Some work=>match natural_field "work_id" found with
-     Some current=>N.eqb current work|None=>false end end end.
+Definition find_world := World.find_world.
+Definition find_task := World.find_task.
+Definition find_work := World.find_work.
+Definition task_belongs := World.task_belongs.
 Definition visible_tasks observation :=
  fold_left (fun tasks view=>let task:=Identity.task_view_task view in
    if existsb (N.eqb task) tasks then tasks else tasks++[task]) (context_views observation) [].
