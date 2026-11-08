@@ -25,6 +25,7 @@ Definition creation_base (options : option settings_request) (caller : task_sett
    | Some space => if WorkspaceBinding.cloud_intersects space tree then
      Settings (settings_workspace caller) (settings_project caller) (settings_sandbox defaults)
        (settings_approval defaults) (settings_guidance caller) (settings_worktree defaults) (settings_resource caller)
+       (settings_realtime_context defaults)
      else defaults
    | None => defaults end
  | _, _, _ => defaults end.

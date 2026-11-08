@@ -15,11 +15,11 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-26';
+export const journalFormat = 'selvedge-rocq-journal-27';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
-  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL) STRICT',
+  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL) STRICT',
 };
 
 function closeJournalDatabase(database) {
@@ -124,6 +124,7 @@ export class Journal extends EventEmitter {
     const result = this.#tail.then(async () => {
       // DEFENSE: A prior SQLite/Worker failure leaves the in-memory world ahead of durable storage; never execute another input.
       if (this.#failure) throw this.#failure;
+      const observedAt = Date.now();
       let inputText;
       let response;
       let pending;
@@ -152,8 +153,8 @@ export class Journal extends EventEmitter {
       let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
-        this.#database.prepare('INSERT INTO journal (seq, input) VALUES (?, ?)')
-          .run(sequence, inputText);
+        this.#database.prepare('INSERT INTO journal (seq, input, observed_at) VALUES (?, ?, ?)')
+          .run(sequence, inputText, observedAt);
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
@@ -174,6 +175,10 @@ export class Journal extends EventEmitter {
     // DEFENSE: execute's caller receives the failure; queue cleanup must still reach close and later callers' explicit poisoned-world rejection.
     this.#tail = result.catch(() => {});
     return result;
+  }
+
+  observedAt(sequence) {
+    return this.#database.prepare('SELECT observed_at FROM journal WHERE seq = ?').get(sequence).observed_at;
   }
 
   events(after, limit = 100) {

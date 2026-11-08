@@ -22,7 +22,8 @@ Theorem successful_open_side_records_private_birth_guidance : forall parent_id c
      (History.snapshot_history parent_id parent) in
    let start := N.succ (N.of_nat (List.length inherited)) in
    let birth := SideConversationBirth (next_task value) parent_id start in
-   let child := Tasks.fork_child (next_task value) parent_id parent (Tasks.side_input contents) (task_current_settings parent) true in
+   let child := Tasks.fork_child (next_task value) parent_id parent (Tasks.side_input contents) (task_current_settings parent) true
+     (N.succ (world_sequence value)) in
    In child (world_tasks (decision_world (Tasks.open_side parent_id contents value))) /\
    task_side_handoff child = Some (SideHandoff parent_id (N.of_nat (List.length
      (Tasks.fork_child_history (next_task value) parent_id parent (task_current_settings parent) true)))) /\

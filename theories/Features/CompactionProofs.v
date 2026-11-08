@@ -117,13 +117,13 @@ Proof. reflexivity. Qed.
 Lemma supplied_history_is_an_append : forall id task summary value,
  K.find_task id value = Some task ->
  exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
- task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
+ task_history stored = (task_history task ++ [ContextSelection.record (task_history task) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
 Proof.
  intros. unfold A.supplied_change,A.commit_change.
  cbn -[A.store K.put_task ContextSelection.adopt]. rewrite storing_maintenance_preserves_tasks.
  eexists. split; [eapply find_put_task;exact H|].
  change (ContextSelection.adopt (task_history task) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary)) (task_history task) =
- (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list).
+ (task_history task ++ [ContextSelection.record (task_history task) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list).
  apply a_current_snapshot_can_be_adopted.
 Qed.
 (** This positive contract constrains the actual typed command entry, excluding
@@ -134,7 +134,7 @@ Theorem a_valid_checkpoint_preserves_its_original_records : forall payload id su
  ContextSelection.closed_prefix (task_history task) = true ->
  A.handle_compact_result payload caller value = CommandResult.Accepted (A.supplied_change id task summary value) /\
  exists stored, K.find_task id (CommandResult.change_world (A.supplied_change id task summary value)) = Some stored /\
- task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
+ task_history stored = (task_history task ++ [ContextSelection.record (task_history task) (ContextSelection.portable (Selvedge.Kernel.Compaction.summary_text summary))])%list.
 Proof.
  intros payload id summary caller task value Id Summary H H0 H1 H2. split.
  - destruct (selecting_an_existing_task_retains_its_key id value task H)
@@ -544,26 +544,23 @@ Proof.
    cbn; now rewrite N.eqb_refl.
 Qed.
 
-Theorem captured_images_select_portable_compaction :
- forall id task input purpose target scope tokens entry value observed image fragments,
+Theorem captured_images_select_structured_summary :
+ forall id task input purpose target scope tokens entry value observed image,
  In observed (captured_history input) -> In image (History.message_images observed) ->
- P.scalar_fragments (TextJson.render_json (JArray
-   (ContextSelection.dialogue (ContextSelection.raw_messages
-     (ContextSelection.history_json id (captured_history input)))))) = Some fragments ->
+ let messages := ContextSelection.history_json id (captured_history input) in
  A.start id task input purpose target scope tokens entry value =
  A.dispatch_compact id task input purpose
    (Selvedge.Kernel.Compaction.CompactionState
-     (Selvedge.Kernel.Compaction.PortableSource fragments) ""
+     (Selvedge.Kernel.Compaction.StructuredSource
+       (JArray (ContextSelection.target_messages messages scope))
+       (JArray (ContextSelection.target_messages messages ""))) ""
      (window_tokens (target_budget target)) (window_tokens (target_budget target))
      (reserve_tokens (target_budget target))) scope entry value.
 Proof.
- intros id task input purpose target scope tokens entry value observed image fragments Present Image Fragments.
+ intros id task input purpose target scope tokens entry value observed image Present Image messages.
  unfold A.start.
- rewrite (images_force_portable_rebuilding (captured_history input) observed image
-   _ _ _ _ _ _ _ Present Image).
- unfold P.to_portable,P.portable_source.
- cbn [Selvedge.Kernel.Compaction.compaction_source].
- rewrite Fragments. reflexivity.
+ rewrite (images_select_structured_summary (captured_history input) observed image
+   _ _ _ _ _ _ _ Present Image). reflexivity.
 Qed.
 
 Theorem an_oversized_compaction_request_stops :
@@ -622,18 +619,17 @@ Proof.
    unfold A.compacted_result; now rewrite Relevant, Failed.
 Qed.
 
-(** The feature callback forwards the recovered plan with its captured input
-    and scope. The kernel planner separately proves that recovered progress
-    retains native raw history. *)
-Theorem native_unavailable_callback_dispatches_portable_rebuild :
- forall id task input purpose progress scope entry value portable,
+(** The feature callback forwards the recovered summary plan with its
+    captured input and scope. *)
+Theorem native_unavailable_callback_dispatches_summary :
+ forall id task input purpose progress scope entry value summary,
  A.relevant input task value = true ->
- P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
+ P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next summary ->
  A.compacted_result id task (CompactInput input purpose progress scope)
    (JObject [("action",JString "native_unavailable")]) false entry value =
- A.dispatch_compact id task input purpose portable scope entry value.
+ A.dispatch_compact id task input purpose summary scope entry value.
 Proof.
- intros id task input purpose progress scope entry value portable Relevant Recovered.
+ intros id task input purpose progress scope entry value summary Relevant Recovered.
  unfold A.compacted_result. rewrite Relevant,Recovered. reflexivity.
 Qed.
 
@@ -707,6 +703,7 @@ Theorem a_portable_source_can_only_finish_with_a_portable_candidate :
 Proof.
  intros progress result candidate unread Portable Finished.
  unfold P.receive_source in Finished; rewrite Portable in Finished.
+ unfold P.receive_summary in Finished.
  destruct (string_field "summary_text" result) as [[|head tail]|]; try discriminate.
  destruct (skipn (N.to_nat (Selvedge.Kernel.Compaction.compaction_chunk_chars progress)) unread);
    try discriminate.

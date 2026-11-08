@@ -39,7 +39,8 @@ Definition interactive_output_name := "interactive-v1".
 Definition request_model := effect "model" (identity ++ [model;
  resource;Field "sampling" KJson;history] ++ output ++
  [Field "context_replacement_source" (KOptional KNatural); Field "output_reserve_tokens" KNatural;
- Field "source_length" KNatural;tools;callable]) (Some Model).
+ Field "source_length" KNatural;Field "birth_sequence" KNatural;
+ Field "realtime_context" (KArray KJson);tools;callable]) (Some Model).
 Definition reasoning := effect "reasoning" (identity ++ [model;history;Field "project_context" KJson]) (Some Reasoning).
 Definition tool := effect "tool" (identity ++ [Field "operation_id" KNatural;Field "tool" KJson;invocation;execution]) (Some Tool).
 Definition approval := effect "approval" (identity ++ [model;invocation;Field "settings" KJson;

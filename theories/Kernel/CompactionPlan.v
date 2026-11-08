@@ -11,35 +11,40 @@ Definition scalar_fragments (source : string) := option_map
 Definition portable_source (value : source) : option source :=
  match value with
  | PortableSource fragments => Some (PortableSource fragments)
- | NativeSource _ raw => option_map PortableSource (scalar_fragments (TextJson.render_json raw)) end.
+ | NativeSource _ raw | StructuredSource _ raw =>
+   option_map PortableSource (scalar_fragments (TextJson.render_json raw)) end.
 Definition to_portable (value : compaction_state) :=
  option_map (fun source => set compaction_source (fun _ => source) value) (portable_source (compaction_source value)).
 Definition start (captured : list message) (history raw : json) (provider : string)
  (method : method) (input_tokens window reserve : N) :=
- let value := CompactionState (NativeSource history raw) "" window window reserve in
- if forallb (fun entry => match History.message_images entry with [] => true | _ => false end) captured &&
+ let native := forallb (fun entry => match History.message_images entry with [] => true | _ => false end) captured &&
     String.eqb provider "chatgpt" &&
-    (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window)
- then Some value else to_portable value.
+    (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window) in
+ let source := if native then NativeSource history raw else StructuredSource history raw in
+ CompactionState source "" window window reserve.
 Definition chunk (value : compaction_state) :=
- match compaction_source value with NativeSource _ _ => []
- | PortableSource unread => Sequence.take (N.to_nat (compaction_chunk_chars value)) unread end.
+ match compaction_source value with
+ | PortableSource unread => Sequence.take (N.to_nat (compaction_chunk_chars value)) unread
+ | _ => [] end.
 Definition plan_json (value : compaction_state) :=
- JObject ([("method", JString (match compaction_source value with NativeSource _ _ => "native" | _ => "portable" end));
+ JObject ([("method", JString (match compaction_source value with
+   | NativeSource _ _ => "native" | StructuredSource _ _ => "structured" | PortableSource _ => "portable" end));
    ("window_tokens", number (compaction_window_tokens value));
    ("output_reserve_tokens", number (compaction_output_reserve value))] ++
    match compaction_source value with
    | NativeSource history _ => [("history", history)]
+   | StructuredSource history _ => [("history", history); ("prompt", JString structured_summary_prompt)]
    | PortableSource _ => [("chunk", JString (String.concat "" (chunk value)));
        ("carry", JString (compaction_carry value)); ("prompt", JString summary_prompt)] end)%list.
 Definition plan_bytes (value : compaction_state) := N.of_nat (String.length (TextJson.render_json (plan_json value))).
 Definition with_width (width : N) (value : compaction_state) := set compaction_chunk_chars (fun _ => width) value.
 Definition has_transport_work (value : compaction_state) :=
- match compaction_source value with NativeSource _ _ => true
- | PortableSource [] => true | PortableSource (_ :: _) => 0 <? compaction_chunk_chars value end.
+ match compaction_source value with
+ | PortableSource (_ :: _) => 0 <? compaction_chunk_chars value
+ | _ => true end.
 Definition rebase_note (value : compaction_state) :=
  match compaction_source value with
- | NativeSource _ _ => None
+ | NativeSource _ _ | StructuredSource _ _ => None
  | PortableSource unread =>
    match scalar_fragments ("Prior continuation note:" ++ String (Ascii.ascii_of_nat 10) (compaction_carry value) ++
        String (Ascii.ascii_of_nat 10) "Unread task history:" ++ String (Ascii.ascii_of_nat 10) "") with
@@ -54,23 +59,26 @@ Definition fit_portable (value : compaction_state) (budget : N) :=
 Definition fit_transport (value : compaction_state) (budget : N) :=
  match compaction_source value with
  | PortableSource _ => fit_portable value budget
- | NativeSource _ _ => if plan_bytes value <=? budget then Some value
+ | NativeSource _ _ | StructuredSource _ _ => if plan_bytes value <=? budget then Some value
    else match to_portable value with Some value => fit_portable value budget | None => None end end.
 
 Inductive step := Next (state : compaction_state) | Compacted (candidate : artifact) | Failed (reason : string).
+Definition receive_summary (value : compaction_state) (result : json) (remaining : list string) :=
+ match string_field "summary_text" result with
+ | Some (String head tail) =>
+   let summary := String head tail in
+   match remaining with
+   | [] => Compacted (PortableArtifact (PortableMessage PortableAssistant summary) [])
+   | _ => Next (CompactionState (PortableSource remaining) summary
+     (compaction_chunk_chars value) (compaction_window_tokens value) (compaction_output_reserve value)) end
+ | _ => Failed "The compactor returned an empty continuation note" end.
 Definition receive_source (value : compaction_state) (result : json) :=
  match compaction_source value with
  | NativeSource _ _ => match decode_artifact result with
    | Some (NativeArtifact head tail first rest) => Compacted (NativeArtifact head tail first rest)
    | _ => Failed "The native compactor returned an invalid replacement window" end
- | PortableSource unread => match string_field "summary_text" result with
-   | Some (String head tail) =>
-     let summary := String head tail in
-     match skipn (N.to_nat (compaction_chunk_chars value)) unread with
-     | [] => Compacted (PortableArtifact (PortableMessage PortableAssistant summary) [])
-     | remaining => Next (CompactionState (PortableSource remaining) summary
-       (compaction_chunk_chars value) (compaction_window_tokens value) (compaction_output_reserve value)) end
-   | _ => Failed "The compactor returned an empty continuation note" end end.
+ | StructuredSource _ _ => receive_summary value result []
+ | PortableSource unread => receive_summary value result (skipn (N.to_nat (compaction_chunk_chars value)) unread) end.
 Definition resize (value : compaction_state) :=
  if 1 <? compaction_chunk_chars value then match to_portable value with
  | Some converted => Next (with_width (compaction_chunk_chars value / 2) converted)
@@ -80,6 +88,7 @@ Definition receive (value : compaction_state) (result : json) :=
  match string_field "action" result with
  | Some "resize" => resize value
  | Some "native_unavailable" => match compaction_source value with
-   | NativeSource _ _ => match to_portable value with Some converted => Next converted | None => Failed "Compaction history is not valid UTF-8" end
+   | NativeSource history raw =>
+     Next (set compaction_source (fun _ => StructuredSource history raw) value)
    | _ => receive_source value result end
  | _ => receive_source value result end.

@@ -46,6 +46,7 @@ Definition settings_json (value : task_settings) := JObject [
  ("project_id", optional_number (settings_project value));
  ("workspace_resource", optional_number (settings_resource value))].
 Module D := ArgumentDeclaration.
+From Selvedge.Kernel Require RealtimeContext.
 Definition workspace_declaration := D.Object
  [("roots",true,D.BoundedArray 0 32 Workspace.path_declaration);("primary_root",false,D.nullable D.text)].
 Definition workspace_of_values (values : D.denote workspace_declaration) : option workspace :=
@@ -113,7 +114,8 @@ Definition requested_guidance (values : option (D.denote guidance_declaration)) 
  match values with Some values => Guidance.of_values values | None => Some None end.
 Definition settings_declaration (observed : bool) := D.Object
  ([("workspace",false,workspace_declaration);("sandbox",false,sandbox_patch_declaration);
-   ("approval",false,approval_declaration);("project_id",false,D.Natural 0 4294967295)] ++
+   ("approval",false,approval_declaration);("project_id",false,D.Natural 0 4294967295);
+   ("realtime_context",false,RealtimeContext.declaration)] ++
   if observed then [("guidance",false,guidance_declaration);("workspace_binding",false,binding_declaration)] else []).
 (** Settings requests keep syntax admission separate from resolution against
     the current project registry and the selected profile. *)
@@ -122,27 +124,29 @@ Record settings_request := SettingsRequest {
  sandbox_override : option (D.denote sandbox_patch_declaration);
  approval_override : option (D.denote approval_declaration);
  project_override : option N;
+ realtime_context_override : option (D.denote RealtimeContext.declaration);
  guidance_observation : option (D.denote guidance_declaration);
  binding_observation : option (option N)
 }.
-Definition empty_settings_request := SettingsRequest None None None None None None.
+Definition empty_settings_request := SettingsRequest None None None None None None None.
 Definition settings_request_of_values (observed : bool) : D.denote (settings_declaration observed) -> settings_request :=
  match observed as observed return D.denote (settings_declaration observed) -> settings_request with
- | true => fun values => let '(space,(sandbox,(approval,(project,(guidance,(binding,_)))))) := proj1_sig values in
-   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) guidance (option_map binding_of_values binding)
- | false => fun values => let '(space,(sandbox,(approval,(project,_)))) := proj1_sig values in
-   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) None None end.
+ | true => fun values => let '(space,(sandbox,(approval,(project,(realtime,(guidance,(binding,_))))))) := proj1_sig values in
+   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) realtime guidance (option_map binding_of_values binding)
+ | false => fun values => let '(space,(sandbox,(approval,(project,(realtime,_))))) := proj1_sig values in
+   SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) realtime None None end.
 Definition settings_request_json (value : settings_request) := JObject
  (flat_map (fun entry => match snd entry with Some value => [(fst entry,value)] | None => [] end)
   [("workspace",option_map (D.encode workspace_declaration) (workspace_override value));
    ("sandbox",option_map (D.encode sandbox_patch_declaration) (sandbox_override value));
    ("approval",option_map (D.encode approval_declaration) (approval_override value));
    ("project_id",option_map number (project_override value));
+   ("realtime_context",option_map (D.encode RealtimeContext.declaration) (realtime_context_override value));
    ("guidance",option_map (D.encode guidance_declaration) (guidance_observation value));
    ("workspace_binding",option_map workspace_binding_json (binding_observation value))]).
 Definition with_requested_project (project : option N) (value : settings_request) :=
  SettingsRequest (workspace_override value) (sandbox_override value) (approval_override value)
-   project (guidance_observation value) (binding_observation value).
+   project (realtime_context_override value) (guidance_observation value) (binding_observation value).
 Definition settings_of_request (model : profile) (catalog : list profile)
  (request : settings_request) (fallback : task_settings) : option task_settings :=
  match requested_guidance (guidance_observation request) with
@@ -164,7 +168,10 @@ Definition settings_of_request (model : profile) (catalog : list profile)
      | None => match workspace_override request with Some _ => None | None => settings_resource fallback end end in
    if guidance_member workspace guidance then
      Some (Settings workspace (match project_override request with Some id => Some id | None => settings_project fallback end)
-       sandbox approval contents (settings_worktree fallback) owner) else None
+       sandbox approval contents (settings_worktree fallback) owner
+       (match realtime_context_override request with
+        | Some sources => RealtimeContext.from_values sources
+        | None => settings_realtime_context fallback end)) else None
  | _,_ => None end end.
 Definition profile_json (value : profile) := profile_metadata value.
 Definition reviewer_json (value : reviewer) := match value with

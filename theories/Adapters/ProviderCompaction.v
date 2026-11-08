@@ -28,9 +28,12 @@ Definition selected_request (meter : bool) (source : json) : json :=
     (object_fields (get source "request"))).
 Definition effect (source : json) : json :=
   let original := get source "effect" in let plan := get original "plan" in
-  let history := if String.eqb (str plan "method") "native"
-    then items (get plan "history")
-    else [JObject [("role",JString "user"); ("content",JString
+  let history := match str plan "method" with
+  | "native" => items (get plan "history")
+  | "structured" => List.app (items (get plan "history"))
+    [JObject [("role",JString "task_context"); ("type",JString "environment_notice");
+      ("content",get plan "prompt")]]
+  | _ => [JObject [("role",JString "user"); ("content",JString
       (str plan "prompt" ++ "
 
 Previous continuation note:
@@ -38,10 +41,10 @@ Previous continuation note:
        "
 
 Next quoted history fragment:
-" ++ str plan "chunk"))]] in
+" ++ str plan "chunk"))]] end in
   JObject [("kind",JString "context_compaction"); ("context_selected",JBool true);
-    ("model",get original "model"); ("history",JArray history)].
-Definition portable_request (source : json) :=
+    ("model",get original "model"); ("instructions",JString ""); ("history",JArray history)].
+Definition summary_request (source : json) :=
   set (get source "request") "max_output_tokens"
     (get (get (get source "effect") "plan") "output_reserve_tokens").
 Definition meter_result (source : json) :=
@@ -117,7 +120,7 @@ Definition meter_fallback (source : json) :=
       ("input_tokens",get source "bytes")])
   else action "error".
 Definition native_failure (source : json) :=
-  (* DEFENSE: Only unsupported route/model responses authorize portable compaction. *)
+  (* DEFENSE: Only unsupported route/model responses authorize a regular summary instead of native compaction. *)
   if unsupported_route source || (status_is source 400 && code_in source
     ["unsupported_operation"; "operation_not_supported"; "unsupported_model";
      "model_not_supported"; "model_not_supported_for_compaction"; "compaction_not_supported"])
@@ -129,7 +132,7 @@ Definition call (operation : string) (source : json) : json :=
   if String.eqb operation "backend.compaction_meter_request" then success (selected_request true source)
   else if String.eqb operation "backend.compaction_request" then success (selected_request false source)
   else if String.eqb operation "backend.compaction_effect" then success (effect source)
-  else if String.eqb operation "backend.compaction_portable_request" then success (portable_request source)
+  else if String.eqb operation "backend.compaction_summary_request" then success (summary_request source)
   else if String.eqb operation "backend.compaction_meter_result" then meter_result source
   else if String.eqb operation "backend.compaction_native_result" then native_result source
   else if String.eqb operation "backend.compaction_summary_result" then summary_result source

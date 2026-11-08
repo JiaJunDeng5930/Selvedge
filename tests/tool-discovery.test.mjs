@@ -75,7 +75,9 @@ test('MCP discovery preserves the provider prefix and frozen invocation policy a
     if (previous) {
       assert.deepEqual(body.tools, previous.tools, 'Discovery must not change the cacheable tool-definition prefix');
       assert.deepEqual(body.instructions, previous.instructions, 'Discovery must not rewrite system instructions');
-      assert.deepEqual(body.input.slice(0, previous.input.length), previous.input, 'Committed model history must remain an exact prefix');
+      const previousHistory = previous.input.slice(0, -1);
+      assert.deepEqual(body.input.slice(0, previousHistory.length), previousHistory,
+        'Committed model history must remain an exact prefix before the realtime suffix');
     } else {
       initialTools = body.tools;
       assert.ok(body.tools.some(tool => tool.name === 'bash' && tool.parameters.properties.command));

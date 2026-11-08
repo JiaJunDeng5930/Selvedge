@@ -49,7 +49,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
   const encoded = responseBody(call, session.profile);
   const request = effect.plan.method === 'native'
     ? boundary('backend.compaction_request', { request: encoded })
-    : boundary('backend.compaction_portable_request', { effect, request: encoded });
+    : boundary('backend.compaction_summary_request', { effect, request: encoded });
   const prepared = await prepareModelRequest(request, home, limits);
   const observation = await measured(session, prepared, limits, options);
   if (boundary('backend.compaction_budget', { input_tokens: observation.input_tokens, plan: effect.plan }) === 'resize') {
@@ -59,7 +59,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
     let response;
     try { response = await requestProviderJSON(session, '/compact', prepared, limits, options); }
     catch (error) {
-      // DEFENSE: A Responses endpoint may omit the native compact route; the native feature can then select portable rebuilding explicitly.
+      // DEFENSE: A Responses endpoint may omit the native compact route; the feature can then submit a regular summary request.
       const observation = boundary('backend.compaction_native_failure', {
         status: error.status, code: error.provider_code,
       });
@@ -69,7 +69,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
     }
     return boundary('backend.compaction_native_result', { response, scope: session.scope });
   }
-  // Dispatch the measured bytes through the same session. The native portable
+  // Dispatch the measured bytes through the same session. The summary
   // request already fixes its output reserve and prohibits tools.
   const items = await requestProviderSSE(session, call, prepared, limits, options);
   return boundary('backend.compaction_summary_result', { items });

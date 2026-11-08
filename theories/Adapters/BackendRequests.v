@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson CallWire.
+From Selvedge.Kernel Require RealtimeContext.
 From Selvedge.Kernel Require Import NativeTools ModelCapabilities ContextSelection.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory.
@@ -135,12 +136,18 @@ Definition effect_input (select_history : list json -> string -> list json) effe
     if is_text (get profile "scope") then select_history history (str profile "scope") else history in
   input_items (if configuration_updates effect then selected else
     filter (fun message => negb (reasoning_configuration message)) selected) profile.
+Definition realtime_items effect observation :=
+ if String.eqb (str effect "kind") "model" then
+   match RealtimeContext.observed_text (get effect "realtime_context") observation with
+   | Some contents => [message "developer" (JString contents)]
+   | None => [] end
+ else [].
 Definition request (select_history : list json -> string -> list json) source :=
   render_outcome (fun body => body) (bind (prepare_effect (get source "effect")) (fun effect =>
     bind (effect_input select_history effect (get source "profile")) (fun input =>
       bind (admit_reasoning effect (get source "profile")) (fun reasoning =>
         Accepted (encode_request (get source "profile")
-          (construct_request effect input reasoning (output_limit effect))))))).
+          (construct_request effect (input ++ realtime_items effect (get source "realtime")) reasoning (output_limit effect))))))).
 Definition measurement_request (select_history : list json -> string -> list json) source :=
   let effect := get source "effect" in let profile := get source "profile" in
   render_outcome (fun input => encode_request profile

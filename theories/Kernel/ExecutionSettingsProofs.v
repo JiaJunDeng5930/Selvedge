@@ -41,7 +41,7 @@ Theorem admitted_execution_settings_take_effect :
      (match sandbox with None => settings_sandbox current
       | Some source => sandbox_patch_of_values (settings_sandbox current) source end)
      approval_settings (settings_guidance current) (settings_worktree current)
-     (settings_resource current)) value in
+     (settings_resource current) (settings_realtime_context current)) value in
  let result := configure_execution id name reasoning sandbox approval value in
  exists after,
    bool_default "ok" (decision_reply result) false = true /\

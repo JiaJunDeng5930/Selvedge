@@ -1,7 +1,7 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
 From Selvedge.Foundation Require OptionList.
-From Selvedge.Kernel Require Import Domain Codec Conversation Numbers.
+From Selvedge.Kernel Require Import Domain Codec Conversation Numbers ContextTypes ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -43,13 +43,18 @@ Definition artifact_json (value : artifact) := JObject
   | NativeArtifact head tail _ _ => [("scope", JString (String head tail))] end).
 Definition consumes (value : artifact) (scope : string) :=
  match value with PortableArtifact _ _ => true | NativeArtifact head tail _ _ => String.eqb (String head tail) scope end.
-Inductive selection := Original | Replacement (source_length : N) (replacement : artifact).
+Inductive selection :=
+| Original
+| Replacement (source_length : N) (replacement : artifact) (tracked_context : list json).
 Definition select_event (position : N) (scope : string) (message : json) (previous : selection) :=
  if String.eqb (text_default "role" message "") "context_replacement" then
  let content := value_or_null "content" message in
- match natural_field "source_length" content, decode_artifact content with
- | Some source, Some value => if (source <=? position) && consumes value scope then Replacement source value else previous
- | _, _ => previous end
+ match natural_field "source_length" content, decode_artifact content, array_field "tracked_context" content with
+ | Some source, Some value, Some tracked =>
+   if (source <=? position) && consumes value scope
+   then Replacement source value tracked
+   else previous
+ | _, _, _ => previous end
  else previous.
 Fixpoint latest (messages : list json) (scope : string) (position : N) (previous : selection) :=
  match messages with [] => previous | message :: rest => latest rest scope (N.succ position) (select_event position scope message previous) end.
@@ -62,12 +67,6 @@ Definition readable_context (value : json) : list json :=
  | Some "message" => [JObject [("role", value_or_null "role" item); ("content", JString (parts_text (array_default "content" item)))]]
  | Some "reasoning" => [JObject [("role", JString "assistant"); ("content", JString (parts_text (array_default "summary" item)))]]
  | _ => [] end.
-Definition readable_message (message : json) :=
- match string_field "role" message with
- | Some "context_replacement" => []
- | Some "model_context" => readable_context (value_or_null "content" message)
- | _ => [message] end.
-Definition raw_messages (messages : list json) := flat_map readable_message messages.
 Definition scoped_message (scope : string) (message : json) :=
  match string_field "role" message with
  | Some "context_replacement" => []
@@ -87,29 +86,30 @@ Definition reasoning_configuration (message : json) :=
  String.eqb (text_default "type" message "") "reasoning_configuration".
 Definition fixed_message (message : json) :=
  match string_field "role" message with
- | Some "task_context" => if reasoning_configuration message then [] else [message]
+ | Some "task_context" =>
+   if reasoning_configuration message || String.eqb (text_default "type" message "") "context_change"
+   then [] else [message]
  | Some "user" | Some "function_output" | Some "operation_result" =>
    match image_parts (value_or_null "content" message) with
    | [] => []
    | parts => [JObject [("role", JString "user"); ("content", JArray parts)]] end
  | _ => [] end.
 Definition fixed (messages : list json) := flat_map fixed_message messages.
-Definition dialogue (messages : list json) :=
- filter (fun message => negb (String.eqb (text_default "role" message "") "task_context" ||
-                             String.eqb (text_default "role" message "") "context_replacement")) messages.
 Definition retained_messages (messages : list json) :=
  filter (fun message => negb (String.eqb (text_default "role" message "") "context_replacement")) messages.
+Definition replacement_prefix source value tracked messages :=
+ (tracked ++ fixed (firstn (N.to_nat source) messages) ++ artifact_items value)%list.
 Definition assemble (selected : selection) (messages : list json) (scope : string) :=
  match selected with
  | Original => scoped_messages messages scope
- | Replacement source value => (fixed (firstn (N.to_nat source) messages) ++
-   dialogue (artifact_items value) ++ scoped_messages (skipn (N.to_nat source) messages) scope)%list end.
+ | Replacement source value tracked => (replacement_prefix source value tracked messages ++
+   scoped_messages (skipn (N.to_nat source) messages) scope)%list end.
 Definition target_messages (messages : list json) (scope : string) := assemble (latest messages scope 0 Original) messages scope.
 Definition portable_messages (messages : list json) :=
  match latest messages "" 0 Original with
  | Original => messages
- | Replacement source value => (fixed (firstn (N.to_nat source) messages) ++
-   dialogue (artifact_items value) ++ retained_messages (skipn (N.to_nat source) messages))%list end.
+ | Replacement source value tracked => (replacement_prefix source value tracked messages ++
+   retained_messages (skipn (N.to_nat source) messages))%list end.
 Definition history_json (owner : N) (history : list message) := map (Codec.message_json owner) history.
 Definition has_output (history : list message) (id : string) :=
  existsb (fun message => match message with
@@ -122,8 +122,15 @@ Definition settled_calls (snapshot whole : list message) :=
 Definition closed_prefix (history : list message) := settled_calls history history.
 Definition portable (summary : string) := PortableArtifact
  (PortableMessage PortableUser ("Task continuation summary (fallible; original records remain available through read_task):" ++ String (Ascii.ascii_of_nat 10) summary)) [].
-Definition record (source_length : N) (value : artifact) := ContextReplacement
- (JObject (("source_length", number source_length) :: match artifact_json value with JObject fields => fields | _ => [] end)).
+Definition tracked_introductions (history : list message) :=
+ map (fun value => Codec.message_json 0 (ContextObservation (Introduce value)))
+   (ContextUpdates.bindings history).
+(* The replacement record is appended after its captured prefix. Its immutable
+   baseline is derived at that boundary, before any intervening suffix changes. *)
+Definition record (history : list message) (value : artifact) := ContextReplacement
+ (JObject ([("source_length", number (N.of_nat (List.length history)));
+            ("tracked_context", JArray (tracked_introductions history))] ++
+   match artifact_json value with JObject fields => fields | _ => [] end)%list).
 Definition history_extends (snapshot current : list message) :=
  (* Owner is a projection parameter, not part of an individual task's history.
     Both sides use the same owner when comparing that task's captured prefix. *)
@@ -131,4 +138,4 @@ Definition history_extends (snapshot current : list message) :=
  Nat.leb (List.length source) (List.length current) &&
  JsonObjects.equivalent (JArray source) (JArray (firstn (List.length source) (history_json 0 current))).
 Definition adopt (snapshot : list message) (candidate : artifact) (current : list message) :=
- if history_extends snapshot current then (current ++ [record (N.of_nat (List.length snapshot)) candidate])%list else current.
+ if history_extends snapshot current then (current ++ [record snapshot candidate])%list else current.

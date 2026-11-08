@@ -66,7 +66,7 @@ Definition execution_ready (id : N) (value : world) :=
 
 Definition cloud_settings (settings : task_settings) :=
   Settings (settings_workspace settings) (settings_project settings) (Sandbox WorkspaceWrite true)
-    FullAccess (settings_guidance settings) (settings_worktree settings) (settings_resource settings).
+    FullAccess (settings_guidance settings) (settings_worktree settings) (settings_resource settings) (settings_realtime_context settings).
 
 Definition normalize_settings (settings : task_settings) (value : world) :=
   match resolve settings value with
@@ -130,7 +130,7 @@ Definition select_bound_workspace (base selected : task_settings) (value : world
        if within_resource (settings_workspace selected) tree then
          Some (Settings (settings_workspace selected) (settings_project selected)
            (settings_sandbox selected) (settings_approval selected) (settings_guidance selected)
-           (settings_worktree selected) (Some owner))
+           (settings_worktree selected) (Some owner) (settings_realtime_context selected))
        else None
      else Some selected
    end

@@ -13,6 +13,8 @@ Definition parse_observed_approval (snapshot value:json) : option Selvedge.Kerne
    |Some reviewer=>profile<-Codec.parse_profile reviewer;;Some(Selvedge.Kernel.Domain.ReviewWith profile)
    |None=>None end
  | _=>None end.
+From Selvedge.Kernel Require RealtimeContext.
+
 Definition parse_observed_settings snapshot value :=
  workspace<-bind(field "workspace" value)Codec.parse_workspace;;
  sandbox<-bind(field "sandbox" value)Codec.parse_sandbox;;
@@ -20,7 +22,8 @@ Definition parse_observed_settings snapshot value :=
  project<-bind(field "project_id" value)Identity.decode_id;;
  guidance<-bind(field "guidance" value)(Codec.parse_guidance workspace);; worktree<-bool_field "create_worktree" value;;
  resource<-bind(field "workspace_resource" value)Identity.decode_id;;
- Some(Selvedge.Kernel.Domain.Settings workspace project sandbox approval guidance worktree resource).
+ realtime<-bind(field "realtime_context" value)RealtimeContext.parse_sources;;
+ Some(Selvedge.Kernel.Domain.Settings workspace project sandbox approval guidance worktree resource realtime).
 Definition task_settings task snapshot :=
  value<-World.find_task task snapshot;;
  bind(field "settings" value)(parse_observed_settings snapshot).

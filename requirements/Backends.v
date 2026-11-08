@@ -103,10 +103,11 @@ From Selvedge.Programming Require Import AdapterResult.
     network transport. Rechecking the unchanged echo history cannot establish
     another capability. Independent compaction uses the common request type's
     absence of tool authority; empty tool lists and sampling placeholders do
-    not strengthen that construction. Its native history is already projected
-    to dialogue when the captured plan is constructed; portable fragments are
-    quoted user text. Filtering tracked capabilities again in the adapter adds
-    no input constraint. A native replacement's format and a
+    not strengthen that construction. Both full compaction modes use the
+    selected history, with the summary directive appended for ordinary
+    compaction. If the full request cannot fit its budget, the planner sends
+    bounded fragments of the readable history as quoted user text. A native
+    replacement's format and a
     changed consumer's boolean already select their continuations, without
     unused action labels. Web invocation owns its request ticket; the history
     projection does not need an unread ticket copy.
@@ -261,9 +262,9 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     same image across later requests and replay. Durable content retains image
     references in their original order. [ConversationProofs] owns that ordering;
     [ContextSelectionProofs] retains original images through summary selection.
-    [captured_images_select_portable_compaction] connects captured image sources
-    to the feature's portable dispatch, avoiding a provider continuation that
-    could copy transport byte strings back into durable history.
+    [captured_images_select_structured_summary] connects captured image sources
+    to the feature's readable summary plan, avoiding a provider continuation
+    that could copy transport byte strings back into durable history.
     This decision consumes the captured history's user
     images and tool-result images through [History.message_images], the same
     projection used by side returns. A [type] field set to [image] or [input_image]
@@ -303,7 +304,7 @@ Export ConversationProofs(user_images_keep_their_place_between_the_original_text
 Export ContextSelectionProofs(selecting_a_summary_preserves_each_original_image).
 Export CompactionPlanProofs(native_start_retains_history_and_rebuild_material).
 From Selvedge.Features Require Import CompactionProofs.
-Export CompactionProofs(captured_images_select_portable_compaction).
+Export CompactionProofs(captured_images_select_structured_summary).
 From Selvedge.Adapters Require Import ProviderCompactionProofs.
 Export ProviderCompactionProofs(public_account_image_requests_use_the_complete_request_estimate,
  public_other_requests_use_provider_measurement,
@@ -367,6 +368,17 @@ Proof.
  rewrite preparation_keeps_the_request_kind, Independent; reflexivity.
 Qed.
 
+Lemma independent_requests_have_no_realtime_suffix : forall effect observation,
+ independent_kind (str effect "kind") = true ->
+ BackendRequests.realtime_items (BackendRequests.independent_effect effect) observation = [].
+Proof.
+ intros effect observation Independent.
+ unfold BackendRequests.realtime_items.
+ rewrite preparation_keeps_the_request_kind.
+ destruct (String.eqb (str effect "kind") "model") eqn:Model; [|reflexivity].
+ apply String.eqb_eq in Model. rewrite Model in Independent. discriminate.
+Qed.
+
 (** The public dispatcher delivers the constructed request whenever its input
     and reasoning admissions succeed. It cannot reject such an admitted request
     merely to preserve the authority requirement. The premises describe the
@@ -390,7 +402,9 @@ Proof.
    with (BackendRequests.request ContextSelection.target_messages source).
  unfold BackendRequests.request.
  rewrite independent_request_preparation_succeeds by exact Independent.
- cbn [bind]; rewrite Input; cbn [bind]; rewrite Reasoning; reflexivity.
+ cbn [bind]; rewrite Input; cbn [bind]; rewrite Reasoning.
+ rewrite independent_requests_have_no_realtime_suffix by exact Independent.
+ now rewrite app_nil_r.
 Qed.
 
 Theorem accepted_independent_public_request_has_no_tool_authority : forall source body,
@@ -409,6 +423,7 @@ Proof.
  destruct (BackendRequests.admit_reasoning
    (BackendRequests.independent_effect (get source "effect")) (get source "profile"))
    as [reasoning|code message] eqn:Reasoning; cbn [bind render_outcome] in Accepted; [|discriminate].
+ rewrite independent_requests_have_no_realtime_suffix, app_nil_r in Accepted by exact Independent.
  injection Accepted as Encoded; subst body.
  generalize (BackendRequests.construct_request
    (BackendRequests.independent_effect (get source "effect")) input reasoning

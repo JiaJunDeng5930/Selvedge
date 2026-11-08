@@ -24,7 +24,8 @@ Theorem public_requests_use_the_committed_request_effort : forall source effect 
  BackendRequests.admit_reasoning effect (get source "profile") = AdapterResult.Accepted (Some reasoning) ->
  Api.call "backend.request" source = success
    (BackendRequests.encode_request (get source "profile")
-     (BackendRequests.construct_request effect input
+     (BackendRequests.construct_request effect
+       (input ++ BackendRequests.realtime_items effect (get source "realtime"))%list
        (Some (JObject [("effort",BackendRequests.request_effort effect)]))
        (BackendRequests.output_limit effect))).
 Proof.

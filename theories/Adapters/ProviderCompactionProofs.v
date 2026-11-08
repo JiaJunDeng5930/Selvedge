@@ -5,6 +5,22 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Theorem public_structured_summary_appends_its_instruction_after_selected_history : forall source,
+  let original := get source "effect" in
+  let plan := get original "plan" in
+  str plan "method" = "structured" ->
+  Api.call "backend.compaction_effect" source = success (JObject [
+    ("kind",JString "context_compaction"); ("context_selected",JBool true);
+    ("model",get original "model"); ("instructions",JString "");
+    ("history",JArray (items (get plan "history") ++
+      [JObject [("role",JString "task_context"); ("type",JString "environment_notice");
+        ("content",get plan "prompt")]])%list)]).
+Proof.
+ intros source; cbv zeta; intro Method.
+ change (Api.call "backend.compaction_effect" source) with (success (effect source)).
+ unfold effect. now rewrite Method.
+Qed.
+
 Theorem public_opaque_requests_never_use_textual_fallback : forall source,
   opaque_request (get source "request") = true ->
   Api.call "backend.compaction_meter_fallback" source =
