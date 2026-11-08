@@ -37,18 +37,22 @@ assets.set('/', assets.get('/index.html'));
 
 export async function startServer(options) {
   const connections = connectionCredentials(options.config.chatgpt_plugin);
-  const service = await Service.open(options);
-  const token = randomBytes(32).toString('hex');
+  const { release } = options;
+  const service = await Service.open({ ...options, holdEffects: Boolean(release) });
+  const token = release?.token ?? randomBytes(32).toString('hex');
   const clients = new Set();
   const audioClients = new Set();
   const sockets = new Set();
   const filename = path.join(options.home, 'server.json');
   let closing;
   let address;
+  let ready = !release;
+  let update = release?.failure ? { status: 'failed', message: release.failure } : { status: 'idle' };
   const server = http.createServer({ maxHeaderSize: service.limits.header_bytes }, (request, response) => {
     // DEFENSE: Requests can fail UTF-8/JSON admission, authentication or external filesystem/service work; return the declared HTTP failure before headers, otherwise close the partial response.
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
+      else if (error.status === 503) json(response, 503, { ok: false, error: { code: 'service_updating', message: error.message } });
       else {
         const failure = boundary('http.error', { name: error.name, message: error.message });
         json(response, failure.status, failure.value);
@@ -115,6 +119,15 @@ export async function startServer(options) {
     writeSseFrame(response, `${id}data: ${stringifyJson(event)}\n\n`);
   }
 
+  function sendUpdate(response) {
+    writeSseFrame(response, `data: ${stringifyJson({ type: 'selvedge-update', ...update })}\n\n`);
+  }
+
+  function updateStatus(status) {
+    update = status;
+    for (const client of clients) sendUpdate(client);
+  }
+
   function requestSignal(request, response) {
     const controller = new AbortController();
     const abort = () => controller.abort(new Error('Audio client disconnected'));
@@ -151,6 +164,31 @@ export async function startServer(options) {
   }
 
   async function route(request, response) {
+    // DEFENSE: An HTTP request can arrive after binding but before managed startup publishes the ready instance.
+    if (!ready) return json(response, 503, { ok: false, error: { code: 'service_starting', message: 'Selvedge is starting' } });
+    if (release && request.method === 'POST' && request.url === '/_selvedge/update/drain') {
+      // DEFENSE: Browser cookies and cross-origin requests must never authorize a process handoff.
+      if (!request.headers.authorization || request.headers.origin || request.headers.host !== new URL(address).host || !authorized(request)) {
+        return json(response, 403, { ok: false, error: { code: 'forbidden', message: 'Local update authorization required' } });
+      }
+      // DEFENSE: A concurrent authenticated request can arrive while the first handoff is waiting for tool completion.
+      if (['draining', 'switching'].includes(update.status)) return json(response, 409, { ok: false, error: { code: 'updating', message: 'An update is already draining this service' } });
+      response.setHeader('connection', 'close');
+      const waiting = new AbortController();
+      const disconnect = () => waiting.abort(new Error('The update command disconnected'));
+      response.once('close', disconnect);
+      try {
+        await service.drain(operations => updateStatus({ status: 'draining', operations }), waiting.signal);
+      } catch (error) {
+        // DEFENSE: The updater may disconnect or a settling tool can expose a fatal commit failure.
+        updateStatus({ status: 'failed', message: error.message });
+        if (!waiting.signal.aborted) throw error;
+        return;
+      } finally { response.off('close', disconnect); }
+      updateStatus({ status: 'switching' });
+      await close(response);
+      return;
+    }
     // Secrets stay opaque. Each observation is made only when the native plan
     // requests it, preserving rejection before later parsing or secret access.
     const headers = {};
@@ -203,7 +241,9 @@ export async function startServer(options) {
         },
         asset: async () => {
           const [file, contentType] = assets.get(url.pathname);
-          const data = await readFile(new URL(`./public/${file}`, import.meta.url));
+          const bytes = await readFile(new URL(`./public/${file}`, import.meta.url));
+          const document = file === 'index.html';
+          const data = document && release ? bytes.toString('utf8').replace('<head>', `<head>\n<meta name="selvedge-release" content="${release.id}">`) : bytes;
           response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
             ...(url.pathname === '/' ? { 'set-cookie': `selvedge-session=${token}; Path=/api; HttpOnly; SameSite=Strict` } : {}),
             // NOTE: Browser annotations inject inline styles into their selection overlay.
@@ -270,6 +310,7 @@ export async function startServer(options) {
         },
         browser_state: async () => {
           const snapshot = service.browserSnapshot();
+          if (release) response.setHeader('x-selvedge-release', release.id);
           json(response, 200, { ...snapshot, program: snapshot.program });
           return;
         },
@@ -293,6 +334,7 @@ export async function startServer(options) {
           response.flushHeaders();
           clients.add(response);
           response.once('close', () => clients.delete(response));
+          if (release) sendUpdate(response);
           // Capture active streams before this synchronous subscription yields to notices.
           sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams() });
           // Reconnection needs the current durable revision, not historical invalidations.
@@ -385,7 +427,7 @@ export async function startServer(options) {
   }, 15_000);
   heartbeat.unref();
 
-  async function close() {
+  async function close(handoffResponse) {
     closing ??= (async () => {
       clearInterval(heartbeat);
       for (const client of [...clients, ...audioClients]) client.end();
@@ -394,14 +436,17 @@ export async function startServer(options) {
       // DEFENSE: Bun's close() detaches its native server before closeAllConnections
       // can reach active keep-alive sockets, which could still target this stopping
       // service after a listener restarts on the same port.
-      for (const socket of sockets) socket.destroy();
-      await Promise.all([stopped, service.close()]);
+      for (const socket of sockets) if (socket !== handoffResponse?.socket) socket.destroy();
+      await service.close();
       try {
         const saved = JSON.parse(await readFile(filename, 'utf8'));
         // DEFENSE: Another server can start after service.close releases the journal lock; do not unlink its new discovery record.
-        if (saved.token === token) await unlink(filename);
+        if (saved.token === token && (saved.release?.id ?? null) === (release?.id ?? null)) await unlink(filename);
       // DEFENSE: Failed startup may not have written server.json, or external cleanup may already have removed it.
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      // The handoff is acknowledged only after the journal ownership lock is released.
+      if (handoffResponse) json(handoffResponse, 200, { ok: true });
+      await stopped;
     })();
     return closing;
   }
@@ -409,11 +454,17 @@ export async function startServer(options) {
   try {
     await new Promise((resolve, reject) => {
       server.once('error', reject);
-      server.listen(options.config.port, options.config.host, () => { server.off('error', reject); resolve(); });
+      server.listen(options.listenPort ?? options.config.port, options.listenHost ?? options.config.host,
+        () => { server.off('error', reject); resolve(); });
     });
     const endpoint = server.address();
     address = `http://${endpoint.family === 'IPv6' ? `[${endpoint.address}]` : endpoint.address}:${endpoint.port}`;
-    await writeAtomic(filename, { format: 'selvedge-local-server-1', address, token });
+    const instance = { format: 'selvedge-local-server-1', address, token,
+      ...(release ? { pid: process.pid, release: { id: release.id } } : {}) };
+    await writeAtomic(filename, instance);
+    if (release) await release.publish(instance);
+    service.activate();
+    ready = true;
     return { service, server, address, token, close, url: `${address}/` };
   // DEFENSE: Listen/write failures after Service.open must stop the acquired service and listener.
   } catch (error) { await close(); throw error; }

@@ -84,6 +84,18 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
   public_rpc_reservation_matches_available_capacity,
   public_rpc_reservation_returns_a_bounded_pending_set).
 
+(** ** Planned updates leave a recoverable boundary
+
+    A development update builds a separate release while the current service
+    runs. Before yielding journal ownership, the host stops issuing scheduler
+    continuations and lets admitted physical operations settle through the
+    ordinary durable callback path. Waiting for user input is already a
+    recoverable task state. Retaining the old release and a pre-start journal
+    backup until publication makes startup failure reversible. SQLite schema
+    version and the meaning of replayed inputs have separate compatibility
+    rules. The update command and the browser reconnect are physical host
+    behavior and are verified through public execution. *)
+
 (** ** RPC responses retain the issued numeric identity
 
     JSON-RPC correlates a response with the value of the issued identifier.

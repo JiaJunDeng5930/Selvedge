@@ -46,9 +46,11 @@ experiments and complete command logs belong in ignored
 
 ## Persistent data
 
-There is one current journal format. Reject incompatible data explicitly rather
-than adding fallback reads, migrations or old-runtime bridges. Never rewrite
-existing user data to make a development run succeed.
+There is one current SQLite schema and one current journal replay format. A
+supported older format is converted under exclusive ownership before ordinary
+service execution. Write explicit migrations when changing a supported format
+and validate replay before committing them. Reject unknown formats and preserve
+the previous data when startup cannot complete.
 
 ## Requirements and reviews
 

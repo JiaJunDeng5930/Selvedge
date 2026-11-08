@@ -20,9 +20,10 @@ connections, tools, compaction and voice conversations.
 [remote control](docs/remote-control.md), [ChatGPT Web](docs/chatgpt-web.md), and
 [adaptive reasoning](docs/adaptive-reasoning.md) describe those user workflows.
 
-The current home is `~/.selvedge`. Choose a different location explicitly to keep
-services separate. The journal has one current format and rejects incompatible
-formats. Keep an incompatible existing home separate.
+The default home is `~/.selvedge`. Choose a different location explicitly to keep
+services separate. During development, install and start the current checkout
+with `bun run update`. Subsequent updates keep the same home and address and let
+running tools finish before restarting. See [development updates](docs/usage.md#development-updates).
 
 ## Change the program
 

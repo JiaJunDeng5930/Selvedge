@@ -395,14 +395,39 @@ history remains available after restart. API-key and ChatGPT Web profiles do not
 provide the ChatGPT audio connection.
 
 
+## Development updates
+
+Run `bun run update` in the source checkout to build, install, and start it in
+the background. Run the same command again after editing the checkout. Use
+`bun run update --home /path/to/home` to update a separate service and `--config`
+to select a different configuration file. `bun run start` starts a managed
+release in the foreground. For a server started directly with `bun host/cli.mjs
+server` or a release that predates managed updates, stop it once after its tools
+finish, then run the update command.
+
+The old release serves its existing address during the build. When the build
+succeeds, the service pauses task scheduling and displays the operations it is
+waiting for. It switches after those operations and their recorded results have
+settled. A long-running command can keep the update waiting. Tasks awaiting
+input or approval keep that state and are available after reconnecting. The
+browser reconnects to the same address and restores the current view and draft
+text when it loads the new release.
+
+The updater preserves the previous journal while starting the candidate. A
+migration or startup failure before the candidate becomes available restores
+the old journal and starts the previous release with its last working startup
+configuration. The command reports the failure. Managed releases and their
+service logs live under `releases/` in the service home.
+
 ## Persistence
 
 Back up the service home, including its journal, attachments and retained provider
 receipts. The journal commits admitted inputs before dispatching external effects.
 Restart replays those inputs with the current kernel without executing their
-effects. Only the current journal format is accepted. An incompatible journal
-is rejected without replay or conversion; keep the existing home separate. A
-source update that changes the meaning of stored inputs requires a new journal format.
+effects. The journal upgrades known SQLite schema versions during startup, and
+validates replay before committing a migration. An update that changes the
+meaning of stored inputs requires a new replay format and an explicit conversion
+for each supported previous format. Unknown formats are rejected.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,

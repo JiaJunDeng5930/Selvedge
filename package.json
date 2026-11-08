@@ -7,7 +7,8 @@
   },
   "scripts": {
     "build": "bun scripts/build.mjs",
-    "start": "bun run build && bun host/cli.mjs server",
+    "start": "bun scripts/update.mjs --foreground",
+    "update": "bun scripts/update.mjs",
     "check": "bun scripts/check.mjs",
     "test": "bun scripts/test.mjs",
     "bench": "bun scripts/benchmark.mjs",

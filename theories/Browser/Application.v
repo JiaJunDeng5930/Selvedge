@@ -1,12 +1,14 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input InputCodecs.
 From Selvedge.Browser.Presentation Require Import ActionPurpose.
 From Selvedge.Browser Require Import Documents.
-From Selvedge.Browser.Session Require State Codec Runtime Authoring.
+From Selvedge.Browser.Session Require State Codec Runtime Authoring Navigation NavigationCodec.
+From Selvedge.Interaction.Submission Require DraftCodec.
 From Selvedge.Browser.Presentation Require Gesture.
 From Selvedge.Browser.Scene Require Surface Model.
 From Selvedge.Browser.Presentation Require View.
@@ -95,13 +97,43 @@ Definition input_decision request snapshot namespace input raw current:=
  |_=>run_input request snapshot namespace input raw current end.
 
 Definition initialized := SC.encode_state Session.initial.
+(* Only navigation and drafts belong to the tab across a release change.
+   Authentication, pending commands and other IO start with the new page. *)
+Definition update_session current := JObject[
+ ("navigation",NavigationCodec.encode_navigation(Session.navigation_state current));
+ ("drafts",JArray(map DraftCodec.encode_draft(Session.drafts(Session.authoring_state current))));
+ ("next_layer",number(Session.next_layer current))].
+Definition retained_update_layer snapshot layer := match Session.layer_panel layer with
+ |Session.Confirmation _ _ _=>false
+ |Session.SideConversationPanel task=>Navigation.route_allowed snapshot(NavigationIdentity.Conversation task)
+ |_=>true end.
+Definition restore_update_session snapshot checkpoint current :=
+ navigation<-bind(field "navigation" checkpoint)NavigationCodec.decode_navigation;;
+ drafts<-list_field DraftCodec.decode_draft "drafts" checkpoint;;
+ next_layer<-natural_field "next_layer" checkpoint;;
+ let authoring:=set Session.drafts(fun _=>drafts)(Session.authoring_state current)in
+ let restored:=Session.with_next_layer next_layer(Session.with_authoring authoring current)in
+ (* DEFENSE: A task or project may have been deleted after the old page's last snapshot. *)
+ Some(if Navigation.route_allowed snapshot(Session.location navigation)then
+   let layers:=map(set Session.layer_pending(fun _=>false))
+    (filter(retained_update_layer snapshot)(Session.layers navigation))in
+   Session.with_navigation(set Session.layers(fun _=>layers)navigation)restored
+ else restored).
 Definition call operation request:json:=
  if String.eqb operation "initial"then Json.success initialized else
  if String.eqb operation "interactive_storage_policy"then
   Selvedge.Interaction.Interactive.Language.call "storage_policy" request else
+ if String.eqb operation "update_session"then
+  match state request with
+  |Some current=>Json.success(update_session current)
+  |None=>Json.failure "InvalidState" "The typed application state is required."end else
  match state request,field "world" request with
  |Some current,Some snapshot=>
- if String.eqb operation "observe"then
+ if String.eqb operation "restore_update_session"then
+  match bind(field "checkpoint" request)(fun checkpoint=>restore_update_session snapshot checkpoint current)with
+  |Some restored=>Json.success(SC.encode_state restored)
+  |None=>Json.failure "InvalidUpdateSession" "The update session checkpoint is invalid."end
+ else if String.eqb operation "observe"then
   match environment request,natural_field "generation" request with
   |Some env,Some generation=>if Json.equal snapshot JNull then Json.success(Document.bootstrap env generation)else match surface snapshot current env with
    |None=>Json.success(Document.bootstrap env generation)

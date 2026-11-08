@@ -16,6 +16,7 @@ function rejected(error, outcome) {
 }
 
 export const journalFormat = 'selvedge-rocq-journal-28';
+const journalSchemaVersion = 1;
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
@@ -31,6 +32,26 @@ function closeJournalDatabase(database) {
   } finally { database.close(); }
 }
 
+async function acquireJournalOwnership(filename) {
+  await durableDirectory(path.dirname(filename));
+  const lock = new DatabaseSync(`${filename}.lock`, { timeout: 0 });
+  try {
+    lock.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY); BEGIN EXCLUSIVE');
+    return lock;
+  // DEFENSE: A service or offline update already holding this lock excludes another owner.
+  } catch (error) {
+    closeJournalDatabase(lock);
+    throw error;
+  }
+}
+
+/** Run an offline journal operation under the same lock the live service holds. */
+export async function withJournalOwnership(filename, action) {
+  const lock = await acquireJournalOwnership(filename);
+  try { return await action(); }
+  finally { closeJournalDatabase(lock); }
+}
+
 /** A serialized, durable input journal. It deliberately stores no task table. */
 export class Journal extends EventEmitter {
   #database;
@@ -44,30 +65,16 @@ export class Journal extends EventEmitter {
     const journal = new Journal();
     journal.sequence = 0;
     try {
-      await durableDirectory(path.dirname(filename));
-      // DEFENSE: Two service processes can open the same home; SQLite excludes a second world writer and releases ownership on process death.
-      journal.#lock = new DatabaseSync(`${filename}.lock`, { timeout: 0 });
-      journal.#lock.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY); BEGIN EXCLUSIVE');
+      journal.#lock = await acquireJournalOwnership(filename);
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
+      journal.#database.exec('PRAGMA synchronous=FULL');
+      const upgrading = journal.#prepareReplay();
       await chmod(filename, 0o600);
-      journal.#openSchema();
-      journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
-      journal.#kernel = new Kernel();
-      const initial = await journal.#kernel.initialize();
-      journal.description = initial.description;
-      journal.program = initial.program;
-      for (const row of journal.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
-        const replayed = await journal.#kernel.replay(row.input);
-        // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
-        if (!replayed.value.durable) {
-          throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
-        }
-        journal.sequence = row.seq;
+      await journal.#replay();
+      if (upgrading) {
+        journal.#database.exec(`PRAGMA user_version = ${journalSchemaVersion}; COMMIT`);
       }
-      if (journal.sequence > 0) {
-        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
-        journal.program = snapshot.program;
-      }
+      journal.#database.exec('PRAGMA journal_mode=WAL');
       return journal;
     // DEFENSE: Filesystem, SQLite or replay failures during open must release resources already acquired.
     } catch (error) {
@@ -76,23 +83,55 @@ export class Journal extends EventEmitter {
     }
   }
 
-  #openSchema() {
-    const existing = this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
-    if (!existing) {
+  #prepareReplay() {
+    const version = this.#database.prepare('PRAGMA user_version').get().user_version;
+    // DEFENSE: A different release or an external SQLite writer can set an unsupported storage version.
+    if (version !== 0 && version !== journalSchemaVersion) {
+      throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
+    }
+    if (version === 0) {
       this.#database.exec('BEGIN IMMEDIATE');
-      for (const sql of Object.values(schema)) this.#database.exec(sql);
-      this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
-      this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('namespace', randomBytes(16).toString('hex'));
-      this.#database.exec('COMMIT');
+      const existing = this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+      if (!existing) {
+        for (const sql of Object.values(schema)) this.#database.exec(sql);
+        const insert = this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
+        insert.run('format', journalFormat);
+        insert.run('namespace', randomBytes(16).toString('hex'));
+      }
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
-    // DEFENSE: Existing databases can have unknown formats or damaged namespace metadata; they must fail without conversion.
-    if (entries.length === 2 && entries[0].key === 'format' && entries[0].value === journalFormat &&
-        entries[1].key === 'namespace' && /^[0-9a-f]{32}$/.test(entries[1].value)) {
-      this.namespace = entries[1].value;
-      return;
+    const [format, namespace] = entries;
+    // DEFENSE: An externally edited or damaged database can lack a valid namespace or replay format.
+    if (entries.length !== 2 || format.key !== 'format' || namespace.key !== 'namespace' ||
+        !/^[0-9a-f]{32}$/.test(namespace.value)) {
+      throw new Error('Invalid Selvedge journal metadata');
     }
-    throw new Error('The database does not have the current Selvedge Rocq journal format');
+    // DEFENSE: Earlier or later kernels can persist frames with different semantics.
+    // A supported replay format conversion would rewrite the inputs and this tag in the transaction that spans replay.
+    if (format.value !== journalFormat) {
+      throw new Error(`Unsupported Selvedge Rocq journal format ${format.value}`);
+    }
+    this.namespace = namespace.value;
+    return version === 0;
+  }
+
+  async #replay() {
+    this.#kernel = new Kernel();
+    const initial = await this.#kernel.initialize();
+    this.description = initial.description;
+    this.program = initial.program;
+    for (const row of this.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
+      const replayed = await this.#kernel.replay(row.input);
+      // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
+      if (!replayed.value.durable) {
+        throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
+      }
+      this.sequence = row.seq;
+    }
+    if (this.sequence > 0) {
+      const snapshot = await this.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
+      this.program = snapshot.program;
+    }
   }
 
   #poison(error, outcome = 'rejected') {
@@ -192,13 +231,18 @@ export class Journal extends EventEmitter {
 
   abort(error) { this.#kernel.abort(error); }
 
+  whenIdle() { return this.#tail; }
+
   async close() {
     // DEFENSE: Startup cleanup and server shutdown can both close this journal.
     if (this.#closing) return;
     this.#closing = true;
-    await this.#tail;
-    await this.#kernel?.close();
-    try { closeJournalDatabase(this.#database); }
-    finally { closeJournalDatabase(this.#lock); }
+    try {
+      await this.whenIdle();
+      await this.#kernel?.close();
+    } finally {
+      try { closeJournalDatabase(this.#database); }
+      finally { closeJournalDatabase(this.#lock); }
+    }
   }
 }

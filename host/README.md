@@ -11,8 +11,9 @@ its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits an admitted input before publishing
 its decision or starting an effect. On reopen it replays inputs through the current
 extracted kernel without executing effects.
-Only the current journal format declared in `journal.mjs` is accepted. Other
-formats are rejected, without a conversion path.
+`journal.mjs` migrates known SQLite storage versions while holding the single
+writer lock. It validates the separate input replay format and replays the
+candidate records before committing the migration.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations
@@ -37,6 +38,8 @@ observations, SQLite durability, worker delivery, remote servers and the OS are
 external assumptions. The host does not turn successful input validation or a
 committed effect into a claim that an external operation completed correctly.
 
-Use the repository build before starting `bun host/cli.mjs server`. The default
-service home is `~/.selvedge`; `--home` and `SELVEDGE_HOME` select another home.
-See the root README for setup and the public command description.
+`bun run update` stages an independent runtime from the repository build and
+coordinates a managed handoff. For a standalone foreground service, build the
+repository before starting `bun host/cli.mjs server`. The default service home is
+`~/.selvedge`; `--home` and `SELVEDGE_HOME` select another home. See the root README
+for setup and the public command description.

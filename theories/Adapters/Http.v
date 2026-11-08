@@ -1,6 +1,9 @@
 From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import Images ModelResultDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
+From Selvedge.Kernel Require CommandHandlers.
+From Selvedge.Generated Require Commands.
+From Selvedge.Features Require Remote.
 From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
@@ -219,6 +222,17 @@ Definition public_command_allowed (source : json) :=
 Definition public_command (source : json) :=
   if public_command_allowed source then success JNull
   else type_error "Speech observations require a live upstream session".
+Definition command_read_only (source : json) :=
+  match Commands.admit (get source "command") with
+  | Some admitted =>
+    let command := Commands.admitted_value admitted in
+    if boolean_field source "remote" then Remote.observation_command command
+    else match CommandHandlers.interpret command false with
+         | CommandHandlers.Observation _ => true
+         | CommandHandlers.Mutation _ => false
+         end
+  | None => false
+  end.
 Definition request_error_response (source : json) :=
   let name := str source "name" in
   let message := str source "message" in
@@ -245,4 +259,5 @@ Definition call (operation : string) (source : json) :=
   else if String.eqb operation "http.reply_status" then success (number (if UserCommand.accepted (get source "reply") then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)
   else if String.eqb operation "http.public_command" then public_command source
+  else if String.eqb operation "http.command_read_only" then success (JBool (command_read_only source))
   else err "Unknown HTTP operation".
