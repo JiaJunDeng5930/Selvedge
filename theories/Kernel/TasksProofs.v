@@ -115,23 +115,23 @@ Proof.
  destruct lifecycle; apply Stable; reflexivity.
 Qed.
 
-Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side,
- contract_tools (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) =
+Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side birth_sequence,
+ contract_tools (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) =
    contract_tools (task_contract parent) /\
- contract_max_fork (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) =
+ contract_max_fork (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) =
    contract_max_fork (task_contract parent) /\
- contract_max_descendants (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) =
+ contract_max_descendants (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) =
    contract_max_descendants (task_contract parent) /\
- contract_plugins (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) =
+ contract_plugins (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) =
    contract_plugins (task_contract parent) /\
- contract_reviewers (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) =
+ contract_reviewers (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) =
    contract_reviewers (task_contract parent) /\
- contract_settings (task_contract (Tasks.fork_child owner parent_id parent contents settings side)) = settings /\
- task_current_profile (Tasks.fork_child owner parent_id parent contents settings side) =
+ contract_settings (task_contract (Tasks.fork_child owner parent_id parent contents settings side birth_sequence)) = settings /\
+ task_current_profile (Tasks.fork_child owner parent_id parent contents settings side birth_sequence) =
    task_current_profile parent /\
- task_current_settings (Tasks.fork_child owner parent_id parent contents settings side) = settings /\
- task_lineage (Tasks.fork_child owner parent_id parent contents settings side) = parent_id :: task_lineage parent /\
- task_queued (Tasks.fork_child owner parent_id parent contents settings side) = [].
+ task_current_settings (Tasks.fork_child owner parent_id parent contents settings side birth_sequence) = settings /\
+ task_lineage (Tasks.fork_child owner parent_id parent contents settings side birth_sequence) = parent_id :: task_lineage parent /\
+ task_queued (Tasks.fork_child owner parent_id parent contents settings side birth_sequence) = [].
 Proof.
  intros. unfold Tasks.fork_child. simpl. repeat split; reflexivity.
 Qed.
@@ -185,9 +185,9 @@ Proof.
  - exists suffix. reflexivity.
 Qed.
 
-Theorem fork_child_inherits_parent_snapshot : forall owner parent_id parent contents settings side,
+Theorem fork_child_inherits_parent_snapshot : forall owner parent_id parent contents settings side birth_sequence,
  exists suffix,
-   task_history (Tasks.fork_child owner parent_id parent contents settings side) =
+   task_history (Tasks.fork_child owner parent_id parent contents settings side birth_sequence) =
      (if side then History.snapshot_history parent_id parent else History.snapshot_operations parent_id parent) ++ suffix.
 Proof.
  intros owner parent_id parent contents settings side.
@@ -246,9 +246,9 @@ Qed.
 (** Presence is the public fork contract. Even an explicitly empty content is a
     child instruction; only an omitted list element is absent. *)
 Theorem supplied_fork_input_remains_after_its_receipt :
- forall owner parent_id parent contents settings entry start invocation,
+ forall owner parent_id parent contents settings entry start invocation birth_sequence,
  task_history (Tasks.fork_child_receipt entry start owner invocation
-   (Tasks.fork_child owner parent_id parent (Some contents) settings false)) =
+   (Tasks.fork_child owner parent_id parent (Some contents) settings false birth_sequence)) =
  Tasks.fork_child_history owner parent_id parent settings false ++
    [ForkReceipt owner invocation (N.succ (owner-start)%N); UserMessage contents].
 Proof.

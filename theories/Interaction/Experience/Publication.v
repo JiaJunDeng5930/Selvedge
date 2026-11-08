@@ -16,6 +16,8 @@ Definition awaiting_human (value : task) := existsb (fun operation =>
 Definition status_label (value : task) := match task_lifecycle value with
  | Running _ _ => if task_busy value then "Working" else "Ready"
  | Frozen _ _ => "Paused" | Stopped _ _ => "Stopped" | Archived _ => "Archived" end.
+From Selvedge.Kernel Require RealtimeContext.
+
 (** Task observations include the frozen context consumed by the experience layer;
     the model-tool settings codec remains the narrower protocol it already owns. *)
 Definition experience_approval_json (value : approval_policy) :=
@@ -28,7 +30,8 @@ Definition experience_settings_json (value : task_settings) :=
   match settings_json value with
   | JObject fields => JObject (set_field "approval" (experience_approval_json (settings_approval value))
       fields ++ [("guidance", Guidance.json (settings_guidance value));
-      ("create_worktree", JBool (settings_worktree value))])
+      ("create_worktree", JBool (settings_worktree value));
+      ("realtime_context", RealtimeContext.sources_json (settings_realtime_context value))])
   | value => value
   end.
 Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject [

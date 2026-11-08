@@ -78,6 +78,11 @@ durable request keys. Async results that arrive while HTTP is pending are also
 retained: each receipt records its exact committed input span, so a result
 appended before that receipt cannot be skipped on the next call.
 
+ChatGPT Web v1 retains prompt text in the webpage conversation, inherits root
+instructions across turns, and reserves tool continuations for complete result
+batches. Selvedge therefore disables Realtime Context for this backend even when
+the task enables it.
+
 Local receipts are never forwarded as input items to a different provider;
 ordinary text and function history remain available to that provider.
 Forks start fresh pages with explicit inherited context. A text checkpoint starts

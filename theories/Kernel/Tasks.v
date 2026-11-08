@@ -30,7 +30,7 @@ Definition creation_defaults (environment : environment) :=
  | Some observed => let root := Guidance.root observed in Workspace [root] (Some root)
  | None => default_workspace end in
  Settings workspace None (settings_sandbox default_settings)
-  (settings_approval default_settings) project false None.
+  (settings_approval default_settings) project false None (settings_realtime_context default_settings).
 Definition resolve_settings (model : profile) (source : option settings_request) (fallback : task_settings) (value : world) :=
  match source with
  | None => Some (WorkspaceBinding.normalize_settings fallback value)
@@ -39,7 +39,8 @@ Definition resolve_settings (model : profile) (source : option settings_request)
  | Some id => match registry_at id (world_projects value) with
    | Some project => if project_deleted project then None else
      Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
-       (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
+       (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project)
+       (settings_realtime_context fallback))
    | None => None end end in
  match base with
  | Some base => match settings_of_request model (environment_profiles (world_environment value)) request base with
@@ -82,10 +83,10 @@ Definition initial_history (environment : environment) (chosen : profile) (setti
   | Some snapshot => [ContextObservation (Introduce snapshot)] | None => [] end) ++
  [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)].
 Definition make_task (chosen : profile) (settings : task_settings) (contents : content)
- (idle : bool) (environment : environment) :=
+ (idle : bool) (environment : environment) (birth_sequence : N) :=
  let contract := Contract chosen (environment_tools environment) settings
    (environment_max_fork environment) (environment_max_descendants environment)
-   (environment_plugins environment) (environment_profiles environment) in
+   (environment_plugins environment) (environment_profiles environment) birth_sequence in
  Task contract chosen settings (Running (if idle then Idle else WantsModel) [])
   (initial_history environment chosen settings ++ if idle then [] else [UserMessage contents])
   [] [] None 0.
@@ -159,9 +160,9 @@ Definition resolve_start (name : string) (reasoning : option string)
      end
    end
  end.
-Definition start_task (plan : resolved_start) :=
+Definition start_task (plan : resolved_start) (birth_sequence : N) :=
  make_task (start_profile plan) (start_settings plan) (start_contents plan)
-   (start_idle plan) (start_environment plan).
+   (start_idle plan) (start_environment plan) birth_sequence.
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
  match task_lifecycle value with
  | Archived _ => []
@@ -361,11 +362,11 @@ Definition optional_input (contents : option content) :=
  match contents with Some contents => [UserMessage contents] | None => [] end.
 Definition side_input (contents : content) := if content_nonempty contents then Some contents else None.
 Definition fork_child (owner parent_id : N) (parent : task) (contents : option content) (settings : task_settings)
- (side : bool) :=
+ (side : bool) (birth_sequence : N) :=
  let chosen := task_current_profile parent in
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
   (contract_max_fork (task_contract parent)) (contract_max_descendants (task_contract parent))
-  (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
+  (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) birth_sequence in
  let history := fork_child_history owner parent_id parent settings side in
  Task contract chosen settings
  (Running (match contents with Some _ => WantsModel | None => Idle end) [])
@@ -382,20 +383,20 @@ Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation
 (* This fork owns its ordered birth suffix before feature maintenance can
    append independent roots to the same registry. *)
 Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) : list task :=
+ (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) (birth_sequence : N) : list task :=
  match count with
  | O => []
  | S count =>
    let message := hd_error messages in
    fork_child_receipt entry start owner invocation
-     (fork_child owner id parent message settings false) ::
-   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
+     (fork_child owner id parent message settings false birth_sequence) ::
+   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation birth_sequence
  end.
 Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
  (settings : task_settings) (entry : fork_entry) (invocation : call) (value : world) : world :=
  let start := next_task value in
  with_tasks (world_tasks value ++
-   constructed_children count id parent messages settings entry start start invocation) value.
+   constructed_children count id parent messages settings entry start start invocation (N.succ (world_sequence value))) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
@@ -412,6 +413,7 @@ Definition fork_settings_base origin (parent:task) (value:world) := match origin
      let fixed := task_current_settings parent in
      Settings (settings_workspace fixed) (settings_project fixed) (settings_sandbox defaults)
        (settings_approval defaults) (settings_guidance fixed) (settings_worktree defaults) (settings_resource fixed)
+       (settings_realtime_context defaults)
    else defaults end.
 Definition fork_selection_fixed (parent : task) (selected : task_settings) (value : world) :=
  match WorkspaceBinding.resolve (task_current_settings parent) value with
@@ -499,7 +501,8 @@ Definition open_side (id : N) (contents : content) (value : world) :=
    else if ancestors_fit (id :: task_lineage task) 1 value then
      CommandResult.map (fun _ =>
        CommandResult.Change (JObject [("task_id", number (next_task value))])
-         (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) [])
+         (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true
+           (N.succ (world_sequence value))) value) [])
        (admit_input reference)
    else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
  end).
@@ -537,7 +540,8 @@ Definition configure_execution (id : N)
            if quiescent task && negb (String.eqb (task_status task) "archived") then
            let settings := WorkspaceBinding.normalize_settings
             (Settings (settings_workspace current) (settings_project current) sandbox approval
-              (settings_guidance current) (settings_worktree current) (settings_resource current)) value in
+              (settings_guidance current) (settings_worktree current) (settings_resource current)
+              (settings_realtime_context current)) value in
            (* The wire approval DTO names its reviewer. An explicit selection can replace
               the frozen profile behind that same key, so wire equality is insufficient. *)
            let same := Domain.same_profile chosen (task_current_profile task) &&

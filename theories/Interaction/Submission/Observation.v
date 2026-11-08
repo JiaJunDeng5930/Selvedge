@@ -33,7 +33,7 @@ Definition project_settings project (base:Selvedge.Kernel.Domain.task_settings) 
  workspace<-bind(field "workspace" value)Codec.parse_workspace;;
  guidance<-bind(field "guidance" value)(Codec.parse_guidance workspace);; worktree<-bool_field "create_worktree" value;;
  Some(Selvedge.Kernel.Domain.Settings workspace (Some project) (Selvedge.Kernel.Domain.settings_sandbox base)
-   (Selvedge.Kernel.Domain.settings_approval base) guidance worktree None).
+   (Selvedge.Kernel.Domain.settings_approval base) guidance worktree None (Selvedge.Kernel.Domain.settings_realtime_context base)).
 Definition origin_settings source snapshot := match source with
 |Context.EnvironmentDefaults=>environment_settings snapshot
 |Context.ProjectDefaults project=>base<-environment_settings snapshot;;project_settings project base snapshot

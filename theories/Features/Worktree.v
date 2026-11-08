@@ -37,13 +37,13 @@ Definition resource_settings (id : N) (backend : WorkspaceBackend.backend) (sett
  (settings_project settings)
  (if WorkspaceBackend.cloud backend then Sandbox WorkspaceWrite true else settings_sandbox settings)
  (if WorkspaceBackend.cloud backend then FullAccess else settings_approval settings)
- (settings_guidance settings) (settings_worktree settings) (Some id).
+ (settings_guidance settings) (settings_worktree settings) (Some id) (settings_realtime_context settings).
 Definition environment_notice : string :=
  "Bash runs in the task cloud environment with Full Access. MCP tools may return paths on the local host; these paths are not necessarily available in the cloud environment.".
 Definition resource_task (id : N) (backend : WorkspaceBackend.backend) (task : task) :=
  let old:=task_contract task in
  let contract:=Contract (contract_profile old) (contract_tools old) (resource_settings id backend (contract_settings old))
-  (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
+  (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) (contract_birth_sequence old) in
  let history:=if WorkspaceBackend.cloud backend then task_history task++[EnvironmentNotice environment_notice] else task_history task in
  Task contract (task_current_profile task) (resource_settings id backend (task_current_settings task))
  (match task_lifecycle task with Running activity operations=>Frozen activity operations | other=>other end)
@@ -199,7 +199,7 @@ Definition born_effects {before} (birth : born_start before) :=
 Definition interpret_planned_birth {before : world} (plan : planned_start before) (current : world) :=
  let start := planned_task plan in
  let fresh := next_task current in
- let task := Tasks.start_task start in
+ let task := Tasks.start_task start (N.succ (world_sequence current)) in
  let '(prepared,resource) := match planned_resource plan with
  | UseWorkspace => (task,None)
  | ReuseBinding _ tree _ =>
@@ -459,12 +459,12 @@ Definition handle_retry_worktree_archive (payload:Selvedge.Generated.Commands.re
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with
  | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
 Definition selected_settings (space:workspace) (guidance:Guidance.t) (settings:task_settings) := Settings space (settings_project settings)
- (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings).
+ (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings) (settings_realtime_context settings).
 Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Guidance.t) (task:task) :=
  let old:=task_contract task in
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
- let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
+ let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) (contract_birth_sequence old) in
  TaskWake.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_handoff task) (task_model_cursor task)).

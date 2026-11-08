@@ -13,7 +13,7 @@ Theorem an_unfinished_summary_keeps_every_unread_scalar : forall unread carry wi
  Next (CompactionState (PortableSource remaining)
   (String head tail) width window reserve).
 Proof.
- intros. unfold receive,receive_source. cbn. rewrite H. destruct remaining; [contradiction|].
+ intros. unfold receive, receive_source, receive_summary. cbn. rewrite H. destruct remaining; [contradiction|].
  reflexivity.
 Qed.
 
@@ -25,7 +25,7 @@ Theorem a_finished_summary_publishes_its_returned_continuation :
  Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) []).
 Proof.
  intros unread carry width window reserve head tail Finished.
- unfold receive, receive_source. cbn. now rewrite Finished.
+ unfold receive, receive_source, receive_summary. cbn. now rewrite Finished.
 Qed.
 Theorem an_opaque_reply_cannot_finish_portable_work : forall unread carry width window reserve scope items,
  exists reason, receive (CompactionState (PortableSource unread) carry width window reserve)
@@ -37,7 +37,7 @@ Theorem native_start_retains_history_and_rebuild_material :
  (forall entry, In entry captured -> History.message_images entry = []) ->
  input_tokens + reserve <= window ->
  start captured history raw "chatgpt" Automatic input_tokens window reserve =
- Some (CompactionState (NativeSource history raw) "" window window reserve).
+ CompactionState (NativeSource history raw) "" window window reserve.
 Proof.
  intros captured history raw input_tokens window reserve NoImages Fits.
  assert (Empty : forallb (fun entry => match History.message_images entry with
@@ -49,10 +49,10 @@ Proof.
  now rewrite Budget.
 Qed.
 
-Theorem images_force_portable_rebuilding : forall captured entry image history raw provider method input_tokens window reserve,
+Theorem images_select_structured_summary : forall captured entry image history raw provider method input_tokens window reserve,
  In entry captured -> In image (History.message_images entry) ->
  start captured history raw provider method input_tokens window reserve =
- to_portable (CompactionState (NativeSource history raw) "" window window reserve).
+ CompactionState (StructuredSource history raw) "" window window reserve.
 Proof.
  intros captured entry image history raw provider method input_tokens window reserve Present Image.
  assert (Nonempty : forallb (fun entry => match History.message_images entry with
@@ -85,6 +85,21 @@ Theorem native_plan_transports_only_its_selected_history :
  (JObject [("method", JString "native"); ("window_tokens", number window);
    ("output_reserve_tokens", number reserve); ("history", history)]) = true.
 Proof. intros; apply equivalent_is_reflexive. Qed.
+
+Theorem structured_plan_transports_selected_history_and_summary_instruction :
+ forall history raw carry width window reserve,
+ JsonObjects.equivalent (plan_json (CompactionState (StructuredSource history raw) carry width window reserve))
+ (JObject [("method", JString "structured"); ("window_tokens", number window);
+   ("output_reserve_tokens", number reserve); ("history", history);
+   ("prompt", JString structured_summary_prompt)]) = true.
+Proof. intros; apply equivalent_is_reflexive. Qed.
+
+Theorem structured_summary_publishes_its_returned_continuation :
+ forall history raw carry width window reserve head tail,
+ receive (CompactionState (StructuredSource history raw) carry width window reserve)
+   (JObject [("summary_text",JString (String head tail))]) =
+ Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) []).
+Proof. reflexivity. Qed.
 
 Theorem portable_plan_transports_only_bounded_summary_material :
  forall unread carry width window reserve,
@@ -155,15 +170,15 @@ Lemma fitted_transport_does_not_increase_width : forall value budget fitted,
  compaction_chunk_chars fitted <= compaction_chunk_chars value.
 Proof.
  intros value budget fitted Fitted; unfold fit_transport in Fitted.
- destruct (compaction_source value) as [history raw|unread] eqn:Source.
- - destruct (plan_bytes value <=? budget).
-   + injection Fitted as <-. apply N.le_refl.
-   + destruct (to_portable value) as [converted|] eqn:Converted; try discriminate.
-     apply fitting_portable_does_not_increase_width in Fitted.
-     unfold to_portable, portable_source in Converted; rewrite Source in Converted.
-     destruct (scalar_fragments (TextJson.render_json raw)); cbn [option_map] in Converted; try discriminate.
-     injection Converted as <-. exact Fitted.
- - now apply fitting_portable_does_not_increase_width in Fitted.
+ destruct (compaction_source value) as [history raw|history raw|unread] eqn:Source.
+ all: try solve [now apply fitting_portable_does_not_increase_width in Fitted].
+ all: destruct (plan_bytes value <=? budget);
+   [injection Fitted as <-; apply N.le_refl|].
+ all: destruct (to_portable value) as [converted|] eqn:Converted; try discriminate;
+   apply fitting_portable_does_not_increase_width in Fitted;
+   unfold to_portable, portable_source in Converted; rewrite Source in Converted;
+   destruct (scalar_fragments (TextJson.render_json raw)); cbn [option_map] in Converted;
+   try discriminate; injection Converted as <-; exact Fitted.
 Qed.
 
 Lemma resize_reduces_width_or_fails : forall value,
@@ -181,16 +196,9 @@ Proof.
  - right; eexists; reflexivity.
 Qed.
 
-Theorem native_unavailable_recovers_from_raw_history :
- forall history raw carry width window reserve rebuilt,
- to_portable (CompactionState (NativeSource history raw) carry width window reserve) = Some rebuilt ->
+Theorem native_unavailable_preserves_full_history_for_summary :
+ forall history raw carry width window reserve,
  receive (CompactionState (NativeSource history raw) carry width window reserve)
-   (JObject [("action", JString "native_unavailable")]) = Next rebuilt.
-Proof.
- intros history raw carry width window reserve rebuilt Rebuilt.
- change (match to_portable (CompactionState (NativeSource history raw) carry width window reserve) with
-   | Some converted => Next converted
-   | None => Failed "Compaction history is not valid UTF-8"
-   end = Next rebuilt).
- now rewrite Rebuilt.
-Qed.
+   (JObject [("action", JString "native_unavailable")]) =
+ Next (CompactionState (StructuredSource history raw) carry width window reserve).
+Proof. reflexivity. Qed.

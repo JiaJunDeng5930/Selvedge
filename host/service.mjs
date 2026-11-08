@@ -373,7 +373,13 @@ export class Service extends EventEmitter {
           this.notify({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
           signal.addEventListener('abort', cancelPreview, { once: true });
           return requestModel(effect, this.config, this.home, this.limits, {
-            signal, onObservation: value => { observation = value; },
+            signal,
+            realtime: () => {
+              if (!effect.realtime_context.length) return undefined;
+              const now = Date.now();
+              return { now, current_time: new Date(now).toISOString(), started_at: this.journal.observedAt(effect.birth_sequence) };
+            },
+            onObservation: value => { observation = value; },
             onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
             onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
             onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),

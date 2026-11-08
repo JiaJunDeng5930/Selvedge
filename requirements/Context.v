@@ -2,9 +2,9 @@
 
     A user must be able to inspect the content supplied to a Task and recover
     that work without depending on today's mutable instructions. Retained
-    history is the authority for model input. A provider encoding may translate
-    it, but cannot add privately refreshed instructions or turn an audit record
-    into an instruction. *)
+    history supplies the reproducible prefix of model input. The task selects
+    any realtime readings separately. A provider encoding preserves the
+    distinction between tracked instructions, runtime data, and audit records. *)
 
 From Selvedge.Kernel Require ContextProofs ReasoningProofs
   ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
@@ -133,17 +133,24 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     string. Admission consumes its constructed natural count and checks the
     token budget without imposing another numeric-representation requirement. *)
 
-From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs.
+From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs
+  CompactionPlanProofs TaskWakeProofs.
 From Selvedge.Features Require CompactionProofs CompactionRequestProofs.
-From Selvedge.Kernel Require TaskWakeProofs.
+From Selvedge.Adapters Require ProviderCompactionProofs.
 Export CompactionRequestProofs(maintenance_context_installs_its_exact_continuation).
 Export TaskWakeProofs(an_actual_wake_keeps_its_pending_context_demand).
 Export ContextSelectionProofs(adoption_keeps_the_original_history,
+  adopted_replacement_rebuilds_from_captured_context,
   selected_replacement_keeps_the_exact_suffix,
+  selected_replacement_drops_compacted_tracked_changes,
   selected_replacement_drops_compacted_reasoning_updates,
   portable_replacement_keeps_the_exact_suffix,
   another_scope_cannot_select_native_context,
   an_unresolved_captured_call_cannot_be_compacted).
+Export CompactionPlanProofs(structured_plan_transports_selected_history_and_summary_instruction,
+  structured_summary_publishes_its_returned_continuation,
+  native_unavailable_preserves_full_history_for_summary).
+Export ProviderCompactionProofs(public_structured_summary_appends_its_instruction_after_selected_history).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
@@ -167,13 +174,25 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     different purposes. [adoption_keeps_the_original_history] makes adoption
     append-only. [selected_replacement_keeps_the_exact_suffix] and
     [portable_replacement_keeps_the_exact_suffix] constrain the actual selected
-    replacement plus records added after its captured span. Incompatible native
-    scope cannot authorize selection; readable originals remain available for
-    a portable rebuild. Fixed tracked context and image references retain their
-    distinct roles when ordinary dialogue is summarized. Reasoning configuration
-    updates control the following generation; they are not tracked instructions
-    to move before a replacement summary. Selection drops updates in the replaced
-    span, and the next generation records its current effort again. This also
+    replacement plus records added after its captured span. Compaction starts
+    with the same selected history as inference, including tracked context
+    introductions and subsequent updates in their original positions.
+    The ordinary summary request appends its instruction after that history
+    so the common input prefix remains eligible for cache reuse.
+    [public_structured_summary_appends_its_instruction_after_selected_history]
+    constrains the adapter used for dispatch. When that input exceeds the
+    transport or token budget, the summary consumes bounded fragments of the
+    readable context, including its tracked entries.
+    [adopted_replacement_rebuilds_from_captured_context] places the complete
+    bindings at the captured boundary before the replacement, followed by the
+    unchanged suffix. [selected_replacement_drops_compacted_tracked_changes]
+    excludes the old introductions, edits and removals from the rebuilt prefix.
+    Incompatible native scope cannot authorize selection; readable originals
+    remain available for a portable rebuild. Image references retain their
+    original content and are available after replacement. Reasoning
+    configuration updates control the following generation. Selection drops
+    updates in the replaced span, and the next generation records its current
+    effort again. This also
     follows the provider's requirement to restate configuration after compaction
     (https://developers.openai.com/api/docs/guides/reasoning).
 
@@ -332,3 +351,15 @@ From Selvedge.Adapters Require ApiProofs.
 Export ApiProofs(public_evaluator_authorizes_only_configured_decision,
   public_evaluator_accepts_configured_decision,
   public_evaluator_request_keeps_calls_and_results).
+
+
+(** ** Read realtime sources at dispatch
+
+    The task's source selection is frozen with the model request. The host reads
+    the clock at dispatch and recovers the start time from the committed birth
+    transaction. The resulting readings live in a suffix of the provider input
+    so changes leave the preceding input identical. The history projection and
+    compaction request consume only committed history. Reading the clock is
+    part of sending an already prepared model request. It never schedules work. *)
+From Selvedge.Adapters Require BackendProofs.
+Export BackendProofs(public_requests_use_the_committed_request_effort).

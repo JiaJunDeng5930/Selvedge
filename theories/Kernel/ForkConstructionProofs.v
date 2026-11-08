@@ -9,16 +9,16 @@ Import ListNotations.
 Open Scope string_scope.
 
 Theorem constructed_children_have_the_requested_count :
- forall count owner parent messages settings entry start next invocation,
- List.length (Tasks.constructed_children count owner parent messages settings entry start next invocation) = count.
+ forall count owner parent messages settings entry start next invocation birth_sequence,
+ List.length (Tasks.constructed_children count owner parent messages settings entry start next invocation birth_sequence) = count.
 Proof.
  induction count; intros; cbn [Tasks.constructed_children List.length]; auto.
 Qed.
 
 Theorem constructed_children_have_the_parent_lineage :
- forall count owner parent messages settings entry start next invocation,
+ forall count owner parent messages settings entry start next invocation birth_sequence,
  Forall (fun child => task_lineage child = owner :: task_lineage parent)
-   (Tasks.constructed_children count owner parent messages settings entry start next invocation).
+   (Tasks.constructed_children count owner parent messages settings entry start next invocation birth_sequence).
 Proof.
  induction count; intros; cbn [Tasks.constructed_children]; constructor; [reflexivity|apply IHcount].
 Qed.

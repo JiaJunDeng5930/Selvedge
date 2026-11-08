@@ -40,7 +40,8 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 
 `create_project`, `update_project`, `read_project`, `list_projects` and
 `delete_project` are native commands. Task creation/fork accepts a `settings`
-object with `project_id`, `workspace`, `sandbox` and `approval`.
+object with `project_id`, `workspace`, `sandbox`, `approval`, and
+`realtime_context`.
 
 When the primary workspace has a Git commit, the New task dialog lets you choose
 the current workspace, a local Git worktree, or Tencent Cloud CVM.
@@ -252,10 +253,22 @@ bun host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results
 bun host/cli.mjs send --task-id 0 --message 'Continue from the replacement context.'
 ```
 
-Original task history remains readable. Later requests use a compatible complete
-replacement window followed by messages committed after its captured source.
-When a new endpoint cannot consume native opaque content, portable rebuilding
-uses the readable original records. The
+Before a Responses model request, Selvedge appends the selected realtime
+readings to the end of the model input. The default sources are
+`current_time` (UTC) and `task_elapsed_time` (milliseconds since task creation).
+Set `"realtime_context": ["current_time"]` in task settings to select just the
+clock, or use an empty array to disable both sources. The readings are sampled
+only during model dispatch and are absent from task history and compaction.
+[ChatGPT Web v1](chatgpt-web.md) skips the readings because its continuation
+protocol stores input messages in the remote conversation.
+
+Compaction includes the current history-derived model input, including tracked
+context introductions and updates. After compaction, the model receives the
+latest complete tracked context at the captured position, the replacement
+summary, messages committed after that position, and finally the current
+realtime readings. The original task history remains readable. A provider
+that cannot consume a native opaque replacement rebuilds from readable
+records. The
 [compaction definitions](../theories/Features/Compaction.v) and shared
 [context selection](../theories/Kernel/ContextSelection.v) own those rules.
 

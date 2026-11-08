@@ -260,7 +260,7 @@ Theorem successful_initialization_binds_pending_owner : forall backend before st
  Runtime.can_schedule_task (next_task before) initialized=false.
 Proof.
  intros backend before start admitted.
- pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start)) as Birth.
+ pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start (N.succ (world_sequence before)))) as Birth.
  cbv zeta in Birth |- *.
  destruct backend; cbn [Worktree.interpret_planned_birth Worktree.born_world Worktree.planned_task Worktree.planned_resource
    TaskBirth.birth_prepared TaskBirth.birth_world] in *.

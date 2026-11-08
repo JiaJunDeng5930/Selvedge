@@ -139,13 +139,12 @@ Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : 
 Definition start (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
  (scope : string) (tokens : N) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let messages := ContextSelection.history_json id (captured_history input) in
- match Selvedge.Kernel.CompactionPlan.start (captured_history input)
-   (JArray (ContextSelection.dialogue (ContextSelection.target_messages messages scope)))
-   (JArray (ContextSelection.dialogue (ContextSelection.raw_messages messages)))
+ let progress := Selvedge.Kernel.CompactionPlan.start (captured_history input)
+   (JArray (ContextSelection.target_messages messages scope))
+   (JArray (ContextSelection.target_messages messages ""))
    (profile_provider (captured_profile input)) (target_method target) tokens
-   (window_tokens (target_budget target)) (reserve_tokens (target_budget target)) with
- | Some progress => dispatch_compact id task input purpose progress scope entry value
- | None => failed id task entry "Compaction history is not valid UTF-8" value end.
+   (window_tokens (target_budget target)) (reserve_tokens (target_budget target)) in
+ dispatch_compact id task input purpose progress scope entry value.
 Definition force_portable (id : N) (task : task) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  match configured_target task (registry value) with
  | None => failed id task entry "The selected profile does not support compaction" value
