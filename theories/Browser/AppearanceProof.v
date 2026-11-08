@@ -1,18 +1,18 @@
 From Stdlib Require Import String List Arith.
 From Selvedge.Browser Require Import Appearance Typography Layout SemanticAppearance.
-From Selvedge.Interaction.Presentation Require Roles.
-From Selvedge.Programming.Presentation Require Surface.
+From Selvedge.Browser.Presentation Require Roles.
+From Selvedge.Browser.Scene Require Surface.
 Import ListNotations.
 Open Scope string_scope.
 
 Theorem explicit_light_overrides_system dark :
-  theme Selvedge.Interaction.Appearance.LightAppearance dark = false.
+  theme Selvedge.Browser.Session.Appearance.LightAppearance dark = false.
 Proof. reflexivity. Qed.
 Theorem explicit_dark_overrides_system dark :
-  theme Selvedge.Interaction.Appearance.DarkAppearance dark = true.
+  theme Selvedge.Browser.Session.Appearance.DarkAppearance dark = true.
 Proof. reflexivity. Qed.
 Theorem system_theme_follows_observation dark :
-  theme Selvedge.Interaction.Appearance.SystemAppearance dark = dark.
+  theme Selvedge.Browser.Session.Appearance.SystemAppearance dark = dark.
 Proof. reflexivity. Qed.
 
 Theorem rich_body_retains_parent_typography env parent strength :
@@ -98,7 +98,7 @@ Proof. destruct source; split; reflexivity. Qed.
 Theorem navigation_caption_preserves_single_line {A} env activity :
   In ("white-space","nowrap")
     (SemanticAppearance.meaning_properties env activity
-      (@Surface.InformationText A Selvedge.Interaction.Presentation.Information.NavigationCaption)).
+      (@Surface.InformationText A Selvedge.Browser.Presentation.Information.NavigationCaption)).
 Proof. unfold SemanticAppearance.meaning_properties. repeat rewrite in_app_iff. simpl. tauto. Qed.
 
 Theorem conversation_passes_its_available_height_to_the_reading_port {A} env activity view :

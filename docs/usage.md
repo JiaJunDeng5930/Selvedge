@@ -156,10 +156,12 @@ bun /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home s
 ```
 
 With the server running, use `observe KIND [ID]` to read business information
-from the terminal. The collection kinds are `tasks`, `projects`, `board`,
-`agents` and `graphs`. Use `task`, `project`, `card`, `agent` or `graph` with
-an ID for details. For a card, `observe card-decisions CARD_ID` gives its current
-revision, move destinations and task link candidates.
+from the terminal. The collection kinds are `tasks`, `projects`, `works`, `board`,
+`agents` and `graphs`. Use `task`, `project`, `work`, `card`, `agent` or `graph`
+with an ID for details. Append `-actions` to `task`, `project`, `card`, `agent` or
+`graph` to list that object's candidate commands and confirmation prompts.
+`observe card-decisions CARD_ID` gives the card's current revision, move
+destinations and task link candidates.
 
 `assess COMMAND [--field value]` reports whether the proposed command is
 admitted against the returned world sequence. Assessment does not submit a

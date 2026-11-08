@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Adapters Require Import Common Observation Api Http.
-From Selvedge.Interaction Require CardDecisions UserCommand Codec.
+From Selvedge.Interaction Require CardDecisions ObjectDecisions Identity UserCommand Codec.
 From Selvedge.Interaction.Experience Require Query Read.
 From Selvedge.Generated Require Commands.
 From Selvedge.Kernel Require Codec ModelResultDeclarations Numbers Packet State.
@@ -34,20 +34,41 @@ Proof.
 Qed.
 
 Theorem public_interaction_shares_business_observations snapshot raw subject :
- Read.decode_request raw = Some subject ->
- Selvedge.Interaction.Codec.text "kind" raw <> "card-decisions" ->
+ Query.decode_request raw = Some (Query.Information subject) ->
  Api.call "http.interaction" (JObject [("request", raw); ("snapshot", snapshot)]) =
  Json.success (match Read.describe snapshot subject with
  | Some value => Http.respond 200 (State.success value)
  | None => Http.rejection 404 "not_found" "The requested subject is unavailable"
  end).
 Proof.
- intros decoded distinct.
+ intro decoded.
  change (Api.call "http.interaction" (JObject [("request", raw); ("snapshot", snapshot)]))
   with (Json.success (Http.interaction_response (JObject [("request", raw); ("snapshot", snapshot)]))).
- unfold Http.interaction_response, Query.decode_request.
+ unfold Http.interaction_response.
  change (get (JObject [("request", raw); ("snapshot", snapshot)]) "request") with raw.
- apply String.eqb_neq in distinct. rewrite distinct, decoded. reflexivity.
+ rewrite decoded. reflexivity.
+Qed.
+
+Theorem public_interaction_shares_object_choices snapshot clock raw subject :
+ Query.decode_request raw = Some (Query.ObjectChoices subject) ->
+ ObjectDecisions.subject_exists snapshot subject = true ->
+ Api.call "http.interaction" (JObject [("request", raw); ("snapshot", snapshot); ("now", clock)]) =
+ Json.success (Http.respond 200 (State.success (Read.encode_list ObjectDecisions.encode_decision
+   (ObjectDecisions.decisions snapshot (Selvedge.Interaction.Codec.natural clock) subject ++
+    match subject with
+    | Identity.TaskActions task => ObjectDecisions.reading_decisions snapshot task
+    | _ => []
+    end)%list))).
+Proof.
+ intros decoded exists_subject.
+ change (Api.call "http.interaction" (JObject [("request", raw); ("snapshot", snapshot); ("now", clock)]))
+  with (Json.success (Http.interaction_response (JObject [("request", raw); ("snapshot", snapshot); ("now", clock)]))).
+ unfold Http.interaction_response.
+ change (get (JObject [("request", raw); ("snapshot", snapshot); ("now", clock)]) "request") with raw.
+ rewrite decoded.
+ cbn [Query.observe].
+ change (get (JObject [("request", raw); ("snapshot", snapshot); ("now", clock)]) "snapshot") with snapshot.
+ now rewrite exists_subject.
 Qed.
 
 Theorem public_interaction_shares_card_choices snapshot raw id :
@@ -64,7 +85,7 @@ Proof.
   with (Json.success (Http.interaction_response (JObject [("request", raw); ("snapshot", snapshot)]))).
  unfold Http.interaction_response, Query.decode_request.
  change (get (JObject [("request", raw); ("snapshot", snapshot)]) "request") with raw.
- rewrite kind, String.eqb_refl, selected.
+ rewrite kind, selected.
  change (get (JObject [("request", raw); ("snapshot", snapshot)]) "snapshot") with snapshot.
  cbn [option_map Query.observe].
  now destruct (CardDecisions.observe snapshot id).

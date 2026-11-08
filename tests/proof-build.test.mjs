@@ -12,8 +12,13 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 
 test('a focused proof build works without JavaScript extraction dependencies', { timeout: 120000 }, async t => {
   const directory = await home(t), checkout = path.join(directory, 'source'), bin = path.join(directory, 'bin');
-  const listed = await execute('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root });
-  await Promise.all(listed.stdout.split('\0').filter(Boolean).map(async filename => {
+  const [listed, deleted] = await Promise.all([
+    execute('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root }),
+    execute('git', ['ls-files', '-z', '--deleted'], { cwd: root }),
+  ]);
+  // An unstaged rename still lists its former path in the index.
+  const missing = new Set(deleted.stdout.split('\0'));
+  await Promise.all(listed.stdout.split('\0').filter(filename => filename && !missing.has(filename)).map(async filename => {
     const target = path.join(checkout, filename);
     await mkdir(path.dirname(target), { recursive: true });
     await cp(path.join(root, filename), target, { verbatimSymlinks: true });

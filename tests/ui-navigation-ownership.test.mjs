@@ -194,9 +194,11 @@ async function rejectNextCommand(page, operation, change) {
     body.command = change(body.command);
     const response = await route.fetch({ postData: JSON.stringify(body) });
     const result = await response.json();
-    assert.equal(result.reply.ok, false, JSON.stringify(result));
+    // A command rejected before submission has no committed world or nested reply.
+    const reply = result.reply ?? result;
+    assert.equal(reply.ok, false, JSON.stringify(result));
     await route.fulfill({ response });
-    completed.resolve(result.reply.error);
+    completed.resolve(reply.error);
   });
   return completed.promise;
 }
@@ -207,7 +209,7 @@ test('Work and Side creation failures display the exact server code and explanat
   let failure = rejectNextCommand(page, 'create_work', command => ({ ...command, name: 'x'.repeat(4097) }));
   await page.getByRole('button', { name: 'New Work', exact: true }).click();
   let diagnostic = await failure;
-  assert.equal(diagnostic.code, 'invalid_name');
+  assert.equal(diagnostic.code, 'command_not_submitted');
   await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).waitFor();
   await page.setViewportSize({ width: 500, height: 800 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();

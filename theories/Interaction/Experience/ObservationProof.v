@@ -4,10 +4,10 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Workspace.
 From Selvedge.Interaction Require Import Codec.
 From Selvedge.Programming Require Import Resource.
-From Selvedge.Interaction Require Import Services CommandAssessment Identity.
-From Selvedge.Interaction.Session Require Draft State.
-From Selvedge.Interaction.Submission Require Parameters Values.
-From Selvedge.Interaction.Experience Require Import Model Activity Observation.
+From Selvedge.Interaction Require Import CommandAssessment Identity.
+From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Parameters Values Observation.
+From Selvedge.Interaction.Experience Require Import Model Activity Observation EditorContext.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -57,7 +57,7 @@ Theorem available_admission_has_current_authority snapshot state owner revision 
  admission snapshot state owner revision command=Available ->
  exists sequence ticket request observation,
   natural_field "sequence" snapshot=Some sequence /\
-  find(Services.owned_assessment owner)(Services.command_assessments(State.service_state state))=
+  find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state))=
     Some(Loaded ticket request observation) /\
   CommandAssessment.matches owner revision sequence command request=true /\
   CommandAssessment.observed_owner observation=owner /\
@@ -67,7 +67,7 @@ Theorem available_admission_has_current_authority snapshot state owner revision 
 Proof.
  unfold admission.
  destruct(natural_field "sequence" snapshot)as[sequence|]eqn:Sequence;try discriminate.
- destruct(find(Services.owned_assessment owner)(Services.command_assessments(State.service_state state)))
+ destruct(find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state)))
   as[resource|]eqn:Found;try discriminate.
  destruct resource as[|ticket request|ticket request observation|ticket request reason];try discriminate.
  - destruct(CommandAssessment.matches owner revision sequence command request &&
@@ -85,7 +85,7 @@ Theorem available_assignment_is_editable snapshot state e(assignment:assignment 
  Parameters.editable e(subject_declaration(assignment_subject assignment))=true.
 Proof.
  unfold assignment_available.
- destruct(reviewer_assignment_reason snapshot(Draft.contents(State.current_draft state e))assignment);try discriminate.
+ destruct(reviewer_assignment_reason snapshot(Draft.contents(EditorContext.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment)eqn:Shape;try discriminate.
  unfold assignment_shape_available in Shape. apply Bool.andb_true_iff in Shape.
  exact(fun _=>proj1 Shape).
@@ -95,15 +95,15 @@ Theorem available_live_assignment_has_current_authority snapshot state e(assignm
  Parameters.live_configuration e(subject_declaration(assignment_subject assignment))=true ->
  assignment_available snapshot state assignment=Available ->
  exists command,
-  Values.candidate_command snapshot(State.now state)(State.current_draft state e)assignment=Some command /\
+  Values.candidate_command snapshot(EditorContext.current_time(EditorContext.observed state))(EditorContext.current_draft state e)assignment=Some command /\
   admission snapshot state(candidate_owner(assignment_subject assignment)
     (Schema.encode_value(subject_kind(assignment_subject assignment))(assignment_value assignment)))
-    (Draft.revision(State.current_draft state e))command=Available.
+    (Draft.revision(EditorContext.current_draft state e))command=Available.
 Proof.
  intros Live. unfold assignment_available.
- destruct(reviewer_assignment_reason snapshot(Draft.contents(State.current_draft state e))assignment);try discriminate.
+ destruct(reviewer_assignment_reason snapshot(Draft.contents(EditorContext.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment);try discriminate.
- rewrite Live. destruct(Values.candidate_command snapshot(State.now state)(State.current_draft state e)assignment)
+ rewrite Live. destruct(Values.candidate_command snapshot(EditorContext.current_time(EditorContext.observed state))(EditorContext.current_draft state e)assignment)
   as[command|]eqn:Command;try discriminate.
  intros Accepted. exists command. split;[reflexivity|exact Accepted].
 Qed.
@@ -120,8 +120,8 @@ Qed.
 (** Committed approvals carry the captured reviewer, independent of later
     configured-catalog changes.  The execution entry reads this decoder. *)
 Theorem frozen_approval_observation_ignores_catalog first second value:
- Session.Observation.parse_observed_approval first value=
- Session.Observation.parse_observed_approval second value.
+ Selvedge.Interaction.Submission.Observation.parse_observed_approval first value=
+ Selvedge.Interaction.Submission.Observation.parse_observed_approval second value.
 Proof. reflexivity. Qed.
 
 (** The complete draft assessment retains every independently observed cause;
@@ -132,10 +132,10 @@ Theorem blocked_draft_preserves_all_requirements snapshot state e first rest:
   ((first::rest)++restrictions)%list.
 Proof.
  intros Requirements. unfold observe_assessment,preliminary_assessment. rewrite Requirements.
- destruct(negb(Services.connected(State.service_state state)));cbn[assessment_outcome];
+ destruct(negb(EditorContext.connected(EditorContext.observed state)));cbn[assessment_outcome];
  try(eexists;reflexivity).
- destruct(Services.blocks e(State.service_state state));cbn[assessment_outcome];try(eexists;reflexivity).
- destruct(negb(Session.Observation.worktree_submission_allowed snapshot state(State.current_draft state e)));cbn[assessment_outcome];
+ destruct(EditorContext.editor_uploading(EditorContext.observed state)e);cbn[assessment_outcome];try(eexists;reflexivity).
+ destruct(negb(Selvedge.Interaction.Submission.Observation.worktree_submission_allowed snapshot(EditorContext.git_observation(EditorContext.observed state))(EditorContext.current_draft state e)));cbn[assessment_outcome];
  try(eexists;reflexivity).
  exists[]. rewrite app_nil_r. reflexivity.
 Qed.

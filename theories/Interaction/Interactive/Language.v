@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Interaction Require Import Codec CodeSource.
-From Selvedge.Interaction.Interactive Require Import Bounds Types State Registry Expand Render Runtime Codec.
+From Selvedge.Interaction Require Import Codec.
+From Selvedge.Interaction.Interactive Require Import Bounds Types State Registry Expand Runtime Codec.
 Import ListNotations.
 Open Scope string_scope.
 Module IS := Selvedge.Interaction.Interactive.State.
@@ -11,19 +11,6 @@ Definition storage_policy := JObject [("maximumDocuments",JNumber (Numbers.show_
  ("maximumBytes",JNumber (Numbers.show_nat Bounds.stored_bytes));("prefix",JString "selvedge-interactive-v1/")].
 Definition step_visible := Runtime.step_visible.
 Definition step := Runtime.step.
-
-(** Rendering requires the source established by document publication. An opaque
-    interactive owner is not evidence of a message, viewer, or source identity. *)
-Definition fence_for identity b environment :=
- let prepared:=Runtime.prepared b environment in
- let b:=IS.with_sources prepared.(Registry.sources) (IS.with_locals prepared.(prepared_locals) b) in
- let '(nodes,allocation):=Expand.expand b prepared environment in
- Render.fence identity b prepared nodes allocation.(Expand.remaining).
-Definition shared_for identity b environment :=
- let prepared:=Runtime.prepared b environment in
- let b:=IS.with_sources prepared.(Registry.sources) (IS.with_locals prepared.(prepared_locals) b) in
- let '(nodes,allocation):=Expand.expand b prepared environment in
- Render.shared identity b prepared nodes allocation.(Expand.remaining).
 
 (** The standalone language entry reduces admitted component state. The product
     UI is published through the application's actual document context above. *)

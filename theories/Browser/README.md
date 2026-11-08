@@ -1,9 +1,23 @@
 # Browser semantics
 
-`Runtime.call` is the JSON boundary extracted into the production browser bundle.
-`Document` interprets the interaction module's semantic scene into a closed DOM
-vocabulary; product actions and labels remain in the interaction module. DOM nodes
-carry plain JSON records, never a compiler's internal constructor layout.
+`Runtime.call` is the extracted boundary for native browser observations.
+`Application.call` handles browser initialization, input and observation against
+the accepted world, durable namespace and publication state. It uses
+`Presentation` to compose pages and layers from business observations and
+`Session` to own navigation, dialogs and browser resource lifetimes.
+`Document` compiles the resulting scene into a closed DOM vocabulary.
+
+Browser views take business facts and decisions from [Interaction](../Interaction/README.md).
+Cards expose move and link choices through focused selectors, and drop targets
+use the same move proposals. Native controls still require the service's current
+assessment, correlated to the object, action and world sequence.
+
+Resource tickets reject unrelated IO completions, draft revisions preserve edits
+made after submission, and navigation generations preserve selection after the
+user has moved on. Main and side presentations of one task share document identity
+and source authority. Native keys and return targets identify the actual
+presentation. Document observations require the matching identity, epoch and
+authoritative prefix. A non-prefix replacement starts a new lifetime.
 
 `Keyboard`, `Reading`, `Publication`, `Focus` and `Layout` own key normalization,
 reading intent, publication generations, focus cycling and responsive allocation.

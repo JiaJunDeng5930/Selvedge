@@ -364,7 +364,7 @@ export async function startServer(options) {
         },
         interaction: request => {
           const { program } = service.publishedSnapshot();
-          return boundary('http.interaction', { request, snapshot: program });
+          return boundary('http.interaction', { request, snapshot: program, now: Math.floor(Date.now() / 1000) });
         },
         connection_command: async (body) => {
           const result = await service.command(connectionCommand(Number(connectionId), body));

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser Require Import Layout.
 Import ListNotations.
@@ -59,11 +60,11 @@ Definition decode_environment source : option environment :=
 
 Definition encode_view view := match view with
  |None=>JNull
- |Some(Identity.PrimaryTask task)=>JObject[("kind",JString "primary");("task",JNumber(show_natural task))]
- |Some(Identity.SideTask task)=>JObject[("kind",JString "side");("task",JNumber(show_natural task))] end.
-Definition decode_view source : option(option Identity.task_view) := match source with
+ |Some(NavigationIdentity.PrimaryTask task)=>JObject[("kind",JString "primary");("task",JNumber(show_natural task))]
+ |Some(NavigationIdentity.SideTask task)=>JObject[("kind",JString "side");("task",JNumber(show_natural task))] end.
+Definition decode_view source : option(option NavigationIdentity.task_view) := match source with
  |JNull=>Some None
  |_=>kind <- string_field "kind" source;;task <- Codec.natural_field "task" source;;
- match kind with "primary"=>Some(Some(Identity.PrimaryTask task))|"side"=>Some(Some(Identity.SideTask task))|_=>None end end.
+ match kind with "primary"=>Some(Some(NavigationIdentity.PrimaryTask task))|"side"=>Some(Some(NavigationIdentity.SideTask task))|_=>None end end.
 Definition physical_target view logical := match view with
- |None=>logical|Some view=>Identity.task_view_key view logical end.
+ |None=>logical|Some view=>NavigationIdentity.task_view_key view logical end.

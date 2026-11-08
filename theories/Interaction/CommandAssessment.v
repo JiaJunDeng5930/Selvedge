@@ -1,30 +1,30 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Programming Require Import Schema.
+From Selvedge.Programming Require Import Schema Resource.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Interaction Require Import Codec Identity.
 Import ListNotations.
 Open Scope string_scope.
 
-Inductive action_owner := DraftOwner (owner:editor) | MenuOwner (subject:menu_subject)(action_key:string)
+Inductive action_owner := DraftOwner (owner:editor) | ObjectActionOwner (subject:object_subject)(action_key:string)
 | CandidateOwner (owner:editor)(field value:string)
 | PreparationOwner (ticket:N)(command:string)
 | DirectOwner (command:string).
-Definition menu_subject_eq_dec : forall a b:menu_subject,{a=b}+{a<>b}.
+Definition object_subject_eq_dec : forall a b:object_subject,{a=b}+{a<>b}.
 Proof. decide equality;apply N.eq_dec. Defined.
 Definition action_owner_eq_dec : forall a b:action_owner,{a=b}+{a<>b}.
-Proof. decide equality;auto using editor_eq_dec,menu_subject_eq_dec,string_dec,N.eq_dec. Defined.
+Proof. decide equality;auto using editor_eq_dec,object_subject_eq_dec,string_dec,N.eq_dec. Defined.
 Definition same_owner a b := if action_owner_eq_dec a b then true else false.
 Definition encode_owner value := match value with
 |DraftOwner e=>JObject[("kind",JString "draft");("editor",encode_editor e)]
-|MenuOwner subject key=>JObject[("kind",JString "menu");("subject",encode_menu_subject subject);("action",JString key)]
+|ObjectActionOwner subject key=>JObject[("kind",JString "menu");("subject",encode_object_subject subject);("action",JString key)]
 |DirectOwner command=>JObject[("kind",JString "direct");("command",JString command)]
 |PreparationOwner ticket command=>JObject[("kind",JString "preparation");("ticket",number ticket);("command",JString command)]
 |CandidateOwner e field value=>JObject[("kind",JString "candidate");("editor",encode_editor e);("field",JString field);("value",JString value)]end.
 Definition decode_owner source := match string_field "kind" source with
 |Some "draft"=>e<-bind(field "editor" source)decode_editor;;Some(DraftOwner e)
-|Some "menu"=>subject<-bind(field "subject" source)decode_menu_subject;;key<-string_field "action" source;;Some(MenuOwner subject key)
+|Some "menu"=>subject<-bind(field "subject" source)decode_object_subject;;key<-string_field "action" source;;Some(ObjectActionOwner subject key)
 |Some "direct"=>option_map DirectOwner(string_field "command" source)
 |Some "preparation"=>ticket<-natural_field "ticket" source;;command<-string_field "command" source;;Some(PreparationOwner ticket command)
 |Some "candidate"=>e<-bind(field "editor" source)decode_editor;;name<-string_field "field" source;;value<-string_field "value" source;;Some(CandidateOwner e name value)
@@ -43,6 +43,8 @@ Record observation := Observation {
   observed_sequence : N;
   observed_admission : admission
 }.
+Definition owned_assessment owner (r:resource CommandAssessment.request CommandAssessment.observation) :=
+  match resource_request r with Some request=>CommandAssessment.same_owner owner(CommandAssessment.request_owner request)|None=>false end.
 Definition encode_request value := JObject [
   ("editor", encode_owner (request_owner value));
   ("revision", number (request_revision value));

@@ -196,7 +196,7 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|observe KIND [ID]|[assess] COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun observe to read tasks, projects, board, agents, graphs or a task, project, card, card-decisions, agent or graph by ID.\nRun assess to check a command against the current business state without submitting it.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|observe KIND [ID]|[assess] COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun observe to read tasks, projects, works, board, agents or graphs. Use task, project, work, card, agent or graph with an ID.\nRun observe KIND-actions ID for object command candidates, or observe card-decisions ID for move and link choices.\nRun assess to check a command against the current business state without submitting it.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
     return;
   }
   const local = await connection(global.home);

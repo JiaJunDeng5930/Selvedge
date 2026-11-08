@@ -19,7 +19,7 @@ For example:
 
 Use `Language.initial`, `Language.step_visible` and `Language.observe_owner` from
 Gallina. `Language.call` provides the JSON entry for isolated language use;
-`Interaction.Application.call` is the application entry that supplies current
+`Browser.Application.call` is the application entry that supplies current
 document ownership, visibility and external-action permission. Component and
 field declarations are defined in `Vocabulary.v`; resource limits are defined
 in `Bounds.v`.

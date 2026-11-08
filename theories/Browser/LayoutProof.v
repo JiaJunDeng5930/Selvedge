@@ -1,6 +1,6 @@
 From Stdlib Require Import Arith Lia List String.
 From Selvedge.Browser Require Import Layout Typography.
-From Selvedge.Interaction.Presentation Require Composition.
+From Selvedge.Browser.Presentation Require Composition.
 Import ListNotations.
 Open Scope string_scope.
 

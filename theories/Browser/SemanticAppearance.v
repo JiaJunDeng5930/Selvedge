@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Browser Require Import Appearance Typography Layout ControlPurpose.
-From Selvedge.Programming.Presentation Require Import Model.
-From Selvedge.Interaction.Presentation Require Import Roles Information Composition.
-From Selvedge.Programming.Presentation Require Import Surface.
+From Selvedge.Browser.Scene Require Import Model.
+From Selvedge.Browser.Presentation Require Import Roles Information Composition.
+From Selvedge.Browser.Scene Require Import Surface.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation.
 Import ListNotations.

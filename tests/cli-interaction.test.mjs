@@ -64,4 +64,16 @@ test('terminal users observe and assess a card move, then receive the shared com
   });
   assert.equal(browser.status, 400);
   assert.deepEqual((await browser.json()).reply.error, stale.value.refusal);
+
+  const actions = await successful('observe', 'card-actions', id);
+  const pin = actions.find(action => action.key === 'pin').command;
+  assert.equal(pin.op, 'pin_card');
+  assert.equal(pin.card_id, created.card_id);
+  await successful(pin.op, '--card-id', id, '--revision', String(pin.revision), '--pinned', String(pin.pinned));
+  assert.equal((await successful('observe', 'card', id)).pinned, true);
+
+  const work = await successful('create_work', '--name', 'Shared Work');
+  const observed = await successful('observe', 'work', String(work.work_id));
+  assert.equal(observed.name, 'Shared Work');
+  assert.ok((await successful('observe', 'works')).some(value => value.id === observed.id));
 });

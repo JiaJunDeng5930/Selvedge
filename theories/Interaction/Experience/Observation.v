@@ -6,29 +6,41 @@ From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tas
 From Selvedge.Features Require Domain BoardParameters Board Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
-From Selvedge.Interaction Require Import Services CommandAssessment DocumentState ModelSelection.
-From Selvedge.Interaction.Session Require Draft State Observation Initialize.
+From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
+From Selvedge.Interaction Require World.
+From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Observation.
+From Selvedge.Interaction.Experience Require EditorContext.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Experience Require Import Model Activity.
+From Selvedge.Interaction.Experience Require ContextObservation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition profile_label (value:Selvedge.Kernel.Domain.profile):string:=
- match string_field "name"(Selvedge.Kernel.Domain.profile_metadata value)with
- |Some name=>name|None=>Selvedge.Kernel.Domain.profile_provider value++" / "++Selvedge.Kernel.Domain.profile_model value end.
+Module EC := EditorContext.
+Module FieldsObservation := Selvedge.Interaction.Submission.Observation.
+Definition profile_label := ContextObservation.profile_label.
 Definition selectable_profiles (profiles:list Selvedge.Kernel.Domain.profile):list Selvedge.Kernel.Domain.profile:=
  filter ModelSelection.selectable_profile profiles.
 Definition observe_subject snapshot state {e}(subject:Model.subject e):Fields.observed:=
- Session.Observation.observe_field_in_state snapshot state(State.current_draft state e)(subject_declaration subject).
+  let draft := EC.current_draft state e in
+ match FieldsObservation.observe_field snapshot draft (subject_declaration subject) with
+ | Fields.ContextValue (Context.ProspectiveContext origin project workspace sandbox approval Context.AwaitingDirectoryGuidance) reviewers =>
+   let guidance := match EC.directory_result (EC.observed state) draft with
+     | Some (inr (_, value)) => Context.ObservedDirectoryGuidance value
+     | _ => Context.AwaitingDirectoryGuidance end in
+   Fields.ContextValue (Context.ProspectiveContext origin project workspace sandbox approval guidance) reviewers
+ | value => value
+ end.
 Definition profile_for_subject snapshot {e}(subject:Model.subject e) key:=match e with
-|Identity.Message task=>Session.Observation.task_profile task snapshot
+|Identity.Message task=>FieldsObservation.task_profile task snapshot
 |_=>ModelSelection.observed_profile snapshot key end.
 Definition project_choices snapshot caption:=Fields.ChoiceValue "" caption::
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(show_natural id)name::rest|_,_=>rest end)[](items "projects" snapshot).
 Definition current_frozen_choice snapshot {e}(subject:Model.subject e):option Selvedge.Kernel.Domain.profile:=let declaration:=subject_declaration subject in match e,declaration with
-|Identity.Message task,Fields.ModelProfile=>Session.Observation.task_profile task snapshot
-|Identity.Message task,Fields.ApprovalReviewer=>settings<-Session.Observation.task_settings task snapshot;;
+|Identity.Message task,Fields.ModelProfile=>FieldsObservation.task_profile task snapshot
+|Identity.Message task,Fields.ApprovalReviewer=>settings<-FieldsObservation.task_settings task snapshot;;
  match Selvedge.Kernel.Domain.settings_approval settings with Selvedge.Kernel.Domain.ReviewWith reviewer=>Some reviewer|_=>None end
 |_,_=>None end.
 Definition retain_observed_choice snapshot {e}(subject:Model.subject e)(profiles:list Selvedge.Kernel.Domain.profile):list Selvedge.Kernel.Domain.profile:=
@@ -36,7 +48,7 @@ Definition retain_observed_choice snapshot {e}(subject:Model.subject e)(profiles
  |Some current=>if existsb(fun profile=>String.eqb(Selvedge.Kernel.Domain.profile_key current)(Selvedge.Kernel.Domain.profile_key profile))profiles then profiles else current::profiles
  |None=>profiles end.
 Definition context_origin_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
- let body:=Draft.contents(State.current_draft state e)in
+ let body:=Draft.contents(EC.current_draft state e)in
  let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "Parent task"]|_=>[]end in
  let inherited_project:=match Values.body_configuration body with
  |Some configuration=>match Context.context_origin configuration with
@@ -47,7 +59,7 @@ Definition context_origin_choices snapshot state {e}(subject:Model.subject e):li
  |Some id,Some name=>Fields.ChoiceValue(String.append "project/" (show_natural id))name::rest
  |_,_=>rest end)[](items "projects" snapshot).
 Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
- let profiles:=Session.Observation.catalog snapshot in
+ let profiles:=FieldsObservation.catalog snapshot in
  let models:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
    (selectable_profiles(retain_observed_choice snapshot subject profiles))in
  match subject_declaration subject with
@@ -56,7 +68,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
  |Fields.ModelProfile=>models
  |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models
  |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-   (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(State.current_draft state e))))
+   (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Configured default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
@@ -101,12 +113,9 @@ Definition entry snapshot state {e}(subject:Model.subject e):Fields.entry:=
  |_=>Parameters.entry_for(subject_declaration subject)end.
 Definition related_summary {e} field value:option(summary_value e):=
  subject<-Model.admit_subject e(Parameters.name field);;Some(SummaryValue subject value).
-Definition sandbox_label sandbox:=match Selvedge.Kernel.Domain.sandbox_access sandbox with
-|Selvedge.Kernel.Domain.ReadOnly=>"Read only"|Selvedge.Kernel.Domain.WorkspaceWrite=>"Workspace write"end.
-Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "Network allowed"else "Network restricted".
-Definition approval_caption approval:=match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Full access"|Selvedge.Kernel.Domain.AskForApproval=>"Ask"
-|Selvedge.Kernel.Domain.ReviewWith _=>"Automatic review"end.
+Definition sandbox_label := ContextObservation.sandbox_label.
+Definition network_label := ContextObservation.network_label.
+Definition approval_caption := ContextObservation.approval_caption.
 Definition resolve_approval snapshot value:=match value with
 |Context.InheritedApproval approval=>Some approval
 |Context.ChosenApproval Context.Ask=>Some Selvedge.Kernel.Domain.AskForApproval
@@ -119,10 +128,8 @@ Definition permission_observation snapshot (value:Fields.observed) := match valu
  |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_sandbox settings,
    Selvedge.Kernel.Domain.settings_approval settings)
  |_=>None end.
-Definition filesystem_summary sandbox approval := match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Full access"|_=>sandbox_label sandbox end.
-Definition network_summary sandbox approval := match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Network available"|_=>network_label sandbox end.
+Definition filesystem_summary := ContextObservation.filesystem_summary.
+Definition network_summary := ContextObservation.network_summary.
 Definition permission_effects sandbox approval : list(Fields.field*string) :=
  [(Fields.SandboxMode,String.append "Filesystem: "(filesystem_summary sandbox approval));
   (Fields.NetworkAccess,network_summary sandbox approval)]++
@@ -137,7 +144,7 @@ Definition workspace_information {e}(subject:Model.subject e) workspace inherite
  |Some _,_=>PresentInformation(SummaryValue subject(Model.WorkspaceValue
     (Selvedge.Kernel.Domain.workspace_roots workspace)(Selvedge.Kernel.Domain.workspace_primary workspace)inherited))None end.
 Definition project_revision snapshot id:=
- project<-Session.Observation.project_by_id id snapshot;;
+ project<-FieldsObservation.project_by_id id snapshot;;
  guidance<-field "guidance" project;;
  string_field "revision" guidance.
 Definition unavailable_reviewer_key snapshot value:=match value with
@@ -149,7 +156,7 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
  match subject_declaration subject with
  |Fields.ContextOrigin=>match project with
   |None=>OptionalAbsence
-  |Some id=>match Session.Observation.project_name id snapshot with
+  |Some id=>match FieldsObservation.project_name id snapshot with
    |Some name=>PresentInformation(SummaryValue subject(NamedReference id name))
      (match project_revision snapshot id with
       |Some revision=>Some(SummaryValue subject(Model.TextValue("Revision: "++revision)))
@@ -203,7 +210,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
    (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
  |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send"|Fields.Steer=>"Steer"end)"")
  |Fields.ProjectValue None=>OptionalAbsence
- |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
+ |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
  |Fields.ToggleValue value=>present(Model.TextValue(if value then "Yes"else "No"))
  |Fields.CountValue count=>present(Model.TextValue(show_natural count))
  |Fields.TextsValue values=>present(Model.TextValue(String.concat ", " values))
@@ -212,7 +219,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.OwnerValue value=>present(Model.TextValue(match value with
    |Selvedge.Features.Domain.Unassigned=>"未分配"|Selvedge.Features.Domain.Self=>"我"
    |Selvedge.Features.Domain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with Some profile=>profile_label profile|None=>"Unavailable model"end
-   |Selvedge.Features.Domain.AgentOwner id=>match Session.Initialize.board_object "agents" id snapshot with Some agent=>text "name" agent|None=>"Unavailable agent"end end))
+   |Selvedge.Features.Domain.AgentOwner id=>match World.board_object "agents" id snapshot with Some agent=>text "name" agent|None=>"Unavailable agent"end end))
  |Fields.AttachmentsValue files=>present(Model.TextValue(String.concat ", "(map Selvedge.Features.Domain.attachment_name files)))
  |Fields.AssistanceValue enabled _=>present(Model.TextValue(if enabled then "Assisted capture"else "Manual capture"))
  |Fields.OptionalTextValue None=>OptionalAbsence|Fields.OptionalTextValue(Some text)=>present(Model.TextValue text)
@@ -251,7 +258,7 @@ Definition property_source_description snapshot state {e}(property:property e):s
    |Fields.ContextValue(Context.ContextUnavailable reason)_=>reason
    |Fields.ContextValue(Context.ProspectiveContext source project workspace sandbox approval _)_=>
      prospective_source kind source workspace sandbox approval++
-      (match kind,project with WorkspaceProperty,Some id=>match Session.Observation.project_name id snapshot with
+      (match kind,project with WorkspaceProperty,Some id=>match FieldsObservation.project_name id snapshot with
         Some name=>" · "++name|None=>""end|_,_=>""end)
    |Fields.CommittedContextValue task _ _=>match kind with
       |WorkspaceProperty=>"Task workspace"
@@ -259,7 +266,7 @@ Definition property_source_description snapshot state {e}(property:property e):s
         String (Ascii.ascii_of_nat 10)("Approval: Task "++show_natural task)
       |_=>"Task context"end
    |Fields.ProjectValue None=>"Environment defaults"
-   |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with
+   |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
      Some name=>"Project configuration · "++name|None=>"The selected project is no longer available"end
    |Fields.WorkspaceValue _=>"Project workspace configuration"
    |_=>"The settings source is unavailable"end end.
@@ -295,11 +302,11 @@ Definition recognition_information snapshot {e}(subject:Model.subject e)(value:F
    (SummaryValue subject(Model.TextValue(match profile_for_subject snapshot subject key with
     |Some profile=>profile_label profile|None=>"Missing model "++key end)))
    (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))
- |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with
+ |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
    |None=>missing_project id|Some _=>information_of snapshot subject value end
  |Fields.ContextValue(Context.ProspectiveContext _ (Some id) _ _ _ _)_=>
    match subject_declaration subject with Fields.ContextOrigin=>
-    match Session.Observation.project_name id snapshot with
+    match FieldsObservation.project_name id snapshot with
     |None=>missing_project id|Some _=>information_of snapshot subject value end
    |_=>information_of snapshot subject value end
  |_=>information_of snapshot subject value end.
@@ -319,34 +326,29 @@ Definition observe_properties snapshot state e:list(property e):=
  fold_right(fun kind rest=>match observe_property snapshot state e kind with Some value=>value::rest|None=>rest end)[]
  [ProjectProperty;WorkspaceProperty;PermissionsProperty;ModelProperty;DeliveryProperty].
 Definition action_context e:=match e with Identity.NewTask _=>Creation|Identity.Message task=>Continuation task|_=>ObjectEditing end.
-Definition action_unit_for state e:Model.action_unit e:=let draft:=State.current_draft state e in
+Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_draft state e in
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
- (State.pending_editor e state||Services.preparing e(State.service_state state)).
+ (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
 Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
 Definition admission snapshot state owner revision command:availability:=
  let sequence:=natural_field "sequence" snapshot in
  match sequence with None=>Unavailable "The current state has not been observed."
- |Some sequence=>match find(Services.owned_assessment owner)(Services.command_assessments(State.service_state state))with
+ |Some sequence=>match find(CommandAssessment.owned_assessment owner)(EC.command_assessments(EC.observed state))with
  |Some(Loaded _ request observation)=>if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation then
    match CommandAssessment.observed_admission observation with CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
    else Unavailable "Checking this action against the current state."
  |Some(Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request
    then Unavailable reason else Unavailable "Checking this action against the current state."
  | _=>Unavailable "Checking this action against the current state."end end.
-Definition project_directory_buffer state owner:=
- match find(fun layer=>match State.layer_panel layer with State.PropertyPanel e _|State.EditorPanel e=>same_editor owner e|_=>false end)
-   (State.layers(State.navigation_state state))with
- |Some layer=>match State.layer_parameter_buffer layer with Some value=>value|None=>""end
- |None=>""end.
 Definition project_precondition snapshot state (draft:Draft.draft):option(option Fields.field*string*string):=
  match Draft.contents draft with
  |Draft.ProjectBody project name workspace worktree=>
    if negb(String.eqb(Draft.directory_entry draft)"") ||
-      negb(String.eqb(project_directory_buffer state(Draft.owner draft))"")
+      negb(String.eqb(EC.directory_entry(EC.observed state)(Draft.owner draft))"")
    then Some(Some Fields.WorkspaceDirectories,"unadded_directory","Add or clear the directory before saving.")
    else match project with
     |None=>None
-    |Some id=>match Session.Observation.project_by_id id snapshot with
+    |Some id=>match FieldsObservation.project_by_id id snapshot with
      |Some original=>match string_field "name" original,bind(field "workspace" original)Selvedge.Kernel.Codec.parse_workspace,bool_field "create_worktree" original with
       |Some previous,Some previous_workspace,Some previous_worktree=>
        if String.eqb name previous&&Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json previous_workspace)&&Bool.eqb worktree previous_worktree
@@ -374,7 +376,7 @@ Definition decode_fork_capacities source:=list_field(fun value=>match value with
  |_=>descendants<-natural_field "descendants" value;;limit<-natural_field "limit" value;;
    Some(Some(descendants,limit))end)"capacities" source.
 Definition fork_requirements snapshot e task count (messages:list string):list(obstruction e):=
- match DocumentState.find_task task snapshot with
+ match World.find_task task snapshot with
  |None=>[requirement_obstruction e None "task_not_found" "The target task does not exist."]
  |Some parent=>match field "fork" parent,natural_field "max_fork" parent with
   |Some observed,Some limit=>match bool_field "parent_ready" observed,decode_fork_capacities observed with
@@ -421,23 +423,23 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
 Definition record_requirements snapshot e (body:Draft.body):list(obstruction e):=
  match body with
  |Draft.ProjectBody(Some id)_ _ _=>failed_requirement e
-   (match Session.Observation.project_by_id id snapshot with Some _=>true|None=>false end)
+   (match FieldsObservation.project_by_id id snapshot with Some _=>true|None=>false end)
    None "project_not_found" "The project does not exist."
  |Draft.AgentBody(Some id)_ _ _ _ _ _ _=>failed_requirement e
-   (match Session.Initialize.board_object "agents" id snapshot with Some _=>true|None=>false end)
+   (match World.board_object "agents" id snapshot with Some _=>true|None=>false end)
    None "agent_not_found" "The agent does not exist."
  |_=>[]end.
 Definition draft_requirements snapshot state e:list(obstruction e):=
- let draft:=State.current_draft state e in
+ let draft:=EC.current_draft state e in
  (* Every observed cause survives assessment. A pending submission must not
     hide the editable field that will still need attention afterwards. *)
  (match Draft.draft_feedback draft with
   |Draft.WorkspaceRejected revision reason=>failed_requirement e(negb(N.eqb revision(Draft.revision draft)))
     (Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason|_=>[]end)++
  (match project_precondition snapshot state draft with Some(field,code,reason)=>[requirement_obstruction e field code reason]|None=>[]end)++
- failed_requirement e(negb(State.pending_editor e state))None "pending" "Wait for the current submission to finish."++
- (match Session.Observation.draft_context draft with None=>[]|Some _=>
-  match Session.Observation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
+ failed_requirement e(negb(EC.editor_pending(EC.observed state)e))None "pending" "Wait for the current submission to finish."++
+ (match FieldsObservation.draft_context draft with None=>[]|Some _=>
+  match FieldsObservation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
    [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
  record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
@@ -457,38 +459,38 @@ Definition restrict_outcome {e}(reason:string)(outcome:assessment_result e):asse
 Definition preparation_admission snapshot state e draft command:availability:=
  match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
  |Unavailable reason=>Unavailable reason
- |Available=>match Session.Observation.worktree_preference snapshot state draft with
+ |Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
   |Some update=>admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
-    (State.generation(State.navigation_state state))update
+    (EC.admission_revision(EC.observed state))update
   |None=>Available end end.
 Definition preliminary_assessment snapshot state e:assessment_result e:=
- let draft:=State.current_draft state e in
+ let draft:=EC.current_draft state e in
  let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
  match draft_requirements snapshot state e with
  |first::rest=>PreparationBlocked first rest
- |[]=>match Draft.contents draft,State.now state with
+ |[]=>match Draft.contents draft,EC.current_time(EC.observed state) with
  |Draft.CardBody _ _ _ _ _ _,None=>obstruction "The current time has not yet been observed."
  |_,_=>match Draft.explicit_workspace draft with
- |Some workspace=>match Session.Observation.directory_evidence state draft with
-   |Some(Loaded _ request observation)=>match Command.observed_command(State.now state)draft(Services.observed_workspace observation,Services.observed_guidance observation)with
-     |Some command=>if Services.connected(State.service_state state)then
+ |Some workspace=>match EC.directory_result(EC.observed state)draft with
+   |Some(inr observation)=>match Command.observed_command(EC.current_time(EC.observed state))draft observation with
+     |Some command=>if EC.connected(EC.observed state)then
        match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
        else PreparationReady
      |None=>obstruction "The draft does not yet form a command."end
-   |Some(Failed _ _ reason)=>PreparationBlocked(requirement_obstruction e(Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason)[]
+   |Some(inl reason)=>PreparationBlocked(requirement_obstruction e(Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason)[]
    |_=>DirectoryObservationRequired workspace end
- |None=>match Command.command(State.now state)draft with
-   |Some command=>if Services.connected(State.service_state state)then
+ |None=>match Command.command(EC.current_time(EC.observed state))draft with
+   |Some command=>if EC.connected(EC.observed state)then
      match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
      else PreparationReady
    |None=>obstruction "The draft does not yet form a command."end end end end.
 Definition observe_assessment snapshot state e:assessment e:=
- let draft:=State.current_draft state e in
+ let draft:=EC.current_draft state e in
  let outcome:=preliminary_assessment snapshot state e in
  Assessment(ActionIdentity(Draft.revision draft))
- (if negb(Services.connected(State.service_state state))then restrict_outcome "Connect to continue." outcome
- else if Services.blocks e(State.service_state state)then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
- else if negb(Session.Observation.worktree_submission_allowed snapshot state draft)
+ (if negb(EC.connected(EC.observed state))then restrict_outcome "Connect to continue." outcome
+ else if EC.editor_uploading(EC.observed state)e then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
+ else if negb(FieldsObservation.worktree_submission_allowed snapshot(EC.git_observation(EC.observed state)) draft)
  then restrict_outcome "Wait for Git verification of the primary workspace before creating a worktree." outcome
  else outcome).
 Definition information_summaries {e}(value:information e):list(summary_value e):=
@@ -509,9 +511,9 @@ Definition assignment_shape_available snapshot state {e}(assignment:assignment e
    |_=>true end end.
 Definition workspace_choice_available snapshot state (draft:Draft.draft) incoming:availability:=
  if Json.equal incoming(JString(WorkspaceBackend.name WorkspaceBackend.Local))then
- match bind(Session.Observation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
+ match bind(FieldsObservation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
  |None=>Unavailable "Choose a primary working directory before creating a local worktree."
- |Some _=>match Session.Observation.worktree_observation snapshot state draft with
+ |Some _=>match FieldsObservation.worktree_observation snapshot(EC.git_observation(EC.observed state)) draft with
    |Some(Loaded _ _ true)=>Available
    |Some(Loaded _ _ false)=>Unavailable "The primary working directory is not a Git repository."
    |Some(Failed _ _ reason)=>Unavailable reason
@@ -523,19 +525,19 @@ Definition reviewer_assignment_reason snapshot current {e}(assignment:assignment
  |Fields.ApprovalPolicy,JString "approval-for-me"=>match Values.choose_reviewer snapshot current with
    |Some _=>None|None=>Some "No automatic review models are available"end
  |Fields.ApprovalReviewer,JString key=>
-   if existsb Selvedge.Kernel.ModelCapabilities.valid_reviewer_profile(Session.Observation.catalog snapshot)then
+   if existsb Selvedge.Kernel.ModelCapabilities.valid_reviewer_profile(FieldsObservation.catalog snapshot)then
     match Values.configured_reviewer snapshot key with
     |Some _=>None|None=>Some "The automatic review model is not available"end
    else Some "No automatic review models are available"
  |_,_=>None end.
 Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
  let subject:=assignment_subject assignment in
- let current:=State.current_draft state e in
+ let current:=EC.current_draft state e in
  match reviewer_assignment_reason snapshot(Draft.contents current)assignment with
  |Some reason=>Unavailable reason|None=>
  if assignment_shape_available snapshot state assignment then
  if Parameters.live_configuration e(subject_declaration subject)then
-  match Values.candidate_command snapshot(State.now state)current assignment with
+  match Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment with
   |Some command=>admission snapshot state(candidate_owner subject
     (Schema.encode_value(subject_kind subject)(assignment_value assignment)))(Draft.revision current)command
   |None=>Unavailable "This configuration change is not available in the current task."end
@@ -546,26 +548,26 @@ Definition assignment_available snapshot state {e}(assignment:assignment e):avai
    |Some _=>Available
    |None=>Unavailable "This field cannot be changed in the current context."end end
  else Unavailable "Select a value permitted by the current field specification." end.
-Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate (command:option State.public_command) :=
+Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
  if Parameters.live_configuration e(subject_declaration subject)then
   match e,command with
   |Identity.Message task,Some command=>
-   settings<-Session.Observation.task_settings task snapshot;;
-   profile<-Session.Observation.task_profile task snapshot;;
+   settings<-FieldsObservation.task_settings task snapshot;;
+   profile<-FieldsObservation.task_profile task snapshot;;
    let encoded:=Schema.encode_command command in
    sandbox<-Selvedge.Kernel.Codec.select_optional
      (Selvedge.Kernel.Codec.parse_sandbox_patch(Selvedge.Kernel.Domain.settings_sandbox settings))
      "sandbox" encoded(Selvedge.Kernel.Domain.settings_sandbox settings);;
    approval<-Selvedge.Kernel.Codec.select_optional
-     (Selvedge.Kernel.Codec.parse_approval profile(Session.Observation.catalog snapshot))
+     (Selvedge.Kernel.Codec.parse_approval profile(FieldsObservation.catalog snapshot))
      "approval" encoded(Selvedge.Kernel.Domain.settings_approval settings);;Some(sandbox,approval)
   |_,_=>None end
  else permission_observation snapshot(observe_subject snapshot candidate subject).
 Definition candidate_consequences snapshot state {e}(subject:Model.subject e)(value:Schema.denote(subject_kind subject))
-    (label:string)(command:option State.public_command):list(summary_value e):=
- let current:=State.current_draft state e in
+    (label:string)(command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
+ let current:=EC.current_draft state e in
  let candidate:=match Values.apply_assignment snapshot current(Activity.Assignment subject value)with
-  |Some updated=>State.save_draft updated state|None=>state end in
+  |Some updated=>EC.with_draft updated state|None=>state end in
  match subject_declaration subject with
  |Fields.ModelProfile=>
    let next:=if Parameters.live_configuration e Fields.ModelProfile then
@@ -619,9 +621,9 @@ Definition alternative_from_choice snapshot state {e}(subject:Model.subject e)(c
  let incoming:=Parameters.choice_input e(subject_declaration subject)choice in
  value<-Schema.decode_value(subject_kind subject)incoming;;
  let assignment:=Activity.Assignment subject value in
- let current:=State.current_draft state e in
+ let current:=EC.current_draft state e in
  let command:=if Parameters.live_configuration e(subject_declaration subject)
-   then Values.candidate_command snapshot(State.now state)current assignment else None in
+   then Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment else None in
  Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot(subject_declaration subject)choice)value
    (selected_value snapshot state subject incoming)
    (assignment_available snapshot state assignment)
@@ -704,8 +706,8 @@ Definition observe_activity snapshot state e request:option(Activity.activity e)
    (RequiredValue property::workspace_relation snapshot state property++
     [SupportingValue property;AssessedAction(action_unit_for state e)(assessment_outcome(observe_assessment snapshot state e))]))
  |_,WorkspaceProperty=>None
- |_,PermissionsProperty=>Some(ExplanationActivity property(explanation_relations snapshot state property)(Session.Observation.catalog snapshot))
- |_,_=>Some(ComparisonActivity property(relations_for snapshot state property)(Session.Observation.catalog snapshot))end.
+ |_,PermissionsProperty=>Some(ExplanationActivity property(explanation_relations snapshot state property)(FieldsObservation.catalog snapshot))
+ |_,_=>Some(ComparisonActivity property(relations_for snapshot state property)(FieldsObservation.catalog snapshot))end.
 Definition same_subject {e}(left right:subject e):bool:=
  if Parameters.field_eq_dec(subject_declaration left)(subject_declaration right)then true else false.
 Definition object_eq_dec:=Model.object_eq_dec.
@@ -735,21 +737,6 @@ Definition completion_for {e}(activity:activity e)(view:Activity.view e):complet
  match activity with EditingActivity _ _ _=>CommitOrDiscard
  |_=>match view with PrincipalView=>ApplyAndDismiss|DependentView _=>ApplyAndReturn
   |InspectionView(Some _)=>ApplyAndReturn|InspectionView None=>ReturnToOwner|CompoundView=>CommitOrDiscard end end.
-Definition layer_focus {e}(layer:State.layer):option(subject e):=
- field<-State.layer_decision_field layer;;Model.admit_subject e(Parameters.name field).
-Definition current_view snapshot state e request:option(Activity.view e):=
- activity<-observe_activity snapshot state e request;;
- match State.layers(State.navigation_state state)with
- |layer::_=>Some(view_for activity(layer_focus layer)(State.layer_source_expanded layer))
- |[]=>Some(view_for activity None false)end.
-Definition activity_completion snapshot state e request:completion:=
- match observe_activity snapshot state e request,current_view snapshot state e request with
- |Some activity,Some view=>completion_for activity view
- |_,_=>ApplyAndDismiss end.
-Definition activity_complete snapshot state e request:bool:=
- match activity_completion snapshot state e request with
- |CommitOrDiscard=>match assessment_outcome(observe_assessment snapshot state e)with PreparationReady=>true|_=>false end
- |_=>true end.
 Inductive exposure:=HiddenRelation|CandidateChoices|DependencySummary|ParameterControl
 |RequiredExpression|RequestedInformation|CompoundContent.
 Definition root_exposure {e}(view:Activity.view e):exposure:=match view with

@@ -53,6 +53,21 @@ async function dependencies(files, recursive, readInput) {
   return graph;
 }
 
+function checkInteractionDependencies(graph) {
+  const checked = new Set();
+  function visit(filename, path) {
+    if (filename.startsWith('theories/Browser/')) {
+      throw new Error(`Business interaction cannot depend on browser modules: ${[...path, filename].join(' -> ')}`);
+    }
+    if (checked.has(filename)) return;
+    checked.add(filename);
+    for (const dependency of graph.get(filename) ?? []) visit(dependency, [...path, filename]);
+  }
+  for (const filename of graph.keys()) {
+    if (filename.startsWith('theories/Interaction/')) visit(filename, []);
+  }
+}
+
 // Module checks and extraction have separate limits because their memory profiles differ.
 function limitConcurrency(limit) {
   let active = 0;
@@ -260,6 +275,8 @@ export async function build(options = {}) {
       next.generatedSource = await fingerprint(generatedPath);
       graph = await dependencies(await graphInputs(), !allModules, readInput);
     }
+    checkInteractionDependencies(graph);
+
     if (selected.length) await compile('theories/Foundation/TextJson.v');
     const requestedChecks = (allModules ? [...graph.keys()] : roots).map(compile);
     await settleIndependent([...requestedChecks, ...pending.values()], 'Rocq checking failed');

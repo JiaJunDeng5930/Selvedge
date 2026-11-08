@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Arith.
 From Selvedge.Foundation Require Import Numbers.
-From Selvedge.Interaction.Presentation Require Import Information.
+From Selvedge.Browser.Presentation Require Import Information.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

@@ -136,15 +136,15 @@ Definition task_timeline id snapshot :=
  option_map(Audit.retained 0)(array_field "history" value).
 
 Record agent := ObservedAgent {
- agent_id : N; agent_name : string; agent_instructions : string;
+ agent_id : N; agent_revision : N; agent_name : string; agent_instructions : string;
  agent_profile : string; agent_reasoning : string; agent_concurrency : N; agent_active : N
 }.
 Definition observe_agent value :=
- id<-natural_field "agent_id" value;;name<-string_field "name" value;;
+ id<-natural_field "agent_id" value;;revision<-natural_field "revision" value;;name<-string_field "name" value;;
  instructions<-string_field "instructions" value;;profile<-string_field "profile" value;;
  reasoning<-string_field "reasoning" value;;concurrency<-natural_field "concurrency" value;;
  active<-natural_field "active" value;;
- Some(ObservedAgent id name instructions profile reasoning concurrency active).
+ Some(ObservedAgent id revision name instructions profile reasoning concurrency active).
 Definition board_value snapshot := field "board" snapshot.
 Definition board_agents snapshot := bind(board_value snapshot)(list_field observe_agent "agents").
 Definition find_agent id snapshot := value<-board_value snapshot;;
@@ -245,6 +245,7 @@ Definition graph_endpoint value name :=
 Inductive observation_request :=
  | TasksInformation | TaskInformation(id:N)
  | ProjectsInformation | ProjectInformation(id:N)
+ | WorksInformation | WorkInformation(id:N)
  | BoardInformation | CardInformation(id:N)
  | AgentsInformation | AgentInformation(id:N)
  | GraphsInformation | GraphInformation(id:N).
@@ -256,6 +257,8 @@ Definition decode_request raw := match string_field "kind" raw with
  |Some "task"=>option_map TaskInformation(natural_field "id" raw)
  |Some "projects"=>collection_request raw ProjectsInformation
  |Some "project"=>option_map ProjectInformation(natural_field "id" raw)
+ |Some "works"=>collection_request raw WorksInformation
+ |Some "work"=>option_map WorkInformation(natural_field "id" raw)
  |Some "board"=>collection_request raw BoardInformation
  |Some "card"=>option_map CardInformation(natural_field "id" raw)
  |Some "agents"=>collection_request raw AgentsInformation
@@ -267,6 +270,8 @@ Definition decode_request raw := match string_field "kind" raw with
 Definition encode_optional {A} (encode:A->json) (value:option A) :=
  value_or JNull (option_map encode value).
 Definition encode_list {A} (encode:A->json) (value:list A) := JArray(map encode value).
+Definition encode_work value := JObject[
+ ("id",number(work_id value));("name",JString(work_name value));("source",JString(work_source value))].
 Definition encode_task t := JObject[
  ("id",number(task_id t));("title",JString(task_title t));("status",JString(task_status t));
  ("status_label",JString(task_caption t));("working",JBool(task_working t));
@@ -304,7 +309,7 @@ Definition encode_project_information snapshot value := JObject[
  ("project",encode_project value);
  ("tasks",encode_optional (encode_list encode_task)(option_map(project_tasks(Some(project_id value)))(tasks snapshot)))].
 Definition encode_agent value := JObject[
- ("id",number(agent_id value));("name",JString(agent_name value));("instructions",JString(agent_instructions value));
+ ("id",number(agent_id value));("revision",number(agent_revision value));("name",JString(agent_name value));("instructions",JString(agent_instructions value));
  ("profile",JString(agent_profile value));("reasoning",JString(agent_reasoning value));
  ("concurrency",number(agent_concurrency value));("active",number(agent_active value))].
 Definition encode_attachment value := JObject[
@@ -339,6 +344,8 @@ Definition describe snapshot request : option json := match request with
  |TaskInformation id=>option_map (encode_task_information snapshot)(find_task id snapshot)
  |ProjectsInformation=>option_map (encode_list encode_project)(projects snapshot)
  |ProjectInformation id=>option_map (encode_project_information snapshot)(find_project id snapshot)
+ |WorksInformation=>option_map (encode_list encode_work)(works snapshot)
+ |WorkInformation id=>option_map encode_work(find_work id snapshot)
  |BoardInformation=>settings<-board_configuration snapshot;;cards<-board_cards snapshot;;count<-count_working snapshot;;
    Some(encode_board snapshot settings cards count)
  |CardInformation id=>option_map (encode_card snapshot)(find_card id snapshot)

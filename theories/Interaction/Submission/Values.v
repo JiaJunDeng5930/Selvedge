@@ -3,13 +3,15 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Commands.
 From Selvedge.Features Require Domain.
-From Selvedge.Interaction Require Import Codec Identity Context ModelSelection DocumentState.
+From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
+From Selvedge.Interaction Require World.
 From Selvedge.Interaction.Experience Require Model Activity.
-From Selvedge.Interaction.Session Require Draft DraftCodec Observation.
+From Selvedge.Interaction.Submission Require Draft DraftCodec.
+From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Interaction.Submission Require Fields Parameters Command.
 Import ListNotations.
 Open Scope string_scope.
-Module SO:=Selvedge.Interaction.Session.Observation.
+Module SO:=Selvedge.Interaction.Submission.Observation.
 
 Definition with_configuration configuration value := match value with
 |Draft.NewTaskBody message profile reasoning _ mode work=>Draft.NewTaskBody message profile reasoning configuration mode work
@@ -149,7 +151,7 @@ Definition apply_assignment snapshot value {e}(assignment:Activity.assignment e)
 (** Presence records the user's configuration intent. Fields omitted here retain
     the task's actual frozen values in the canonical kernel transition. *)
 Definition live_command snapshot task field incoming :option (Schema.command_value Selvedge.Kernel.Commands.command_specs):=
- task_value<-DocumentState.find_task task snapshot;;
+ task_value<-World.find_task task snapshot;;
  reasoning<-string_field "reasoning" task_value;;
  let source:=JObject[("op",JString "configure_task_execution");("task_id",number task)]in
  updated<-match field with

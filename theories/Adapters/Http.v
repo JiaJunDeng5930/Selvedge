@@ -6,6 +6,7 @@ From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Adapters Require Import Common Observation Audio.
 From Selvedge.Interaction Require UserCommand.
+From Selvedge.Interaction Require Codec.
 From Selvedge.Interaction.Experience Require Query.
 From Selvedge.Kernel Require State.
 Import ListNotations.
@@ -230,7 +231,7 @@ Definition interaction_response (source : json) :=
   match Query.decode_request (get source "request") with
   | None => rejection 400 "invalid_interaction" "Unknown business observation request"
   | Some request =>
-    match Query.observe (get source "snapshot") request with
+    match Query.observe (get source "snapshot") (Codec.natural_field "now" source) request with
     | Some value => respond 200 (State.success value)
     | None => rejection 404 "not_found" "The requested subject is unavailable"
     end

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Arith Bool.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Browser Require Import Typography Enclosure.
-From Selvedge.Interaction.Presentation Require Import Composition.
+From Selvedge.Browser.Presentation Require Import Composition.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

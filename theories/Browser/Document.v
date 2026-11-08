@@ -1,16 +1,18 @@
-From Selvedge.Interaction.Session Require Draft DraftCodec.
+From Selvedge.Interaction.Submission Require Draft DraftCodec.
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
 From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
-From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication.
+From Selvedge.Interaction Require Import CodeSource.
+From Selvedge.Browser Require Import CodeBlock DocumentPublication.
 From Selvedge.Programming Require Import Graphics.
+From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Audit Identity.
-From Selvedge.Interaction Require Appearance.
+From Selvedge.Browser.Session Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local.
-From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture.
-From Selvedge.Programming.Presentation Require Model Surface.
+From Selvedge.Browser.Presentation Require Roles Information Composition Gesture.
+From Selvedge.Browser.Scene Require Model Surface.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
 Open Scope string_scope.
@@ -126,7 +128,7 @@ Definition physical_markdown env tier kind wrapper_key markdown_key text complet
 Definition selection_json text (value:option Draft.selection) := match value with
  |None=>JNull|Some value=>match DraftCodec.native_selection text value with Some value=>value|None=>JNull end end.
 Definition choices parent selected values := map (fun value => DOM.Element
- (Identity.key_part parent ("option/" ++ Fields.choice_value_of value)) "option"
+ (NavigationIdentity.key_part parent ("option/" ++ Fields.choice_value_of value)) "option"
  ([("value",Fields.choice_value_of value)] ++
  if String.eqb selected (Fields.choice_value_of value) then [("selected","selected")] else [])
  [] [] empty [DOM.Text (Fields.choice_label value)]) values.
@@ -273,7 +275,7 @@ Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning wi
  |S.BoardLane _ _=>BoardLaneArea|S.WorkspaceCollection _ _=>CollectionArea|S.CodeFacts _=>CodeArea
  |S.PageBody (Composition.Creation _)=>CreationArea
  |S.PageBody _=>PageArea
- |S.NavigationRegion Identity.TasksDrawer _=>TouchNavigationArea
+ |S.NavigationRegion NavigationIdentity.TasksDrawer _=>TouchNavigationArea
  |S.ActionUnit _ _=>ComposerArea
  |S.ActivityGroup _ _ _ behavior|S.LayerRegion behavior=>
    match Model.layer_presentation behavior with Model.AnchoredMenu=>MenuArea|_=>DialogArea end
@@ -518,7 +520,7 @@ Definition native_node_dimensions {A} role current_area (meaning:S.meaning A) :=
  match role with Roles.UserMessage=>[("align-self","flex-end")]|_=>[]end.
 Definition navigation_child_properties {A} (source:S.meaning A) role : list(string*string) :=
  match source with
- |S.NavigationRegion Identity.TasksDrawer _=>match role with
+ |S.NavigationRegion NavigationIdentity.TasksDrawer _=>match role with
    |Roles.DialogHeader=>[("padding","0");("gap","0")]
    |Roles.DialogBody=>[("padding","0");("gap","0");("min-block-size","0");("overflow","hidden")]
    |Roles.Navigation=>[("inline-size","100%");("block-size","100%");
@@ -581,10 +583,10 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
  let styles:=match meaning with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
    if Model.modal_layer behavior then
-    let clearance:=match meaning with S.NavigationRegion Identity.WorkOverview _=>Layout.work_overview_clearance|_=>Layout.layer_clearance env end in
+    let clearance:=match meaning with S.NavigationRegion NavigationIdentity.WorkOverview _=>Layout.work_overview_clearance|_=>Layout.layer_clearance env end in
     let viewport_width:=Nat.sub(Layout.viewport_width env)(2*clearance) in
     let reading_width:=match meaning with S.ActivityGroup _ _ _ _=>
-      SemanticAppearance.surface_maximum_width env|S.NavigationRegion Identity.WorkOverview _=>
+      SemanticAppearance.surface_maximum_width env|S.NavigationRegion NavigationIdentity.WorkOverview _=>
       2*Layout.reading_maximum_width(Layout.parameters env)|_=>Layout.dialog_reading_width env end in
     let maximum_width:=Nat.min reading_width viewport_width in
     let maximum_height:=Nat.sub(Layout.viewport_height env)(2*clearance) in
@@ -600,10 +602,10 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
        (set_style "overflow" "hidden" styles)) end
    else styles
  |_=>styles end in
- let styles:=match meaning with S.NavigationRegion Identity.WorkOverview _=>
+ let styles:=match meaning with S.NavigationRegion NavigationIdentity.WorkOverview _=>
    set_style "inline-size" (Typography.px(Layout.work_overview_width env))
     (set_style "block-size" (Typography.px(Layout.work_overview_height env)) styles)
- |S.NavigationRegion Identity.TasksDrawer _=>styles++Layout.modal_navigation_properties env++
+ |S.NavigationRegion NavigationIdentity.TasksDrawer _=>styles++Layout.modal_navigation_properties env++
    [("background",NativeAppearance.background NativeAppearance.NavigationPaint NativeAppearance.Rest)]
  |_=>styles end in
  styles ++ navigation_child_properties source role ++ match role,meaning with
@@ -868,7 +870,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (map(fun row=>DOM.Element "" "tr" [] [] [] empty (map(fun text=>DOM.Element "" "td" [] table_cell_properties [] empty [DOM.Text text])row))rows)])
  |S.InteractivePlacement placement=>element "div" [] [] empty children
  |S.ReadingTimeline task_view reader_generation=>element "section"
- [("data-reading-root","true");("data-task-id",text_number(Identity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
+ [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
  |S.PageRegion region position=>element (role_tag role) [("data-page-region",Composition.region_name region)] [] empty children
  |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
@@ -906,7 +908,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [DOM.Element (identity++"/control")%string "button" ([("type","button")]++disabled(IP.column_enabled column))
  (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
- (map(fun row=>let row_key:=Identity.key_part key(IP.row_identity row) in
+ (map(fun row=>let row_key:=NavigationIdentity.key_part key(IP.row_identity row) in
   DOM.Element row_key "tr" [] [] [] empty
    (map(fun '(column,text)=>DOM.Element(IP.column_key row_key column)"td" []
      table_cell_properties [] empty [DOM.Text text])
@@ -943,7 +945,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
  |S.ChoiceGroup=>element "section" [("role","radiogroup")] [] empty children
- |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>Identity.task_view_scope v|None=>"" end)] [] empty children
+ |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>NavigationIdentity.task_view_scope v|None=>"" end)] [] empty children
  |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
  |S.TaskRow task status caption working selected=>
  let paired:=combine(S.node_children value)children in

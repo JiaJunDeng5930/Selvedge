@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Browser Require Import Typography Layout Enclosure.
-From Selvedge.Interaction.Presentation Require Import Roles Information.
-From Selvedge.Interaction Require Appearance.
+From Selvedge.Browser.Presentation Require Import Roles Information.
+From Selvedge.Browser.Session Require Appearance.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -90,11 +90,11 @@ Inductive phase := Rest | Hovered | Pressed.
 Definition token name := String.append "var(" (String.append name ")").
 Definition primary_text := token "--color-token-text-primary".
 Definition secondary_text := token "--color-token-text-secondary".
-Definition theme (configured : Selvedge.Interaction.Appearance.appearance) (system_dark : bool) :=
+Definition theme (configured : Selvedge.Browser.Session.Appearance.appearance) (system_dark : bool) :=
   match configured with
-  | Selvedge.Interaction.Appearance.SystemAppearance => system_dark
-  | Selvedge.Interaction.Appearance.LightAppearance => false
-  | Selvedge.Interaction.Appearance.DarkAppearance => true end.
+  | Selvedge.Browser.Session.Appearance.SystemAppearance => system_dark
+  | Selvedge.Browser.Session.Appearance.LightAppearance => false
+  | Selvedge.Browser.Session.Appearance.DarkAppearance => true end.
 Definition theme_name configured system_dark := if theme configured system_dark then "dark" else "light".
 Inductive wash_strength := SubtleWash | EmphasizedWash.
 Definition selected_wash strength :=
