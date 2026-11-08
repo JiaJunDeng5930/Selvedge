@@ -5,14 +5,13 @@ Open Scope string_scope.
 Inductive page :=
 | SharedInterface | Creation (composer : bool)
 | Conversation (composer approvals return_latest : bool)
-| ProjectOverview | ProjectCollection | TaskBoard
-| AgentCollection | TaskGraphCollection | Unavailable.
+| ProjectOverview | ProjectCollection | TaskBoard | TaskGraphCollection | Unavailable.
 
 Inductive measure := ReadingMeasure | OverviewMeasure | AvailableMeasure.
 Inductive heading := NoHeading | ConversationHeading | PageHeading.
 Inductive body :=
 | SharedInterfaceBody | CenteredCreation | ChronologicalReading
-| ProjectSections | ProjectRows | StageColumns | AgentRows | TaskGraphRows
+| ProjectSections | ProjectRows | StageColumns | TaskGraphRows
 | UnavailableNotice.
 Inductive composer_position := NoComposer | CenteredInput | BottomInput.
 Inductive decision_position := NoDecisions | BeforeComposer.
@@ -44,8 +43,6 @@ Definition recipe value :=
       NoComposer NoDecisions NoLatest
   | TaskBoard => Recipe AvailableMeasure PageHeading StageColumns
       NoComposer NoDecisions NoLatest
-  | AgentCollection => Recipe OverviewMeasure PageHeading AgentRows
-      NoComposer NoDecisions NoLatest
   | TaskGraphCollection => Recipe OverviewMeasure PageHeading TaskGraphRows
       NoComposer NoDecisions NoLatest
   | Unavailable => Recipe ReadingMeasure NoHeading UnavailableNotice
@@ -58,7 +55,7 @@ Inductive region :=
 | CreationIntroduction | CreationContext | ComposerInput
 | ProjectTitle | ProjectActions | DefaultWorkspace | ProjectGuidance | ProjectTasks
 | CollectionTitle | CollectionActions | ProjectEntries
-| BoardTitle | BoardControls | BoardStages | AgentEntries | TaskGraphEntries
+| BoardTitle | BoardControls | BoardStages | TaskGraphEntries
 | UnavailableMessage.
 
 Inductive position := HeadingPosition | BodyPosition | DockPosition.
@@ -83,7 +80,7 @@ Definition region_name value :=
   | ProjectTasks => "project-tasks" | CollectionTitle => "collection-title"
   | CollectionActions => "collection-actions" | ProjectEntries => "project-entries"
   | BoardTitle => "board-title" | BoardControls => "board-controls"
-  | BoardStages => "board-stages" | AgentEntries => "agent-entries"
+  | BoardStages => "board-stages"
   | TaskGraphEntries => "task-graph-entries" | UnavailableMessage => "unavailable-message"
   end.
 
@@ -100,7 +97,6 @@ Definition structure_for plan :=
       [DefaultWorkspace; ProjectGuidance; ProjectTasks] []
   | ProjectRows => Structure [CollectionTitle; CollectionActions] [ProjectEntries] []
   | StageColumns => Structure [BoardTitle; BoardControls] [BoardStages] []
-  | AgentRows => Structure [CollectionTitle; CollectionActions] [AgentEntries] []
   | SharedInterfaceBody => Structure [SharedTitle] [SharedContent] []
   | TaskGraphRows => Structure [CollectionTitle; CollectionActions] [TaskGraphEntries] []
   | UnavailableNotice => Structure [] [UnavailableMessage] []

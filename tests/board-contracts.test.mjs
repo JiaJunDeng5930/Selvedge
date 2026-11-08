@@ -55,6 +55,3 @@ test('assisted cards trim the saved title and provider request before applying t
   assert.equal(invalid.reply.ok, false);
   assert.ok(invalid.reply.error?.code);
 });
-
-// Pure agent capacity, revision conflicts and slot reuse are
-// owned by theories/Features/BoardAgentProofs.v at the actual save/delete handlers.

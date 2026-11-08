@@ -34,7 +34,7 @@ Definition native key label confirmation (generated : G.proposal) :=
 Definition singleton {A} (value:option A) := match value with Some value=>[value]|None=>[]end.
 Definition confirmation_destination subject := match subject with
 |ProjectActions _=>Projects |CardActions _=>Board |GraphActions _=>Graphs
-|TaskActions task=>Conversation task |AgentActions _=>Agents end.
+|TaskActions task=>Conversation task end.
 Definition from_decision subject value :=
  native (Decisions.decision_key value) (Decisions.decision_label value)
   (option_map (fun caption=>(caption,confirmation_destination subject))(Decisions.decision_confirmation value))
@@ -49,7 +49,6 @@ Definition declarations snapshot clock subject :=
  |ProjectActions id=>[local "details" "Project details"(Destination(ProjectHome id));
    local "edit" "Edit project"(Editor(Project(Some id)))]++commands
  |CardActions id=>local "edit" "Edit card"(Editor(Card(Some id)))::commands
- |AgentActions id=>local "edit" "Edit agent"(Editor(Agent(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
  end else [].
 Definition choice_key selected : string := match selected with

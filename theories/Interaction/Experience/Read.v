@@ -135,20 +135,7 @@ Definition task_timeline id snapshot :=
  value<-World.find_task id snapshot;;
  option_map(Audit.retained 0)(array_field "history" value).
 
-Record agent := ObservedAgent {
- agent_id : N; agent_revision : N; agent_name : string; agent_instructions : string;
- agent_profile : string; agent_reasoning : string; agent_concurrency : N; agent_active : N
-}.
-Definition observe_agent value :=
- id<-natural_field "agent_id" value;;revision<-natural_field "revision" value;;name<-string_field "name" value;;
- instructions<-string_field "instructions" value;;profile<-string_field "profile" value;;
- reasoning<-string_field "reasoning" value;;concurrency<-natural_field "concurrency" value;;
- active<-natural_field "active" value;;
- Some(ObservedAgent id revision name instructions profile reasoning concurrency active).
 Definition board_value snapshot := field "board" snapshot.
-Definition board_agents snapshot := bind(board_value snapshot)(list_field observe_agent "agents").
-Definition find_agent id snapshot := value<-board_value snapshot;;
- bind(World.find_world "agents" "agent_id" id value)observe_agent.
 
 Inductive generation := Idle | Generating | GenerationFailed(reason:string).
 Definition observe_generation value := match string_field "status" value with
@@ -191,9 +178,7 @@ Definition card_activity_label name:=value_or "未开始"
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with
- |Some profile=>ContextObservation.profile_label profile|None=>"模型 "++key++" 不可用"end
-|BoardDomain.AgentOwner id=>match find_agent id snapshot with
- |Some agent=>agent_name agent|None=>"智能体 #"++show_natural id++" 不可用"end end.
+ |Some profile=>ContextObservation.profile_label profile|None=>"模型 "++key++" 不可用"end end.
 Definition card_project_label snapshot project := match project with
  |Some id=>match find_project id snapshot with
   |Some project=>project_name project|None=>"项目 #"++show_natural id++" 不可用"end|None=>""end.

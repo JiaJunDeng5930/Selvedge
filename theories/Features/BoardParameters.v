@@ -16,13 +16,11 @@ Definition stage_of_values := FiniteChoice.value F.stage_choices.
 Definition priority_of_values := FiniteChoice.value F.priority_choices.
 Definition local_owners := FiniteChoice.declare F.owner_name F.Unassigned [F.Self].
 Definition owner_declaration := D.Union [FiniteChoice.declaration local_owners;
- D.PrefixedText "profile/" (D.bounded_format 1016);
- D.PrefixedText "agent/" (D.NaturalSpelling 0 (Some D.maximum_natural))].
+ D.PrefixedText "profile/" (D.bounded_format 1016)].
 Definition owner_of_values (value : D.denote owner_declaration) : F.owner := match value with
  | inl value => FiniteChoice.value local_owners value
  | inr (inl value) => F.ProfileOwner (proj1_sig value)
- | inr (inr (inl value)) => F.AgentOwner (proj1_sig value)
- | inr (inr (inr impossible)) => match impossible with end end.
+ | inr (inr impossible) => match impossible with end end.
 Definition project_declaration := D.Union [D.Const (JString "");D.NaturalText 0 (Some D.maximum_natural)].
 Definition project_of_values (value : D.denote project_declaration) : option N := match value with
  | inl _ => None | inr (inl value) => Some (proj1_sig value)
@@ -38,11 +36,6 @@ Definition priority name := option_map priority_of_values (D.decode priority_dec
 Definition owner name := option_map owner_of_values (D.decode owner_declaration (JString name)).
 Definition optional_project name := option_map project_of_values (D.decode project_declaration (JString name)).
 Definition text_within maximum := D.Text (D.TextConstraints 0 D.maximum_natural maximum true false false None).
-Definition agent_name_declaration := D.bounded_text 160.
-Definition agent_profile_declaration := D.bounded_text 1024.
-Definition agent_reasoning_declaration := D.bounded_text 64.
-Definition agent_instructions_declaration := text_within 100000.
-Definition agent_capacity_declaration := D.Natural 1 64.
 Definition attachment_fields (observed : bool) := [
  ("id",true,ContentDeclarations.identifier_declaration);
  ("name",observed,D.bounded_text 256);

@@ -24,7 +24,6 @@ Definition fields e := match e with
 | Identity.Project _ => [ProjectName; WorkspaceDirectories; WorkspacePrimary; CreateWorktree]
 | Identity.Card _ => [CardTitle; CardDescription; CardStage; CardPriority; CardOwner;
     CardProject; CardLabels; CardAttachments; ContinueCapture; AssistedCapture; AssistanceProfile]
-| Identity.Agent _ => [AgentName; AgentInstructions; AgentConcurrency] ++ model_fields ++ context_fields
 | Identity.Fork _ => [ForkCount; ForkMessages] ++ context_fields
 | Identity.Compact _ => [CompactionSummary]
 | Identity.TaskGraph _ _ => [TaskGraphDeclaration]
@@ -41,7 +40,7 @@ Definition editable e field:=match e with Identity.Message _=>
  negb(existsb(fun candidate=>if field_eq_dec candidate field then true else false)committed_fields)
 |Identity.Project _=>if field_eq_dec field ContextOrigin then false else true|_=>true end.
 Definition name field := match field with
-| WorkName | ProjectName | AgentName => "name" | MessageText => "message"
+| WorkName | ProjectName => "name" | MessageText => "message"
 | CreateWorktree => "create_worktree" | TaskEnvironment => "task_environment"
 | WorkspaceDirectories => "roots" | WorkspacePrimary => "primary_root" | ContextOrigin => "project_id"
 | SandboxMode => "sandbox" | NetworkAccess => "network_access" | ApprovalPolicy => "approval"
@@ -49,12 +48,12 @@ Definition name field := match field with
 | DeliveryIntent => "delivery" | CardTitle => "title" | CardDescription => "description"
 | CardStage => "status" | CardPriority => "priority" | CardOwner => "assignee" | CardProject => "project"
 | CardLabels => "labels" | CardAttachments => "attachments" | ContinueCapture => "keep_open"
-| AssistedCapture => "assisted" | AssistanceProfile => "draft_profile" | AgentInstructions => "instructions"
-| AgentConcurrency => "concurrency" | ForkCount => "child_count" | ForkMessages => "messages"
+| AssistedCapture => "assisted" | AssistanceProfile => "draft_profile"
+| ForkCount => "child_count" | ForkMessages => "messages"
 | CompactionSummary => "summary" | TaskGraphDeclaration => "declaration"
 | TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" end.
 Definition label field := match field with
-| WorkName | ProjectName | AgentName => "Name" | MessageText => "Message"
+| WorkName | ProjectName => "Name" | MessageText => "Message"
 | CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Task environment"
 | WorkspaceDirectories => "Working directories" | WorkspacePrimary => "Primary directory"
 | ContextOrigin => "Project" | SandboxMode => "Filesystem access" | NetworkAccess => "Network access"
@@ -64,21 +63,20 @@ Definition label field := match field with
 | CardOwner => "Assignee" | CardProject => "Project" | CardLabels => "Labels"
 | CardAttachments => "Attachments" | ContinueCapture => "Create another after saving"
 | AssistedCapture => "Assist with title and description" | AssistanceProfile => "Assistance model"
-| AgentInstructions => "Instructions" | AgentConcurrency => "Concurrent tasks"
 | ForkCount => "Number of tasks" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
 | TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task 看板标题提示词"
 | AgentTitlePrompt => "Agent 会话标题提示词" end.
 Definition entry_for field := match field with
-| MessageText | CardDescription | AgentInstructions | ForkMessages | CompactionSummary
+| MessageText | CardDescription | ForkMessages | CompactionSummary
 | TaskTitlePrompt | AgentTitlePrompt | CardLabels => Fields.Multiline
 | WorkspaceDirectories => Fields.DirectoryCollection | CardAttachments => Fields.FileCollection
-| TaskGraphDeclaration => Fields.StructuredText | ForkCount | AgentConcurrency => Fields.PositiveInteger
+| TaskGraphDeclaration => Fields.StructuredText | ForkCount => Fields.PositiveInteger
 | WorkspacePrimary | ContextOrigin | TaskEnvironment | SandboxMode | NetworkAccess | ApprovalPolicy | ApprovalReviewer
 | ModelProfile | ReasoningEffort | DeliveryIntent | CardStage | CardPriority | CardOwner | CardProject
 | CreateWorktree | ContinueCapture | AssistedCapture | AssistanceProfile => Fields.Choice
 | _ => Fields.SingleLine end.
 Definition inheritable e := match e with
-| Identity.NewTask _ | Identity.Agent _ | Identity.Fork _ => true | _ => false end.
+| Identity.NewTask _ | Identity.Fork _ => true | _ => false end.
 Definition inherited_kind e kind := if inheritable e then KOptional kind else kind.
 Definition managed_workspace_names := match WorkspaceBackend.declaration with
 | KEnum first rest => first :: rest | _ => [] end.
@@ -97,7 +95,7 @@ Definition kind e field := match field with
 | CardPriority => KEnum (Domain.priority_name Domain.NoPriority) (map Domain.priority_name (tl Domain.priorities))
 | CardLabels | ForkMessages => KArray KText
 | CardAttachments => KArray KJson
-| ForkCount | AgentConcurrency => KNatural
+| ForkCount => KNatural
 | CompactionSummary => KOptional KText
 | _ => KText end.
 Definition specification e field := Schema.Field (name field) (kind e field).

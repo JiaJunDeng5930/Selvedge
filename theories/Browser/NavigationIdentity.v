@@ -23,7 +23,7 @@ Definition editor_key (e : editor) : string :=
   match e with
   | NewTask w => "new-task/" ++ id_text w | Message t => "message/" ++ show_natural t
   | Project i => "project/" ++ id_text i | Card i => "card/" ++ id_text i
-  | Agent i => "agent/" ++ id_text i | Fork t => "fork/" ++ show_natural t
+  | Fork t => "fork/" ++ show_natural t
   | Compact t => "compact/" ++ show_natural t
   | TaskGraph i w => "graph/" ++ id_text i ++ "/work/" ++ id_text w
   | WorkName w => "work/" ++ show_natural w | TitlePrompts => "title-prompts"
@@ -42,13 +42,13 @@ Definition navigation_panel_name value := match value with GlobalMenu => "global
 Definition decode_navigation_panel name := match name with "global" => Some GlobalMenu | "works" => Some WorkOverview | "tasks" => Some TasksDrawer | _ => None end.
 
 Inductive route := Start | Conversation (task : N) | Projects | ProjectHome (id:N)
-| Board | Agents | Graphs | HistorySearch | SharedUI (work:N) (task:option N).
+| Board | Graphs | HistorySearch | SharedUI (work:N) (task:option N).
 Definition encode_route r :=
   let pair name id := JObject [("kind",JString name);("id",optional_id id)] in
   match r with
   | Start => pair "start" None | Conversation id => pair "conversation" (Some id)
   | Projects => pair "projects" None | ProjectHome id => pair "project" (Some id)
-  | Board => pair "board" None | Agents => pair "agents" None | Graphs => pair "graphs" None
+  | Board => pair "board" None | Graphs => pair "graphs" None
   | HistorySearch => pair "search" None
   | SharedUI w t => JObject [("kind",JString "shared_ui");("id",optional_id (Some w));("task",optional_id t)]
   end.
@@ -56,7 +56,7 @@ Definition decode_route j :=
   match string_field "kind" j, id_field "id" j with
   | Some "start",Some None => Some Start | Some "conversation",Some (Some t) => Some (Conversation t)
   | Some "projects",Some None => Some Projects | Some "project",Some (Some t) => Some (ProjectHome t)
-  | Some "board",Some None => Some Board | Some "agents",Some None => Some Agents
+  | Some "board",Some None => Some Board
   | Some "graphs",Some None => Some Graphs | Some "search",Some None => Some HistorySearch
   | Some "shared_ui",Some (Some w) => option_map (SharedUI w) (id_field "task" j)
   | _,_ => None

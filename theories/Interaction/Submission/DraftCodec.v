@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Domain Codec WorkspaceBackend.
-From Selvedge.Features Require Domain Observation BoardParameters.
+From Selvedge.Features Require Domain BoardParameters.
 From Selvedge.Interaction Require Import Codec Identity Context Attachments.
 From Selvedge.Interaction.Submission Require Import Draft.
 From Selvedge.Interaction.Submission Require Fields.
@@ -43,7 +43,7 @@ Definition decode_configuration value := source<-bind(field "origin" value)decod
 (** Origins in serialized drafts must agree with the editor that owns the context. *)
 Definition valid_origin_for_editor (e : Identity.editor) (source : Context.origin) : bool :=
  match e with
- |Identity.NewTask _|Identity.Agent _=>match source with
+ |Identity.NewTask _=>match source with
    |Context.ParentTask _|Context.ProjectForParent _ _=>false|_=>true end
  |Identity.Fork task=>match source with
    |Context.ParentTask parent=>N.eqb task parent
@@ -52,14 +52,6 @@ Definition valid_origin_for_editor (e : Identity.editor) (source : Context.origi
  |_=>true end.
 Definition decode_editor_configuration e value := configuration<-decode_configuration value;;
  if valid_origin_for_editor e (Context.context_origin configuration) then Some configuration else None.
-Definition optional_setting {A}(decode:json->option A)(name:string)(value:json):option(option A):=
- match field name value with None|Some JNull=>Some None|Some raw=>option_map (@Some A)(decode raw)end.
-Definition configuration_of_settings value:=
- project<-optional_setting natural "project_id" value;;
- workspace<-optional_setting Codec.parse_workspace "workspace" value;;
- sandbox<-optional_setting Codec.parse_sandbox "sandbox" value;;
- approval<-optional_setting decode_choice "approval" value;;
- Some(Configuration(match project with Some id=>ProjectDefaults id|None=>EnvironmentDefaults end)workspace sandbox approval).
 Definition encode_policy value := match value with
 |Selvedge.Kernel.Domain.ReviewWith reviewer=>JObject[("mode",JString "approval-for-me");("reviewer",Codec.profile_json reviewer)]
 |_=>Codec.approval_json value end.
@@ -90,7 +82,6 @@ Definition encode_body value := match value with
 |MessageBody _ message delivery=>JObject[("message",encode_text message);("delivery",JString(match delivery with Fields.Send=>"send"|Fields.Steer=>"steer"end))]
 |ProjectBody _ name workspace worktree=>JObject[("name",JString name);("workspace",Codec.workspace_json workspace);("create_worktree",JBool worktree)]
 |CardBody _ revision value assist profile keep=>JObject[("revision",number revision);("card",encode_card value);("assisted",JBool assist);("draft_profile",JString profile);("keep_open",JBool keep)]
-|AgentBody _ revision name profile reasoning instructions configuration concurrency=>JObject[("revision",number revision);("name",JString name);("profile",JString profile);("reasoning",JString reasoning);("instructions",JString instructions);("context",encode_configuration configuration);("concurrency",number concurrency)]
 |ForkBody _ count messages configuration=>JObject[("child_count",number count);("messages",JArray(map JString messages));("context",encode_configuration configuration)]
 |CompactBody _ summary=>JObject[("summary",option_text summary)]
 |TaskGraphBody _ declaration parsed _=>JObject[("declaration",JString declaration);("parsed",optional_value(fun x=>x)parsed)]
@@ -101,7 +92,6 @@ Definition decode_body e value :option body :=match e with
 |Identity.Message task=>message<-bind(field "message" value)decode_text;;delivery<-string_field "delivery" value;;match delivery with "send"=>Some(MessageBody task message Fields.Send)|"steer"=>Some(MessageBody task message Fields.Steer)|_=>None end
 |Identity.Project project=>name<-string_field "name" value;;workspace<-bind(field "workspace" value)Codec.parse_workspace;;worktree<-bool_field "create_worktree" value;;Some(ProjectBody project name workspace worktree)
 |Identity.Card card=>revision<-natural_field "revision" value;;contents<-bind(field "card" value)decode_card;;assist<-bool_field "assisted" value;;profile<-string_field "draft_profile" value;;keep<-bool_field "keep_open" value;;Some(CardBody card revision contents assist profile keep)
-|Identity.Agent agent=>revision<-natural_field "revision" value;;name<-string_field "name" value;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;instructions<-string_field "instructions" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;concurrency<-natural_field "concurrency" value;;Some(AgentBody agent revision name profile reasoning instructions configuration concurrency)
 |Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;Some(ForkBody task count messages configuration)
 |Identity.Compact task=>option_map(CompactBody task)(bind(field "summary" value)decode_option_text)
 |Identity.TaskGraph graph work=>declaration<-string_field "declaration" value;;parsed<-bind(field "parsed" value)(parse_optional(fun value=>Some value));;Some(TaskGraphBody graph declaration parsed work)

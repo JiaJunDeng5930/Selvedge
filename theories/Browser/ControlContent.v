@@ -98,7 +98,7 @@ Definition board_filter_glyph (category : BoardFilter.category) (value : string)
   | BoardFilter.Priority => option_map priority_filter_glyph
       (find (fun priority => String.eqb value (Domain.priority_name priority)) Domain.priorities)
   | BoardFilter.Date => Some "clock"
-  | BoardFilter.Assignee => Some (if String.prefix "agent/" value then "bot" else "user")
+  | BoardFilter.Assignee => Some "user"
   | BoardFilter.Creator => Some "user"
   | BoardFilter.Project => Some "folder"
   | BoardFilter.Label => Some "tag"

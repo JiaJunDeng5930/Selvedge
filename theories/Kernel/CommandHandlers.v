@@ -48,11 +48,8 @@ Definition handlers : G.handler_table interpretation := {|
  G.handle_regenerate_card_title := fun payload => Mutation (fun context value => Selvedge.Features.Board.handle_regenerate_card_title payload (option_map Tasks.native_owner context) value);
  G.handle_pin_card := fun payload => Mutation (fun context value => Selvedge.Features.Board.handle_pin_card payload (option_map Tasks.native_owner context) value);
  G.handle_board_settings := fun payload => Mutation (fun context value => Selvedge.Features.Board.handle_board_settings payload (option_map Tasks.native_owner context) value);
- G.handle_save_board_agent := fun payload => Mutation (fun context value => Selvedge.Features.Board.handle_save_board_agent payload (option_map Tasks.native_owner context) value);
- G.handle_delete_board_agent := fun payload => Mutation (fun context value => Selvedge.Features.Board.handle_delete_board_agent payload (option_map Tasks.native_owner context) value);
  G.handle_list_cards := fun payload => Observation (fun caller value => Selvedge.Features.Board.handle_list_cards payload caller value);
  G.handle_read_card := fun payload => Observation (fun caller value => Selvedge.Features.Board.handle_read_card payload caller value);
- G.handle_list_board_agents := fun payload => Observation (fun caller value => Selvedge.Features.Board.handle_list_board_agents payload caller value);
  G.handle_configure_chatgpt_connections := fun payload => Mutation (fun context value => Selvedge.Features.Chatgpt.handle_configure_chatgpt_connections payload (option_map Tasks.native_owner context) value);
  G.handle_chatgpt_exec := fun payload => Mutation (fun context value => Selvedge.Features.Chatgpt.handle_chatgpt_exec payload (option_map Tasks.native_owner context) value);
  G.handle_chatgpt_cancel := fun payload => Mutation (fun context value => Selvedge.Features.Chatgpt.handle_chatgpt_cancel payload (option_map Tasks.native_owner context) value);

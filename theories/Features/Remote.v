@@ -77,7 +77,7 @@ Definition configure_rights := Selvedge.Features.Domain.Rights false false true 
 Definition required_rights command : option Selvedge.Features.Domain.rights := match command with
  | Selvedge.Generated.Commands.Cmd_read _ | Selvedge.Generated.Commands.Cmd_list _ | Selvedge.Generated.Commands.Cmd_describe _ | Selvedge.Generated.Commands.Cmd_list_projects _
  | Selvedge.Generated.Commands.Cmd_list_worktrees _ | Selvedge.Generated.Commands.Cmd_read_worktree _ | Selvedge.Generated.Commands.Cmd_read_project _
- | Selvedge.Generated.Commands.Cmd_list_cards _ | Selvedge.Generated.Commands.Cmd_read_card _ | Selvedge.Generated.Commands.Cmd_list_board_agents _
+ | Selvedge.Generated.Commands.Cmd_list_cards _ | Selvedge.Generated.Commands.Cmd_read_card _
  | Selvedge.Generated.Commands.Cmd_list_task_graphs _ | Selvedge.Generated.Commands.Cmd_read_task_graph _ => Some read_rights
  | Selvedge.Generated.Commands.Cmd_create p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_settings p)) false)
  | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p) ||
@@ -94,8 +94,7 @@ Definition required_rights command : option Selvedge.Features.Domain.rights := m
  | Selvedge.Generated.Commands.Cmd_link_card _ | Selvedge.Generated.Commands.Cmd_regenerate_card_title _ | Selvedge.Generated.Commands.Cmd_pin_card _ => Some control_rights
  | Selvedge.Generated.Commands.Cmd_review_approval _ => Some (Selvedge.Features.Domain.Rights false false false true)
  | Selvedge.Generated.Commands.Cmd_configure_task_execution _ | Selvedge.Generated.Commands.Cmd_create_project _ | Selvedge.Generated.Commands.Cmd_update_project _
- | Selvedge.Generated.Commands.Cmd_delete_project _ | Selvedge.Generated.Commands.Cmd_board_settings _ | Selvedge.Generated.Commands.Cmd_save_board_agent _
- | Selvedge.Generated.Commands.Cmd_delete_board_agent _ => Some configure_rights
+ | Selvedge.Generated.Commands.Cmd_delete_project _ | Selvedge.Generated.Commands.Cmd_board_settings _ => Some configure_rights
  | _=>None end.
 Definition rights_allow required granted :=
  (negb (Selvedge.Features.Domain.may_read required) || Selvedge.Features.Domain.may_read granted) &&

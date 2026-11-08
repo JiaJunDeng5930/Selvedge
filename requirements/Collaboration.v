@@ -125,20 +125,16 @@ Export TitleProofs(admitted_title_issues_observed_request,
     before editing. An active Task keeps its card in progress; same-column
     ordering and pinning remain independent of that execution.
 
-    Cards, Board agent settings and title settings use revisions to reject
+    Cards and title settings use revisions to reject
     stale writes. Callers return the revision they observed; they do not
     calculate its next value. Successful updates invalidate the previous
     revision while retaining the requested content. A particular initial
     revision or increment size is not part of that conflict contract.
 
-    The agent limit counts configured agents. Updating an existing agent keeps
-    that count, including at capacity; deleting an unassigned agent releases
-    one slot. Retained empty storage positions do not consume that capacity,
-    so their number is not part of the update or deletion contract.
-
-    The linked assignee is also the attribution used by the agent concurrency
-    limit. Changing it could free the old agent's slot while its Task still
-    runs, including a later resumed turn. [linked_assignment_cannot_be_transferred]
+    Launching a card requires its assigned model profile to have no other
+    active card. Changing the assignee could free the profile's slot while
+    the linked Task still runs, including a later resumed turn.
+    [linked_assignment_cannot_be_transferred]
     therefore freezes that association, while resubmitting its current value
     is allowed. [stopped_operation_retains_its_concurrency_slot] requires active
     operations to keep their slot after the next model turn has been stopped.

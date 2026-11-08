@@ -135,15 +135,6 @@ Definition settings_request_of_values (observed : bool) : D.denote (settings_dec
    SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) realtime guidance (option_map binding_of_values binding)
  | false => fun values => let '(space,(sandbox,(approval,(project,(realtime,_))))) := proj1_sig values in
    SettingsRequest space sandbox approval (option_map (@proj1_sig _ _) project) realtime None None end.
-Definition settings_request_json (value : settings_request) := JObject
- (flat_map (fun entry => match snd entry with Some value => [(fst entry,value)] | None => [] end)
-  [("workspace",option_map (D.encode workspace_declaration) (workspace_override value));
-   ("sandbox",option_map (D.encode sandbox_patch_declaration) (sandbox_override value));
-   ("approval",option_map (D.encode approval_declaration) (approval_override value));
-   ("project_id",option_map number (project_override value));
-   ("realtime_context",option_map (D.encode RealtimeContext.declaration) (realtime_context_override value));
-   ("guidance",option_map (D.encode guidance_declaration) (guidance_observation value));
-   ("workspace_binding",option_map workspace_binding_json (binding_observation value))]).
 Definition with_requested_project (project : option N) (value : settings_request) :=
  SettingsRequest (workspace_override value) (sandbox_override value) (approval_override value)
    project (realtime_context_override value) (guidance_observation value) (binding_observation value).

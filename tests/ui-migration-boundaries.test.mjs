@@ -2,8 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { defaultConfig } from '../host/config.mjs';
 import { browserFixture } from './fixtures/browser.mjs';
+
+async function postPublicCommand(running, command) {
+  const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
+  return fetch(`${running.address}/api/commands`, {
+    method: 'POST', headers,
+    body: JSON.stringify(command),
+  });
+}
+
+async function publicCommands(running) {
+  const response = await fetch(`${running.address}/api/describe`, {
+    headers: { authorization: `Bearer ${running.token}` },
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result.result.commands;
+}
 
 async function openProjectTask(fixture, name, workspace) {
   await fixture.command({ op: 'create_project', name, workspace: { roots: [workspace], primary_root: workspace } });
@@ -44,8 +61,8 @@ test('a submitted Task survives directory preparation while newer writing and na
   await preparation;
   await draft.fill('Keep this later unsent draft.');
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '智能体', exact: true }).click();
-  await page.getByRole('main').getByText('Agents', { exact: true }).waitFor();
+    .getByRole('button', { name: '任务看板', exact: true }).click();
+  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
   release();
   const response = await receipt;
   assert.equal(response.status(), 200);
@@ -55,11 +72,39 @@ test('a submitted Task survives directory preparation while newer writing and na
   assert.deepEqual(task.task.settings.workspace, { roots: [workspace], primary_root: workspace });
   assert.ok(JSON.stringify(task.messages).includes('Run exactly this captured submission.'));
   assert.ok(!JSON.stringify(task.messages).includes('Keep this later unsent draft.'));
-  await page.getByRole('main').getByText('Agents', { exact: true }).waitFor();
+  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Captured submission Project', exact: true }).click();
   assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Keep this later unsent draft.');
+});
+
+test('fixed-prompt board agents are absent from navigation and the public command contract', async t => {
+  const fixture = await browserFixture(t);
+  const { page, running, command } = fixture;
+  const navigation = page.getByRole('navigation', { name: 'Global navigation', exact: true });
+  assert.equal(await navigation.getByRole('button', { name: '智能体', exact: true }).count(), 0);
+
+  const commands = new Set((await publicCommands(running)).map(entry => entry.name));
+  const obsoleteCommands = [
+    { op: 'list_board_agents' },
+    { op: 'save_board_agent', agent: '', revision: 0, name: 'Removed role', profile: fixture.profile,
+      reasoning: 'high', instructions: 'Inspect the workspace.', concurrency: 1 },
+    { op: 'delete_board_agent', agent_id: 123, revision: 0 },
+  ];
+  for (const oldCommand of obsoleteCommands) {
+    assert.equal(commands.has(oldCommand.op), false, oldCommand.op);
+    const response = await postPublicCommand(running, oldCommand);
+    assert.equal(response.status, 400, oldCommand.op);
+  }
+
+  const assigned = await command({ op: 'create_card', title: 'Ordinary endpoint remains assignable',
+    assignee: `profile/${fixture.profile}` });
+  const card = await command({ op: 'read_card', card_id: assigned.card_id });
+  assert.equal(card.assignee, `profile/${fixture.profile}`);
+  const rejected = await postPublicCommand(running, { op: 'create_card', title: 'Removed role identifier',
+    assignee: 'agent/123' });
+  assert.equal(rejected.status, 400);
 });
 
 test('supporting controls compact and stack when measured space shrinks, then recover their full information', async t => {
@@ -101,21 +146,4 @@ test('supporting controls compact and stack when measured space shrinks, then re
   const [supportBounds, commitBounds] = await Promise.all([supporting.boundingBox(), commit.boundingBox()]);
   assert.ok(Math.min(supportBounds.y + supportBounds.height, commitBounds.y + commitBounds.height)
     > Math.max(supportBounds.y, commitBounds.y), 'Restored desktop capacity puts the controls back beside the primary action');
-});
-
-test('a saved Agent still shows its model ID and reasoning after that profile leaves the catalog', async t => {
-  const fixture = await browserFixture(t);
-  const { page, command } = fixture;
-  await command({ op: 'save_board_agent', agent: '', revision: 0, name: 'Persisted inspection role',
-    profile: fixture.profile, reasoning: 'high', instructions: 'Inspect the workspace.', concurrency: 1 });
-  await fixture.restart({ profiles: defaultConfig.profiles });
-  const navigation = await page.goto(fixture.running.url);
-  assert.equal(navigation.status(), 200, 'The restarted browser entry must serve the application');
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '智能体', exact: true }).click();
-  const agent = page.getByRole('heading', { name: 'Persisted inspection role', exact: true }).locator('..');
-  await agent.getByText('Model', { exact: true }).waitFor();
-  await agent.getByText(fixture.profile, { exact: true }).waitFor();
-  await agent.getByText('Reasoning', { exact: true }).waitFor();
-  await agent.getByText('high', { exact: true }).waitFor();
 });

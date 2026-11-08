@@ -86,8 +86,7 @@ Proof.
       as [priority|] eqn:Priority; [|discriminate].
     intros Glyph. inversion Glyph; subst symbol. destruct priority; vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
-  - destruct (String.prefix "agent/" value); intros Glyph;
-      inversion Glyph; subst symbol; vm_compute; discriminate.
+  - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.

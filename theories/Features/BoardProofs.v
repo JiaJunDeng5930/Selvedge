@@ -113,30 +113,16 @@ Proof.
  repeat split; try reflexivity. apply N.neq_succ_diag_l.
 Qed.
 
-Local Lemma runnable_selects_the_observed_agent : forall card value agent,
- Board.runnable card value = true ->
- BoardFacts.owner_agent (F.draft_owner (F.card_contents card)) value = Some agent ->
- BoardFacts.runnable_agent card value = Some agent.
-Proof.
- intros card value agent Ready Owner.
- unfold Board.runnable,BoardFacts.runnable,BoardFacts.runnable_agent in Ready |- *.
- destruct (BoardFacts.request_available card && BoardFacts.unlinked card); [|discriminate].
- rewrite Owner in Ready |- *.
- destruct (N.ltb (BoardFacts.active_for (F.draft_owner (F.card_contents card)) value)
-   (F.agent_concurrency agent)); [reflexivity|discriminate].
-Qed.
-
 (** Launch writes the identifier allocated by the shared Task creator and
     forwards that creator's complete effect list unchanged. *)
-Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent
+Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card profile
  (birth : Worktree.start_transition value value),
  CardScope.lookup id value=Some card ->
  revision=F.card_revision card ->
- Board.runnable card value=true ->
- BoardFacts.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
- let settings:=Board.launch_settings agent (F.card_contents card) in
- Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
-   (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
+ BoardFacts.runnable_profile card value=Some profile ->
+ let settings:=Board.launch_settings (F.card_contents card) in
+ Worktree.create_selected_result profile (Some "default")
+   (Board.task_contents id (F.card_contents card))
    (Some settings) false caller None value = CommandResult.Accepted birth ->
  let launched:=Board.run id revision observed caller value in
  exists updated,
@@ -147,12 +133,12 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
    world_tasks (decision_world launched)=world_tasks (Worktree.transition_world birth) /\
    decision_effects launched=Worktree.transition_effects birth.
 Proof.
- intros id revision observed caller value card agent birth found current runnable assigned settings Created launched.
+ intros id revision observed caller value card profile birth found current runnable settings Created launched.
  subst revision.
  unfold launched, Board.run, Board.run_result.
  rewrite selecting_a_card_retains_the_observed_value.
  rewrite found,N.eqb_refl. cbn [CommandResult.bind].
- rewrite (runnable_selects_the_observed_agent card value agent runnable assigned). fold settings. rewrite Created.
+ rewrite runnable. fold settings. rewrite Created.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
    CommandResult.change_world CommandResult.change_value CommandResult.change_effects accept decision_world decision_effects].
  assert (created_keeps_card : CardScope.lookup id (Worktree.transition_world birth)=Some card).
@@ -504,7 +490,7 @@ Proof.
  - assert (Linked:BoardFacts.unlinked card=false).
    { unfold BoardFacts.linked_task in linked; unfold BoardFacts.unlinked.
      destruct (F.card_task card); [reflexivity|discriminate]. }
-   unfold BoardFacts.runnable,BoardFacts.runnable_agent.
+   unfold BoardFacts.runnable,BoardFacts.runnable_profile.
    rewrite Linked,Bool.andb_false_r. reflexivity.
 Qed.
 
@@ -544,11 +530,11 @@ Proof.
  cbn [CommandResult.bind] in accepted |- *. rewrite found in accepted |- *.
  destruct (N.eqb revision (F.card_revision card)); [|discriminate].
  cbn [CommandResult.bind] in accepted |- *.
- destruct (BoardFacts.runnable_agent card value) as [agent|]; [|discriminate].
+ destruct (BoardFacts.runnable_profile card value) as [profile|]; [|discriminate].
  cbn zeta in accepted |- *.
- destruct (Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
-   (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
-   (Some (Board.launch_settings agent (F.card_contents card))) false caller None value)
+ destruct (Worktree.create_selected_result profile (Some "default")
+   (Board.task_contents id (F.card_contents card))
+   (Some (Board.launch_settings (F.card_contents card))) false caller None value)
    as [birth|reply] eqn:Created.
  - cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
      CommandResult.change_value CommandResult.change_world CommandResult.change_effects decision_world accept]. eexists. split.
@@ -579,7 +565,7 @@ Proof.
      as [updated [linked task_id]].
    unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
-   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_agent,BoardFacts.unlinked,Board.unlinked.
+   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.unlinked,Board.unlinked.
    rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.

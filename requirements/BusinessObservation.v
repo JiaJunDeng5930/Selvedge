@@ -1,6 +1,6 @@
 (** * Business information has one entry-independent meaning
 
-    A Task, Project, Board card, Agent or Task graph has the same business facts
+    A Task, Project, Board card or Task graph has the same business facts
     whether the user asks in a browser or a terminal. The entry can choose
     headings, prominence, grouping and navigation. The published world selects
     the observed objects and their facts. An unavailable observation remains

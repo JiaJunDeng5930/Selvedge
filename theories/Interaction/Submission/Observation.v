@@ -66,7 +66,7 @@ Definition context_preview snapshot (configuration:Context.configuration) : Cont
      |Some _=>Context.AwaitingDirectoryGuidance|None=>Context.InheritedGuidance(Selvedge.Kernel.Guidance.json(Selvedge.Kernel.Domain.settings_guidance settings))end)
  end.
 Definition draft_context value := match Draft.contents value with
-|Draft.NewTaskBody _ _ _ configuration _ _|Draft.AgentBody _ _ _ _ _ _ configuration _
+|Draft.NewTaskBody _ _ _ configuration _ _
 |Draft.ForkBody _ _ _ configuration=>Some configuration|_=>None end.
 Definition draft_preview snapshot value := match draft_context value with
 |Some configuration=>context_preview snapshot configuration
@@ -114,10 +114,6 @@ Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fie
    |Fields.ContinueCapture=>Fields.ToggleValue keep
    |Fields.AssistedCapture|Fields.AssistanceProfile=>Fields.AssistanceValue assist profile
    |_=>Fields.NotApplicable end
- |Draft.AgentBody _ _ name profile reasoning instructions context concurrency=>match field with
-   |Fields.AgentName=>Fields.TextValue name|Fields.AgentInstructions=>Fields.TextValue instructions
-   |Fields.ModelProfile|Fields.ReasoningEffort=>Fields.ModelValue profile reasoning
-   |Fields.AgentConcurrency=>Fields.CountValue concurrency|_=>prospective context end
  |Draft.ForkBody _ count messages context=>match field with
    |Fields.ForkCount=>Fields.CountValue count|Fields.ForkMessages=>Fields.TextsValue messages
    |_=>prospective context end

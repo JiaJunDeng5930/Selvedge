@@ -48,7 +48,6 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
     (present "card_id"(optional_id card)((match card with Some _=>[("revision",number revision)]|None=>[]end)++
      (match now with Some now=>[("observed_at",JString(show_natural now))]|None=>[]end)++
      (match card with None=>[("assisted",JBool assist);("draft_profile",JString profile)]|Some _=>[]end)++metadata)))
- |Draft.AgentBody agent revision name profile reasoning instructions configuration concurrency=>Some(record "save_board_agent"[("agent",JString(match agent with None=>""|Some id=>show_natural id end));("revision",number revision);("name",JString name);("profile",JString profile);("reasoning",JString reasoning);("instructions",JString instructions);("concurrency",number concurrency);("settings",settings configuration)])
  |Draft.ForkBody task count messages configuration=>Some(record "fork"[("task_id",number task);("child_count",number count);("messages",JArray(map(fun text=>content text [])messages));("settings",settings configuration);
    ("settings_origin",JString(match Context.context_origin configuration with Context.EnvironmentDefaults|Context.ProjectDefaults _=>"environment"|_=>"parent"end))])
  |Draft.CompactBody task summary=>Some(record "compact"(present "summary"(DraftCodec.option_text summary)[("task_id",number task)]))

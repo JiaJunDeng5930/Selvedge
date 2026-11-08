@@ -32,28 +32,9 @@ Definition card_json (id : N) (value : Selvedge.Features.Domain.card) :=
  ("task_id", optional_number (Selvedge.Features.Domain.card_task value)); ("archived", JBool (Selvedge.Features.Domain.card_archived value));
  ("pinned", JBool (Selvedge.Features.Domain.card_pinned value)); ("created_at", JString (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.card_created value)));
  ("updated_at", JString (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.card_updated value))); ("start_error", JString (Selvedge.Features.Domain.card_start_error value))].
-Definition agent_json (id : N) (value : Selvedge.Features.Domain.board_agent) := JObject [
- ("id", number id); ("agent_id", number id); ("revision", number (Selvedge.Features.Domain.agent_revision value));
- ("name", JString (Selvedge.Features.Domain.agent_name value)); ("profile", JString (Selvedge.Features.Domain.agent_profile value));
- ("reasoning", JString (Selvedge.Features.Domain.agent_reasoning value)); ("instructions", JString (Selvedge.Features.Domain.agent_instructions value));
- ("settings", Selvedge.Features.Domain.agent_settings value); ("concurrency", number (Selvedge.Features.Domain.agent_concurrency value))].
-Definition agent_json_in_world (value:world) (id:N) (agent:Selvedge.Features.Domain.board_agent) :=
- match agent_json id agent with JObject fields=>JObject (fields++[
- ("active",number (BoardFacts.active_for (Selvedge.Features.Domain.AgentOwner id) value))]) | other=>other end.
 Definition present_values {A : Type} (f : N -> A -> json) (values : list (option A)) :=
  fold_right (fun value rest => match value with Some value => value :: rest | None => rest end) []
  (indexed (fun id value => option_map (f id) value) 0 values).
-Definition agents_json_with (observe:N->Selvedge.Features.Domain.board_agent->json) (value:Selvedge.Features.Domain.board) :=
- fold_right (fun id rest=>match registry_at id (Selvedge.Features.Domain.board_agents value) with
- | Some (Some agent)=>observe id agent::rest | _=>rest end) [] (Selvedge.Features.Domain.board_agent_order value).
-Definition agents_json := agents_json_with agent_json.
-Definition agents_json_in_world (value:world) :=
- agents_json_with (agent_json_in_world value) (Selvedge.Features.Domain.feature_board (world_features value)).
-Definition board_json (value : Selvedge.Features.Domain.board) := JObject [
- ("cards", JArray (present_values card_json (Selvedge.Features.Domain.board_cards value)));
- ("agents", JArray (agents_json value));
- ("order", JArray (map number (Selvedge.Features.Domain.board_order value)));
- ("automatic", JBool (Selvedge.Features.Domain.board_automatic value)); ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile value))].
 Definition rights_json (value : Selvedge.Features.Domain.rights) :=
  Schema.encode Selvedge.Features.Domain.rights_fields (Schema.of_tuple Selvedge.Features.Domain.rights_fields
    [! Selvedge.Features.Domain.may_read value; Selvedge.Features.Domain.may_control value;
@@ -97,9 +78,12 @@ Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domai
  ("activity",JString (BoardFacts.activity card value));("capabilities",JObject [
  ("edit",JBool (BoardFacts.editable card));("metadata",JBool (BoardFacts.editable card));("regenerate",JBool (BoardFacts.request_available card));("drag",JBool (BoardFacts.editable card));
  ("run",JBool (BoardFacts.runnable card value));("archive",JBool (negb (Selvedge.Features.Domain.card_archived card)));("restore",JBool (Selvedge.Features.Domain.card_archived card));("delete",JBool (negb (BoardFacts.busy card value)))])]) | other=>other end.
-Definition board_json_in_world (value:world) := let board:=world_features value in let b:=Selvedge.Features.Domain.feature_board board in
- match board_json b with JObject fields=>JObject (Json.set_field "agents" (JArray (agents_json_in_world value))
- (Json.set_field "cards" (JArray (present_values (card_json_in_world value) (Selvedge.Features.Domain.board_cards b))) fields)) | other=>other end.
+Definition board_json_in_world (value:world) :=
+ let board:=Selvedge.Features.Domain.feature_board (world_features value) in JObject [
+ ("cards", JArray (present_values (card_json_in_world value) (Selvedge.Features.Domain.board_cards board)));
+ ("order", JArray (map number (Selvedge.Features.Domain.board_order board)));
+ ("automatic", JBool (Selvedge.Features.Domain.board_automatic board));
+ ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile board))].
 
 Fixpoint first_request (messages:list message) :string := match messages with
  | []=>"" | UserMessage contents::rest=>let text:=(Selvedge.Kernel.Domain.content_text contents) in if Utf8.nonblank text then text else first_request rest

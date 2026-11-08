@@ -20,8 +20,6 @@ Inductive body :=
     (workspace : Selvedge.Kernel.Domain.workspace) (create_worktree : bool)
 | CardBody (card : option N) (revision : N) (value : Selvedge.Features.Domain.card_draft)
     (assist : bool) (profile : string) (keep_open : bool)
-| AgentBody (agent : option N) (revision : N) (name profile reasoning instructions : string)
-    (context : Context.configuration) (concurrency : N)
 | ForkBody (task count : N) (messages : list string) (context : Context.configuration)
 | CompactBody (task : N) (summary : option string)
 | TaskGraphBody (graph : option N) (declaration : string) (parsed : option json) (work : option N)
@@ -54,7 +52,6 @@ Definition owner value := match contents value with
 | MessageBody task _ _ => Identity.Message task
 | ProjectBody project _ _ _ => Identity.Project project
 | CardBody card _ _ _ _ _ => Identity.Card card
-| AgentBody agent _ _ _ _ _ _ _ => Identity.Agent agent
 | ForkBody task _ _ _ => Identity.Fork task
 | CompactBody task _ => Identity.Compact task
 | TaskGraphBody graph _ _ work => Identity.graph_editor graph work
@@ -68,7 +65,6 @@ Definition new_body e := match e with
 | Identity.Card id => CardBody id 0
     (Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Backlog
       Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] []) false "" false
-| Identity.Agent id => AgentBody id 0 "" "" "" "" Context.initial 1
 | Identity.Fork task => ForkBody task 1 [] (Context.Configuration (Context.ParentTask task) None None None)
 | Identity.Compact task => CompactBody task None
 | Identity.TaskGraph id work => TaskGraphBody id "" None work
@@ -84,5 +80,5 @@ Definition store_draft value values := value :: filter (fun own => negb (same_ed
 
 Definition explicit_workspace value:=match contents value with
 |ProjectBody _ _ workspace _=>Some workspace
-|NewTaskBody _ _ _ configuration _ _|AgentBody _ _ _ _ _ _ configuration _|ForkBody _ _ _ configuration=>Context.workspace_override configuration
+|NewTaskBody _ _ _ configuration _ _|ForkBody _ _ _ configuration=>Context.workspace_override configuration
 |_=>None end.

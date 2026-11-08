@@ -118,10 +118,10 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await page.getByRole('button', { name: 'New Work', exact: true }).click();
   await pending.started;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '智能体', exact: true }).click();
-  await page.getByRole('main').getByText('Agents', { exact: true }).waitFor();
+    .getByRole('button', { name: '任务看板', exact: true }).click();
+  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByText('Agents', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('main').getByText('任务看板', { exact: true }).isVisible(), true);
 
   await home(page);
   await selectTask(fixture, task_id);
@@ -158,10 +158,10 @@ test('late Side creation cannot reopen a side after newer navigation or Work cre
   await sendSide(page, 'Keep this first question in the captured side.');
   const older = await pending.started;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '智能体', exact: true }).click();
-  await page.getByRole('main').getByText('Agents', { exact: true }).waitFor();
+    .getByRole('button', { name: '任务看板', exact: true }).click();
+  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByText('Agents', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('main').getByText('任务看板', { exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '关闭', exact: true }).count(), 0,
     'The old Side is created durably without being reopened over the new page');
   assert.ok(JSON.stringify(await command({ op: 'read', task_id: older.task_id })).includes('Keep this first question in the captured side.'));
