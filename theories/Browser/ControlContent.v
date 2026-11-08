@@ -3,19 +3,20 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Identity.
 From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction.Experience Require Model.
-From Selvedge.Programming.Presentation Require Surface.
-From Selvedge.Interaction.Presentation Require Roles Information.
+From Selvedge.Browser.Scene Require Surface.
+From Selvedge.Browser.Presentation Require Roles Information.
 From Selvedge.Browser Require Import DOM Layout Typography Appearance ControlPurpose.
+From Selvedge.Browser Require NavigationIdentity.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Module S := Selvedge.Programming.Presentation.Surface.
-Module PM := Selvedge.Programming.Presentation.Model.
+Module S := Selvedge.Browser.Scene.Surface.
+Module PM := Selvedge.Browser.Scene.Model.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module C := Selvedge.Browser.ControlPurpose.
 
 Definition private_key key name :=
-  Identity.key_part key (String.append "@native/" name).
+  NavigationIdentity.key_part key (String.append "@native/" name).
 Definition empty := JObject [].
 Definition flag (value : bool) := if value then "true" else "false".
 Definition box key tag attributes properties children :=

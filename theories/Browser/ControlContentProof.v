@@ -1,21 +1,22 @@
 From Stdlib Require Import Arith String List.
 From Selvedge.Browser Require Import ControlContent Layout DOM ControlPurpose Appearance.
 From Selvedge.Features Require BoardFilter Domain.
-From Selvedge.Interaction Require Input ControlPurpose.
-From Selvedge.Programming.Presentation Require Surface Model.
-From Selvedge.Interaction.Presentation Require Roles.
+From Selvedge.Browser.Session Require Input.
+From Selvedge.Browser.Presentation Require ActionPurpose.
+From Selvedge.Browser.Scene Require Surface Model.
+From Selvedge.Browser.Presentation Require Roles.
 Import ListNotations.
 
-Module AppPurpose := Selvedge.Interaction.ControlPurpose.
-Module S := Selvedge.Programming.Presentation.Surface.
-Module PM := Selvedge.Programming.Presentation.Model.
-Module R := Selvedge.Interaction.Presentation.Roles.
+Module AppPurpose := Selvedge.Browser.Presentation.ActionPurpose.
+Module S := Selvedge.Browser.Scene.Surface.
+Module PM := Selvedge.Browser.Scene.Model.
+Module R := Selvedge.Browser.Presentation.Roles.
 Module CC := Selvedge.Browser.ControlContent.
 Module P := Selvedge.Browser.ControlPurpose.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Module BF := Selvedge.Features.BoardFilter.
 Module BoardDomain := Selvedge.Features.Domain.
-Module I := Selvedge.Interaction.Input.
+Module I := Selvedge.Browser.Session.Input.
 
 Theorem full_supporting_uses_available_room available full compact :
   full <= available ->

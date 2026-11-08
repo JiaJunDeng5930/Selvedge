@@ -5,7 +5,7 @@ From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Kernel Require Domain Codec WorkspaceBackend.
 From Selvedge.Interaction Require Import Codec Identity Context Attachments.
-From Selvedge.Interaction.Session Require Draft DraftCodec.
+From Selvedge.Interaction.Submission Require Draft DraftCodec.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 Import ListNotations.
 Open Scope string_scope.

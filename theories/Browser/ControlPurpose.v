@@ -1,6 +1,6 @@
 From Stdlib Require Import String Bool NArith.
 From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction Require CodeBlock.
+From Selvedge.Browser Require CodeBlock.
 From Selvedge.Interaction.Submission Require Fields.
 
 (** Native control intent is derived once from the actual action at publication.

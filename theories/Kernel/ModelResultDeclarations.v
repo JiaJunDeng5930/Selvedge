@@ -198,8 +198,7 @@ Definition records : list (string * schema) := [
  ("AudioTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("HttpRemoteApprovalBody",http_remote_approval_fields);
  ("HttpRemotePermissions",http_permissions_fields);
- ("HttpRemoteRevokeBody",http_remote_revoke_fields);
- ("HttpBrowserCommandBody",http_browser_command_fields)].
+ ("HttpRemoteRevokeBody",http_remote_revoke_fields)].
 Definition schema_json := JObject [
  ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",Variant.kind_json KNatural);("safe",JBool true)]]);
  ("unions",JArray (map (fun entry => JObject [("name",JString (fst entry));

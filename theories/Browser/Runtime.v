@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser Require Import Document Keyboard Focus Reading Publication Observation Typography Layout FieldSession ControlContent.
-From Selvedge.Interaction Require Import CodeBlock.
+From Selvedge.Browser Require Import CodeBlock.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
 Open Scope string_scope.

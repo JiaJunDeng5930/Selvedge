@@ -5,8 +5,8 @@
     to available space without changing that meaning. *)
 
 From Selvedge.Interaction.Experience Require ObservationProof.
-From Selvedge.Interaction.Presentation Require EditorsProof.
-From Selvedge.Programming.Presentation Require SurfaceProofs.
+From Selvedge.Browser.Presentation Require EditorsProof.
+From Selvedge.Browser.Scene Require SurfaceProofs.
 Export ObservationProof(available_live_assignment_has_current_authority,
   blocked_draft_preserves_all_requirements,
   observed_property_retains_complete_help,
@@ -59,8 +59,9 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     the current action and property at native construction. Keeping independent
     stale help in each authored button would separate explanation from behavior. *)
 
-From Selvedge.Interaction Require ApplicationProof ObjectActionsProof.
-From Selvedge.Interaction.Session Require AuthoringProof NavigationProof.
+From Selvedge.Browser Require ApplicationProof.
+From Selvedge.Browser.Session Require ObjectActionsProof.
+From Selvedge.Browser.Session Require AuthoringProof NavigationProof.
 Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   stale_element_cannot_produce_a_product_input,
   a_pending_command_is_not_executed_twice).
@@ -101,9 +102,9 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     Browser keys and captured return targets identify a physical presentation;
     they do not create another logical editor or Task document. *)
 
-From Selvedge.Interaction Require DocumentsProof.
-From Selvedge.Interaction.Interactive Require Guarantees
-  SemanticsGuarantees RenderProof.
+From Selvedge.Browser Require DocumentsProof.
+From Selvedge.Interaction.Interactive Require Guarantees SemanticsGuarantees.
+From Selvedge.Browser.Interactive Require RenderProof.
 Export DocumentsProof(inherited_document_has_no_external_capability,
   accepted_observation_uses_registered_visible_document,
   accepted_parser_prefix_never_regresses,
@@ -154,7 +155,7 @@ Export RenderProof(chart_accessible_values_keep_order,
     a diagnostic. These bounds limit admitted operations and nodes; elapsed
     browser execution remains an observed property. *)
 
-From Selvedge.Interaction.Presentation Require ProjectionProofs.
+From Selvedge.Browser.Presentation Require ProjectionProofs.
 From Selvedge.Browser Require DocumentProof ControlContentProof
   LayoutProof FocusProof ReadingProof FieldSessionProof PublicationProof.
 Export ProjectionProofs(task_forest_retains_every_task).

@@ -1,9 +1,9 @@
 From Stdlib Require Import String List NArith.
-From Selvedge.Browser Require Import DOM Document Observation Appearance.
-From Selvedge.Interaction Require Import ControlPurpose DocumentPublication.
-From Selvedge.Programming.Presentation Require Import Surface.
-From Selvedge.Interaction.Presentation Require Import Roles.
-From Selvedge.Programming.Presentation Require Import Model.
+From Selvedge.Browser Require Import DOM Document Observation Appearance ControlPurpose.
+From Selvedge.Browser Require Import DocumentPublication.
+From Selvedge.Browser.Scene Require Import Surface.
+From Selvedge.Browser.Presentation Require Import Roles.
+From Selvedge.Browser.Scene Require Import Model.
 Import ListNotations.
 Open Scope string_scope.
 

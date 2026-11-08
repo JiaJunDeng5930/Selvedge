@@ -21,7 +21,9 @@ Drag a card into another stage or before another card in its current stage.
 An active linked Task keeps its card in progress; same-column ordering remains available.
 Submission rechecks the source revision. Escape cancels a gesture. Context actions
 include pinning, metadata changes, execution, title regeneration, archive/restore
-and deletion.
+and deletion. Choose **Move card** or **Link task** to search for a destination
+or an existing conversation. The selector explains choices unavailable for the
+current card.
 
 Toolbar tabs, search and filters narrow the view without recording work commands.
 Enable **自动** for automatic execution. Open an executed card to follow its linked

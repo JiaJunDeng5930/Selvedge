@@ -5,6 +5,7 @@ From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Adapters Require Import Common Observation Audio.
+From Selvedge.Interaction Require UserCommand.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -158,15 +159,16 @@ Definition body_shape (target : string) (body : json) :=
     | Some values => negb (String.eqb (Schema.head values) "") | None => false end
   else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) ||
     String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields [] body
-  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then
-    match Schema.decode ModelResultDeclarations.http_browser_command_fields body with
-    | Some _ => true | None => false end
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]
   else true.
+Definition body_payload (target : string) (body : json) : option json :=
+  if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command)
+  then option_map Schema.head (Schema.decode ModelResultDeclarations.http_browser_command_fields body)
+  else if body_shape target body then Some body else None.
 Definition body_error (target : string) := exception ModelResultDeclarations.TypeErrorKind
   (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in takes an empty object"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
@@ -188,7 +190,10 @@ Definition body_stage (body : bool) (source : json) :=
   | None => body_error target
   | Some original =>
     match TextJson.parse_input_json original with
-    | TextJson.InputAccepted value => if body_shape target value then body_action selected (Some value) else body_error target
+    | TextJson.InputAccepted value => match body_payload target value with
+      | Some payload => body_action selected (Some payload)
+      | None => body_error target
+      end
     | TextJson.InputInvalid => body_error target
     | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
     end
@@ -210,8 +215,7 @@ Definition audio_admission (source : json) :=
     boolean_field source "exists" && bound (get source "elapsed_ms") 0 Audio.session_max_ms
   then audio_limits else audio_reject "Audio session is unavailable to this browser".
 Definition public_command_allowed (source : json) :=
-  negb (existsb (String.eqb (str (get source "command") "op"))
-    ["record_speech_transcript";"accept_speech_delegation"]).
+  UserCommand.public_operation_allowed (str (get source "command") "op").
 Definition public_command (source : json) :=
   if public_command_allowed source then success JNull
   else type_error "Speech observations require a live upstream session".
@@ -238,7 +242,7 @@ Definition call (operation : string) (source : json) :=
   else if String.eqb operation "http.content_type" || String.eqb operation "http.body"
     then success (request_guard source (body_stage (String.eqb operation "http.body")) (body_stage (String.eqb operation "http.body")))
   else if String.eqb operation "http.error" then success (request_error_response source)
-  else if String.eqb operation "http.reply_status" then success (number (if boolean_field (get source "reply") "ok" then 200 else 400))
+  else if String.eqb operation "http.reply_status" then success (number (if UserCommand.accepted (get source "reply") then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)
   else if String.eqb operation "http.public_command" then public_command source
   else err "Unknown HTTP operation".

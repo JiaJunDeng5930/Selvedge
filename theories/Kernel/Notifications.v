@@ -4,6 +4,7 @@ From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery RequestReceiver.
 From Selvedge.Kernel Require ModelDeclarations.
+From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -63,9 +64,9 @@ Fixpoint fork_birth_index (id : N) (history : list message) : option nat :=
 Definition task_events (before : world) (id : N) (value : task) (after : world) :=
  let previous := find_task id before in
  let lifecycle := match previous with
- | None => task_event id value "task_created" None (task_summary id value (world_features after))
- | Some previous => if Json.equal (task_summary id previous (world_features before)) (task_summary id value (world_features after))
-   then [] else task_event id value "task_changed" None (task_summary id value (world_features after)) end in
+ | None => task_event id value "task_created" None (Publication.task_summary id value (world_features after))
+ | Some previous => if Json.equal (Publication.task_summary id previous (world_features before)) (Publication.task_summary id value (world_features after))
+   then [] else task_event id value "task_changed" None (Publication.task_summary id value (world_features after)) end in
  let start := match previous with
  | Some previous => N.of_nat (List.length (task_history previous))
  | None => match fork_birth_index id (task_history value) with

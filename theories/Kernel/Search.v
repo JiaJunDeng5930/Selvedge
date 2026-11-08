@@ -1,6 +1,7 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Observation State Pagination.
+From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -50,7 +51,7 @@ Definition scan_message (query : string) (summary : json)
    end.
 Definition history_hits (query : string) (id : N) (task : task) (features : Features.Domain.state) :=
  let '(annotations,_) := newer_context (task_history task) in
- let '(_,_,hits) := fold_left (scan_message query (task_summary id task features)) annotations (0%N,"",[]) in hits.
+ let '(_,_,hits) := fold_left (scan_message query (Publication.task_summary id task features)) annotations (0%N,"",[]) in hits.
 Definition selected (project work : option N) (id : N) (task : task) (value : world) :=
  (match project with None => true | Some id => match settings_project (task_current_settings task) with Some actual => N.eqb actual id | None => false end end) &&
  (match work with None => true | Some owner => match task_owner id task (world_features value) with Some actual => N.eqb actual owner | None => false end end).

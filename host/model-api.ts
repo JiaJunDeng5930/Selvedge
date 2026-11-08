@@ -1,6 +1,6 @@
 import {
   decodeAudioAdmission, decodeHttpPlan, decodeHttpRemoteApprovalBody, decodeHttpRemoteRevokeBody,
-  decodeHttpRemotePermissions, decodeHttpBrowserCommandBody, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
+  decodeHttpRemotePermissions, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
   decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction, decodeAudioTransportBegin, decodeAudioTransportAction,
   decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan, decodeWorkspaceSettingsPlan,
   type AudioAdmission, type JsonValue, type BrowserObservationPlan, type DomainNatural, type HttpRemotePermissions,
@@ -121,7 +121,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
         case 'remote_disable': { await io.remote_disable(); return null; }
         case 'remote_approve': { const body = decodeHttpRemoteApprovalBody(plan.body); await io.remote_approve(body.request_id, decodeHttpRemotePermissions(body.permissions)); return null; }
         case 'remote_revoke': { const body = decodeHttpRemoteRevokeBody(plan.body); await io.remote_revoke(body.controller_id); return null; }
-        case 'browser_command': { const body = decodeHttpBrowserCommandBody(plan.body); await io.browser_command(body.command); return null; }
+        case 'browser_command': { await io.browser_command(plan.body); return null; }
         case 'browser_observation': { await io.browser_observation(plan.body); return null; }
         case 'command': { await io.command(plan.body); return null; }
         case 'assess': { await io.assess(plan.body); return null; }

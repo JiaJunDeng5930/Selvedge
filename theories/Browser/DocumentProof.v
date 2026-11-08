@@ -1,9 +1,9 @@
 From Stdlib Require Import String List Bool NArith Arith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Browser Require Import DOM Document Observation.
-From Selvedge.Interaction Require Import DocumentPublication.
-From Selvedge.Programming.Presentation Require Surface.
-From Selvedge.Interaction.Presentation Require Roles.
+From Selvedge.Browser Require Import DocumentPublication.
+From Selvedge.Browser.Scene Require Surface.
+From Selvedge.Browser.Presentation Require Roles.
 Import ListNotations.
 Open Scope string_scope.
 

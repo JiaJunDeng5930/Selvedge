@@ -1,5 +1,6 @@
 From Stdlib Require Import String Bool NArith.
-From Selvedge.Interaction Require Import Services Origin.
+From Selvedge.Browser.Session Require Import Services.
+From Selvedge.Interaction Require Import Origin.
 Open Scope string_scope.
 
 (** Requested work and the document actually published have different identities.

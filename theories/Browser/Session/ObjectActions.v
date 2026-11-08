@@ -1,0 +1,124 @@
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Programming Require Import Schema.
+From Selvedge.Kernel Require Import Commands.
+From Selvedge.Generated Require Commands.
+From Selvedge.Features Require Domain.
+From Selvedge.Browser Require Import NavigationIdentity.
+From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Programming Require Import Resource.
+From Selvedge.Browser.Session Require Import Services.
+From Selvedge.Interaction Require CommandAssessment CardDecisions ObjectDecisions.
+From Selvedge.Browser.Session Require State.
+Import ListNotations.
+Open Scope string_scope.
+Open Scope list_scope.
+Module G := Selvedge.Generated.Commands.
+Module Decisions := ObjectDecisions.
+
+Inductive operation := NativeCommand(command:State.public_command)
+| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N).
+Inductive status := Available | Awaiting | InFlight | Unavailable(reason:string) | AssessmentFailed(reason:string).
+Record action := Action {
+ action_key:string; action_label:string; action_operation:operation;
+ action_confirmation:option(string*route); action_status:status
+}.
+Definition command value := match action_operation value with
+|NativeCommand command=>Some command
+|SideConversation task=>decode_command command_specs(G.encode(G.Cmd_open_side_conversation(G.Build_open_side_conversation task None None)))
+|_=>None end.
+Definition local key label operation := Action key label operation None Available.
+Definition native key label confirmation (generated : G.proposal) :=
+ option_map(fun command=>Action key label(NativeCommand command)confirmation Awaiting)
+  (decode_command command_specs(G.encode generated)).
+Definition singleton {A} (value:option A) := match value with Some value=>[value]|None=>[]end.
+Definition confirmation_destination subject := match subject with
+|ProjectActions _=>Projects |CardActions _=>Board |GraphActions _=>Graphs
+|TaskActions task=>Conversation task |AgentActions _=>Agents end.
+Definition from_decision subject value :=
+ native (Decisions.decision_key value) (Decisions.decision_label value)
+  (option_map (fun caption=>(caption,confirmation_destination subject))(Decisions.decision_confirmation value))
+  (Decisions.decision_proposal value).
+Definition declarations snapshot clock subject :=
+ if Decisions.subject_exists snapshot subject then
+ let commands := flat_map (fun value=>singleton(from_decision subject value))(Decisions.decisions snapshot clock subject) in
+ match subject with
+ |TaskActions id=>commands++
+  [local "side" "Side conversation"(SideConversation id);
+   local "fork" "Fork"(Editor(Fork id));local "compact" "Compact"(Editor(Compact id))]
+ |ProjectActions id=>[local "details" "Project details"(Destination(ProjectHome id));
+   local "edit" "Edit project"(Editor(Project(Some id)))]++commands
+ |CardActions id=>local "edit" "Edit card"(Editor(Card(Some id)))::commands
+ |AgentActions id=>local "edit" "Edit agent"(Editor(Agent(Some id)))::commands
+ |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
+ end else [].
+Definition choice_key selected : string := match selected with
+|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("move/"++Domain.stage_name stage)%string
+|CardDecisions.MoveTo(CardDecisions.BeforeCard _ target _)=>("before/"++show_natural target)%string
+|CardDecisions.LinkTo task=>("link/"++show_natural(CardDecisions.target_task task))%string end.
+Definition choice_label selected : string := match selected with
+|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("Move to "++Domain.stage_label stage)%string
+|CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("Move before "++title)%string
+|CardDecisions.LinkTo task=>("Link "++CardDecisions.target_title task)%string end.
+Definition choice_declaration opportunity now selected :=
+ native(choice_key selected)(choice_label selected)None(CardDecisions.proposal opportunity now selected).
+Definition find_choice snapshot clock card decision key :=
+ opportunity<-CardDecisions.observe snapshot card;;
+ now<-clock;;
+ selected<-find(fun candidate=>String.eqb key(choice_key candidate))(CardDecisions.choices decision opportunity);;
+ choice_declaration opportunity now selected.
+Definition assessment_revision s := State.generation(State.navigation_state s).
+Definition action_revision s subject := match State.layers(State.navigation_state s),subject with
+|layer::_,CardActions card=>match State.layer_panel layer with
+ |State.CardDecisionPanel source _=>if N.eqb source card then State.layer_occurrence layer else assessment_revision s
+ |_=>assessment_revision s end
+|_,_=>assessment_revision s end.
+Definition action_owner subject value := CommandAssessment.ObjectActionOwner subject(action_key value).
+Definition assessment_for subject value s := find(Services.owned_assessment(action_owner subject value))
+ (Services.command_assessments(State.service_state s)).
+Definition availability snapshot s subject value :=match command value with
+|None=>Available
+|Some command=>if State.pending_command command s then InFlight else if negb(Services.connected(State.service_state s))then Unavailable "Connect to continue"else
+ match natural_field "sequence" snapshot,assessment_for subject value s with
+ |Some sequence,Some(Loaded _ request observation)=>
+   if CommandAssessment.matches(action_owner subject value)(action_revision s subject)sequence command request &&
+      CommandAssessment.current_owned(action_owner subject value)(action_revision s subject)sequence observation
+   then match CommandAssessment.observed_admission observation with
+    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
+   else Awaiting
+ |Some sequence,Some(Failed _ request reason)=>
+   if CommandAssessment.matches(action_owner subject value)(action_revision s subject)sequence command request
+   then AssessmentFailed reason else Awaiting
+ |_,_=>Awaiting end end.
+Definition observe snapshot s subject value :=Action(action_key value)(action_label value)(action_operation value)
+ (action_confirmation value)(availability snapshot s subject value).
+Definition items snapshot s subject :=map(observe snapshot s subject)(declarations snapshot(State.now s)subject).
+Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
+|layer::_,CardActions card=>match State.layer_panel layer with
+ |State.CardDecisionPanel source decision=>if N.eqb source card then Some decision else None
+ |_=>None end
+|_,_=>None end.
+Definition resolve snapshot s subject key :=
+ let declared:=match subject,active_decision s subject with
+ |CardActions card,Some decision=>find_choice snapshot(State.now s)card decision key
+ |_,_=>find(fun value=>String.eqb key(action_key value))(declarations snapshot(State.now s)subject)end in
+ option_map(observe snapshot s subject)declared.
+
+Definition observed_decision snapshot state task value :=
+ option_map (observe snapshot state(TaskActions task)) (from_decision (TaskActions task) value).
+Definition return_action snapshot state task :=
+ bind (Decisions.return_decision snapshot task) (observed_decision snapshot state task).
+Definition approval_action snapshot state task operation allow :=
+ observed_decision snapshot state task (Decisions.approval_decision task operation allow).
+Definition cancellation_action snapshot state task operation :=
+ observed_decision snapshot state task (Decisions.cancellation_decision task operation).
+Definition worktree_retry_action snapshot state task :=
+ bind (Decisions.worktree_retry_decision snapshot task) (observed_decision snapshot state task).
+Definition reading_actions snapshot state task :=
+ flat_map (fun value=>singleton(observed_decision snapshot state task value))(Decisions.reading_decisions snapshot task).
+Definition descriptors snapshot state subject :=items snapshot state subject++
+ match subject with TaskActions task=>reading_actions snapshot state task|_=>[]end.
+Definition descriptor_for_command snapshot state (accepted:State.public_command) :=
+ find(fun entry=>match command(snd entry)with
+  |Some candidate=>Json.equal(encode_command candidate)(encode_command accepted)|None=>false end)
+  (flat_map(fun subject=>map(fun action=>(subject,action))(descriptors snapshot state subject))(Decisions.subjects snapshot)).

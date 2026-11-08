@@ -2,7 +2,7 @@ From Stdlib Require Import String List NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser Require Import Appearance Typography Layout.
 From Selvedge.Interaction.Interactive Require Import Presentation Expand Vocabulary.
-From Selvedge.Interaction.Presentation Require Roles.
+From Selvedge.Browser.Presentation Require Roles.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.

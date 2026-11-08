@@ -559,11 +559,6 @@ export function decodeHttpRemoteRevokeBody(input: unknown): HttpRemoteRevokeBody
  const source = decodeObject(input); exactFields(source, ["controller_id"]); return {"controller_id": decodeText(source["controller_id"])};
 }
 
-export type HttpBrowserCommandBody = {"command": JsonValue};
-export function decodeHttpBrowserCommandBody(input: unknown): HttpBrowserCommandBody {
- const source = decodeObject(input); exactFields(source, ["command"]); return {"command": decodeJson(source["command"])};
-}
-
 export type Effect =
   | {"kind": "observe_context"; "task_id": DomainNatural; "ticket": DomainNatural; "settings": JsonValue; "resource": JsonValue; "definitions": Array<JsonValue>; "bindings": Array<JsonValue>}
   | {"kind": "model"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "resource": JsonValue; "sampling": JsonValue; "history": Array<JsonValue>; "context_selected": boolean; "context_scope": string; "context_replacement_source"?: DomainNatural | null; "output_reserve_tokens": DomainNatural; "source_length": DomainNatural; "tools": Array<JsonValue>; "callable": Array<string>}
