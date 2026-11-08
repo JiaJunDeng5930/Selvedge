@@ -13,7 +13,7 @@ Module BoardDomain := Selvedge.Features.Domain.
 
 (** These observations select business information from the published world.
     Each entry decides which facts to present and how to present them. *)
-Record task := Task {
+Record task := ObservedTask {
  task_id : N; task_title : string; task_status : string; task_caption : string;
  task_working : bool; task_project : option N; task_work : option N; task_parent : option N
 }.
@@ -24,14 +24,14 @@ Definition observe_task value :=
  caption<-string_field "status_label" value;;working<-bool_field "working" value;;
  settings<-field "settings" value;;project<-id_field "project_id" settings;;
  work<-id_field "work_id" value;;parent<-id_field "parent" value;;
- Some(Task id name status caption working project work parent)else None.
+ Some(ObservedTask id name status caption working project work parent)else None.
 Definition tasks snapshot := list_field observe_task "tasks" snapshot.
 Definition find_task id snapshot := bind(World.find_task id snapshot)observe_task.
 Definition same_id lhs rhs := match lhs,rhs with
 |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition project_tasks selected := filter(fun value=>same_id selected(task_project value)).
 
-Record project := Project {
+Record project := ObservedProject {
  project_id : N; project_name : string; project_workspace : KernelDomain.workspace;
  project_guidance : Guidance.t
 }.
@@ -39,7 +39,7 @@ Definition observe_project value :=
  id<-natural_field "project_id" value;;name<-string_field "name" value;;
  workspace<-bind(field "workspace" value)KernelCodec.parse_workspace;;
  guidance<-bind(field "guidance" value)(KernelCodec.parse_guidance workspace);;
- Some(Project id name workspace guidance).
+ Some(ObservedProject id name workspace guidance).
 Definition projects snapshot := list_field observe_project "projects" snapshot.
 Definition find_project id snapshot :=
  bind(World.find_world "projects" "project_id" id snapshot)observe_project.
@@ -47,9 +47,9 @@ Definition guidance_instructions guidance :=
  match Guidance.json guidance with JNull=>None|value=>string_field "instructions" value end.
 Definition project_instructions value := guidance_instructions(project_guidance value).
 
-Record work := Work { work_id : N; work_name : string; work_source : string }.
+Record work := ObservedWork { work_id : N; work_name : string; work_source : string }.
 Definition observe_work value := id<-natural_field "work_id" value;;
- name<-string_field "name" value;;source<-string_field "source" value;;Some(Work id name source).
+ name<-string_field "name" value;;source<-string_field "source" value;;Some(ObservedWork id name source).
 Definition works snapshot := list_field observe_work "works" snapshot.
 Definition find_work id snapshot := bind(World.find_work id snapshot)observe_work.
 
@@ -128,11 +128,14 @@ Definition observe_task_details value :=
  Some(TaskDetails model reasoning phase lineage tools queued).
 Definition task_details_for id snapshot :=
  bind(World.find_task id snapshot)observe_task_details.
+Definition task_side_parent snapshot task :=
+ value<-World.find_task task snapshot;;
+ natural_field "side_parent" value.
 Definition task_timeline id snapshot :=
  value<-World.find_task id snapshot;;
  option_map(Audit.retained 0)(array_field "history" value).
 
-Record agent := Agent {
+Record agent := ObservedAgent {
  agent_id : N; agent_name : string; agent_instructions : string;
  agent_profile : string; agent_reasoning : string; agent_concurrency : N; agent_active : N
 }.
@@ -141,7 +144,7 @@ Definition observe_agent value :=
  instructions<-string_field "instructions" value;;profile<-string_field "profile" value;;
  reasoning<-string_field "reasoning" value;;concurrency<-natural_field "concurrency" value;;
  active<-natural_field "active" value;;
- Some(Agent id name instructions profile reasoning concurrency active).
+ Some(ObservedAgent id name instructions profile reasoning concurrency active).
 Definition board_value snapshot := field "board" snapshot.
 Definition board_agents snapshot := bind(board_value snapshot)(list_field observe_agent "agents").
 Definition find_agent id snapshot := value<-board_value snapshot;;
@@ -156,7 +159,7 @@ Definition generation_caption generation := match generation with
  |GenerationFailed reason=>reason end.
 Definition generation_status generation := match generation with
  |Idle=>"idle"|Generating=>"running"|GenerationFailed _=>"failed" end.
-Record card := Card {
+Record card := ObservedCard {
  card_id : N; card_identifier : string; card_title : string; card_description : string;
  card_stage : BoardDomain.board_stage; card_priority : BoardDomain.priority;
  card_revision : N; card_pinned : bool; card_archived : bool; card_activity : string;
@@ -175,7 +178,7 @@ Definition observe_card value :=
  updated<-bind(string_field "updated_at" value)parse_natural;;start_error<-string_field "start_error" value;;
  generation<-bind(field "enrichment" value)observe_generation;;
  attachments<-list_field Attachments.decode_attachment "attachments" value;;task<-id_field "task_id" value;;
- Some(Card id identifier title description stage priority revision pinned archived activity project owner labels
+ Some(ObservedCard id identifier title description stage priority revision pinned archived activity project owner labels
   updated start_error generation attachments task).
 Definition board_cards snapshot := bind(board_value snapshot)(list_field observe_card "cards").
 Definition find_card id snapshot := value<-board_value snapshot;;
@@ -216,7 +219,7 @@ Record graph_rule := GraphRule { rule_key : string; rule_source : string; rule_a
 Record graph_receipt := GraphReceipt {
  receipt_source : N; receipt_target : N; receipt_rule : string; receipt_reply : json
 }.
-Record graph := Graph {
+Record graph := ObservedGraph {
  graph_id : N; graph_name : string; graph_work : option N;
  graph_nodes : list graph_node; graph_rules : list graph_rule; graph_receipts : list graph_receipt
 }.
@@ -233,7 +236,7 @@ Definition observe_graph_receipt value :=
 Definition observe_graph value :=
  id<-natural_field "graph_id" value;;name<-string_field "name" value;;work<-id_field "work_id" value;;
  nodes<-list_field observe_graph_node "nodes" value;;rules<-list_field observe_graph_rule "rules" value;;
- receipts<-list_field observe_graph_receipt "receipts" value;;Some(Graph id name work nodes rules receipts).
+ receipts<-list_field observe_graph_receipt "receipts" value;;Some(ObservedGraph id name work nodes rules receipts).
 Definition graphs snapshot := list_field observe_graph "graphs" snapshot.
 Definition find_graph id snapshot := bind(World.find_world "graphs" "graph_id" id snapshot)observe_graph.
 Definition graph_endpoint value name :=
@@ -245,16 +248,19 @@ Inductive observation_request :=
  | BoardInformation | CardInformation(id:N)
  | AgentsInformation | AgentInformation(id:N)
  | GraphsInformation | GraphInformation(id:N).
+Definition collection_request raw (request:observation_request) :=
+ (* DEFENSE: A caller can attach an object ID to a collection request. *)
+ match field "id" raw with None=>Some request|Some _=>None end.
 Definition decode_request raw := match string_field "kind" raw with
- |Some "tasks"=>Some TasksInformation
+ |Some "tasks"=>collection_request raw TasksInformation
  |Some "task"=>option_map TaskInformation(natural_field "id" raw)
- |Some "projects"=>Some ProjectsInformation
+ |Some "projects"=>collection_request raw ProjectsInformation
  |Some "project"=>option_map ProjectInformation(natural_field "id" raw)
- |Some "board"=>Some BoardInformation
+ |Some "board"=>collection_request raw BoardInformation
  |Some "card"=>option_map CardInformation(natural_field "id" raw)
- |Some "agents"=>Some AgentsInformation
+ |Some "agents"=>collection_request raw AgentsInformation
  |Some "agent"=>option_map AgentInformation(natural_field "id" raw)
- |Some "graphs"=>Some GraphsInformation
+ |Some "graphs"=>collection_request raw GraphsInformation
  |Some "graph"=>option_map GraphInformation(natural_field "id" raw)
  |_=>None end.
 
