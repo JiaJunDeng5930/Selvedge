@@ -1,12 +1,13 @@
-(** An authenticated user can inspect the current business information and
-    candidate choices from either entry. The terminal asks the shared
-    interaction model for those observations. It may assess a proposed
-    command without submitting it. Assessment and submission retain the
-    authoritative decision and its diagnostic across the entries. *)
-From Selvedge.Adapters Require HttpProofs UserInteractionProofs.
-Export HttpProofs(http_body_requires_authorization, http_body_requires_local_origin).
-Export UserInteractionProofs(public_interaction_delivers_authenticated_request,
-  public_interaction_shares_business_observations, public_interaction_shares_object_choices,
-  public_interaction_shares_card_choices,
-  public_reply_status_uses_command_feedback, accepted_command_feedback_retains_the_result,
-  refused_command_feedback_retains_the_diagnostic, public_assessment_reports_the_command_decision).
+(** Browser and CLI requests enter the same command model. HTTP delivers the
+    command payload from either entry after authorization and origin checks.
+    The browser's request wrapper is transport data. Both entries use the same
+    public admission rule, and assessment and submission interpret the
+    authoritative worker reply through the same feedback. *)
+From Selvedge.Adapters Require ApiProofs HttpProofs UserInteractionProofs.
+Export ApiProofs(public_admitted_command_body_is_delivered).
+Export HttpProofs(http_body_requires_authorization, http_body_requires_local_origin,
+  http_public_command_rejects_sideband_observations).
+Export UserInteractionProofs(public_browser_command_delivers_unwrapped_payload,
+  public_command_admission_uses_shared_gate, public_reply_status_uses_command_feedback,
+  accepted_command_feedback_retains_the_result, refused_command_feedback_retains_the_diagnostic,
+  public_assessment_reports_the_command_decision).

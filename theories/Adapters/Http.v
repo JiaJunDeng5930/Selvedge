@@ -6,9 +6,6 @@ From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Adapters Require Import Common Observation Audio.
 From Selvedge.Interaction Require UserCommand.
-From Selvedge.Interaction Require Codec.
-From Selvedge.Interaction.Experience Require Query.
-From Selvedge.Kernel Require State.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -22,7 +19,6 @@ Definition routes := [
   Route "POST" "/api/browser/observation" ModelResultDeclarations.Http_browser_observation;
   Route "POST" "/api/commands" ModelResultDeclarations.Http_command;
   Route "POST" "/api/assess" ModelResultDeclarations.Http_assess;
-  Route "POST" "/api/interaction" ModelResultDeclarations.Http_interaction;
   Route "GET" "/api/browser/state" ModelResultDeclarations.Http_browser_state;
   Route "GET" "/api/describe" ModelResultDeclarations.Http_describe;
   Route "GET" "/api/events" ModelResultDeclarations.Http_events;
@@ -42,11 +38,9 @@ Definition matches_route (source : json) (route : route) :=
 Definition selected_route (source : json) := find (matches_route source) routes.
 Definition action (kind : ModelResultDeclarations.http_action) :=
  Variant.encode_packet (ModelResultDeclarations.http_action_packet kind).
-Definition respond (status : N) (value : json) :=
- Variant.encode_packet (Variant.pack ModelResultDeclarations.http_respond
- [!status;value!]).
 Definition rejection (status : N) (code message : string) :=
- respond status (State.failure code message).
+ Variant.encode_packet (Variant.pack ModelResultDeclarations.http_respond
+ [!status;JObject [("ok",JBool false);("error",JObject [("code",JString code);("message",JString message)])]!]).
 Definition exception (kind : ModelResultDeclarations.exception_kind) (message : string) :=
  Variant.encode_packet (Variant.pack ModelResultDeclarations.http_throw
  [!ModelResultDeclarations.exception_value kind;message!]).
@@ -165,15 +159,16 @@ Definition body_shape (target : string) (body : json) :=
     | Some values => negb (String.eqb (Schema.head values) "") | None => false end
   else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) ||
     String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields [] body
-  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then
-    match Schema.decode ModelResultDeclarations.http_browser_command_fields body with
-    | Some _ => true | None => false end
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]
   else true.
+Definition body_payload (target : string) (body : json) : option json :=
+  if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command)
+  then option_map Schema.head (Schema.decode ModelResultDeclarations.http_browser_command_fields body)
+  else if body_shape target body then Some body else None.
 Definition body_error (target : string) := exception ModelResultDeclarations.TypeErrorKind
   (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in takes an empty object"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
@@ -195,7 +190,10 @@ Definition body_stage (body : bool) (source : json) :=
   | None => body_error target
   | Some original =>
     match TextJson.parse_input_json original with
-    | TextJson.InputAccepted value => if body_shape target value then body_action selected (Some value) else body_error target
+    | TextJson.InputAccepted value => match body_payload target value with
+      | Some payload => body_action selected (Some payload)
+      | None => body_error target
+      end
     | TextJson.InputInvalid => body_error target
     | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
     end
@@ -227,15 +225,6 @@ Definition request_error_response (source : json) :=
   if String.eqb name "CommandNotSubmitted" then rejection 400 "command_not_submitted" message
   else rejection (if existsb (String.eqb name) ["RangeError";"SyntaxError";"TypeError"] then 400 else 503)
     "request_failed" message.
-Definition interaction_response (source : json) :=
-  match Query.decode_request (get source "request") with
-  | None => rejection 400 "invalid_interaction" "Unknown business observation request"
-  | Some request =>
-    match Query.observe (get source "snapshot") (Codec.natural_field "now" source) request with
-    | Some value => respond 200 (State.success value)
-    | None => rejection 404 "not_found" "The requested subject is unavailable"
-    end
-  end.
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "http.closing" then success
     (if boolean_field source "closing" then rejection 503 "stopping" "Server is stopping" else action ModelResultDeclarations.Http_observe_host)
@@ -256,5 +245,4 @@ Definition call (operation : string) (source : json) :=
   else if String.eqb operation "http.reply_status" then success (number (if UserCommand.accepted (get source "reply") then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)
   else if String.eqb operation "http.public_command" then public_command source
-  else if String.eqb operation "http.interaction" then success (interaction_response source)
   else err "Unknown HTTP operation".

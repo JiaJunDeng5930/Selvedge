@@ -11,10 +11,12 @@ From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement.
 From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Kernel Require BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
+From Selvedge.Interaction Require UserCommand.
+From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
-Definition world_json := Observation.world_json.
+Definition world_json := Publication.world_json.
 Definition query := CommandHandlers.query.
 Definition command_schedules (command : Selvedge.Generated.Commands.command) (result : decision) :=
  bool_default "ok" (decision_reply result) false &&
@@ -35,10 +37,10 @@ Definition assess (source : json) (value : world) : json :=
  | Some admitted => decision_reply (execute_domain (Selvedge.Generated.Commands.admitted_value admitted) None value)
  | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
  end in
- let admitted := bool_default "ok" candidate false in
+ let '(admitted, refusal) := UserCommand.assessment candidate in
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
    ("sequence",number (world_sequence value));("admitted",JBool admitted);
-   ("refusal",if admitted then JNull else value_or_null "error" candidate)].
+   ("refusal",refusal)].
 Definition schedule_command (command : Selvedge.Generated.Commands.command) (value : world) (result : decision) :=
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.
 Definition execute_command (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) :=

@@ -1,6 +1,6 @@
 import {
   decodeAudioAdmission, decodeHttpPlan, decodeHttpRemoteApprovalBody, decodeHttpRemoteRevokeBody,
-  decodeHttpRemotePermissions, decodeHttpBrowserCommandBody, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
+  decodeHttpRemotePermissions, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
   decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction, decodeAudioTransportBegin, decodeAudioTransportAction,
   decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan, decodeWorkspaceSettingsPlan,
   type AudioAdmission, type JsonValue, type BrowserObservationPlan, type DomainNatural, type HttpRemotePermissions,
@@ -55,7 +55,6 @@ export interface HttpPrimitives {
   browser_observation(body: JsonValue): Promise<void> | void;
   command(body: JsonValue): Promise<void> | void;
   assess(body: JsonValue): Promise<void> | void;
-  interaction(body: JsonValue): unknown;
   connection_command(body: JsonValue): Promise<void> | void;
   remote_approve(requestId: string, permissions: HttpRemotePermissions): Promise<void>;
   remote_revoke(controllerId: string): Promise<void>;
@@ -106,7 +105,6 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
     case 'command':
     case 'assess':
     case 'connection_command':
-    case 'interaction':
       // Omission requests physical reading; a present JSON null is already observed.
       if (plan.body === undefined) {
         const maximum = plan.action === 'account_refresh' || plan.action === 'audio_login' ? 1024
@@ -123,12 +121,11 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
         case 'remote_disable': { await io.remote_disable(); return null; }
         case 'remote_approve': { const body = decodeHttpRemoteApprovalBody(plan.body); await io.remote_approve(body.request_id, decodeHttpRemotePermissions(body.permissions)); return null; }
         case 'remote_revoke': { const body = decodeHttpRemoteRevokeBody(plan.body); await io.remote_revoke(body.controller_id); return null; }
-        case 'browser_command': { const body = decodeHttpBrowserCommandBody(plan.body); await io.browser_command(body.command); return null; }
+        case 'browser_command': { await io.browser_command(plan.body); return null; }
         case 'browser_observation': { await io.browser_observation(plan.body); return null; }
         case 'command': { await io.command(plan.body); return null; }
         case 'assess': { await io.assess(plan.body); return null; }
         case 'connection_command': { await io.connection_command(plan.body); return null; }
-        case 'interaction': return io.interaction(plan.body);
       }
   }
   const unreachable: never = plan;

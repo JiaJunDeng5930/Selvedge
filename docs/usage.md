@@ -155,20 +155,6 @@ cd /absolute/path/to/project
 bun /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
 ```
 
-With the server running, use `observe KIND [ID]` to read business information
-from the terminal. The collection kinds are `tasks`, `projects`, `works`, `board`,
-`agents` and `graphs`. Use `task`, `project`, `work`, `card`, `agent` or `graph`
-with an ID for details. Append `-actions` to `task`, `project`, `card`, `agent` or
-`graph` to list that object's candidate commands and confirmation prompts.
-`observe card-decisions CARD_ID` gives the card's current revision, move
-destinations and task link candidates.
-
-`assess COMMAND [--field value]` reports whether the proposed command is
-admitted against the returned world sequence. Assessment does not submit a
-command. Run the command itself to commit it. The service checks it again
-against the current world and returns the committed reply or the reason it
-was refused.
-
 The journal records each task's canonical roots and execution settings. Restarting
 from a different directory cannot reinterpret existing tasks' relative paths;
 only new unprojected tasks use the new launch default. Tasks can select different

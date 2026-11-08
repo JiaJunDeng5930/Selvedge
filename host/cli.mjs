@@ -196,7 +196,7 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|observe KIND [ID]|[assess] COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun observe to read tasks, projects, works, board, agents or graphs. Use task, project, work, card, agent or graph with an ID.\nRun observe KIND-actions ID for object command candidates, or observe card-decisions ID for move and link choices.\nRun assess to check a command against the current business state without submitting it.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
     return;
   }
   const local = await connection(global.home);
@@ -212,33 +212,13 @@ export async function main(args = process.argv.slice(2)) {
   // DEFENSE: A rejected description request cannot provide command schemas for the requested invocation.
   if (!description.ok || !description.value?.ok) throw new Error('Cannot read the server command vocabulary');
   if (operation === 'describe') { console.log(stringifyJson(description.value.result)); return; }
-  const maximum = description.value.result.limits.frame_bytes;
-  if (operation === 'observe') {
-    const [kind, id] = rest;
-    // DEFENSE: A terminal invocation can omit KIND or append more than one subject ID.
-    if (!kind || rest.length > 2) throw new Error('Usage: observe KIND [ID]');
-    const body = id === undefined ? { kind } : { kind, id: parseJson(id) };
-    const response = await requestJson(`${local.address}/api/interaction`, { headers, body, maximum });
-    console.log(stringifyJson(response.value));
-    if (!response.ok) process.exitCode = 1;
-    return;
-  }
-  const [commandName, ...fields] = operation === 'assess' ? rest : [operation, ...rest];
-  const spec = description.value.result.commands.find(command => command.name === commandName);
+  const spec = description.value.result.commands.find(command => command.name === operation);
   // DEFENSE: Users can invoke a command name absent from the server's public vocabulary.
-  if (!spec) throw new Error(commandName ? `Unknown command ${commandName}; run describe to list commands` : 'Usage: assess COMMAND [--field value]');
-  const command = commandArguments(spec, fields);
-  if (operation === 'assess') {
-    const body = { command, editor: { kind: 'direct', command: commandName }, revision: 0, sequence: description.value.sequence };
-    const response = await requestJson(`${local.address}/api/assess`, { headers, body, maximum });
-    console.log(stringifyJson(response.value));
-    if (!response.ok || !response.value?.admitted) process.exitCode = 1;
-    return;
-  }
-  const response = await requestJson(`${local.address}/api/commands`, { headers, body: command, maximum });
+  if (!spec) throw new Error(`Unknown command ${operation}; run describe to list commands`);
+  const response = await requestJson(`${local.address}/api/commands`, { headers, body: commandArguments(spec, rest), maximum: description.value.result.limits.frame_bytes });
   console.log(stringifyJson(response.value));
-  // DEFENSE: The server signals both native rejection and transport failure through HTTP.
-  if (!response.ok) process.exitCode = 1;
+  // DEFENSE: Native command rejection and HTTP failure must yield a failing CLI status.
+  if (!response.ok || !response.value?.ok) process.exitCode = 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -22,7 +22,7 @@ Definition exception_value (kind : exception_kind) : denote (KEnum "TypeError" [
  match kind with
  | TypeErrorKind => exist _ "TypeError" (or_introl eq_refl)
  | RangeErrorKind => exist _ "RangeError" (or_intror (or_introl eq_refl)) end.
-Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_connection_method_origin | Http_observe_local_authorization | Http_local_origin | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_account_refresh | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command | Http_interaction.
+Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_connection_method_origin | Http_observe_local_authorization | Http_local_origin | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_account_refresh | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command.
 (** The wire name and body policy are one declaration, shared by routes and metadata. *)
 Definition http_action_spec (value : http_action) := match value with
  | Http_observe_host => ("observe_host",false)
@@ -58,9 +58,8 @@ Definition http_action_spec (value : http_action) := match value with
  | Http_command => ("command",true)
  | Http_assess => ("assess",true)
  | Http_connection_command => ("connection_command",true)
- | Http_interaction => ("interaction",true)
  end.
-Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_account_refresh;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command;Http_interaction].
+Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_account_refresh;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
 Definition http_action_name value := fst (http_action_spec value).
 Definition http_action_has_body value := snd (http_action_spec value).
 Definition http_body_declaration name := variant "action" name [OmittableField "body" KJson] [].
@@ -199,8 +198,7 @@ Definition records : list (string * schema) := [
  ("AudioTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("HttpRemoteApprovalBody",http_remote_approval_fields);
  ("HttpRemotePermissions",http_permissions_fields);
- ("HttpRemoteRevokeBody",http_remote_revoke_fields);
- ("HttpBrowserCommandBody",http_browser_command_fields)].
+ ("HttpRemoteRevokeBody",http_remote_revoke_fields)].
 Definition schema_json := JObject [
  ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",Variant.kind_json KNatural);("safe",JBool true)]]);
  ("unions",JArray (map (fun entry => JObject [("name",JString (fst entry));

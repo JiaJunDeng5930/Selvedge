@@ -24,3 +24,10 @@ Definition result (reply : json) : option json :=
  match feedback_of reply with Some (Accepted value) => Some value | _ => None end.
 Definition refusal (reply : json) : json :=
  match feedback_of reply with Some (Refused diagnostic) => diagnostic | _ => reply end.
+
+Definition assessment (reply : json) : bool * json :=
+ match feedback_of reply with
+ | Some (Accepted _) => (true, JNull)
+ | Some (Refused diagnostic) => (false, diagnostic)
+ | None => (false, JNull)
+ end.
