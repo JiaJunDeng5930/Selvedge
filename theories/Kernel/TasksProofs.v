@@ -60,7 +60,7 @@ Theorem stopped_idle_receive_reactivates : forall contents task,
  task_lifecycle task = Stopped Idle [] ->
  task_lifecycle (TaskChange.apply (Tasks.receive_changes contents task) task) = Running WantsModel [].
 Proof.
- intros contents [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+ intros contents [contract profile settings lifecycle history queued lineage handoff consumed] Stopped.
  cbn [task_lifecycle] in Stopped; subst lifecycle; reflexivity.
 Qed.
 
@@ -81,13 +81,13 @@ Theorem steering_replaces_inference_and_preserves_independent_work :
    (History.interrupted_phase (task_activity current) ++ [UserMessage contents]) /\
  decision_effects (Tasks.steer id contents value) =
    (match task_activity current with
-    | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
+    | ObservingContext ticket _ _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
     | CheckingHook ticket _ _ _ _ => [CancelTicket id ticket]
     | _ => [] end).
 Proof.
  intros id contents value current Found Live Nonempty Available.
  rewrite TaskChangesProofs.steer_expression; cbv beta zeta; rewrite Found.
- destruct current as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
+ destruct current as [contract chosen settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle as [phase operations|phase operations|phase operations|operations];
    cbn [task_archived task_lifecycle] in Live |- *; try discriminate.
  all: rewrite Nonempty; destruct (Bool.bool_dec _ _) as [Admitted|Refused];
@@ -106,12 +106,12 @@ Theorem interrupt_task_is_idempotent : forall task,
 Proof.
  assert (Stable : forall current, task_lifecycle current = Stopped Idle [] ->
    (TaskChange.apply (Tasks.control_changes Tasks.Interrupt current) current) = current).
- { intros [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+ { intros [contract profile settings lifecycle history queued lineage handoff consumed] Stopped.
    cbn [task_lifecycle] in Stopped; subst lifecycle.
-   change (Task contract profile settings (Stopped Idle []) (history ++ []) queued lineage parent cursor consumed =
-     Task contract profile settings (Stopped Idle []) history queued lineage parent cursor consumed).
+   change (Task contract profile settings (Stopped Idle []) (history ++ []) queued lineage handoff consumed =
+     Task contract profile settings (Stopped Idle []) history queued lineage handoff consumed).
    now rewrite app_nil_r. }
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle; apply Stable; reflexivity.
 Qed.
 

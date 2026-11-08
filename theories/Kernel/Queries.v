@@ -34,7 +34,7 @@ Definition list_tasks (value : world) := State.success (JObject [
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
  ("plugins", JArray (environment_plugins (world_environment value)));
- ("compaction",Selvedge.Features.CompactionCodec.state_json (Features.Domain.feature_compaction (world_features value)));
+ ("compaction",Selvedge.Features.CompactionCodec.state_json (fun id => find_task id value) (Features.Domain.feature_compaction (world_features value)));
  ("max_fork", number (environment_max_fork (world_environment value)));
  ("max_descendants", number (environment_max_descendants (world_environment value))) ]).
 Definition read_project (id : N) (value : world) :=

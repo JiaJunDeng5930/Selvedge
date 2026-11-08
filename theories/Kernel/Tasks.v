@@ -88,7 +88,7 @@ Definition make_task (chosen : profile) (settings : task_settings) (contents : c
    (environment_plugins environment) (environment_profiles environment) in
  Task contract chosen settings (Running (if idle then Idle else WantsModel) [])
   (initial_history environment chosen settings ++ if idle then [] else [UserMessage contents])
-  [] [] None 0 0.
+  [] [] None 0.
 (* A start is resolved against one observation of the environment. Feature
    installation may append other tasks before interpreting this immutable plan. *)
 Inductive creation_entry := OrdinaryCreation | IdleCreation | NativeCreation
@@ -175,7 +175,7 @@ Definition receive_changes (contents : content) (value : task) : list TaskChange
  end.
 Definition inference_effects (id : N) (task : task) :=
  match task_activity task with
- | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
+ | ObservingContext ticket _ _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
  | CheckingHook ticket _ _ _ _ => [CancelTicket id ticket]
  | _ => [] end.
 Definition unknown_operations (operations : list operation) :=
@@ -371,8 +371,7 @@ Definition fork_child (owner parent_id : N) (parent : task) (contents : option c
  (Running (match contents with Some _ => WantsModel | None => Idle end) [])
  (history ++ optional_input contents) []
  (parent_id :: task_lineage parent)
- (if side then Some parent_id else None)
- (if side then N.of_nat (List.length history) else 0) 0.
+ (if side then Some (SideHandoff parent_id (N.of_nat (List.length history))) else None) 0.
 Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation : call) (child : task) :=
  let child := with_history (History.fork_receipt_history
    (ForkReceipt owner invocation (N.succ (owner-start)%N)) (task_history child)) child in

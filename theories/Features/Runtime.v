@@ -8,11 +8,12 @@ From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatg
 Definition completion_inputs (execute : Scheduler.executor) :=
  (Remote.completion_inputs execute ++ Worktree.completion_inputs ++ Board.completion_inputs ++
   Chatgpt.completion_inputs ++ Compaction.completion_inputs ++ TitleRuntime.completion_inputs)%list.
-Definition after_transition (before:world) (result:decision) :decision :=
+Definition after_context_transition (before:world) (completed : option (N * N)) (result:decision) :decision :=
  DecisionComposition.run
  (DecisionComposition.and_then (Worktree.after_transition before)
  (DecisionComposition.and_then (TaskGraph.after_transition before)
- (DecisionComposition.and_then (Board.after_transition before) (Compaction.after_transition before)))) result.
+ (DecisionComposition.and_then (Board.after_transition before) (Compaction.after_transition before completed)))) result.
+Definition after_transition (before:world) := after_context_transition before None.
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover value))).
 Definition reconfigure := Compaction.reconfigure.

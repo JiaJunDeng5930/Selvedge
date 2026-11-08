@@ -24,7 +24,7 @@ Theorem a_transport_refusal_retains_the_complete_task_history : forall current,
  task_current_profile next = task_current_profile current /\
  task_current_settings next = task_current_settings current.
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ intros [contract profile settings lifecycle history queued lineage handoff consumed].
  exists RequestDelivery.failure_message.
  destruct lifecycle; repeat split; reflexivity.
 Qed.
@@ -33,7 +33,7 @@ Theorem a_running_transport_refusal_retires_inference_demand : forall current ph
  task_lifecycle current = Running phase operations ->
  task_lifecycle (TaskChange.apply RequestDelivery.refusal_changes current) = Running Idle operations.
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+ intros [contract profile settings lifecycle history queued lineage handoff consumed]
    phase operations Current.
  cbn in Current; subst lifecycle; reflexivity.
 Qed.
@@ -185,14 +185,14 @@ Proof.
      (OperationEvent.settle operation
        (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
    (decision_world current)) with
-   (TaskWake.mark_context_wake owner task (put_task owner
+   (put_task owner
      (TaskChange.apply (TaskResult.result_changes
        (OperationEvent.settle operation (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true)
        (append_history [AfterReceipt owner (operation_id operation) plugin
          (AfterFailure RequestDelivery.after_failure_message)] task)) (append_history [AfterReceipt owner (operation_id operation) plugin
          (AfterFailure RequestDelivery.after_failure_message)] task))
-     (decision_world current))).
- rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
+     (decision_world current)).
+ rewrite settle_operation_expression.
  set (settled := with_lifecycle
    (change_operations (filter (fun pending => negb (N.eqb (operation_id operation) (operation_id pending))))
      (task_lifecycle (append_history [AfterReceipt owner (operation_id operation) plugin
@@ -207,7 +207,7 @@ Proof.
    "after_hook_failed", RequestDelivery.after_failure_message; split.
  - apply find_put_task with task; exact Found.
  - unfold settled in *.
-   destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
    destruct lifecycle;
    cbn [task_operations task_history task_queued change_operations append_history
      with_lifecycle with_history] in Operations, History, Released |- *;
@@ -256,7 +256,7 @@ Qed.
 Theorem context_completion_commits_before_following_scheduling : forall owner ticket observations diagnostic before,
  Packet.prepare true (Some (ContextCompleted owner ticket observations diagnostic))
    (Packet.core_transition (ContextCompleted owner ticket observations diagnostic) before) =
- (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_transition before
+ (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_context_transition before (Some (owner,ticket))
    (Callbacks.context_completed owner ticket observations diagnostic before))).
 Proof. reflexivity. Qed.
 

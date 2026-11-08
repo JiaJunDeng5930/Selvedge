@@ -96,7 +96,7 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  decision_effects (Scheduler.start_external id value) =
  [RequestApproval id (world_next_ticket value) reviewer invocation
    (TaskWake.promote (TaskChange.apply (TicketedRequest.opening_changes
-     (Operation (world_next_ticket value) invocation false
+     (Operation (world_next_ticket value) invocation ProviderCall
        (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining) task))].
 Proof.
  intros id tool invocation remaining task value reviewer Found ExecuteAllowed Ready Known Room Bash Elevated Policy.
@@ -122,7 +122,7 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute pe
  exists result,
  Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  decision_effects result = [ObserveContext id (world_next_ticket value)
-   (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task))].
+   (TaskChange.apply_edit TaskChange.PublishOperations (TaskWake.promote task))].
 Proof.
  intros execute permitted id task rest value operations Found Permitted ObserveAllowed Phase NoReady.
  cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
@@ -164,7 +164,7 @@ Proof.
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
  change (task_lifecycle (TaskChange.apply (Callbacks.settle_model_changes (append_history [] task)) (append_history [] task)) = Running WantsModel operations).
  rewrite NoOutput. rewrite CallbackChangesProofs.settle_model_expression; rewrite Unseen.
- destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
+ destruct task as [contract chosen settings lifecycle history queued lineage handoff consumed].
  cbn in Phase; subst lifecycle; destruct queued; reflexivity.
 Qed.
 

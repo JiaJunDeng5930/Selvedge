@@ -41,6 +41,8 @@ Export GraphConstructionProofs(public_resolved_graph_installs_its_exact_typed_pl
   existing_birth_keeps_its_original_identity,
   failed_create_graph_keeps_the_complete_world).
 Export TaskGraphProofs(resolved_installation_succeeds,
+  installed_plan_associates_its_work,
+  graph_removal_preserves_other_identities,
   expansion_has_declared_meaning,
   pending_deliveries_obey_registry_order,
   actual_delivery_reaches_idle_task,
@@ -56,6 +58,10 @@ Export TaskGraphProofs(resolved_installation_succeeds,
     allocated. A guessed future identity cannot acquire the meaning Existing.
     Installation establishes all connections before new Tasks can execute, and
     rejected installation is atomic.
+
+    The selected Work is part of the installed graph. Work reads and graph
+    updates use that field. Deleting the graph removes the association along
+    with the graph's other data.
 
     [TaskGraphSemantics] gives the ordered meaning independently of the runtime
     expander. [expansion_has_declared_meaning],
@@ -185,12 +191,13 @@ Export TitleProofs(admitted_title_issues_observed_request,
 
     Opening a side conversation captures the parent's context while leaving its
     work running. The child is an ordinary persistent Task with private birth
-    guidance and its own cursor. Explicit return selects the unseen conversational
-    suffix and sends it as quoted input through the parent's ordinary admission.
+    guidance and a handoff that keeps its recipient and delivery cursor together.
+    Explicit return selects the unseen conversational suffix and sends it as
+    quoted input through that recipient's ordinary admission.
     Closing the supporting presentation only changes the view.
 
-    The birth theorem establishes the captured guidance and initial cursor.
-    A successful return advances that cursor to the observed history length;
+    The birth theorem establishes the captured guidance and initial handoff.
+    A successful return advances its cursor to the observed history length;
     repeating it without new history cannot resend the same content. Refusal
     preserves the complete world and emits no effects. These guarantees apply
     to the actual [return_side] transition; diagnostic wording is not part of

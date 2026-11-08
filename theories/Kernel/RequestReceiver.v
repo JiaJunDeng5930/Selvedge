@@ -12,7 +12,7 @@ Definition phase_payload (kind : phase_kind) : Type := match kind with
  | HookReceiver => json * call * list json * list call end.
 Definition phase_receiver (kind : phase_kind) (phase : activity)
  : option (N * phase_payload kind) := match kind return option (N * phase_payload kind) with
- | ContextReceiver => match phase with ObservingContext ticket revision => Some (ticket,revision) | _ => None end
+ | ContextReceiver => match phase with ObservingContext ticket revision _ => Some (ticket,revision) | _ => None end
  | ModelReceiver => match phase with AskingModel ticket allowed mode => Some (ticket,(allowed,mode)) | _ => None end
  | ReasoningReceiver => match phase with EvaluatingReasoning ticket revision => Some (ticket,revision) | _ => None end
  | HookReceiver => match phase with CheckingHook ticket plugin invocation pending remaining =>

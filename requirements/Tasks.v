@@ -256,6 +256,19 @@ Export SchedulerProofs(continuation_tracks_available_work,
     constrain those actual dispatch functions and retain the accepted work.
     A synchronous native result with no result hooks needs no operation slot. *)
 
+(** ** Publishing an operation changes where its result is delivered
+
+    A result closes the provider's call while that call still awaits a reply.
+    If inference resumes while the operation is live, publishing its notice
+    closes the call and opens delivery by the operation's identity. The
+    publishing edit installs that result route and appends the matching notice
+    together. A subsequent inference keeps the route without emitting another
+    notice. Approval, execution, cancellation and result processing retain the
+    selected route. *)
+Export SchedulerProofs(publishing_operations_routes_results_and_emits_each_first_notice).
+Export HistoryProofs(an_unannounced_interruption_closes_the_provider_call,
+  an_announced_interruption_retains_operation_identity).
+
 (** ** Approval concerns one captured operation
 
     Full Access, Ask for Approval and Approval for Me determine how an operation

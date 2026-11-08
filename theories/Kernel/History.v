@@ -8,9 +8,10 @@ Open Scope list_scope.
 Include ModelRequest.LeaseState.
 
 Definition operation_result (operation : operation) (result : json) (error : bool) : message :=
- if operation_announced operation
- then OperationResult (operation_id operation) (operation_call operation) result error
- else FunctionOutput (call_id (operation_call operation)) result error.
+ match operation_result_route operation with
+ | ProviderCall => FunctionOutput (call_id (operation_call operation)) result error
+ | PublishedOperation => OperationResult (operation_id operation) (operation_call operation) result error
+ end.
 Definition cancelled_operation (operation : operation) : message :=
  let outcome := match operation_stage operation with
  | AwaitingApproval _ _ | Granted _ => failure "cancelled"
@@ -75,7 +76,7 @@ Definition interrupted_phase (phase : activity) := match phase with
  | CheckingHook _ _ invocation _ remaining =>
    FunctionOutput (call_id invocation) (failure "hook_cancelled"
     "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run.") true :: map cancelled_call remaining
- | ObservingContext _ _ => [FailureMessage "Context observation interrupted by the user; no model request was sent"]
+ | ObservingContext _ _ _ => [FailureMessage "Context observation interrupted by the user; no model request was sent"]
  | AskingModel _ _ _ => [FailureMessage "Model request interrupted by the user"]
  | EvaluatingReasoning _ _ => [FailureMessage "Reasoning evaluation interrupted by the user; no model request was sent"]
  | Idle | WantsModel | ReadyForModel => [] end.

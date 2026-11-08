@@ -45,7 +45,7 @@ Lemma settle_operation_expression : forall operation result error task,
 Proof.
  intros; unfold OperationEvent.settle, TaskResult.result_changes.
  rewrite applying_change_lists.
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed];
    destruct lifecycle; reflexivity.
 Qed.
 

@@ -56,41 +56,52 @@ Definition session_response (source : json) :=
   else response_failure source.
 Definition input_text (content : list json) := String.concat "" (map (fun item =>
   if String.eqb (str item "type") "input_text" then str item "text" else "") content).
-Fixpoint turn_text (turns : list json) (id : json) :=
-  match turns with [] => "" | turn::rest =>
-    if equal (get turn "turn_id") id then str turn "text" else turn_text rest id end.
-Definition delegation (item source : json) :=
-  let own := input_text (items (get item "content")) in
-  let message := if String.eqb own "" then turn_text (items (get source "turns")) (get item "user_bidi_turn_id") else own in
-  admit (String.eqb (str item "type") "delegation" && String.eqb (str item "target") "client" &&
-    nonempty_text (get item "id") && (nonempty_text (get item "user_bidi_turn_id") || negb (String.eqb own "")))
-    (JObject [("type",JString (if String.eqb message "" then "delegation_pending" else "delegation"));
-      ("item_id",get item "id");("text",JString message);("turn_id",get item "user_bidi_turn_id")])
-    "Invalid client voice delegation".
-Definition transcript (turn : json) :=
-  admit (existsb (String.eqb (str turn "role")) ["user";"assistant"] && is_text (get turn "transcript"))
+Record delegation_reference := DelegationReference {
+  delegation_id : string; delegation_turn : string
+}.
+Inductive voice_delegation :=
+ | ReferencedDelegation (reference : delegation_reference)
+ | TextDelegation (id : string) (turn : json) (message : string).
+Inductive provider_event :=
+ | ControlEvent (event : json)
+ | DelegationEvent (delegation : voice_delegation).
+
+Definition decode_delegation item : string + provider_event :=
+  let message := input_text (items (get item "content")) in
+  let turn := get item "user_bidi_turn_id" in
+  let id := str item "id" in
+  if String.eqb (str item "type") "delegation" && String.eqb (str item "target") "client" &&
+     nonempty_text (get item "id") then
+    if negb (String.eqb message "") then inr (DelegationEvent (TextDelegation id turn message))
+    else if nonempty_text turn then inr (DelegationEvent (ReferencedDelegation (DelegationReference id (text turn))))
+    else inl "Invalid client voice delegation"
+  else inl "Invalid client voice delegation".
+Definition control_event (admitted : bool) (event : json) (message : string) : string + provider_event :=
+  if admitted then inr (ControlEvent event) else inl message.
+Definition transcript turn :=
+  control_event (existsb (String.eqb (str turn "role")) ["user";"assistant"] && is_text (get turn "transcript"))
     (if String.eqb (str turn "transcript") "" then JNull else JObject [("type",JString "transcript");
       ("role",get turn "role");("text",get turn "transcript");("item_id",get turn "id")]) "Invalid completed voice transcript".
-Definition event (source : json) :=
-  let value := get source "value" in let kind := str value "type" in
+Definition event value : string + provider_event :=
+  let kind := str value "type" in
   if String.eqb kind "turn.done" then transcript (get value "turn")
-  else if String.eqb kind "delegation.created" then delegation (get value "item") source
-  else if existsb (String.eqb kind) ["session.started";"session.updated"] then success (JObject [("type",JString "ready")])
+  else if String.eqb kind "delegation.created" then decode_delegation (get value "item")
+  else if existsb (String.eqb kind) ["session.started";"session.updated"] then inr (ControlEvent (JObject [("type",JString "ready")]))
   else if existsb (String.eqb kind) ["input_transcript.added";"output_transcript.added"] then
-    admit (is_text (get (get value "item") "text"))
+    control_event (is_text (get (get value "item") "text"))
       (JObject [("type",JString "delta");("role",JString (if String.eqb kind "input_transcript.added" then "user" else "assistant"));
         ("text",get (get value "item") "text")]) "Invalid voice transcript increment"
   else if String.eqb kind "conversation.handoff.requested" then
-    delegation (JObject [("type",JString "delegation");("target",JString "client");
+    decode_delegation (JObject [("type",JString "delegation");("target",JString "client");
       ("id",get value "item_id");("user_bidi_turn_id",get value "user_bidi_turn_id");
-      ("content",JArray [JObject [("type",JString "input_text");("text",get value "input_transcript")]])]) source
+      ("content",JArray [JObject [("type",JString "input_text");("text",get value "input_transcript")]])])
   else if String.eqb kind "turn.created" then
     let turn := get value "turn" in
-    if String.eqb (str turn "role") "assistant" then success JNull
-    else admit (String.eqb (str turn "role") "user" && nonempty_text (get turn "id") && nonempty_text (get turn "transcript"))
+    if String.eqb (str turn "role") "assistant" then inr (ControlEvent JNull)
+    else control_event (String.eqb (str turn "role") "user" && nonempty_text (get turn "id") && nonempty_text (get turn "transcript"))
       (JObject [("type",JString "turn");("turn_id",get turn "id");("text",get turn "transcript")]) "Invalid voice user-turn association"
-  else if String.eqb kind "error" then success (JObject [("type",JString "error");("error",JString "ChatGPT voice control reported an error")])
-  else success JNull.
+  else if String.eqb kind "error" then inr (ControlEvent (JObject [("type",JString "error");("error",JString "ChatGPT voice control reported an error")]))
+  else inr (ControlEvent JNull).
 Definition context (source : json) :=
   let id := get source "delegation_item_id" in
   success (JObject ([("type",JString (if is_null id then "session.context.append" else "delegation.context.append"));

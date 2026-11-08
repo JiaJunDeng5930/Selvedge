@@ -7,7 +7,7 @@ Import ListNotations.
 Open Scope list_scope.
 
 Theorem an_unannounced_interruption_closes_the_provider_call : forall operation code reason,
- operation_announced operation = false ->
+ operation_result_route operation = ProviderCall ->
  exists result, History.interrupted_result code reason operation =
  FunctionOutput (call_id (operation_call operation)) result true.
 Proof.
@@ -24,11 +24,11 @@ Theorem native_results_append_their_completed_observation :
 Proof.
  intros; unfold OperationEvent.native_result.
  destruct (OperationEvent.after_plugins current);
- destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+ destruct current as [contract profile settings lifecycle history queued lineage handoff consumed];
  destruct lifecycle; reflexivity.
 Qed.
 Theorem an_announced_interruption_retains_operation_identity : forall operation code reason,
- operation_announced operation = true ->
+ operation_result_route operation = PublishedOperation ->
  exists result, History.interrupted_result code reason operation =
  OperationResult (operation_id operation) (operation_call operation) result true.
 Proof.
@@ -53,6 +53,6 @@ Proof.
  unfold Callbacks.begin_result_plan, OperationEvent.plan, OperationEvent.returned.
  unfold Callbacks.after_plugins in Hooks; rewrite Hooks.
  eexists; split; [apply find_put_task with task; exact Found|].
- destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+ destruct task as [contract profile settings lifecycle history queued lineage handoff consumed];
  destruct lifecycle; reflexivity.
 Qed.

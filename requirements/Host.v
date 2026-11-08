@@ -321,7 +321,11 @@ Export AudioConnection(step).
     retry count as the user requirement.
 
     The stream owns turns, partial transcript tails and unresolved delegation
-    references. The session owns browser generation and pending journal receipts.
+    references. Provider admission constructs the delegation once. A pending
+    reference keeps the delegation identity and the referenced user turn.
+    Arrival of that turn releases the matching delegations, and shutdown
+    reports the unresolved references. The session owns browser generation
+    and pending journal receipts.
     [stale_session_is_inert], [closing_stream_flushes_at_most_once] and
     [final_transcript_requires_journal] constrain their actual steps. Publication
     of final speech and accepted-work context requires successful commit

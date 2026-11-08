@@ -20,7 +20,7 @@ Proof.
  cbn [Scheduler.find_step]. unfold Scheduler.next_runnable_step.
  destruct (permitted id value).
  - unfold Scheduler.task_action; rewrite Lifecycle, NoReady; reflexivity.
- - unfold task_operations; rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
+ - unfold task_operations, lifecycle_operations; rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
 Qed.
 
 (* Stop settles the current turn without issuing another inference request. *)
@@ -72,7 +72,7 @@ Theorem a_runnable_task_requests_context_before_inference :
  exists result,
  Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  In (ObserveContext id (world_next_ticket value)
-   (TaskChange.apply (TicketedRequest.publication_changes (TaskWake.promote task)) (TaskWake.promote task)))
+   (TaskChange.apply_edit TaskChange.PublishOperations (TaskWake.promote task)))
    (decision_effects result) /\
  (world_next_ticket value < world_next_ticket (decision_world result))%N.
 Proof.
@@ -86,7 +86,7 @@ Proof.
  split.
  - rewrite issued_effects; unfold TicketedRequest.Scoped.build; rewrite Intent,Owner,Current.
    cbn [snd]. rewrite TaskChangeProofs.apply_app; left; reflexivity.
- - unfold TicketedRequest.Scoped.issue; rewrite Intent.
+ - unfold TicketedRequest.Scoped.issue.
    cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
    unfold TicketedRequest.Scoped.build; rewrite Intent; apply N.lt_succ_diag_r.
 Qed.

@@ -33,14 +33,48 @@ Definition retirement_declaration := D.Union (map (fun reason => D.Const (retire
 Definition retirement_value (value : D.denote retirement_declaration) : retirement :=
  match value with inl _ => Active | inr (inl _) => Cancelled | inr (inr (inl _)) => ConfigurationChanged
  | inr (inr (inr impossible)) => match impossible with end end.
-Record stored_request := StoredRequest { stored_fields : list (string * json); stored_retirement : retirement }.
-Definition stored_json value := JObject (("retired",retirement_code value.(stored_retirement))::
-  Json.remove_field "retired" value.(stored_fields)).
-(** Persisted retirement is decoded only where it determines request reuse.
-    The encoder derives its wire value from that same state. *)
+Inductive response_stage :=
+ | AwaitingResponse | RejectedResponse
+ | IdentifiedResponse (id : string)
+ | CommittedResponse (id body : string).
+Definition response_identity value := nonempty value && match Utf8.decode (text value) with
+  | None => false | Some codes =>
+      (fold_left (fun code_units code => code_units + if code <? 65536 then 1 else 2) codes 0 <=? 256) &&
+      forallb (fun code => (33 <=? code) && negb (N.eqb code 127)) codes end.
+Definition response_id stage := match stage with
+ | IdentifiedResponse id | CommittedResponse id _ => JString id
+ | _ => JNull end.
+Definition response_fields stage := [
+ ("response_id",response_id stage);
+ ("response",match stage with CommittedResponse _ body => JString body | _ => JNull end);
+ ("rejected",number (match stage with RejectedResponse => 1 | _ => 0 end))].
+Definition read_response fields :=
+ let rejected := member fields "rejected" in
+ let response := member fields "response" in
+ match member fields "response_id" with
+ | JNull => match response with
+     | JNull => if same rejected (number 0) then Some AwaitingResponse
+       else if same rejected (number 1) then Some RejectedResponse else None
+     | _ => None end
+ | JString id => if same rejected (number 0) && response_identity (JString id) then
+     match response with
+     | JNull => Some (IdentifiedResponse id)
+     | JString body => Some (CommittedResponse id body)
+     | _ => None end else None
+ | _ => None end.
+Record stored_request := StoredRequest {
+ stored_fields : list (string * json);
+ stored_retirement : retirement;
+ stored_response : response_stage }.
+Definition stored_json value := JObject
+ (("retired",retirement_code value.(stored_retirement)) ::
+   (response_fields value.(stored_response) ++ value.(stored_fields))).
 Definition read_stored value : option stored_request := match value with
- | JObject fields => option_map (StoredRequest (Json.remove_field "retired" fields))
-     (option_map retirement_value (D.decode retirement_declaration (member fields "retired")))
+ | JObject fields => match D.decode retirement_declaration (member fields "retired"),read_response fields with
+   | Some retired,Some response =>
+     Some (StoredRequest (fold_right Json.remove_field fields ["retired";"response_id";"response";"rejected"])
+       (retirement_value retired) response)
+   | _,_ => None end
  | _ => None end.
 Definition optional_stored value : option (option stored_request) := match value with
  | JNull => Some None | _ => option_map Some (read_stored value) end.

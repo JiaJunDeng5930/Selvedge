@@ -7,9 +7,17 @@ Open Scope N_scope.
 Definition invalid_source := "Invalid ChatGPT Web JSON source".
 Definition with_stored source handler := match optional_stored source with
  | Some value => handler value
- (* DEFENSE: A persisted SQLite row with a missing or unknown retirement code
-    cannot authorize reuse of a request or reset of its continuation. *)
+ (* DEFENSE: A persisted SQLite row with an invalid lifecycle cannot authorize
+    recovery, request reuse or continuation. *)
  | None => err invalid_source end.
+Definition with_request source handler := with_stored source (fun value =>
+ match value with Some request => handler request | None => err invalid_source end).
+Fixpoint with_requests records (handler : list stored_request -> json) :=
+ match records with
+ | [] => handler []
+ | record :: rest => with_request record (fun request =>
+   with_requests rest (fun requests => handler (request :: requests)))
+ end.
 Definition frame_fields := [required "data" (D.Value Schema.KText);raw "event"].
 Definition frame_value := O.project frame_fields (fun data event => (data,text (missing event))).
 Definition stream_fields := [required "pending" (D.Value Schema.KText);required "data" (D.Array (D.Value Schema.KText));
@@ -28,8 +36,9 @@ Definition continuation_entry request previous owner store binding contract dige
      (missing store) (missing binding) (missing contract) (missing digest))).
 Definition receipt_entry effect response record deferred count hash store binding contract tools :=
  let '(history,model,task) := model_history_value effect in
- WebContinuation.receipt history model task response record deferred count hash store
-   (missing binding) (missing contract) (items (missing tools)).
+ with_request (JObject record) (fun record =>
+   WebContinuation.receipt history model task response record deferred count hash store
+     (missing binding) (missing contract) (items (missing tools))).
 
 Definition method name fields handler
  `{Schema.DistinctNames (map (fun field => fst (fst field)) fields)} :=
@@ -39,19 +48,26 @@ Definition operations := [
  method "web.resource" [raw "value";raw "model";raw "body";raw "tools"]
    (fun value model body tools => WebResources.resource (missing value) (missing model) (missing body) (items (missing tools)));
  method "web.failure" [required "record" D.RawObject;raw "code";raw "status"]
-   (fun record code status => WebResources.failure_result record (missing code) (missing status));
+   (fun record code status => with_request (JObject record) (fun request =>
+     WebResources.failure_result request (missing code) (missing status)));
  method "web.event" [required "frame" (D.OpenObject frame_fields);raw "body";raw "model";raw "tools";raw "index"]
    (fun frame body model tools index => let '(data,name) := frame_value frame in
     WebResources.event false name data (missing body) (missing model) (items (missing tools)) (missing index));
  method "web.store_identify" [required "current" D.RawObject;raw "id"]
-   (fun current id => WebStore.store_identify current (missing id));
- method "web.store_finish" [required "current" D.RawObject;required "response" D.RawObject] WebStore.store_finish;
- method "web.store_reject" [required "record" D.RawObject] WebStore.store_reject;
+   (fun current id => with_request (JObject current) (fun request =>
+     WebStore.store_identify request.(stored_response) (missing id)));
+ method "web.store_finish" [required "current" D.RawObject;required "response" D.RawObject]
+   (fun current response => with_request (JObject current) (fun request =>
+     WebStore.store_finish request.(stored_response) response));
+ method "web.store_reject" [required "record" D.RawObject]
+   (fun record => with_request (JObject record) (fun request => WebStore.store_reject request.(stored_response)));
  method "web.store_retire" [] WebStore.store_retire;
  method "web.store_prepare" [raw "record";required "request" (D.OpenObject WebStore.request_fields);raw "previous";required "new_key" (D.Value Schema.KText)]
    (fun record request previous key => with_stored (missing record) (fun record =>
     with_stored (missing previous) (fun previous => WebStore.store_prepare record (WebStore.request_value request) previous key)));
- method "web.retire_existing" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "owner" (D.Value Schema.KText);raw "ticket"] WebStore.retire_existing;
+ method "web.retire_existing" [required "rows" (D.Array D.Any);required "records" (D.Array D.Any);required "owner" (D.Value Schema.KText);raw "ticket"]
+   (fun rows records owner ticket => with_requests records (fun requests =>
+     WebStore.retire_existing rows requests owner ticket));
  method "web.continuation" [required "request" (D.OpenObject history_fields);
    raw "previous";raw "owner";raw "store_identity";raw "binding";raw "contract";raw "history_digest"] continuation_entry;
  method "web.receipt" [required "effect" (D.OpenObject model_history_fields);required "resource" D.RawObject;required "record" D.RawObject;
@@ -61,18 +77,22 @@ Definition operations := [
    required "maximum" safe_natural]
    (fun state chunk maximum => WebStream.sse_step (stream_value state) chunk (proj1_sig maximum));
  method "web.http" [required "record" D.RawObject;required "status" safe_natural]
-   (fun record status => WebResources.http record (proj1_sig status));
+   (fun record status => with_request (JObject record) (fun request =>
+     WebResources.http request.(stored_response) (proj1_sig status)));
  method "web.commit" [raw "resource"] (fun resource => WebResources.commit (missing resource));
  method "web.request_bounds" [raw "body";raw "deferred";raw "limits"]
    (fun body deferred limits => WebResources.request_bounds (missing body) (missing deferred) (num (missing limits) "frame_bytes"));
  method "web.owner" [required "effect" D.RawObject] WebCommon.owner;
  method "web.headers" [raw "version";raw "content_type"] (fun version content_type => WebStream.headers (missing version) (missing content_type));
  O.diagnostic_method "web.recovery" (WebStore.recovery_fields ++ [raw "record";raw "binding"])
-   (fun action confirm record binding => WebStore.recovery (recovery_action_value action) confirm (missing record) (missing binding))
+   (fun action confirm record binding => with_request (missing record) (fun request =>
+     WebStore.recovery (recovery_action_value action) confirm request (missing binding)))
    "Invalid ChatGPT Web recovery action";
  method "web.recovery_result" [raw "action";raw "value";raw "record"]
-   (fun action value record => WebStore.recovery_result (missing action) (missing value) (missing record));
- method "web.retained" [required "record" D.RawObject] WebResources.retained;
+   (fun action value record => with_request (missing record) (fun request =>
+     WebStore.recovery_result (missing action) (missing value) request));
+ method "web.retained" [required "record" D.RawObject]
+   (fun record => with_request (JObject record) WebResources.retained);
  method "web.decode" [required "text" (D.Value Schema.KText)] decode_provider_text;
  method "web.settle" [required "resource" D.RawObject;required "deferred" (D.Array D.Any);raw "body";raw "index"]
    (fun resource deferred body index => match D.decode WebContinuation.stage (missing index) with
@@ -90,10 +110,12 @@ Definition operations := [
  method "web.invocation" [required "effect" D.RawObject;required "profile" D.RawObject;required "body" D.RawObject;
    required "owner" (D.Value Schema.KText);required "stage" safe_natural;raw "binding";required "reset" D.Boolean]
    (fun effect profile body owner stage binding reset => WebStore.invocation effect profile body owner (proj1_sig stage) (missing binding) reset);
- method "web.cancellation" [raw "record"] (fun record => WebStore.cancellation (missing record));
- method "web.store_latest" [required "records" (D.Array D.Any)] WebStore.store_latest;
+ method "web.cancellation" [raw "record"] (fun record => with_stored (missing record) WebStore.cancellation);
+ method "web.store_latest" [required "records" (D.Array D.Any)]
+   (fun records => with_requests records WebStore.store_latest);
  method "web.exchange_start" [raw "record";raw "body";raw "model";raw "tools"]
-   (fun record body model tools => WebStore.exchange_start (missing record) (missing body) (missing model) (items (missing tools)));
+   (fun record body model tools => with_request (missing record) (fun request =>
+     WebStore.exchange_start request (missing body) (missing model) (items (missing tools))));
  method "web.exchange_result" [raw "resource"] (fun resource => WebStore.exchange_result (missing resource));
  method "web.catch" [raw "record";raw "error"] (fun record error => WebStore.catch (missing record) (missing error));
  method "web.http_json" [required "response" (D.OpenObject http_fields);required "text" (D.Value Schema.KText)]

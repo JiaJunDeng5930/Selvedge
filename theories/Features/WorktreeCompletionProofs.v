@@ -23,11 +23,11 @@ Theorem successful_setup_commits_queued_input_before_request_capture :
      (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))] ++
    map UserMessage (task_queued task))%list.
 Proof.
- intros space guidance [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor]
+ intros space guidance [contract profile settings lifecycle history queued lineage handoff model_cursor]
    operations Waiting; cbn in Waiting; subst lifecycle.
  destruct queued as [|first rest]; unfold Worktree.completed_task, Worktree.install_workspace;
  cbn [task_contract task_current_profile task_current_settings task_lifecycle
-  task_history task_queued task_lineage task_side_parent task_side_cursor task_model_cursor
+  task_history task_queued task_lineage task_side_handoff task_model_cursor
   Selvedge.Kernel.TaskWake.promote];
  unfold with_lifecycle, append_history, with_history; cbv [set]; cbn;
  split; try reflexivity; now rewrite <- app_assoc.
@@ -37,7 +37,7 @@ Lemma failed_task_stops_live_owner : forall message task,
  Worktree.archived task = false ->
  task_lifecycle (Worktree.failed_task message task) = Stopped Idle [].
 Proof.
- intros message [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor] live.
+ intros message [contract profile settings lifecycle history queued lineage handoff model_cursor] live.
  unfold Worktree.archived, Worktree.failed_task in *.
  destruct lifecycle; cbn in *; try discriminate;
    unfold Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.append_history,

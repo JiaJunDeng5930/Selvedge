@@ -32,7 +32,7 @@ Proof.
  cbn [HookCallbacks.after_result_plan OperationEvent.after_checked OperationEvent.after_result
    OperationEvent.settle TaskResult.prefix_result HookRules.after_apply] in Terminal |- *;
  try (destruct pending; try contradiction).
- all: destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+ all: destruct current as [contract profile settings lifecycle history queued lineage handoff consumed];
    cbn in ArchivedTask; subst lifecycle;
    cbn [HookCallbacks.after_result_plan OperationEvent.after_checked OperationEvent.after_result
      HookRules.after_apply OperationEvent.settle TaskResult.prefix_result TaskResult.result_changes

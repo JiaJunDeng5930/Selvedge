@@ -26,9 +26,11 @@ Definition call_error (id : N) (invocation : call) (code reason : string) (remai
  acknowledged (commit_changes id (fun _ => call_result_changes invocation (State.failure code reason) true remaining) value).
 (* Bash may need stdin before it can finish. Other pending external operations
    wait for completion unless another committed input already needs inference. *)
-Definition process_needs_model (value : operation) := negb (operation_announced value) &&
- String.eqb (call_name (operation_call value)) "bash" &&
- match operation_stage value with Executing _ | Elevated _ _ => true | _ => false end.
+Definition process_needs_model (value : operation) :=
+ match operation_result_route value, operation_stage value with
+ | ProviderCall, (Executing _ | Elevated _ _) => String.eqb (call_name (operation_call value)) "bash"
+ | _,_ => false
+ end.
 Definition continue_after_calls_changes (task : task) :=
  let promoted := TaskWake.promote task in
  TaskWake.promote_changes task ++ [TaskChange.ChangePhase

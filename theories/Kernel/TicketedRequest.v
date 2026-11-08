@@ -15,22 +15,6 @@ Open Scope list_scope.
 Inductive external_authority := Ordinary | Unrestricted | AskHuman | AskModel (reviewer : profile).
 Definition opening_changes (operation : operation) (remaining : list call) :=
  [TaskChange.AddOperation operation; TaskChange.ChangePhase (PendingCalls remaining)].
-Definition operation_notice (value : operation) := JObject [
- ("status",JString (match operation_stage value with AwaitingApproval _ _ => "awaiting_approval"
-  | Granted _ => "approved_waiting_to_run" | _ => "running" end));
- ("operation_id",number (operation_id value));("tool",JString (call_name (operation_call value)));
- ("message",JString (match operation_stage value with
- | AwaitingApproval _ HumanReviewer => "Bash has not started. This exact command is waiting for the user's one-operation approval in the UI. Continue independent work or end the turn; do not poll or try to approve it yourself."
- | AwaitingApproval _ (ModelReviewer _) => "Bash has not started. An independent, tool-free reviewer is assessing this exact command. The result arrives automatically; do not poll or create another task to review it."
- | Granted _ => "A one-operation grant is committed, but Bash has not started. It will run only when the task is active."
- | _ => "This operation is still running, not completed. Its result will arrive as an asynchronous operation result. Continue independent work, or end your turn to wait; do not poll or sleep just to wait." end))].
-Definition announce_operation (value : operation) :=
- Operation (operation_id value) (operation_call value) true (operation_stage value).
-Definition publication_changes (task : task) :=
- let notices := fold_right (fun operation rest => if operation_announced operation then rest else
-  FunctionOutput (call_id (operation_call operation)) (operation_notice operation) false :: rest) [] (task_operations task) in
- [TaskChange.AppendHistory notices; TaskChange.operation_change (map announce_operation)].
-
 Module Scoped.
 Import TaskScope.
 Inductive action :=
@@ -81,7 +65,7 @@ Definition resources_available (current : task) (before : world) :=
 Definition can_observe (publish : bool) (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
  | Running phase _ => if publish then match phase with WantsModel => true | _ => false end
-   else match phase with ObservingContext _ _ => true | _ => false end
+   else match phase with ObservingContext _ _ _ => true | _ => false end
  | _ => false end.
 Definition can_infer (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
@@ -115,9 +99,10 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
  match intent value with
  | ObserveTask publish =>
    let prepared := if publish then TaskWake.promote_changes current ++
-     publication_changes (TaskWake.promote current) else [] in
+     [TaskChange.PublishOperations] else [] in
    let captured := TaskChange.apply prepared current in
-   (prepared ++ [TaskChange.ChangePhase (ObservingContext ticket (List.length (task_history captured)))],
+   let continuation := context_follow_up (task_activity current) in
+   (prepared ++ [TaskChange.ChangePhase (ObservingContext ticket (List.length (task_history captured)) continuation)],
     [ObserveContext owner ticket captured])
  | InferTask => match ModelRequest.choose owner current with
    | Some choice =>
@@ -132,7 +117,7 @@ Definition build {before} (value : plan before) (ticket : N) : list TaskChange.e
    ([TaskChange.ChangePhase (CheckingHook ticket plugin invocation pending remaining)],
     [CheckTool owner ticket plugin tool invocation])
  | StartCall tool invocation remaining authority =>
-   let begin stage := opening_changes (Operation ticket invocation false stage) remaining in
+   let begin stage := opening_changes (Operation ticket invocation ProviderCall stage) remaining in
    let wait actor := let changes := begin (AwaitingApproval ticket actor) in
      changes ++ TaskWake.promote_changes (TaskChange.apply changes current) in
    match authority with
@@ -159,9 +144,6 @@ Definition issue {before} (value : plan before) :=
  let '(ticket,allocated) := allocate_identity TaskTicket before in
  let '(changes,effects) := build value ticket in
  let installed := put_task (owner target) (TaskChange.apply changes (selected target)) allocated in
- let installed := match intent value with
- | ResumeOperation _ _ _ => TaskWake.mark_context_wake (owner target) (selected target) installed
- | _ => installed end in
  accept JNull installed effects.
 Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
  (evidence : can_observe publish (selected target) before = allowed) : option (plan before) :=

@@ -219,22 +219,37 @@ Inductive operation_state :=
 | Elevated (ticket : N) (reviewer_value : reviewer)
 | AfterHooksReady (pending : list json) (value : json) (error : bool)
 | AwaitingAfterHook (ticket : N) (plugin : json) (remaining : list json) (value : json) (error : bool).
+Inductive result_route := ProviderCall | PublishedOperation.
 Record operation := Operation {
   operation_id : N;
   operation_call : call;
-  operation_announced : bool;
+  operation_result_route : result_route;
   operation_stage : operation_state
 }.
+Definition operation_announced (value : operation) :=
+ match operation_result_route value with ProviderCall => false | PublishedOperation => true end.
+Inductive compaction_reason := Background | Blocking | IdleMaintenance | Manual.
+Inductive context_continuation :=
+| ForInference
+| ForMaintenance (purpose : option compaction_reason) (resume_model : bool).
+
 Inductive activity :=
 | Idle
 | WantsModel
 | ReadyForModel
-| ObservingContext (ticket : N) (source_length : nat)
+| ObservingContext (ticket : N) (source_length : nat) (continuation : context_continuation)
 | AskingModel (ticket : N) (callable : list string) (mode : output_mode)
 | EvaluatingReasoning (ticket : N) (source_length : nat)
 | PendingCalls (calls : list call)
 | ReadyForHooks (invocation : call) (pending : list json) (calls : list call)
 | CheckingHook (ticket : N) (plugin : json) (invocation : call) (remaining : list json) (calls : list call).
+
+Definition context_follow_up (phase : activity) :=
+ match phase with ObservingContext _ _ continuation => continuation | _ => ForInference end.
+Definition maintenance_context_ticket (phase : activity) :=
+ match phase with
+ | ObservingContext ticket _ (ForMaintenance _ _) => Some ticket
+ | _ => None end.
 
 (** Archival revokes prior work. The archive command's own synchronous result
     can subsequently acquire result-processing operations, but no inference. *)
@@ -243,6 +258,12 @@ Inductive lifecycle :=
 | Frozen (phase : activity) (operations : list operation)
 | Stopped (phase : activity) (operations : list operation)
 | Archived (operations : list operation).
+Record side_handoff := SideHandoff {
+  handoff_parent : N;
+  handoff_through : N
+}.
+Definition advance_side_handoff (through : N) (value : side_handoff) :=
+ set handoff_through (fun _ => through) value.
 Record task := Task {
   task_contract : contract;
   task_current_profile : profile;
@@ -251,10 +272,14 @@ Record task := Task {
   task_history : list message;
   task_queued : list content;
   task_lineage : list N;
-  task_side_parent : option N;
-  task_side_cursor : N;
+  task_side_handoff : option side_handoff;
   task_model_cursor : nat
 }.
+Definition task_side_parent (value : task) := option_map handoff_parent (task_side_handoff value).
+Definition task_side_cursor (value : task) :=
+ match task_side_handoff value with Some handoff => handoff_through handoff | None => 0%N end.
+Definition with_side_handoff (handoff : side_handoff) (value : task) :=
+ set task_side_handoff (fun _ => Some handoff) value.
 Record project := Project {
   project_name : string;
   project_workspace : workspace;
@@ -282,9 +307,10 @@ Definition task_activity (value : task) :=
   | Running phase _ | Frozen phase _ | Stopped phase _ => phase
   | Archived _ => Idle
   end.
-Definition task_operations (value : task) :=
-  match task_lifecycle value with
+Definition lifecycle_operations (state : lifecycle) :=
+  match state with
   | Running _ ops | Frozen _ ops | Stopped _ ops | Archived ops => ops end.
+Definition task_operations (value : task) := lifecycle_operations (task_lifecycle value).
 Definition with_lifecycle (state : lifecycle) (value : task) := set task_lifecycle (fun _ => state) value.
 Definition with_history (history : list message) (value : task) := set task_history (fun _ => history) value.
 Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cursor (fun _ => cursor) value.
@@ -295,7 +321,6 @@ Definition unseen_model_input (value : task) := existsb (fun item => match item 
  (skipn (task_model_cursor value) (task_history value)).
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=
  set task_current_settings (fun _ => settings) (set task_current_profile (fun _ => chosen) value).
-Definition with_side_cursor (cursor : N) (value : task) := set task_side_cursor (fun _ => cursor) value.
 Definition append_history (messages : list message) (value : task) :=
   with_history (task_history value ++ messages) value.
 Definition change_activity (phase : activity) (state : lifecycle) :=
@@ -321,5 +346,5 @@ Definition task_busy (value : task) :=
 
 Definition activity_name (value : activity) := match value with
  | Idle => "idle" | WantsModel | ReadyForModel | PendingCalls _ => "ready"
- | ObservingContext _ _ => "context_pending" | AskingModel _ _ _ => "model_pending"
+ | ObservingContext _ _ _ => "context_pending" | AskingModel _ _ _ => "model_pending"
  | EvaluatingReasoning _ _ => "reasoning_pending" | ReadyForHooks _ _ _ | CheckingHook _ _ _ _ _ => "hook_pending" end.

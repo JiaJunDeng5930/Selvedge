@@ -3,18 +3,15 @@ From Selvedge.Adapters Require Import Common Observation Audio.
 Import ListNotations.
 Open Scope string_scope.
 
-Theorem transcript_events_cannot_delegate_work : forall source result,
-  str (get source "value") "type" = "turn.done" ->
-  event source = success result ->
-  get result "type" <> JString "delegation".
+Theorem transcript_events_cannot_delegate_work : forall source delegation,
+  str source "type" = "turn.done" ->
+  event source <> inr (DelegationEvent delegation).
 Proof.
-  intros source result kind H.
+  intros source delegation kind H.
   unfold event in H. rewrite kind in H. cbn in H.
-  unfold transcript,admit in H.
-  destruct (existsb (String.eqb (str (get (get source "value") "turn") "role")) ["user";"assistant"] &&
-    is_text (get (get (get source "value") "turn") "transcript")); [|discriminate].
-  destruct (String.eqb (str (get (get source "value") "turn") "transcript") "");
-    inversion H; subst; discriminate.
+  unfold transcript,control_event in H.
+  destruct (existsb (String.eqb (str (get source "turn") "role")) ["user";"assistant"] &&
+    is_text (get (get source "turn") "transcript")); discriminate.
 Qed.
 
 Theorem audio_capability_matches_account_authority : forall transport assistant content source result,

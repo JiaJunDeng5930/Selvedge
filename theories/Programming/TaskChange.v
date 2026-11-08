@@ -1,6 +1,7 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Programming Require Import Focus.
 From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Kernel Require OperationPublication.
 From Selvedge.Programming Require Import TaskScope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -19,24 +20,26 @@ Definition task_parts (value : task) :=
  ((Mutable (task_lifecycle value) (task_queued value) (task_model_cursor value),
    task_history value),
   (task_contract value, task_current_profile value, task_current_settings value,
-   task_lineage value, task_side_parent value, task_side_cursor value)).
+   task_lineage value, task_side_handoff value)).
 Definition from_parts
- (parts : (mutable * list message) * (contract * profile * task_settings * list N * option N * N)) :=
- let '((current,history),(contract,profile,settings,lineage,parent,cursor)) := parts in
+ (parts : (mutable * list message) * (contract * profile * task_settings * list N * option side_handoff)) :=
+ let '((current,history),(contract,profile,settings,lineage,handoff)) := parts in
  Task contract profile settings
-   (current_lifecycle current) history (current_queued current) lineage parent
-   cursor (current_model_cursor current).
+   (current_lifecycle current) history (current_queued current) lineage handoff
+   (current_model_cursor current).
 Definition task_focus : Focus.t task (mutable * list message).
 Proof.
  refine (Focus.Focus _ _ _ task_parts from_parts _ _).
  - intros []; reflexivity.
- - intros [[[] history] [[[[[contract profile] settings] lineage] parent] cursor]]; reflexivity.
+ - intros [[[] history] [[[[contract profile] settings] lineage] handoff]]; reflexivity.
 Defined.
 
-Record edit := Edit {
- update : mutable -> mutable;
- appended : option (list message)
+Record edit := BuildEdit {
+ transition : mutable -> mutable * option (list message)
 }.
+Definition Edit (update : mutable -> mutable) (appended : option (list message)) :=
+ BuildEdit (fun current => (update current,appended)).
+Definition update (change : edit) (current : mutable) := fst (transition change current).
 Definition modify (change : mutable -> mutable) := Edit change None.
 Definition ChangeStatus (next : status) := modify (fun current =>
  let '(phase,operations) := match current_lifecycle current with
@@ -56,13 +59,18 @@ Definition operation_change (change : list operation -> list operation) := modif
 Definition AddOperation (operation : operation) := operation_change (fun operations => operations ++ [operation]).
 Definition ChangeOperationStage (identity : N) (stage : operation_state) := operation_change
  (map (fun operation => if N.eqb identity (operation_id operation)
-   then Operation (operation_id operation) (operation_call operation) (operation_announced operation) stage
+   then Operation (operation_id operation) (operation_call operation) (operation_result_route operation) stage
    else operation)).
 Definition RemoveOperation (identity : N) := operation_change
  (filter (fun operation => negb (N.eqb identity (operation_id operation)))) .
 Definition ClearOperations := operation_change (fun _ => []).
+Definition PublishOperations := BuildEdit (fun current =>
+ let '(operations,notices) := OperationPublication.collect
+   (lifecycle_operations (current_lifecycle current)) in
+ (set current_lifecycle (change_operations (fun _ => operations)) current,Some notices)).
 Definition edit_parts (change : edit) (parts : mutable * list message) :=
- (update change (fst parts), match appended change with
+ let '(current,appended) := transition change (fst parts) in
+ (current, match appended with
    | Some messages => snd parts ++ messages | None => snd parts end).
 Definition apply_edit (change : edit) := Focus.modify task_focus (edit_parts change).
 Definition apply (changes : list edit) (current : task) :=

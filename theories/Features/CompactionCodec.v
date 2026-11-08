@@ -5,7 +5,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require OptionList.
-From Selvedge.Kernel Require Import Numbers Codec Compaction CompactionPlan ContextSelection.
+From Selvedge.Kernel Require Import Numbers Domain Codec Compaction CompactionPlan ContextSelection.
 From Selvedge.Features Require Import CompactionTypes.
 Import ListNotations.
 Open Scope string_scope.
@@ -47,14 +47,20 @@ Definition policy_json (value : policy) := JObject [
  ("blocking_percent", number (policy_blocking value)); ("idle_lead_ms", number (policy_idle_lead value));
  ("targets", JArray (map target_json (policy_targets value)))].
 Definition job_name (value : job) := match value with NoJob => "idle"
- | WaitingForResource _ => "waiting_for_resource" | AwaitingContext _ _ _ => "observing_context" | Resuming _ _ => "waiting"
+ | WaitingForResource _ => "waiting_for_resource" | Resuming _ _ => "waiting"
  | Preparing _ => "preparing" | Compacting _ => "compacting" | Validating _ => "validating" end.
-Definition entry_json (id : N) (value : entry) := JObject [
- ("task_id", number id); ("state", JString (job_name (entry_job value)));
+Definition observed_job_name (current : option task) (value : job) :=
+ match current with
+ | Some task => match maintenance_context_ticket (task_activity task) with
+   | Some _ => "observing_context" | None => job_name value end
+ | None => job_name value end.
+Definition entry_json (id : N) (current : option task) (value : entry) := JObject [
+ ("task_id", number id); ("state", JString (observed_job_name current (entry_job value)));
  ("useful_revision", number (entry_useful value)); ("maintained_revision", number (entry_maintained value));
  ("cache_deadline", number (entry_cache_deadline value))].
-Definition state_json (value : state) := JObject [("policy", policy_json (maintenance_policy value));
- ("tasks", JArray (map (fun pair => entry_json (fst pair) (snd pair)) (maintenance_entries value)))].
+Definition state_json (lookup : N -> option task) (value : state) :=
+ JObject [("policy", policy_json (maintenance_policy value));
+ ("tasks", JArray (map (fun '(id,entry) => entry_json id (lookup id) entry) (maintenance_entries value)))].
 
 Definition decode_budget (window reserve : N) : option token_budget :=
  if Compaction.legal_budget window reserve then

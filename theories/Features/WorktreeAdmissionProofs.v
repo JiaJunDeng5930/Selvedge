@@ -15,9 +15,12 @@ Theorem returning_to_a_failed_parent_preserves_the_side : forall id value side p
  decision_effects (CommandExecution.return_side id value) = [].
 Proof.
  intros id value side parent current Found Parent Selected Failed.
+ unfold task_side_parent in Parent.
+ destruct (task_side_handoff side) as [handoff|] eqn:Handoff; cbn in Parent; try discriminate.
+ injection Parent as Parent; subst parent.
  unfold CommandExecution.return_side; rewrite Found.
  destruct (task_lifecycle side); try (split; reflexivity);
- rewrite Parent; cbn zeta;
+ rewrite Handoff; cbn zeta;
  destruct (filter _ _) as [|first rest]; try (split; reflexivity).
  all: unfold Tasks.send_result; rewrite TaskChangesProofs.input_result_expression; cbv beta zeta; rewrite Selected.
  all: destruct (task_lifecycle current); try (split; reflexivity).

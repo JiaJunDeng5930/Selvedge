@@ -68,7 +68,7 @@ Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
  let recorded := append_history
    [ToolReceipt id (operation_id current) (operation_call current) result error] task in
  let waiting := Operation (operation_id current) (operation_call current)
-   (operation_announced current) (AfterHooksReady (plugin :: rest) result error) in
+   (operation_result_route current) (AfterHooksReady (plugin :: rest) result error) in
  Callbacks.tool_completed id ticket result error value =
    acknowledged (put_task id
      (TaskChange.apply [TaskChange.ChangeOperationStage (operation_id current) (AfterHooksReady (plugin :: rest) result error)] recorded) value).
@@ -119,7 +119,7 @@ Theorem after_hook_rewrite_keeps_operation_owner_and_error_for_the_suffix :
  let updated := append_history
    [AfterReceipt id (operation_id current) plugin (RewriteResult replacement)] task in
  let continued := Operation (operation_id current) (operation_call current)
-   (operation_announced current) (AfterHooksReady (next :: rest) replacement error) in
+   (operation_result_route current) (AfterHooksReady (next :: rest) replacement error) in
  HookCallbacks.after_completed id identity ticket (RewriteResult replacement) value =
    acknowledged (put_task id
      (TaskChange.apply [TaskChange.ChangeOperationStage (operation_id current) (AfterHooksReady (next :: rest) replacement error)] updated) value).
@@ -177,7 +177,7 @@ Theorem denied_after_hook_ends_the_operation_chain :
  ticket = expected ->
  exists code,
  HookCallbacks.after_completed id identity ticket (DenyResult reason) value =
-   acknowledged (TaskWake.mark_context_wake id task (put_task id
+   acknowledged ((put_task id
      (TaskChange.apply (TaskResult.result_changes
        (OperationEvent.settle current (State.failure code reason) true)
        (append_history [AfterReceipt id (operation_id current) plugin

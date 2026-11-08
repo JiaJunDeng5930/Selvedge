@@ -76,9 +76,9 @@ Definition project_summary_json (tasks : list task) (id : N) (value : project) :
  ("task_count", number (project_task_count id tasks))]).
 Definition projects_json (projects : list project) (tasks : list task) :=
  map (fun entry => project_summary_json tasks (fst entry) (snd entry)) (Workspace.ordered_projects projects).
-Definition graph_snapshot id graph features :=
+Definition graph_snapshot id graph :=
  match Features.graph_json id graph with JObject fields=>JObject(fields++
-  [("work_id",optional_number(Selvedge.Features.Domain.association id (Selvedge.Features.Domain.feature_graph_owners features)))])
+  [("work_id",optional_number(Selvedge.Features.Domain.graph_work graph))])
  |other=>other end.
 Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
  ("parent_ready",JBool(Tasks.fork_parent_ready Tasks.ManualFork task));
@@ -91,7 +91,7 @@ Definition task_snapshot_in_world id task value:=
 Definition world_json (value : world) :=
  let features := world_features value in JObject [
  ("sequence", number (world_sequence value));
- ("compaction",Selvedge.Features.CompactionCodec.state_json (Selvedge.Features.Domain.feature_compaction features));
+ ("compaction",Selvedge.Features.CompactionCodec.state_json (fun id => find_task id value) (Selvedge.Features.Domain.feature_compaction features));
  ("title_settings", Selvedge.Features.Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings features));
  ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
  ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
@@ -99,7 +99,7 @@ Definition world_json (value : world) :=
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
  ("projects", JArray (projects_json (world_projects value) (world_tasks value)));
  ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
- ("graphs", JArray (Features.present_values(fun id graph=>graph_snapshot id graph features)(Selvedge.Features.Domain.feature_graphs features)));
+ ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);
  ("worktrees", JArray (map Features.worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", Features.remote_json (Selvedge.Features.Domain.feature_remote features))].
