@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Programming Require CommitPacket.
 From Selvedge.Kernel Require Import State Inputs InputDecoder Packet Delivery Notifications NotificationsProofs Observation Queries.
 From Selvedge.Kernel Require Import DeferredCommitProofs.
 Import ListNotations.
@@ -56,6 +57,29 @@ Proof.
    apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.
  - repeat split; reflexivity.
 Qed.
+Local Transparent DeferredCommit.select.
+Theorem actual_admitted_query_delivers_its_observation source command reply value :
+ Delivery.fits_json source = true ->
+ Packet.decode source = Some (inl (UserCommand command)) ->
+ Packet.query command None value = Some reply ->
+ Delivery.fits false (Decision value reply []) = true ->
+ field "reply" (snd (Packet.packet source value)) = Some reply.
+Proof.
+ intros FitsInput Decoded Query FitsReply.
+ unfold Delivery.fits_json in FitsInput.
+ unfold Packet.packet, Packet.select. rewrite FitsInput, Decoded.
+ unfold Packet.query, CommandHandlers.query in Query.
+ cbn [CommandHandlers.task_origin] in Query.
+ destruct (CommandHandlers.interpret command false) as [observe|mutate]; [|discriminate].
+ injection Query as Reply. rewrite Reply.
+ unfold CommitPacket.finalize, DeferredCommit.select, DeferredCommit.admit_with_status.
+ unfold Delivery.deliver_with_status, Dispatch.retain_live_effects.
+ cbn [decision_world decision_reply decision_effects filter].
+ rewrite FitsReply. reflexivity.
+Qed.
+
+Local Opaque DeferredCommit.select.
+
 (** Every ignored, nondurable callback uses this same finalization path. *)
 Theorem packet_keeps_an_ignored_nondurable_result : forall source value result,
  Packet.transition_decoded (Packet.decode source) source value=(false,false,None,result) ->

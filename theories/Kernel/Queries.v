@@ -5,6 +5,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Commands Context State Observation NativeTools Limits Search Pagination.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Definition default_n (value : option N) (fallback : N) := match value with Some value => value | None => fallback end.
@@ -15,7 +16,7 @@ Definition read_task (id after : N) (size : Pagination.size Pagination.history_l
  | Some task =>
    let length := N.of_nat (List.length (task_history task)) in
    if N.leb after length then
-   State.success (JObject [("task", task_summary id task (world_features value));
+   State.success (JObject [("task", Publication.task_summary id task (world_features value));
     ("after", number after); ("cursor", number length); ("has_more", JBool (N.ltb (after+limit)%N length));
     ("messages", JArray (map (public_message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
    else State.failure "invalid_page" "History cursor exceeds the current history"
@@ -29,7 +30,7 @@ Definition describe := JObject [
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [
- ("tasks", JArray (indexed (fun id task => task_summary id task (world_features value)) 0 (world_tasks value)));
+ ("tasks", JArray (indexed (fun id task => Publication.task_summary id task (world_features value)) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
  ("plugins", JArray (environment_plugins (world_environment value)));
@@ -42,7 +43,7 @@ Definition read_project (id : N) (value : world) :=
    else State.success (project_json id project)
  | None => State.failure "project_not_found" "The project does not exist" end.
 Definition projects_json (value : world) :=
- Observation.projects_json (world_projects value) (world_tasks value).
+ Publication.projects_json (world_projects value) (world_tasks value).
 Definition handle_describe (_payload : Selvedge.Generated.Commands.describe_payload)
  (_caller : option N) (value : world) : json :=
  State.success describe.

@@ -6,21 +6,26 @@
     the observed objects and their facts. An unavailable observation remains
     distinguishable from an observed empty collection.
 
-    [Read] provides typed facts to the browser pages. The command-line query
-    encodes those facts at the HTTP boundary. In particular, asking for one Task
-    yields its own identity, context and activity. Project membership depends
-    on the observed Task settings, including when the entry renders a tree.
-    The conversation renderer may group activity while the terminal reads it
-    linearly. Both omit the same internal receipts and keep chronological
-    occurrence identities. *)
+    [Publication] defines the Task and Project observations used by both the
+    existing command handlers and the browser snapshot. [Read] selects typed
+    business information from that snapshot. Project membership follows the
+    observed Task settings. Conversation activity keeps its occurrence identity
+    when the browser groups it. *)
 
-From Stdlib Require Import String List NArith.
+From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Numbers NumbersProofs Registry.
+From Selvedge.Generated Require Commands.
+From Selvedge.Kernel Require Domain Observation Packet PacketProofs Queries State.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Audit World.
-From Selvedge.Interaction.Experience Require Read.
+From Selvedge.Interaction.Experience Require Publication Read.
+From Selvedge.Browser.Presentation Require Projection Collections Layers.
+From Selvedge.Browser.Scene Require Model Surface Construction.
 Import ListNotations.
 Open Scope string_scope.
+
+Export PacketProofs(actual_admitted_query_delivers_its_observation).
 
 Lemma selected_world_identity collection key id snapshot value :
  World.find_world collection key id snapshot = Some value ->
@@ -64,19 +69,113 @@ Proof.
  intros Observed. now inversion Observed.
 Qed.
 
-Theorem task_query_keeps_shared_task_facts snapshot id task :
- Read.find_task id snapshot = Some task ->
- exists response,
-  Read.describe snapshot (Read.TaskInformation id) = Some response /\
-  field "task" response = Some (Read.encode_task task) /\
-  field "details" response = Some (Read.encode_optional Read.encode_task_details (Read.task_details_for id snapshot)) /\
-  field "context" response = Some (Read.encode_optional Read.encode_context (Read.task_context id snapshot)).
+Lemma find_numbered_observation {A} (encode : N -> A -> json) :
+ (forall id value, natural_field "id" (encode id value) = Some id) ->
+ forall values offset index selected,
+ Registry.registry_at index values = Some selected ->
+ find (fun value => match natural_field "id" value with
+                   | Some id => N.eqb (offset + index) id | None => false end)
+   (Registry.indexed encode offset values) = Some (encode (offset + index)%N selected).
 Proof.
- intros Observed.
- pose proof (observed_task_has_requested_identity _ _ _ Observed) as Identity.
- cbn [Read.describe]. rewrite Observed. eexists. split; [reflexivity|].
- unfold Read.encode_task_information. now rewrite Identity.
+ intros Identity values. induction values as [|head rest IH]; intros offset index selected Found;
+   cbn [Registry.registry_at Registry.indexed find] in Found |- *; [discriminate|].
+ rewrite Identity.
+ destruct (N.eqb index 0) eqn:AtHead.
+ - apply N.eqb_eq in AtHead. subst index.
+   rewrite N.add_0_r, N.eqb_refl. now inversion Found.
+ - apply N.eqb_neq in AtHead.
+   assert (Different : N.eqb (offset + index) offset = false) by (apply N.eqb_neq; lia).
+   rewrite Different.
+   replace (offset + index)%N with (N.succ offset + N.pred index)%N by lia.
+   now apply IH.
 Qed.
+
+Lemma published_task_is_selected_by_its_registry_id value id task :
+ State.find_task id value = Some task ->
+ World.find_task id (Packet.world_json value) =
+   Some (Publication.task_snapshot_in_world id task value).
+Proof.
+ intros Found.
+ change (find (fun raw => match natural_field "id" raw with
+                         | Some found => N.eqb (0 + id) found | None => false end)
+   (Registry.indexed (fun id task => Publication.task_snapshot_in_world id task value)
+     0 (State.world_tasks value)) =
+   Some (Publication.task_snapshot_in_world (0 + id) task value)).
+ refine (find_numbered_observation (fun key selected =>
+   Publication.task_snapshot_in_world key selected value) _
+   (State.world_tasks value) 0 id task Found).
+ intros key selected.
+ change (Selvedge.Foundation.Numbers.parse_natural
+   (Selvedge.Foundation.Numbers.show_natural key) = Some key).
+ apply NumbersProofs.natural_print_parse.
+Qed.
+
+Lemma published_optional_id value :
+ decode_id (Selvedge.Kernel.Codec.optional_number value) = Some value.
+Proof.
+ destruct value as [value|]; [|reflexivity].
+ change (option_map (@Some N) (Numbers.parse_natural (Numbers.show_natural value)) = Some (Some value)).
+ now rewrite NumbersProofs.natural_print_parse.
+Qed.
+
+Lemma published_task_summary_is_observable id task features :
+ Read.observe_task (Publication.task_summary id task features) =
+ Some (Read.ObservedTask id (Selvedge.Features.Observation.task_title id task features)
+   (Domain.task_status task) (Publication.status_label task) (Domain.task_busy task)
+   (Domain.settings_project (Domain.task_current_settings task))
+   (Observation.task_owner id task features) (hd_error (Domain.task_lineage task))).
+Proof.
+ unfold Read.observe_task.
+ change (natural_field "id" (Publication.task_summary id task features)) with
+   (Numbers.parse_natural (Numbers.show_natural id)).
+ rewrite NumbersProofs.natural_print_parse.
+ change (string_field "title" (Publication.task_summary id task features)) with
+   (Some (Selvedge.Features.Observation.task_title id task features)).
+ change (string_field "status" (Publication.task_summary id task features)) with
+   (Some (Domain.task_status task)).
+ cbn [bind].
+ change (string_field "status_label" (Publication.task_summary id task features)) with
+   (Some (Publication.status_label task)).
+ change (bool_field "working" (Publication.task_summary id task features)) with
+   (Some (Domain.task_busy task)).
+ change (field "settings" (Publication.task_summary id task features)) with
+   (Some (Publication.experience_settings_json (Domain.task_current_settings task))).
+ cbn [bind].
+ change (id_field "project_id" (Publication.experience_settings_json (Domain.task_current_settings task))) with
+   (decode_id (Selvedge.Kernel.Codec.optional_number (Domain.settings_project (Domain.task_current_settings task)))).
+ change (id_field "work_id" (Publication.task_summary id task features)) with
+   (decode_id (Selvedge.Kernel.Codec.optional_number (Observation.task_owner id task features))).
+ change (id_field "parent" (Publication.task_summary id task features)) with
+   (decode_id (Selvedge.Kernel.Codec.optional_number (hd_error (Domain.task_lineage task)))).
+ rewrite !published_optional_id.
+ unfold Domain.task_status. destruct (Domain.task_lifecycle task); reflexivity.
+Qed.
+
+Theorem browser_and_cli_read_the_same_task_summary request value task :
+ let id := Commands.read_task_id request in
+ State.find_task id value = Some task ->
+ N.leb (Queries.default_n (Commands.read_after request) 0)
+   (N.of_nat (List.length (Domain.task_history task))) = true ->
+ let summary := Publication.task_summary id task (State.world_features value) in
+ exists observed,
+  Read.find_task id (Packet.world_json value) = Some observed /\
+  Read.observe_task summary = Some observed /\
+  bind (Packet.query (Commands.Cmd_read request) None value)
+    (fun reply => bind (field "result" reply) (field "task")) = Some summary.
+Proof.
+ cbn zeta. intros Found Page. eexists. split.
+ - unfold Read.find_task. rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
+   apply published_task_summary_is_observable.
+ - split; [apply published_task_summary_is_observable|].
+   change (bind (field "result" (Queries.handle_read request None value)) (field "task") =
+     Some (Publication.task_summary (Commands.read_task_id request) task (State.world_features value))).
+   unfold Queries.handle_read, Queries.read_task. rewrite Found, Page. reflexivity.
+Qed.
+
+Theorem published_and_cli_project_collections_agree request value :
+ field "projects" (Packet.world_json value) =
+ bind (Packet.query (Commands.Cmd_list_projects request) None value) (field "result").
+Proof. reflexivity. Qed.
 
 Theorem project_task_selection_is_exact tasks project task :
  In task (Read.project_tasks (Some project) tasks) <->
@@ -99,64 +198,29 @@ Proof.
  rewrite Selected. cbn [bind]. rewrite History, Audit.grouping_preserves_events. reflexivity.
 Qed.
 
-From Selvedge.Browser.Presentation Require Projection Collections Layers.
-From Selvedge.Browser.Scene Require Model Surface Construction.
-
-Theorem browser_task_details_are_the_queried_details snapshot id task details :
- Projection.task_details_observation snapshot id = Some (task, details) ->
- exists response,
-  Read.describe snapshot (Read.TaskInformation id) = Some response /\
-  field "task" response = Some (Read.encode_task task) /\
-  field "details" response = Some (Read.encode_task_details details).
+Theorem browser_project_members_use_observed_task_membership snapshot project tasks task :
+ Read.tasks snapshot = Some tasks ->
+ exists members, Projection.project_members snapshot project = Some members /\
+  (In task members <-> In task tasks /\ Read.task_project task = Some project).
 Proof.
- unfold Projection.task_details_observation.
- destruct (Read.find_task id snapshot) as [found|] eqn:Task; [|discriminate].
- cbn [bind].
- destruct (Read.task_details_for id snapshot) as [value|] eqn:Details; [|discriminate].
- intros Observed. injection Observed as <- <-.
- destruct (task_query_keeps_shared_task_facts _ _ _ Task) as [response [Query [Summary [Information _]]]].
- rewrite Details in Information. exists response. auto.
+ intros Observed. unfold Projection.project_members. rewrite Observed.
+ eexists. split; [reflexivity|apply project_task_selection_is_exact].
 Qed.
 
-Theorem browser_project_members_are_the_queried_members snapshot id project :
- Read.find_project id snapshot = Some project ->
- exists response,
-  Read.describe snapshot (Read.ProjectInformation id) = Some response /\
-  field "tasks" response =
-    Some (Read.encode_optional (Read.encode_list Read.encode_task) (Projection.project_members snapshot id)).
-Proof.
- intros Project.
- pose proof (observed_project_has_requested_identity _ _ _ Project) as Identity.
- cbn [Read.describe]. rewrite Project. eexists. split; [reflexivity|].
- unfold Read.encode_project_information, Projection.project_members. now rewrite Identity.
-Qed.
-
-Theorem browser_card_keeps_queried_facts snapshot state id card board_parent candidates parent :
- Read.find_card id snapshot = Some card ->
+Theorem browser_card_face_uses_observed_facts snapshot state card board_parent candidates parent :
  let rendered := Collections.card_node snapshot state board_parent candidates parent card in
- exists face response,
+ exists face,
   Surface.node_meaning rendered = Surface.CardContent face /\
-  Read.describe snapshot (Read.CardInformation id) = Some response /\
-  field "title" response = Some (JString (Model.card_title face)) /\
-  field "activity_label" response = Some (JString (Model.card_status face)) /\
-  field "owner_label" response = Some (JString (Model.card_owner face)).
-Proof.
- intros Card rendered.
- cbn [Read.describe]. rewrite Card. do 2 eexists. repeat split; reflexivity.
-Qed.
+  Model.card_title face = Read.card_title card /\
+  Model.card_status face = Read.card_activity_label (Read.card_activity card) /\
+  Model.card_owner face = Read.card_owner_label snapshot (Read.card_owner card).
+Proof. intros rendered. eexists. repeat split; reflexivity. Qed.
 
-Theorem browser_task_detail_shows_the_queried_status snapshot state id task details parent :
+Theorem browser_task_detail_shows_observed_status snapshot state id task details parent :
  Projection.task_details_observation snapshot id = Some (task, details) ->
- exists response,
-  Read.describe snapshot (Read.TaskInformation id) = Some response /\
-  field "task" response = Some (Read.encode_task task) /\
-  In (Construction.read_only parent "status" "Status" (Read.task_caption task))
+ In (Construction.read_only parent "status" "Status" (Read.task_caption task))
     (Layers.task_details snapshot state id parent).
 Proof.
- intros Observed.
- destruct (browser_task_details_are_the_queried_details _ _ _ _ Observed)
-   as [response [Query [Task _]]].
- exists response. split; [exact Query|]. split; [exact Task|].
- unfold Layers.task_details. rewrite Observed.
+ intros Observed. unfold Layers.task_details. rewrite Observed.
  apply in_or_app. right. apply in_or_app. left. simpl. auto.
 Qed.

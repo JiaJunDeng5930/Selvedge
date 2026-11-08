@@ -5,13 +5,13 @@ user can make, and the meaning of the service's feedback. The browser and CLI
 choose how to present that information and collect input. Production dependency
 checking rejects a transitive dependency from Interaction to Browser.
 
-`Experience.Read` projects the admitted world into typed task, project, Work,
-board, card, agent and graph observations. Browser pages use these observations
-directly. `Experience.Query` exposes the same information and choices through
-the authenticated service. `ObjectDecisions` supplies object commands and their
-confirmation prompts. `CardDecisions` describes positions and tasks that can be
-selected, and constructs the corresponding command proposals. The browser uses
-those proposals for both selection controls and drag-and-drop.
+`Experience.Publication` supplies the Task and Project observations used by the
+existing read commands, events and the published world. The board commands and
+publication use the same card and agent facts from Features. `Experience.Read`
+projects the published world into typed observations for the browser.
+`ObjectDecisions` supplies object commands and their confirmation prompts.
+`CardDecisions` describes positions and tasks that can be selected and
+constructs command proposals for the browser's menu and drag-and-drop.
 
 `Experience.Model`, `Experience.Activity` and `Experience.Observation` describe
 editor subjects, facts, decisions, and their requirements. An `EditorContext`
