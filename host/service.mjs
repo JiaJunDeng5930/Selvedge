@@ -45,8 +45,17 @@ export class CommandNotSubmitted extends Error {
   }
 }
 
+export class ServiceDrainingError extends Error {
+  constructor() {
+    super('Selvedge is draining for an update');
+    this.name = 'ServiceDrainingError';
+    this.status = 503;
+  }
+}
+
 export class Service extends EventEmitter {
   #running = new Map();
+  #submissions = new Set();
   #dispatchState = boundary('control.dispatch.initial', {});
   #processRegistry = new ProcessRegistry();
   #providerCancellations = new Set();
@@ -55,7 +64,13 @@ export class Service extends EventEmitter {
   #plugins = new Map();
   #pluginCatalog = new Map();
   #continuation;
+  #continuationPending = false;
   #compactionTimer;
+  #compactionClock;
+  #heldStartup;
+  #activation;
+  #drainPromise;
+  #drainProgress;
   #closing = false;
   #failure;
   #catalogTail = Promise.resolve();
@@ -64,10 +79,12 @@ export class Service extends EventEmitter {
   #streams = [];
   #audioSessions = new Map();
 
-  static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions, audioFactory = createChatGPTAudio } = {}) {
+  static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
+    audioFactory = createChatGPTAudio, holdEffects = false } = {}) {
     // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
+    if (holdEffects) service.#heldStartup = { decisions: [], worktrees: [] };
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
       service.journal = await Journal.open(path.join(home, 'journal.sqlite'));
@@ -83,11 +100,8 @@ export class Service extends EventEmitter {
       service.accounts = discovered.accounts;
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
-        service.remote?.reconcile();
-        let ordinal = 0;
-        for (const effect of decision.effects) {
-          ordinal += service.#dispatch(effect, decision.sequence, ordinal);
-        }
+        if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
+        else service.#deliverEffects(decision);
       });
       service.journal.on('observerFailure', error => service.#fatal(error));
       service.journal.on('retired', error => service.#fatal(error));
@@ -114,6 +128,8 @@ export class Service extends EventEmitter {
         service.#pluginCatalog.set(name, { descriptor, tools: client.tools });
         client.on('unavailable', error => {
           service.notify({ type: 'diagnostic', message: `Plugin ${name} is unavailable: ${error.message}` });
+          // DEFENSE: A plugin can exit after update drain freezes new catalog work.
+          if (service.draining) return;
           service.#catalogTail = service.#catalogTail.then(async () => {
             // DEFENSE: An unavailable-plugin callback may be queued when service shutdown or a journal failure begins.
             if (service.#closing || service.#failure) return;
@@ -126,19 +142,36 @@ export class Service extends EventEmitter {
       const recovery = await service.journal.execute({ kind: 'recover' });
       // DEFENSE: Recovery resends pending model effects; their combined payload can exceed the complete-decision budget and leave recovery uncommitted.
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
-      await service.#reconcileWorktrees();
+      const worktrees = await service.#pendingWorktrees();
+      if (service.#heldStartup) service.#heldStartup.worktrees = worktrees;
+      else await service.#reconcileWorktrees(worktrees);
       const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
       // DEFENSE: Saved connection grants can refer to projects removed from the current journal; startup must report native configuration rejection.
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
-      service.remote = await RemoteControl.open(service, remoteOptions);
+      service.remote = await RemoteControl.open(service, { ...remoteOptions, deferConnect: holdEffects });
       service.audio = audioFactory({ config: () => service.config, home, ...audioOptions,
         onEvent: event => service.#audioEvent(event) });
+      // DEFENSE: Asynchronous catalog failure can retire a service while startup is awaiting external configuration.
+      if (service.#failure) throw service.#failure;
       return service;
     // DEFENSE: Account, filesystem or subprocess initialization can fail after the journal and clients opened; release those acquired resources.
     } catch (error) {
       await service.close();
       throw error;
     }
+  }
+
+  activate() {
+    const startup = this.#heldStartup;
+    if (!startup) return;
+    this.#heldStartup = undefined;
+    this.#activation = this.#activate(startup).catch(error => this.#fatal(error));
+  }
+
+  async #activate({ decisions, worktrees }) {
+    for (const decision of decisions) this.#deliverEffects(decision);
+    await this.#reconcileWorktrees(worktrees);
+    await this.remote.reconcile();
   }
 
   notify(event) {
@@ -175,6 +208,8 @@ export class Service extends EventEmitter {
   }
 
   #refreshCatalog(name, discover) {
+    // DEFENSE: An MCP server can send a catalog notification while the update drains existing work.
+    if (this.draining) return;
     const queued = this.#catalogRefreshes.has(name);
     this.#catalogRefreshes.set(name, discover);
     // DEFENSE: A server can send repeated list_changed notifications before
@@ -211,6 +246,43 @@ export class Service extends EventEmitter {
     }
   }
 
+  #deliverEffects({ sequence, effects }) {
+    this.remote?.reconcile();
+    let ordinal = 0;
+    for (const effect of effects) ordinal += this.#dispatch(effect, sequence, ordinal);
+  }
+
+  #scheduleContinuation() {
+    this.#continuationPending = true;
+    if (this.draining) return;
+    this.#continuation ??= setImmediate(() => {
+      this.#continuation = undefined;
+      this.#continuationPending = false;
+      // DEFENSE: Shutdown can retire this scheduled observation before it runs.
+      if (!this.#closing && !this.#failure) this.#trackSubmission(this.journal.execute({ kind: 'continue' }).then(result => {
+        // DEFENSE: A full resulting decision can exceed the kernel output budget.
+        if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
+      }).catch(error => this.#fatal(error)));
+    });
+  }
+
+  #scheduleCompactionClock(effect) {
+    this.#compactionClock = effect;
+    if (this.draining) return;
+    clearTimeout(this.#compactionTimer);
+    this.#compactionTimer = setTimeout(() => {
+      this.#compactionTimer = undefined;
+      this.#compactionClock = undefined;
+      // DEFENSE: Shutdown can retire this clock observation before it runs.
+      if (!this.#closing && !this.#failure) this.#trackSubmission(this.journal.execute({ kind: 'compaction_clock', now: Date.now() })
+        .then(result => {
+          // DEFENSE: Clock-triggered work can exceed the complete-decision budget.
+          if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`);
+        }).catch(error => this.#fatal(error)));
+    }, clockDelay(effect, Date.now()));
+    this.#compactionTimer.unref();
+  }
+
   #dispatch(effect, sequence, firstOrdinal) {
     // DEFENSE: A commit observer can reach later effects after an earlier effect retired the service.
     if (this.#closing || this.#failure) return 0;
@@ -235,29 +307,8 @@ export class Service extends EventEmitter {
         this.#cancelRunning({ kind: 'cancel_task', effect }, new Error('Task work cancelled'));
       },
       cancelKey: effect => this.#cancelRunning({ kind: 'cancel_key', effect }, new Error('Operation cancelled')),
-      continue: () => {
-        this.#continuation ??= setImmediate(() => {
-          this.#continuation = undefined;
-          // DEFENSE: Shutdown can retire this scheduled observation before it runs.
-          if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'continue' }).then(result => {
-            // DEFENSE: A full resulting decision can exceed the kernel output budget.
-            if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
-          }).catch(error => this.#fatal(error));
-        });
-      },
-      clock: effect => {
-        if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
-        this.#compactionTimer = setTimeout(() => {
-          this.#compactionTimer = undefined;
-          // DEFENSE: Shutdown can retire this clock observation before it runs.
-          if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'compaction_clock', now: Date.now() })
-            .then(result => {
-              // DEFENSE: Clock-triggered work can exceed the complete-decision budget.
-              if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`);
-            }).catch(error => this.#fatal(error));
-        }, clockDelay(effect, Date.now()));
-        this.#compactionTimer.unref();
-      },
+      continue: () => this.#scheduleContinuation(),
+      clock: effect => this.#scheduleCompactionClock(effect),
       start: effect => {
         // Background execution observes failures separately; the runner retains its rejecting promise.
         void this.#launch(effect, (handle, signal) => this.#perform(effect, signal, handle))
@@ -267,7 +318,9 @@ export class Service extends EventEmitter {
   }
 
   #launch(effect, run) {
-    return launchEffect(observation => this.#dispatchControl(observation), this.#running, effect, run);
+    const result = launchEffect(observation => this.#dispatchControl(observation), this.#running, effect, run);
+    this.#drainProgress?.();
+    return result.finally(() => this.#drainProgress?.());
   }
 
   #cancelProvider(task) {
@@ -506,12 +559,17 @@ export class Service extends EventEmitter {
     return Object.hasOwn(observation, 'task_id') ? (await this.#taskWorkspace(observation.task_id)).environment : undefined;
   }
 
-  async #reconcileWorktrees() {
+  async #pendingWorktrees() {
     const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
     // DEFENSE: A persisted collection of managed checkouts can exceed the query reply's frame budget.
     if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
-    for (const entry of result.reply.result.worktrees) {
-      if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
+    return result.reply.result.worktrees.filter(entry => ['creating', 'creating_archived', 'archiving'].includes(entry.status));
+  }
+
+  async #reconcileWorktrees(entries) {
+    for (const entry of entries) {
+      // DEFENSE: A deferred reconciliation can finish one checkout after activated service shutdown begins.
+      if (this.#closing || this.#failure) return;
       const effect = { ...entry, kind: entry.status === 'archiving' ? 'worktree_archive' : 'worktree_create' };
       // Recovery observes the existing resource; it must never replay create or archive IO.
       await this.#launch(effect, async (handle, signal) => {
@@ -525,6 +583,20 @@ export class Service extends EventEmitter {
     // DEFENSE: Browser, CLI and remote clients can forge sideband-only commands; any public admission failure occurs before journal submission.
     try { boundary('http.public_command', { command }); }
     catch (cause) { throw new CommandNotSubmitted(cause); }
+  }
+
+  #admitSubmission(command, remote = false) {
+    this.#publicCommand(command);
+    // DEFENSE: A local request or relay RPC can arrive while an update waits for existing work.
+    if (this.draining && !boundary('http.command_read_only', { command, remote })) throw new ServiceDrainingError();
+  }
+
+  #trackSubmission(result) {
+    if (this.draining) return result;
+    this.#submissions.add(result);
+    const settled = () => this.#submissions.delete(result);
+    void result.then(settled, settled);
+    return result;
   }
 
   assess(candidate) {
@@ -548,7 +620,7 @@ export class Service extends EventEmitter {
   }
 
   async command(command) {
-    this.#publicCommand(command);
+    this.#admitSubmission(command);
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
@@ -558,14 +630,14 @@ export class Service extends EventEmitter {
       const next = this.#catalogTail.then(() => this.#createRoot(command));
       // DEFENSE: A failed filesystem observation rejects this command's returned promise; it must not prevent later commands from reaching their own admission.
       this.#catalogTail = next.catch(() => {});
-      return next;
+      return this.#trackSubmission(next);
     }
-    return this.#submitCommand(command);
+    return this.#trackSubmission(this.#submitCommand(command));
   }
 
   /** Remote intent, authorization and receipt share the ordinary native commit. */
   remoteCommand(controller_id, grant_epoch, request) {
-    this.#publicCommand(request?.command);
+    this.#admitSubmission(request?.command, true);
     // DEFENSE: Authenticated remote JSON-RPC commands can omit their params or required command/receipt fields; preserve absence for native rejection.
     const intent = cloneJson(request?.command);
     const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
@@ -574,9 +646,9 @@ export class Service extends EventEmitter {
       const next = this.#catalogTail.then(submit);
       // DEFENSE: One rejected remote command is reported by its returned promise and must not poison the shared configuration queue.
       this.#catalogTail = next.catch(() => {});
-      return next;
+      return this.#trackSubmission(next);
     }
-    return submit();
+    return this.#trackSubmission(submit());
   }
 
   async #remoteSubmit(envelope) {
@@ -701,6 +773,8 @@ export class Service extends EventEmitter {
   }
 
   refreshAccounts() {
+    // DEFENSE: A browser can request a catalog mutation after update drain starts.
+    if (this.draining) return Promise.reject(new ServiceDrainingError());
     const next = this.#catalogTail.then(async () => {
       // DEFENSE: A queued account refresh can begin after shutdown or a fatal journal failure.
       if (this.#closing || this.#failure) throw new Error('Service is unavailable');
@@ -961,6 +1035,64 @@ export class Service extends EventEmitter {
     });
   }
 
+  get draining() { return this.#drainPromise !== undefined; }
+
+  #pauseTimers() {
+    clearImmediate(this.#continuation);
+    this.#continuation = undefined;
+    clearTimeout(this.#compactionTimer);
+    this.#compactionTimer = undefined;
+  }
+
+  drain(onProgress, signal) {
+    this.#pauseTimers();
+    this.#drainPromise ??= Promise.resolve().then(() => this.#drain(onProgress, signal));
+    return this.#drainPromise;
+  }
+
+  async #drain(onProgress, signal) {
+    const interrupted = Promise.withResolvers();
+    const abort = () => interrupted.reject(signal.reason);
+    const wait = work => signal ? Promise.race([work, interrupted.promise]) : work;
+    let previous;
+    this.#drainProgress = () => {
+      const operations = [...this.#running.values()].map(({ effect }) =>
+        effect.kind === 'tool' ? `tool ${effect.tool.name}` : effect.kind).sort();
+      const signature = JSON.stringify(operations);
+      if (signature !== previous) onProgress(operations);
+      previous = signature;
+    };
+    try {
+      signal?.throwIfAborted();
+      this.#drainProgress();
+      signal?.throwIfAborted();
+      signal?.addEventListener('abort', abort, { once: true });
+      // Public command callers observe their own admission refusals. A journal or effect failure retires the service separately.
+      await wait(Promise.all([this.#catalogTail, this.#activation, Promise.allSettled(this.#submissions)]));
+      for (;;) {
+        await wait(this.journal.whenIdle());
+        if (this.#failure) throw this.#failure;
+        // DEFENSE: An OS signal can close the service while a drain is waiting for a callback.
+        if (this.#closing) throw new Error('Service stopped before update drain completed');
+        const operations = [...this.#running.values()].map(active => active.promise);
+        operations.push(...this.#providerCancellations);
+        if (!operations.length) return;
+        await wait(Promise.all(operations));
+      }
+    } catch (error) {
+      // DEFENSE: The updater can disconnect while a tool is still running; release admission and restore deferred scheduling.
+      if (signal?.aborted && !this.#failure && !this.#closing) {
+        this.#drainPromise = undefined;
+        if (this.#continuationPending) this.#scheduleContinuation();
+        if (this.#compactionClock) this.#scheduleCompactionClock(this.#compactionClock);
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', abort);
+      this.#drainProgress = undefined;
+    }
+  }
+
   close() {
     // DEFENSE: Fatal notices, OS signals and failed startup can request shutdown concurrently; all receive the same completion.
     this.#closePromise ??= this.#close();
@@ -969,14 +1101,14 @@ export class Service extends EventEmitter {
 
   async #close() {
     this.#closing = true;
+    this.#pauseTimers();
     // DEFENSE: Network/process cleanup can fail; finish releasing all resources, then report every failed close to the caller.
     const settled = await Promise.allSettled([this.remote?.close(),
       ...[...this.#audioSessions.keys()].map(id => this.#stopAudio(id))]);
     settled.push(...await Promise.allSettled([this.audio?.close()]));
-    if (this.#continuation) clearImmediate(this.#continuation);
-    if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     this.#cancelRunning({ kind: 'shutdown' }, new Error('Server stopped'));
     settled.push(...await Promise.allSettled([...this.#running.values()].map(active => active.promise)));
+    settled.push(...await Promise.allSettled([this.#activation]));
     this.#processRegistry.clear();
     settled.push(...await Promise.allSettled([...this.#providerCancellations]));
     settled.push(...await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close())));

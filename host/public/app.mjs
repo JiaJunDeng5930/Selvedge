@@ -13,6 +13,9 @@ import { createPhysicalMeasurer } from './physical-measurement.mjs';
 
 const surface = document.getElementById('surface');
 const announcements = document.getElementById('announcements');
+const updateStatus = document.getElementById('selvedge-update-status');
+const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
+const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
 const assessments = new Map();
@@ -46,8 +49,55 @@ let pendingHistoryLocation = null;
 let focusRequest = 0;
 let pendingFocus = null;
 let suspendedFocus = null;
+let updateStorageProblem = '';
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
+
+function showUpdateStatus({ status, operations, message }) {
+  let text = '';
+  switch (status) {
+    case 'draining':
+      text = operations.length ? `正在等待操作完成后更新：${operations.join('、')}` : '正在等待操作完成后更新…';
+      break;
+    case 'switching': text = '正在切换到新版本…'; break;
+    case 'failed': text = `更新失败：${message}`; break;
+  }
+  updateStatus.textContent = updateStorageProblem || text;
+}
+
+function reloadForRelease(release) {
+  if (!documentRelease || !release || release === documentRelease) return false;
+  if (publication.namespace) {
+    const session = interaction('update_session', { state });
+    try {
+      sessionStorage.setItem(updateSessionKey, stringifyJson({ namespace: publication.namespace, session }));
+    } catch (error) {
+      // DEFENSE: Browser settings or storage quota can prevent saving this tab's drafts.
+      updateStorageProblem = `无法保存更新前的草稿，当前页面保持打开：${error.message}`;
+      showUpdateStatus({ status: 'idle' });
+      return false;
+    }
+  }
+  connection?.abort();
+  window.location.reload();
+  return true;
+}
+
+function restoreUpdateSession() {
+  try {
+    const stored = sessionStorage.getItem(updateSessionKey);
+    if (stored === null) return;
+    const { namespace, session } = parseJson(stored);
+    if (namespace === publication.namespace) {
+      state = interaction('restore_update_session', { state, world, checkpoint: session });
+    }
+    sessionStorage.removeItem(updateSessionKey);
+  } catch (error) {
+    // DEFENSE: Browser storage can be disabled or its checkpoint can be unreadable.
+    updateStorageProblem = `无法恢复更新前的草稿：${error.message}`;
+    showUpdateStatus({ status: 'idle' });
+  }
+}
 
 function taskObservation(effect, fields) {
   return effect.task_id === undefined ? fields : { ...fields, task_id: effect.task_id };
@@ -66,6 +116,8 @@ async function request(url, options = {}, binary = false) {
   let response;
   try {
     response = await fetch(url, { ...options, credentials: 'same-origin' });
+    // The previous page may not understand the new release's snapshot format.
+    if (url === '/api/browser/state' && response.ok && reloadForRelease(response.headers.get('x-selvedge-release'))) return null;
     if (binary) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.blob();
@@ -119,11 +171,11 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   sourceFresh = receipt.sources_fresh;
   if (!receipt.accepted) return receipt.authenticated;
   if (!receipt.install_world) return true;
-  if (receipt.install_world) {
-    if (body.namespace !== publication.namespace) retireDocumentViews();
-    world = body.program;
-  }
+  const firstSnapshot = world === null;
+  if (body.namespace !== publication.namespace) retireDocumentViews();
+  world = body.program;
   publication = { ...publication, namespace: body.namespace, sequence: body.sequence };
+  if (firstSnapshot && documentRelease) restoreUpdateSession();
   dispatch({ type: 'snapshot', world });
   return true;
 }
@@ -668,7 +720,14 @@ async function authenticate(effect) {
         if (ready) return;
         ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null });
       },
-      notice(value) { dispatch({ type: 'stream', value }); return true; },
+      notice(value) {
+        if (value.type === 'selvedge-update') {
+          showUpdateStatus(value);
+          return false;
+        }
+        dispatch({ type: 'stream', value });
+        return true;
+      },
       current: () => !disposed && connection === controller && !controller.signal.aborted,
       namespace: () => publication.namespace,
       refreshNeeded(notice) {

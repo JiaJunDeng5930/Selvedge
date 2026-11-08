@@ -112,20 +112,21 @@ export function homeDirectory(home) {
   return path.resolve(home ?? process.env.SELVEDGE_HOME ?? path.join(homedir(), '.selvedge'));
 }
 
-export async function loadConfig({ home, filename } = {}) {
+export async function loadConfig({ home, filename, source } = {}) {
   home = homeDirectory(home);
   filename = filename ? path.resolve(filename) : path.join(home, 'config.json');
-  let config;
-  try { config = JSON.parse(await readFile(filename, 'utf8')); }
-  catch (error) {
-    // DEFENSE: Only an absent default config.json starts a new home with defaults; explicit files and other read/parse failures must fail.
-    if (error.code !== 'ENOENT') throw error;
-    if (filename !== path.join(home, 'config.json')) throw error;
-    config = structuredClone(defaultConfig);
+  if (source === undefined) {
+    try { source = JSON.parse(await readFile(filename, 'utf8')); }
+    catch (error) {
+      // DEFENSE: Only an absent default config.json starts a new home with defaults; explicit files and other read/parse failures must fail.
+      if (error.code !== 'ENOENT') throw error;
+      if (filename !== path.join(home, 'config.json')) throw error;
+      source = structuredClone(defaultConfig);
+    }
   }
-  const validated = validateConfig(config);
+  const validated = validateConfig(source);
   configurationFiles.set(validated, filename);
-  return { home, filename, config: validated };
+  return { home, filename, config: validated, source };
 }
 
 export function profileCatalog(config) {

@@ -108,7 +108,10 @@ export class RemoteControl {
         const relayUrl = assertRelayUrl(service.config.remote.relay_url, { allowLoopback: options.allowLoopback === true });
         manager.#identity = await readIdentity(service.home, relayUrl);
       }
-      if (manager.#identity) await manager.#reconcile();
+      if (manager.#identity) {
+        if (options.deferConnect) await manager.#nativeStatus();
+        else await manager.#reconcile();
+      }
       return manager;
     // DEFENSE: Opening a configured identity or starting its socket may fail; close already-acquired resources before propagating.
     } catch (error) {

@@ -28,7 +28,7 @@ h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
   margin: auto !important;
 }
 .visually-hidden { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-#announcements[role="alert"] {
+#announcements[role="alert"], #selvedge-update-status {
   position: fixed; z-index: 10000; inset-block-start: 1rem; inset-inline: 1rem;
   inline-size: fit-content; max-inline-size: min(36rem, calc(100vw - 2rem));
   margin-inline: auto; padding: .75rem 1rem;
@@ -36,6 +36,8 @@ h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
   background: var(--app-color-background-surface); color: var(--color-token-text-primary);
   box-shadow: 0 4px 16px #0004;
 }
+#selvedge-update-status { inset-block-start: auto; inset-block-end: 1rem; }
+#selvedge-update-status:empty { display: none; }
 
 /* Only state channels vary in CSS; their values come from the owning style. */
 :where(button, input, textarea, select, [role="button"]):hover:not(:disabled):not([aria-disabled="true"]) {
