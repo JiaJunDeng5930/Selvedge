@@ -17,7 +17,7 @@ automation. Important theorems constrain the extracted operations callers use.
 No axioms, admitted obligations, unchecked recursion or fabricated observations.
 
 Read the existing domain model before adding a feature. Apply the
-[capability design requirements](requirements/README.md#capability-design)
+[capability design requirements](requirements/Engineering.v)
 when adding functionality, designing interfaces or changing architecture.
 Keep behavioral requirements in the existing executable definitions and
 propositions. Keep current user and engineering reasons beside their selected

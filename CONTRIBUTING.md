@@ -63,7 +63,7 @@ the existing build; there is no list of all requirement owners to maintain.
 
 When changing a rule, review its meaning, premises, actual execution binding and
 adjacent reason together. Apply the
-[capability design requirements](requirements/README.md#capability-design)
+[capability design requirements](requirements/Engineering.v)
 when deciding where a capability belongs and whether it needs a basic operation.
 Keep the current reasons here and earlier designs in version control.
 

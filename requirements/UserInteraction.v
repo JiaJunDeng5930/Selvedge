@@ -2,7 +2,14 @@
     command payload from either entry after authorization and origin checks.
     The browser's request wrapper is transport data. Both entries use the same
     public admission rule, and assessment and submission interpret the
-    authoritative worker reply through the same feedback. *)
+    authoritative worker reply through the same feedback.
+
+    For timed invocation, a [launchd] job or a service activated by a [systemd]
+    timer calls [host/cli.mjs] against the running service with its usual
+    credentials. The external program supplies when to invoke the command.
+    Selvedge enforces authorization and command admission and reports the
+    command result through the existing path below. Durable acceptance is
+    governed by the journal contract in [requirements/Host.v]. *)
 From Selvedge.Adapters Require ApiProofs HttpProofs UserInteractionProofs.
 Export ApiProofs(public_admitted_command_body_is_delivered).
 Export HttpProofs(http_body_requires_authorization, http_body_requires_local_origin,

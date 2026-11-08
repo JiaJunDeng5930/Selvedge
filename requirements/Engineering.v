@@ -10,21 +10,16 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     observations and interprets effects. A second handwritten implementation of
     a pure rule would introduce another choice to maintain.
 
-    Public vocabulary remains available for constructing commands, describing
-    results and stating requirements. Internal state is changed through the
-    owning operations. Computation, proof automation and requirement explanation
-    have distinct dependencies: ordinary production compilation cannot resolve
+    Computation, proof automation and requirement explanation have distinct
+    dependencies. Ordinary production compilation cannot resolve
     [SelvedgeRequirements], while this source can use checked production
     contracts. [scripts/rocq-sources.mjs] supplies those load paths separately.
     Source discovery and assumption checking include new requirement modules
     without adding them to a registry. Runtime dependency fingerprints do not
     include consumers in this directory.
 
-    Ordinary functions, indexed types and existing library theories provide the
-    shared construction first. MetaRocq is used where the declared structure
-    must generate code, such as command projections. It remains outside runtime
-    computation. A new business combination inherits the shared guarantees;
-    only its own additional behavior needs another proposition.
+    MetaRocq is used where the declared structure must generate code, such as
+    command projections. It remains outside runtime computation.
 
     Rocq checks the stated relation under its premises. Requirement review
     determines whether those premises and observations express the user's
@@ -55,6 +50,35 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     placing a second manifest beside the executable would provide no
     independent runtime authentication.
 
+    ** Decide which capabilities Selvedge owns
+
+    At the system boundary, Selvedge owns the semantics needed to run and
+    manage agent tasks. Use existing external programs for general-purpose
+    work when their contracts meet the requirement. Expose the needed harness
+    operations, inputs, results and failures through public interfaces those
+    programs can use. See [requirements/UserInteraction.v] for timed invocation
+    through the existing CLI and the contracts it relies on.
+
+    Across subsystems, compose operations through their interfaces. Each
+    subsystem owns its domain rules and the changes to its state.
+
+    At the module and interface level, keep each domain's set of basic
+    operations as small as practical while covering its required behavior.
+    Each domain decides its own set. Derive capabilities by composing
+    operations, fixing arguments or projecting results. Convenience interfaces
+    delegate to the operations that own the core semantics. Within functions
+    and algorithms, use ordinary reuse and encapsulation.
+
+    State the required observations and identify which semantics Selvedge
+    must own. Consider external programs and compositions of existing public
+    operations first. Judge a composition by its actual behavior through
+    supported interfaces, including required permissions, persistence,
+    atomicity and failure handling. It must supply those guarantees without
+    copying core rules or accessing private state. Computational equivalence
+    alone is insufficient. Add a basic operation only for a necessary behavior
+    or guarantee that belongs to the harness and that a practical composition
+    cannot provide. Explain the gap alongside the affected contract.
+
     ** Choose constructions that fit the domain
 
     [theories/Programming] owns the project's existing reusable languages,
@@ -74,12 +98,10 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     business recipe with its domain, including when it uses a shared constructor.
     Split mixed modules at this boundary without inventing a more general model.
 
-    Before reusing one, check that its concepts, admissible values, writable
-    state and observations express the requirement. Reuse and compose it when
-    they do. When they do not, keep a direct domain model or use another suitable
-    construction. Do not reshape the domain, add artificial state or introduce
-    special cases merely to use a preferred programming paradigm. The project
-    need not describe every concern through the same language.
+    A shared construction fits when its concepts, admissible values, writable
+    state and observations express the requirement. Reuse it in that scope.
+    Prefer a direct domain model or another suitable construction when reuse
+    would distort the domain or require artificial state or special cases.
 
     Extract shared construction semantics that already have a real use. Keep
     concrete declarations, policies and fixed business transitions with their
