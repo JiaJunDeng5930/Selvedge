@@ -62,9 +62,10 @@ production compilation cannot import requirements. New files are discovered by
 the existing build; there is no list of all requirement owners to maintain.
 
 When changing a rule, review its meaning, premises, actual execution binding and
-adjacent reason together. For an extension, compose the existing controlled
-operations before adding a new construction. Keep only the current reasons;
-version control records earlier designs.
+adjacent reason together. Apply the
+[capability design requirements](requirements/Engineering.v)
+when deciding where a capability belongs and whether it needs a basic operation.
+Keep the current reasons here and earlier designs in version control.
 
 Use Conventional Commits: `type(scope): description`, with an English imperative
 description starting in lowercase. Allowed types are feat, fix, docs, refactor,
