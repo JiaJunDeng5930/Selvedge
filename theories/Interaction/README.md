@@ -7,7 +7,7 @@ checking rejects a transitive dependency from Interaction to Browser.
 
 `Experience.Publication` supplies the Task and Project observations used by the
 existing read commands, events and the published world. The board commands and
-publication use the same card and agent facts from Features. `Experience.Read`
+publication use the same card facts from Features. `Experience.Read`
 projects the published world into typed observations for the browser.
 `ObjectDecisions` supplies object commands and their confirmation prompts.
 `CardDecisions` describes positions and tasks that can be selected and

@@ -63,7 +63,7 @@ Fixpoint graph_selections (index : nat) (nodes : list json) : list selection :=
     graph_selections (S index) rest end.
 Definition plan (command : json) : workspace_plan :=
   let op := str command "op" in
-  if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
+  if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task"] then
     WorkspacePlan (Commands.root_task_creation command)
       (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))

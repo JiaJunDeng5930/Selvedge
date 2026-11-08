@@ -15,9 +15,9 @@ Module SS:=Selvedge.Browser.Session.State.
 Module P:=Selvedge.Browser.ControlPurpose.
 Definition route_symbol route:=match route with
 |Start=>"home"|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
-|Board=>"columns"|Agents=>"agents"|Graphs=>"branch"|HistorySearch=>"search"end.
+|Board=>"columns"|Graphs=>"branch"|HistorySearch=>"search"end.
 Definition editor_purpose owner:=match owner with
-|Identity.Project None|Identity.Card None|Identity.Agent None|Identity.TaskGraph None _=>P.CreateItem
+|Identity.Project None|Identity.Card None|Identity.TaskGraph None _=>P.CreateItem
 |Identity.NewTask _|Identity.Message _=>P.MessageSubmission
 |Identity.Fork _=>P.ForkTask|Identity.Compact _=>P.CompactTask|_=>P.EditItem end.
 Definition command_purpose (command:SS.public_command):=let source:=Schema.encode_command command in
@@ -27,11 +27,11 @@ Definition command_purpose (command:SS.public_command):=let source:=Schema.encod
  |Some "review_approval"=>P.ApprovalDecision(flag "allow" source)
  |Some "archive"|Some "archive_card"|Some "delete_work"=>P.ArchiveItem false
  |Some "restore_card"=>P.ArchiveItem true
- |Some "delete_project"|Some "delete_card"|Some "delete_board_agent"|Some "delete_task_graph"=>P.DeleteItem
+ |Some "delete_project"|Some "delete_card"|Some "delete_task_graph"=>P.DeleteItem
  |Some "pin_card"=>P.PinItem(negb(flag "pinned" source))
  |Some "board_settings"=>P.AutomaticScheduling(negb(flag "automatic" source))
  |Some "regenerate_card_title"=>P.Regenerate
- |Some "run_card"|Some "run_board_agent"=>P.ResumeExecution
+ |Some "run_card"=>P.ResumeExecution
  |_=>P.NamedAction end.
 Definition activity_expanded owner request state:=match State.layers(State.navigation_state state)with
 |layer::_=>match State.layer_panel layer with State.PropertyPanel actual requested=>

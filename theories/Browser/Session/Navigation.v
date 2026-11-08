@@ -63,7 +63,7 @@ Definition select_scope work navigation :=
 Definition after_visit navigation :=
  set State.generation N.succ
   (set State.navigation_intent(fun intent=>match intent with State.OpenNavigation=>State.AutomaticNavigation|intent=>intent end)navigation).
-Definition global_route route := match route with Projects|ProjectHome _|Board|Agents=>true|_=>false end.
+Definition global_route route := match route with Projects|ProjectHome _|Board=>true|_=>false end.
 Definition route_allowed snapshot route := match route with
  |Conversation task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |ProjectHome project=>match DocumentState.find_world "projects" "id" project snapshot with Some _=>true|None=>false end
@@ -166,7 +166,6 @@ Definition editor_available snapshot owner:=match owner with
  |Message task|Fork task|Compact task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |Project(Some id)=>match DocumentState.find_world "projects" "id" id snapshot with Some _=>true|None=>false end
  |Card(Some id)=>match field "board" snapshot with Some board=>match DocumentState.find_world "cards" "id" id board with Some _=>true|None=>false end|None=>false end
- |Agent(Some id)=>match field "board" snapshot with Some board=>match DocumentState.find_world "agents" "id" id board with Some _=>true|None=>false end|None=>false end
  |TaskGraph(Some id)_=>match DocumentState.find_world "graphs" "graph_id" id snapshot with Some _=>true|None=>false end
  |WorkName id=>match DocumentState.find_work id snapshot with Some _=>true|None=>false end
  |NewTask(Some work)=>match DocumentState.find_work work snapshot with Some _=>true|None=>false end

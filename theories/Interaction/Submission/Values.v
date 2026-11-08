@@ -15,7 +15,6 @@ Module SO:=Selvedge.Interaction.Submission.Observation.
 
 Definition with_configuration configuration value := match value with
 |Draft.NewTaskBody message profile reasoning _ mode work=>Draft.NewTaskBody message profile reasoning configuration mode work
-|Draft.AgentBody id revision name profile reasoning instructions _ count=>Draft.AgentBody id revision name profile reasoning instructions configuration count
 |Draft.ForkBody task count messages _=>Draft.ForkBody task count messages configuration|body=>body end.
 Definition with_context_origin source configuration:=Context.Configuration source
  (Context.workspace_override configuration)(Context.sandbox_override configuration)(Context.approval_override configuration).
@@ -41,14 +40,14 @@ Definition context_origin_choice body text :option Context.origin:=
  |Draft.ForkBody task _ _ _=>option_map(Context.ProjectForParent task)
    (parse_natural(String.substring 15(String.length text)text))|_=>None end else None.
 Definition body_model snapshot value:=match value with
-|Draft.NewTaskBody _ profile _ _ _ _|Draft.AgentBody _ _ _ profile _ _ _ _=>ModelSelection.observed_profile snapshot profile
+|Draft.NewTaskBody _ profile _ _ _ _=>ModelSelection.observed_profile snapshot profile
 |Draft.ForkBody task _ _ _|Draft.MessageBody task _ _=>Observation.task_profile task snapshot
 |_=>None end.
 Definition configured_reviewer snapshot key:=
  reviewer<-ModelSelection.observed_profile snapshot key;;
  if ModelCapabilities.valid_reviewer_profile reviewer then Some key else None.
 Definition body_configuration value:=match value with
- |Draft.NewTaskBody _ _ _ configuration _ _|Draft.AgentBody _ _ _ _ _ _ configuration _
+ |Draft.NewTaskBody _ _ _ configuration _ _
  |Draft.ForkBody _ _ _ configuration=>Some configuration|_=>None end.
 Definition policy_reviewer snapshot policy:=match policy with
  |Domain.ReviewWith reviewer=>configured_reviewer snapshot(Domain.profile_key reviewer)|_=>None end.
@@ -121,7 +120,6 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
    else match field with
    |Fields.ModelProfile=>key<-as_string incoming;;match body with
      |Draft.NewTaskBody message _ reasoning context mode work=>Some(Draft.NewTaskBody message key(ModelSelection.selected_effort snapshot key reasoning)context mode work)
-     |Draft.AgentBody id revision name _ reasoning instructions context count=>Some(Draft.AgentBody id revision name key(ModelSelection.selected_effort snapshot key reasoning)instructions context count)
      |_=>None end
    |Fields.MessageText=>match body with
      |Draft.NewTaskBody message profile reasoning context mode work=>text<-as_string incoming;;Some(Draft.NewTaskBody(Draft.Text text(Draft.text_images message))profile reasoning context mode work)

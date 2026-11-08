@@ -18,11 +18,11 @@ Definition board_contents : Focus.t F.board (list (option F.card) * list N).
 Proof.
  refine (Focus.Focus _ _ _
    (fun board => ((F.board_cards board,F.board_order board),
-     (F.board_agents board,F.board_agent_order board,F.board_automatic board,F.board_draft_profile board)))
-   (fun parts => let '((cards,order),(agents,agent_order,automatic,profile)) := parts in
-     F.Board cards order agents agent_order automatic profile) _ _).
+     (F.board_automatic board,F.board_draft_profile board)))
+   (fun parts => let '((cards,order),(automatic,profile)) := parts in
+     F.Board cards order automatic profile) _ _).
  - intros []; reflexivity.
- - intros [[cards order] [[[agents agent_order] automatic] profile]]; reflexivity.
+ - intros [[cards order] [automatic profile]]; reflexivity.
 Defined.
 Definition card_slot owner := Receiver.field F.feature_board
  (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).

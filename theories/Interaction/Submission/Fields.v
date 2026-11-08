@@ -11,8 +11,8 @@ Inductive field := WorkName | MessageText | ProjectName | CreateWorktree
 | SandboxMode | NetworkAccess | ApprovalPolicy | ApprovalReviewer | ModelProfile
 | ReasoningEffort | DeliveryIntent | CardTitle | CardDescription | CardStage
 | CardPriority | CardOwner | CardProject | CardLabels | CardAttachments
-| ContinueCapture | AssistedCapture | AssistanceProfile | AgentName
-| AgentInstructions | AgentConcurrency | ForkCount | ForkMessages
+| ContinueCapture | AssistedCapture | AssistanceProfile
+| ForkCount | ForkMessages
 | CompactionSummary | TaskGraphDeclaration | TaskTitlePrompt | AgentTitlePrompt.
 Inductive entry := DisplayOnly | SingleLine | Multiline | StructuredText
 | Choice | MultipleChoices | PositiveInteger | DirectoryCollection | FileCollection.

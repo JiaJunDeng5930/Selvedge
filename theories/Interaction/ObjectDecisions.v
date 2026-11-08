@@ -22,8 +22,7 @@ Definition subject_exists snapshot subject := match subject with
 |TaskActions id=>present(Read.find_task id snapshot)
 |ProjectActions id=>present(Read.find_project id snapshot)
 |GraphActions id=>present(Read.find_graph id snapshot)
-|CardActions id=>present(Read.find_card id snapshot)
-|AgentActions id=>present(Read.find_agent id snapshot) end.
+|CardActions id=>present(Read.find_card id snapshot) end.
 
 Definition task_decisions task := [
  immediate "interrupt" "Interrupt" (G.Cmd_interrupt(G.Build_interrupt task));
@@ -52,9 +51,6 @@ Definition decisions snapshot clock subject :=
  |ProjectActions id=>[confirmed "delete" "Delete project" (G.Cmd_delete_project(G.Build_delete_project id))]
  |CardActions id=>match Read.find_card id snapshot with
   |Some card=>card_decisions snapshot clock card|None=>[] end
- |AgentActions id=>match Read.find_agent id snapshot with
-  |Some agent=>[immediate "delete" "Delete agent" (G.Cmd_delete_board_agent(G.Build_delete_board_agent id (Read.agent_revision agent)))]
-  |None=>[] end
  |GraphActions id=>[confirmed "delete" "Delete task graph" (G.Cmd_delete_task_graph(G.Build_delete_task_graph id))]
  end else [].
 
@@ -92,5 +88,4 @@ Definition subjects snapshot :=
  map (fun task=>TaskActions(Read.task_id task)) (value_or [] (Read.tasks snapshot)) ++
  map (fun project=>ProjectActions(Read.project_id project)) (value_or [] (Read.projects snapshot)) ++
  map (fun graph=>GraphActions(Read.graph_id graph)) (value_or [] (Read.graphs snapshot)) ++
- map (fun card=>CardActions(Read.card_id card)) (value_or [] (Read.board_cards snapshot)) ++
- map (fun agent=>AgentActions(Read.agent_id agent)) (value_or [] (Read.board_agents snapshot)).
+ map (fun card=>CardActions(Read.card_id card)) (value_or [] (Read.board_cards snapshot)).

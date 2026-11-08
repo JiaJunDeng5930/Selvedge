@@ -8,9 +8,9 @@ Import ListNotations.
 
 Inductive board_stage := Backlog | Todo | InProgress | InReview | Completed | Blocked.
 Inductive priority := NoPriority | Low | Medium | High | Urgent.
-Inductive owner := Unassigned | Self | ProfileOwner (profile : string) | AgentOwner (id : N).
+Inductive owner := Unassigned | Self | ProfileOwner (profile : string).
 Definition owner_eq_dec : forall left right : owner, {left = right} + {left <> right}.
-Proof. decide equality; first [apply String.string_dec | apply N.eq_dec]. Defined.
+Proof. decide equality; apply String.string_dec. Defined.
 Record attachment := Attachment { attachment_id : string; attachment_name : string;
  attachment_mime : string; attachment_path : string; attachment_bytes : N }.
 Record card_draft := CardDraft { draft_title : string; draft_description : string;
@@ -22,12 +22,8 @@ Record card := Card { card_revision : N; card_contents : card_draft;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.
 Definition card_created card := BoardClock.value (card_created_at card).
 Definition card_updated card := BoardClock.value (card_updated_at card).
-Record board_agent := BoardAgent { agent_revision : N; agent_name : string;
- agent_profile : string; agent_reasoning : string; agent_instructions : string;
- agent_settings_request : Codec.settings_request; agent_concurrency : N }.
-Definition agent_settings (value : board_agent) := Codec.settings_request_json (agent_settings_request value).
 Record board := Board { board_cards : list (option card); board_order : list N;
- board_agents : list (option board_agent); board_agent_order : list N; board_automatic : bool; board_draft_profile : string }.
+ board_automatic : bool; board_draft_profile : string }.
 Definition board_card_uses_project (id : N) (value : board) :=
  existsb (fun item => match item with
  | Some card => match draft_project (card_contents card) with
@@ -117,7 +113,7 @@ Record state := State {
  feature_title_settings : title_settings;
  feature_compaction : CompactionTypes.state
 }.
-Definition initial := State (Board [] [] [] [] false ""%string) [] [] [] []
+Definition initial := State (Board [] [] false ""%string) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
  (TitleSettings 0 Titles.default_instructions Titles.default_instructions) CompactionTypes.initial.
 
@@ -151,8 +147,7 @@ Definition priority_label (value : priority) := match value with
 Definition decimal_text (value:N) := NilZero.string_of_uint (N.to_uint value).
 Definition owner_name (value:owner) := match value with
  | Unassigned=>"none"%string | Self=>"self"%string
- | ProfileOwner name=>String.append "profile/" name
- | AgentOwner id=>String.append "agent/" (decimal_text id) end.
+ | ProfileOwner name=>String.append "profile/" name end.
 Definition association (id:N) (bindings:list (N*N)) := option_map (@snd N N) (find (fun entry=>N.eqb id (fst entry)) bindings).
 Fixpoint lineage_owner (lineage:list N) (owners:list (N*N)) :option N :=
  match lineage with []=>None | ancestor::rest=>

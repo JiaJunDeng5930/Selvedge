@@ -366,7 +366,7 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
  else let diagnostic:=completion_error outcome in
  let feedback:=if String.eqb (Selvedge.Interaction.Codec.text "code" diagnostic) "command_not_submitted" then
    match Draft.contents captured with
-   |Draft.NewTaskBody _ _ _ _ _ _|Draft.ProjectBody _ _ _ _|Draft.AgentBody _ _ _ _ _ _ _ _|Draft.ForkBody _ _ _ _=>
+   |Draft.NewTaskBody _ _ _ _ _ _|Draft.ProjectBody _ _ _ _|Draft.ForkBody _ _ _ _=>
       Draft.WorkspaceRejected(Draft.revision captured)(Selvedge.Interaction.Codec.diagnostic_message diagnostic)
    |_=>Draft.Rejected(Draft.revision captured)diagnostic end
    else Draft.Rejected(Draft.revision captured)diagnostic in

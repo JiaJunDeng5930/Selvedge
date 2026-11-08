@@ -15,7 +15,7 @@ Definition destination := (string * string * route)%type.
 Definition destinations : list destination := [
  ("home","Home",Start);("history-search","搜索对话",HistorySearch);
  ("board","任务看板",Board);("projects","项目",Projects);
- ("agents","智能体",Agents);("task-graphs","Task graphs",Graphs)].
+ ("task-graphs","Task graphs",Graphs)].
 Definition route_eq_dec : forall a b:route,{a=b}+{a<>b}.
 Proof. repeat decide equality. Defined.
 Definition same_route a b := if route_eq_dec a b then true else false.

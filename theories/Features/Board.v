@@ -18,7 +18,6 @@ Open Scope string_scope.
 Open Scope list_scope.
 Definition registry (value:world) := Selvedge.Features.Domain.feature_board (world_features value).
 Definition store (board:Selvedge.Features.Domain.board) (value:world) := Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_board board (world_features value)) value.
-Definition lookup_agent (id:N) (value:world) := match registry_at id (Selvedge.Features.Domain.board_agents (registry value)) with Some agent=>agent | None=>None end.
 Definition put := BoardDrafting.put_card.
 Definition result (id:N) (card:Selvedge.Features.Domain.card) := JObject [("card_id",number id);("revision",number (Selvedge.Features.Domain.card_revision card))].
 Definition save_change (id:N) (card:Selvedge.Features.Domain.card) (value:world) :=
@@ -58,8 +57,6 @@ Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) 
  Selvedge.Kernel.State.success (JObject [("cards",JArray (visible_cards value));("automatic",JBool (Selvedge.Features.Domain.board_automatic (registry value)));("draft_profile",JString (Selvedge.Features.Domain.board_draft_profile (registry value)))]).
 Definition handle_read_card (p:Selvedge.Generated.Commands.read_card_payload) (caller:option N) (value:world) :json :=
  match CardScope.lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end.
-Definition handle_list_board_agents (p:Selvedge.Generated.Commands.list_board_agents_payload) (caller:option N) (value:world) :json :=
- Selvedge.Kernel.State.success (JObject [("agents",JArray (Observation.agents_json_in_world value))]).
 Definition request_text_result {value} (target:BD.drafting_target value) (profile_name:string) :=
  let name:=if String.eqb profile_name "" then Selvedge.Features.Domain.board_draft_profile (registry value) else profile_name in
  FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
@@ -158,78 +155,32 @@ Definition delete_card (id revision:N) (value:world) := CardScope.with_card id r
  let b:=registry value in Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "
 - " (String.append (Selvedge.Features.Domain.attachment_name file) (String.append ": " (String.append (Selvedge.Features.Domain.attachment_path file) (attachment_prompt rest)))) end.
-Definition task_contents (id:N) (draft:Selvedge.Features.Domain.card_draft) (instructions:string) :=
- TextPart (String.append instructions (String.append "
+Definition task_contents (id:N) (draft:Selvedge.Features.Domain.card_draft) :=
+ TextPart (String.append "
 
 Board card SV-" (String.append (Selvedge.Features.Domain.decimal_text (N.succ id)) (String.append ": "
  (String.append (Selvedge.Features.Domain.draft_title draft) (String.append "
 
 " (String.append (Selvedge.Features.Domain.draft_description draft) (String.append "
 
-Attached files (read only when needed):" (attachment_prompt (Selvedge.Features.Domain.draft_attachments draft)))))))))) ::
+Attached files (read only when needed):" (attachment_prompt (Selvedge.Features.Domain.draft_attachments draft))))))))) ::
  fold_right (fun file rest=>if String.prefix "image/" (Selvedge.Features.Domain.attachment_mime file) then ImagePart (ImageAsset (Selvedge.Features.Domain.attachment_id file) (Selvedge.Features.Domain.attachment_mime file) (Selvedge.Features.Domain.attachment_bytes file) ImageAuto)::rest else rest) [] (Selvedge.Features.Domain.draft_attachments draft).
-Definition launch_settings (agent:Selvedge.Features.Domain.board_agent) (draft:Selvedge.Features.Domain.card_draft) :=
+Definition launch_settings (draft:Selvedge.Features.Domain.card_draft) :=
  Codec.with_requested_project (Selvedge.Features.Domain.draft_project draft)
-   (Selvedge.Features.Domain.agent_settings_request agent).
+   Codec.empty_settings_request.
 Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  let now:=observed in CommandResult.bind (CardScope.select_card id revision value) (fun card=>
- match BoardFacts.runnable_agent card value with
- | None=>CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit"
- | Some agent=>
- let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
+ match BoardFacts.runnable_profile card value with
+ | None=>CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no model profile, or its model profile is busy"
+ | Some profile=>
+ let settings:=launch_settings (Selvedge.Features.Domain.card_contents card) in
  CommandResult.map (fun birth=>
  let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card))))))) in
  CommandResult.Change (JObject [("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))]) (put id updated (Worktree.transition_world birth)) (Worktree.transition_effects birth))
-   (Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value) end).
+   (Worktree.create_selected_result profile (Some "default") (task_contents id (Selvedge.Features.Domain.card_contents card))
+     (Some settings) false caller None value) end).
 Definition run (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  CommandResult.decide value (run_result id revision observed caller value).
-Definition agent_name_valid (name:string) := D.check agent_name_declaration (JString name).
-Definition agent_profile_valid (profile:string) := D.check agent_profile_declaration (JString profile).
-Definition agent_reasoning_valid (reasoning:string) := D.check agent_reasoning_declaration (JString reasoning).
-Definition agent_instructions_valid (instructions:string) := D.check agent_instructions_declaration (JString instructions).
-Definition agent_concurrency_valid (capacity:N) := D.check agent_capacity_declaration (number capacity).
-Definition agent_execution_available (agent:Selvedge.Features.Domain.board_agent) (value:world) :=
- match Tasks.find_profile (Selvedge.Features.Domain.agent_profile agent) (environment_profiles (world_environment value)) with None=>false | Some profile=>
- match Tasks.selected_reasoning (Some (Selvedge.Features.Domain.agent_reasoning agent)) profile,Tasks.resolve_settings profile (Some (Selvedge.Features.Domain.agent_settings_request agent)) (Tasks.creation_defaults (world_environment value)) value with Some _,Some _=>true | _,_=>false end end.
-Definition agent_identity (source : Selvedge.Generated.Commands.save_board_agent_payload) :=
- project_of_values (Selvedge.Generated.Commands.save_board_agent_agent_admitted source).
-Definition agent_parameters revision (source : Selvedge.Generated.Commands.save_board_agent_payload) :=
- Selvedge.Features.Domain.BoardAgent revision
-   (Selvedge.Generated.Commands.save_board_agent_name source)
-   (Selvedge.Generated.Commands.save_board_agent_profile source)
-   (Selvedge.Generated.Commands.save_board_agent_reasoning source)
-   (Selvedge.Generated.Commands.save_board_agent_instructions source)
-   (retained (option_map (Codec.settings_request_of_values true)
-     (Selvedge.Generated.Commands.save_board_agent_settings_admitted source)) Codec.empty_settings_request)
-   (Selvedge.Generated.Commands.save_board_agent_concurrency source).
-Definition save_agent (source : Selvedge.Generated.Commands.save_board_agent_payload) (value:world) :=
- let selected:=agent_identity source in
- let id:=match selected with Some id=>id | None=>N.of_nat (List.length (Selvedge.Features.Domain.board_agents (registry value))) end in
- let expected:=Selvedge.Generated.Commands.save_board_agent_revision source in
- let revision:=match selected with Some _=>N.succ expected | None=>0%N end in
- let agent:=agent_parameters revision source in
- let failure:=if negb (agent_execution_available agent value) then
-   Some ("invalid_agent","Choose a configured endpoint with supported reasoning and valid execution settings")
- else match selected with
- | None=>if Nat.ltb (List.length (filter (fun item=>match item with Some _=>true | None=>false end)
-     (Selvedge.Features.Domain.board_agents (registry value)))) 64 && N.ltb id 4294967295
-   then None else Some ("agent_limit","The board holds at most 64 agents")
- | Some _=>match lookup_agent id value with
-   | None=>Some ("agent_not_found","The board agent no longer exists")
-   | Some previous=>if N.eqb expected (Selvedge.Features.Domain.agent_revision previous)
-     then None else Some ("agent_conflict","This board agent changed") end end in
- match failure with Some (code,message)=>Selvedge.Kernel.State.reject code message value | None=>
- let b:=registry value in
- Selvedge.Kernel.State.accept (JObject [("agent_id",number id);("revision",number revision)])
- (store (set Selvedge.Features.Domain.board_agent_order (fun _=>id::filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_agent_order b))
-   (set Selvedge.Features.Domain.board_agents (fun _=>match selected with
-     | None=>Selvedge.Features.Domain.board_agents b++[Some agent]
-     | Some _=>replace id (Some agent) (Selvedge.Features.Domain.board_agents b) end) b)) value) [] end.
-Definition delete_agent (id expected:N) (value:world) := match lookup_agent id value with None=>Selvedge.Kernel.State.reject "agent_not_found" "The board agent no longer exists" value | Some agent=>
- let used:=existsb (fun item=>match item with Some card=>match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.AgentOwner owner=>N.eqb id owner | _=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
- if N.eqb expected (Selvedge.Features.Domain.agent_revision agent) && negb used then let b:=registry value in
- Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_agent_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_agent_order b))) (set Selvedge.Features.Domain.board_agents (fun _=>(replace id None (Selvedge.Features.Domain.board_agents b))) (b)))) value) []
- else Selvedge.Kernel.State.reject "agent_in_use" "The board agent changed or is still assigned to a card" value end.
 Definition settings (automatic:bool) (profile:string) (value:world) :=
  let valid:=String.eqb profile "" || match Tasks.find_profile profile (environment_profiles (world_environment value)) with Some chosen=>TitleRuntime.ordinary chosen | None=>false end in
  if valid then let b:=registry value in Selvedge.Kernel.State.accept JNull
@@ -266,10 +217,6 @@ Definition handle_delete_card (p:Selvedge.Generated.Commands.delete_card_payload
  delete_card (Selvedge.Generated.Commands.delete_card_card_id p) (Selvedge.Generated.Commands.delete_card_revision p) value.
 Definition handle_board_settings (p:Selvedge.Generated.Commands.board_settings_payload) (caller:option N) (value:world) :decision :=
  settings (Selvedge.Generated.Commands.board_settings_automatic p) (Selvedge.Generated.Commands.board_settings_draft_profile p) value.
-Definition handle_save_board_agent (p:Selvedge.Generated.Commands.save_board_agent_payload) (caller:option N) (value:world) :decision :=
- save_agent p value.
-Definition handle_delete_board_agent (p:Selvedge.Generated.Commands.delete_board_agent_payload) (caller:option N) (value:world) :decision :=
- delete_agent (Selvedge.Generated.Commands.delete_board_agent_agent_id p) (Selvedge.Generated.Commands.delete_board_agent_revision p) value.
 Definition failure_text (source:string) := match Utf8.chunks source with Some chunks=>Utf8.render_chunks (firstn 1000 chunks) | None=>"Invalid UTF-8 drafting failure" end.
 Definition suggestion (ok retitle:bool) (title description message:string)
  (card:Selvedge.Features.Domain.card) (value:world)

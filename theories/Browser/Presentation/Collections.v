@@ -117,23 +117,6 @@ Definition board_page snapshot s parent :=
         (group_title key(BoardDomain.stage_label stage)::
          declared key Roles.Button(secondary "card/new" "新建任务"(Input.NewCard stage(part key "card/new")))::
          map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)].
-Definition agent_node parent value :=
- let id:=agent_id value in
- let key:=part parent("agent/"++show_natural id)in
- region parent("agent/"++show_natural id)(agent_name value)Roles.Card
-  [group_title key(agent_name value);read_only key "instructions" "Instructions"(agent_instructions value);
-   read_only key "model" "Model"(agent_profile value);
-   read_only key "reasoning" "Reasoning"(agent_reasoning value);
-   read_only key "concurrency" "Concurrency"(show_natural(agent_concurrency value));
-   read_only key "active" "Active tasks"(show_natural(agent_active value));
-   declared key Roles.Button(secondary "edit" "Edit agent"(Input.OpenEditor(Agent(Some id))(part key "edit")));more key(AgentActions id)].
-Definition agents_page snapshot (s:State.state) parent :=
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Agents"];
-  page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "agent/new" "New agent"(Input.OpenEditor(Agent None)(part parent "agent/new")))];
-  page_region parent Composition.AgentEntries Composition.BodyPosition
-   (match board_agents snapshot with Some entries=>map(agent_node parent)entries
-    |None=>[read_only parent "unavailable" "Agents" "Agent observations unavailable"]end)].
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with
  |Some task=>String.concat ""[name;" (Task #";show_natural task;")"]

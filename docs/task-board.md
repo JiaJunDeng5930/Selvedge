@@ -12,10 +12,8 @@ searchable and keyboard-accessible. **继续创建** keeps the dialog open and r
 selected parameters while clearing submitted content. The mode switch selects
 manual or assisted creation. Normal creation and successful edits close the dialog.
 
-Assign **我** for manual work, an endpoint for
-ordinary execution, or a reusable role from **智能体**. Roles specify endpoint,
-reasoning, instructions, execution settings and concurrency. Role/project edits
-affect future launches, not existing frozen task contracts.
+Assign **我**, a configured endpoint for ordinary execution, or leave the card
+unassigned.
 
 Drag a card into another stage or before another card in its current stage.
 An active linked Task keeps its card in progress; same-column ordering remains available.

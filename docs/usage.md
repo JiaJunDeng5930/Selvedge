@@ -8,9 +8,9 @@ parent continues. Closing the side keeps its Task; the explicit return action
 sends only its new content back to the parent.
 
 Conversation search finds user and assistant messages, with optional Project
-and Work filters. Selecting a result opens the original message. Agents use
-`search_history` with the same filters and history positions. Type `@` in a
-message to select an available skill and insert its exact `SKILL.md` reference.
+and Work filters. Selecting a result opens the original message. Running Tasks
+can use `search_history` with the same filters and history positions. Type `@`
+in a message to select an available skill and insert its exact `SKILL.md` reference.
 
 Works group Tasks and task graphs independently of Projects. A graph connects
 ordinary Task outputs to inputs; it does not introduce another scheduler.
@@ -400,9 +400,9 @@ provide the ChatGPT audio connection.
 Back up the service home, including its journal, attachments and retained provider
 receipts. The journal commits admitted inputs before dispatching external effects.
 Restart replays those inputs with the current kernel without executing their
-effects. Only the current journal format is accepted; keep an incompatible
-existing home separate. A source update that changes the meaning of stored
-inputs requires a new journal format.
+effects. Only the current journal format is accepted. An incompatible journal
+is rejected without replay or conversion; keep the existing home separate. A
+source update that changes the meaning of stored inputs requires a new journal format.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,

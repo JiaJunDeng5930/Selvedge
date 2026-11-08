@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints.
-From Selvedge.Features Require Domain BoardParameters Board Work Titles TaskGraph.
+From Selvedge.Features Require Domain BoardParameters Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
@@ -83,10 +83,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
-    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles profiles)++
-    fold_right(fun agent rest=>match natural_field "id" agent,string_field "name" agent with
-    |Some id,Some name=>Fields.ChoiceValue("agent/"++show_natural id)name::rest|_,_=>rest end)[]
-      (match field "board" snapshot with Some board=>items "agents" board|None=>[]end)
+    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles profiles)
  |Fields.WorkspacePrimary=>match observe_subject snapshot state subject with
    |Fields.WorkspaceValue workspace=>map(fun path=>Fields.ChoiceValue path path)(Selvedge.Kernel.Domain.workspace_roots workspace)
    |Fields.ContextValue(Context.ProspectiveContext _ _ workspace _ _ _)_=>let value:=match workspace with
@@ -218,8 +215,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.PriorityValue value=>present(Model.TextValue(Selvedge.Features.Domain.priority_label value))
  |Fields.OwnerValue value=>present(Model.TextValue(match value with
    |Selvedge.Features.Domain.Unassigned=>"未分配"|Selvedge.Features.Domain.Self=>"我"
-   |Selvedge.Features.Domain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with Some profile=>profile_label profile|None=>"Unavailable model"end
-   |Selvedge.Features.Domain.AgentOwner id=>match World.board_object "agents" id snapshot with Some agent=>text "name" agent|None=>"Unavailable agent"end end))
+   |Selvedge.Features.Domain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with Some profile=>profile_label profile|None=>"Unavailable model"end end))
  |Fields.AttachmentsValue files=>present(Model.TextValue(String.concat ", "(map Selvedge.Features.Domain.attachment_name files)))
  |Fields.AssistanceValue enabled _=>present(Model.TextValue(if enabled then "Assisted capture"else "Manual capture"))
  |Fields.OptionalTextValue None=>OptionalAbsence|Fields.OptionalTextValue(Some text)=>present(Model.TextValue text)
@@ -251,7 +247,6 @@ Definition property_source_description snapshot state {e}(property:property e):s
  |ModelProperty=>match e with
    |Identity.NewTask _=>"Configured model list for this new task"
    |Identity.Message _=>"Configured model list for this task; the current selection retains its captured model definition"
-   |Identity.Agent _=>"Configured model list for this agent profile"
    |Identity.Fork _=>"Configured model list for the new fork"|_=>"Configured model list for this editor"end
  |DeliveryProperty=>"Message delivery for this task"
  |kind=>match observe_subject snapshot state(property_subject property)with
@@ -401,13 +396,6 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
    (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
- |Draft.AgentBody _ _ name profile effort instructions _ concurrency=>
-   failed_requirement e(Board.agent_name_valid name)(Some Fields.AgentName)"invalid_agent_name" "Enter a valid agent name."++
-   failed_requirement e(Board.agent_profile_valid profile)(Some Fields.ModelProfile)"invalid_agent_profile" "Enter a valid model profile."++
-   failed_requirement e(Board.agent_reasoning_valid effort)(Some Fields.ReasoningEffort)"invalid_agent_reasoning" "Enter a valid reasoning effort."++
-   failed_requirement e(Board.agent_instructions_valid instructions)(Some Fields.AgentInstructions)"invalid_agent_instructions" "Shorten the agent instructions."++
-   failed_requirement e(Board.agent_concurrency_valid concurrency)(Some Fields.AgentConcurrency)"invalid_agent_concurrency" "Choose concurrency from 1 to 64."++
-   model_requirements snapshot e profile effort
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
  |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
    (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
@@ -425,9 +413,6 @@ Definition record_requirements snapshot e (body:Draft.body):list(obstruction e):
  |Draft.ProjectBody(Some id)_ _ _=>failed_requirement e
    (match FieldsObservation.project_by_id id snapshot with Some _=>true|None=>false end)
    None "project_not_found" "The project does not exist."
- |Draft.AgentBody(Some id)_ _ _ _ _ _ _=>failed_requirement e
-   (match World.board_object "agents" id snapshot with Some _=>true|None=>false end)
-   None "agent_not_found" "The agent does not exist."
  |_=>[]end.
 Definition draft_requirements snapshot state e:list(obstruction e):=
  let draft:=EC.current_draft state e in

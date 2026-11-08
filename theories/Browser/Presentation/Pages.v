@@ -207,7 +207,7 @@ Definition page_contents snapshot s parent :=match State.location(State.navigati
 |Conversation task=>conversation_page snapshot s(PrimaryTask task)parent
 |Projects=>Collections.projects_page snapshot s parent
 |ProjectHome id=>match find_project id snapshot with Some project=>Collections.project_page snapshot s parent project|None=>missing parent "This project no longer exists"end
-|Board=>Collections.board_page snapshot s parent|Agents=>Collections.agents_page snapshot s parent
+|Board=>Collections.board_page snapshot s parent
 |Graphs=>Collections.graphs_page snapshot s parent|HistorySearch=>history_page snapshot s parent
 |SharedUI work task=>shared_page snapshot s work parent end.
 Definition page_kind snapshot s :=match State.location(State.navigation_state s)with
@@ -219,7 +219,7 @@ Definition page_kind snapshot s :=match State.location(State.navigation_state s)
    (SessionNavigation.return_latest s task)end
 |Projects=>Composition.ProjectCollection
 |ProjectHome id=>match find_project id snapshot with Some _=>Composition.ProjectOverview|None=>Composition.Unavailable end
-|Board=>Composition.TaskBoard|Agents=>Composition.AgentCollection|Graphs=>Composition.TaskGraphCollection
+|Board=>Composition.TaskBoard|Graphs=>Composition.TaskGraphCollection
 |HistorySearch=>Composition.ProjectCollection
 |SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end.
 Definition main snapshot s :=Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind snapshot s))(page_contents snapshot s "/main").

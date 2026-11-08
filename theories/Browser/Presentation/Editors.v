@@ -23,14 +23,14 @@ Module Observe := Selvedge.Interaction.Experience.Observation.
 Definition editor_title e := match e with
 |NewTask _=>"New task"|Message _=>"Message"
 |Identity.Project None=>"New project"|Identity.Project(Some _)=>"Edit project"|Card None=>"New card"|Card(Some _)=>"Edit card"
-|Agent None=>"New agent"|Agent(Some _)=>"Edit agent"|Fork _=>"Fork task"|Compact _=>"Compact history"
+|Fork _=>"Fork task"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
 |WorkName _=>"Rename Work"|TitlePrompts=>"标题生成设置"end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"Create project"|Card None=>"Create card"
-|Agent None=>"Create agent"|TaskGraph None _=>"Create task graph"|Fork _=>"Fork task"
+|TaskGraph None _=>"Create task graph"|Fork _=>"Fork task"
 |Compact _=>"Compact history"|_=>"Save"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
@@ -183,7 +183,6 @@ Definition editor_sections e :=match e with
  ("Organization",[Fields.CardStage;Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels]);
  ("Attachments",[Fields.CardAttachments])]++match id with
  |None=>[("Creation options",[Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile])]|Some _=>[]end)%list
-|Agent _=>[("Agent",[Fields.AgentName;Fields.AgentInstructions;Fields.AgentConcurrency]);model_section;execution_section]
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
