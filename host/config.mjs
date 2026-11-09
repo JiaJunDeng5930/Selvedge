@@ -1,10 +1,13 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { accountConfig, accountConnection } from './chatgpt-account.mjs';
 import { adaptivePolicy, evaluatorConnections, configurationObserver } from './reasoning-config.mjs';
 import { connectionConfig } from './chatgpt-plugin.mjs';
+import { publishBytes } from './file-io.mjs';
 
+import { JsonNumber, parseJson, safeInteger } from './public/json-tokens.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 export const defaultConfig = boundary('config.defaults', {});
@@ -112,21 +115,92 @@ export function homeDirectory(home) {
   return path.resolve(home ?? process.env.SELVEDGE_HOME ?? path.join(homedir(), '.selvedge'));
 }
 
-export async function loadConfig({ home, filename, source } = {}) {
+function configurationLocation({ home, filename } = {}) {
   home = homeDirectory(home);
-  filename = filename ? path.resolve(filename) : path.join(home, 'config.json');
+  return { home, filename: filename ? path.resolve(filename) : path.join(home, 'config.json') };
+}
+
+async function configurationFile({ home, filename }) {
+  try {
+    const target = await realpath(filename);
+    return { target, bytes: await readFile(target) };
+  } catch (error) {
+    // DEFENSE: A fresh default home can run without a file. Explicit missing files and other read failures remain errors.
+    if (error.code !== 'ENOENT' || filename !== path.join(home, 'config.json')) throw error;
+    return { target: filename, bytes: undefined };
+  }
+}
+
+function parseConfiguration(text) {
+  return parseJson(text, source => {
+    const token = new JsonNumber(source);
+    return safeInteger(token) ?? token;
+  });
+}
+
+export async function loadConfig({ home, filename, source } = {}) {
+  ({ home, filename } = configurationLocation({ home, filename }));
   if (source === undefined) {
-    try { source = JSON.parse(await readFile(filename, 'utf8')); }
-    catch (error) {
-      // DEFENSE: Only an absent default config.json starts a new home with defaults; explicit files and other read/parse failures must fail.
-      if (error.code !== 'ENOENT') throw error;
-      if (filename !== path.join(home, 'config.json')) throw error;
-      source = structuredClone(defaultConfig);
-    }
+    const { bytes } = await configurationFile({ home, filename });
+    source = bytes === undefined ? structuredClone(defaultConfig) : parseConfiguration(bytes.toString('utf8'));
   }
   const validated = validateConfig(source);
   configurationFiles.set(validated, filename);
   return { home, filename, config: validated, source };
+}
+
+function configurationRevision({ target, bytes }) {
+  return createHash('sha256').update(target).update(bytes === undefined ? '\0missing' : '\0present')
+    .update(bytes ?? '').digest('base64url');
+}
+
+function editableSource({ bytes }) {
+  return bytes === undefined ? { format: defaultConfig.format }
+    : parseJson(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+}
+
+export class ConfigurationConflictError extends Error {
+  constructor() {
+    super('Configuration changed. Reload settings before applying the edit.');
+    this.name = 'ConfigurationConflictError';
+  }
+}
+
+export async function readServiceConfiguration(options) {
+  const current = await configurationFile(configurationLocation(options));
+  const view = profileBoundary('config.editable', { configuration: editableSource(current) });
+  return { ...view, revision: configurationRevision(current) };
+}
+
+const configurationWrites = new Map();
+
+export async function changeServiceConfiguration(options, { revision, ...change }) {
+  // DEFENSE: The public request can omit the revision needed to identify the edit's target.
+  if (typeof revision !== 'string') throw new TypeError('A configuration revision is required');
+  const location = configurationLocation(options);
+  const { target } = await configurationFile(location);
+  const previous = configurationWrites.get(target) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const current = await configurationFile(location);
+    // DEFENSE: An intervening edit can change the meaning of an array position, or retarget a configuration symlink.
+    if (current.target !== target || configurationRevision(current) !== revision) throw new ConfigurationConflictError();
+    const updated = profileBoundary('config.edit', { configuration: editableSource(current), change });
+    const text = JSON.stringify(updated, null, 2) + '\n';
+    validateConfig(parseConfiguration(text));
+    const view = profileBoundary('config.editable', { configuration: updated });
+    const bytes = Buffer.from(text);
+    // DEFENSE: The user can edit the configuration file outside this service while it prepares the new contents.
+    if (configurationRevision(await configurationFile(location)) !== revision) throw new ConfigurationConflictError();
+    const written = await publishBytes(target, bytes, { mode: current.bytes === undefined ? 'create-if-absent' : 'replace' });
+    // DEFENSE: A concurrent init can create a fresh default file after the revision check.
+    if (written === 'already-exists') throw new ConfigurationConflictError();
+    return { ...view, revision: configurationRevision({ target: await realpath(target), bytes }) };
+  });
+  // DEFENSE: A refused edit must release the queue for later edits to the same file.
+  const settled = next.catch(() => {});
+  configurationWrites.set(target, settled);
+  try { return await next; }
+  finally { if (configurationWrites.get(target) === settled) configurationWrites.delete(target); }
 }
 
 export function profileCatalog(config) {

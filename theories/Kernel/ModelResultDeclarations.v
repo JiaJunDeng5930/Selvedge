@@ -22,7 +22,7 @@ Definition exception_value (kind : exception_kind) : denote (KEnum "TypeError" [
  match kind with
  | TypeErrorKind => exist _ "TypeError" (or_introl eq_refl)
  | RangeErrorKind => exist _ "RangeError" (or_intror (or_introl eq_refl)) end.
-Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_connection_method_origin | Http_observe_local_authorization | Http_local_origin | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_account_refresh | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command.
+Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_connection_method_origin | Http_observe_local_authorization | Http_local_origin | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_service_configuration_read | Http_account_refresh | Http_service_configuration_change | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command.
 (** The wire name and body policy are one declaration, shared by routes and metadata. *)
 Definition http_action_spec (value : http_action) := match value with
  | Http_observe_host => ("observe_host",false)
@@ -45,7 +45,9 @@ Definition http_action_spec (value : http_action) := match value with
  | Http_events => ("events",false)
  | Http_event_page => ("event_page",false)
  | Http_health => ("health",false)
+ | Http_service_configuration_read => ("service_configuration_read",false)
  | Http_account_refresh => ("account_refresh",true)
+ | Http_service_configuration_change => ("service_configuration_change",true)
  | Http_audio_create => ("audio_create",true)
  | Http_audio_login => ("audio_login",true)
  | Http_remote_pair => ("remote_pair",true)
@@ -59,7 +61,7 @@ Definition http_action_spec (value : http_action) := match value with
  | Http_assess => ("assess",true)
  | Http_connection_command => ("connection_command",true)
  end.
-Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_account_refresh;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
+Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_service_configuration_read;Http_account_refresh;Http_service_configuration_change;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
 Definition http_action_name value := fst (http_action_spec value).
 Definition http_action_has_body value := snd (http_action_spec value).
 Definition http_body_declaration name := variant "action" name [OmittableField "body" KJson] [].

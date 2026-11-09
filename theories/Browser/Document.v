@@ -496,7 +496,7 @@ Definition native_field_stretches {A} (meaning:S.meaning A) :=
    match IP.editing_shape control with Local.Boolean=>false|_=>true end
  | S.HistorySearchQuery _ _ _ | S.HistorySearchScope _ _ _ _
  | S.SearchChoices _ _ | S.BoardSearch _ _ | S.BoardProfile _ _ _ _ _ _
- | S.ReceiveFile _ _ _ | S.EnterDirectory _ _ _ _ => true
+ | S.ReceiveFile _ _ _ | S.EnterDirectory _ _ _ _ | S.ConfigurationField _ _ _ _ _ => true
  | _ => false end.
 Definition native_field_width {A} env (activity:bool) (meaning:S.meaning A) :=
  let inline_edges:=match meaning with S.Edit _ subject _=>
@@ -839,6 +839,20 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [("position","absolute");("inset","0");("inline-size","100%");("block-size","100%");
     ("opacity","0");("padding","0");("border","0");("cursor","inherit")]
    [event key generation "change" "files" Gesture.Attach] empty []])
+ |S.ConfigurationField multiline text options enabled _=>
+   let attrs := [("aria-label",label);("value",text)] ++ disabled enabled in
+   let control := match options with
+    | Some options => element "select" attrs
+      [event key generation "change" "value" Gesture.Change] empty (choices key text options)
+    | None =>
+        if multiline then
+          DOM.Element key "textarea" (attrs ++ [("rows","4")])
+            (styles ++ native_field_properties "" ++ [("resize","vertical")])
+            [event key generation "input" "value" Gesture.Change] empty []
+        else element "input" (("type","text") :: attrs)
+          [event key generation "input" "value" Gesture.Change] empty []
+    end in
+   label_field env activity key label false control
  |S.EnterDirectory _ text _ confirm=>label_field env activity key label false
  (element "input" [("type","text");("value",text)]
  ([event key generation "input" "value" Gesture.Directory] ++match confirm with Some _=>[event key generation "keydown" "confirm" Gesture.ConfirmDirectory]|None=>[] end) empty [])

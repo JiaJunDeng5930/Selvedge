@@ -80,7 +80,8 @@ Definition acknowledges_feedback (incoming:input) := match incoming with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
  |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.Connect
  |Services.Authenticated _ _|Services.Disconnected _ _ _|Services.RetryConnection _
- |Services.Uploaded _ _|Services.Previewed _ _|Services.DirectoryListed _ _=>false
+ |Services.Uploaded _ _|Services.Previewed _ _|Services.DirectoryListed _ _
+ |Services.ConfigurationLoaded _ _|Services.ConfigurationWritten _ _=>false
  |_=>true end
 |SpeechInput speech=>match speech with
  |Speech.Refresh|Speech.Capabilities _|Speech.CapabilitiesFailed _

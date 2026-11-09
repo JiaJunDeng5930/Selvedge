@@ -8,7 +8,8 @@ Import ListNotations.
 Open Scope string_scope.
 Definition service_receipts := ["connect";"command_assessed";"workspace_git_completed";
  "model_preference_restored";"storage_problem";"authenticated";"disconnected";
- "retry_connection";"uploaded";"previewed";"directory_listed"].
+ "retry_connection";"uploaded";"previewed";"directory_listed";
+ "service_configuration_loaded";"service_configuration_written"].
 Definition speech_receipts := ["audio_capabilities";"audio_capabilities_failed";
  "audio_captured";"audio_transcribed";"voice_task_created";"voice_ready";"voice_text";
  "audio_failed";"audio_ended";"audio_released"].

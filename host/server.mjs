@@ -10,6 +10,7 @@ import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
+import { configurationFilename, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
 
 async function publicAssets(directory, prefix = '') {
   const assets = new Map();
@@ -38,6 +39,7 @@ assets.set('/', assets.get('/index.html'));
 export async function startServer(options) {
   const connections = connectionCredentials(options.config.chatgpt_plugin);
   const { release } = options;
+  const configurationLocation = { home: options.home, filename: options.filename ?? configurationFilename(options.config) };
   const service = await Service.open({ ...options, holdEffects: Boolean(release) });
   const token = release?.token ?? randomBytes(32).toString('hex');
   const clients = new Set();
@@ -348,6 +350,12 @@ export async function startServer(options) {
         health: async () => {
           json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
           return;
+        },
+        service_configuration_read: async () => {
+          json(response, 200, { ok: true, result: await readServiceConfiguration(configurationLocation) });
+        },
+        service_configuration_change: async body => {
+          json(response, 200, { ok: true, result: await changeServiceConfiguration(configurationLocation, body) });
         },
         account_refresh: async () => {
           json(response, 200, { ok: true, result: await service.refreshAccounts() });

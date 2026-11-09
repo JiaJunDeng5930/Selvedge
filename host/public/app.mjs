@@ -820,6 +820,11 @@ async function assessCommand(effect) {
     if (assessments.get(key) === controller) assessments.delete(key);
   }
 }
+function configurationReply(reply) {
+  // DEFENSE: A configuration conflict or domain refusal can arrive as a structured result.
+  if (reply?.ok !== true) throw new Error(reply?.error?.message ?? 'Configuration request failed');
+  return reply.result;
+}
 async function execute(effect) {
   const namespace = publication.namespace;
   const current = () => publication.namespace === namespace;
@@ -835,6 +840,12 @@ async function execute(effect) {
       world = null; sourceFresh = false; retireDocumentViews();
       publication = publicationEvent('invalidate'); render(); return;
     case 'assess_command': return assessCommand(effect);
+    case 'read_service_configuration':
+      return settled('service_configuration_loaded', effect.ticket, async () =>
+        configurationReply(await request('/api/service-configuration')));
+    case 'write_service_configuration':
+      return settled('service_configuration_written', effect.ticket, async () =>
+        configurationReply(await post('/api/service-configuration', effect.body)));
     case 'save_appearance':
       try { localStorage.setItem('selvedge-appearance', effect.value); }
       // DEFENSE: Browser privacy settings or storage quotas can reject a local preference write.

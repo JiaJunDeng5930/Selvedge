@@ -61,8 +61,8 @@ function decodeEnum1(value: unknown): "TypeError" | "RangeError" {
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" {
- switch (value) { case "account_refresh": return "account_refresh"; case "audio_create": return "audio_create"; case "audio_login": return "audio_login"; case "remote_pair": return "remote_pair"; case "remote_enable": return "remote_enable"; case "remote_disable": return "remote_disable"; case "remote_approve": return "remote_approve"; case "remote_revoke": return "remote_revoke"; case "browser_command": return "browser_command"; case "browser_observation": return "browser_observation"; case "command": return "command"; case "assess": return "assess"; case "connection_command": return "connection_command";
+function decodeEnum2(value: unknown): "account_refresh" | "service_configuration_change" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" {
+ switch (value) { case "account_refresh": return "account_refresh"; case "service_configuration_change": return "service_configuration_change"; case "audio_create": return "audio_create"; case "audio_login": return "audio_login"; case "remote_pair": return "remote_pair"; case "remote_enable": return "remote_enable"; case "remote_disable": return "remote_disable"; case "remote_approve": return "remote_approve"; case "remote_revoke": return "remote_revoke"; case "browser_command": return "browser_command"; case "browser_observation": return "browser_observation"; case "command": return "command"; case "assess": return "assess"; case "connection_command": return "connection_command";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
@@ -321,7 +321,7 @@ export function decodeRemoteAuthorizationAction(input: unknown): RemoteAuthoriza
 export type HttpPlan =
   | {"action": "respond"; "status": number; "value": JsonValue}
   | {"action": "throw"; "kind": "TypeError" | "RangeError"; "message": string}
-  | {"action": "observe_content_type"; "target": "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command"}
+  | {"action": "observe_content_type"; "target": "account_refresh" | "service_configuration_change" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command"}
   | {"action": "observe_host"; }
   | {"action": "parse_url"; }
   | {"action": "observe_connection_authorization"; }
@@ -342,7 +342,9 @@ export type HttpPlan =
   | {"action": "events"; }
   | {"action": "event_page"; }
   | {"action": "health"; }
+  | {"action": "service_configuration_read"; }
   | {"action": "account_refresh"; "body"?: JsonValue}
+  | {"action": "service_configuration_change"; "body"?: JsonValue}
   | {"action": "audio_create"; "body"?: JsonValue}
   | {"action": "audio_login"; "body"?: JsonValue}
   | {"action": "remote_pair"; "body"?: JsonValue}
@@ -381,7 +383,9 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
     case "events": exactFields(source, ["action"]); return {"action": "events"};
     case "event_page": exactFields(source, ["action"]); return {"action": "event_page"};
     case "health": exactFields(source, ["action"]); return {"action": "health"};
+    case "service_configuration_read": exactFields(source, ["action"]); return {"action": "service_configuration_read"};
     case "account_refresh": exactFields(source, ["action","body"]); return {"action": "account_refresh", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
+    case "service_configuration_change": exactFields(source, ["action","body"]); return {"action": "service_configuration_change", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     case "audio_create": exactFields(source, ["action","body"]); return {"action": "audio_create", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     case "audio_login": exactFields(source, ["action","body"]); return {"action": "audio_login", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};
     case "remote_pair": exactFields(source, ["action","body"]); return {"action": "remote_pair", ...(source["body"] === undefined ? {} : {"body": decodeJson(source["body"])})};

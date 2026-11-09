@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Http.
 From Selvedge.Interaction Require UserCommand.
+From Selvedge.Kernel Require ModelResultDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -52,6 +53,29 @@ Proof.
   destruct (negb (connection_origin_valid source)) eqn:origin; [discriminate|].
   apply negb_false_iff in method. apply String.eqb_eq in method.
   apply negb_false_iff in origin; auto.
+Qed.
+
+Theorem http_service_configuration_read_requires_local_authorization : forall source,
+  Http.call "http.local_origin" source =
+    success (action ModelResultDeclarations.Http_service_configuration_read) ->
+  authorized source = true /\ local_origin_valid source = true.
+Proof.
+  intros source H.
+  unfold Http.call in H; cbn in H.
+  unfold request_guard, open_host_guard in H.
+  destruct (negb (open_valid source)); [discriminate|].
+  destruct (negb (host_valid source)); [discriminate|].
+  destruct (negb (authorized source)) eqn:authorization.
+  - unfold authorization_rejection in H.
+    destruct (connection_path source); discriminate.
+  - destruct (connection_path source).
+    + destruct (negb (String.eqb (str source "method") "POST")); [discriminate|].
+      destruct (negb (connection_origin_valid source)); [discriminate|].
+      destruct (body_target source); discriminate.
+    + destruct (negb (local_origin_valid source)) eqn:origin; [discriminate|].
+      apply negb_false_iff in authorization.
+      apply negb_false_iff in origin.
+      exact (conj authorization origin).
 Qed.
 
 Theorem http_public_command_rejects_sideband_observations : forall source,

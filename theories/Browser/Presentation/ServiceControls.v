@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Features Require Domain.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
@@ -7,7 +7,8 @@ From Selvedge.Browser.Session Require Import Appearance Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech.
 From Selvedge.Interaction Require Import Attachments.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Draft Fields.
+From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require State Authoring.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
@@ -88,6 +89,73 @@ Definition files e parent s :=
   (map(attachment_node e parent)(draft_files(State.current_draft s e))++
    fold_right(fun upload rest=>match Services.upload_owner upload,upload_node connected parent upload with
     |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services)))%list.
+Module Config := Configuration.Config.
+Definition configuration_button parent key label (enabled : bool) input :=
+ declared parent Roles.Button
+   (Control key label Secondary (Input.ServiceInput input)
+     (if enabled then Available else Unavailable "Unavailable in the current state")).
+Definition configuration_field parent key label multiline raw choices enabled receive :=
+ Node (part parent key) key label Roles.Field
+   (ConfigurationField multiline raw choices enabled (fun value => option_map
+     (fun input => Input.ServiceInput input) (bind (as_string value) receive))) [].
+Definition configuration_status parent status : node Input.input := information parent "result" Information.Status status.
+Definition configuration_path raw :=
+ bind (TextJson.parse_json raw) (fun value => bind (as_array value) (traverse as_string)).
+Definition configuration_picker parent (snapshot : Config.snapshot) selected enabled :=
+ let choices := map (fun entry =>
+    let path := Config.setting_path entry in
+    Fields.ChoiceValue (Config.setting_key path) (String.concat " / " path)) (Config.entries snapshot) in
+ configuration_field parent "setting" "Configuration item" false selected
+   (Some (Fields.ChoiceValue "" "Choose a configuration item" :: choices)) enabled
+   (fun raw => option_map Services.SelectConfiguration (configuration_path raw)).
+Definition configuration_choices (options : list json) raw :=
+ let options := map (fun value => Fields.ChoiceValue (TextJson.render_json value)
+   (Config.display_value value)) options in
+ if existsb (fun option => String.eqb (Fields.choice_value_of option) raw) options then options
+ else Fields.ChoiceValue raw "Choose a value" :: options.
+Definition configuration_editor parent view enabled :=
+ match Configuration.editing view with
+ | None => []
+ | Some (_, draft, entry) =>
+   let raw := Configuration.draft_input draft in
+   let '(multiline, choices) := match Config.setting_input entry with
+     | Config.Text | Config.Structured => (true, None)
+     | Config.Number => (false, None)
+     | Config.Boolean => (false, Some (configuration_choices [JBool false; JBool true] raw))
+     | Config.Choice options => (false, Some (configuration_choices options raw))
+     end in
+   let accepted := match Config.interpret_input (Config.setting_input entry) raw with
+     | Some _ => true | None => false end in
+   ([configuration_field parent "value" "Configuration value" multiline raw choices enabled
+     (fun value => Some (Services.EditConfiguration value));
+    configuration_button parent "apply" "Apply configuration change" (enabled && accepted) Services.SetConfiguration]
+   ++ (if Config.setting_resettable entry && Config.setting_explicit entry then
+     [configuration_button parent "reset" "Reset configuration item" enabled Services.ResetConfiguration] else []))%list
+ end.
+Definition configuration_section parent services :=
+ let view := Services.service_configuration services in
+ let section := part parent "service-configuration" in
+ let enabled := Services.connected services && negb (Configuration.pending view) in
+ let load key label := configuration_button section key label enabled Services.LoadConfiguration in
+ region parent "service-configuration" "Service configuration" Roles.Section
+  (match Configuration.catalog view with
+  | Resource.Dormant => [load "load" "Edit service configuration"]
+  | Resource.Loading _ _ => [configuration_status section "Loading configuration…"]
+  | Resource.Failed _ _ reason => [configuration_status section reason; load "reload" "Reload configuration"]
+  | Resource.Loaded _ _ snapshot =>
+      let selected := match Configuration.current_draft view with
+        | Some draft => Config.setting_key (Configuration.draft_path draft) | None => "" end in
+      [configuration_picker section snapshot selected enabled]
+      ++ configuration_editor section view enabled
+      ++ (match Configuration.writing view with
+          | Resource.Loading _ _ => [configuration_status section "Applying configuration change…"]
+          | Resource.Loaded _ _ _ => [configuration_status section "Configuration updated"]
+          | Resource.Failed _ _ reason => [configuration_status section reason]
+          | Resource.Dormant => []
+          end)
+      ++ [load "reload" "Reload configuration"]
+  end)%list.
+
 Definition settings s :=
  match Services.settings_return(State.service_state s)with
  |None=>[]
@@ -105,7 +173,8 @@ Definition settings s :=
           (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
            (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
          [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
-      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))];
+      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")));
+      configuration_section parent (State.service_state s)];
     dialog_actions parent[declared parent Roles.Button(secondary "connect" "Connect"(Input.ServiceInput Services.Connect))]]]
   end.
 

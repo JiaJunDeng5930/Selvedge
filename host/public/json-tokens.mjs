@@ -9,10 +9,10 @@ export class JsonNumber {
   toJSON() { return JSON.rawJSON(this.source); }
 }
 
-export function parseJson(text) {
+export function parseJson(text, noncanonicalNumber = source => new JsonNumber(source)) {
   return JSON.parse(text, (_key, value, context) => {
     if (typeof value === 'number' && JSON.stringify(value) !== context.source) {
-      return new JsonNumber(context.source);
+      return noncanonicalNumber(context.source);
     }
     return value;
   });
