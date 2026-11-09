@@ -106,7 +106,7 @@ Definition settings_group parent key label rows : list (node Input.input) :=
  match rows with
  | [] => []
  | _ => [Node group "settings-group" "" Roles.Section Region
-          (group_title group label :: rows)]
+          (if String.eqb label "" then rows else group_title group label :: rows)]
  end.
 
 Module Config := Configuration.Config.
@@ -139,12 +139,24 @@ Definition configuration_choices options raw :=
    (configuration_value_label value)) options in
  if existsb (fun option => String.eqb (Fields.choice_value_of option) raw) options then options
  else Fields.ChoiceValue raw "Choose a value" :: options.
-Definition configuration_summary value :=
- match value with
- | JObject [] | JArray [] => "None configured"
- | JObject _ | JArray _ => "Configured"
- | _ => configuration_value_label value
+Definition configuration_summary entry :=
+ match Config.setting_input entry with
+ | Config.Text => if Config.setting_explicit entry then "Custom text" else "Default text"
+ | _ =>
+   match Config.setting_value entry with
+   | JObject [] | JArray [] => "None configured"
+   | JObject _ | JArray _ => "Configured"
+   | value => configuration_value_label value
+   end
  end.
+Definition configuration_details parent label entry enabled :=
+ let key := part parent "edit" in
+ let action := configuration_control "edit"
+   (if String.eqb label "Instructions" then "Edit instructions" else "Edit " ++ label)
+   enabled (Services.SelectConfiguration (Config.setting_path entry)) in
+ Node key "edit" (control_label action) Roles.Button (Activate action)
+  [Node (part key "summary") "setting-summary" "" Roles.Content
+     (ReadOnly (configuration_summary entry)) []].
 Definition configuration_resettable entry := Config.setting_resettable entry && Config.setting_explicit entry.
 Definition configuration_actions parent entry raw enabled view :=
  let accepted := match Config.interpret_input (Config.setting_input entry) raw with
@@ -230,8 +242,7 @@ Definition configuration_row parent connected view entry :=
        | None => if configuration_resettable entry then [activate "start-reset" "Reset…"] else []
        | Some _ => []
        end)
-    | None => [information controls "setting-summary" Information.FieldValue (configuration_summary (Config.setting_value entry));
-               activate "edit" (if String.eqb label "Instructions" then "Edit instructions" else "Edit " ++ label)]
+    | None => [configuration_details controls label entry enabled]
     end)
    actions.
 
@@ -316,7 +327,7 @@ Definition settings_catalog_status parent services :=
 
 Definition settings_configuration_groups section : list (configuration_group * string * string) :=
  match section with
- | Services.SettingsGeneral => [(InstructionsGroup, "instructions", "Model instructions")]
+ | Services.SettingsGeneral => [(InstructionsGroup, "instructions", "")]
  | Services.SettingsModels => [(ModelsGroup, "models", "Models"); (ToolsGroup, "tools", "Tools")]
  | Services.SettingsTasks => [(TasksGroup, "task-execution", "Task execution")]
  | Services.SettingsContext =>
@@ -352,9 +363,8 @@ Definition settings_content root parent section services : node Input.input :=
  let group key label rows := settings_group content key label rows in
  let general := match section with
  | Services.SettingsGeneral =>
-   group "appearance" "Appearance" [settings_appearance (part content "appearance") (Services.theme services)] ++
-   group "conversation-titles" "Conversation titles"
-     [settings_row (part content "conversation-titles") "title-prompts" "Title generation"
+   [settings_appearance content (Services.theme services);
+    settings_row content "title-prompts" "Conversation titles"
         "Choose the model and prompts used to name conversations and tasks."
         [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
            (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []]

@@ -468,10 +468,16 @@ dialog[data-semantic-key="side-conversation"] {
 }
 
 dialog[data-semantic-key="settings"] {
-  --settings-edge: clamp(24px, 5vw, 76px);
-  --settings-nav-width: clamp(154px, 18vw, 242px);
-  --settings-column-gap: clamp(28px, 4.5vw, 76px);
-  --settings-top: clamp(24px, 4vh, 40px);
+  --settings-edge: clamp(24px, 5.3vw, 80px);
+  --settings-nav-width: clamp(144px, 16vw, 226px);
+  --settings-column-gap: clamp(24px, 3.2vw, 54px);
+  --settings-top: clamp(22px, 3.25vh, 32px);
+  --settings-value-width: clamp(130px, 16vw, 210px);
+  --settings-surface: light-dark(#fafaf9, #282624);
+  --settings-field: light-dark(#fefefd, #302e2b);
+  --settings-fill: light-dark(#efeeeb, #35322f);
+  --settings-rule: light-dark(#e6e4e0, #433e39);
+  --settings-muted: light-dark(#686561, #b6afa7);
   position: fixed !important;
   inset: 0 !important;
   inline-size: 100% !important;
@@ -484,7 +490,7 @@ dialog[data-semantic-key="settings"] {
   gap: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
-  background: var(--selvedge-canvas) !important;
+  background: var(--settings-surface) !important;
   overflow: hidden !important;
 }
 dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
@@ -493,15 +499,15 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   flex-flow: row nowrap !important;
   justify-content: flex-start !important;
   align-items: center !important;
-  gap: 8px !important;
-  min-block-size: 54px !important;
-  padding: 8px var(--settings-edge) !important;
-  border-block-end: 1px solid var(--selvedge-border) !important;
+  gap: 6px !important;
+  min-block-size: 44px !important;
+  padding: 4px var(--settings-edge) !important;
+  border-block-end: 1px solid var(--settings-rule) !important;
 }
 [data-semantic-key="settings"] > [data-surface-role="dialog-header"] > [data-semantic-key="heading"] {
   margin: 0 !important;
-  font-size: 15px !important;
-  font-weight: 600 !important;
+  font-size: 14px !important;
+  font-weight: 550 !important;
   line-height: 1.3 !important;
 }
 [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
@@ -517,18 +523,18 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   overflow: hidden !important;
 }
 [data-semantic-key="settings"] button {
-  --control-rest-background: var(--selvedge-surface) !important;
-  --control-hover-background: var(--selvedge-hover) !important;
+  --control-rest-background: var(--settings-field) !important;
+  --control-hover-background: var(--settings-fill) !important;
   --control-pressed-background: var(--selvedge-pressed) !important;
   flex: none !important;
   justify-content: center !important;
   inline-size: auto !important;
   min-inline-size: 0 !important;
   max-inline-size: 100% !important;
-  min-block-size: 36px !important;
-  padding: 6px 12px !important;
-  border: 1px solid var(--selvedge-border) !important;
-  border-radius: 7px !important;
+  min-block-size: 34px !important;
+  padding: 5px 11px !important;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: 6px !important;
   background: var(--control-current-background, var(--control-rest-background)) !important;
   color: var(--selvedge-text) !important;
   font-size: 13px !important;
@@ -543,19 +549,18 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   min-block-size: 34px !important;
   padding: 0 !important;
   border-color: transparent !important;
-  color: var(--selvedge-muted) !important;
+  color: var(--settings-muted) !important;
 }
 [data-semantic-key="settings"] button[data-semantic-key="close"] > svg { display: none !important; }
 [data-semantic-key="settings"] button[data-semantic-key="close"]::before {
   content: "";
   position: absolute;
-  inset-block-start: calc(50% - 4px);
-  inset-inline-start: calc(50% - 3px);
-  inline-size: 8px;
-  block-size: 8px;
-  border: solid currentColor;
-  border-width: 0 0 1.5px 1.5px;
-  transform: rotate(45deg);
+  inset-block-start: calc(50% - 7px);
+  inset-inline-start: calc(50% - 7px);
+  inline-size: 14px;
+  block-size: 14px;
+  background: currentColor;
+  clip-path: polygon(41% 14%, 49% 22%, 26% 44%, 94% 44%, 94% 56%, 26% 56%, 49% 78%, 41% 86%, 5% 50%);
 }
 [data-semantic-key="settings-nav"],
 [data-semantic-key="settings-content"] {
@@ -570,20 +575,20 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
-  gap: 4px !important;
+  gap: 3px !important;
   padding: var(--settings-top) 2px 18px !important;
 }
 [data-semantic-key="settings"] button[data-semantic-key="settings-category"] {
   --control-rest-background: transparent !important;
   justify-content: flex-start !important;
-  padding: 7px 12px !important;
+  padding: 5px 11px !important;
   border-color: transparent !important;
-  font-size: 14px !important;
+  font-size: 13.5px !important;
   font-weight: 500 !important;
   text-align: start;
 }
 [data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
-  --control-rest-background: var(--selvedge-selection) !important;
+  --control-rest-background: var(--settings-fill) !important;
   font-weight: 600 !important;
 }
 [data-semantic-key="settings"] :is(button[data-semantic-key="settings-category"], [data-semantic-key="theme-options"] > button) > [aria-hidden="true"] {
@@ -595,49 +600,49 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: 0 !important;
 }
 [data-semantic-key="settings-content"] > [data-semantic-key="heading"] {
-  margin: 0 0 16px !important;
-  font-size: clamp(23px, 2.1vw, 29px) !important;
-  font-weight: 650 !important;
-  line-height: 1.2 !important;
-  letter-spacing: -.027em;
+  margin: 0 0 21px !important;
+  font-size: 19px !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -.014em;
 }
 [data-semantic-key="settings-group"] {
   padding: 0 !important;
   gap: 0 !important;
 }
-[data-semantic-key="settings-group"] + [data-semantic-key="settings-group"] { margin-block-start: 22px; }
+[data-semantic-key="settings-group"] + [data-semantic-key="settings-group"] {
+  margin-block-start: 18px;
+  padding-block-start: 18px !important;
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
 [data-semantic-key="settings-group"] > [data-semantic-key="heading"] {
-  margin: 0 0 5px !important;
-  padding-block-start: 10px;
-  font-size: 16px !important;
-  font-weight: 650 !important;
-  letter-spacing: -.01em;
+  margin: 0 0 4px !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
 }
 [data-semantic-key="settings-row"] {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) min(44%, 322px);
+  grid-template-columns: minmax(0, 1fr) min(44%, 300px);
   align-items: center !important;
-  gap: 12px 28px !important;
+  gap: 9px 22px !important;
   min-inline-size: 0 !important;
-  padding: 16px 0 !important;
-  border-block-end: 1px solid var(--selvedge-border) !important;
+  padding: 9px 0 !important;
 }
-[data-semantic-key="settings-row"]:last-child { border-block-end-color: transparent !important; }
 [data-semantic-key="settings-copy"] {
   padding: 0 !important;
-  gap: 4px !important;
+  gap: 2px !important;
   min-inline-size: 0 !important;
 }
 [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="setting-name"]) {
   margin: 0 !important;
   color: var(--selvedge-text) !important;
   font-size: 14px !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   line-height: 1.45 !important;
 }
 [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
   margin: 0 !important;
-  color: var(--selvedge-muted) !important;
+  color: var(--settings-muted) !important;
   font-size: 13px !important;
   line-height: 1.45 !important;
 }
@@ -652,31 +657,48 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="setting-summary"] {
   display: block !important;
-  flex: 0 1 auto !important;
+  flex: 1 1 auto !important;
   inline-size: auto !important;
   min-inline-size: 0 !important;
-  color: var(--selvedge-muted) !important;
-  max-inline-size: min(168px, 42vw) !important;
+  color: inherit !important;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px !important;
+  font: inherit !important;
 }
 [data-semantic-key="settings-controls"] > :has(> :is(input, select)) {
-  inline-size: clamp(130px, 16vw, 210px) !important;
+  inline-size: var(--settings-value-width) !important;
+}
+[data-semantic-key="settings-controls"] > :has(> input) { inline-size: 124px !important; }
+[data-semantic-key="settings"] button[data-semantic-key="edit"] {
+  inline-size: var(--settings-value-width) !important;
+  gap: 8px !important;
+  font-weight: 500 !important;
+  text-align: start;
+}
+[data-semantic-key="settings"] button[data-semantic-key="edit"]::before {
+  content: "";
+  order: 1;
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  margin-inline-end: 2px;
+  border: solid var(--settings-muted);
+  border-width: 0 1px 1px 0;
+  transform: rotate(-45deg);
 }
 [data-semantic-key="settings-controls"] > :has(> :is(input, select)) > span {
   display: none !important;
 }
 [data-semantic-key="settings"] :is(select, input, textarea) {
   min-inline-size: 0 !important;
-  min-block-size: 36px !important;
+  min-block-size: 34px !important;
   inline-size: 100% !important;
   max-inline-size: 100% !important;
-  padding: 7px 10px !important;
-  border: 1px solid var(--selvedge-border) !important;
-  border-radius: 7px !important;
-  background: var(--selvedge-surface) !important;
+  padding: 6px 10px !important;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: 6px !important;
+  background: var(--settings-field) !important;
   color: var(--selvedge-text) !important;
   font: inherit !important;
   font-size: 13px !important;
@@ -693,9 +715,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   max-inline-size: 100% !important;
   gap: 2px !important;
   padding: 3px !important;
-  border: 1px solid var(--selvedge-border) !important;
-  border-radius: 9px !important;
-  background: var(--selvedge-inset) !important;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: 8px !important;
+  background: var(--settings-fill) !important;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
   --control-rest-background: transparent !important;
@@ -703,11 +725,11 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 4px 8px !important;
   border-color: transparent !important;
   border-radius: 5px !important;
-  color: var(--selvedge-muted) !important;
+  color: var(--settings-muted) !important;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
-  --control-rest-background: var(--selvedge-surface) !important;
-  border-color: var(--selvedge-border) !important;
+  --control-rest-background: var(--settings-field) !important;
+  border-color: var(--settings-rule) !important;
   color: var(--selvedge-text) !important;
 }
 [data-semantic-key="theme-options"] > button > span { text-align: center !important; }
@@ -716,9 +738,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   min-inline-size: 0 !important;
   padding: 12px !important;
   gap: 10px !important;
-  border: 1px solid var(--selvedge-border) !important;
+  border: 1px solid var(--settings-rule) !important;
   border-radius: 8px !important;
-  background: var(--selvedge-inset) !important;
+  background: var(--settings-fill) !important;
 }
 [data-semantic-key="setting-editor"] > :has(> :is(input, textarea, select)) > span { display: none !important; }
 [data-semantic-key="settings"] [data-semantic-key="configuration-actions"] {
@@ -729,6 +751,25 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
   gap: 6px !important;
 }
+[data-semantic-key="setting-editor"]:not(:has(textarea)) {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+[data-semantic-key="setting-editor"]:not(:has(textarea)) > [role="status"] {
+  flex: 1 1 auto !important;
+  align-self: center !important;
+  min-inline-size: 0 !important;
+  inline-size: auto !important;
+  margin-inline-end: auto !important;
+}
+[data-semantic-key="setting-editor"]:not(:has(textarea)) > [data-semantic-key="configuration-actions"] {
+  inline-size: auto !important;
+}
 [data-semantic-key="settings"] button[data-semantic-key="apply"] {
   --control-rest-background: var(--selvedge-accent) !important;
   --control-hover-background: var(--selvedge-accent-hover) !important;
@@ -736,9 +777,17 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-color: transparent !important;
   color: var(--selvedge-on-accent) !important;
 }
+[data-semantic-key="settings"] button[data-semantic-key="apply"]:is(:disabled, [aria-disabled="true"]) {
+  --control-rest-background: var(--settings-fill) !important;
+  border-color: var(--settings-rule) !important;
+  color: var(--settings-muted) !important;
+}
 [data-semantic-key="settings"] button[data-semantic-key="setting-switch"] {
+  --settings-switch-center: 9px;
+  --settings-switch-knob: var(--settings-field);
   position: relative;
-  inline-size: 42px !important;
+  inline-size: 36px !important;
+  min-block-size: 34px !important;
   padding: 0 !important;
   border: 0 !important;
   background: transparent !important;
@@ -747,32 +796,23 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings"] button[data-semantic-key="setting-switch"]::before {
   content: "";
   position: absolute;
-  inset: 7px 0;
-  border: 1px solid var(--selvedge-border);
-  border-radius: 11px;
-  background: var(--selvedge-selection);
+  inset: calc(50% - 10px) 0;
+  border: 1px solid var(--settings-rule);
+  border-radius: 10px;
+  background: radial-gradient(circle at var(--settings-switch-center) 50%,
+    var(--settings-switch-knob) 6.5px, transparent 7.5px) var(--settings-fill);
 }
-[data-semantic-key="settings"] button[data-semantic-key="setting-switch"]::after {
-  content: "";
-  position: absolute;
-  inset-block-start: 10px;
-  inset-inline-start: 4px;
-  inline-size: 16px;
-  block-size: 16px;
-  border-radius: 50%;
-  background: var(--selvedge-surface);
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"][aria-checked="true"] {
+  --settings-switch-center: 25px;
+  --settings-switch-knob: var(--selvedge-on-accent);
 }
 [data-semantic-key="settings"] button[data-semantic-key="setting-switch"][aria-checked="true"]::before {
   border-color: var(--selvedge-accent);
-  background: var(--selvedge-accent);
-}
-[data-semantic-key="settings"] button[data-semantic-key="setting-switch"][aria-checked="true"]::after {
-  inset-inline-start: 22px;
-  background: var(--selvedge-on-accent);
+  background-color: var(--selvedge-accent);
 }
 [data-semantic-key="settings"] [role="status"] {
   margin: 0 !important;
-  color: var(--selvedge-muted) !important;
+  color: var(--settings-muted) !important;
   font-size: 13px !important;
   overflow-wrap: anywhere;
 }
@@ -788,7 +828,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
     align-items: center !important;
     gap: 3px !important;
     padding: 8px var(--settings-edge) !important;
-    border-block-end: 1px solid var(--selvedge-border) !important;
+    border-block-end: 1px solid var(--settings-rule) !important;
   }
   [data-semantic-key="settings"] button[data-semantic-key="settings-category"] {
     padding: 5px 8px !important;
@@ -805,8 +845,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
     padding: 12px 0 !important;
   }
   [data-semantic-key="settings-controls"] { justify-content: flex-start !important; }
-  [data-semantic-key="settings-controls"] > :has(> :is(input, select)) { inline-size: 100% !important; }
-  [data-semantic-key="settings"] > [data-surface-role="dialog-header"] { min-block-size: 48px !important; padding-block: 5px !important; }
+  [data-semantic-key="settings-controls"] > :has(> :is(input, select)),
+  [data-semantic-key="settings"] button[data-semantic-key="edit"] { inline-size: 100% !important; }
 }
 
 [data-semantic-key="side/actions"] {
