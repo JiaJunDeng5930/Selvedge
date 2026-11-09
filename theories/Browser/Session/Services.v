@@ -91,15 +91,29 @@ Definition decode_connection value := match string_field "status" value with
  |Some "failed"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionFailed ticket reason)
  |Some "revoked"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionRevoked ticket reason)
  |_=>None end.
+Inductive SettingsSection :=
+| SettingsGeneral | SettingsModels | SettingsTasks | SettingsContext | SettingsConnection.
+Definition settings_section_name section :=
+  match section with
+  | SettingsGeneral => "general"
+  | SettingsModels => "models"
+  | SettingsTasks => "tasks"
+  | SettingsContext => "context"
+  | SettingsConnection => "connection"
+  end.
+Definition decode_settings_section name :=
+  find (fun section => String.eqb (settings_section_name section) name)
+    [SettingsGeneral; SettingsModels; SettingsTasks; SettingsContext; SettingsConnection].
 Record services := Services {
-  connection:connection_observation; settings_return:option string; theme:appearance; next_ticket:N;
+  connection:connection_observation; settings_return:option string; settings_section:SettingsSection;
+  theme:appearance; next_ticket:N;
   uploads:list(resource upload_request attachment); preview:resource preview_request string;
   directory:resource directory_request json; directory_location:string;
   model_preference:option (string * string); storage_problem:option string;
   preparations:list(resource preparation directory_observation); workspace_git:resource (editor*string) bool;
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation);
   service_configuration:Configuration.state }.
-Definition initial := Services ConnectionDormant None SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [] Configuration.initial.
+Definition initial := Services ConnectionDormant None SettingsGeneral SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [] Configuration.initial.
 Definition connected s := match connection s with ConnectionReady _ => true | _ => false end.
 Definition retained_file_handles s := flat_map(fun resource=>match resource with
  |Loading _ request|Failed _ request _=>[file_handle(upload_file request)]
@@ -110,9 +124,10 @@ Definition settings_focus_target trigger :=
 Definition settings_open s := match settings_return s with Some _=>true|None=>false end.
 Definition with_connection c s := set connection (fun _ => c) s.
 Definition with_configuration value s := set service_configuration (fun _ => value) s.
+Definition with_settings_section section s := set settings_section (fun _ => section) s.
 Definition with_settings_return trigger s :=
   set settings_return (fun _ => trigger)
-    (match trigger with None => with_configuration Configuration.initial s | Some _ => s end).
+    (match trigger with None => with_configuration (Configuration.cancel (service_configuration s)) s | Some _ => s end).
 Definition with_theme t s := set theme (fun _ => t) s.
 Definition with_next n s := set next_ticket (fun _ => n) s.
 Definition with_uploads u s := set uploads (fun _ => u) s.
@@ -160,8 +175,9 @@ Inductive service_input :=
 | CommandAssessed(ticket:N)(outcome:sum string CommandAssessment.observation) | RetryAssessment(owner:editor)
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
-| OpenSettings | CloseSettings
+| OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string) | EditConfiguration(raw:string)
+| EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
 | SetConfiguration | ResetConfiguration
 | ConfigurationLoaded(ticket:N)(outcome:sum string Configuration.Config.snapshot)
 | ConfigurationWritten(ticket:N)(outcome:sum string Configuration.Config.snapshot)
@@ -207,14 +223,31 @@ Definition connect s :=
   let clean:=service_state ended in let t:=next_ticket clean in
   effects(with_next(N.succ t)(with_connection(ConnectionLoading t)clean))
     (service_effects ended++[Authenticate t]).
+Definition configuration_read s :=
+  let view := service_configuration s in
+  if settings_open s && connected s &&
+     negb (Configuration.reading view || Configuration.pending view || Configuration.dirty view) then
+    let ticket := next_ticket s in
+    effects (with_next (N.succ ticket) (with_configuration (Configuration.begin_read ticket) s))
+      [ReadConfiguration ticket]
+  else keep s.
 Definition auth_result t (result:sum string unit) s :=
   match connection s with
   | ConnectionLoading u => if N.eqb t u then
-      let observation:=match result with inl error=>ConnectionFailed t error|inr _=>ConnectionReady t end in
-      let s':=with_connection observation s in
-      match result with inr _=>effects(with_settings_return None s')[]
-      |inl _=>effects(with_settings_return(Some(match settings_return s' with
-          Some trigger=>trigger|None=>"main"end))s')[Reconnect t 1000]end
+      match result with
+      | inr _ =>
+          let ready := with_connection (ConnectionReady t) s in
+          match settings_return ready, Configuration.catalog (service_configuration ready) with
+          | Some "main", _ => keep (with_settings_return None ready)
+          | Some _, Dormant => configuration_read ready
+          | _, _ => keep ready
+          end
+      | inl error =>
+          let failed := with_connection (ConnectionFailed t error) s in
+          let view := if settings_open failed then failed else
+            with_settings_section SettingsConnection (with_settings_return (Some "main") failed) in
+          effects view [Reconnect t 1000]
+      end
     else keep s
   | _=>keep s end.
 Definition begin_upload e f s := let t:=next_ticket s in
@@ -272,16 +305,17 @@ Definition service_step input s :=
       |None => keep (with_storage_problem (Some "无法恢复本地模型偏好：存储内容无效。") s) end
   | StorageProblem message => keep (with_storage_problem (Some message) s)
   | DismissStorageProblem => keep (with_storage_problem None s)
-  | OpenSettings=>effects(with_settings_return(Some "nav/settings")s)[]
+  | OpenSettings =>
+      if settings_open s then keep s else
+      configuration_read (with_settings_section SettingsGeneral (with_settings_return (Some "nav/settings") s))
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
-  | LoadConfiguration =>
-      if settings_open s && connected s && negb (Configuration.pending (service_configuration s)) then
-        let ticket := next_ticket s in
-        effects (with_next (N.succ ticket) (with_configuration (Configuration.begin_read ticket) s))
-          [ReadConfiguration ticket]
-      else keep s
+  | SelectSettingsSection section =>
+      if settings_open s then keep (with_settings_section section s) else keep s
+  | LoadConfiguration => configuration_read s
   | SelectConfiguration path => keep (with_configuration (Configuration.select path (service_configuration s)) s)
   | EditConfiguration raw => keep (with_configuration (Configuration.write_input raw (service_configuration s)) s)
+  | EditConfigurationAt path raw => keep (with_configuration (Configuration.write_input_at path raw (service_configuration s)) s)
+  | CancelConfigurationEdit => keep (with_configuration (Configuration.cancel (service_configuration s)) s)
   | SetConfiguration => configuration_write false s
   | ResetConfiguration => configuration_write true s
   | ConfigurationLoaded ticket result =>
@@ -325,14 +359,15 @@ Definition service_step input s :=
   end.
 Definition encode_unit (_:unit):json:=JNull.
 Definition decode_unit(j:json):option unit:=match j with JNull=>Some tt|_=>None end.
-Definition encode_services s := JObject[("connection",encode_connection(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end);("service_configuration", Configuration.encode (service_configuration s))].
+Definition encode_services s := JObject[("connection",encode_connection(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("settings_section", JString (settings_section_name (settings_section s)));("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end);("service_configuration", Configuration.encode (service_configuration s))].
 Definition decode_services j :=
   c<-bind(field "connection" j)decode_connection;;o<-bind(field "settings_return" j)(fun value=>match value with JNull=>Some None|JString trigger=>Some(Some trigger)|_=>None end);;
+  section<-bind(string_field "settings_section" j)decode_settings_section;;
   a<-bind(string_field "appearance" j)decode_appearance;;n<-natural_field "next" j;;
   u<-list_field(decode_resource decode_upload decode_attachment)"uploads" j;;
   p<-bind(field "preview" j)(decode_resource decode_preview as_string);;
   d<-bind(field "directory" j)(decode_resource decode_directory decode_directory_catalog);;
-  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;configuration<-bind(field "service_configuration" j)Configuration.decode;;Some(Services c o a n u p d l pref problem ps git assessments configuration).
+  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;configuration<-bind(field "service_configuration" j)Configuration.decode;;Some(Services c o section a n u p d l pref problem ps git assessments configuration).
 Definition encode_effect e :=
   let effect kind fields:=JObject(("type",JString kind)::fields)in
   match e with

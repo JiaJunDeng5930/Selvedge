@@ -16,6 +16,7 @@ Record state := State {
 
 Definition initial := State Dormant None Dormant.
 Definition pending s := match writing s with Loading _ _ => true | _ => false end.
+Definition reading s := match catalog s with Loading _ _ => true | _ => false end.
 Definition available s := match catalog s with Loaded _ _ value => Some value | _ => None end.
 Definition editing s :=
   current <- available s ;;
@@ -23,8 +24,25 @@ Definition editing s :=
   entry <- Config.find_setting (draft_path draft) current ;;
   Some (current, draft, entry).
 
+Definition matches_path path draft :=
+  String.eqb (Config.setting_key path) (Config.setting_key (draft_path draft)).
+Definition dirty s :=
+  match editing s with
+  | Some (_, draft, entry) => negb (String.eqb (draft_input draft) (Config.initial_input entry))
+  | None => false
+  end.
+Definition can_select path s :=
+  negb (pending s) &&
+  match current_draft s with
+  | Some draft => matches_path path draft || negb (dirty s)
+  | None => true
+  end.
 Definition select path s :=
-  if pending s then s else
+  let already_selected := match current_draft s with
+    | Some draft => matches_path path draft
+    | None => false
+    end in
+  if already_selected || negb (can_select path s) then s else
   match bind (available s) (Config.find_setting path) with
   | Some entry => State (catalog s) (Some (Draft path (Config.initial_input entry))) Dormant
   | None => s
@@ -35,6 +53,14 @@ Definition write_input raw s :=
   | Some draft => State (catalog s) (Some (Draft (draft_path draft) raw)) Dormant
   | None => s
   end.
+Definition write_input_at path raw s :=
+  let selected := select path s in
+  match current_draft selected with
+  | Some draft => if matches_path path draft then write_input raw selected else s
+  | None => s
+  end.
+Definition cancel s :=
+  if pending s then s else State (catalog s) None Dormant.
 Definition begin_read ticket := State (Loading ticket tt) None Dormant.
 Definition read_finished ticket outcome s :=
   State (settle ticket outcome (catalog s)) (current_draft s) (writing s).

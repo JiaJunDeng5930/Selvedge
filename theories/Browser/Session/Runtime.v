@@ -320,7 +320,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 Definition retire_namespace namespace state:=
  if String.eqb namespace(DocumentState.retention_namespace(SS.document_retention state))then Authoring.keep state else
  let previous:=SS.service_state state in
- let services:=Services.Services(Services.connection previous)(Services.settings_return previous)(Services.theme previous)(Services.next_ticket previous)
+ let services:=Services.Services(Services.connection previous)(Services.settings_return previous)(Services.settings_section previous)
+   (Services.theme previous)(Services.next_ticket previous)
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
    [] Resource.Dormant [] Configuration.initial in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in

@@ -2,40 +2,44 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { browserFixture } from './fixtures/browser.mjs';
 
-test('Settings applies a configuration edit and shows the saved value after reload', { timeout: 60000 }, async t => {
+test('Settings applies configuration edits and shows their saved values after reload', { timeout: 60000 }, async t => {
   const { page } = await browserFixture(t);
   const instructions = 'Keep headings concise.\n保留中文。';
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const editInstructions = dialog.getByRole('button', { name: 'Edit instructions', exact: true });
+  const instructionsInput = dialog.getByRole('textbox', { name: 'Instructions', exact: true });
+  const listenAddress = dialog.getByRole('combobox', { name: 'Listen address', exact: true });
+  const general = dialog.getByRole('radio', { name: 'General', exact: true });
+  const connection = dialog.getByRole('radio', { name: 'Connection', exact: true });
 
-  async function openConfiguration() {
+  async function openSettings() {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: 'Settings', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
-    await dialog.getByRole('button', { name: 'Edit service configuration', exact: true }).click();
-    return dialog;
   }
 
-  let dialog = await openConfiguration();
-  await dialog.getByRole('combobox', { name: 'Configuration item', exact: true })
-    .selectOption({ label: 'instructions' });
-  await dialog.getByRole('textbox', { name: 'Configuration value', exact: true }).fill(instructions);
-  await dialog.getByRole('button', { name: 'Apply configuration change', exact: true }).click();
-  await dialog.getByRole('status').filter({ hasText: 'Configuration updated' }).waitFor();
+  async function applyChange() {
+    await dialog.getByRole('button', { name: 'Apply configuration change', exact: true }).click();
+    await dialog.getByRole('status').filter({ hasText: 'Configuration updated' }).waitFor();
+  }
 
-  await dialog.getByRole('combobox', { name: 'Configuration item', exact: true })
-    .selectOption({ label: 'host' });
-  await dialog.getByRole('combobox', { name: 'Configuration value', exact: true })
-    .selectOption({ label: '::1' });
-  await dialog.getByRole('button', { name: 'Apply configuration change', exact: true }).click();
-  await dialog.getByRole('status').filter({ hasText: 'Configuration updated' }).waitFor();
+  await openSettings();
+  await editInstructions.click();
+  await instructionsInput.fill(instructions);
+  await connection.click();
+  await listenAddress.waitFor();
+  await general.click();
+  assert.equal(await instructionsInput.inputValue(), instructions);
+  await applyChange();
+
+  await connection.click();
+  await listenAddress.selectOption({ label: '::1' });
+  await applyChange();
 
   await page.reload();
-  dialog = await openConfiguration();
-  await dialog.getByRole('combobox', { name: 'Configuration item', exact: true })
-    .selectOption({ label: 'instructions' });
-  assert.equal(await dialog.getByRole('textbox', { name: 'Configuration value', exact: true }).inputValue(),
-    instructions);
-  await dialog.getByRole('combobox', { name: 'Configuration item', exact: true })
-    .selectOption({ label: 'host' });
-  assert.equal(await dialog.getByRole('combobox', { name: 'Configuration value', exact: true })
-    .locator('option:checked').textContent(), '::1');
+  await openSettings();
+  await editInstructions.click();
+  assert.equal(await instructionsInput.inputValue(), instructions);
+
+  await connection.click();
+  assert.equal(await listenAddress.locator('option:checked').textContent(), '::1');
 });
