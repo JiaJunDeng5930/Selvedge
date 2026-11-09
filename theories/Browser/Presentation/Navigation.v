@@ -39,17 +39,23 @@ Definition work_count snapshot := N.of_nat(S(List.length(value_or[](works snapsh
 Definition work_picker snapshot s parent identity label :=
  declared parent (Roles.CompactWorkScope(work_label snapshot s)(work_count snapshot))
   (secondary identity label(Input.OpenNavigation WorkOverview(part parent identity))).
-Fixpoint task_entry_tree current parent (tree:task_tree) : node Input.input :=
+Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.input :=
  let 'TaskTree task children:=tree in
- let key:=part parent("task/"++show_natural(task_id task))in
+ let id:=task_id task in
+ let key:=part parent("task/"++show_natural id)in
+ let expanded:=negb(existsb(N.eqb id)collapsed)in
+ let disclosure:=match children with []=>[]|_=>
+  let label:=(if expanded then "Collapse branches of " else "Expand branches of ")++task_title task in
+  [Node(part key "toggle-branches")"toggle-branches" label Roles.Button
+   (PanelToggle expanded(secondary "toggle-branches" label(Input.ToggleTaskBranches id)))[]]end in
  Node key "task-entry" (task_title task) Roles.Section
-  (TaskRow(task_id task)(task_status task)(task_caption task)(task_working task)(task_selected current task))
-  ([declared key(Roles.NavigationEntry(task_selected current task))
-      (secondary "open"(task_title task)(Input.Navigate(Conversation(task_id task))))] ++
-   match children with
-   |[]=>[]
-   |_=>[Node(part key "children")"task-children" "Subtasks" Roles.NavigationCollection
-         (TaskChildren(task_id task))(map(task_entry_tree current key)children)]end)%list.
+  (TaskRow id(task_status task)(task_caption task)(task_working task)(task_selected current task))
+  (disclosure ++ [declared key(Roles.NavigationEntry(task_selected current task))
+      (secondary "open"(task_title task)(Input.Navigate(Conversation id)))] ++
+   match children,expanded with
+   |[],_ |_,false=>[]
+   |_,true=>[Node(part key "children")"task-children" "Subtasks" Roles.NavigationCollection
+         (TaskChildren id)(map(task_entry_tree current collapsed key)children)]end)%list.
 Definition project_entry snapshot s current parent tasks (project:project) :=
  let id:=project_id project in
  let key:=part parent("project/"++show_natural id)in
@@ -61,7 +67,7 @@ Definition project_entry snapshot s current parent tasks (project:project) :=
      declared key(Roles.NavigationEntry selected)(secondary "open"(project_name project)(Input.BeginTask(Some id)));
      declared key Roles.Button(secondary "create" "New task"(Input.BeginTask(Some id)));
      declared key Roles.Button(secondary "more" "Project actions"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
-   if expanded then map(task_entry_tree current key)(forest(project_tasks(Some id)tasks)) else []).
+   if expanded then map(task_entry_tree current (State.collapsed_tasks s) key)(forest(project_tasks(Some id)tasks)) else []).
 Definition work_destinations s :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
@@ -85,7 +91,7 @@ Definition task_collection snapshot s :=
     |[]=>[]
     |trees=>[region "/navigation" "independent-tasks" "" Roles.NavigationSection
        (information(part "/navigation" "independent-tasks")"title" Information.NavigationCaption "Tasks without a project"::
-        map(task_entry_tree current "/navigation")trees)]end in
+        map(task_entry_tree current (State.collapsed_tasks s) "/navigation")trees)]end in
    List.app(map(project_entry snapshot s current "/navigation" scoped)visible)independent
  |_,_=>[read_only "/navigation" "unavailable" "Tasks" "Task navigation observations unavailable"]end in
  region "/navigation" "contents" "" Roles.NavigationCollection

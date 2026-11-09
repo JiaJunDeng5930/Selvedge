@@ -212,6 +212,8 @@ Export PublicationProof(a_prepared_document_has_no_input_authority,
     Contextual actions must remain reachable by focus and non-hover input, and
     revealing them must not move the title. Concealment, selection and command
     availability are not interchangeable.
+    A Task with branches keeps its title as a conversation link while its
+    adjacent disclosure controls the visibility of its descendants.
 
     Narrow navigation renders the same Task tree through a native drawer, with
     explicit return focus and retained reading position. Modal native behavior

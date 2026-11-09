@@ -258,31 +258,114 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   --control-rest-background: var(--selvedge-canvas) !important;
   --control-rest-color: var(--selvedge-text) !important;
 }
+@supports (top: anchor(top)) {
+  [data-workspace-sidebar]:has([data-semantic-key="rename-work"]) > [data-surface-role="compact-work-scope"] {
+    anchor-name: --work-scope-control;
+    inline-size: calc(100% - 36px) !important;
+  }
+  [data-workspace-sidebar]:has(> [data-surface-role="compact-work-scope"]) [data-semantic-key="rename-work"] {
+    position: absolute;
+    position-anchor: --work-scope-control;
+    inset-inline-start: calc(anchor(end) + 4px);
+    inset-block-start: anchor(start);
+    justify-content: center !important;
+    inline-size: 32px !important;
+    min-inline-size: 0 !important;
+    padding: 0 !important;
+  }
+}
 [data-workspace-sidebar] :is(button, [role="button"])[aria-current="true"] {
   font-weight: var(--rich-strong-weight) !important;
 }
-[data-workspace-sidebar] :is([data-navigation-slot="identity"], [data-navigation-slot="status"], button > svg) {
+[data-workspace-sidebar] :is([data-navigation-slot="status"], button > svg) {
   color: var(--selvedge-muted);
 }
 [data-workspace-sidebar] [data-navigation-slot="title"] { text-align: start; }
 
-/* Tree lines follow the extent of each child, including its nested descendants. */
-[data-task-branches] { padding-inline-start: 18px !important; row-gap: 0 !important; }
+[data-task-tree-entry] {
+  --task-row-height: 32px;
+  --task-marker-width: 24px;
+  --task-indent: 18px;
+}
+[data-task-tree-row] {
+  min-block-size: var(--task-row-height);
+  border-radius: 6px;
+}
+[data-task-tree-entry][aria-current="true"] > [data-task-tree-row] {
+  background: var(--selvedge-selection);
+}
+[data-task-tree-row] > button[data-semantic-key="open"] {
+  min-inline-size: 0 !important;
+  min-block-size: var(--task-row-height) !important;
+  padding-inline-end: 5px !important;
+}
+[data-task-tree-row] [data-navigation-slot="status"] svg { inline-size: 12px; block-size: 12px; }
+[data-task-tree-row] > :is([data-task-marker], [data-semantic-key="toggle-branches"]),
+[data-navigation-slot="disclosure"] > button {
+  position: relative;
+  display: grid !important;
+  place-items: center;
+  flex: none !important;
+  inline-size: var(--task-marker-width, 24px) !important;
+  min-inline-size: 0 !important;
+  min-block-size: var(--task-row-height, 32px) !important;
+  padding: 0 !important;
+  color: var(--selvedge-muted) !important;
+}
+:is([data-task-marker], [data-semantic-key="toggle-branches"], [data-navigation-slot="disclosure"] > button)::after {
+  content: "";
+  position: static;
+  display: block;
+  inline-size: 5px;
+  block-size: 5px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+:is([data-semantic-key="toggle-branches"], [data-navigation-slot="disclosure"] > button)[aria-expanded="false"]::after {
+  box-shadow: 0 0 0 2px var(--selvedge-navigation), 0 0 0 3px var(--selvedge-connector);
+}
+[data-navigation-slot="disclosure"] > button > svg { display: none; }
+[data-task-tree-row] > [data-semantic-key="toggle-branches"]:is(:hover, :focus-visible)::before,
+[data-navigation-slot="disclosure"] > button:is(:hover, :focus-visible)::before {
+  content: "";
+  position: absolute;
+  inset: auto;
+  inset-inline-start: 2px;
+  inset-block-start: calc(50% - 2px);
+  inline-size: 4px;
+  block-size: 4px;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  rotate: -45deg;
+}
+:is([data-semantic-key="toggle-branches"], [data-navigation-slot="disclosure"] > button)[aria-expanded="true"]::before {
+  rotate: 45deg;
+}
+
+/* The first branch starts at its parent's dot and siblings share a stem. */
+[data-task-branches] { padding-inline-start: var(--task-indent) !important; row-gap: 0 !important; }
 [data-task-branches] > [data-task-tree-entry] { position: relative; }
 [data-task-branches] > [data-task-tree-entry]::before,
 [data-task-branches] > [data-task-tree-entry]:not(:last-child)::after {
   content: "";
   position: absolute;
-  inset-inline-start: -9px;
+  inset-inline-start: calc(var(--task-marker-width) / 2 - var(--task-indent));
   border-inline-start: 1px solid var(--selvedge-connector);
   pointer-events: none;
 }
 [data-task-branches] > [data-task-tree-entry]::before {
   inset-block-start: 0;
-  inline-size: 9px;
-  block-size: 1rem;
+  inline-size: calc(var(--task-indent) - 2px);
+  block-size: calc(var(--task-row-height) / 2 + 1px);
   border-block-end: 1px solid var(--selvedge-connector);
-  border-end-start-radius: 8px;
+  border-end-start-radius: 9px;
+}
+[data-task-branches] > [data-task-tree-entry]:first-child::before {
+  inset-block-start: calc(-1 * var(--task-row-height) / 2);
+  block-size: calc(var(--task-row-height) + 1px);
 }
 [data-task-branches] > [data-task-tree-entry]:not(:last-child)::after { inset-block: 0; }
 
@@ -327,45 +410,130 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   justify-content: flex-end;
   gap: .25rem !important;
 }
-[data-voice-controls] > summary {
-  width: fit-content;
-  padding: .15rem .3rem;
-  border-radius: 4px;
-  color: var(--selvedge-muted);
-  font-size: var(--rich-support-size);
-  cursor: pointer;
-}
-[data-voice-controls] > summary:hover { background: var(--selvedge-hover); }
-[data-voice-controls-body] {
-  margin-block-start: .25rem;
-  padding: .35rem !important;
-  border-radius: 6px;
-  background: var(--selvedge-inset) !important;
-}
 [data-composer-dock] {
+  container: composer / inline-size;
+  inline-size: 100%;
+  gap: .2rem !important;
+  padding: .45rem .5rem !important;
+  border-radius: 12px !important;
+  background: var(--selvedge-surface) !important;
+}
+[data-composer-dock] > textarea {
+  min-block-size: 3.1rem !important;
+  max-block-size: min(13rem, 27dvh) !important;
+  overflow-y: auto;
+  padding: .35rem .35rem .2rem !important;
+}
+[data-composer-dock] > textarea::placeholder { color: var(--selvedge-muted); }
+[data-composer-dock] > [data-semantic-key="assessment"]:empty { display: none !important; }
+[data-semantic-key="composer/actions"] {
   display: grid !important;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: .45rem .55rem !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: .3rem !important;
 }
-[data-composer-dock] > * { grid-column: 1 / -1; }
-[data-composer-dock] > [data-voice-controls]:not([open]) {
-  grid-column: 1;
-  align-self: start;
-  margin-block-start: .3rem;
+[data-semantic-key="composer/accessories"],
+[data-semantic-key="composer/tools"] {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  align-self: center !important;
+  gap: 2px !important;
+  min-inline-size: 0 !important;
 }
-[data-composer-dock] > [data-voice-controls]:not([open]) + [data-semantic-key="attachments"] {
-  grid-column: 2;
+[data-semantic-key="composer/accessories"] {
+  padding-inline-end: .3rem;
+  border-inline-end: 1px solid var(--selvedge-border);
 }
-[data-composer-dock] [data-semantic-key="attachments"] > [data-file-picker] {
-  align-self: flex-start;
-  inline-size: fit-content !important;
+[data-semantic-key="composer/accessories"] > [data-file-picker],
+[data-voice-controls] > summary {
+  display: grid !important;
+  place-items: center;
+  inline-size: 30px !important;
+  min-inline-size: 0 !important;
+  block-size: 32px !important;
+  min-block-size: 0 !important;
+  padding: 0 !important;
+  border-radius: 6px;
+  color: var(--selvedge-muted);
+}
+[data-voice-controls] { position: relative; flex: none !important; }
+[data-voice-controls] > summary { list-style: none; cursor: pointer; }
+[data-voice-controls] > summary::-webkit-details-marker { display: none; }
+[data-voice-controls] > summary:hover,
+[data-voice-controls][open] > summary,
+[data-semantic-key="composer/accessories"] > [data-file-picker]:hover { background: var(--selvedge-hover); }
+[data-voice-controls-body] {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: calc(100% + .6rem);
+  inset-inline-start: -2rem;
+  inline-size: min(19rem, 100cqi) !important;
+  max-inline-size: none !important;
+  max-block-size: min(16rem, 42dvh) !important;
+  overflow-y: auto;
+  padding: .55rem !important;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 9px;
+  background: var(--selvedge-surface) !important;
+  box-shadow: 0 6px 20px #0002;
+}
+[data-semantic-key="composer/tools"] > button {
+  min-inline-size: 0 !important;
+  min-block-size: 32px !important;
+  padding: 0 .35rem !important;
+}
+[data-semantic-key="composer/tools"] [data-property-summary] {
+  min-inline-size: 0 !important;
+  overflow: hidden;
+}
+[data-semantic-key="composer/tools"] [data-property-summary] > * {
+  display: block !important;
+  min-inline-size: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-semantic-key="composer/delivery"] > svg:first-child,
+[data-semantic-key="composer/tools"] [data-support-secondary] {
+  display: none !important;
+}
+@container composer (max-width: 425px) {
+  [data-semantic-key="composer/tools"] > [data-semantic-key="composer/permissions"] {
+    flex: none !important;
+    inline-size: 29px;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+  [data-semantic-key="composer/tools"] > [data-semantic-key="composer/permissions"] > :is([data-property-summary], svg:last-of-type) {
+    display: none !important;
+  }
+  [data-semantic-key="composer/tools"] > [data-semantic-key="composer/delivery"] {
+    flex: none !important;
+    gap: .15rem !important;
+    padding-inline: .2rem !important;
+  }
+}
+@container composer (max-width: 300px) {
+  [data-semantic-key="composer/model"] [data-property-summary] > * { display: none !important; }
+  [data-semantic-key="composer/model"] [data-property-summary]::before {
+    content: "Model";
+    white-space: nowrap;
+  }
+}
+[data-semantic-key="composer/submit"] {
+  min-inline-size: 34px !important;
+  min-block-size: 34px !important;
+  inline-size: 34px !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
 }
 [data-semantic-key="task-graph/canvas"] { margin-inline: auto; }
-[data-composer-dock] textarea::placeholder { color: var(--selvedge-muted); }
 [data-composer-dock] [data-surface-role="primary-button"][aria-disabled="true"],
 [data-composer-dock] [data-surface-role="primary-button"]:disabled {
-  color: var(--selvedge-accent) !important;
-  background: var(--selvedge-accent-wash) !important;
+  color: var(--selvedge-muted) !important;
+  background: var(--selvedge-inset) !important;
 }
 [data-agent-attribution] {
   display: flex;

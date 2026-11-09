@@ -278,6 +278,9 @@ Definition confirm state:=match State.layers(State.navigation_state state)with
      changed state[Issue command(State.ConfirmationSubmission(State.generation navigation)(State.layer_occurrence layer))]
    |_=>keep state end
  |[]=>keep state end.
+Definition toggle_disclosure id collapsed :=
+ if existsb(N.eqb id)collapsed then filter(fun current=>negb(N.eqb id current))collapsed
+ else id::collapsed.
 Definition step snapshot input state:option result:=match input with
  |Input.Navigate destination=>Some(visit snapshot destination state)
  |Input.SelectWork work=>Some(select_work snapshot work state)
@@ -319,7 +322,9 @@ Definition step snapshot input state:option result:=match input with
     [Attend(if visible then NavigationIdentity.key_part(NavigationIdentity.key_part "/navigation" "header")"toggle"
       else NavigationIdentity.key_part "/global-navigation" "tasks/expand")])
  |Input.ToggleProjectGroup project=>Some(keep(State.with_collapsed
-   (if existsb(N.eqb project)(State.collapsed_projects state)then filter(fun current=>negb(N.eqb project current))(State.collapsed_projects state)else project::State.collapsed_projects state)state))
+   (toggle_disclosure project(State.collapsed_projects state))state))
+ |Input.ToggleTaskBranches task=>Some(keep(State.with_collapsed_tasks
+   (toggle_disclosure task(State.collapsed_tasks state))state))
  |Input.WriteHistoryQuery query=>let old:=State.history_search(State.authoring_state state)in Some(edit_search query(State.project_filter old)(State.work_filter old)state)
  |Input.ChooseHistoryScope project scope=>let old:=State.history_search(State.authoring_state state)in Some(edit_search(State.keyword old)(if project then scope else State.project_filter old)(if project then State.work_filter old else scope)state)
  |Input.SubmitHistorySearch after=>Some(submit_search after state)

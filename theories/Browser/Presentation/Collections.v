@@ -41,7 +41,7 @@ Definition project_page snapshot s parent project :=
    [read_only parent "guidance" "Project guidance"(value_or "No project guidance"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition
    (match Projection.project_members snapshot id with
-    |Some values=>map(task_entry_tree(State.location(State.navigation_state s))parent)(forest values)
+    |Some values=>map(task_entry_tree(State.location(State.navigation_state s))(State.collapsed_tasks s)parent)(forest values)
     |None=>[read_only parent "tasks-unavailable" "Tasks" "Task observations unavailable"]end)].
 Definition elapsed_label seconds:=
  if N.ltb seconds 60 then "刚刚"else if N.ltb seconds 3600 then show_natural(N.div seconds 60)++"分钟前"

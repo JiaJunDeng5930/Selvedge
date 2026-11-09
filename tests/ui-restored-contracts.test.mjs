@@ -36,7 +36,7 @@ test('conversation navigation releases desktop space and preserves the draft thr
   const task = await selectTask(fixture, task_id);
   const main = page.getByRole('main');
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
-  assert.equal(await message.getAttribute('placeholder'), 'Ask anything, or describe a task');
+  assert.equal(await message.getAttribute('placeholder'), 'Write a message…');
   const title = main.getByText(task.title, { exact: true }).first();
   const details = main.getByRole('button', { name: 'Task details', exact: true });
   const [titleBounds, actionBounds, expanded] = await Promise.all([

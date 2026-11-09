@@ -80,15 +80,18 @@ Definition upload_node (connected:bool) parent (upload:resource Services.upload_
     (Input.ServiceInput(Services.RetryUpload ticket))(if connected then Available else Unavailable "Reconnect to retry the upload"));
   declared parent Roles.Button(secondary("remove-upload/"++show_natural ticket)"Remove failed upload"(Input.ServiceInput(Services.CancelUpload ticket)))])
 |_=>None end.
-Definition files e parent s :=
+Definition file_picker e parent s :=
+ Node(part parent "attach")"attach" "Attach files"Roles.Field
+  (ReceiveFile e (Services.connected(State.service_state s)) (Input.attach_files e))[].
+Definition file_items e parent s :=
  let services:=State.service_state s in
  let connected:=Services.connected services in
- let receive := Input.attach_files e in
- region parent "attachments" "Attachments" Roles.Section
- (Node(part parent "attach")"attach" "Attach files"Roles.Field(ReceiveFile e connected receive)[]::
-  (map(attachment_node e parent)(draft_files(State.current_draft s e))++
+ (map(attachment_node e parent)(draft_files(State.current_draft s e))++
    fold_right(fun upload rest=>match Services.upload_owner upload,upload_node connected parent upload with
-    |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services)))%list.
+    |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services))%list.
+Definition files e parent s :=
+ region parent "attachments" "Attachments" Roles.Section
+  (file_picker e parent s :: file_items e parent s).
 Module Config := Configuration.Config.
 Definition configuration_button parent key label (enabled : bool) input :=
  declared parent Roles.Button

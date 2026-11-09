@@ -163,7 +163,8 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
    Fields.MessageText,Some _=>true|_,_=>false end))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
- |Fields.MessageText=>[("placeholder","Ask anything, or describe a task");("data-focus-alias","composer-message")]
+ |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"Describe a task…"|_=>"Write a message…"end);
+   ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
  |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
  |_=>[]end) ++ disabled enabled in
@@ -759,10 +760,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  if N.eqb card(Model.card_identity face)then[DOM.Text(Model.card_title face)]
  else face_children purpose current_area role(Model.control_label action)children
  |S.WorkChoice _ _ _,_=>artwork "columns"++children
- |S.TaskRow _ status caption working _,C.NavigateTo icon=>
- [DOM.Element(key++"/identity-slot")%string "span" [("data-navigation-slot","identity")]
- [("display","flex");("align-items","center");("justify-content","center");("inline-size",Typography.px(Nat.max(ControlContent.navigation_rail env)(ControlContent.navigation_target env)));("block-size",Typography.px(ControlContent.navigation_target env));("flex","none")] [] empty(glyph icon);
- DOM.Element(key++"/title-slot")%string "span" ([("data-navigation-slot","title")] ++
+ |S.TaskRow _ status caption working _,C.NavigateTo _=>
+ [DOM.Element(key++"/title-slot")%string "span" ([("data-navigation-slot","title")] ++
  NativeAppearance.overflow_attributes NativeAppearance.SingleLineOverflow (Model.control_label action))
  [("flex","1 1 0%");("min-inline-size","0");("overflow","hidden");("text-overflow","ellipsis");("white-space","nowrap");("text-align","start")] [] empty
  (match children with []=>[DOM.Text(Model.control_label action)]|_=>children end);
@@ -837,7 +836,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.Choice kind selected description action=>button false action
  ([("role",match current_area,kind with MenuArea,S.SingleChoice=>"menuitemradio"|MenuArea,S.MultipleChoice=>"menuitemcheckbox"|_,S.SingleChoice=>"radio"|_,S.MultipleChoice=>"checkbox" end);("aria-checked",flag selected)] ++
  let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
- |S.PanelToggle expanded action=>button false action [("aria-expanded",flag expanded)]
+ |S.PanelToggle expanded action=>
+   let native:=button false action [("aria-expanded",flag expanded)] in
+   match source with
+   |S.TaskRow _ _ _ _ _=>ControlContent.replace_content [] [] [] native
+   |_=>native end
  |S.Edit owner subject value=>
  let field_attrs:=attrs ++ match current_area,UX.subject_declaration subject with
  |ComposerArea,Fields.MessageText=>[("data-focus-owner","embedded")]|_,_=>[]end in
@@ -1002,9 +1005,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.TaskRow task status caption working selected=>
  let paired:=combine(S.node_children value)children in
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
+ let marker:=if existsb(fun child=>match S.node_meaning child with S.PanelToggle _ _=>true|_=>false end)(S.node_children value)
+   then [] else [DOM.Element (key++"/marker")%string "span" [("data-task-marker","");("aria-hidden","true")] [] [] empty []] in
  let row:=DOM.Element (key++"/row")%string "div" [("data-task-tree-row","")]
    [("display","flex");("align-items","center");("min-inline-size","0")] [] empty
-   (map snd(filter(fun pair=>negb(nested pair))paired)) in
+   (marker++map snd(filter(fun pair=>negb(nested pair))paired)) in
  element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
  (row::map snd(filter nested paired))
  |S.ObjectGroup object=>element "section"
@@ -1022,7 +1027,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     |_=>String.eqb(S.semantic_key child)"speech/transcript" end)(S.node_children value)in
    DOM.Element key "details" (attrs++[("data-voice-controls","")]++(if live then [("open","")]else[]))
      [("min-inline-size","0")] [] empty
-     [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text "Voice"];
+     [DOM.Element (key++"/summary")%string "summary" [("aria-label","Voice");("title","Voice")] [] [] empty (artwork "microphone");
       DOM.Element (key++"/controls")%string "div" [("data-voice-controls-body","")]
        (styles++[("flex-wrap","wrap");("block-size","auto")]) [] empty children]
   else element (role_tag role) [] [] empty children

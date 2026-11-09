@@ -149,7 +149,7 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
  map(fun file=>declared parent Roles.Button(secondary("preview/"++asset_id file)("Preview "++asset_name file)
    (Input.ServiceInput(Services.OpenPreview file(part parent("preview/"++asset_id file))))))(Read.card_attachments card)++
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with
-  |Some entry=>[Navigation.task_entry_tree(State.location(State.navigation_state s))parent(TaskTree entry [])]|None=>[]end)++
+  |Some entry=>[Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]|None=>[]end)++
  detail_action_nodes snapshot s(CardActions id)parent)%list end.
 Definition board_settings snapshot s parent :=match Read.board_configuration snapshot with
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]

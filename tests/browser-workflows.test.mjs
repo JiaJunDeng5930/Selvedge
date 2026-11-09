@@ -104,6 +104,15 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await taskEntry(destination).waitFor();
   await taskEntry(other).waitFor();
   await branchEntry.waitFor();
+  const collapse = projectGroup.getByRole('button', { name: `Collapse branches of ${other.title}`, exact: true });
+  assert.equal(await collapse.getAttribute('aria-expanded'), 'true');
+  await collapse.click();
+  await branches.waitFor({ state: 'hidden' });
+  await taskEntry(other).waitFor();
+  const expand = projectGroup.getByRole('button', { name: `Expand branches of ${other.title}`, exact: true });
+  assert.equal(await expand.getAttribute('aria-expanded'), 'false');
+  await expand.click();
+  await branchEntry.waitFor();
   await selectWork('Research Work');
   await taskEntry(destination).waitFor();
   await taskEntry(other).waitFor({ state: 'hidden' });
