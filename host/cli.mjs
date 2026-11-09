@@ -2,13 +2,12 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadConfig, homeDirectory, defaultConfig, validateConfig } from './config.mjs';
+import { loadConfig, homeDirectory, defaultConfig, validateConfig, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
 import { login } from './chatgpt-account.mjs';
 import { loginAccount, discoverAccount, withAccountModels } from './chatgpt-models.mjs';
 import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
-import { writeAtomic } from './files.mjs';
 import { publishBytes } from './file-io.mjs';
 import { provisionRemote } from './remote-control.mjs';
 
@@ -77,14 +76,11 @@ async function remoteCommand(global, args) {
     // DEFENSE: Provisioning without the explicitly supplied enrollment secret cannot authenticate to the relay.
     if (!enrollmentToken) throw new Error('Set SELVEDGE_RELAY_ENROLLMENT_TOKEN before remote init; credentials are not accepted as command arguments');
     const settings = await loadConfig(global);
-    let raw;
-    try { raw = JSON.parse(await readFile(settings.filename, 'utf8')); }
-    // DEFENSE: First-time remote init can use a new home's absent default config.json; other read/parse failures must remain visible.
-    catch (error) { if (error.code !== 'ENOENT') throw error; raw = structuredClone(defaultConfig); }
-    const proposed = { ...raw, remote: { relay_url } };
+    const { revision } = await readServiceConfiguration(settings);
+    const proposed = { ...settings.source, remote: { relay_url } };
     const remote = validateConfig(proposed).remote;
     const result = await provisionRemote({ home: settings.home, relayUrl: remote.relay_url, enrollmentToken });
-    await writeAtomic(settings.filename, { ...raw, remote });
+    await changeServiceConfiguration(settings, { revision, path: ['remote'], operation: 'set', value: remote });
     console.log(stringifyJson({ ok: true, result, restart_required: true }));
     console.error('Remote relay configured. Restart the local server, then run remote enable.');
     return;

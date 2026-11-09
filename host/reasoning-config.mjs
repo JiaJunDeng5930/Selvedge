@@ -1,17 +1,19 @@
 // Pure admission belongs to the native configuration adapter. References retain
 // original UTF-16 strings and opaque environment values at the host boundary.
 import { boundary } from './public/model-boundary.mjs';
+import { JsonNumber } from './public/json-tokens.mjs';
 
 export function configurationObserver() {
   const originals = [];
   const units = value => Array.from({ length: value.length }, (_, index) => value.charCodeAt(index));
   function observe(value, { shallow = false, env = false } = {}) {
     const ref = originals.push(value) - 1;
-    const kind = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+    const exactNumber = value instanceof JsonNumber;
+    const kind = exactNumber ? 'number' : value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
     const result = { ref, kind };
     if (shallow) return result;
     if (kind === 'string') result.units = units(value);
-    if (kind === 'number' && Number.isFinite(value)) result.number = value;
+    if (kind === 'number' && (exactNumber || Number.isFinite(value))) result.number = value;
     if (kind === 'boolean') result.boolean = value;
     if (kind === 'array') result.items = value.map(item => observe(item, { shallow: env }));
     if (kind === 'object') result.fields = Object.entries(value).map(([key, item]) => ({

@@ -46,6 +46,8 @@ export interface HttpPrimitives {
   events(): Promise<void> | void;
   event_page(): Promise<void> | void;
   health(): Promise<void> | void;
+  service_configuration_read(): Promise<void> | void;
+  service_configuration_change(body: JsonValue): Promise<void> | void;
   account_refresh(): Promise<void> | void;
   audio_create(body: JsonValue): Promise<void> | void;
   audio_login(): Promise<void> | void;
@@ -92,6 +94,8 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
     case 'events': await io.events(); return null;
     case 'event_page': await io.event_page(); return null;
     case 'health': await io.health(); return null;
+    case 'service_configuration_read': await io.service_configuration_read(); return null;
+    case 'service_configuration_change':
     case 'account_refresh':
     case 'audio_create':
     case 'audio_login':
@@ -113,6 +117,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
         return io.readBody(plan.action, maximum);
       }
       switch (plan.action) {
+        case 'service_configuration_change': { await io.service_configuration_change(plan.body); return null; }
         case 'account_refresh': { await io.account_refresh(); return null; }
         case 'audio_create': { await io.audio_create(plan.body); return null; }
         case 'audio_login': { await io.audio_login(); return null; }

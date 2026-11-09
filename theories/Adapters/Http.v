@@ -18,6 +18,8 @@ Record route := Route { route_method : string; route_path : string;
 (** One route declaration drives both target selection and body admission. *)
 Definition routes := [
   Route "POST" "/api/accounts/refresh" ModelResultDeclarations.Http_account_refresh;
+  Route "GET" "/api/service-configuration" ModelResultDeclarations.Http_service_configuration_read;
+  Route "POST" "/api/service-configuration" ModelResultDeclarations.Http_service_configuration_change;
   Route "POST" "/api/browser/command" ModelResultDeclarations.Http_browser_command;
   Route "POST" "/api/browser/observation" ModelResultDeclarations.Http_browser_observation;
   Route "POST" "/api/commands" ModelResultDeclarations.Http_command;
@@ -177,6 +179,7 @@ Definition body_error (target : string) := exception ModelResultDeclarations.Typ
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
    else if starts target "remote_" then "Invalid remote management request body"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then "Account refresh takes an empty object"
+   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_service_configuration_change) then "Invalid service configuration change JSON"
    else "A browser command contains only command").
 Definition body_action (target : ModelResultDeclarations.http_body_target) (value : option json) :=
  Variant.encode_packet
@@ -237,6 +240,7 @@ Definition request_error_response (source : json) :=
   let name := str source "name" in
   let message := str source "message" in
   if String.eqb name "CommandNotSubmitted" then rejection 400 "command_not_submitted" message
+  else if String.eqb name "ConfigurationConflictError" then rejection 409 "configuration_conflict" message
   else rejection (if existsb (String.eqb name) ["RangeError";"SyntaxError";"TypeError"] then 400 else 503)
     "request_failed" message.
 Definition call (operation : string) (source : json) :=

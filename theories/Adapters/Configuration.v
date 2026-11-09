@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
-From Selvedge.Adapters Require ProviderCatalog.
+From Selvedge.Adapters Require ProviderCatalog ConfigurationEditing.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Schema ArgumentDeclaration DeclarationFields.
 From Selvedge.Foundation Require OptionList KeyedCollection.
@@ -15,6 +15,7 @@ Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
 Module C := CompactionTypes.
 Module CC := CompactionCodec.
+Module Edit := ConfigurationEditing.
 Definition default_policy := C.Policy true 65 90 60000 C.Targets.empty eq_refl.
 Definition compaction_defaults := CC.policy_json default_policy.
 Definition supported_provider := ProviderCatalog.supports_compaction.
@@ -93,30 +94,46 @@ Definition compaction_runtime source :=
 Definition context_configured (definition : json) :=
   existsb (String.eqb (str (get definition "observer") "type")) ["config_text";"config_files"].
 Definition context_setting (definition : json) := str (get definition "observer") "setting".
-Definition context_fallback (definition : json) :=
-  if String.eqb (str (get definition "observer") "type") "config_text" then JString "" else JArray [].
-Definition base_defaults (instructions : string) :=
-  JObject [("format",JString "selvedge-rocq-config-1");("host",JString "127.0.0.1");
-    ("port",number 7421);("max_fork",number 4);("max_descendants",number 64);
-    ("instructions",JString instructions);("profiles",JObject [("demo",JObject
-      [("provider",JString "echo");("model",JString "echo")])]);
-    ("mcp",JObject []);("plugins",JObject []);("skills",JArray []);
-    ("remote",JBool false);("cloud",JBool false);("compaction",compaction_defaults)].
+Definition configuration_format := "selvedge-rocq-config-1".
+Definition setting name declaration value := Edit.Setting name declaration (Some value).
+Definition transport_settings := [
+  (setting "host" (D.Value (Schema.KEnum "127.0.0.1" ["::1"])) (JString "127.0.0.1"),
+    "The local server requires a loopback address");
+  (setting "port" (D.Natural 0 65535) (number 7421), "port must be in 0..65535");
+  (setting "max_fork" (D.Natural 1 D.maximum_natural) (number 4), "max_fork must be in 1..4294967295");
+  (setting "max_descendants" (D.Natural 1 D.maximum_natural) (number 64), "max_descendants must be in 1..4294967295");
+  (setting "profiles" D.RawObject (JObject [("demo",JObject [("provider",JString "echo");("model",JString "echo")])]),
+    "profiles must be an object")].
+Definition context_entry instructions definition :=
+  let name := context_setting definition in
+  if String.eqb (str (get definition "observer") "type") "config_text"
+  then setting name (D.Value Schema.KText) (JString (if String.eqb name "instructions" then instructions else ""))
+  else setting name (D.Array (D.Value Schema.KText)) (JArray []).
+Definition configuration_fields definitions instructions :=
+  (map fst transport_settings ++ [
+    setting "mcp" D.RawObject (JObject []);
+    setting "plugins" D.RawObject (JObject []);
+    Edit.Setting "chatgpt" D.Any None;
+    Edit.Setting "reasoning_evaluators" D.RawObject None;
+    Edit.Setting "chatgpt_plugin" D.Any None;
+    setting "remote" D.Any (JBool false);
+    setting "cloud" CloudConfiguration.declaration (JBool false);
+    setting "compaction" (D.Object policy_fields) compaction_defaults
+  ] ++ map (context_entry instructions) (filter context_configured (items definitions)))%list.
 Definition defaults (definitions : json) (instructions : string) :=
-  let base := base_defaults instructions in
-  JObject (object_fields base ++ map (fun d => (context_setting d,context_fallback d))
-    (filter (fun d => context_configured d && negb (has base (context_setting d))) (items definitions))).
+  JObject (("format",JString configuration_format) ::
+    flat_map (fun field => match Edit.fallback field with
+      | Some value => [(Edit.name field, value)] | None => [] end)
+    (configuration_fields definitions instructions)).
 Definition configuration_keys (definitions : json) : list string :=
-  ["format";"host";"port";"max_fork";"max_descendants";"profiles";"chatgpt";"mcp";
-   "plugins";"reasoning_evaluators";"chatgpt_plugin";"remote";"cloud";"compaction"] ++
-  map context_setting (filter context_configured (items definitions)).
+  "format" :: map Edit.name (configuration_fields definitions "").
 Definition configuration_head (definitions : json) (instructions : string) (source : json) :=
   let value := get source "value" in
   let unknown := unknown (configuration_keys definitions) (items (get value "fields")) in
   if negb (kind value "object") then invalid "configuration must be an object"
   else if negb (is_null unknown) then plan_error "TypeError"
     [literal (JString "Unknown configuration field: ");reference unknown]
-  else if negb (equal_text (observed_field value "format") "selvedge-rocq-config-1")
+  else if negb (equal_text (observed_field value "format") configuration_format)
     then plan_error "Error" [literal (JString "The configuration is not in the current Rocq format")]
   else plan_object (Some (get value "ref"))
     (map (fun entry => plan_field (fst entry)
@@ -165,15 +182,20 @@ Definition context_field (definitions : json) (source : json) :=
     else type_error "Context field must satisfy its definition and UTF-8 byte bound"
   | _,_ => type_error "Context field must satisfy its definition and UTF-8 byte bound"
   end.
+Definition transport_accepts declaration observed :=
+  match declaration with
+  | D.Value (Schema.KEnum first rest) => allowed (first::rest) observed
+  | D.Natural minimum maximum => observed_bound observed minimum maximum
+  | D.RawObject => kind observed "object"
+  | _ => false
+  end.
 Definition configuration_transport (definitions : json) (source : json) :=
   let value := get source "transport" in
-  if negb (equal_text (get value "host") "127.0.0.1" || equal_text (get value "host") "::1")
-  then invalid "The local server requires a loopback address"
-  else if negb (observed_bound (get value "port") 0 65535) then invalid "port must be in 0..65535"
-  else if negb (observed_bound (get value "max_fork") 1 4294967295) then invalid "max_fork must be in 1..4294967295"
-  else if negb (observed_bound (get value "max_descendants") 1 4294967295) then invalid "max_descendants must be in 1..4294967295"
-  else if negb (kind (get value "profiles") "object") then invalid "profiles must be an object"
-  else context_transport definitions (get source "context").
+  match find (fun entry => let field := fst entry in
+    negb (transport_accepts (Edit.declaration field) (get value (Edit.name field)))) transport_settings with
+  | Some entry => invalid (snd entry)
+  | None => context_transport definitions (get source "context")
+  end.
 Definition extension_keys (plugin : bool) : list string :=
   ["command";"args";"cwd";"env";"timeout_ms"] ++ if plugin then ["event_timeout_ms";"event_queue"] else [].
 Definition extension_entry (plugin : bool) (name value : json) :=
@@ -305,6 +327,10 @@ Definition remote (source : json) :=
 Definition call (definitions : json) (instructions : string)
   (operation : string) (source : json) : json :=
   if String.eqb operation "config.defaults" then success (defaults definitions instructions)
+  else if String.eqb operation "config.editable" then
+    Edit.editable (configuration_fields definitions instructions) (get source "configuration")
+  else if String.eqb operation "config.edit" then
+    Edit.edit (configuration_fields definitions instructions) (get source "configuration") (get source "change")
   else if String.eqb operation "config.configuration_head" then success (configuration_head definitions instructions source)
   else if String.eqb operation "config.configuration_transport" then success (configuration_transport definitions source)
   else if String.eqb operation "config.configuration_extensions" then success (extensions source)

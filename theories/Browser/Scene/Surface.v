@@ -96,6 +96,8 @@ Inductive meaning (Action : Type) :=
 | BoardSearch (selection : BoardFilter.filter) (receive : json -> option Action)
 | SearchChoices (query : string) (receive : json -> option Action)
 | ReceiveFile (owner : editor) (enabled : bool) (receive : json -> option Action)
+| ConfigurationField (multiline : bool) (text : string)
+    (options : option (list Fields.choice_value)) (enabled : bool) (receive : json -> option Action)
 | EnterDirectory (owner : editor) (text : string) (receive : json -> option Action) (confirm : option Action)
 | BoardProfile (automatic : bool) (selected : string) (choices : list Fields.choice_value)
     (enabled busy : bool) (receive : json -> option Action).
@@ -161,6 +163,7 @@ Arguments HistorySearchScope {Action}.
 Arguments BoardSearch {Action}.
 Arguments SearchChoices {Action}.
 Arguments ReceiveFile {Action}.
+Arguments ConfigurationField {Action}.
 Arguments EnterDirectory {Action}.
 Arguments BoardProfile {Action}.
 
@@ -229,6 +232,7 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
       match editing_key_input control with Some receive => receive value | None => None end
   | Gesture.Selection, Edit _ _ control =>
       match editing_selection_input control with Some receive => receive value | None => None end
+  | Gesture.Change, ConfigurationField _ _ _ true receive => receive value
   | Gesture.Change, InteractiveEdit _ _ control =>
       if Components.editing_enabled control then
         match Components.editing_receive control with
@@ -382,6 +386,8 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | BoardSearch selection receive => BoardSearch selection (map_receiver f receive)
   | SearchChoices query receive => SearchChoices query (map_receiver f receive)
   | ReceiveFile owner enabled receive => ReceiveFile owner enabled (map_receiver f receive)
+  | ConfigurationField multiline text options enabled receive =>
+      ConfigurationField multiline text options enabled (map_receiver f receive)
   | EnterDirectory owner text receive confirm =>
       EnterDirectory owner text (map_receiver f receive) (option_map f confirm)
   | BoardProfile automatic selected choices enabled busy receive =>

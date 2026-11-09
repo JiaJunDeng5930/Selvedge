@@ -6,6 +6,7 @@ From Selvedge.Generated Require Commands.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech ObjectActions.
@@ -321,7 +322,7 @@ Definition retire_namespace namespace state:=
  let previous:=SS.service_state state in
  let services:=Services.Services(Services.connection previous)(Services.settings_return previous)(Services.theme previous)(Services.next_ticket previous)
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
-   [] Resource.Dormant []in
+   [] Resource.Dormant [] Configuration.initial in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
  let speech:=Speech.Speech(Speech.connections(Speech.speech_state stopped))(Speech.selected(Speech.speech_state stopped))
    (Speech.next(Speech.speech_state stopped))Speech.Idle "" ""in
