@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
-From Selvedge.Adapters Require Common Configuration.
+From Selvedge.Adapters Require Common Configuration ProviderCatalog.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Session Require Import Input Services.
@@ -14,8 +14,10 @@ Open Scope string_scope.
 Module Draft := Selvedge.Browser.Session.Configuration.
 Module Config := Draft.Config.
 
-Definition button parent key label enabled input : node Input.input :=
- ModelProfiles.profile_button parent key label enabled input.
+Definition button parent key label (enabled : bool) input : node Input.input :=
+ declared parent Roles.Button
+   (Control key label Secondary (Input.ServiceInput input)
+     (if enabled then Available else Unavailable "Finish the current edit first")).
 Definition description parent key label : node Input.input := information parent key Information.Description label.
 Definition group parent key label (body : list (node Input.input)) : node Input.input :=
  let id := part parent key in
@@ -76,6 +78,8 @@ Definition list_member parent key label item empty source enabled parse commit :
 
 Definition collection_spec path : option (string * json) :=
  match path with
+ | ["profiles"] => Some ("profile", JObject
+     [("provider", JString (ProviderCatalog.provider_name ProviderCatalog.Offline)); ("model", JString "echo")])
  | ["reasoning_evaluators"] => Some ("evaluator", JObject [])
  | ["mcp"] => Some ("server", JObject [("command", JString "")])
  | ["plugins"] => Some ("plugin", JObject [("command", JString "")])
@@ -86,6 +90,7 @@ Definition collection_spec path : option (string * json) :=
 Definition collection_item_fields path parent source enabled commit : list (node Input.input) :=
  let text key label := optional_field parent key label source enabled empty_text commit in
  let number key label := optional_field parent key label source enabled optional_number commit in
+ let wide := ModelProfiles.wide_field parent in
  match path with
  | ["reasoning_evaluators"] =>
    let providers := map (fun provider =>
@@ -94,7 +99,7 @@ Definition collection_item_fields path parent source enabled commit : list (node
    [select_field parent "provider" "Provider"
       (match Common.get source "provider" with JString name => name | _ => "vercel" end)
       providers enabled (fun raw => commit (set_member "provider" (JString raw) source));
-    text "model" "Model override"; text "endpoint" "Endpoint override";
+    text "model" "Model override"; wide (text "endpoint" "Endpoint override");
     text "api_key_env" "API key environment variable"; number "timeout_ms" "Timeout (ms)";
     number "max_attempts" "Maximum attempts"]
  | ["chatgpt_plugin"] =>
@@ -102,68 +107,39 @@ Definition collection_item_fields path parent source enabled commit : list (node
     list_member parent "project_ids" "Allowed projects" "project ID" (JString "") source enabled
       (fun raw => value_or (JString raw) (Config.interpret_input Config.Number raw)) commit]
  | _ =>
-   ([text_field parent "command" "Command" source enabled commit;
-     text "cwd" "Working directory"; number "timeout_ms" "Timeout (ms)"]
+   ([wide (text_field parent "command" "Command" source enabled commit);
+     wide (text "cwd" "Working directory"); number "timeout_ms" "Timeout (ms)"]
     ++ (if list_eq_dec String.string_dec path ["plugins"] then
       [number "event_timeout_ms" "Event timeout (ms)"; number "event_queue" "Event queue size"] else [])
     ++ [list_member parent "args" "Arguments" "argument" (JString "") source enabled JString commit])%list
  end.
 
-Definition collection_form path parent item seed view enabled : list (node Input.input) :=
- let layout := part parent "collection-layout" in
- let list_id := part layout "collection-nav" in
- let choices := part list_id "collection-choices" in
- let entries := Draft.collection_entries view in
- let selected := Draft.selected_item view in
- let editing := Draft.new_item_name view in
- let nav := region layout "collection-nav" "" Roles.Section
-   ([Node choices "collection-choices" "Configured entries" Roles.Section ChoiceGroup
-      (map (fun entry =>
-        named_choice choices (fst entry)
-          (match selected, editing with Some name, None => String.eqb name (fst entry) | _, _ => false end)
-          enabled (Services.SelectConfigurationItem (fst entry))) entries)]
-    ++ (match editing with Some _ => [] | None =>
-       [button list_id "begin-add" ("Add " ++ item) enabled Services.BeginAddConfigurationItem] end))%list in
- let body :=
-   match editing with
-   | Some name =>
-     let panel := part layout "collection-detail" in
-     [region layout "collection-detail" "" Roles.Section
-       [group_title panel ("New " ++ item);
-        ModelProfiles.field panel "item-name" (item ++ " name") false name None enabled
-          Services.EditConfigurationItemName;
-        region panel "item-actions" "" Roles.DialogActions
-          [button panel "cancel-add" "Cancel" enabled Services.CancelAddConfigurationItem;
-           button panel "add" "Add" (enabled && Draft.can_add_item view)
-             (Services.AddConfigurationItem seed)]]]
-   | None =>
-     match selected with
-     | Some name =>
-       match lookup name entries with
-       | Some source =>
-         let panel := part layout "collection-detail" in
-         let members := match Draft.collection_root path with
-           | Some (Some key) => [key; name] | _ => [name] end in
-         let current := value_or (JObject []) (Draft.parsed_draft view) in
-         let commit value := assign path
-           (match members with
-            | [key; name] => set_member key (set_member name value (Common.get current key)) current
-            | _ => set_member name value current end) in
-         [region layout "collection-detail" "" Roles.Section
-           ([group_title panel name;
-             region panel "form-fields" "" Roles.Section (collection_item_fields path (part panel "form-fields") source enabled commit);
-             button panel "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)])]
-       | None => []
-       end
-     | None => []
-     end
-   end in
- match entries, editing with
- | [], None =>
-   [button parent "begin-add" ("Add " ++ item) enabled Services.BeginAddConfigurationItem]
- | [], Some _ => body
- | _, _ => [region parent "collection-layout" "" Roles.Section (nav :: body)]
- end.
+Definition new_item_form parent item seed name view enabled : node Input.input :=
+ let id := part parent "new-item" in
+ Node id "settings-local-editor" ("New " ++ item) Roles.Section Region
+   [group_title id ("New " ++ item);
+    ModelProfiles.field id "item-name" (item ++ " name") false name None enabled
+      Services.EditConfigurationItemName;
+    region id "item-actions" "" Roles.DialogActions
+      [button id "cancel-add" "Cancel" enabled Services.CancelAddConfigurationItem;
+       declared id Roles.Button (Control "add" "Add" Primary
+         (Input.ServiceInput (Services.AddConfigurationItem seed))
+         (if enabled && Draft.can_add_item view then Available else Unavailable "Enter a unique name"))]].
+
+Definition item_form path parent item name source view enabled : list (node Input.input) :=
+ let fields := part parent "form-fields" in
+ let current := value_or (JObject []) (Draft.parsed_draft view) in
+ let commit value := assign path
+   (match Draft.collection_root path with
+    | Some (Some key) => set_member key (set_member name value (Common.get current key)) current
+    | _ => set_member name value current
+    end) in
+ [region parent "form-fields" "" Roles.Section
+   (match path with
+    | ["profiles"] => ModelProfiles.profile_fields fields enabled name source
+    | _ => collection_item_fields path fields source enabled commit
+    end);
+  button parent "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)].
 
 Definition account_form parent saved source view enabled : list (node Input.input) :=
  let path := ["chatgpt"] in
@@ -187,9 +163,9 @@ Definition account_form parent saved source view enabled : list (node Input.inpu
     ++ (if details then
       [description parent "override-hint" "Blank fields use the default connection settings.";
        region parent "form-fields" "" Roles.Section
-         [edit "endpoint" "Responses endpoint" empty_text;
-          edit "issuer" "Issuer" empty_text;
-          edit "auth_file" "Credential file path" empty_text;
+         [ModelProfiles.wide_field parent (edit "endpoint" "Responses endpoint" empty_text);
+          ModelProfiles.wide_field parent (edit "issuer" "Issuer" empty_text);
+          ModelProfiles.wide_field parent (edit "auth_file" "Credential file path" empty_text);
           edit "timeout_ms" "Timeout (ms)" optional_number]] else [])
    else match saved with
    | JObject (_ :: _) => [description parent "account-off" "Saving removes the current connection overrides and disables account model access."]
@@ -220,14 +196,16 @@ Definition cloud_form parent source enabled : list (node Input.input) :=
       (fields panel [("vpc_id", "VPC ID"); ("subnet_id", "Subnet ID")]
       ++ [list_member panel "security_group_ids" "Security groups" "security group ID" (JString "") config enabled JString commit])%list);
     section "cloud-ssh" "SSH" (fun panel =>
-      (fields panel [("key_id", "SSH key ID"); ("ssh_private_key", "Private key path")]
-      ++ [optional_field panel "ssh_user" "SSH user" config enabled empty_text commit;
-          optional_field panel "ssh_port" "SSH port" config enabled optional_number commit])%list);
+      [text_field panel "key_id" "SSH key ID" config enabled commit;
+       ModelProfiles.wide_field panel (text_field panel "ssh_private_key" "Private key path" config enabled commit);
+       optional_field panel "ssh_user" "SSH user" config enabled empty_text commit;
+       optional_field panel "ssh_port" "SSH port" config enabled optional_number commit]);
     section "cloud-options" "Connection options" (fun panel =>
       [select_field panel "address_type" "Address type" (value_text (Common.get config "address_type"))
          [Fields.ChoiceValue "" "Default"; Fields.ChoiceValue "public" "Public"; Fields.ChoiceValue "private" "Private"]
          enabled (fun raw => commit (optional_member "address_type" (empty_text raw) config));
-       optional_field panel "api_endpoint" "API endpoint override" config enabled empty_text commit;
+       ModelProfiles.wide_field panel
+         (optional_field panel "api_endpoint" "API endpoint override" config enabled empty_text commit);
        optional_field panel "internet_max_bandwidth_out" "Outbound bandwidth (Mbps)" config enabled optional_number commit;
        optional_field panel "startup_timeout_ms" "Startup timeout (ms)" config enabled optional_number commit]);
     button parent "remove-cloud" "Remove cloud configuration" enabled (assign path (JBool false))]
@@ -259,19 +237,12 @@ Definition targets_form parent source enabled : list (node Input.input) :=
   ++ [button parent "add-value" "Add target" enabled
        (assign path (JArray (targets ++ [JObject [("profile", JString "")]])))])%list.
 
-Definition structured_form path parent saved source view enabled : option (list (node Input.input)) :=
- match collection_spec path with
- | Some (name, seed) => Some (collection_form path parent name seed view enabled)
- | None =>
-   match path with
-   | ["chatgpt"] => Some (account_form parent saved source view enabled)
-   | ["remote"] => Some (relay_form parent source enabled)
-   | ["cloud"] => Some (cloud_form parent source enabled)
-   | ["compaction"; "targets"] => Some (targets_form parent source enabled)
-   | _ => match source with JArray values =>
-       if forallb is_string values then Some
-         [value_list parent "paths" "Files and directories" "path" (JString "") values enabled JString (assign path)]
-       else None
-     | _ => None end
-   end
+Definition structured_form path parent saved source view enabled : list (node Input.input) :=
+ match path with
+ | ["chatgpt"] => account_form parent saved source view enabled
+ | ["remote"] => relay_form parent source enabled
+ | ["cloud"] => cloud_form parent source enabled
+ | ["compaction"; "targets"] => targets_form parent source enabled
+ | _ => [value_list parent "paths" "Files and directories" "path" (JString "")
+           (Common.items source) enabled JString (assign path)]
  end.

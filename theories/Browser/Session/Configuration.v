@@ -39,10 +39,21 @@ Definition dirty s :=
   | Some (_, draft, entry) => negb (String.eqb (draft_input draft) (Config.initial_input entry))
   | None => false
   end.
+Definition new_item_name s :=
+  match form_mode_current (form_editor_current s) with
+  | FormFields name => name
+  | ConnectionOverrides => None
+  end.
+Definition naming_item s :=
+  match new_item_name s with
+  | Some name => negb (String.eqb name "")
+  | None => false
+  end.
+Definition has_unsaved_work s := dirty s || naming_item s.
 Definition can_select path s :=
   negb (pending s) &&
   match current_draft s with
-  | Some draft => matches_path path draft || negb (dirty s)
+  | Some draft => matches_path path draft || negb (has_unsaved_work s)
   | None => true
   end.
 Definition select path s :=
@@ -63,12 +74,13 @@ Definition write_input raw s :=
       (form_editor_current s)
   | None => s
   end.
-Definition write_input_at path raw s :=
+Definition edit_at path edit s :=
   let selected := select path s in
   match current_draft selected with
-  | Some draft => if matches_path path draft then write_input raw selected else s
+  | Some draft => if matches_path path draft then edit selected else s
   | None => s
   end.
+Definition write_input_at path raw := edit_at path (write_input raw).
 Definition cancel s :=
   if pending s then s else State (catalog s) None Dormant initial_form_editor.
 Definition begin_read ticket := State (Loading ticket tt) None Dormant initial_form_editor.
@@ -91,7 +103,6 @@ Definition write_finished ticket outcome s :=
   | _ => s
   end.
 
-Definition profiles_path := ["profiles"].
 Definition collection_root path :=
   match path with
   | ["profiles"] | ["reasoning_evaluators"] | ["mcp"] | ["plugins"] => Some None
@@ -116,18 +127,9 @@ Definition collection_object s :=
 Definition collection_entries s := value_or [] (collection_object s).
 
 Definition selected_item s :=
-  let entries := collection_entries s in
-  let first := option_map fst (hd_error entries) in
-  match preferred_item (form_editor_current s) with
-  | Some name => if existsb (fun entry => String.eqb name (fst entry)) entries
-      then Some name else first
-  | None => first
-  end.
-Definition new_item_name s :=
-  match form_mode_current (form_editor_current s) with
-  | FormFields name => name
-  | ConnectionOverrides => None
-  end.
+  name <- preferred_item (form_editor_current s) ;;
+  if existsb (fun entry => String.eqb name (fst entry)) (collection_entries s)
+  then Some name else None.
 Definition overrides_open s :=
   match form_mode_current (form_editor_current s) with ConnectionOverrides => true | _ => false end.
 Definition with_form_editor editor s :=
@@ -144,11 +146,15 @@ Definition update_collection change s :=
 
 Definition select_item name :=
   update_collection (fun entries s =>
-    if existsb (fun entry => String.eqb name (fst entry)) entries then
+    if negb (naming_item s) && existsb (fun entry => String.eqb name (fst entry)) entries then
       with_form_editor (FormEditor (Some name) (FormFields None)) s
     else s).
 Definition begin_add_item :=
-  update_collection (fun _ s => with_form_mode (FormFields (Some "")) s).
+  update_collection (fun _ s =>
+    match new_item_name s with
+    | Some _ => s
+    | None => with_form_mode (FormFields (Some "")) s
+    end).
 Definition edit_item_name name :=
   update_collection (fun _ s => match new_item_name s with
     | Some _ => with_form_mode (FormFields (Some name)) s

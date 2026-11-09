@@ -179,7 +179,8 @@ Inductive service_input :=
 | OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
-| SelectConfigurationItem(name:string) | BeginAddConfigurationItem | EditConfigurationItemName(raw:string)
+| SelectConfigurationItem(path:list string)(name:string) | BeginAddConfigurationItem(path:list string)
+| EditConfigurationItemName(raw:string)
 | AddConfigurationItem(value:json) | CancelAddConfigurationItem | RemoveConfigurationItem(name:string)
 | EditModelProfileField(name field raw:string)
 | ShowConnectionOverrides(show:bool)
@@ -324,17 +325,18 @@ Definition service_step input s :=
   | SelectSettingsSection section =>
       if settings_open s then
         let view := service_configuration s in
-        let next := if Configuration.dirty view || Configuration.pending view then view else Configuration.cancel view in
+        let next := if Configuration.has_unsaved_work view || Configuration.pending view
+                    then view else Configuration.cancel view in
         keep (with_settings_section section (with_configuration next s))
       else keep s
   | LoadConfiguration => configuration_read s
   | SelectConfiguration path => keep (with_configuration (Configuration.select path (service_configuration s)) s)
   | EditConfigurationAt path raw => keep (with_configuration (Configuration.write_input_at path raw (service_configuration s)) s)
   | CancelConfigurationEdit => keep (with_configuration (Configuration.cancel (service_configuration s)) s)
-  | SelectConfigurationItem name =>
-      keep (with_configuration (Configuration.select_item name (service_configuration s)) s)
-  | BeginAddConfigurationItem =>
-      keep (with_configuration (Configuration.begin_add_item (service_configuration s)) s)
+  | SelectConfigurationItem path name =>
+      keep (with_configuration (Configuration.edit_at path (Configuration.select_item name) (service_configuration s)) s)
+  | BeginAddConfigurationItem path =>
+      keep (with_configuration (Configuration.edit_at path Configuration.begin_add_item (service_configuration s)) s)
   | EditConfigurationItemName raw =>
       keep (with_configuration (Configuration.edit_item_name raw (service_configuration s)) s)
   | AddConfigurationItem value =>

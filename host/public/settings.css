@@ -1,0 +1,620 @@
+/* Settings.v declares the category, group, row and editor hierarchy.
+   This sheet gives those relationships their layout at each available width. */
+dialog[data-semantic-key="settings"] {
+  container: settings-shell / inline-size;
+  --settings-edge: max(1.5rem, (100vw - 70rem) / 2);
+  --settings-related-gap: .25rem;
+  --settings-row-space: .625rem;
+  --settings-column-gap: 1.25rem;
+  --settings-group-space: 1.375rem;
+  --settings-control-width: 9rem;
+  --settings-control-limit: 12rem;
+  --settings-control-height: 2.125rem;
+  --settings-rail: clamp(7.25rem, 17vw, 11.5rem);
+  --settings-gutter: clamp(1.375rem, 3.8vw, 3.375rem);
+  --settings-surface: light-dark(#faf9f7, #252422);
+  --settings-field: light-dark(#fffefd, #2f2d2a);
+  --settings-selected: light-dark(#edeae4, #37332e);
+  --settings-rule: light-dark(#e6e2dc, #413d37);
+  --settings-control-border: light-dark(#ded9d1, #4d473f);
+  --settings-control-hover: light-dark(#f1eee8, #39352f);
+  --settings-muted: light-dark(#69645e, #b8b0a6);
+  --settings-action: light-dark(#302a26, #e9dfd2);
+  --settings-on-action: light-dark(#fffaf3, #28231d);
+  --settings-focus: light-dark(#8c523a, #d39b7e);
+  position: fixed !important;
+  inset: 0 !important;
+  inline-size: 100% !important;
+  block-size: 100dvh !important;
+  min-inline-size: 0 !important;
+  max-inline-size: none !important;
+  max-block-size: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--settings-surface) !important;
+  overflow: hidden !important;
+}
+dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
+[data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
+  flex: none !important;
+  flex-flow: row nowrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-block-size: 47px !important;
+  padding: 5px var(--settings-edge) !important;
+  border-block-end: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-header"] [data-semantic-key="heading"] {
+  margin: 0 !important;
+  font-size: .875rem !important;
+  line-height: 1.35 !important;
+  font-weight: 600 !important;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
+  display: grid !important;
+  grid-template-columns: var(--settings-rail) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  flex: 1 1 0 !important;
+  align-items: stretch !important;
+  gap: 0 var(--settings-gutter) !important;
+  min-block-size: 0 !important;
+  padding: 0 0 0 var(--settings-edge) !important;
+  overflow: clip !important;
+}
+[data-semantic-key="settings"] button {
+  --control-rest-background: var(--settings-field) !important;
+  --control-hover-background: var(--settings-control-hover) !important;
+  --control-pressed-background: var(--selvedge-pressed) !important;
+  flex: none !important;
+  inline-size: fit-content !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  min-block-size: var(--settings-control-height) !important;
+  padding: 6px 11px !important;
+  border: 1px solid var(--settings-control-border) !important;
+  border-radius: 7px !important;
+  background: var(--control-current-background, var(--control-rest-background)) !important;
+  color: var(--selvedge-text) !important;
+  font-family: inherit !important;
+  font-size: .8125rem !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+  text-align: center;
+}
+[data-semantic-key="settings"] button > span {
+  color: inherit !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  text-overflow: clip !important;
+}
+[data-semantic-key="settings"] button:focus-visible,
+[data-semantic-key="settings"] :is(input, textarea, select):focus-visible {
+  outline: 2px solid var(--settings-focus) !important;
+  outline-offset: 2px;
+}
+[data-semantic-key="settings"] button:is([data-semantic-key="save"], [data-semantic-key="add"]):not(:disabled, [aria-disabled="true"]) {
+  --control-rest-background: var(--settings-action) !important;
+  --control-hover-background: var(--settings-action) !important;
+  border-color: var(--settings-action) !important;
+  color: var(--settings-on-action) !important;
+}
+[data-semantic-key="settings"] button:is(:disabled, [aria-disabled="true"]) { opacity: .46 !important; }
+[data-semantic-key="settings"] button:is([data-semantic-key="save"], [data-semantic-key="add"]):is(:disabled, [aria-disabled="true"]) {
+  background: var(--settings-selected) !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+  opacity: 1 !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] {
+  --control-rest-background: transparent !important;
+  position: relative;
+  inline-size: 32px !important;
+  padding: 0 !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] > svg { display: none !important; }
+[data-semantic-key="settings"] button[data-semantic-key="close"]::before {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(50% - 7.5px);
+  inset-inline-start: calc(50% - 7.5px);
+  inline-size: 15px;
+  block-size: 15px;
+  background: currentColor;
+  clip-path: polygon(41% 14%, 49% 22%, 26% 44%, 94% 44%, 94% 56%, 26% 56%, 49% 78%, 41% 86%, 5% 50%);
+}
+[data-semantic-key="settings"] :is([data-semantic-key="settings-nav"], [data-semantic-key="settings-content"]) {
+  block-size: 100% !important;
+  max-block-size: 100% !important;
+  align-self: stretch !important;
+  min-inline-size: 0 !important;
+  min-block-size: 0 !important;
+  max-inline-size: none !important;
+  overflow: hidden auto !important;
+  overscroll-behavior: contain;
+}
+[data-semantic-key="settings-nav"] {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+  padding: 23px 3px 18px !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"] {
+  --control-rest-background: transparent !important;
+  inline-size: 100% !important;
+  justify-content: flex-start !important;
+  padding-inline: 11px !important;
+  border-color: transparent !important;
+  text-align: start;
+}
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
+  --control-rest-background: var(--settings-selected) !important;
+  font-weight: 650 !important;
+}
+[data-semantic-key="settings"] :is([data-semantic-key="settings-category"], [data-semantic-key="theme-options"] > button) > [aria-hidden="true"] {
+  display: none !important;
+}
+[data-semantic-key="settings-mobile-nav"] { display: none !important; }
+[data-semantic-key="settings-content"] {
+  container: settings-content / inline-size;
+  inline-size: 100% !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 1.5rem var(--settings-edge) 2.25rem .2rem !important;
+  scrollbar-gutter: stable;
+}
+[data-semantic-key="settings-content"] :is(section, footer) { min-inline-size: 0 !important; }
+[data-semantic-key="settings-title"] {
+  margin-block-end: var(--settings-group-space) !important;
+  padding: 0 !important;
+  gap: 6px !important;
+}
+[data-semantic-key="settings-title"] > [data-semantic-key="heading"] {
+  margin: 0 !important;
+  font-size: 1.375rem !important;
+  font-weight: 650 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -.025em;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="description"],
+[data-semantic-key="settings-values"] > [data-semantic-key] {
+  color: var(--settings-muted) !important;
+  font-size: .8125rem !important;
+  line-height: 1.45 !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-group"] {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+[data-semantic-key="settings-group"] + [data-semantic-key="settings-group"] {
+  margin-block-start: var(--settings-group-space) !important;
+  padding-block-start: var(--settings-group-space) !important;
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings-content"] h3[data-semantic-key="heading"] {
+  margin: 0 0 var(--settings-related-gap) !important;
+  color: var(--selvedge-text) !important;
+  font-size: .9375rem !important;
+  font-weight: 650 !important;
+  line-height: 1.4 !important;
+}
+/* The row owns the copy and control. Its details always occupy the full
+   setting width and share the same reading order at either column count. */
+[data-semantic-key="settings-item"] {
+  min-inline-size: 0 !important;
+  padding: var(--settings-row-space) 0 !important;
+  gap: .625rem !important;
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-row"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: .5rem var(--settings-column-gap) !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-copy"],
+[data-semantic-key="settings-controls"],
+[data-semantic-key="settings-values"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+  gap: var(--settings-related-gap) !important;
+}
+[data-semantic-key="settings-copy"] > [data-semantic-key="setting-name"],
+[data-semantic-key="settings-instructions"] > [data-semantic-key="setting-name"],
+[data-semantic-key="settings-summary-item"] > [data-semantic-key="setting-name"] {
+  margin: 0 !important;
+  font-size: .875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="settings-controls"] {
+  max-inline-size: var(--settings-control-limit) !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+}
+[data-semantic-key="settings-values"] {
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-summary-item"] {
+  flex-flow: row wrap !important;
+  justify-content: space-between !important;
+  gap: var(--settings-related-gap) var(--settings-column-gap) !important;
+  padding: .375rem 0 !important;
+}
+[data-semantic-key="settings-entries"] {
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 0 0 min(.875rem, 4cqi) !important;
+}
+[data-semantic-key="settings-entries"] > [data-semantic-key="settings-item"] {
+  padding-block: .5rem !important;
+}
+[data-semantic-key="settings-entries"] > [data-semantic-key="settings-item"] +
+  [data-semantic-key="settings-item"] {
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings-local-editor"] {
+  align-items: stretch !important;
+  padding: 1rem min(1rem, 4cqi) !important;
+  gap: .75rem !important;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: .625rem !important;
+  background: var(--settings-field) !important;
+}
+[data-semantic-key="settings-local-editor"] :is(input[type="text"], select, textarea) {
+  --settings-field: var(--settings-surface);
+}
+[data-semantic-key="settings"] :is(input[type="text"], select, textarea) {
+  inline-size: 100% !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  min-block-size: var(--settings-control-height) !important;
+  padding: 6px 11px !important;
+  border: 1px solid var(--settings-control-border) !important;
+  border-radius: 7px !important;
+  background: var(--settings-field) !important;
+  color: var(--selvedge-text) !important;
+  font-family: inherit !important;
+  font-size: .8125rem !important;
+  line-height: 1.45 !important;
+}
+[data-semantic-key="settings"] select {
+  appearance: none !important;
+  padding-inline-end: 32px !important;
+  background: var(--settings-field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23878076' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 10px center / 14px no-repeat !important;
+}
+@supports (appearance: base-select) and selector(::picker(select)) {
+  [data-semantic-key="settings"] select {
+    appearance: base-select !important;
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding-inline-end: 10px !important;
+    background: var(--settings-field) !important;
+  }
+  [data-semantic-key="settings"] select::picker-icon {
+    content: "";
+    flex: none;
+    inline-size: 6px;
+    block-size: 6px;
+    margin: -3px 2px 0 auto;
+    border: solid var(--settings-muted);
+    border-width: 0 1.4px 1.4px 0;
+    rotate: 45deg;
+  }
+  [data-semantic-key="settings"] select::picker(select) {
+    appearance: base-select;
+    margin-block: 4px;
+    max-block-size: min(300px, 55dvh);
+    padding: 4px;
+    border: 1px solid var(--settings-control-border);
+    border-radius: 9px;
+    background: var(--settings-field);
+    color: var(--selvedge-text);
+    box-shadow: 0 5px 16px #201a1426;
+  }
+  [data-semantic-key="settings"] select option {
+    min-block-size: 31px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    font: inherit;
+  }
+  [data-semantic-key="settings"] select option:is(:checked, :hover, :focus) {
+    background: var(--settings-control-hover);
+  }
+}
+[data-semantic-key="settings"] textarea {
+  min-block-size: 112px !important;
+  resize: vertical;
+}
+[data-semantic-key="settings"] :has(> :is(input[type="text"], select, textarea)) {
+  min-inline-size: 0 !important;
+  gap: 5px !important;
+}
+[data-semantic-key="settings"] :has(> :is(input[type="text"], select, textarea)) > span {
+  color: var(--selvedge-text) !important;
+  font-size: .8125rem !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-controls"] > :has(> :is(input, select)) {
+  inline-size: min(100%, var(--settings-control-width)) !important;
+}
+[data-semantic-key="settings-controls"] > :has(> :is(input, select)) > span { display: none !important; }
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"] {
+  --control-rest-background: light-dark(#d9d4cb, #514a42) !important;
+  --control-hover-background: var(--control-rest-background) !important;
+  inline-size: 35px !important;
+  min-block-size: 20px !important;
+  block-size: 20px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  position: relative;
+}
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"] > * { display: none !important; }
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"]::after {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"][aria-checked="true"] {
+  --control-rest-background: var(--settings-focus) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="setting-switch"][aria-checked="true"]::after {
+  inset-inline-start: 18px;
+}
+[data-semantic-key="theme-options"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 5.5rem), 1fr));
+  max-inline-size: min(100%, 25rem) !important;
+  align-items: stretch !important;
+  gap: 9px !important;
+  padding: 8px 0 0 !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  inline-size: 100% !important;
+  padding: 5px 5px 6px !important;
+  gap: 6px !important;
+  border-radius: 8px !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
+  border-color: var(--settings-focus) !important;
+  box-shadow: inset 0 0 0 1px var(--settings-focus);
+}
+[data-semantic-key="theme-swatch"] {
+  --swatch-background: #f3eee6;
+  --swatch-panel: #fffdf8;
+  --swatch-mark: #c8bdb1;
+  display: grid !important;
+  align-items: center !important;
+  justify-content: center !important;
+  inline-size: 100% !important;
+  block-size: 40px !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  background: var(--swatch-background) !important;
+}
+[data-semantic-key="theme-swatch"]::before {
+  content: "";
+  inline-size: 32px;
+  block-size: 17px;
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--swatch-mark), var(--swatch-mark)) 5px 5px / 15px 2px no-repeat,
+    linear-gradient(var(--swatch-mark), var(--swatch-mark)) 5px 10px / 21px 2px no-repeat,
+    var(--swatch-panel);
+}
+[data-semantic-key="theme-dark"] [data-semantic-key="theme-swatch"] {
+  --swatch-background: #2d2a26;
+  --swatch-panel: #3d3832;
+  --swatch-mark: #8f8274;
+}
+[data-semantic-key="theme-system"] [data-semantic-key="theme-swatch"] {
+  --swatch-background: linear-gradient(90deg, #f3eee6 50%, #2d2a26 50%);
+  --swatch-panel: linear-gradient(90deg, #fffdf8 50%, #3d3832 50%);
+}
+[data-semantic-key="settings-instructions"] {
+  padding: 10px 0 14px !important;
+  gap: 6px !important;
+}
+[data-semantic-key="settings-instructions"] :has(> textarea) > span { display: none !important; }
+[data-semantic-key="settings-instructions"] > [data-semantic-key="description"] { margin-block-end: 3px !important; }
+[data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
+  font-size: 13px !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="service-connected"]::before {
+  content: "";
+  display: inline-block;
+  margin-inline-end: 6px;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: light-dark(#53764d, #91b486);
+  vertical-align: 1px;
+}
+[data-semantic-key="draft-notice"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 11px !important;
+  margin-block-end: 18px;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: 7px !important;
+}
+[data-semantic-key="settings"] button:is([data-semantic-key="remove-value"],
+  [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"], [data-semantic-key="restore-default"]) {
+  --control-rest-background: transparent !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+  align-self: flex-start !important;
+}
+[data-semantic-key="settings"] button:is([data-semantic-key="remove-value"],
+  [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"]):is(:hover, :focus-visible) {
+  color: var(--selvedge-danger) !important;
+}
+[data-semantic-key="settings-content"] :is([data-semantic-key="save-bar"], [data-semantic-key="setting-feedback"], [data-semantic-key="item-actions"]) {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  padding: 0 !important;
+  gap: 7px !important;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="save-bar"] {
+  padding-block-start: 13px !important;
+  margin-block-start: 19px !important;
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings-content"] [role="status"] {
+  margin-inline-end: auto !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="save-error"] {
+  flex-basis: 100% !important;
+  color: var(--selvedge-danger) !important;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="form-fields"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  align-items: start !important;
+  gap: .75rem 1rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="form-fields"] > section {
+  grid-column: 1 / -1;
+}
+[data-semantic-key="settings-wide-field"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-content"] button[data-semantic-key="begin-add"]::before,
+[data-semantic-key="settings-content"] button[data-semantic-key="add-value"]::before {
+  content: "+";
+  margin-inline-end: .125rem;
+}
+[data-semantic-key="settings-content"] :is([data-semantic-key="cloud-compute"], [data-semantic-key="cloud-network"],
+  [data-semantic-key="cloud-ssh"], [data-semantic-key="cloud-options"], [data-semantic-key^="target-"]) {
+  padding: 14px 0 !important;
+  gap: 9px !important;
+}
+[data-semantic-key="settings-content"] :is([data-semantic-key="cloud-compute"], [data-semantic-key="cloud-network"],
+  [data-semantic-key="cloud-ssh"], [data-semantic-key^="target-"]) + :is([data-semantic-key="cloud-network"],
+  [data-semantic-key="cloud-ssh"], [data-semantic-key="cloud-options"], [data-semantic-key^="target-"]) {
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings-content"] :is([data-semantic-key="args"], [data-semantic-key="project_ids"],
+  [data-semantic-key="security_group_ids"], [data-semantic-key="paths"]) {
+  padding: 8px 0 0 !important;
+  gap: 7px !important;
+}
+[data-semantic-key="settings-content"] section:has(> :has(> input[data-semantic-key="list-value"])) {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end !important;
+  padding: 0 !important;
+  gap: 6px !important;
+}
+[data-semantic-key="settings-local-editor"] > [data-semantic-key="account-sign-in"] { margin: 0 !important; }
+[data-semantic-key="account-access"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="account-access"] > button {
+  inline-size: fit-content !important;
+  border-color: var(--settings-rule) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="account-access"] > button[aria-checked="true"] {
+  border-color: var(--settings-focus) !important;
+}
+[data-semantic-key="settings-local-editor"] > [data-semantic-key="override-hint"] { margin-block: 6px 10px !important; }
+[data-semantic-key="settings"] button[data-semantic-key="connection-overrides"] {
+  --control-rest-background: transparent !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="connection-overrides"]::before {
+  content: "";
+  inline-size: 5px;
+  block-size: 5px;
+  margin-inline-end: 4px;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: rotate(-45deg);
+}
+[data-semantic-key="settings"] button[data-semantic-key="connection-overrides"][aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+[data-semantic-key="settings"] button:is([data-semantic-key="begin-add"], [data-semantic-key="add-value"]) span {
+  white-space: normal !important;
+  text-overflow: clip !important;
+}
+/* A readable copy column, a control column and their gap need about 26rem.
+   Stack the entire row when the reading pane cannot provide that budget. */
+@container settings-content (inline-size < 26rem) {
+  [data-semantic-key="settings-row"] {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start !important;
+  }
+  [data-semantic-key="settings-controls"] {
+    justify-content: flex-start !important;
+    max-inline-size: 100% !important;
+  }
+  [data-semantic-key="settings-controls"]:empty { display: none !important; }
+}
+/* A rail also spends reading width. Move category choice above the page
+   when the shell cannot fit both at the reader's font size. */
+@container settings-shell (inline-size <= 36rem) {
+  [data-semantic-key="settings"] > :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"]) {
+    --settings-edge: min(1rem, 5vi);
+  }
+  [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    padding: 0 !important;
+  }
+  [data-semantic-key="settings"] [data-semantic-key="settings-nav"] { display: none !important; }
+  [data-semantic-key="settings"] [data-semantic-key="settings-mobile-nav"] {
+    display: block !important;
+    padding: 10px var(--settings-edge) 3px !important;
+  }
+  [data-semantic-key="settings-mobile-nav"] :has(> select) {
+    display: block !important;
+    padding: 0 !important;
+  }
+  [data-semantic-key="settings-mobile-nav"] :has(> select) > span { display: none !important; }
+  [data-semantic-key="settings-content"] { padding: 17px var(--settings-edge) 28px !important; }
+  /* The picker already displays the category. Retain the heading in the
+     document outline so navigating by headings still finds the page. */
+  [data-semantic-key="settings-title"] {
+    position: absolute !important;
+    inline-size: 1px !important;
+    block-size: 1px !important;
+    overflow: hidden !important;
+    clip-path: inset(50%);
+  }
+}

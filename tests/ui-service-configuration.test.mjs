@@ -51,12 +51,13 @@ test('Model profiles open as fields and persist an edited model name', { timeout
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: 'Settings', exact: true }).click();
     await dialog.getByRole('radio', { name: 'Models', exact: true }).click();
-    await dialog.getByRole('button', { name: 'Manage profiles', exact: true }).click();
-    await dialog.getByRole('radio', { name: 'demo', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Edit demo', exact: true }).click();
   }
 
   await openProfile();
   assert.equal(await dialog.locator('textarea').count(), 0);
+  await dialog.getByRole('heading', { name: 'Models', exact: true }).waitFor();
+  assert.equal(await dialog.getByRole('button', { name: 'Configure access', exact: true }).isVisible(), true);
   const provider = dialog.getByRole('combobox', { name: 'Provider', exact: true });
   assert.equal(await provider.inputValue(), 'echo');
   await provider.click();
@@ -87,22 +88,25 @@ test('Settings edits named evaluator services and applies the compaction switch 
   await category('Models');
   const sidebar = dialog.getByRole('radiogroup', { name: 'Settings categories', exact: true });
   const categories = await sidebar.getByRole('radio').allTextContents();
-  await button('Manage evaluators').click();
-  await dialog.getByRole('heading', { name: 'Reasoning evaluators', exact: true }).waitFor();
-  assert.deepEqual(await sidebar.getByRole('radio').allTextContents(), categories);
   await button('Add evaluator').click();
-  await dialog.getByRole('textbox', { name: 'evaluator name', exact: true }).fill('review');
+  await dialog.getByRole('heading', { name: 'New evaluator', exact: true }).waitFor();
+  assert.deepEqual(await sidebar.getByRole('radio').allTextContents(), categories);
+  const name = dialog.getByRole('textbox', { name: 'evaluator name', exact: true });
+  await name.fill('review');
+  await category('Tools');
+  await button('Return to edit').click();
+  assert.equal(await name.inputValue(), 'review');
   await button('Add').click();
   await dialog.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('typesafe');
   const timeout = dialog.getByRole('textbox', { name: 'Timeout (ms)', exact: true });
   await timeout.fill('4000');
-  assert.equal(await button('Back to Models').isEnabled(), false);
+  assert.equal(await button('Done editing review').isEnabled(), false);
   await category('Tools');
   await button('Return to edit').click();
   assert.equal(await timeout.inputValue(), '4000');
   await button('Save evaluators').click();
   await updated();
-  await button('Back to Models').click();
+  await button('Done editing review').click();
   await dialog.getByText('review', { exact: true }).waitFor();
   assert.equal(await dialog.locator('textarea').count(), 0);
 
@@ -118,7 +122,7 @@ test('Settings edits named evaluator services and applies the compaction switch 
   await category('Context');
   assert.equal(await toggle.getAttribute('aria-checked'), after);
   await category('Models');
-  await button('Manage evaluators').click();
+  await button('Edit review').click();
   assert.equal(await dialog.getByRole('combobox', { name: 'Provider', exact: true }).inputValue(), 'typesafe');
   assert.equal(await dialog.getByRole('textbox', { name: 'Timeout (ms)', exact: true }).inputValue(), '4000');
 });
