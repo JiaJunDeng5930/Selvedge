@@ -286,6 +286,8 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   --task-row-height: 32px;
   --task-marker-width: 24px;
   --task-indent: 18px;
+  --task-branch-gap: 12px;
+  row-gap: var(--task-branch-gap) !important;
 }
 [data-task-tree-row] {
   min-block-size: var(--task-row-height);
@@ -324,8 +326,14 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   border-radius: 50%;
   background: currentColor;
 }
+/* Keep the dot above the incoming and outgoing strokes. */
+[data-task-tree-row] > :is([data-task-marker], [data-semantic-key="toggle-branches"])::after {
+  position: relative;
+  z-index: 1;
+}
 :is([data-semantic-key="toggle-branches"], [data-navigation-slot="disclosure"] > button)[aria-expanded="false"]::after {
-  box-shadow: 0 0 0 2px var(--selvedge-navigation), 0 0 0 3px var(--selvedge-connector);
+  outline: 1px solid var(--selvedge-connector);
+  outline-offset: 2px;
 }
 [data-navigation-slot="disclosure"] > button > svg { display: none; }
 [data-task-tree-row] > [data-semantic-key="toggle-branches"]:is(:hover, :focus-visible)::before,
@@ -358,14 +366,14 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 }
 [data-task-branches] > [data-task-tree-entry]::before {
   inset-block-start: 0;
-  inline-size: calc(var(--task-indent) - 2px);
+  inline-size: var(--task-indent);
   block-size: calc(var(--task-row-height) / 2 + 1px);
   border-block-end: 1px solid var(--selvedge-connector);
   border-end-start-radius: 9px;
 }
 [data-task-branches] > [data-task-tree-entry]:first-child::before {
-  inset-block-start: calc(-1 * var(--task-row-height) / 2);
-  block-size: calc(var(--task-row-height) + 1px);
+  inset-block-start: calc(-1 * (var(--task-row-height) / 2 + var(--task-branch-gap)));
+  block-size: calc(var(--task-row-height) + var(--task-branch-gap) + 1px);
 }
 [data-task-branches] > [data-task-tree-entry]:not(:last-child)::after { inset-block: 0; }
 
