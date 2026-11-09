@@ -111,6 +111,9 @@ Definition panel_key panel:=match panel with
  |State.InformationPanel kind=>information_key kind
  |State.Confirmation _ _ _=>"confirm/cancel"end.
 Definition initial_attention panel:=match panel with
+ |State.EditorPanel Identity.TitlePrompts=>
+   (* A tall form opens at its explanation, including in a short window. *)
+   NavigationIdentity.key_part(panel_key panel)"heading"
  |State.EditorPanel owner=>NavigationIdentity.key_part(panel_key panel)(match Parameters.fields owner with []=>"heading"|field::_=>Parameters.name field end)
  |State.PropertyPanel _ _=>NavigationIdentity.key_part(panel_key panel)"heading"
  |State.CardDecisionPanel _ _=>NavigationIdentity.key_part(panel_key panel)"search"

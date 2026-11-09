@@ -19,9 +19,11 @@ Definition button parent key label (enabled : bool) input : node Input.input :=
    (Control key label Secondary (Input.ServiceInput input)
      (if enabled then Available else Unavailable "Finish the current edit first")).
 Definition description parent key label : node Input.input := information parent key Information.Description label.
-Definition group parent key label (body : list (node Input.input)) : node Input.input :=
+(* Field groups organize different parts of a form. A repeated value list
+   keeps each value with the action that removes it, at any column count. *)
+Definition group semantic parent key label (body : list (node Input.input)) : node Input.input :=
  let id := part parent key in
- region parent key "" Roles.Section (group_title id label :: body).
+ Node id semantic "" Roles.Section Region (group_title id label :: body).
 Definition assign path value := Services.EditConfigurationAt path (render_json value).
 Definition value_text value := ModelProfiles.value_text value.
 Definition set_member name value source :=
@@ -60,10 +62,10 @@ Definition remove_at {A} index (values : list A) :=
 
 Definition value_list parent key label item empty values enabled parse commit :=
  let panel := part parent key in
- group parent key label
+ group "settings-value-list" parent key label
    (map (fun '(index, value) =>
      let row := part panel (index_label index) in
-     region panel (index_label index) "" Roles.Section
+     Node row "settings-value-row" "" Roles.Section Region
        [input row "list-value" (item ++ " " ++ index_label index) value enabled
           (fun raw => commit (JArray (replace_at index (parse raw) values)));
         button row "remove-value" ("Remove " ++ item ++ " " ++ index_label index)
@@ -185,7 +187,7 @@ Definition cloud_form parent source enabled : list (node Input.input) :=
    let config := Common.get source backend in
    let commit value := assign path (set_member backend value source) in
    let section key label fields :=
-     group parent key label [region (part parent key) "form-fields" "" Roles.Section
+     group "settings-form-group" parent key label [region (part parent key) "form-fields" "" Roles.Section
        (fields (part (part parent key) "form-fields"))] in
    let fields panel names :=
      map (fun '(key, label) => text_field panel key label config enabled commit) names in
@@ -223,7 +225,7 @@ Definition targets_form parent source enabled : list (node Input.input) :=
    let panel := part parent key in
    let fields := part panel "form-fields" in
    let commit value := assign path (JArray (replace_at index value targets)) in
-   group parent key ("Target " ++ index_label index)
+   group "settings-form-group" parent key ("Target " ++ index_label index)
      [region panel "form-fields" "" Roles.Section
        [text_field fields "profile" "Profile name" target enabled commit;
         optional_field fields "window_tokens" "Context window (tokens)" target enabled optional_number commit;

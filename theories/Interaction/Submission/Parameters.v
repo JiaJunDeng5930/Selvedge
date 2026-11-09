@@ -64,8 +64,8 @@ Definition label field := match field with
 | CardAttachments => "Attachments" | ContinueCapture => "Create another after saving"
 | AssistedCapture => "Assist with title and description" | AssistanceProfile => "Assistance model"
 | ForkCount => "Number of tasks" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
-| TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task 看板标题提示词"
-| AgentTitlePrompt => "Agent 会话标题提示词" | AgentTitleProfile => "Agent 会话标题模型" end.
+| TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task title prompt"
+| AgentTitlePrompt => "Conversation title prompt" | AgentTitleProfile => "Conversation title model" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary
 | TaskTitlePrompt | AgentTitlePrompt | CardLabels => Fields.Multiline

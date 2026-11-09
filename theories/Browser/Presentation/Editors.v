@@ -25,7 +25,7 @@ Definition editor_title e := match e with
 |Identity.Project None=>"New project"|Identity.Project(Some _)=>"Edit project"|Card None=>"New card"|Card(Some _)=>"Edit card"
 |Fork _=>"Fork task"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
-|WorkName _=>"Rename Work"|TitlePrompts=>"标题生成设置"end.
+|WorkName _=>"Rename Work"|TitlePrompts=>"Conversation titles"end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
@@ -188,30 +188,40 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|TitlePrompts=>[("标题生成",[Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt])]end.
+|TitlePrompts=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
-Definition section_nodes snapshot s e parent :=map(fun '(name,fields)=>
- field_section snapshot s e parent name fields)(editor_sections e).
-Definition title_prompt_controls e parent (pending:bool):list(node Input.input):=match e with
+Definition section_nodes snapshot s e parent :=
+ match e with
+ |TitlePrompts=>field_nodes snapshot s e parent
+   [Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt]
+ |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
+ end.
+Definition title_prompt_help e parent : list (node Input.input) := match e with
 |TitlePrompts=>
- [read_only parent "title-prompts/help" "说明"
-   "Task 用于看板任务，Agent 用于执行会话，分别生成标题。修改只影响后续生成；标题最多 36 个字符。";
-  declared parent Roles.Button(Control "title-prompts/reset" "恢复 Codex 默认提示词" Secondary Input.ResetTitlePrompts
+ [information parent "title-prompts/help" Information.Description
+   "Titles can be up to 36 characters. Changes apply to future titles."]
+|_=>[]end.
+Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) := match e with
+|TitlePrompts=>
+ [declared parent Roles.Button(Control "title-prompts/reset" "Restore default prompts" Secondary Input.ResetTitlePrompts
    (if pending then Unavailable "The current action is pending"else Available))]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let body := (title_prompt_controls e parent (UX.action_pending unit) ++
+ let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
+   title_prompt_reset e parent (UX.action_pending unit) ++
    [assessment_nodes parent assessment] ++
    Composer.action_feedback parent unit (draft_feedback (Session.current_draft s e)))%list in
  [dialog_header parent [title parent(editor_title e)];
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      [Node(part parent "submit")"submit"(control_label submit)
-        (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]]])].
+      ((match e with TitlePrompts=>[declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)]
+         |_=>[]end) ++
+       [Node(part parent "submit")"submit"(control_label submit)
+         (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]])%list])].

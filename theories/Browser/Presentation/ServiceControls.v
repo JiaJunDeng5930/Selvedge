@@ -163,4 +163,3 @@ Definition preview_view s :=match Services.preview(State.service_state s)with
       (Control "download" "Download" Secondary(Input.ServiceInput(Services.Download(Services.preview_file request)))
        (match resource with Resource.Loaded _ _ _=>Available|_=>Unavailable "The preview is not ready"end))]])%list]
  |_,_=>[]end end.
-Definition dialogs s :=(settings s++directory_view s++preview_view s)%list.

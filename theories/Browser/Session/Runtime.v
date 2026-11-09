@@ -309,9 +309,10 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.Command command=>match Authoring.command_availability snapshot state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end
-|Input.OpenEditor owner trigger=>let state:=match Services.settings_return(SS.service_state state)with
- |Some _=>SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state|None=>state end in
- let state:=SS.with_services(Services.with_settings_return None(SS.service_state state))state in
+|Input.OpenEditor owner trigger=>let state:=match owner,Services.settings_return(SS.service_state state)with
+ |Identity.TitlePrompts,_|_,None=>state
+ |_,Some _=>SS.with_services(Services.with_settings_return None(SS.service_state state))
+    (SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state) end in
  Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner trigger state)
 |_=>match Authoring.step snapshot input state with Some result=>result|None=>
  match Navigation.step snapshot input state with Some decision=>match Authoring.input_availability snapshot state input with

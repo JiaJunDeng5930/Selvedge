@@ -7,6 +7,7 @@ test('Settings applies configuration edits and shows their saved values after re
   const instructions = 'Keep headings concise.\n保留中文。';
   const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
   const instructionsInput = dialog.getByRole('textbox', { name: 'Instructions', exact: true });
+  const editInstructions = dialog.getByRole('button', { name: 'Edit instructions', exact: true });
   const listenAddress = dialog.getByRole('combobox', { name: 'Listen address', exact: true });
   const general = dialog.getByRole('radio', { name: 'General', exact: true });
   const connection = dialog.getByRole('radio', { name: 'Connection', exact: true });
@@ -22,6 +23,8 @@ test('Settings applies configuration edits and shows their saved values after re
   }
 
   await openSettings();
+  assert.equal(await instructionsInput.count(), 0);
+  await editInstructions.click();
   await instructionsInput.fill(instructions);
   await connection.click();
   await listenAddress.waitFor();
@@ -35,6 +38,7 @@ test('Settings applies configuration edits and shows their saved values after re
 
   await page.reload();
   await openSettings();
+  await editInstructions.click();
   assert.equal(await instructionsInput.inputValue(), instructions);
 
   await connection.click();

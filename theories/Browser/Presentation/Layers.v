@@ -300,6 +300,9 @@ Definition layer_view snapshot s capacity layer :=
   |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
   |State.ArchivedCardsPanel|State.CardDecisionPanel _ _=>[dialog_header parent[title parent(panel_title panel)];dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
-  let semantic:=match panel with State.SideConversationPanel _=>"side-conversation"|_=>"layer"end in
+  let semantic:=match panel with
+    |State.SideConversationPanel _=>"side-conversation"
+    |State.EditorPanel Identity.TitlePrompts=>"settings-title-editor"
+    |_=>"layer"end in
   Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.

@@ -54,8 +54,15 @@ Definition relocate_details_trigger state capacity base overlays:=
 
 Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) : Surface.surface Input.input :=
  let base:=List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state)in
- let overlays:=List.app(Navigation.navigation_layers snapshot state capacity)
-   (List.app(map(Layers.layer_view snapshot state capacity)(rev(Layers.visible_layers(State.layers(State.navigation_state state)))))
-     (ServiceControls.dialogs state))in
+ let render:=map (Layers.layer_view snapshot state capacity) in
+ let '(settings_editors, workspace_layers):=partition
+   (fun layer => match State.layer_panel layer with
+     | State.EditorPanel Identity.TitlePrompts => true | _ => false end)
+   (rev (Layers.visible_layers (State.layers (State.navigation_state state)))) in
+ (* An editor launched from Settings returns to its settings row. Keep the
+    settings layer beneath it, and keep service-owned pickers above both. *)
+ let overlays:=(Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
+   ServiceControls.settings state ++ render settings_editors ++
+   ServiceControls.directory_view state ++ ServiceControls.preview_view state)%list in
  let '(base,overlays):=relocate_details_trigger state capacity base overlays in
  Surface.Surface "/workspace" "/main"base overlays(Services.theme(State.service_state state)).
