@@ -37,18 +37,14 @@ Definition field parent key label multiline raw choices enabled
      (fun value => option_map (fun text => Input.ServiceInput (input text)) (as_string value))) [].
 
 Definition profile_choice parent selected (enabled : bool) (entry : string * json) : node Input.input :=
- let '(name, profile) := entry in
+ let name := fst entry in
  let key := part parent name in
  let current := match selected with Some item => String.eqb item name | None => false end in
- let caption := match ProviderCatalog.backend profile with
-   | Some provider => provider_label provider | None => "Choose a provider"
-   end in
  Node key "model-profile-choice" name Roles.Button
    (Choice SingleChoice current ""
-     (Control name name Secondary (Input.ServiceInput (Services.SelectModelProfile name))
+     (Control name name Secondary (Input.ServiceInput (Services.SelectConfigurationItem name))
        (if enabled then Available else Unavailable "Profile changes are being applied")))
-   [information key "name" Information.OptionLabel name;
-    information key "provider" Information.Description caption].
+   [information key "name" Information.OptionLabel name].
 
 Definition profile_fields parent enabled name profile : list (node Input.input) :=
  let edit key label choices :=
@@ -72,16 +68,17 @@ Definition profile_fields parent enabled name profile : list (node Input.input) 
      end))%list.
 
 Definition profile_form parent view enabled (entries : list (string * json)) : list (node Input.input) :=
- match Configuration.profile_new_name view with
+ match Configuration.new_item_name view with
  | Some name =>
    let panel := part parent "new-profile" in
    [region parent "new-profile" "" Roles.Section
-     [field panel "profile-name" "Profile name" false name None enabled Services.EditNewModelProfileName;
+     [field panel "profile-name" "Profile name" false name None enabled Services.EditConfigurationItemName;
       region panel "model-profile-actions" "" Roles.Section
-        [profile_button panel "cancel-add" "Cancel adding profile" enabled Services.CancelAddModelProfile;
-         profile_button panel "add" "Add" (enabled && Configuration.can_add_model_profile view) Services.AddModelProfile]]]
+        [profile_button panel "cancel-add" "Cancel adding profile" enabled Services.CancelAddConfigurationItem;
+         profile_button panel "add" "Add" (enabled && Configuration.can_add_item view) (Services.AddConfigurationItem
+             (JObject [("provider", JString (ProviderCatalog.provider_name ProviderCatalog.Offline)); ("model", JString "echo")]))]]]
  | None =>
-   match Configuration.selected_profile view with
+   match Configuration.selected_item view with
    | Some name =>
      match find (fun entry => String.eqb (fst entry) name) entries with
      | Some (_, profile) =>
@@ -89,18 +86,19 @@ Definition profile_form parent view enabled (entries : list (string * json)) : l
        [Node panel "model-profile-form" "" Roles.Section Region
          [region panel "model-profile-fields" "" Roles.Section
            (profile_fields (part panel "model-profile-fields") enabled name profile);
-          profile_button panel "remove-profile" "Remove profile" enabled (Services.RemoveModelProfile name)]]
+          profile_button panel "remove-profile" "Remove profile" enabled (Services.RemoveConfigurationItem name)]]
      | None => []
      end
-   | None => []
+   | None => [information parent "profile-empty" Information.Description
+       "Add a model profile to make it available to tasks."]
    end
  end.
 
 Definition editor parent view raw enabled : node Input.input :=
  let key := part parent "model-profile-editor" in
- let entries := Configuration.profile_entries view in
- let structured := Configuration.profile_form_available view in
- let advanced := Configuration.profile_json_mode view in
+ let entries := Configuration.collection_entries view in
+ let structured := Configuration.collection_form_available view in
+ let advanced := Configuration.json_mode view in
  let layout := part key "model-profile-layout" in
  let list_key := part layout "model-profile-list" in
  let choices := part list_key "model-profile-choices" in
@@ -110,16 +108,23 @@ Definition editor parent view raw enabled : node Input.input :=
         (Services.EditConfigurationAt Configuration.profiles_path)]
      ++ (if structured then [] else
          [information key "profile-json-error" Information.Status "Enter a JSON object containing profile objects to return to the form."]))%list
-   else
+   else match entries, Configuration.new_item_name view with
+    | [], None => [profile_button key "begin-add" "Add profile" enabled Services.BeginAddConfigurationItem]
+    | [], Some _ => profile_form key view enabled entries
+    | _, _ =>
     [region key "model-profile-layout" "" Roles.Section
       ([region layout "model-profile-list" "" Roles.Section
-        [Node choices "model-profile-choices" "Profiles" Roles.Section ChoiceGroup
-           (map (profile_choice choices (Configuration.selected_profile view) enabled) entries);
-         profile_button list_key "begin-add" "Add profile" enabled Services.BeginAddModelProfile]]
-       ++ profile_form layout view enabled entries)%list]).
+        ([Node choices "model-profile-choices" "Profiles" Roles.Section ChoiceGroup
+           (map (profile_choice choices (Configuration.selected_item view) enabled) entries)]
+         ++ match Configuration.new_item_name view with
+            | Some _ => []
+            | None => [profile_button list_key "begin-add" "Add profile" enabled Services.BeginAddConfigurationItem]
+            end)%list]
+       ++ profile_form layout view enabled entries)%list]
+    end).
 
 Definition mode_control parent view enabled :=
- if Configuration.profile_json_mode view then
+ if Configuration.json_mode view then
    profile_button parent "back-to-profile-form" "Back to profile form"
-     (enabled && Configuration.profile_form_available view) (Services.ShowModelProfilesJSON false)
- else profile_button parent "advanced-json" "Advanced JSON" enabled (Services.ShowModelProfilesJSON true).
+     (enabled && Configuration.collection_form_available view) (Services.ShowConfigurationJSON false)
+ else profile_button parent "advanced-json" "Advanced JSON" enabled (Services.ShowConfigurationJSON true).

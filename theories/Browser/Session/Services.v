@@ -92,18 +92,19 @@ Definition decode_connection value := match string_field "status" value with
  |Some "revoked"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionRevoked ticket reason)
  |_=>None end.
 Inductive SettingsSection :=
-| SettingsGeneral | SettingsModels | SettingsTasks | SettingsContext | SettingsConnection.
+| SettingsGeneral | SettingsModels | SettingsTools | SettingsTasks | SettingsContext | SettingsConnection.
 Definition settings_section_name section :=
   match section with
   | SettingsGeneral => "general"
   | SettingsModels => "models"
+  | SettingsTools => "tools"
   | SettingsTasks => "tasks"
   | SettingsContext => "context"
   | SettingsConnection => "connection"
   end.
 Definition decode_settings_section name :=
   find (fun section => String.eqb (settings_section_name section) name)
-    [SettingsGeneral; SettingsModels; SettingsTasks; SettingsContext; SettingsConnection].
+    [SettingsGeneral; SettingsModels; SettingsTools; SettingsTasks; SettingsContext; SettingsConnection].
 Record services := Services {
   connection:connection_observation; settings_return:option string; settings_section:SettingsSection;
   theme:appearance; next_ticket:N;
@@ -178,10 +179,12 @@ Inductive service_input :=
 | OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string) | EditConfiguration(raw:string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
-| SelectModelProfile(name:string) | BeginAddModelProfile | EditNewModelProfileName(raw:string)
-| AddModelProfile | CancelAddModelProfile | RemoveModelProfile(name:string)
-| EditModelProfileField(name field raw:string) | ShowModelProfilesJSON(show:bool)
-| SetConfiguration | ResetConfiguration
+| SelectConfigurationItem(name:string) | BeginAddConfigurationItem | EditConfigurationItemName(raw:string)
+| AddConfigurationItem(value:json) | CancelAddConfigurationItem | RemoveConfigurationItem(name:string)
+| EditModelProfileField(name field raw:string) | ShowConfigurationJSON(show:bool)
+| ShowConnectionOverrides(show:bool)
+| SetConfiguration | SetConfigurationAt(path:list string)(raw:string)
+| ResetConfiguration | ResetConfigurationAt(path:list string)
 | ConfigurationLoaded(ticket:N)(outcome:sum string Configuration.Config.snapshot)
 | ConfigurationWritten(ticket:N)(outcome:sum string Configuration.Config.snapshot)
 | Connect | Authenticated(ticket:N)(outcome:sum string unit)
@@ -287,6 +290,12 @@ Definition configuration_write (reset:bool) s :=
     | None => keep s
     end
   else keep s.
+Definition write_configuration_at path view reset s :=
+  match Configuration.current_draft view with
+  | Some draft => if Configuration.matches_path path draft
+      then configuration_write reset (with_configuration view s) else keep s
+  | None => keep s
+  end.
 Definition service_step input s :=
   match input with
   | CommandAssessed ticket outcome =>
@@ -319,24 +328,30 @@ Definition service_step input s :=
   | EditConfiguration raw => keep (with_configuration (Configuration.write_input raw (service_configuration s)) s)
   | EditConfigurationAt path raw => keep (with_configuration (Configuration.write_input_at path raw (service_configuration s)) s)
   | CancelConfigurationEdit => keep (with_configuration (Configuration.cancel (service_configuration s)) s)
-  | SelectModelProfile name =>
-      keep (with_configuration (Configuration.select_model_profile name (service_configuration s)) s)
-  | BeginAddModelProfile =>
-      keep (with_configuration (Configuration.begin_add_model_profile (service_configuration s)) s)
-  | EditNewModelProfileName raw =>
-      keep (with_configuration (Configuration.edit_new_model_profile_name raw (service_configuration s)) s)
-  | AddModelProfile =>
-      keep (with_configuration (Configuration.add_model_profile (service_configuration s)) s)
-  | CancelAddModelProfile =>
-      keep (with_configuration (Configuration.cancel_add_model_profile (service_configuration s)) s)
-  | RemoveModelProfile name =>
-      keep (with_configuration (Configuration.remove_model_profile name (service_configuration s)) s)
+  | SelectConfigurationItem name =>
+      keep (with_configuration (Configuration.select_item name (service_configuration s)) s)
+  | BeginAddConfigurationItem =>
+      keep (with_configuration (Configuration.begin_add_item (service_configuration s)) s)
+  | EditConfigurationItemName raw =>
+      keep (with_configuration (Configuration.edit_item_name raw (service_configuration s)) s)
+  | AddConfigurationItem value =>
+      keep (with_configuration (Configuration.add_item value (service_configuration s)) s)
+  | CancelAddConfigurationItem =>
+      keep (with_configuration (Configuration.cancel_add_item (service_configuration s)) s)
+  | RemoveConfigurationItem name =>
+      keep (with_configuration (Configuration.remove_item name (service_configuration s)) s)
   | EditModelProfileField name field raw =>
       keep (with_configuration (Configuration.edit_model_profile_field name field raw (service_configuration s)) s)
-  | ShowModelProfilesJSON show =>
-      keep (with_configuration (Configuration.show_model_profiles_json show (service_configuration s)) s)
+  | ShowConfigurationJSON show =>
+      keep (with_configuration (Configuration.show_json show (service_configuration s)) s)
+  | ShowConnectionOverrides show =>
+      keep (with_configuration (Configuration.show_connection_overrides show (service_configuration s)) s)
   | SetConfiguration => configuration_write false s
+  | SetConfigurationAt path raw =>
+      write_configuration_at path (Configuration.write_input_at path raw (service_configuration s)) false s
   | ResetConfiguration => configuration_write true s
+  | ResetConfigurationAt path =>
+      write_configuration_at path (Configuration.select path (service_configuration s)) true s
   | ConfigurationLoaded ticket result =>
       keep (with_configuration (Configuration.read_finished ticket result (service_configuration s)) s)
   | ConfigurationWritten ticket result =>

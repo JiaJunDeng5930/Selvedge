@@ -834,7 +834,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ([("role","radio");("aria-checked",flag selected)] ++
   let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.Choice kind selected description action=>button false action
- ([("role",match current_area,kind with MenuArea,S.SingleChoice=>"menuitemradio"|MenuArea,S.MultipleChoice=>"menuitemcheckbox"|_,S.SingleChoice=>"radio"|_,S.MultipleChoice=>"checkbox" end);("aria-checked",flag selected)] ++
+ ([("role",match current_area,kind with MenuArea,S.SingleChoice=>"menuitemradio"|MenuArea,S.MultipleChoice=>"menuitemcheckbox"|_,S.SingleChoice=>"radio"|_,S.MultipleChoice=>"checkbox"|_,S.ToggleChoice=>"switch" end);("aria-checked",flag selected)] ++
  let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.PanelToggle expanded action=>
    let native:=button false action [("aria-expanded",flag expanded)] in
