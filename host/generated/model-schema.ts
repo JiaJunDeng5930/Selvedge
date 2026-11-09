@@ -691,7 +691,7 @@ export type Command =
   | {"op": "list_task_graphs"; }
   | {"op": "read_task_graph"; "graph_id": DomainNatural}
   | {"op": "read_title_settings"; }
-  | {"op": "configure_title_settings"; "revision": DomainNatural; "task_prompt": string; "agent_prompt": string}
+  | {"op": "configure_title_settings"; "revision": DomainNatural; "task_prompt": string; "agent_prompt": string; "agent_profile"?: string}
   | {"op": "create_work"; "name"?: string}
   | {"op": "rename_work"; "work_id": DomainNatural; "name": string}
   | {"op": "create_work_task"; "work_id": DomainNatural; "profile": string; "reasoning"?: string; "message"?: JsonValue; "images"?: Array<JsonValue>; "settings"?: JsonValue; "create_worktree"?: boolean}
@@ -767,7 +767,7 @@ export function decodeCommand(input: unknown): Command {
     case "list_task_graphs": exactFields(source, ["op"]); return {"op": "list_task_graphs"};
     case "read_task_graph": exactFields(source, ["op","graph_id"]); return {"op": "read_task_graph", "graph_id": decodeNatural(source["graph_id"])};
     case "read_title_settings": exactFields(source, ["op"]); return {"op": "read_title_settings"};
-    case "configure_title_settings": exactFields(source, ["op","revision","task_prompt","agent_prompt"]); return {"op": "configure_title_settings", "revision": decodeNatural(source["revision"]), "task_prompt": decodeText(source["task_prompt"]), "agent_prompt": decodeText(source["agent_prompt"])};
+    case "configure_title_settings": exactFields(source, ["op","revision","task_prompt","agent_prompt","agent_profile"]); return {"op": "configure_title_settings", "revision": decodeNatural(source["revision"]), "task_prompt": decodeText(source["task_prompt"]), "agent_prompt": decodeText(source["agent_prompt"]), ...(source["agent_profile"] === undefined ? {} : {"agent_profile": decodeText(source["agent_profile"])})};
     case "create_work": exactFields(source, ["op","name"]); return {"op": "create_work", ...(source["name"] === undefined ? {} : {"name": decodeText(source["name"])})};
     case "rename_work": exactFields(source, ["op","work_id","name"]); return {"op": "rename_work", "work_id": decodeNatural(source["work_id"]), "name": decodeText(source["name"])};
     case "create_work_task": exactFields(source, ["op","work_id","profile","reasoning","message","images","settings","create_worktree"]); return {"op": "create_work_task", "work_id": decodeNatural(source["work_id"]), "profile": decodeText(source["profile"]), ...(source["reasoning"] === undefined ? {} : {"reasoning": decodeText(source["reasoning"])}), ...(source["message"] === undefined ? {} : {"message": decodeJson(source["message"])}), ...(source["images"] === undefined ? {} : {"images": decodeArray(source["images"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])}), ...(source["create_worktree"] === undefined ? {} : {"create_worktree": decodeBoolean(source["create_worktree"])})};

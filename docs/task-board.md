@@ -34,7 +34,7 @@ Assisted creation uses a separately selected ordinary profile to organize the
 request into a title and description. This request has no tools. Its profile is
 separate from the execution assignee; quality and availability depend on that
 endpoint. The offline demo and adaptive task profiles are not drafting profiles.
-**Settings → 标题生成** edits **Task 看板标题提示词** independently of the
+**Settings → 标题生成设置** edits **Task 看板标题提示词** independently of the
 **Agent 会话标题提示词** used by ordinary conversations. Both retain the shared
 schema and normalization. Linked conversations generate their own names;
 renaming a card preserves its conversation's title. A linked card can regenerate
@@ -43,18 +43,20 @@ explicit title or description edits supersede it, so its late result cannot
 overwrite the edit. Restore an archived card before editing or generating a title.
 
 Each title instruction accepts up to 4096 UTF-8 bytes of nonempty text.
-Restore defaults changes the editor's draft; Save commits both fields together
-at their observed revision. A revision conflict leaves both saved fields
-unchanged. Dismissing the editor leaves saved instructions unchanged. Saved
-instructions survive service restart and affect future generations; existing
-names and already-dispatched prompt snapshots are preserved.
+Restore defaults changes the draft prompts. Save commits the title settings
+together at their observed revision. A revision conflict or editor dismissal
+leaves the saved settings in place. Saved settings survive service restart and
+apply to future requests. Existing titles and already-dispatched requests are
+preserved.
 
-Model Tasks generate conversation titles without separate setup. ChatGPT
-account Tasks prefer a configured `gpt-5.6-luna` profile from the same account;
-other Tasks use their own model connection. Title requests use the provider's
-default reasoning independently of the Task's effort and adaptive evaluator.
-Offline demo profiles retain request-derived names. The shared prompt and
-Unicode normalization are adapted from the Apache-2.0
+**Agent 会话标题模型** selects a configured model connection for future
+conversation titles. **自动** prefers a configured `gpt-5.6-luna` profile from
+the Task's ChatGPT account when available, then uses the Task's own model
+connection. In automatic mode, offline demo profiles retain request-derived
+names. A selected connection that is no longer available also leaves the
+request-derived name in place. Title requests use the provider's default
+reasoning independently of the Task's effort and adaptive evaluator. The shared
+prompt and Unicode normalization are adapted from the Apache-2.0
 [Codex implementation](https://github.com/openai/codex/blob/ce0323f2f2d3b25e82806cd555237da3db4e1897/codex-rs/tui/src/app/thread_title.rs).
 
 Use the paperclip, paste files into the editor, or drop files onto the form.

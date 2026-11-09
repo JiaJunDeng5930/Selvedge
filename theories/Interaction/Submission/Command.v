@@ -53,7 +53,8 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
  |Draft.CompactBody task summary=>Some(record "compact"(present "summary"(DraftCodec.option_text summary)[("task_id",number task)]))
  |Draft.TaskGraphBody graph declaration parsed work=>parsed<-parsed;;Some(record(match graph with None=>"create_task_graph"|Some _=>"update_task_graph"end)
    (present "graph_id"(optional_id graph)(match graph with None=>present "work_id"(optional_id work)(object_fields parsed)|Some _=>object_fields parsed end)))
- |Draft.TitlePromptsBody revision task agent=>Some(record "configure_title_settings"[("revision",number revision);("task_prompt",JString task);("agent_prompt",JString agent)])end.
+ |Draft.TitlePromptsBody revision task agent profile=>Some(record "configure_title_settings"
+   (present "agent_profile" (DraftCodec.option_text profile) [("revision",number revision);("task_prompt",JString task);("agent_prompt",JString agent)]))end.
 Definition command now value :=source<-command_json now(Draft.contents value);;Schema.decode_command command_specs source.
 Definition admit_directories source:=kind<-string_field "kind" source;;if String.eqb kind "directories"then
  workspace<-bind(field "workspace" source)Codec.parse_workspace;;guidance<-field "guidance" source;;

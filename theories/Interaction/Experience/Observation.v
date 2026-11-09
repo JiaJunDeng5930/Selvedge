@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
 From Selvedge.Features Require Domain BoardParameters Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
@@ -67,6 +67,16 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
  |Fields.CardProject=>project_choices snapshot "No project"
  |Fields.ModelProfile=>models
  |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models
+ |Fields.AgentTitleProfile=>
+   let available:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
+     (filter FeatureRequestAdmission.ordinary_profile profiles)in
+   let retained:=match observe_subject snapshot state subject with
+   |Fields.OptionalTextValue(Some key)=>
+     (* DEFENSE: Editing the service configuration can remove the saved title connection. *)
+     if existsb(fun choice=>String.eqb key(Fields.choice_value_of choice))available then []
+     else [Fields.ChoiceValue key (key++"（连接不可用）")]
+   |_=>[]end in
+   Fields.ChoiceValue "" "自动"::retained++available
  |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in
@@ -404,7 +414,7 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
        |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
      |None=>false end|None=>false end end)
    (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
- |Draft.TitlePromptsBody _ task agent=>
+ |Draft.TitlePromptsBody _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
  |_=>[]end.

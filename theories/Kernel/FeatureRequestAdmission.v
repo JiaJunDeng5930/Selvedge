@@ -109,15 +109,18 @@ Definition account_prefix (key : string) := match split_slash key "" with
  | _ => "" end.
 Definition capable_profile (selected : profile) := negb (String.eqb (profile_provider selected) "echo").
 Definition selected_title_profile (current : task) (before : world) :=
- let profile := task_current_profile current in
  let configured := environment_profiles (world_environment before) in
- let fallback := find (fun selected => String.eqb (profile_key profile) (profile_key selected) && capable_profile selected) configured in
- let prefix := account_prefix (profile_key profile) in
- match find (fun selected => String.eqb (profile_provider profile) "chatgpt" &&
-   negb (String.eqb prefix "") && String.prefix prefix (profile_key selected) &&
-   String.eqb (profile_provider selected) "chatgpt" && String.eqb (profile_model selected) "gpt-5.6-luna" &&
-   ordinary_profile selected) configured with
- | Some selected => Some selected | None => fallback end.
+ match F.title_agent_profile (F.feature_title_settings (world_features before)) with
+ | Some key => find (fun selected => String.eqb key (profile_key selected) && ordinary_profile selected) configured
+ | None =>
+   let profile := task_current_profile current in
+   let fallback := find (fun selected => String.eqb (profile_key profile) (profile_key selected) && capable_profile selected) configured in
+   let prefix := account_prefix (profile_key profile) in
+   match find (fun selected => String.eqb (profile_provider profile) "chatgpt" &&
+     negb (String.eqb prefix "") && String.prefix prefix (profile_key selected) &&
+     String.eqb (profile_provider selected) "chatgpt" && String.eqb (profile_model selected) "gpt-5.6-luna" &&
+     ordinary_profile selected) configured with
+   | Some selected => Some selected | None => fallback end end.
 Definition title_accepts (current : task) := negb (task_archived current).
 Definition title_prompt (current : task) (before : world) :=
  Titles.prompt_with (F.title_agent_instructions (F.feature_title_settings (world_features before)))

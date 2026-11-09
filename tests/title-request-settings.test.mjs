@@ -60,3 +60,76 @@ test('an adaptive Task generates its independent title with default reasoning an
   assert.deepEqual(failures, []);
   assert.deepEqual(model.failures, []);
 });
+
+test('Agent session title settings route only title requests and persist across a service restart', async t => {
+  const directory = await home(t), suffix = randomBytes(8).toString('hex');
+  const mainKey = `SELVEDGE_MAIN_MODEL_${suffix}`, titleKey = `SELVEDGE_AGENT_TITLE_MODEL_${suffix}`;
+  process.env[mainKey] = 'main-model-fixture';
+  process.env[titleKey] = 'agent-title-model-fixture';
+  t.after(() => { delete process.env[mainKey]; delete process.env[titleKey]; });
+
+  const mainRequests = [], titleRequests = [];
+  const main = await responsesServer(t, () => [{ type: 'message', role: 'assistant',
+    content: [{ type: 'output_text', text: 'The requested Task is complete.' }] }], {
+    observeRequest: (body, request) => { if (!request.url.endsWith('/input_tokens')) mainRequests.push(body); },
+  });
+  const title = await responsesServer(t, () => [{ type: 'message', role: 'assistant',
+    content: [{ type: 'output_text', text: 'This endpoint serves title requests only.' }] }], {
+    observeRequest: (body, request) => { if (!request.url.endsWith('/input_tokens')) titleRequests.push(body); },
+  });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, profiles: {
+    main: { provider: 'responses', model: 'main-task-model', endpoint: main.endpoint, api_key_env: mainKey },
+    'agent-title': { provider: 'responses', model: 'agent-session-title-model', endpoint: title.endpoint, api_key_env: titleKey },
+  } });
+  const open = () => Service.open({ home: directory, cwd: directory, config });
+  let service = await open();
+  t.after(() => service?.close());
+  const command = async input => (await service.command(input)).reply;
+  const readSettings = async () => {
+    const reply = await command({ op: 'read_title_settings' });
+    assert.equal(reply.ok, true, JSON.stringify(reply));
+    return reply.result;
+  };
+  const createTask = async message => {
+    const created = await command({ op: 'create', profile: 'main', message });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    await taskIdle(service, created.result.task_id);
+    return command({ op: 'read', task_id: created.result.task_id });
+  };
+
+  const initial = await readSettings();
+  assert.equal(initial.agent_profile, null, 'The default title model is automatic');
+  const saved = await command({ op: 'configure_title_settings', revision: initial.revision,
+    task_prompt: initial.task_prompt, agent_prompt: initial.agent_prompt, agent_profile: 'agent-title' });
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  assert.equal((await readSettings()).agent_profile, 'agent-title');
+
+  await service.close();
+  service = await open();
+  assert.equal((await readSettings()).agent_profile, 'agent-title', 'The selected connection survives a service restart');
+  const selectedTask = await createTask('Complete a task with a separately configured title model.');
+  assert.equal(selectedTask.ok, true, JSON.stringify(selectedTask));
+  assert.equal(selectedTask.result.task.title, 'Name the task');
+  assert.equal(mainRequests.filter(body => body.text?.format?.name === 'task_title').length, 0,
+    'A selected title connection receives no title request through the Task connection');
+  assert.equal(mainRequests.filter(body => body.text?.format?.name !== 'task_title').length, 1);
+  assert.equal(mainRequests.find(body => body.text?.format?.name !== 'task_title').model, 'main-task-model',
+    'The main Task continues to use its own configured connection');
+  assert.equal(titleRequests.filter(body => body.text?.format?.name === 'task_title').length, 1,
+    'The configured title connection receives the Agent session title request');
+  assert.equal(titleRequests.find(body => body.text?.format?.name === 'task_title').model, 'agent-session-title-model');
+
+  const current = await readSettings();
+  const automatic = await command({ op: 'configure_title_settings', revision: current.revision,
+    task_prompt: current.task_prompt, agent_prompt: current.agent_prompt });
+  assert.equal(automatic.ok, true, JSON.stringify(automatic));
+  assert.equal((await readSettings()).agent_profile, null, 'Omitting the optional connection restores automatic selection');
+  await createTask('Complete another task after restoring automatic title selection.');
+  assert.equal(mainRequests.filter(body => body.text?.format?.name !== 'task_title').length, 2);
+  assert.equal(mainRequests.filter(body => body.text?.format?.name === 'task_title').length, 1,
+    'Automatic selection returns title generation to the Task connection');
+  assert.equal(titleRequests.filter(body => body.text?.format?.name === 'task_title').length, 1,
+    'The selected title connection is no longer used after automatic selection is restored');
+  assert.deepEqual(main.failures, []);
+  assert.deepEqual(title.failures, []);
+});
