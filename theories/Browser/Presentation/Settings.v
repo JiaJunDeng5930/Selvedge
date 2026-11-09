@@ -132,14 +132,14 @@ Definition reset_button parent entry enabled label :=
 Definition save_enabled entry raw view enabled :=
  enabled && Configuration.dirty view &&
  match Config.interpret_input (Config.setting_input entry) raw with Some _ => true | None => false end.
-Definition saved_actions parent entry raw view enabled (advanced include_cancel : bool) : list (node Input.input) :=
+Definition saved_actions parent entry raw view enabled (advanced : bool) : list (node Input.input) :=
  let path := Config.setting_path entry in
  let id := part parent "save-bar" in
  let dirty := Configuration.dirty view in
  let controls :=
    ((if advanced then reset_button id entry enabled "Restore default"
     else []) ++
-   (if include_cancel && dirty then
+   (if dirty then
       [button id "cancel" "Discard changes" (negb (Configuration.pending view)) Services.CancelConfigurationEdit]
     else []) ++
    [action id "save" (save_label path) Primary (save_enabled entry raw view enabled) Services.SetConfiguration])%list in
@@ -200,7 +200,7 @@ Definition instructions parent services entry :=
     match draft with
     | None => defaults
     | Some _ => if Configuration.dirty view || Configuration.pending view then
-        saved_actions id entry raw view enabled false true
+        saved_actions id entry raw view enabled false
       else write_status id view ++ defaults
     end)%list.
 
@@ -287,10 +287,46 @@ Definition normal_entry parent services entry :=
 Definition catalog_entries services :=
  match Configuration.available (service_configuration services) with
  | Some snapshot => Config.entries snapshot | None => [] end.
-Definition for_paths services parent paths :=
- flat_map (fun path => map (normal_entry parent services)
-   (filter (fun entry => if list_eq_dec String.string_dec (Config.setting_path entry) path then true else false)
-      (catalog_entries services))) paths.
+Definition entries_for_paths services paths :=
+ match Configuration.available (service_configuration services) with
+ | Some snapshot => flat_map (fun path => match Config.find_setting path snapshot with
+       | Some entry => [entry] | None => [] end) paths
+ | None => []
+ end.
+
+Definition configuration_groups section : list (string * string * list (list string)) :=
+ match section with
+ | SettingsGeneral => []
+ | SettingsModels =>
+   [("model-configurations", "Available models", [["profiles"]; ["chatgpt"]]);
+    ("adaptive", "Adaptive reasoning", [["reasoning_evaluators"]])]
+ | SettingsTools =>
+   [("tool-connections", "Tools and integrations", [["mcp"]; ["plugins"]; ["chatgpt_plugin"]]);
+    ("sources", "Reusable instructions", [["skills"]])]
+ | SettingsTasks =>
+   [("limits", "Task limits", [["max_fork"]; ["max_descendants"]]);
+    ("workspaces", "Workspaces", [["cloud"]])]
+ | SettingsContext =>
+   [("compaction", "Context compaction",
+      [["compaction"; "enabled"]; ["compaction"; "background_percent"];
+       ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]);
+    ("model-limits", "Per-model settings", [["compaction"; "targets"]])]
+ | SettingsConnection =>
+   [("binding", "Listen on this device", [["host"]; ["port"]]);
+    ("remote", "Access from another device", [["remote"]])]
+ end.
+Definition section_entries services section : list (string * string * list Config.setting) :=
+ let fixed := map (fun '(key, label, paths) => (key, label, entries_for_paths services paths))
+   (configuration_groups section) in
+ (fixed ++ match section with
+ | SettingsContext =>
+   let sources := filter (fun entry =>
+     let path := Config.setting_path entry in
+     match path with "compaction" :: _ => false | _ =>
+       same_section (section_for path) SettingsContext end) (catalog_entries services) in
+   [("sources", "Context sources", sources);
+    ("advanced", "Advanced", entries_for_paths services [["compaction"]])]
+ | _ => [] end)%list.
 
 Definition appearance parent current :=
  let id := part parent "theme-options" in
@@ -320,41 +356,20 @@ Definition local_connection parent services :=
  end.
 Definition overview root parent section services :=
  let group key label body := section_group parent key label (body (part parent key)) in
- let paths key label values := group key label (fun p => for_paths services p values) in
- match section with
+ let local := match section with
  | SettingsGeneral =>
-   group "appearance" "Appearance" (fun p => [appearance p (Services.theme services)])
+   (group "appearance" "Appearance" (fun p => [appearance p (Services.theme services)])
    ++ group "conversation" "Conversation defaults" (fun p =>
-      (map (instructions p services) (filter (fun entry => if list_eq_dec String.string_dec
-        (Config.setting_path entry) ["instructions"] then true else false) (catalog_entries services))
+      (map (instructions p services) (entries_for_paths services [["instructions"]])
       ++ [row p "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
           [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
-             (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list)
- | SettingsModels =>
-   paths "model-configurations" "Available models" [["profiles"]; ["chatgpt"]]
-   ++ paths "adaptive" "Adaptive reasoning" [["reasoning_evaluators"]]
- | SettingsTools =>
-   paths "tool-connections" "Tools and integrations" [["mcp"]; ["plugins"]; ["chatgpt_plugin"]]
-   ++ paths "sources" "Reusable instructions" [["skills"]]
- | SettingsTasks =>
-   paths "limits" "Task limits" [["max_fork"]; ["max_descendants"]]
-   ++ paths "workspaces" "Workspaces" [["cloud"]]
- | SettingsContext =>
-   paths "compaction" "Context compaction"
-      [["compaction"; "enabled"]; ["compaction"; "background_percent"];
-       ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]
-   ++ paths "model-limits" "Per-model settings" [["compaction"; "targets"]]
-   ++ group "sources" "Context sources" (fun p =>
-       map (normal_entry p services) (filter (fun entry =>
-          let path := Config.setting_path entry in
-          match path with ["compaction"] => false | "compaction" :: _ => false | _ =>
-             same_section (section_for path) SettingsContext end) (catalog_entries services)))
-   ++ paths "advanced" "Advanced" [["compaction"]]
+             (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list))%list
  | SettingsConnection =>
    group "connection" "Current connection" (fun p => [local_connection p services])
-   ++ paths "binding" "Listen on this device" [["host"]; ["port"]]
-   ++ paths "remote" "Access from another device" [["remote"]]
- end%list.
+ | _ => []
+ end in
+ (local ++ flat_map (fun '(key, label, entries) =>
+   group key label (fun p => map (normal_entry p services) entries)) (section_entries services section))%list.
 
 Definition catalog_status parent services :=
  let load label := button parent "load-configuration" label (Services.connected services) Services.LoadConfiguration in
@@ -405,22 +420,68 @@ Definition editor_section parent section services entry raw : list (node Input.i
    if is_profiles then value_or [] form else if advanced then
      [configuration_field parent "configuration-json" (label ++ " JSON") true raw None enabled path]
    else value_or [] form in
- ([button parent "back-to-section"
-     (if Configuration.dirty view then "Discard and return to " ++ section_label section
-      else "Back to " ++ section_label section)
-     (negb (Configuration.pending view)) Services.CancelConfigurationEdit;
+ ([button parent "back-to-section" ("Back to " ++ section_label section)
+     (negb (Configuration.dirty view || Configuration.pending view)) Services.CancelConfigurationEdit;
   title_block parent label description] ++ fields ++
  (match mode_controls with [] => [] | _ => [named_region parent "settings-advanced" "" mode_controls] end) ++
- saved_actions parent entry raw view enabled advanced false)%list.
+ saved_actions parent entry raw view enabled advanced)%list.
 
-Definition navigation parent current : list (node Input.input) :=
+Definition workspace_editing section services :=
+ match Configuration.editing (service_configuration services) with
+ | Some (_, draft, entry) =>
+   if needs_workspace entry && same_section section (section_for (Configuration.draft_path draft))
+   then Some (entry, Configuration.draft_input draft) else None
+ | None => None end.
+
+Definition page_label path :=
+ match path with
+ | ["profiles"] => "Model profiles"
+ | ["chatgpt"] => "ChatGPT access"
+ | ["reasoning_evaluators"] => "Evaluators"
+ | ["chatgpt_plugin"] => "App connections"
+ | ["compaction"; "targets"] => "Model limits"
+ | ["compaction"] => "Policy JSON"
+ | ["remote"] => "Remote relay"
+ | _ => fst (copy path)
+ end.
+Definition subnavigation parent section services active :=
+ let nav := part parent "settings-subnav" in
+ let active_key := Config.setting_key (Config.setting_path active) in
+ let pages := flat_map (fun '(_, _, entries) => filter needs_workspace entries) (section_entries services section) in
+ Node nav "settings-subnav" (section_label section ++ " pages") Roles.Section ChoiceGroup
+   (map (fun entry =>
+      let path := Config.setting_path entry in
+      let key := Config.setting_key path in
+      let label := page_label path in
+      let selected := String.eqb key active_key in
+      Node (part nav key) "settings-page" label Roles.Button
+       (Choice SingleChoice selected ""
+         (Control key label Secondary (Input.ServiceInput (Services.SelectConfiguration path))
+           (if selected || can_edit path services then Available
+            else Unavailable "Save or discard the current changes before opening another page"))) [])
+    pages).
+
+Definition navigation parent current services (editing : option (Config.setting * string)) : list (node Input.input) :=
  let id := part parent "settings-nav" in
+ let view := service_configuration services in
  let section_choice section :=
    let key := settings_section_name section in
    let label := section_label section in
-   Node (part id key) "settings-category" label Roles.Button
-     (Choice SingleChoice (same_section current section) ""
-       (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
+   let selected := same_section current section in
+   let branch := part id key in
+   let child := if selected then editing else None in
+   let input := match child with Some _ => Services.CancelConfigurationEdit
+                 | None => Services.SelectSettingsSection section end in
+   let available := match child with
+     | Some _ => if Configuration.dirty view || Configuration.pending view
+       then Unavailable "Save or discard the current changes to return to the overview" else Available
+     | None => Available end in
+   named_region id key ""
+     (Node (part branch "section") "settings-category" label Roles.Button
+       (Choice SingleChoice selected "" (Control key label Secondary (Input.ServiceInput input) available)) []
+      :: match child with
+         | Some (entry, _) => [subnavigation branch section services entry]
+         | None => [] end) in
  let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) sections in
  [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup (map section_choice sections);
   named_region parent "settings-mobile-nav" ""
@@ -428,13 +489,8 @@ Definition navigation parent current : list (node Input.input) :=
      (ConfigurationField false (settings_section_name current) (Some options) true
        (fun value => option_map (fun section => Input.ServiceInput (Services.SelectSettingsSection section))
          (bind (as_string value) decode_settings_section))) []]].
-Definition content root parent section services :=
+Definition content root parent section services editing :=
  let view := service_configuration services in
- let editing := match Configuration.editing view with
-    | Some (_, draft, entry) =>
-      if needs_workspace entry && same_section section (section_for (Configuration.draft_path draft))
-      then Some (entry, Configuration.draft_input draft) else None
-    | None => None end in
  let key := "settings-content/" ++ settings_section_name section ++
    (match editing with Some (entry, _) => "/" ++ Config.setting_key (Config.setting_path entry) | None => "" end) in
  let id := part parent key in
@@ -453,6 +509,7 @@ Definition view s :=
    let root := "/settings" in
    let body := part root "body" in
    let section := Services.settings_section services in
+   let editing := workspace_editing section services in
    [Node root "settings" "Settings" Roles.Dialog
       (LayerRegion (LayerBehavior ModalDialog false (State.generation (State.navigation_state s))
         (part root "close") (Services.settings_focus_target trigger) "/main" trigger
@@ -460,5 +517,5 @@ Definition view s :=
       [dialog_header root
          [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
           title root "Settings"];
-       dialog_body root (navigation body section ++ [content root body section services])]]
+       dialog_body root (navigation body section services editing ++ [content root body section services editing])]]
  end.
