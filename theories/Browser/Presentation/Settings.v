@@ -47,7 +47,6 @@ Definition copy path : string * string :=
  | ["max_fork"] => ("Forks per task", "Maximum number of direct forks a task can create.")
  | ["max_descendants"] => ("Task descendants", "Maximum number of tasks descended from a single root.")
  | ["cloud"] => ("Cloud workspaces", "Provision workspaces for tasks using Tencent Cloud.")
- | ["compaction"] => ("Compaction policy", "Edit the entire context compaction policy as JSON.")
  | ["compaction"; "enabled"] => ("Automatic compaction", "Summarize older context as a task approaches its model’s context limit.")
  | ["compaction"; "background_percent"] => ("Background threshold (%)", "Start summarizing while the task can still run.")
  | ["compaction"; "blocking_percent"] => ("Blocking threshold (%)", "Wait for compaction before sending the next request.")
@@ -65,7 +64,7 @@ Definition open_label path :=
  | ["skills"] => "Manage sources" | ["chatgpt_plugin"] => "Manage connections"
  | ["chatgpt"] => "Configure access" | ["remote"] => "Configure relay"
  | ["cloud"] => "Configure cloud workspaces" | ["compaction"; "targets"] => "Manage limits"
- | ["compaction"] => "Edit policy JSON" | _ => "Edit " ++ fst (copy path)
+ | _ => "Edit " ++ fst (copy path)
  end.
 Definition save_label path :=
  match path with
@@ -73,7 +72,7 @@ Definition save_label path :=
  | ["chatgpt"] => "Save access settings" | ["chatgpt_plugin"] => "Save connections"
  | ["mcp"] => "Save servers" | ["plugins"] => "Save plugins" | ["skills"] => "Save sources"
  | ["remote"] => "Save relay" | ["cloud"] => "Save cloud settings"
- | ["compaction"; "targets"] => "Save limits" | ["compaction"] => "Save policy"
+ | ["compaction"; "targets"] => "Save limits"
  | ["instructions"] => "Save instructions" | ["host"] => "Save address" | ["port"] => "Save port"
  | _ => "Save"
  end.
@@ -132,12 +131,12 @@ Definition reset_button parent entry enabled label :=
 Definition save_enabled entry raw view enabled :=
  enabled && Configuration.dirty view &&
  match Config.interpret_input (Config.setting_input entry) raw with Some _ => true | None => false end.
-Definition saved_actions parent entry raw view enabled (advanced : bool) : list (node Input.input) :=
+Definition saved_actions parent entry raw view enabled (allow_reset : bool) : list (node Input.input) :=
  let path := Config.setting_path entry in
  let id := part parent "save-bar" in
  let dirty := Configuration.dirty view in
  let controls :=
-   ((if advanced then reset_button id entry enabled "Restore default"
+   ((if allow_reset && negb dirty then reset_button id entry enabled "Restore default"
     else []) ++
    (if dirty then
       [button id "cancel" "Discard changes" (negb (Configuration.pending view)) Services.CancelConfigurationEdit]
@@ -236,23 +235,17 @@ Definition collection_lines parent path values :=
      (copy_nodes (part parent name) name (item_detail path value))) values.
 Definition current_lines parent path value : list (node Input.input) :=
  match Configuration.collection_root path with
- | Some _ => match child_items path value with
-      | [] => [note parent "empty" "None configured"]
-      | items => collection_lines parent path items end
+ | Some _ => collection_lines parent path (child_items path value)
  | None =>
    match path with
-   | ["chatgpt"] => [note parent "current-value" (match value with
-        | JBool false => "Account model access is off"
-        | JNull | JObject [] => "Default connection"
-        | _ => "Custom connection" end)]
-   | ["remote"] => [note parent "current-value" (match Common.get value "relay_url" with
-        | JString url => url | _ => "No relay configured" end)]
-   | ["cloud"] => [note parent "current-value" (match value with JObject _ =>
-        detail_join "Tencent Cloud" (Common.text (Common.get (Common.get value "tencent_cvm") "region"))
-        | _ => "No cloud backend configured" end)]
+   | ["remote"] => match Common.get value "relay_url" with
+        | JString url => [note parent "current-value" url] | _ => [] end
+   | ["cloud"] => match Common.get value "tencent_cvm" with
+        | JObject _ => [note parent "current-value"
+          (detail_join "Tencent Cloud" (Common.text (Common.get (Common.get value "tencent_cvm") "region")))]
+        | _ => [] end
    | ["compaction"; "targets"] =>
       let targets := Common.items value in
-      match targets with [] => [note parent "empty" "No profile limits configured"] | _ =>
       map (fun '(index, item) =>
         let key := "target-" ++ ConfigurationForms.index_label index in
         let label := Common.text (Common.get item "profile") in
@@ -261,10 +254,7 @@ Definition current_lines parent path value : list (node Input.input) :=
           (copy_nodes (part parent key) label (match window with
             | JNumber amount => amount ++ " tokens" | _ => "" end)))
         (ConfigurationForms.indexed targets)
-      end
-   | ["compaction"] => []
-   | _ => match value with JArray [] => [note parent "empty" "None configured"]
-          | JArray items => map (fun '(index, item) => note parent
+   | _ => match value with JArray items => map (fun '(index, item) => note parent
               ("item-" ++ ConfigurationForms.index_label index) (Config.display_value item)) (ConfigurationForms.indexed items)
           | _ => [] end
    end
@@ -274,8 +264,13 @@ Definition workspace_entry parent services entry :=
  let key := Config.setting_key path in
  let id := part parent key in
  let controls := part id "settings-controls" in
- let lines := current_lines (part id "settings-values") path (Config.setting_value entry) in
- row parent key (fst (copy path)) (snd (copy path))
+ let value := Config.setting_value entry in
+ let lines := current_lines (part id "settings-values") path value in
+ let '(label, description) := copy path in
+ let description := match path, value with
+   | ["chatgpt"], JBool false => "ChatGPT account access is turned off."
+   | _, _ => description end in
+ row parent key label description
    [button controls "manage" (open_label path) (can_edit path services) (Services.SelectConfiguration path)]
    (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
 
@@ -324,8 +319,7 @@ Definition section_entries services section : list (string * string * list Confi
      let path := Config.setting_path entry in
      match path with "compaction" :: _ => false | _ =>
        same_section (section_for path) SettingsContext end) (catalog_entries services) in
-   [("sources", "Context sources", sources);
-    ("advanced", "Advanced", entries_for_paths services [["compaction"]])]
+   [("sources", "Context sources", sources)]
  | _ => [] end)%list.
 
 Definition appearance parent current :=
@@ -401,30 +395,12 @@ Definition editor_section parent section services entry raw : list (node Input.i
  let enabled := can_edit path services in
  let source := value_or JNull (TextJson.parse_json raw) in
  let is_profiles := if list_eq_dec String.string_dec path Configuration.profiles_path then true else false in
- let form := if is_profiles then Some [ModelProfiles.editor parent view raw enabled]
-             else ConfigurationForms.structured_form path parent (Config.setting_value entry) source view enabled in
- let raw_only := match form with None => true | Some _ => false end in
- let advanced := Configuration.json_mode view || raw_only in
- let can_return := match Configuration.collection_root path with
-   | Some _ => Configuration.collection_form_available view
-   | None => match TextJson.parse_json raw with Some _ => true | None => false end
-   end in
- let mode_controls :=
-   if is_profiles then
-     [ModelProfiles.mode_control parent view enabled]
-   else if raw_only then []
-   else if advanced then
-     [button parent "back-to-form" "Back to form" (enabled && can_return) (Services.ShowConfigurationJSON false)]
-   else [button parent "advanced-json" "Edit JSON" enabled (Services.ShowConfigurationJSON true)] in
- let fields :=
-   if is_profiles then value_or [] form else if advanced then
-     [configuration_field parent "configuration-json" (label ++ " JSON") true raw None enabled path]
-   else value_or [] form in
+ let fields := if is_profiles then [ModelProfiles.editor parent view enabled]
+               else value_or [] (ConfigurationForms.structured_form path parent (Config.setting_value entry) source view enabled) in
  ([button parent "back-to-section" ("Back to " ++ section_label section)
      (negb (Configuration.dirty view || Configuration.pending view)) Services.CancelConfigurationEdit;
   title_block parent label description] ++ fields ++
- (match mode_controls with [] => [] | _ => [named_region parent "settings-advanced" "" mode_controls] end) ++
- saved_actions parent entry raw view enabled advanced)%list.
+ saved_actions parent entry raw view enabled true)%list.
 
 Definition workspace_editing section services :=
  match Configuration.editing (service_configuration services) with
@@ -433,55 +409,14 @@ Definition workspace_editing section services :=
    then Some (entry, Configuration.draft_input draft) else None
  | None => None end.
 
-Definition page_label path :=
- match path with
- | ["profiles"] => "Model profiles"
- | ["chatgpt"] => "ChatGPT access"
- | ["reasoning_evaluators"] => "Evaluators"
- | ["chatgpt_plugin"] => "App connections"
- | ["compaction"; "targets"] => "Model limits"
- | ["compaction"] => "Policy JSON"
- | ["remote"] => "Remote relay"
- | _ => fst (copy path)
- end.
-Definition subnavigation parent section services active :=
- let nav := part parent "settings-subnav" in
- let active_key := Config.setting_key (Config.setting_path active) in
- let pages := flat_map (fun '(_, _, entries) => filter needs_workspace entries) (section_entries services section) in
- Node nav "settings-subnav" (section_label section ++ " pages") Roles.Section ChoiceGroup
-   (map (fun entry =>
-      let path := Config.setting_path entry in
-      let key := Config.setting_key path in
-      let label := page_label path in
-      let selected := String.eqb key active_key in
-      Node (part nav key) "settings-page" label Roles.Button
-       (Choice SingleChoice selected ""
-         (Control key label Secondary (Input.ServiceInput (Services.SelectConfiguration path))
-           (if selected || can_edit path services then Available
-            else Unavailable "Save or discard the current changes before opening another page"))) [])
-    pages).
-
-Definition navigation parent current services (editing : option (Config.setting * string)) : list (node Input.input) :=
+Definition navigation parent current : list (node Input.input) :=
  let id := part parent "settings-nav" in
- let view := service_configuration services in
  let section_choice section :=
    let key := settings_section_name section in
    let label := section_label section in
-   let selected := same_section current section in
-   let branch := part id key in
-   let child := if selected then editing else None in
-   let input := match child with Some _ => Services.CancelConfigurationEdit
-                 | None => Services.SelectSettingsSection section end in
-   let available := match child with
-     | Some _ => if Configuration.dirty view || Configuration.pending view
-       then Unavailable "Save or discard the current changes to return to the overview" else Available
-     | None => Available end in
-   named_region id key ""
-     (Node (part branch "section") "settings-category" label Roles.Button
-       (Choice SingleChoice selected "" (Control key label Secondary (Input.ServiceInput input) available)) []
-      :: match child with
-         | Some (entry, _) => [subnavigation branch section services entry]
-         | None => [] end) in
+   Node (part id key) "settings-category" label Roles.Button
+     (Choice SingleChoice (same_section current section) ""
+       (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
  let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) sections in
  [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup (map section_choice sections);
   named_region parent "settings-mobile-nav" ""
@@ -517,5 +452,5 @@ Definition view s :=
       [dialog_header root
          [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
           title root "Settings"];
-       dialog_body root (navigation body section services editing ++ [content root body section services editing])]]
+       dialog_body root (navigation body section ++ [content root body section services editing])]]
  end.

@@ -177,11 +177,11 @@ Inductive service_input :=
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
 | OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
-| LoadConfiguration | SelectConfiguration(path:list string) | EditConfiguration(raw:string)
+| LoadConfiguration | SelectConfiguration(path:list string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
 | SelectConfigurationItem(name:string) | BeginAddConfigurationItem | EditConfigurationItemName(raw:string)
 | AddConfigurationItem(value:json) | CancelAddConfigurationItem | RemoveConfigurationItem(name:string)
-| EditModelProfileField(name field raw:string) | ShowConfigurationJSON(show:bool)
+| EditModelProfileField(name field raw:string)
 | ShowConnectionOverrides(show:bool)
 | SetConfiguration | SetConfigurationAt(path:list string)(raw:string)
 | ResetConfiguration | ResetConfigurationAt(path:list string)
@@ -322,10 +322,13 @@ Definition service_step input s :=
       configuration_read (with_settings_section SettingsGeneral (with_settings_return (Some "nav/settings") s))
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
   | SelectSettingsSection section =>
-      if settings_open s then keep (with_settings_section section s) else keep s
+      if settings_open s then
+        let view := service_configuration s in
+        let next := if Configuration.dirty view || Configuration.pending view then view else Configuration.cancel view in
+        keep (with_settings_section section (with_configuration next s))
+      else keep s
   | LoadConfiguration => configuration_read s
   | SelectConfiguration path => keep (with_configuration (Configuration.select path (service_configuration s)) s)
-  | EditConfiguration raw => keep (with_configuration (Configuration.write_input raw (service_configuration s)) s)
   | EditConfigurationAt path raw => keep (with_configuration (Configuration.write_input_at path raw (service_configuration s)) s)
   | CancelConfigurationEdit => keep (with_configuration (Configuration.cancel (service_configuration s)) s)
   | SelectConfigurationItem name =>
@@ -342,8 +345,6 @@ Definition service_step input s :=
       keep (with_configuration (Configuration.remove_item name (service_configuration s)) s)
   | EditModelProfileField name field raw =>
       keep (with_configuration (Configuration.edit_model_profile_field name field raw (service_configuration s)) s)
-  | ShowConfigurationJSON show =>
-      keep (with_configuration (Configuration.show_json show (service_configuration s)) s)
   | ShowConnectionOverrides show =>
       keep (with_configuration (Configuration.show_connection_overrides show (service_configuration s)) s)
   | SetConfiguration => configuration_write false s

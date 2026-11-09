@@ -51,7 +51,7 @@ Definition profile_fields parent enabled name profile : list (node Input.input) 
    field parent key label false (value_text (Common.get profile key)) choices enabled
      (Services.EditModelProfileField name key) in
  let backend := ProviderCatalog.backend profile in
- (* DEFENSE: Advanced JSON can contain a provider outside the registry while the draft is unsaved. *)
+ (* DEFENSE: Profiles are loaded as a raw object and can name a provider outside the registry. *)
  let choices := match backend with
    | Some _ => providers
    | None => Fields.ChoiceValue (value_text (Common.get profile "provider")) "Choose a provider" :: providers
@@ -94,21 +94,14 @@ Definition profile_form parent view enabled (entries : list (string * json)) : l
    end
  end.
 
-Definition editor parent view raw enabled : node Input.input :=
+Definition editor parent view enabled : node Input.input :=
  let key := part parent "model-profile-editor" in
  let entries := Configuration.collection_entries view in
- let structured := Configuration.collection_form_available view in
- let advanced := Configuration.json_mode view in
  let layout := part key "model-profile-layout" in
  let list_key := part layout "model-profile-list" in
  let choices := part list_key "model-profile-choices" in
  region parent "model-profile-editor" "" Roles.Section
-  (if advanced then
-    ([field key "profile-json" "Model profiles JSON" true raw None enabled
-        (Services.EditConfigurationAt Configuration.profiles_path)]
-     ++ (if structured then [] else
-         [information key "profile-json-error" Information.Status "Enter a JSON object containing profile objects to return to the form."]))%list
-   else match entries, Configuration.new_item_name view with
+  (match entries, Configuration.new_item_name view with
     | [], None => [profile_button key "begin-add" "Add profile" enabled Services.BeginAddConfigurationItem]
     | [], Some _ => profile_form key view enabled entries
     | _, _ =>
@@ -122,9 +115,3 @@ Definition editor parent view raw enabled : node Input.input :=
             end)%list]
        ++ profile_form layout view enabled entries)%list]
     end).
-
-Definition mode_control parent view enabled :=
- if Configuration.json_mode view then
-   profile_button parent "back-to-profile-form" "Back to profile form"
-     (enabled && Configuration.collection_form_available view) (Services.ShowConfigurationJSON false)
- else profile_button parent "advanced-json" "Advanced JSON" enabled (Services.ShowConfigurationJSON true).

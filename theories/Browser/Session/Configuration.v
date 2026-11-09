@@ -8,7 +8,7 @@ Open Scope string_scope.
 Module Config := ServiceConfiguration.
 
 Record draft := Draft { draft_path : list string; draft_input : string }.
-Inductive form_mode := FormFields (new_name : option string) | ConnectionOverrides | FormJSON.
+Inductive form_mode := FormFields (new_name : option string) | ConnectionOverrides.
 Record form_editor := FormEditor {
   preferred_item : option string;
   form_mode_current : form_mode
@@ -115,11 +115,6 @@ Definition collection_object s :=
   end.
 Definition collection_entries s := value_or [] (collection_object s).
 
-Definition collection_form_available s :=
-  match collection_object s with
-  | Some entries => forallb (fun entry => is_object (snd entry)) entries
-  | None => false
-  end.
 Definition selected_item s :=
   let entries := collection_entries s in
   let first := option_map fst (hd_error entries) in
@@ -128,15 +123,10 @@ Definition selected_item s :=
       then Some name else first
   | None => first
   end.
-Definition json_mode s :=
-  match form_mode_current (form_editor_current s) with
-  | FormJSON => true
-  | FormFields _ | ConnectionOverrides => false
-  end.
 Definition new_item_name s :=
   match form_mode_current (form_editor_current s) with
   | FormFields name => name
-  | ConnectionOverrides | FormJSON => None
+  | ConnectionOverrides => None
   end.
 Definition overrides_open s :=
   match form_mode_current (form_editor_current s) with ConnectionOverrides => true | _ => false end.
@@ -145,7 +135,7 @@ Definition with_form_editor editor s :=
 Definition with_form_mode mode s :=
   with_form_editor (FormEditor (preferred_item (form_editor_current s)) mode) s.
 Definition editable_collection s :=
-  if pending s || json_mode s then None else collection_object s.
+  if pending s then None else collection_object s.
 Definition update_collection change s :=
   match editable_collection s with
   | Some entries => change entries s
@@ -238,21 +228,6 @@ Definition show_connection_overrides (show : bool) s :=
       with_form_mode (if show then ConnectionOverrides else FormFields None) s else s
   | None => s
   end.
-Definition show_json (show : bool) s :=
-  if pending s then s else
-  match current_draft s with
-  | Some draft =>
-      if show then with_form_mode FormJSON s
-      else if json_mode s &&
-        (match collection_root (draft_path draft) with
-         | Some _ => collection_form_available s
-         | None => match parsed_draft s with Some _ => true | None => false end
-         end) then
-        with_form_mode (FormFields None) s
-      else s
-  | None => s
-  end.
-
 Definition encode_unit (_ : unit) := JNull.
 Definition decode_unit j := match j with JNull => Some tt | _ => None end.
 Definition encode_draft value := JObject
@@ -269,7 +244,6 @@ Definition encode_form_editor editor :=
   JObject
     [("selected", encode_optional_profile_text (preferred_item editor));
      ("mode", match form_mode_current editor with
-      | FormJSON => JObject [("kind", JString "json")]
       | ConnectionOverrides => JObject [("kind", JString "connection_overrides")]
       | FormFields name => JObject
           [("kind", JString "fields"); ("new_name", encode_optional_profile_text name)]
@@ -279,7 +253,6 @@ Definition decode_form_editor j :=
   mode <- field "mode" j ;;
   kind <- string_field "kind" mode ;;
   editor <- match kind with
-    | "json" => Some FormJSON
     | "connection_overrides" => Some ConnectionOverrides
     | "fields" => option_map FormFields (bind (field "new_name" mode) decode_optional_profile_text)
     | _ => None

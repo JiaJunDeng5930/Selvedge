@@ -57,7 +57,11 @@ test('Model profiles open as fields and persist an edited model name', { timeout
 
   await openProfile();
   assert.equal(await dialog.locator('textarea').count(), 0);
-  assert.equal(await dialog.getByRole('combobox', { name: 'Provider', exact: true }).inputValue(), 'echo');
+  const provider = dialog.getByRole('combobox', { name: 'Provider', exact: true });
+  assert.equal(await provider.inputValue(), 'echo');
+  await provider.click();
+  await page.keyboard.press('Escape');
+  assert.equal(await model.isVisible(), true);
   assert.equal(await model.inputValue(), 'echo');
   await model.fill('demo-custom');
   await dialog.getByRole('button', { name: 'Save profiles', exact: true }).click();
@@ -81,28 +85,24 @@ test('Settings edits named evaluator services and applies the compaction switch 
 
   await openSettings();
   await category('Models');
+  const sidebar = dialog.getByRole('radiogroup', { name: 'Settings categories', exact: true });
+  const categories = await sidebar.getByRole('radio').allTextContents();
   await button('Manage evaluators').click();
-  const pages = dialog.getByRole('radiogroup', { name: 'Models pages', exact: true });
-  const profiles = pages.getByRole('radio', { name: 'Model profiles', exact: true });
-  const evaluators = pages.getByRole('radio', { name: 'Evaluators', exact: true });
-  assert.equal(await evaluators.getAttribute('aria-checked'), 'true');
+  await dialog.getByRole('heading', { name: 'Reasoning evaluators', exact: true }).waitFor();
+  assert.deepEqual(await sidebar.getByRole('radio').allTextContents(), categories);
   await button('Add evaluator').click();
   await dialog.getByRole('textbox', { name: 'evaluator name', exact: true }).fill('review');
   await button('Add').click();
   await dialog.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('typesafe');
   const timeout = dialog.getByRole('textbox', { name: 'Timeout (ms)', exact: true });
   await timeout.fill('4000');
-  assert.equal(await profiles.isEnabled(), false);
+  assert.equal(await button('Back to Models').isEnabled(), false);
   await category('Tools');
   await button('Return to edit').click();
   assert.equal(await timeout.inputValue(), '4000');
   await button('Save evaluators').click();
   await updated();
-  await profiles.click();
-  assert.equal(await profiles.getAttribute('aria-checked'), 'true');
-  await dialog.getByRole('heading', { name: 'Model profiles', exact: true }).waitFor();
-  await category('Models');
-  assert.equal(await pages.count(), 0);
+  await button('Back to Models').click();
   await dialog.getByText('review', { exact: true }).waitFor();
   assert.equal(await dialog.locator('textarea').count(), 0);
 

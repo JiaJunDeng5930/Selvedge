@@ -671,6 +671,9 @@ function layoutReading() {
 function dismiss(event) {
   // DEFENSE: An inner menu can consume Escape before it reaches the enclosing dialog.
   if (event.defaultPrevented) return;
+  // DEFENSE: Escape from an open select picker bubbles before the browser closes it.
+  if (event.type === 'keydown' && event.key === 'Escape' && CSS.supports('selector(select:open)') &&
+      event.target.closest?.('select:open')) return;
   const modal = renderer.modalRecord();
   const dismissal = modal?.events.find(binding => binding.kind === 'dismiss');
   const behavior = modal?.metadata.layer;
