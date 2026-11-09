@@ -114,7 +114,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand TaskGraphQuery TaskAllowed (WireCommand "list_task_graphs" []);
   DeclareCommand TaskGraphQuery TaskAllowed (WireCommand "read_task_graph" [u32 (req "graph_id" KNatural)]);
   DeclareCommand TitleQuery TaskExcluded (WireCommand "read_title_settings" []);
-  DeclareCommand TitleChange TaskExcluded (WireCommand "configure_title_settings" [req "revision" KNatural; typed title_prompt_declaration (req "task_prompt" KText); typed title_prompt_declaration (req "agent_prompt" KText)]);
+  DeclareCommand TitleChange TaskExcluded (WireCommand "configure_title_settings" [req "revision" KNatural; typed title_prompt_declaration (req "task_prompt" KText); typed title_prompt_declaration (req "agent_prompt" KText); opt "agent_profile" KText]);
   DeclareCommand WorkChange TaskAllowed (WireCommand "create_work" [typed Selvedge.Features.Domain.work_creation_name_declaration (opt "name" KText)]);
   DeclareCommand WorkChange TaskAllowed (WireCommand "rename_work" [u32 (req "work_id" KNatural); typed Selvedge.Features.Domain.work_name_declaration (req "name" KText)]);
   DeclareCommand WorktreeChange TaskAllowed (WireCommand "create_work_task" (u32 (req "work_id" KNatural) :: creation_fields ++ [opt "create_worktree" KBool]));
@@ -265,7 +265,7 @@ Definition command_descriptions : list (string * string) := [
   ("list_task_graphs", "Observe installed Task graphs, resolved Task references and latest delivery receipts.");
   ("read_task_graph", "Observe one installed Task graph, its rules and latest delivery receipts.");
   ("read_title_settings", "Read independent Task board and Agent conversation title instructions.");
-  ("configure_title_settings", "Save independent title instructions at their current revision; existing names and pending requests are preserved.");
+  ("configure_title_settings", "Save title instructions and an optional Agent conversation title model at their current revision; existing names and pending requests are preserved.");
   ("create_work", "Create a Work independent of Projects; an omitted name becomes Work #id.");
   ("rename_work", "Rename a Work while preserving its Tasks and Task graphs.");
   ("create_work_task", "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.");

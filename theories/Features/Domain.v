@@ -96,7 +96,8 @@ Definition sharing_retains_project (id : N) (value : connection_state) :=
  existsb (ConnectionGrants.admits_project id) (sharing_grants value) ||
  existsb (fun item => N.eqb id (job_project (snd item))) (sharing_jobs value).
 Record title_settings := TitleSettings { title_revision : N;
- title_task_instructions : Titles.instruction; title_agent_instructions : Titles.instruction }.
+ title_task_instructions : Titles.instruction; title_agent_instructions : Titles.instruction;
+ title_agent_profile : option string }.
 Definition title_task_prompt value := Titles.instruction_text (title_task_instructions value).
 Definition title_agent_prompt value := Titles.instruction_text (title_agent_instructions value).
 Inductive title_state := TitlePending (request : RequestEnvelope.t (profile * string)) | Named (text : string) | TitleFailed (reason : string).
@@ -115,7 +116,7 @@ Record state := State {
 }.
 Definition initial := State (Board [] [] false ""%string) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
- (TitleSettings 0 Titles.default_instructions Titles.default_instructions) CompactionTypes.initial.
+ (TitleSettings 0 Titles.default_instructions Titles.default_instructions None) CompactionTypes.initial.
 
 Definition resource_json (tree : worktree) := JObject [
  ("task_id"%string, JNumber (show_natural (worktree_task tree)));

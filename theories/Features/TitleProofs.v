@@ -44,6 +44,27 @@ Proof.
  rewrite Owner,Current,Selected; reflexivity.
 Qed.
 
+(** An explicit title model remains bound to its saved identity even when the
+    Task profile or connection registry changes. *)
+Theorem explicit_title_profile_uses_only_saved_key : forall task before key selected,
+ F.title_agent_profile (F.feature_title_settings (world_features before)) = Some key ->
+ FeatureRequestAdmission.selected_title_profile task before = Some selected ->
+ profile_key selected = key /\ FeatureRequestAdmission.ordinary_profile selected = true.
+Proof.
+ intros task before key selected Config Chosen.
+ unfold FeatureRequestAdmission.selected_title_profile in Chosen.
+ rewrite Config in Chosen.
+ remember (environment_profiles (world_environment before)) as configured eqn:Configured.
+ clear Configured.
+ induction configured as [|candidate rest IH]; simpl in Chosen; [discriminate|].
+ destruct (String.eqb key (profile_key candidate) &&
+   FeatureRequestAdmission.ordinary_profile candidate) eqn:Admits.
+ - inversion Chosen; subst selected.
+   apply andb_true_iff in Admits as [Key Ordinary].
+   apply String.eqb_eq in Key. split; [symmetry; exact Key|exact Ordinary].
+ - exact (IH Chosen).
+Qed.
+
 (** Normalization is title-specific; correlation and once-only settlement are
     properties of the shared completion interpreter. *)
 Theorem completed_title_is_normalized : forall text,
@@ -57,9 +78,9 @@ Qed.
 
 (** Editing policy affects future generations; already frozen requests and
     saved names remain in the same registry. *)
-Theorem title_configuration_preserves_generation_entries : forall value revision task_prompt agent_prompt,
+Theorem title_configuration_preserves_generation_entries : forall value revision task_prompt agent_prompt agent_profile,
  F.feature_titles (world_features
-   (decision_world (TitleRuntime.configure revision task_prompt agent_prompt value)))=
+   (decision_world (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value)))=
  F.feature_titles (world_features value).
 Proof.
  intros. unfold TitleRuntime.configure.
@@ -67,36 +88,36 @@ Proof.
  reflexivity.
 Qed.
 
-Theorem current_title_configuration_writes_both_instructions :
- forall value revision task_prompt agent_prompt,
+Theorem current_title_configuration_writes_settings :
+ forall value revision task_prompt agent_prompt agent_profile,
  revision = F.title_revision (F.feature_title_settings (world_features value)) ->
  exists updated_revision,
  F.feature_title_settings (world_features
-   (decision_world (TitleRuntime.configure revision task_prompt agent_prompt value))) =
- F.TitleSettings updated_revision task_prompt agent_prompt /\
+   (decision_world (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value))) =
+ F.TitleSettings updated_revision task_prompt agent_prompt agent_profile /\
  updated_revision <> revision /\
- decision_effects (TitleRuntime.configure revision task_prompt agent_prompt value) = [].
+ decision_effects (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value) = [].
 Proof.
- intros value revision task_prompt agent_prompt Revision.
+ intros value revision task_prompt agent_prompt agent_profile Revision.
  unfold TitleRuntime.configure.
  rewrite Revision, N.eqb_refl.
  eexists. repeat split; try reflexivity. apply N.neq_succ_diag_l.
 Qed.
 
 Theorem conflicting_title_configuration_keeps_the_complete_world :
- forall value revision task_prompt agent_prompt,
+ forall value revision task_prompt agent_prompt agent_profile,
  revision <> F.title_revision (F.feature_title_settings (world_features value)) ->
- decision_world (TitleRuntime.configure revision task_prompt agent_prompt value) = value /\
- decision_effects (TitleRuntime.configure revision task_prompt agent_prompt value) = [].
+ decision_world (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value) = value /\
+ decision_effects (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value) = [].
 Proof.
- intros value revision task_prompt agent_prompt Different.
+ intros value revision task_prompt agent_prompt agent_profile Different.
  unfold TitleRuntime.configure.
  apply N.eqb_neq in Different. rewrite Different. split; reflexivity.
 Qed.
 
 Theorem title_configuration_keeps_execution_state :
- forall value revision task_prompt agent_prompt,
- execution_core (decision_world (TitleRuntime.configure revision task_prompt agent_prompt value)) =
+ forall value revision task_prompt agent_prompt agent_profile,
+ execution_core (decision_world (TitleRuntime.configure revision task_prompt agent_prompt agent_profile value)) =
  execution_core value.
 Proof.
  intros. unfold TitleRuntime.configure.

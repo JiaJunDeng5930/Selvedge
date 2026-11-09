@@ -186,7 +186,7 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|TitlePrompts=>[("标题生成",[Fields.TaskTitlePrompt;Fields.AgentTitlePrompt])]end.
+|TitlePrompts=>[("标题生成",[Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt])]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).

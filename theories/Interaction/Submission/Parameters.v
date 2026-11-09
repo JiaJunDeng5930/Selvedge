@@ -28,7 +28,7 @@ Definition fields e := match e with
 | Identity.Compact _ => [CompactionSummary]
 | Identity.TaskGraph _ _ => [TaskGraphDeclaration]
 | Identity.WorkName _ => [WorkName]
-| Identity.TitlePrompts => [TaskTitlePrompt; AgentTitlePrompt] end.
+| Identity.TitlePrompts => [TaskTitlePrompt; AgentTitleProfile; AgentTitlePrompt] end.
 Definition field_eq_dec : forall a b : field, {a=b}+{a<>b}.
 Proof. decide equality. Defined.
 Definition live_fields := model_fields++[SandboxMode;NetworkAccess;ApprovalPolicy;ApprovalReviewer].
@@ -51,7 +51,7 @@ Definition name field := match field with
 | AssistedCapture => "assisted" | AssistanceProfile => "draft_profile"
 | ForkCount => "child_count" | ForkMessages => "messages"
 | CompactionSummary => "summary" | TaskGraphDeclaration => "declaration"
-| TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" end.
+| TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" | AgentTitleProfile => "agent_profile" end.
 Definition label field := match field with
 | WorkName | ProjectName => "Name" | MessageText => "Message"
 | CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Task environment"
@@ -65,7 +65,7 @@ Definition label field := match field with
 | AssistedCapture => "Assist with title and description" | AssistanceProfile => "Assistance model"
 | ForkCount => "Number of tasks" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
 | TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task 看板标题提示词"
-| AgentTitlePrompt => "Agent 会话标题提示词" end.
+| AgentTitlePrompt => "Agent 会话标题提示词" | AgentTitleProfile => "Agent 会话标题模型" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary
 | TaskTitlePrompt | AgentTitlePrompt | CardLabels => Fields.Multiline
@@ -73,7 +73,7 @@ Definition entry_for field := match field with
 | TaskGraphDeclaration => Fields.StructuredText | ForkCount => Fields.PositiveInteger
 | WorkspacePrimary | ContextOrigin | TaskEnvironment | SandboxMode | NetworkAccess | ApprovalPolicy | ApprovalReviewer
 | ModelProfile | ReasoningEffort | DeliveryIntent | CardStage | CardPriority | CardOwner | CardProject
-| CreateWorktree | ContinueCapture | AssistedCapture | AssistanceProfile => Fields.Choice
+| CreateWorktree | ContinueCapture | AssistedCapture | AssistanceProfile | AgentTitleProfile => Fields.Choice
 | _ => Fields.SingleLine end.
 Definition inheritable e := match e with
 | Identity.NewTask _ | Identity.Fork _ => true | _ => false end.
@@ -96,7 +96,7 @@ Definition kind e field := match field with
 | CardLabels | ForkMessages => KArray KText
 | CardAttachments => KArray KJson
 | ForkCount => KNatural
-| CompactionSummary => KOptional KText
+| CompactionSummary | AgentTitleProfile => KOptional KText
 | _ => KText end.
 Definition specification e field := Schema.Field (name field) (kind e field).
 Definition find_field e key := find (fun field => String.eqb key (name field)) (fields e).

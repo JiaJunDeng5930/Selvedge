@@ -13,11 +13,12 @@ From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition configure (revision:N) (task_prompt agent_prompt : Titles.instruction) (value:world) :=
+Definition configure (revision:N) (task_prompt agent_prompt : Titles.instruction)
+ (agent_profile : option string) (value:world) :=
  let current:=Selvedge.Features.Domain.feature_title_settings (world_features value) in
  if negb (N.eqb revision (Selvedge.Features.Domain.title_revision current)) then
  Selvedge.Kernel.State.reject "title_settings_conflict" "Title settings changed; reopen the settings before saving" value
- else let updated:=Selvedge.Features.Domain.TitleSettings (N.succ revision) task_prompt agent_prompt in
+ else let updated:=Selvedge.Features.Domain.TitleSettings (N.succ revision) task_prompt agent_prompt agent_profile in
  Selvedge.Kernel.State.accept (Observation.title_settings_json updated) (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_title_settings updated (world_features value)) value) [].
 Definition handle_read_title_settings (_payload : Selvedge.Generated.Commands.read_title_settings_payload)
  (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
@@ -27,7 +28,8 @@ Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.conf
  (_caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
  configure (Selvedge.Generated.Commands.configure_title_settings_revision p)
    (Selvedge.Generated.Commands.configure_title_settings_task_prompt_admitted p)
-   (Selvedge.Generated.Commands.configure_title_settings_agent_prompt_admitted p) value.
+   (Selvedge.Generated.Commands.configure_title_settings_agent_prompt_admitted p)
+   (Selvedge.Generated.Commands.configure_title_settings_agent_profile p) value.
 
 Definition ordinary := FeatureRequestAdmission.ordinary_profile.
 Definition storage (features : Selvedge.Features.Domain.state) owner :=

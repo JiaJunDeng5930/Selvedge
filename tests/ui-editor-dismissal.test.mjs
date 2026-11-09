@@ -50,4 +50,23 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
 
   dialog = await openTitlePrompts();
   assert.equal(await dialog.getByRole('textbox', { name: 'Task 看板标题提示词', exact: true }).inputValue(), savedPrompt);
+
+  const titleModel = dialog.getByLabel('Agent 会话标题模型', { exact: true });
+  const options = await titleModel.locator('option').evaluateAll(nodes => nodes.map(node => ({
+    label: node.label, value: node.value,
+  })));
+  const automatic = options.find(option => option.label === '自动');
+  const configured = options.find(option => option.label.includes('interactive') || option.value.includes('interactive'));
+  assert.ok(automatic, 'The title model selector exposes automatic selection');
+  assert.ok(configured, 'The selector exposes the configured interactive model connection');
+  assert.equal(await titleModel.inputValue(), automatic.value, 'Automatic selection is the initial title model');
+  await titleModel.selectOption(configured.value);
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
+  dialog = await openTitlePrompts();
+  assert.equal(await dialog.getByLabel('Agent 会话标题模型', { exact: true }).inputValue(), configured.value,
+    'The selected title model remains saved after the page reloads');
 });

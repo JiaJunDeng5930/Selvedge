@@ -119,8 +119,9 @@ Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fie
    |_=>prospective context end
  |Draft.CompactBody _ summary=>match field with Fields.CompactionSummary=>Fields.OptionalTextValue summary|_=>Fields.NotApplicable end
  |Draft.TaskGraphBody _ declaration _ _=>match field with Fields.TaskGraphDeclaration=>Fields.TextValue declaration|_=>Fields.NotApplicable end
- |Draft.TitlePromptsBody _ task agent=>match field with
-   |Fields.TaskTitlePrompt=>Fields.TextValue task|Fields.AgentTitlePrompt=>Fields.TextValue agent|_=>Fields.NotApplicable end
+ |Draft.TitlePromptsBody _ task agent profile=>match field with
+   |Fields.TaskTitlePrompt=>Fields.TextValue task|Fields.AgentTitlePrompt=>Fields.TextValue agent
+   |Fields.AgentTitleProfile=>Fields.OptionalTextValue profile|_=>Fields.NotApplicable end
  end.
 
 Definition workspace_for snapshot draft:=match Draft.explicit_workspace draft with

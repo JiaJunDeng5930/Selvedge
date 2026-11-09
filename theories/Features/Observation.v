@@ -72,7 +72,9 @@ Definition graph_json (id : N) (value : Selvedge.Features.Domain.task_graph) := 
 Definition title_settings_json (value : Selvedge.Features.Domain.title_settings) := JObject [
  ("revision", number (Selvedge.Features.Domain.title_revision value));
  ("task_prompt", JString (Selvedge.Features.Domain.title_task_prompt value));
- ("agent_prompt", JString (Selvedge.Features.Domain.title_agent_prompt value))].
+ ("agent_prompt", JString (Selvedge.Features.Domain.title_agent_prompt value));
+ ("agent_profile", match Selvedge.Features.Domain.title_agent_profile value with
+   | Some key => JString key | None => JNull end)].
 
 Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domain.card) := match card_json id card with JObject fields=>JObject (fields++[
  ("activity",JString (BoardFacts.activity card value));("capabilities",JObject [

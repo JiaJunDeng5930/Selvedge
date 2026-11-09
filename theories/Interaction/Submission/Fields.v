@@ -13,7 +13,7 @@ Inductive field := WorkName | MessageText | ProjectName | CreateWorktree
 | CardPriority | CardOwner | CardProject | CardLabels | CardAttachments
 | ContinueCapture | AssistedCapture | AssistanceProfile
 | ForkCount | ForkMessages
-| CompactionSummary | TaskGraphDeclaration | TaskTitlePrompt | AgentTitlePrompt.
+| CompactionSummary | TaskGraphDeclaration | TaskTitlePrompt | AgentTitlePrompt | AgentTitleProfile.
 Inductive entry := DisplayOnly | SingleLine | Multiline | StructuredText
 | Choice | MultipleChoices | PositiveInteger | DirectoryCollection | FileCollection.
 Record choice_value := ChoiceValue { choice_value_of : string; choice_label : string }.

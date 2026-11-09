@@ -110,6 +110,7 @@ Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
 Export TitleRuntime(issue).
 Export TitleCommit(candidate).
 Export TitleProofs(admitted_title_issues_observed_request,
+  explicit_title_profile_uses_only_saved_key,
   title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
@@ -164,7 +165,17 @@ Export TitleProofs(admitted_title_issues_observed_request,
     queue. Board eligibility and concurrency belong to [Board]. Filtering
     changes the view, not the stored card. The bounded scheduler requests a
     continuation when work remains. Automatic title selection uses
-    [FeatureRequestAdmission.resolve_title]. Its admission theorem retains the
+    [FeatureRequestAdmission.resolve_title]. With the default Auto setting,
+    it prefers an ordinary gpt-5.6-luna profile on the Task's ChatGPT account
+    and otherwise uses the Task profile when available; an echo profile cannot
+    issue a title request. An explicitly saved Agent conversation title model
+    uses only that profile key while it remains ordinary (non-echo with fixed
+    reasoning). When that key is missing or no longer ordinary, no title request
+    is sent and the existing request summary remains its title. A matching
+    ordinary profile remains the only eligible request target.
+    [explicit_title_profile_uses_only_saved_key] constrains this selection.
+    The setting may retain an unavailable key so journal replay does not
+    reinterpret a prior choice. Its admission theorem retains the
     actually observed Task and selected profile; a pending entry prevents
     another selection. [TitleCommit.candidate] calls [TitleRuntime.issue], which
     constructs the shared feature-request plan containing the frozen profile
