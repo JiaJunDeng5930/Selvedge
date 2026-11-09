@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Adapters Require Common.
 From Selvedge.Features Require Domain.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
@@ -12,7 +13,7 @@ From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require State Authoring.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
-From Selvedge.Browser.Presentation Require Roles Information.
+From Selvedge.Browser.Presentation Require Roles Information ModelProfiles.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -98,8 +99,11 @@ Definition settings_row parent key label description controls editor : node Inpu
  Node row "settings-row" "" Roles.Section Region
   ([region row "settings-copy" "" Roles.Section
      [information copy "setting-name" Information.FieldLabel label;
-      information copy "description" Information.Description description];
-    region row "settings-controls" "" Roles.Section controls] ++ editor)%list.
+      information copy "description" Information.Description description]]
+   ++ (match controls with
+       | [] => []
+       | _ => [region row "settings-controls" "" Roles.Section controls]
+       end) ++ editor)%list.
 
 Definition settings_group parent key label rows : list (node Input.input) :=
  let group := part parent key in
@@ -139,8 +143,13 @@ Definition configuration_choices options raw :=
    (configuration_value_label value)) options in
  if existsb (fun option => String.eqb (Fields.choice_value_of option) raw) options then options
  else Fields.ChoiceValue raw "Choose a value" :: options.
+Definition model_profiles_entry entry :=
+ String.eqb (Config.setting_key (Config.setting_path entry)) (Config.setting_key Configuration.profiles_path).
 Definition configuration_summary entry :=
- match Config.setting_input entry with
+ if model_profiles_entry entry then
+   let count := List.length (Common.object_fields (Config.setting_value entry)) in
+   show_natural (N.of_nat count) ++ (if Nat.eqb count 1 then " profile" else " profiles")
+ else match Config.setting_input entry with
  | Config.Text => if Config.setting_explicit entry then "Custom text" else "Default text"
  | _ =>
    match Config.setting_value entry with
@@ -159,22 +168,26 @@ Definition configuration_details parent label entry enabled :=
      (ReadOnly (configuration_summary entry)) []].
 Definition configuration_resettable entry := Config.setting_resettable entry && Config.setting_explicit entry.
 Definition configuration_actions parent entry raw enabled view :=
+ let profiles := model_profiles_entry entry in
  let accepted := match Config.interpret_input (Config.setting_input entry) raw with
    | Some _ => true | None => false end in
- let apply := configuration_button parent "apply" "Apply configuration change"
+ let apply := configuration_button parent "apply"
+   (if profiles then "Save profiles" else "Apply configuration change")
    (enabled && accepted && Configuration.dirty view) Services.SetConfiguration in
  let cancel := configuration_button parent "cancel" "Cancel" enabled Services.CancelConfigurationEdit in
  let reset := if configuration_resettable entry then
    [configuration_button parent "reset" "Reset configuration item" enabled Services.ResetConfiguration]
    else [] in
  let status := match Configuration.writing view with
-   | Resource.Loading _ _ => [configuration_status parent "Applying configuration change…"]
+   | Resource.Loading _ _ => [configuration_status parent
+       (if profiles then "Saving profiles…" else "Applying configuration change…")]
    | Resource.Loaded _ _ _ => [configuration_status parent "Configuration updated"]
    | Resource.Failed _ _ reason => [configuration_status parent reason]
    | Resource.Dormant => []
    end in
+ let modes := if model_profiles_entry entry then [ModelProfiles.mode_control parent view enabled] else [] in
  (status ++ [region parent "configuration-actions" "" Roles.DialogActions
-   (reset ++ [cancel; apply])])%list.
+   (modes ++ reset ++ [cancel; apply])])%list.
 
 Definition configuration_copy path :=
  match path with
@@ -204,6 +217,7 @@ Definition configuration_copy path :=
 Definition configuration_row parent connected view entry :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
+ let profiles := model_profiles_entry entry in
  let row := part parent key in
  let controls := part row "settings-controls" in
  let editor := part row "setting-editor" in
@@ -231,7 +245,8 @@ Definition configuration_row parent connected view entry :=
      [region row "setting-editor" "" Roles.Section
         ((match compact with
           | Some _ => []
-          | None => [field editor "setting-editor-value" true None]
+          | None => if profiles then [ModelProfiles.editor editor view raw enabled]
+                    else [field editor "setting-editor-value" true None]
           end)
          ++ configuration_actions editor entry raw enabled view)%list]
    end in
@@ -242,7 +257,10 @@ Definition configuration_row parent connected view entry :=
        | None => if configuration_resettable entry then [activate "start-reset" "Reset…"] else []
        | Some _ => []
        end)
-    | None => [configuration_details controls label entry enabled]
+    | None => match draft with
+      | Some _ => if profiles then [] else [configuration_details controls label entry enabled]
+      | None => [configuration_details controls label entry enabled]
+      end
     end)
    actions.
 

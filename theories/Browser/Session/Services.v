@@ -178,6 +178,9 @@ Inductive service_input :=
 | OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string) | EditConfiguration(raw:string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
+| SelectModelProfile(name:string) | BeginAddModelProfile | EditNewModelProfileName(raw:string)
+| AddModelProfile | CancelAddModelProfile | RemoveModelProfile(name:string)
+| EditModelProfileField(name field raw:string) | ShowModelProfilesJSON(show:bool)
 | SetConfiguration | ResetConfiguration
 | ConfigurationLoaded(ticket:N)(outcome:sum string Configuration.Config.snapshot)
 | ConfigurationWritten(ticket:N)(outcome:sum string Configuration.Config.snapshot)
@@ -316,6 +319,22 @@ Definition service_step input s :=
   | EditConfiguration raw => keep (with_configuration (Configuration.write_input raw (service_configuration s)) s)
   | EditConfigurationAt path raw => keep (with_configuration (Configuration.write_input_at path raw (service_configuration s)) s)
   | CancelConfigurationEdit => keep (with_configuration (Configuration.cancel (service_configuration s)) s)
+  | SelectModelProfile name =>
+      keep (with_configuration (Configuration.select_model_profile name (service_configuration s)) s)
+  | BeginAddModelProfile =>
+      keep (with_configuration (Configuration.begin_add_model_profile (service_configuration s)) s)
+  | EditNewModelProfileName raw =>
+      keep (with_configuration (Configuration.edit_new_model_profile_name raw (service_configuration s)) s)
+  | AddModelProfile =>
+      keep (with_configuration (Configuration.add_model_profile (service_configuration s)) s)
+  | CancelAddModelProfile =>
+      keep (with_configuration (Configuration.cancel_add_model_profile (service_configuration s)) s)
+  | RemoveModelProfile name =>
+      keep (with_configuration (Configuration.remove_model_profile name (service_configuration s)) s)
+  | EditModelProfileField name field raw =>
+      keep (with_configuration (Configuration.edit_model_profile_field name field raw (service_configuration s)) s)
+  | ShowModelProfilesJSON show =>
+      keep (with_configuration (Configuration.show_model_profiles_json show (service_configuration s)) s)
   | SetConfiguration => configuration_write false s
   | ResetConfiguration => configuration_write true s
   | ConfigurationLoaded ticket result =>

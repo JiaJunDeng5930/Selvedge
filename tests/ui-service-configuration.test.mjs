@@ -43,3 +43,30 @@ test('Settings applies configuration edits and shows their saved values after re
   await connection.click();
   assert.equal(await listenAddress.locator('option:checked').textContent(), '::1');
 });
+
+test('Model profiles open as fields and persist an edited model name', { timeout: 60000 }, async t => {
+  const { page } = await browserFixture(t);
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const model = dialog.getByRole('textbox', { name: 'Model', exact: true });
+  await page.setViewportSize({ width: 629, height: 588 });
+
+  async function openProfile() {
+    await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+      .getByRole('button', { name: 'Settings', exact: true }).click();
+    await dialog.getByRole('radio', { name: 'Models & tools', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Edit Model profiles', exact: true }).click();
+    await dialog.getByRole('radio', { name: 'demo', exact: true }).click();
+  }
+
+  await openProfile();
+  assert.equal(await dialog.locator('textarea').count(), 0);
+  assert.equal(await dialog.getByRole('combobox', { name: 'Provider', exact: true }).inputValue(), 'echo');
+  assert.equal(await model.inputValue(), 'echo');
+  await model.fill('demo-custom');
+  await dialog.getByRole('button', { name: 'Save profiles', exact: true }).click();
+  await dialog.getByRole('status').filter({ hasText: 'Configuration updated' }).waitFor();
+
+  await page.reload();
+  await openProfile();
+  assert.equal(await model.inputValue(), 'demo-custom');
+});

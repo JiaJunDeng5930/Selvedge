@@ -472,7 +472,7 @@ dialog[data-semantic-key="settings"] {
   --settings-nav-width: clamp(144px, 16vw, 226px);
   --settings-column-gap: clamp(24px, 3.2vw, 54px);
   --settings-top: clamp(22px, 3.25vh, 32px);
-  --settings-value-width: clamp(130px, 16vw, 210px);
+  --settings-value-width: clamp(156px, 16vw, 210px);
   --settings-surface: light-dark(#fafaf9, #282624);
   --settings-field: light-dark(#fefefd, #302e2b);
   --settings-fill: light-dark(#efeeeb, #35322f);
@@ -633,6 +633,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: 2px !important;
   min-inline-size: 0 !important;
 }
+[data-semantic-key="settings-row"]:not(:has(> [data-semantic-key="settings-controls"])) > [data-semantic-key="settings-copy"] {
+  grid-column: 1 / -1;
+}
 [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="setting-name"]) {
   margin: 0 !important;
   color: var(--selvedge-text) !important;
@@ -751,7 +754,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
   gap: 6px !important;
 }
-[data-semantic-key="setting-editor"]:not(:has(textarea)) {
+[data-semantic-key="setting-editor"]:not(:has(textarea, [data-semantic-key="model-profile-editor"])) {
   display: flex !important;
   flex-flow: row wrap !important;
   justify-content: flex-end !important;
@@ -760,14 +763,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border: 0 !important;
   background: transparent !important;
 }
-[data-semantic-key="setting-editor"]:not(:has(textarea)) > [role="status"] {
+[data-semantic-key="setting-editor"]:not(:has(textarea, [data-semantic-key="model-profile-editor"])) > [role="status"] {
   flex: 1 1 auto !important;
   align-self: center !important;
   min-inline-size: 0 !important;
   inline-size: auto !important;
   margin-inline-end: auto !important;
 }
-[data-semantic-key="setting-editor"]:not(:has(textarea)) > [data-semantic-key="configuration-actions"] {
+[data-semantic-key="setting-editor"]:not(:has(textarea, [data-semantic-key="model-profile-editor"])) > [data-semantic-key="configuration-actions"] {
   inline-size: auto !important;
 }
 [data-semantic-key="settings"] button[data-semantic-key="apply"] {
@@ -815,6 +818,132 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   color: var(--settings-muted) !important;
   font-size: 13px !important;
   overflow-wrap: anywhere;
+}
+[data-semantic-key="model-profile-editor"],
+[data-semantic-key="model-profile-list"],
+[data-semantic-key="model-profile-form"],
+[data-semantic-key="new-profile"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+  gap: 10px !important;
+}
+[data-semantic-key="model-profile-layout"] {
+  display: grid !important;
+  grid-template-columns: clamp(132px, 26%, 188px) minmax(0, 1fr);
+  align-items: start !important;
+  padding: 0 !important;
+  gap: 16px !important;
+}
+[data-semantic-key="model-profile-choices"] {
+  padding: 0 !important;
+  gap: 3px !important;
+  max-block-size: min(240px, 30dvh);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+[data-semantic-key="settings"] button[data-semantic-key="model-profile-choice"] {
+  --control-rest-background: transparent !important;
+  justify-content: flex-start !important;
+  inline-size: 100% !important;
+  padding: 7px 9px !important;
+  border-color: transparent !important;
+  text-align: start;
+}
+[data-semantic-key="settings"] button[data-semantic-key="model-profile-choice"][aria-checked="true"] {
+  --control-rest-background: var(--settings-field) !important;
+  border-color: var(--settings-rule) !important;
+}
+[data-semantic-key="model-profile-choice"] [data-semantic-key="name"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600 !important;
+}
+[data-semantic-key="model-profile-choice"] [data-semantic-key="provider"] {
+  color: var(--settings-muted) !important;
+  font-size: 12px !important;
+}
+[data-semantic-key="model-profile-fields"] {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end !important;
+  padding: 0 !important;
+  gap: 10px 12px !important;
+}
+[data-semantic-key="model-profile-fields"] > :has(> input:is([data-semantic-key="endpoint"], [data-semantic-key="auth_file"])) {
+  grid-column: 1 / -1;
+}
+[data-semantic-key="model-profile-editor"] :has(> :is(input, select, textarea)) {
+  min-inline-size: 0 !important;
+  gap: 5px !important;
+}
+[data-semantic-key="model-profile-editor"] :has(> :is(input, select, textarea)) > span {
+  color: var(--selvedge-text) !important;
+  font-size: 12px !important;
+  font-weight: 550 !important;
+}
+[data-semantic-key="model-profile-editor"] textarea {
+  min-block-size: 138px !important;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace !important;
+}
+[data-semantic-key="model-profile-actions"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-end !important;
+  padding: 0 !important;
+  gap: 6px !important;
+}
+[data-semantic-key="settings"] button:is(
+  [data-semantic-key="begin-add"], [data-semantic-key="advanced-json"],
+  [data-semantic-key="back-to-profile-form"], [data-semantic-key="remove-profile"]
+) {
+  --control-rest-background: transparent !important;
+  align-self: flex-start !important;
+  min-block-size: 32px !important;
+  padding: 4px 8px !important;
+  border-color: transparent !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="begin-add"]::before {
+  content: "+";
+  font-size: 16px;
+  line-height: 1;
+}
+[data-semantic-key="settings"] button[data-semantic-key="remove-profile"] {
+  align-self: flex-end !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="remove-profile"]:is(:hover, :focus-visible) {
+  color: var(--selvedge-danger) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="advanced-json"] {
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="configuration-actions"] > :is(
+  [data-semantic-key="advanced-json"], [data-semantic-key="back-to-profile-form"]
+) { margin-inline-end: auto !important; }
+@media (max-width: 550px) {
+  [data-semantic-key="model-profile-layout"] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px !important;
+  }
+  [data-semantic-key="model-profile-fields"] > :has(> input[data-semantic-key="api_key_env"]) { grid-column: 1 / -1; }
+}
+@media (max-width: 390px) {
+  [data-semantic-key="settings"] [data-semantic-key="setting-editor"]:has(> [data-semantic-key="model-profile-editor"]) > [data-semantic-key="configuration-actions"] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+
+    > :is([role="status"], [data-semantic-key="reset"], [data-semantic-key="advanced-json"], [data-semantic-key="back-to-profile-form"]) {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+    > [data-semantic-key="cancel"] { grid-column: 2; }
+    > [data-semantic-key="apply"] { grid-column: 3; }
+    > :is([data-semantic-key="advanced-json"], [data-semantic-key="back-to-profile-form"]) { order: 1; }
+  }
+}
+@media (max-width: 300px) {
+  [data-semantic-key="model-profile-fields"] { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
   dialog[data-semantic-key="settings"] { --settings-edge: 18px; --settings-top: 22px; }
