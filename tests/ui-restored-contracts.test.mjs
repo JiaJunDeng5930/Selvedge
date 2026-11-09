@@ -68,6 +68,54 @@ test('conversation navigation releases desktop space and preserves the draft thr
   assert.equal(await message.inputValue(), 'Keep this draft while changing navigation capacity.');
 });
 
+test('conversation and side composers keep controls usable as width and height change', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command } = fixture;
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
+  const task = await selectTask(fixture, task_id);
+  const main = page.getByRole('main');
+  await main.getByRole('heading', { name: task.title, exact: true }).waitFor();
+  const sizes = [
+    { width: 320, height: 568 },
+    { width: 390, height: 420 },
+    { width: 568, height: 320 },
+    { width: 700, height: 900 },
+    { width: 1280, height: 900 },
+  ];
+
+  async function checkComposer(scope, { width, height }) {
+    await page.setViewportSize({ width, height });
+    const message = scope.getByRole('combobox', { name: 'Message', exact: true });
+    await message.waitFor();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const form = await message.evaluate(node => node.form.getBoundingClientRect().toJSON());
+    const targets = [
+      scope.getByLabel('Attach files', { exact: true }), scope.locator('summary[aria-label="Voice"]'),
+      scope.getByRole('button', { name: /^Permissions:/ }), scope.getByRole('button', { name: /^Model:/ }),
+      scope.getByRole('button', { name: /^Send as:/ }), scope.getByRole('button', { name: 'Send', exact: true }),
+    ];
+    const bounds = await Promise.all(targets.map(target => target.boundingBox()));
+    const size = `${width}×${height}`;
+    assert.ok(form.top >= 0 && form.bottom <= height + 1, size);
+    for (const [index, box] of bounds.entries()) {
+      assert.ok(box && box.width >= 32 && box.height >= 32, `${size}: control ${index} has an unusable target`);
+      assert.ok(box.x >= form.left - 1 && box.x + box.width <= form.right + 1 &&
+        box.y >= form.top - 1 && box.y + box.height <= form.bottom + 1, `${size}: control ${index} exceeds the composer`);
+      for (const other of bounds.slice(0, index)) {
+        assert.ok(!overlapsVertically(box, other) || box.x + box.width <= other.x + 1 ||
+          other.x + other.width <= box.x + 1, `${size}: composer controls overlap`);
+      }
+    }
+  }
+
+  for (const size of sizes) await checkComposer(main, size);
+  await main.getByRole('combobox', { name: 'Message', exact: true }).fill('/side');
+  await main.getByRole('button', { name: 'Send', exact: true }).click();
+  const side = page.getByRole('complementary', { name: 'Side conversation', exact: true })
+    .or(page.getByRole('dialog'));
+  for (const size of sizes) await checkComposer(side, size);
+});
+
 // A public command updates the card between form preparation and its real HTTP submission.
 test('a rejected card edit keeps its diagnostic visible as an assertive alert', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
