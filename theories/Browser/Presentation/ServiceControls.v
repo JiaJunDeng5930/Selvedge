@@ -92,6 +92,14 @@ Definition file_items e parent s :=
 Definition files e parent s :=
  region parent "attachments" "Attachments" Roles.Section
   (file_picker e parent s :: file_items e parent s).
+Definition settings_copy parent heading description : node Input.input :=
+ let copy := part parent "settings-copy" in
+ region parent "settings-copy" "" Roles.Section
+   [group_title copy heading; information copy "description" Information.Description description].
+Definition settings_row parent key heading description (controls : list (node Input.input)) :=
+ let row := part parent key in
+ region parent key "" Roles.Section (settings_copy row heading description :: controls).
+
 Module Config := Configuration.Config.
 Definition configuration_button parent key label (enabled : bool) input :=
  declared parent Roles.Button
@@ -129,56 +137,69 @@ Definition configuration_editor parent view enabled :=
      end in
    let accepted := match Config.interpret_input (Config.setting_input entry) raw with
      | Some _ => true | None => false end in
-   ([configuration_field parent "value" "Configuration value" multiline raw choices enabled
+   [configuration_field parent "value" "Configuration value" multiline raw choices enabled
      (fun value => Some (Services.EditConfiguration value));
-    configuration_button parent "apply" "Apply configuration change" (enabled && accepted) Services.SetConfiguration]
-   ++ (if Config.setting_resettable entry && Config.setting_explicit entry then
-     [configuration_button parent "reset" "Reset configuration item" enabled Services.ResetConfiguration] else []))%list
+    region parent "configuration-actions" "" Roles.DialogActions
+      ((if Config.setting_resettable entry && Config.setting_explicit entry then
+         [configuration_button parent "reset" "Reset configuration item" enabled Services.ResetConfiguration]
+        else [])
+       ++ [configuration_button parent "apply" "Apply configuration change" (enabled && accepted)
+             Services.SetConfiguration])%list]
  end.
 Definition configuration_section parent services :=
  let view := Services.service_configuration services in
  let section := part parent "service-configuration" in
  let enabled := Services.connected services && negb (Configuration.pending view) in
  let load key label := configuration_button section key label enabled Services.LoadConfiguration in
+ let '(actions, content) := match Configuration.catalog view with
+ | Resource.Dormant => ([load "load" "Edit service configuration"], [])
+ | Resource.Loading _ _ => ([], [configuration_status section "Loading configuration…"])
+ | Resource.Failed _ _ reason => ([load "reload" "Reload configuration"], [configuration_status section reason])
+ | Resource.Loaded _ _ snapshot =>
+     let selected := match Configuration.current_draft view with
+       | Some draft => Config.setting_key (Configuration.draft_path draft) | None => "" end in
+     ([load "reload" "Reload configuration"],
+      [region section "configuration-fields" "" Roles.Section
+        ([configuration_picker section snapshot selected enabled]
+         ++ configuration_editor section view enabled
+         ++ (match Configuration.writing view with
+             | Resource.Loading _ _ => [configuration_status section "Applying configuration change…"]
+             | Resource.Loaded _ _ _ => [configuration_status section "Configuration updated"]
+             | Resource.Failed _ _ reason => [configuration_status section reason]
+             | Resource.Dormant => []
+             end))%list])
+ end in
  region parent "service-configuration" "Service configuration" Roles.Section
-  (match Configuration.catalog view with
-  | Resource.Dormant => [load "load" "Edit service configuration"]
-  | Resource.Loading _ _ => [configuration_status section "Loading configuration…"]
-  | Resource.Failed _ _ reason => [configuration_status section reason; load "reload" "Reload configuration"]
-  | Resource.Loaded _ _ snapshot =>
-      let selected := match Configuration.current_draft view with
-        | Some draft => Config.setting_key (Configuration.draft_path draft) | None => "" end in
-      [configuration_picker section snapshot selected enabled]
-      ++ configuration_editor section view enabled
-      ++ (match Configuration.writing view with
-          | Resource.Loading _ _ => [configuration_status section "Applying configuration change…"]
-          | Resource.Loaded _ _ _ => [configuration_status section "Configuration updated"]
-          | Resource.Failed _ _ reason => [configuration_status section reason]
-          | Resource.Dormant => []
-          end)
-      ++ [load "reload" "Reload configuration"]
-  end)%list.
+  (settings_row section "configuration-intro" "Service configuration"
+    "Edit settings stored by the connected service." actions :: content).
 
 Definition settings s :=
- match Services.settings_return(State.service_state s)with
+ let services := State.service_state s in
+ match Services.settings_return services with
  |None=>[]
  |Some trigger=>let parent:="/settings"in
+  let appearance := part parent "appearance" in
   [Node parent "settings" "Settings"Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
-     (part parent "connect")
+     (part parent "close")
      (Services.settings_focus_target trigger) "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
    [dialog_header parent [title parent "Settings";
      declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))];
     dialog_body parent
-     [region parent "appearance" "Appearance"Roles.Section
-       (map(fun theme=>let label:=match theme with Appearance.SystemAppearance=>"System"|Appearance.LightAppearance=>"Light"|Appearance.DarkAppearance=>"Dark"end in
-         Node(part parent("appearance/"++Appearance.appearance_name theme))"appearance"label Roles.Button
-          (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
-           (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
-         [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
-      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")));
-      configuration_section parent (State.service_state s)];
-    dialog_actions parent[declared parent Roles.Button(secondary "connect" "Connect"(Input.ServiceInput Services.Connect))]]]
+     [settings_row parent "appearance" "Appearance" "Choose how Selvedge looks in this browser."
+       [Node (part appearance "themes") "theme-options" "Color theme" Roles.Section ChoiceGroup
+         (map(fun theme=>let label:=match theme with Appearance.SystemAppearance=>"System"|Appearance.LightAppearance=>"Light"|Appearance.DarkAppearance=>"Dark"end in
+           Node(part parent("appearance/"++Appearance.appearance_name theme))"appearance"label Roles.Button
+            (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme services)))""
+             (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
+           [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance])];
+      configuration_section parent services;
+      settings_row parent "conversation-titles" "Conversation titles"
+       "Customize the prompts used to name new tasks."
+       [declared parent Roles.Button(secondary "title-prompts" "Edit title prompts"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))];
+      settings_row parent "connection" "Connection"
+       "Choose which Selvedge service this browser connects to."
+       [declared parent Roles.Button(secondary "connect" "Connect"(Input.ServiceInput Services.Connect))]]]]
   end.
 
 Theorem settings_preserves_return_attention s trigger :

@@ -243,6 +243,7 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 
 [data-workspace-sidebar] { border-inline-end: 1px solid var(--selvedge-border) !important; }
 [data-workspace-navigation="header"] { margin-block-end: 2px; }
+[data-workspace-navigation="header"] > [data-semantic-key="toggle"] { margin-inline-start: auto; }
 [data-workspace-navigation="destinations"] {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -355,6 +356,8 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 
 /* The first branch starts at its parent's dot and siblings share a stem. */
 [data-task-branches] { padding-inline-start: var(--task-indent) !important; row-gap: 0 !important; }
+[data-task-branches],
+[data-project-id] > [data-navigation-members] { padding-inline-end: 0 !important; }
 [data-task-branches] > [data-task-tree-entry] { position: relative; }
 [data-task-branches] > [data-task-tree-entry]::before,
 [data-task-branches] > [data-task-tree-entry]:not(:last-child)::after {
@@ -462,6 +465,203 @@ dialog[data-semantic-key="side-conversation"] {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+dialog[data-semantic-key="settings"] {
+  --settings-inset: clamp(16px, 4vw, 32px);
+  container: settings / inline-size;
+  inline-size: min(704px, calc(100% - 24px)) !important;
+  min-inline-size: 0 !important;
+  max-inline-size: calc(100% - 24px) !important;
+  max-block-size: calc(100dvh - 24px) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  gap: 0 !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 14px !important;
+  background: var(--selvedge-surface) !important;
+  box-shadow: var(--selvedge-shadow);
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
+  flex: none !important;
+  flex-flow: row nowrap !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 18px var(--settings-inset) !important;
+  border-block-end: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-header"] > [data-semantic-key="heading"] {
+  margin: 0 !important;
+  font-size: 21px !important;
+  font-weight: 650 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -.025em;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
+  flex: 1 1 auto !important;
+  min-block-size: 0 !important;
+  padding: 0 var(--settings-inset) 4px !important;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  gap: 0 !important;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-body"] > section {
+  padding: 18px 0 !important;
+  gap: 14px !important;
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-body"] > section + section {
+  border-block-start: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="settings"] :is(
+  [data-semantic-key="appearance"]:not(button), [data-semantic-key="configuration-intro"],
+  [data-semantic-key="conversation-titles"], [data-semantic-key="connection"]
+) {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: 12px 24px !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="settings-copy"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+  gap: 4px !important;
+}
+[data-semantic-key="settings-copy"] > [data-semantic-key="heading"] {
+  margin: 0 !important;
+  color: var(--selvedge-text) !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+  line-height: 1.4 !important;
+}
+[data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
+  margin: 0 !important;
+  color: var(--selvedge-muted) !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+[data-semantic-key="settings"] button {
+  --control-rest-background: var(--selvedge-surface) !important;
+  --control-hover-background: var(--selvedge-hover) !important;
+  --control-pressed-background: var(--selvedge-pressed) !important;
+  flex: none !important;
+  justify-content: center !important;
+  inline-size: auto !important;
+  min-block-size: 36px !important;
+  padding: 6px 12px !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 7px !important;
+  background: var(--control-current-background, var(--control-rest-background)) !important;
+  color: var(--selvedge-text) !important;
+  font-size: 13px !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  text-align: center;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] {
+  --control-rest-background: transparent !important;
+  inline-size: 36px !important;
+  padding: 0 !important;
+  border-color: transparent !important;
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] > svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  inline-size: 228px !important;
+  max-inline-size: 100% !important;
+  gap: 2px !important;
+  padding: 3px !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 9px !important;
+  background: var(--selvedge-inset) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
+  --control-rest-background: transparent !important;
+  min-block-size: 32px !important;
+  border-color: transparent !important;
+  border-radius: 5px !important;
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
+  --control-rest-background: var(--selvedge-surface) !important;
+  border-color: var(--selvedge-border) !important;
+  color: var(--selvedge-text) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button > [aria-hidden="true"] {
+  display: none !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button > span {
+  text-align: center !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="configuration-fields"] {
+  min-inline-size: 0 !important;
+  padding: 14px !important;
+  gap: 12px !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 9px !important;
+  background: var(--selvedge-inset) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="configuration-fields"] > :has(> :is(select, input, textarea)) {
+  gap: 5px !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="configuration-fields"] > div > span {
+  color: var(--selvedge-text) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+[data-semantic-key="settings"] :is(select, input, textarea) {
+  min-inline-size: 0 !important;
+  min-block-size: 38px !important;
+  inline-size: 100% !important;
+  padding: 7px 10px !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 7px !important;
+  background: var(--selvedge-surface) !important;
+  color: var(--selvedge-text) !important;
+  font: inherit !important;
+  font-size: 13px !important;
+}
+[data-semantic-key="settings"] textarea {
+  min-block-size: min(108px, 38dvh) !important;
+  line-height: 1.55 !important;
+}
+[data-semantic-key="settings"] select { appearance: auto !important; }
+[data-semantic-key="settings"] [data-semantic-key="configuration-actions"] {
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  padding: 0 !important;
+  gap: 6px !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="apply"] {
+  --control-rest-background: var(--selvedge-accent) !important;
+  --control-hover-background: var(--selvedge-accent-hover) !important;
+  --control-pressed-background: var(--selvedge-accent-pressed) !important;
+  border-color: transparent !important;
+  color: var(--selvedge-on-accent) !important;
+}
+[data-semantic-key="settings"] [role="status"] {
+  margin: 0 !important;
+  color: var(--selvedge-muted) !important;
+  font-size: 13px !important;
+  overflow-wrap: anywhere;
+}
+@container settings (max-width: 505px) {
+  [data-semantic-key="settings"] :is(
+    [data-semantic-key="appearance"]:not(button), [data-semantic-key="configuration-intro"],
+    [data-semantic-key="conversation-titles"], [data-semantic-key="connection"]
+  ) {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+  [data-semantic-key="settings"] [data-semantic-key="theme-options"] { inline-size: 100% !important; }
+  [data-semantic-key="settings"] > [data-surface-role="dialog-header"] { padding-block: 12px !important; }
+  [data-semantic-key="settings"] [data-semantic-key="configuration-fields"] { padding: 10px !important; }
 }
 [data-semantic-key="side/actions"] {
   flex: none !important;

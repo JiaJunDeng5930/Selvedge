@@ -35,7 +35,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   async function openTitlePrompts() {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByRole('button', { name: '标题生成设置', exact: true }).click();
+    await page.getByRole('button', { name: 'Edit title prompts', exact: true }).click();
     return page.getByRole('dialog');
   }
 
