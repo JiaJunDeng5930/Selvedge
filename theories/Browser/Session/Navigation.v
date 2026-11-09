@@ -190,22 +190,20 @@ Definition overview_open state:=match State.layers(State.navigation_state state)
 Definition message_target state:=let navigation:=State.navigation_state state in match State.location navigation with
  |Conversation task=>NavigationIdentity.message_key(PrimaryTask task)
  |_=>NavigationIdentity.key_part(editor_key(NewTask(State.active_work navigation)))"message"end.
-Definition work_focus work state:=let target:=match State.location(State.navigation_state state)with
- |Start|Conversation _=>message_target state|_=>NavigationIdentity.key_part "/work-tabs"(NavigationIdentity.work_key work) end in
- [Attend(NavigationIdentity.key_part "/work-tabs"(NavigationIdentity.work_key work));Attend target].
+Definition work_focus state:=match State.location(State.navigation_state state)with
+ |Start|Conversation _=>message_target state|_=>NavigationIdentity.key_part "/main" "heading"end.
 Definition select_work snapshot work state :=
  if work_available snapshot work then
  let navigation:=State.navigation_state state in
  let overview:=overview_open state in
  if same_work work(State.active_work navigation)then
  let state:=State.with_navigation(after_visit navigation)state in
- if overview then let closed:=close_panel state in
- changed(result_state closed)(work_focus work(result_state closed))else keep state
+ if overview then close_panel state else keep state
  else let destination:=visited work navigation in
  let navigation:=select_scope work navigation in
  let result:=visit snapshot destination(State.with_navigation navigation state)in
- set result_effects(fun effects=>EnsureDraft(NewTask work)::List.app effects
-   (if overview then work_focus work(result_state result)else []))result
+ set result_effects(fun effects=>EnsureDraft(NewTask work)::
+   map(fun effect=>match effect with Attend _=>Attend(work_focus(result_state result))|_=>effect end)effects)result
  else refuse "The Work no longer exists."state.
 Definition generated (command : Commands.proposal) purpose state:=
  match Schema.decode_command command_specs(Commands.encode command)with
@@ -213,9 +211,14 @@ Definition generated (command : Commands.proposal) purpose state:=
  |None=>refuse "The operation does not match the public command protocol."state end.
 Definition selection_intent state:=State.with_navigation
  (set State.generation N.succ(State.navigation_state state))state.
-Definition create_work state:=let state:=selection_intent state in
- generated(Commands.Cmd_create_work(Commands.Build_create_work(Some "")))
- (State.WorkCreation(State.generation(State.navigation_state state))(State.next_layer state))state.
+Definition create_work state:=
+ (* Return to the workspace while creation is pending so a newer navigation
+    choice can supersede the eventual selection. *)
+ let closed:=if overview_open state then close_panel state else keep state in
+ let state:=selection_intent(result_state closed)in
+ let issued:=generated(Commands.Cmd_create_work(Commands.Build_create_work(Some "")))
+  (State.WorkCreation(State.generation(State.navigation_state state))(State.next_layer state))state in
+ set result_effects(List.app(result_effects closed))issued.
 Definition begin_side snapshot task trigger state:=
  match DocumentState.find_task task snapshot with None=>refuse "The task is no longer available."state
  |Some _=>let state:=selection_intent state in
@@ -336,8 +339,7 @@ Definition complete snapshot purpose outcome state:option result:=match purpose 
  |State.WorkCreation generation layer_generation=>Some(if negb(outcome_success outcome)then
    Result state [](Some(Codec.command_failure outcome))else
    if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)then
-   match bind(outcome_result outcome)(natural_field "work_id")with Some work=>let selected:=select_work snapshot(Some work)state in
-     match result_error selected with Some _=>selected|None=>set result_effects(fun effects=>List.app effects(work_focus(Some work)(result_state selected)))selected end
+   match bind(outcome_result outcome)(natural_field "work_id")with Some work=>select_work snapshot(Some work)state
    |None=>refuse "The Work creation result has no Work identity."state end else keep state)
  |State.SideCreation parent generation layer_generation trigger=>Some(if negb(outcome_success outcome)then
    Result state [](Some(Codec.command_failure outcome))else

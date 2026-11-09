@@ -209,7 +209,10 @@ function synchronizeNativeAuthority() {
     // physical focus unless another focus request or replacement superseded it.
     if (retained.attempt === focusRequest && retained.node.isConnected &&
         !retained.node.matches(':disabled,[aria-disabled="true"]') &&
-        document.activeElement === document.body) retained.node.focus({ preventScroll: true });
+        document.activeElement === document.body) {
+      retained.node.focus({ preventScroll: true });
+      if (retained.finishComposition) queueMicrotask(retained.finishComposition);
+    }
   }
 }
 function renderRecovery(reason) {
@@ -378,7 +381,23 @@ const renderer = new Renderer(surface, {
       event.preventDefault(); publication = publicationEvent('retry');
       refreshPhysical().then(render).catch(fatal); return;
     }
-    if (!admitted(generation)) return;
+    if (!admitted(generation)) {
+      // DEFENSE: Making the surface inert for measurement can commit the focused
+      // IME input. Deliver that observation when the same field owns input again.
+      if (event.type === 'compositionend' && binding.kind === 'value' && suspendedFocus?.node === node) {
+        const session = renderer.records.get(key)?.fieldSession;
+        const value = node.value;
+        suspendedFocus.finishComposition = () => {
+          const record = renderer.records.get(key);
+          if (!session || record?.node !== node || record.fieldSession?.identity !== session.identity ||
+              record.fieldSession.canonical !== session.canonical || node.value !== value ||
+              !admitted(record.generation)) return;
+          const current = record.events.find(candidate => candidate.kind === 'value' && candidate.event === binding.event);
+          if (current) renderer.callbacks.event(current, event, key, node, record.generation);
+        };
+      }
+      return;
+    }
     if (binding.kind === 'files') {
       registerFiles(binding.action, filesFromEvent(event, node));
       if (node.type === 'file') node.value = '';

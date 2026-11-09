@@ -75,13 +75,19 @@ async function repository(directory) {
 }
 
 async function home(page) {
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: 'Home', exact: true }).click();
+}
+
+async function requestWork(page) {
+  await page.getByRole('button', { name: /^Work overview:/ }).click();
+  await page.getByRole('dialog', { name: 'Works', exact: true })
+    .getByRole('button', { name: 'New Work', exact: true }).click();
 }
 
 async function startWork(page) {
   const response = commandResponse(page, 'create_work');
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   const { reply } = await (await response).json();
   assert.equal(reply.ok, true, JSON.stringify(reply));
   await page.getByRole('combobox', { name: 'Task', exact: true }).waitFor();
@@ -101,7 +107,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await selectTask(fixture, task_id);
 
   let pending = await holdNextCommand(t, page, 'create_work');
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   await pending.started;
   await page.getByRole('button', { name: '新建对话', exact: true }).click();
   await pending.release();
@@ -115,7 +121,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
 
   await selectTask(fixture, task_id);
   pending = await holdNextCommand(t, page, 'create_work');
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   await pending.started;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '任务看板', exact: true }).click();
@@ -126,7 +132,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await home(page);
   await selectTask(fixture, task_id);
   pending = await holdNextCommand(t, page, 'create_work');
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   await pending.started;
   await page.getByRole('button', { name: 'Collapse Task sidebar', exact: true }).click();
   await pending.release();
@@ -136,7 +142,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await page.getByRole('button', { name: 'Expand Task sidebar', exact: true }).click();
 
   pending = await holdNextCommand(t, page, 'create_work');
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   await pending.started;
   await page.setViewportSize({ width: 450, height: 900 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).click();
@@ -162,7 +168,7 @@ test('late Side creation cannot reopen a side after newer navigation or Work cre
   await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
   await pending.release();
   assert.equal(await page.getByRole('main').getByText('任务看板', { exact: true }).isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: '关闭', exact: true }).count(), 0,
+  assert.equal(await page.getByRole('complementary', { name: 'Side conversation', exact: true }).count(), 0,
     'The old Side is created durably without being reopened over the new page');
   assert.ok(JSON.stringify(await command({ op: 'read', task_id: older.task_id })).includes('Keep this first question in the captured side.'));
 
@@ -174,7 +180,7 @@ test('late Side creation cannot reopen a side after newer navigation or Work cre
   const newer = await startWork(page);
   await pending.release();
   assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: '关闭', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('complementary', { name: 'Side conversation', exact: true }).count(), 0);
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('The newer Work still owns this editor.');
   const receipt = commandResponse(page, 'create_work_task');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
@@ -207,7 +213,7 @@ test('Work and Side creation failures display the exact server code and explanat
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
   let failure = rejectNextCommand(page, 'create_work', command => ({ ...command, name: 'x'.repeat(4097) }));
-  await page.getByRole('button', { name: 'New Work', exact: true }).click();
+  await requestWork(page);
   let diagnostic = await failure;
   assert.equal(diagnostic.code, 'command_not_submitted');
   await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).waitFor();

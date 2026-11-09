@@ -319,6 +319,7 @@ Definition icon_only purpose area := let purpose:=C.action_purpose purpose in ma
  |C.WorkCreation,DialogArea|C.WorkCreation,TouchNavigationArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
  |C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
+ |C.ShowActivity _,_
  |C.ProjectTaskCreation,NavigationArea|C.ProjectTaskCreation,TouchNavigationArea|C.CreateItem,BoardLaneArea
  |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.ApplicationSettings _,_|C.GlobalDestinations _,_|C.OpenPanel "filter-funnel" _ _,_
  |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
@@ -431,15 +432,21 @@ Definition face_children purpose area role label children :=
  match role with
  |Roles.WorkTab _=>text
  |Roles.WorkOverviewButton count=>artwork "columns"++[DOM.Text(text_number count)]
- |Roles.CompactWorkScope title count=>
+ |Roles.CompactWorkScope title _=>
+   artwork "columns"++
    [DOM.Element "" "span" (ControlContent.single_line_attributes title)
-     (ControlContent.single_line_properties++[("flex","1 1 0%")]) [] empty [DOM.Text title];
-    DOM.Element "" "span" [] [("flex","none")] [] empty [DOM.Text(text_number count)]]
+     (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty [DOM.Text title]]++
+   artwork "chevron-down"
  |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++text
  |Roles.CompactNavigationEntry _=>icon++text
+ |Roles.NavigationEntry _=>match purpose,area with
+   |C.NavigateTo "home",NavigationArea=>
+    [DOM.Element "" "span" [("data-selvedge-mark","");("aria-hidden","true")] [] [] empty [DOM.Text "S"];
+     DOM.Element "" "span" [] [("font-weight","600")] [] empty [DOM.Text "Selvedge"]]
+   |_,_=>icon++text end
  |_=>match purpose with
  |C.ChooseValue _|C.WorkspacePicker _=>icon++text++artwork "chevron-down"
- |C.ShowActivity expanded=>text++artwork(if expanded then "chevron-down"else "chevron-right")
+ |C.ShowActivity expanded=>artwork(if expanded then "chevron-down"else "chevron-right")
  |C.SelectedOption checked=>text++if checked then artwork "check"else[]
  |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
  |_=>if icon_only purpose area then icon else icon++text end end.
@@ -566,9 +573,13 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
  ("block-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)40))] ++
  (if selected then [("border-end-start-radius","0");("border-end-end-radius","0")] else [])
  |Roles.WorkOverviewButton _=>[("margin-inline-start","auto")]
- |Roles.CompactWorkScope _ _=>[("flex","1");("min-inline-size","0");("justify-content","space-between")]
+ |Roles.CompactWorkScope _ _=>[("min-inline-size","0");("justify-content","space-between")]++
+   (match current_area with TouchNavigationArea=>[("flex","1")]|_=>[("inline-size","100%");("flex","none")]end)
  |Roles.GlobalNavigationEntry _ compact=>[("display","flex");("flex-direction",if compact then "row" else "column");("align-items","center");("justify-content","center");("inline-size","100%")]
- |Roles.GlobalNavigation compact=>[("inline-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)(if compact then 48 else 84)));("block-size","100%");("min-block-size","0");("flex","none")]|Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));("block-size","100%");("min-block-size","0");("flex","none")]|Roles.Main=>[("flex","1");("min-inline-size","0")]|_=>[] end) ++
+ |Roles.GlobalNavigation _=>[("inline-size","100%");("min-block-size","0");("flex","none");("margin-block-start","auto")]
+ |Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));
+   ("block-size","100%");("min-block-size","0");("flex","none");("overflow","hidden")]
+ |Roles.Main=>[("flex","1");("min-inline-size","0")] |_=>[] end) ++
  (match meaning with S.SummaryList=>[("list-style","none");("padding","0");("margin","0")]|S.InteractiveNode c=>InteractiveAppearance.component_properties env c
  |S.InteractivePlacement p=>InteractiveAppearance.placement_properties env p|_=>[] end) ++
  native_field_width env activity meaning ++
@@ -604,7 +615,7 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
  |_=>styles end in
  let styles:=match meaning with S.NavigationRegion NavigationIdentity.WorkOverview _=>
    set_style "inline-size" (Typography.px(Layout.work_overview_width env))
-    (set_style "block-size" (Typography.px(Layout.work_overview_height env)) styles)
+    (set_style "max-block-size" (Typography.px(Layout.work_overview_height env)) styles)
  |S.NavigationRegion NavigationIdentity.TasksDrawer _=>styles++Layout.modal_navigation_properties env++
    [("background",NativeAppearance.background NativeAppearance.NavigationPaint NativeAppearance.Rest)]
  |_=>styles end in
@@ -627,6 +638,14 @@ Definition reading_identity {A}(value:S.node A) := match S.node_meaning value wi
  |S.PublishedText document=>CodeSource.source_key(DocumentPublication.published_code_source document)
  |S.RichText source _=>CodeSource.source_key source
  |_=>S.semantic_key value end.
+
+Definition agent_attribution key role : list DOM.node :=
+ match role with
+ |Roles.AssistantMessage=>
+  [DOM.Element (key++"/agent")%string "div" [("data-agent-attribution","");("aria-hidden","true")] [] [] empty
+    [DOM.Element (key++"/agent/mark")%string "span" [("data-selvedge-mark","")] [] [] empty [DOM.Text "S"];
+     DOM.Text "Selvedge"]]
+ |_=>[]end.
 (** Group headings and their indented members are separate enclosures. *)
 Definition is_group_heading {A} (value:S.node A) := match S.node_meaning value with
  |S.InformationText Information.GroupTitle|S.ActivityRow S.ObjectHeading=>true|_=>false end.
@@ -657,8 +676,21 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
  let supporting:=match meaning with S.PageRegion Composition.CreationContext _=>false
   |_=>match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end end in
- let responsive:=SemanticAppearance.responsive_row activity source role meaning in
+ let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
+ let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value) label role ++
+ (match role,meaning with
+ |Roles.Navigation,_=>[("data-workspace-sidebar","")]
+ |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
+ |Roles.GlobalNavigation _,_=>[("data-workspace-navigation","global")]
+ |Roles.NavigationCollection,S.Region=>
+   if String.eqb(S.semantic_key value)"contents" then [("data-workspace-navigation","collection")]else[]
+ |Roles.NavigationSection,S.Region=>
+   if String.eqb(S.semantic_key value)"work-destinations" then [("data-workspace-navigation","destinations")]else[]
+ |_,S.PageRegion Composition.ConversationHeader _=>[("data-workspace-heading","")]
+ |_,S.LayerRegion behavior=>match Model.layer_presentation behavior with
+   |Model.TrailingDetails=>[("data-workspace-side","")]|_=>[]end
+ |_,_=>[]end) ++
  (match meaning with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
    if Model.modal_layer behavior then match surface_heading value with
@@ -675,6 +707,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (if supporting then ControlContent.support_row_attributes key
   else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
  let styles:=node_styles describe env activity source role meaning current_area supporting responsive in
+ let styles:=match role,meaning with
+ |Roles.NavigationCollection,S.Region=>if String.eqb(S.semantic_key value)"contents" then
+   styles++[("min-block-size","0");("overflow-y","auto");("flex","1 1 auto")]else styles
+ |_,_=>styles end in
  let collection_field:=match meaning with S.WorkspaceCollection _ _=>true
   |S.Region=>existsb(fun child=>match S.node_meaning child with
       S.ReceiveFile _ _ _=>true|_=>false end)(S.node_children value)
@@ -765,17 +801,19 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [] empty [DOM.Text message]
  |S.DirectoryBrowserLocation path=>element "p" [] [] empty [DOM.Text path]
  |S.PublishedText document=>element (role_tag role) [] [] empty
+ (List.app (agent_attribution key role)
  (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
  (String.append key "/@physical-markdown") (String.append key "/markdown")
  (DocumentPublication.published_text document)
  (match DocumentPublication.published_ending document with
  Selvedge.Interaction.Interactive.Types.Open=>false|_=>true end)
- (match DocumentPublication.encode_document document with JObject fields=>JObject(("view",Observation.encode_view view)::fields)|metadata=>metadata end)::children)
+ (match DocumentPublication.encode_document document with JObject fields=>JObject(("view",Observation.encode_view view)::fields)|metadata=>metadata end)::children))
  |S.RichText provenance text=>element (role_tag role) [] [] empty
+ (List.app (agent_attribution key role)
  (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
  (String.append key "/@physical-markdown") (String.append key "/markdown") text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
- (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children)
+ (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children))
  |S.EmbeddedMarkdown text=>physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.EmbeddedMarkdown
  (String.append key "/@physical-markdown") key text true empty
  |S.CodeFacts facts=>
@@ -964,8 +1002,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.TaskRow task status caption working selected=>
  let paired:=combine(S.node_children value)children in
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
- element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected)] [] empty
- (map snd(filter(fun pair=>negb(nested pair))paired)++map snd(filter nested paired))
+ let row:=DOM.Element (key++"/row")%string "div" [("data-task-tree-row","")]
+   [("display","flex");("align-items","center");("min-inline-size","0")] [] empty
+   (map snd(filter(fun pair=>negb(nested pair))paired)) in
+ element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
+ (row::map snd(filter nested paired))
  |S.ObjectGroup object=>element "section"
    [("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
    (grouped_content env activity key label true(S.node_children value)children)
@@ -974,9 +1015,19 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (grouped_content env activity key label false(S.node_children value)children)
  |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
- |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task)][]empty children
+ |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task);("data-task-branches","")][]empty children
+ |S.Region=>if voice_disclosure then
+   let live:=existsb(fun child=>match S.node_meaning child with
+    |S.InformationText Information.Status=>true
+    |_=>String.eqb(S.semantic_key child)"speech/transcript" end)(S.node_children value)in
+   DOM.Element key "details" (attrs++[("data-voice-controls","")]++(if live then [("open","")]else[]))
+     [("min-inline-size","0")] [] empty
+     [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text "Voice"];
+      DOM.Element (key++"/controls")%string "div" [("data-voice-controls-body","")]
+       (styles++[("flex-wrap","wrap");("block-size","auto")]) [] empty children]
+  else element (role_tag role) [] [] empty children
  |S.ActivityRow _|S.WorkspaceMember _ _ _
- |S.ActionExplanation _ _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
+ |S.ActionExplanation _ _|S.ProjectChooser _|S.DirectoryRow _ _
  |S.ContextSummary _=>element (role_tag role) [] [] empty children
  |S.CardContent face=>
  let movement:=card_movement(S.node_children value)in
@@ -989,6 +1040,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (Layout.row_properties(if responsive then Layout.Vertical else Layout.Horizontal)++[("gap",Typography.px(Typography.scaled(Layout.root_font_size_milli env)12));("min-inline-size","0")]) [] empty content in
  let paired:=combine(S.node_children value)children in
  let opened:=card_part describe false paired in
+ let conversation:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))"card/open-conversation")paired)in
  let movement_nodes:=map snd(filter(fun pair=>match S.node_meaning(fst pair)with S.MovableCard _ _=>true|_=>false end)paired)in
  DOM.Element key "article" (attrs++[("data-card-id",text_number(Model.card_identity face));("data-card-title",Model.card_title face);
  ("draggable",flag movable);("data-drop-target",key)]) styles [] (card_drag generation movement)
@@ -999,7 +1051,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (match opened with []=>[DOM.Text(Model.card_title face)]|_=>opened end);
  row "more-group" false(card_part describe true paired)]]++optional "description"(Model.card_description face)++
  [row "context" true(optional "project"(Model.card_project face)++map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face));
- DOM.Element(key++"/movement-group")%string "div" [][("display","flex");("flex-direction","column")][]empty movement_nodes;
+ DOM.Element(key++"/movement-group")%string "div" [][("display","flex");("flex-direction","column")][]empty (conversation++movement_nodes);
  DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
  (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
  (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face))])
@@ -1034,30 +1086,27 @@ Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=
  (Model.layer_initial_attention behavior) (Model.layer_return_attention behavior)
  (Model.layer_fallback_attention behavior) (Some(Model.layer_occurrence behavior))]else[]
  |_=>[]end)values.
-Definition is_global {A}(value:S.node A) := match S.node_role value with Roles.GlobalNavigation _=>true|_=>false end.
 Definition is_navigation {A}(describe:A->C.purpose)(value:S.node A) :=
  match S.node_role value with Roles.Navigation=>true|_=>
   match S.node_meaning value with S.Activate control=>
    match describe(Model.control_input control)with C.ToggleNavigation false=>true|_=>false end
   |_=>false end end.
-Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.WorkTabs|Roles.CompactHeader=>true|_=>false end.
+Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.CompactHeader=>true|_=>false end.
 Definition beside_layer {A}(value:S.node A) := match S.node_meaning value with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
 Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface A) : json :=
  let all:=S.base surface ++ S.overlays surface in
  let compile:=compile_node describe env generation OutsideArea false S.Region None None in
  let base:=S.base surface in
- let global:=filter is_global base in let headers:=filter is_header base in
+ let headers:=filter is_header base in
  let navigation:=filter (is_navigation describe) base in
- let main:=filter(fun value=>negb(is_global value || is_header value || is_navigation describe value))base in
+ let main:=filter(fun value=>negb(is_header value || is_navigation describe value))base in
  let beside:=filter beside_layer (S.overlays surface) in
  let layers:=filter(fun value=>negb(beside_layer value))(S.overlays surface) in
- let p:=Layout.parameters env in
  let theme:=NativeAppearance.theme_name (S.surface_appearance surface) (Layout.system_dark env) in
  DOM.encode (DOM.Document
  (DOM.Element "selvedge" "div" [("data-selvedge-root","true")]
  (NativeAppearance.root_properties env ++ [("display","flex");("flex-direction","row");("block-size","100%");("min-block-size","0")]) [] empty
- (map compile global ++
  [DOM.Element (S.workspace_key surface) "div" [("data-measure-region","workspace")]
  [("display","flex");("flex-direction","column");("flex","1");("min-inline-size","0");("min-block-size","0")] [] empty
  (map compile headers ++ [DOM.Element "workspace-body" "div" []
@@ -1066,7 +1115,7 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  [("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("min-block-size","0")]
  [] empty (map compile main ++ map compile beside)])]);
  DOM.Element (String.append(S.workspace_key surface)"/overlays") "div" [("data-layer-stack","true")]
- [] [] empty (map compile layers)]))
+ [] [] empty (map compile layers)])
  "Selvedge" generation false
  (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]::flat_map (target_updates None) all) (surface_scopes(S.modal_nodes surface))).
 Definition bootstrap env generation := DOM.encode (DOM.Document

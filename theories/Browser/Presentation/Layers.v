@@ -122,6 +122,9 @@ Definition context_facts {A} directories snapshot task parent:list(node A) :=mat
 Definition task_details snapshot s id parent :=match Projection.task_details_observation snapshot id with
 |Some(task,details)=>
  (context_facts(task_workspace_facts parent)snapshot id parent++
+  (match Read.task_work task with
+  |None=>[]|Some work=>[read_only parent "work" "Work"
+    (match Read.find_work work snapshot with Some entry=>Read.work_name entry|None=>"Work unavailable"end)]end)++
  [read_only parent "model" "Model"(Read.task_detail_model details++" · "++Read.task_detail_reasoning details);
   read_only parent "status" "Status"(Read.task_caption task);
   read_only parent "phase" "Phase"(Read.task_detail_phase details);
@@ -225,19 +228,21 @@ Definition side_content snapshot s task parent :=
  |Some action=>match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control "return"(ObjectActions.action_label action)Secondary
     (Input.Command command)(status_availability(ObjectActions.action_status action)))]|None=>[]end|None=>[]end in
- let description:=match Read.find_task task snapshot with
- |Some _=>match Read.task_side_parent snapshot task with
-  |Some parent=>"源自 task #"++show_natural parent++" · 独立运行。关闭不回传；仅手动追加已保存的新内容。生成中的回复可稍后追加。"
-  |None=>"Side conversation"end|None=>"Side conversation unavailable"end in
+ let heading:=match Read.find_task task snapshot with
+ |Some entry=>Read.task_title entry|None=>"Side conversation unavailable"end in
+ let source:=match bind(Read.task_side_parent snapshot task)(fun source=>Read.find_task source snapshot)with
+ |Some entry=>[information parent "side/parent" Information.Description ("Branched from "++Read.task_title entry)]
+ |None=>[]end in
  [dialog_header parent
-   [region parent "side/actions" "Side conversation actions"Roles.Toolbar
-    (return_control++[declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)])];
+   [region parent "side/heading" "" Roles.Toolbar
+    [title parent heading;declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)]];
   dialog_body parent
-   (information parent "side/parent" Information.Description description::
+   (source++[region parent "side/actions" "Side conversation actions" Roles.Toolbar
+     ([Pages.task_details_control s task parent;Collections.more parent(TaskActions task)]++return_control)]++
     Pages.conversation_page snapshot s(SideTask task)parent)].
 Definition panel_title panel := match panel with
  |State.EditorPanel owner=>Editors.editor_title owner
- |State.SideConversationPanel task=>"Side conversation · task #"++show_natural task
+ |State.SideConversationPanel _=>"Side conversation"
  |State.NavigationPanel GlobalMenu=>"Global navigation"
  |State.NavigationPanel WorkOverview=>"Work overview"|State.NavigationPanel TasksDrawer=>"Task tree"
  |State.ObjectActionsPanel _=>"Actions"
@@ -263,7 +268,7 @@ Definition layer_view snapshot s capacity layer :=
   |State.NavigationPanel WorkOverview=>Navigation.work_overview snapshot s parent
   |State.NavigationPanel TasksDrawer=>
     [dialog_header parent [title parent "Tasks"];
-     dialog_body parent [Navigation.task_navigation snapshot s true]]
+     dialog_body parent [Navigation.task_navigation snapshot s]]
   |State.ObjectActionsPanel subject=>menu_nodes snapshot s subject(State.layer_occurrence layer)parent
   |State.CardDecisionPanel card decision=>card_choice_nodes snapshot s card decision(State.layer_occurrence layer)(State.layer_query layer)parent
   |State.InformationPanel kind=>information_panel snapshot s kind parent
@@ -285,9 +290,16 @@ Definition layer_view snapshot s capacity layer :=
   let content:=match State.layer_panel layer with
   |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel WorkOverview|State.NavigationPanel TasksDrawer
   |State.Confirmation _ _ _=>content
-  |State.InformationPanel(State.TaskDetails _)|State.InformationPanel(State.TaskContext _)
+  |State.InformationPanel(State.TaskDetails _)=>
+    [dialog_header parent
+      [region parent "side/heading" "" Roles.Toolbar
+        ([title parent(panel_title panel)]++
+         if Model.layer_beside behavior then [declared parent Roles.Button(secondary "close" "Close details" Input.ClosePanel)]else[])];
+     dialog_body parent content]
+  |State.InformationPanel(State.TaskContext _)
   |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
   |State.ArchivedCardsPanel|State.CardDecisionPanel _ _=>[dialog_header parent[title parent(panel_title panel)];dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
-  Node(part parent "layer") "layer" (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
+  let semantic:=match panel with State.SideConversationPanel _=>"side-conversation"|_=>"layer"end in
+  Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.

@@ -104,11 +104,17 @@ Definition worktree_details snapshot s task parent:=match Read.task_workspace ta
    |Some action=>match ObjectActions.command action with
     |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
     |None=>[]end|None=>[]end))end.
+Definition show_side_control parent task : node Input.input :=
+ declared parent Roles.Button(secondary "side/show" "Open side conversation"
+   (Input.ShowSide task(part parent "side/show"))).
 Definition task_side_controls snapshot s task parent:=match ObjectActions.return_action snapshot s task with
-|None=>[]|Some action=>List.app
+|None=>match filter (fun entry=>match Read.task_side_parent snapshot (task_id entry) with
+         |Some source=>N.eqb source task|None=>false end) (value_or[](Read.tasks snapshot)) with
+       |[child]=>[show_side_control parent (task_id child)]|_=>[]end
+|Some action=>List.app
  (match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]|None=>[]end)
- [declared parent Roles.Button(secondary "side/show" "打开侧窗口"(Input.ShowSide task(part parent "side/show")))]end.
+ [show_side_control parent task]end.
 Definition discarded_unfinished_notice s task parent:=
  let count:=Documents.discarded_count task(State.document_retention s)in
  if N.eqb count 0 then [] else
@@ -132,12 +138,13 @@ Definition task_contents snapshot s view parent task :=
  let timeline:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
  let timeline:=List.app timeline(operation_controls snapshot s id parent operations)in
- ([page_region parent Composition.ConversationHeader Composition.HeadingPosition
+ ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
    (List.app [task_details_control s id parent;
-    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))];
-  page_region parent Composition.TimelineContent Composition.BodyPosition
+    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))]]
+  |SideTask _=>[]end) ++
+ [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
       (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline])] ++
