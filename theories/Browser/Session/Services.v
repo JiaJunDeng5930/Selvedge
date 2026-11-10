@@ -181,8 +181,8 @@ Inductive service_input :=
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
 | SelectConfigurationItem(path:list string)(name:string) | BeginAddConfigurationItem(path:list string)
 | EditConfigurationItemName(raw:string)
-| AddConfigurationItem(value:json) | CancelAddConfigurationItem | RemoveConfigurationItem(name:string)
-| EditModelProfileField(name field raw:string)
+| EditConfigurationItemValue(value:json) | RemoveConfigurationItem(name:string)
+| EditModelProfileField(field raw:string)
 | ShowConnectionOverrides(show:bool)
 | SetConfiguration | SetConfigurationAt(path:list string)(raw:string)
 | ResetConfiguration | ResetConfigurationAt(path:list string)
@@ -279,8 +279,7 @@ Definition configuration_write (reset:bool) s :=
         let change := if reset then
           if Configuration.Config.setting_resettable entry && Configuration.Config.setting_explicit entry
           then Some Configuration.Config.Reset else None
-        else option_map Configuration.Config.Assign
-          (Configuration.Config.interpret_input (Configuration.Config.setting_input entry) (Configuration.draft_input draft)) in
+        else option_map Configuration.Config.Assign (Configuration.assignment entry draft view) in
         match change with
         | Some change =>
             let ticket := next_ticket s in
@@ -339,14 +338,12 @@ Definition service_step input s :=
       keep (with_configuration (Configuration.edit_at path Configuration.begin_add_item (service_configuration s)) s)
   | EditConfigurationItemName raw =>
       keep (with_configuration (Configuration.edit_item_name raw (service_configuration s)) s)
-  | AddConfigurationItem value =>
-      keep (with_configuration (Configuration.add_item value (service_configuration s)) s)
-  | CancelAddConfigurationItem =>
-      keep (with_configuration (Configuration.cancel_add_item (service_configuration s)) s)
+  | EditConfigurationItemValue value =>
+      keep (with_configuration (Configuration.replace_item_value value (service_configuration s)) s)
   | RemoveConfigurationItem name =>
       keep (with_configuration (Configuration.remove_item name (service_configuration s)) s)
-  | EditModelProfileField name field raw =>
-      keep (with_configuration (Configuration.edit_model_profile_field name field raw (service_configuration s)) s)
+  | EditModelProfileField field raw =>
+      keep (with_configuration (Configuration.edit_model_profile_field field raw (service_configuration s)) s)
   | ShowConnectionOverrides show =>
       keep (with_configuration (Configuration.show_connection_overrides show (service_configuration s)) s)
   | SetConfiguration => configuration_write false s

@@ -15,6 +15,8 @@ Open Scope string_scope.
 
 Module Config := Configuration.Config.
 
+Definition settings_root := "/settings".
+
 Definition sections :=
  [SettingsGeneral; SettingsModels; SettingsTools; SettingsTasks; SettingsContext; SettingsConnection].
 Definition section_label section :=
@@ -38,7 +40,7 @@ Definition copy path : string * string :=
  match path with
  | ["instructions"] => ("Instructions", "Standing guidance supplied to tasks by the local service.")
  | ["profiles"] => ("Model profiles", "Named configurations that tasks can use.")
- | ["chatgpt"] => ("Sign in with ChatGPT", "Use your ChatGPT account for model access.")
+ | ["chatgpt"] => ("ChatGPT model access", "Choose whether tasks can use models from your ChatGPT account.")
  | ["reasoning_evaluators"] => ("Reasoning evaluators", "Services that assess adaptive reasoning.")
  | ["mcp"] => ("MCP servers", "Connect tools and resources through Model Context Protocol.")
  | ["plugins"] => ("Plugins", "Programs the service can use to extend task capabilities.")
@@ -109,8 +111,6 @@ Definition configuration_field parent key label multiline raw options enabled pa
 Definition active_raw path view :=
  draft <- Configuration.current_draft view ;;
  if Configuration.matches_path path draft then Some (Configuration.draft_input draft) else None.
-Definition is_active path view :=
- match active_raw path view with Some _ => true | None => false end.
 Definition value_label value :=
  match value with JBool true => "On" | JBool false => "Off" | _ => Config.display_value value end.
 Definition options_for raw options :=
@@ -133,20 +133,6 @@ Definition reset_button parent entry enabled label :=
 Definition save_enabled entry raw view enabled :=
  enabled && Configuration.dirty view &&
  match Config.interpret_input (Config.setting_input entry) raw with Some _ => true | None => false end.
-Definition saved_actions parent entry raw view enabled (allow_reset : bool) : list (node Input.input) :=
- let id := part parent "save-bar" in
- let dirty := Configuration.dirty view in
- let controls :=
-   if dirty then
-     [button id "cancel" "Discard changes" (negb (Configuration.pending view)) Services.CancelConfigurationEdit;
-      action id "save" (save_label (Config.setting_path entry)) Primary
-        (save_enabled entry raw view enabled) Services.SetConfiguration]
-   else if allow_reset then reset_button id entry enabled "Restore default" else [] in
- match (write_status id view ++ controls)%list with
- | [] => []
- | actions => [region parent "save-bar" "" Roles.DialogActions actions]
- end.
-
 Definition boolean_control parent path label raw (enabled : bool) :=
  let key := "setting-switch" in
  let on := String.eqb raw "true" in
@@ -233,137 +219,69 @@ Definition summary_lines parent path value : list (node Input.input) :=
       (ConfigurationForms.indexed (Common.items value))
  end.
 
-Definition local_editor parent label children : node Input.input :=
- Node (part parent "editor") "settings-local-editor" label Roles.Section Region children.
-
-Definition edit_toggle parent label accessible expanded (enabled : bool) input :=
- let id := part parent "edit-setting" in
- Node id "edit-setting" accessible Roles.Button
-   (PanelToggle expanded (Control "edit-setting" accessible Secondary (Input.ServiceInput input)
+(* The overview owns the saved values and the entry point. A focused editor
+   is a separate layer and returns to the same entry point when it closes. *)
+Definition setting_entry_parent path := part settings_root (Config.setting_key path).
+Definition edit_item_key name := part "edit" name.
+Definition editor_trigger path key := part (setting_entry_parent path) key.
+Definition editor_button path key caption label (enabled : bool) input : node Input.input :=
+ let id := editor_trigger path key in
+ Node id "edit-setting" label Roles.Button
+   (Activate (Control key label Secondary (Input.ServiceInput input)
      (if enabled then Available else Unavailable "Finish the current edit first")))
-   [information id "label" Information.OptionLabel label].
-
-(* Scalar values live in the overview. An editor opens only for a deliberate
-   editing task, inside the setting that owns the draft. This lets the reader
-   leave and resume a draft without making it a navigation category. *)
-Definition editable_setting parent key path label description enabled view summary fields :=
- let id := part parent key in
- let controls := part id "settings-controls" in
- match active_raw path view with
- | Some raw =>
-    row parent key label description
-      [edit_toggle controls "Done" ("Done editing " ++ label) true
-         (enabled && negb (Configuration.has_unsaved_work view)) Services.CancelConfigurationEdit]
-      [local_editor id label (fields (part id "editor") raw)]
- | None =>
-    row parent key label description
-      [edit_toggle controls (open_label path) (open_label path) false enabled (Services.SelectConfiguration path)]
-      summary
- end.
-
-Definition instructions parent services entry :=
- let path := Config.setting_path entry in
- let view := service_configuration services in
- let enabled := can_edit path services in
- let '(label, description) := copy path in
- editable_setting parent "instructions" path label description enabled view []
-   (fun editor raw =>
-    configuration_field editor "instructions-text" label true raw None enabled path ::
-    saved_actions editor entry raw view enabled true).
+   [information id "label" Information.OptionLabel caption].
 
 Definition form_setting parent services entry :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
- let view := service_configuration services in
- let enabled := can_edit path services in
  let saved := Config.setting_value entry in
  let '(label, description) := copy path in
  let description := match path, saved with
    | ["chatgpt"], JBool false => "ChatGPT account access is turned off."
    | _, _ => description end in
  let lines := summary_lines (part id "settings-values") path saved in
- editable_setting parent key path label description enabled view
-   (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end)
-   (fun editor raw =>
-    let source := value_or JNull (TextJson.parse_json raw) in
-    (ConfigurationForms.structured_form path editor saved source view enabled ++
-     saved_actions editor entry raw view enabled true)%list).
+ row parent key label description
+   [editor_button path "open" (open_label path) (open_label path)
+      (can_edit path services) (Services.SelectConfiguration path)]
+   (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
 
-(* The empty collection offers Add at its heading. With entries, the individual
-   actions belong to their rows. Add and restoring list defaults affect the
-   whole collection and follow its entries. *)
-Definition collection_setting parent services entry item seed :=
+(* Add belongs to the collection heading. Each saved item owns its own Edit
+   action. Draft edits and removals become visible here after a successful write. *)
+Definition collection_setting parent services entry item :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
  let list_id := part id "settings-entries" in
  let view := service_configuration services in
- let active := active_raw path view in
  let enabled := can_edit path services in
- let '(entries, selection, adding) :=
-   match active with
-   | Some _ => (Configuration.collection_entries view, Configuration.selected_item view, Configuration.new_item_name view)
-   | None => (child_items path (Config.setting_value entry), None, None)
-   end in
+ let entries := child_items path (Config.setting_value entry) in
  let '(label, description) := copy path in
- let can_pick := enabled && negb (Configuration.naming_item view) in
- let actions editor := match active, adding with
-   | Some raw, None => saved_actions editor entry raw view enabled false
-   | _, _ => [] end in
  let entry_row '(name, value) :=
-   let entry_key := part "entry" name in
-   let entry_id := part list_id entry_key in
-   let controls := part entry_id "settings-controls" in
-   let editing := match adding, selection with
-     | None, Some selected => String.eqb name selected
-     | _, _ => false end in
-   let detail := if editing then
-     let editor := part entry_id "editor" in
-     [local_editor entry_id name
-       (ConfigurationForms.item_form path editor item name value view enabled ++ actions editor)%list]
-     else [] in
-   row list_id entry_key name (item_detail path value)
-     (if editing then
-       [edit_toggle controls "Done" ("Done editing " ++ name) true
-         (enabled && negb (Configuration.has_unsaved_work view)) Services.CancelConfigurationEdit]
-      else [edit_toggle controls "Edit" ("Edit " ++ name) false can_pick (Services.SelectConfigurationItem path name)])
-     detail in
+   row list_id (part "entry" name) name (item_detail path value)
+     [editor_button path (edit_item_key name) "Edit" ("Edit " ++ name) enabled
+       (Services.SelectConfigurationItem path name)] [] in
  let entries_body := match entries with
    | [] => [] | _ => [named_region id "settings-entries" label (map entry_row entries)] end in
- let add_body := match adding with
-   | Some name => [ConfigurationForms.new_item_form id item seed name view enabled]
-   | None => [] end in
- let collection_actions := match selection with
-   | None => ((if Configuration.dirty view &&
-                 match active with Some _ => true | None => false end then
-                [note id "collection-draft" "Save to apply the change to this list."] else []) ++ actions id)%list
-   | Some _ => [] end in
- let add p := button p "begin-add" ("Add " ++ item) enabled
-                        (Services.BeginAddConfigurationItem path) in
  let footer := part id "settings-collection-actions" in
- let restore := match active with
-   | Some _ => if Configuration.dirty view then []
-               else reset_button footer entry enabled "Restore list defaults"
-   | None => []
-   end in
- let '(header_controls, footer_controls) :=
-   match entries, adding with
-   | _, Some _ => ([], [])
-   | [], None => ([add (part id "settings-controls")],
-       match restore with [] => [] | _ => [named_region id "settings-collection-actions" "" restore] end)
-   | _, None => ([], [named_region id "settings-collection-actions" "" (add footer :: restore)])
+ let actions := if is_resettable entry then
+   [button footer "restore-default" "Restore list defaults" enabled (Services.ResetConfigurationAt path)]
+   else [] in
+ let feedback := match active_raw path view, Configuration.writing view with
+   | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
+   | _, _ => []
    end in
  row parent key label description
-   header_controls (entries_body ++ add_body ++ collection_actions ++ footer_controls)%list.
+   [button (setting_entry_parent path) "begin-add" ("Add " ++ item) enabled
+       (Services.BeginAddConfigurationItem path)]
+   (entries_body ++ match (actions ++ feedback)%list with
+    | [] => [] | controls => [named_region id "settings-collection-actions" "" controls] end)%list.
 
 Definition normal_entry parent services entry :=
- match ConfigurationForms.collection_spec (Config.setting_path entry) with
- | Some (item, seed) => collection_setting parent services entry item seed
- | None => match Config.setting_input entry with
-     | Config.Structured => form_setting parent services entry
-     | _ => compact_setting parent services entry
-     end
+ match ConfigurationForms.collection_item (Config.setting_path entry) with
+ | Some item => collection_setting parent services entry item
+ | None => if Configuration.focused_editor entry then form_setting parent services entry
+           else compact_setting parent services entry
  end.
 
 Definition catalog_entries services :=
@@ -438,7 +356,7 @@ Definition overview root parent section services :=
  | SettingsGeneral =>
    (group "appearance" "" (fun p => [appearance p (Services.theme services)])
    ++ group "conversation" "Conversation defaults" (fun p =>
-      (map (instructions p services) (entries_for_paths services [["instructions"]])
+      (map (form_setting p services) (entries_for_paths services [["instructions"]])
       ++ [row p "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
           [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
              (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list))%list
@@ -505,7 +423,7 @@ Definition view s :=
  match Services.settings_return services with
  | None => []
  | Some trigger =>
-   let root := "/settings" in
+   let root := settings_root in
    let body := part root "body" in
    let section := Services.settings_section services in
    [Node root "settings" "Settings" Roles.Dialog
@@ -517,4 +435,87 @@ Definition view s :=
           title root "Settings";
           compact_navigation root section];
        dialog_body root (navigation body section ++ [content root body section services])]]
+ end.
+
+(* A form has one reading order: object, fields, outcome, then decision.
+   Only the field region scrolls. The saved overview stays in its own layer. *)
+Definition configuration_dialog generation id caption trigger fallback view
+  (fields : list (node Input.input)) primary : node Input.input :=
+ let dirty := Configuration.has_unsaved_work view in
+ let ready := negb (Configuration.pending view) in
+ Node id "settings-configuration-editor" caption Roles.Dialog
+   (LayerRegion (LayerBehavior ModalDialog false generation (part id "heading")
+     trigger fallback trigger (Input.ServiceInput Services.CancelConfigurationEdit)
+     false (ready && negb dirty)))
+   [dialog_header id [title id caption];
+    dialog_body id (fields ++ write_status id view)%list;
+    dialog_actions id [
+      button id "cancel" (if dirty then "Discard changes" else "Cancel") ready Services.CancelConfigurationEdit;
+      primary]].
+
+Definition configuration_save id entry raw view enabled :=
+ action id "save" "Save" Primary (save_enabled entry raw view enabled) Services.SetConfiguration.
+
+Definition collection_editor generation id entry draft view enabled item : list (node Input.input) :=
+ let path := Config.setting_path entry in
+ let raw := Configuration.draft_input draft in
+ let add := editor_trigger path "begin-add" in
+ let dialog caption trigger := configuration_dialog generation id caption trigger add view in
+ match Configuration.new_item view with
+ | Some (name, value) =>
+   [dialog ("New " ++ item) add
+     [ConfigurationForms.new_item_field id name enabled;
+      ConfigurationForms.item_fields path id value enabled]
+     (action id "add" ("Add " ++ item) Primary (enabled && Configuration.can_add_item view)
+       Services.SetConfiguration)]
+ | None => match Configuration.preferred_item (Configuration.form_editor_current view) with
+   | None => []
+   | Some name =>
+     let saved := child_items path (Config.setting_value entry) in
+     let trigger := match lookup name saved with
+       | Some _ => editor_trigger path (edit_item_key name) | None => add end in
+     match lookup name (Configuration.collection_entries view) with
+     | Some source => [dialog ("Edit " ++ name) trigger
+         (ConfigurationForms.item_form path id item name source enabled)
+         (configuration_save id entry raw view enabled)]
+     | None => [dialog ("Remove " ++ name ++ "?") trigger
+         [note id "description" ("This " ++ item ++ " will be removed from settings.")]
+         (action id "confirm-remove" ("Remove " ++ item) Destructive
+           (save_enabled entry raw view enabled) Services.SetConfiguration)]
+     end
+   end
+ end.
+
+Definition configuration_editor s : list (node Input.input) :=
+ let services := State.service_state s in
+ let view := service_configuration services in
+ match Services.settings_return services, Configuration.editing view with
+ | Some _, Some (_, draft, entry) =>
+   let path := Config.setting_path entry in
+   if same_section (section_for path) (Services.settings_section services) && Configuration.focused_editor entry then
+     let generation := State.generation (State.navigation_state s) in
+     let id := part (part settings_root "configuration-editor") (Config.setting_key path) in
+     let raw := Configuration.draft_input draft in
+     let enabled := can_edit path services in
+     match ConfigurationForms.collection_item path with
+     | Some item => collection_editor generation id entry draft view enabled item
+     | None =>
+       let trigger := editor_trigger path "open" in
+       let '(label, description) := copy path in
+       let fields := match path with
+         | ["instructions"] =>
+           [note id "description" description;
+            named_region id "settings-instructions-field" ""
+              [configuration_field id "instructions-text" label true raw None enabled path]]
+         | _ => ConfigurationForms.structured_form path id (Config.setting_value entry)
+                   (value_or JNull (TextJson.parse_json raw)) view enabled
+         end in
+       let restore := if Configuration.dirty view then []
+                      else reset_button id entry enabled "Restore default" in
+       [configuration_dialog generation id label trigger (part settings_root "close") view
+         (fields ++ restore)%list
+         (configuration_save id entry raw view enabled)]
+     end
+   else []
+ | _, _ => []
  end.

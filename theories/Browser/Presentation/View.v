@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser.Session Require Input Services.
 From Selvedge.Browser.Session Require State.
 From Selvedge.Browser.Scene Require Import Surface Model.
-From Selvedge.Browser.Presentation Require Import Navigation Pages Layers ServiceControls.
+From Selvedge.Browser.Presentation Require Import Navigation Pages Layers ServiceControls Settings.
 From Selvedge.Browser.Scene Require Import Construction.
 Import ListNotations.
 Open Scope string_scope.
@@ -62,7 +62,7 @@ Definition view (snapshot : json) (state : State.state) (capacity : Model.capaci
  (* An editor launched from Settings returns to its settings row. Keep the
     settings layer beneath it, and keep service-owned pickers above both. *)
  let overlays:=(Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
-   ServiceControls.settings state ++ render settings_editors ++
+   ServiceControls.settings state ++ Settings.configuration_editor state ++ render settings_editors ++
    ServiceControls.directory_view state ++ ServiceControls.preview_view state)%list in
  let '(base,overlays):=relocate_details_trigger state capacity base overlays in
  Surface.Surface "/workspace" "/main"base overlays(Services.theme(State.service_state state)).

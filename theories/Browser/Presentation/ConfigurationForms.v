@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
-From Selvedge.Adapters Require Common Configuration ProviderCatalog.
+From Selvedge.Adapters Require Common Configuration.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Session Require Import Input Services.
@@ -46,13 +46,6 @@ Definition optional_field parent key label source enabled parse commit :=
    (fun raw => commit (optional_member key (parse raw) source)).
 Definition select_field parent key label raw options enabled receive :=
  ModelProfiles.field parent key label false raw (Some options) enabled receive.
-Definition named_choice parent key selected (enabled : bool) action :=
- Node (part parent key) "collection-item" key Roles.Button
-   (Choice SingleChoice selected ""
-     (Control key key Secondary (Input.ServiceInput action)
-       (if enabled then Available else Unavailable "Finish saving before changing selection")))
-   [information (part parent key) "name" Information.OptionLabel key].
-
 Definition indexed {A} (values : list A) := combine (seq 0 (List.length values)) values.
 Definition index_label index := show_natural (N.of_nat (S index)).
 Definition replace_at {A} index (value : A) values :=
@@ -78,14 +71,13 @@ Definition list_member parent key label item empty source enabled parse commit :
  value_list parent key label item empty (Common.items (Common.get source key)) enabled parse
    (fun value => commit (set_member key value source)).
 
-Definition collection_spec path : option (string * json) :=
+Definition collection_item path : option string :=
  match path with
- | ["profiles"] => Some ("profile", JObject
-     [("provider", JString (ProviderCatalog.provider_name ProviderCatalog.Offline)); ("model", JString "echo")])
- | ["reasoning_evaluators"] => Some ("evaluator", JObject [])
- | ["mcp"] => Some ("server", JObject [("command", JString "")])
- | ["plugins"] => Some ("plugin", JObject [("command", JString "")])
- | ["chatgpt_plugin"] => Some ("connection", JObject [("token_env", JString ""); ("project_ids", JArray [])])
+ | ["profiles"] => Some "profile"
+ | ["reasoning_evaluators"] => Some "evaluator"
+ | ["mcp"] => Some "server"
+ | ["plugins"] => Some "plugin"
+ | ["chatgpt_plugin"] => Some "connection"
  | _ => None
  end.
 
@@ -116,47 +108,39 @@ Definition collection_item_fields path parent source enabled commit : list (node
     ++ [list_member parent "args" "Arguments" "argument" (JString "") source enabled JString commit])%list
  end.
 
-Definition new_item_form parent item seed name view enabled : node Input.input :=
- let id := part parent "new-item" in
- Node id "settings-local-editor" ("New " ++ item) Roles.Section Region
-   [group_title id ("New " ++ item);
-    ModelProfiles.field id "item-name" (item ++ " name") false name None enabled
-      Services.EditConfigurationItemName;
-    region id "item-actions" "" Roles.DialogActions
-      [button id "cancel-add" "Cancel" enabled Services.CancelAddConfigurationItem;
-       declared id Roles.Button (Control "add" "Add" Primary
-         (Input.ServiceInput (Services.AddConfigurationItem seed))
-         (if enabled && Draft.can_add_item view then Available else Unavailable "Enter a unique name"))]].
+Definition new_item_field parent name enabled : node Input.input :=
+ ModelProfiles.field parent "item-name" "Name" false name None enabled
+   Services.EditConfigurationItemName.
 
-Definition item_form path parent item name source view enabled : list (node Input.input) :=
+Definition item_fields path parent source enabled : node Input.input :=
  let fields := part parent "form-fields" in
- let current := value_or (JObject []) (Draft.parsed_draft view) in
- let commit value := assign path
-   (match Draft.collection_root path with
-    | Some (Some key) => set_member key (set_member name value (Common.get current key)) current
-    | _ => set_member name value current
-    end) in
- [region parent "form-fields" "" Roles.Section
+ region parent "form-fields" "" Roles.Section
    (match path with
-    | ["profiles"] => ModelProfiles.profile_fields fields enabled name source
-    | _ => collection_item_fields path fields source enabled commit
-    end);
+    | ["profiles"] => ModelProfiles.profile_fields fields enabled source
+    | _ => collection_item_fields path fields source enabled Services.EditConfigurationItemValue
+    end).
+Definition item_form path parent item name source enabled : list (node Input.input) :=
+ [item_fields path parent source enabled;
   button parent "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)].
 
-Definition account_form parent saved source view enabled : list (node Input.input) :=
+Definition account_form parent saved source view (enabled : bool) : list (node Input.input) :=
  let path := ["chatgpt"] in
  let active := match source with JBool false => false | _ => true end in
- let scope := part parent "account-access" in
- let choice key current value :=
-   named_choice scope key current enabled (assign path value) in
  let allow := match saved with JObject _ => saved | _ => JObject [] end in
- let mode := Node scope "account-access" "ChatGPT model access" Roles.Section ChoiceGroup
-   [choice "Allow account models" active (if active then source else allow);
-    choice "Disable account models" (negb active) (JBool false)] in
+ let scope := part parent "account-access" in
+ let key := "setting-switch" in
+ let label := "Allow account models" in
+ let mode := Node scope "settings-account-access" "" Roles.Section Region
+   [information scope "label" Information.FieldLabel label;
+    Node (part scope key) key label Roles.Button
+      (Choice ToggleChoice active ""
+        (Control key label Secondary
+          (Input.ServiceInput (assign path (if active then JBool false else allow)))
+          (if enabled then Available else Unavailable "Finish saving first"))) []] in
  let details := Draft.overrides_open view in
  let edit key label parse := optional_field parent key label source enabled parse (assign path) in
  ([mode] ++ if active then
-   [description parent "account-sign-in" "Sign in using the login command on the machine running Selvedge.";
+   [description parent "account-sign-in" "To connect your account, run the login command on the machine running Selvedge.";
     Node (part parent "connection-overrides") "connection-overrides" "Connection overrides" Roles.Button
       (PanelToggle details (Control "connection-overrides"
         (if details then "Hide connection overrides" else "Connection overrides") Secondary

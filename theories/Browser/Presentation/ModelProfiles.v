@@ -35,10 +35,10 @@ Definition field parent key label multiline raw choices enabled
 Definition wide_field parent (value : node Input.input) : node Input.input :=
  Node (part parent ("wide-" ++ semantic_key value)) "settings-wide-field" "" Roles.Section Region [value].
 
-Definition profile_fields parent enabled name profile : list (node Input.input) :=
+Definition profile_fields parent enabled profile : list (node Input.input) :=
  let edit key label choices :=
    field parent key label false (value_text (Common.get profile key)) choices enabled
-     (Services.EditModelProfileField name key) in
+     (Services.EditModelProfileField key) in
  let backend := ProviderCatalog.backend profile in
  (* DEFENSE: Profiles are loaded as a raw object and can name a provider outside the registry. *)
  let choices := match backend with
