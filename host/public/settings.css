@@ -267,10 +267,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings-entries"] [data-semantic-key="settings-copy"] {
   flex-basis: var(--settings-entry-measure) !important;
 }
-/* A short value and its label can share a row at a narrower measure than
-   the copy beside a longer action. All controls wrap below when that row no longer fits. */
+/* A short value or status shares a row at a narrower measure than the copy
+   beside a longer action. Controls wrap below when the row no longer fits. */
 [data-semantic-key="settings-row"]:has(
-  > [data-semantic-key="settings-controls"] > [data-semantic-key="setting-switch"],
+  > [data-semantic-key="settings-controls"] > :is(
+    [data-semantic-key="setting-switch"],
+    [data-semantic-key="service-connected"],
+    [data-semantic-key="service-connecting"]
+  ),
   > [data-semantic-key="settings-controls"] > * > :is(input[data-semantic-key="setting-number"], select)
 ) > [data-semantic-key="settings-copy"] {
   flex-basis: var(--settings-entry-measure) !important;
@@ -300,6 +304,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   align-items: center !important;
 }
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
+[data-semantic-key="settings-controls"]:has(> :is([data-semantic-key="service-connected"], [data-semantic-key="service-connecting"])) {
+  margin-inline-start: auto !important;
+}
 [data-semantic-key="settings-values"] {
   align-items: stretch !important;
 }
@@ -362,8 +369,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select {
   appearance: none !important;
-  padding-inline-end: 32px !important;
-  background: var(--settings-field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23878076' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 10px center / 14px no-repeat !important;
+  padding-inline-end: 2.45em !important;
+  background: var(--settings-field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23878076' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right .75em center / 1.08em no-repeat !important;
 }
 @supports (appearance: base-select) and selector(::picker(select)) {
   :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select {
@@ -371,35 +378,35 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
     display: flex !important;
     flex-flow: row nowrap !important;
     align-items: center !important;
-    gap: 8px !important;
-    padding-inline-end: 10px !important;
+    gap: .625em !important;
+    padding-inline-end: .75em !important;
     background: var(--settings-field) !important;
   }
   :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select::picker-icon {
     content: "";
     flex: none;
-    inline-size: 6px;
-    block-size: 6px;
-    margin: -3px 2px 0 auto;
+    inline-size: .46em;
+    block-size: .46em;
+    margin: -.23em .15em 0 auto;
     border: solid var(--settings-muted);
-    border-width: 0 1.4px 1.4px 0;
+    border-width: 0 .1em .1em 0;
     rotate: 45deg;
   }
   :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select::picker(select) {
     appearance: base-select;
-    margin-block: 4px;
-    max-block-size: min(300px, 55dvh);
-    padding: 4px;
+    margin-block: .3em;
+    max-block-size: min(18.75rem, 55dvh);
+    padding: .3em;
     border: 1px solid var(--settings-control-border);
-    border-radius: 9px;
+    border-radius: .7em;
     background: var(--settings-field);
     color: var(--selvedge-text);
     box-shadow: 0 5px 16px #201a1426;
   }
   :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select option {
-    min-block-size: 31px;
-    padding: 5px 8px;
-    border-radius: 5px;
+    min-block-size: 2.4em;
+    padding: .38em .62em;
+    border-radius: .38em;
     font: inherit;
   }
   :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select option:is(:checked, :hover, :focus) {
@@ -847,6 +854,12 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
     font-weight: 600 !important;
     min-block-size: 44px !important;
     padding-block: .25rem !important;
+  }
+  /* The header picker has a short, fixed list. Use the space below its
+     anchor so categories stay visible when the reader enlarges the text. */
+  [data-semantic-key="settings"] select[data-semantic-key="settings-section-picker"]::picker(select) {
+    box-sizing: border-box;
+    max-block-size: calc(100% - .6em);
   }
   [data-semantic-key="settings-content"] { padding: min(1rem, 3dvh) var(--settings-edge) 1.75rem !important; }
   /* The compact picker replaces the category name. Any introduction or
