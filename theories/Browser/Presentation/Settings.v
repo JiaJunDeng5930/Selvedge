@@ -39,7 +39,7 @@ Definition section_for path :=
 Definition copy path : string * string :=
  match path with
  | ["instructions"] => ("Instructions", "Standing guidance supplied to tasks by the local service.")
- | ["profiles"] => ("Model profiles", "Named configurations that tasks can use.")
+ | ["profiles"] => ("Model profiles", "Choose the providers and models available to tasks.")
  | ["chatgpt"] => ("ChatGPT model access", "Choose whether tasks can use models from your ChatGPT account.")
  | ["reasoning_evaluators"] => ("Reasoning evaluators", "Services that assess adaptive reasoning.")
  | ["mcp"] => ("MCP servers", "Connect tools and resources through Model Context Protocol.")
@@ -317,7 +317,11 @@ Definition entries_for_paths services paths :=
  end.
 
 Definition primary_collection section : option (list string) :=
- match section with SettingsTools => Some ["mcp"] | _ => None end.
+ match section with
+ | SettingsModels => Some ["profiles"]
+ | SettingsTools => Some ["mcp"]
+ | _ => None
+ end.
 
 Definition page_heading parent services section :=
  let label := section_label section in
