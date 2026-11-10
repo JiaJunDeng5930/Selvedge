@@ -25,16 +25,73 @@ Definition section_label section :=
  end.
 Definition same_section left right :=
  String.eqb (settings_section_name left) (settings_section_name right).
-Definition section_for path :=
- match path with
- | ["instructions"] => SettingsGeneral
- | ("profiles" | "chatgpt" | "reasoning_evaluators") :: _ => SettingsModels
- | ("mcp" | "chatgpt_plugin") :: _ => SettingsTools
- | ("plugins" | "skills") :: _ => SettingsExtensions
- | ("max_fork" | "max_descendants" | "cloud") :: _ => SettingsTasks
- | ("host" | "port" | "remote") :: _ => SettingsConnection
- | _ => SettingsContext
+Inductive settings_group_content :=
+| AppearanceSettings
+| ConversationSettings (instructions : list string)
+| LocalService
+| ConfigurationSettings (paths : list (list string))
+| ContextSources.
+
+Record settings_section_design := SectionDesign {
+ section_primary : option (string * list string);
+ section_groups : list (string * string * settings_group_content)
+}.
+
+(* The primary collection owns the page's introductory copy and Add action.
+   Its entries precede the secondary groups, which follow this reading order. *)
+Definition section_design section : settings_section_design :=
+ match section with
+ | SettingsGeneral => SectionDesign None
+   [("appearance", "", AppearanceSettings);
+    ("conversation", "Conversation defaults", ConversationSettings ["instructions"])]
+ | SettingsModels => SectionDesign (Some ("model-configurations", ["profiles"]))
+   [("model-services", "", ConfigurationSettings [["chatgpt"]; ["reasoning_evaluators"]])]
+ | SettingsTools => SectionDesign (Some ("tool-connections", ["mcp"]))
+   [("project-sharing", "", ConfigurationSettings [["chatgpt_plugin"]])]
+ | SettingsExtensions => SectionDesign None
+   [("tool-sources", "", ConfigurationSettings [["plugins"]; ["skills"]])]
+ | SettingsTasks => SectionDesign None
+   [("limits", "Task limits", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
+    ("workspaces", "", ConfigurationSettings [["cloud"]])]
+ | SettingsContext => SectionDesign None
+   [("compaction", "Context compaction",
+      ConfigurationSettings [["compaction"; "enabled"]; ["compaction"; "background_percent"];
+       ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]);
+    ("model-limits", "", ConfigurationSettings [["compaction"; "targets"]]);
+    ("sources", "Context sources", ContextSources)]
+ | SettingsConnection => SectionDesign None
+   [("connection", "", LocalService);
+    ("binding", "Listen on this device", ConfigurationSettings [["host"]; ["port"]]);
+    ("remote", "", ConfigurationSettings [["remote"]])]
  end.
+
+Definition configuration_groups section :=
+ let design := section_design section in
+ match section_primary design with
+ | Some (key, path) => (key, "", ConfigurationSettings [path]) :: section_groups design
+ | None => section_groups design
+ end.
+
+Definition primary_collection section := option_map snd (section_primary (section_design section)).
+
+Definition same_setting_root (left right : list string) :=
+ match left, right with
+ | root :: _, candidate :: _ => String.eqb root candidate
+ | _, _ => false
+ end.
+
+(* Configured families keep their descendants in the same section. The
+   conversation instructions are a single setting. Context owns unlisted paths. *)
+Definition declares_setting section path :=
+ existsb (fun '(_, _, content) =>
+   match content with
+   | ConversationSettings instructions => String.eqb (Config.setting_key instructions) (Config.setting_key path)
+   | ConfigurationSettings paths => existsb (same_setting_root path) paths
+   | _ => false
+   end) (configuration_groups section).
+
+Definition section_for path :=
+ value_or SettingsContext (find (fun section => declares_setting section path) settings_sections).
 
 Definition copy path : string * string :=
  match path with
@@ -317,13 +374,6 @@ Definition entries_for_paths services paths :=
  | None => []
  end.
 
-Definition primary_collection section : option (list string) :=
- match section with
- | SettingsModels => Some ["profiles"]
- | SettingsTools => Some ["mcp"]
- | _ => None
- end.
-
 Definition page_heading parent services section :=
  let label := section_label section in
  match primary_collection section with
@@ -333,40 +383,6 @@ Definition page_heading parent services section :=
      | _ :: _, Some item => [collection_add services path item] | _, _ => [] end in
    title_block parent label (snd (copy path)) controls
  end.
-
-Definition configuration_groups section : list (string * string * list (list string)) :=
- match section with
- | SettingsGeneral => []
- | SettingsModels =>
-   [("model-configurations", "", [["profiles"]]);
-    ("model-services", "", [["chatgpt"]; ["reasoning_evaluators"]])]
- | SettingsTools =>
-   [("tool-connections", "", [["mcp"]]); ("project-sharing", "", [["chatgpt_plugin"]])]
- | SettingsExtensions =>
-   [("tool-sources", "", [["plugins"]; ["skills"]])]
- | SettingsTasks =>
-   [("limits", "Task limits", [["max_fork"]; ["max_descendants"]]);
-    ("workspaces", "", [["cloud"]])]
- | SettingsContext =>
-   [("compaction", "Context compaction",
-      [["compaction"; "enabled"]; ["compaction"; "background_percent"];
-       ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]);
-    ("model-limits", "", [["compaction"; "targets"]])]
- | SettingsConnection =>
-   [("binding", "Listen on this device", [["host"]; ["port"]]);
-    ("remote", "", [["remote"]])]
- end.
-Definition section_entries services section : list (string * string * list Config.setting) :=
- let fixed := map (fun '(key, label, paths) => (key, label, entries_for_paths services paths))
-   (configuration_groups section) in
- (fixed ++ match section with
- | SettingsContext =>
-   let sources := filter (fun entry =>
-     let path := Config.setting_path entry in
-     match path with "compaction" :: _ => false | _ =>
-       same_section (section_for path) SettingsContext end) (catalog_entries services) in
-   [("sources", "Context sources", sources)]
- | _ => [] end)%list.
 
 Definition appearance_sample parent key : node Input.input :=
  let sample := part parent key in
@@ -420,22 +436,27 @@ Definition local_connection parent services :=
       [button id "connect" "Reconnect" true Services.Connect] []
  end.
 Definition overview root parent section services :=
- let group key label body := section_group parent key label (body (part parent key)) in
- let local := match section with
- | SettingsGeneral =>
-   (group "appearance" "" (fun p => [appearance p (Services.theme services)])
-   ++ group "conversation" "Conversation defaults" (fun p =>
-      (map (form_setting p services) (entries_for_paths services [["instructions"]])
-      ++ [row p "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
-          [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
-             (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list))%list
- | SettingsConnection =>
-   group "connection" "" (fun p => [local_connection p services])
- | _ => []
- end in
- (local ++ flat_map (fun '(key, label, entries) =>
-   group key label (fun p => map (normal_entry p services (primary_collection section)) entries))
-   (section_entries services section))%list.
+ let render_group '(key, label, content) :=
+   let id := part parent key in
+   let render_entries := map (normal_entry id services (primary_collection section)) in
+   let body :=
+     match content with
+     | AppearanceSettings => [appearance id (Services.theme services)]
+     | ConversationSettings instructions =>
+       (map (form_setting id services) (entries_for_paths services [instructions])
+       ++ [row id "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
+           [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
+              (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
+     | LocalService => [local_connection id services]
+     | ConfigurationSettings paths => render_entries (entries_for_paths services paths)
+     | ContextSources =>
+       let unlisted entry :=
+         let path := Config.setting_path entry in
+         same_section (section_for path) section && negb (declares_setting section path) in
+       render_entries (filter unlisted (catalog_entries services))
+     end in
+   section_group parent key label body in
+ flat_map render_group (configuration_groups section).
 
 Definition catalog_status parent services :=
  let load label := button parent "load-configuration" label (Services.connected services) Services.LoadConfiguration in
