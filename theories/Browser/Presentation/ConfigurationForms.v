@@ -25,6 +25,8 @@ Definition group semantic parent key label (body : list (node Input.input)) : no
  let id := part parent key in
  Node id semantic "" Roles.Section Region
    (if String.eqb label "" then body else group_title id label :: body).
+Definition field_row parent key (fields : string -> list (node Input.input)) : node Input.input :=
+ Node (part parent key) "settings-field-row" "" Roles.Section Region (fields (part parent key)).
 Definition assign path value := Services.EditConfigurationAt path (render_json value).
 Definition value_text value := ModelProfiles.value_text value.
 Definition set_member name value source :=
@@ -95,20 +97,23 @@ Definition collection_item path : option string :=
  end.
 
 Definition collection_item_fields path parent source view enabled commit : list (node Input.input) :=
- let text key label := optional_field parent key label source enabled empty_text commit in
- let number key label := optional_field parent key label source enabled optional_number commit in
+ let text panel key label := optional_field panel key label source enabled empty_text commit in
+ let number panel key label := optional_field panel key label source enabled optional_number commit in
  let wide := ModelProfiles.wide_field parent in
  match path with
  | ["reasoning_evaluators"] =>
    let providers := map (fun provider =>
      let name := Selvedge.Adapters.Configuration.evaluator_name provider in Fields.ChoiceValue name name)
      Selvedge.Adapters.Configuration.evaluator_providers in
-   [select_field parent "provider" "Provider"
-      (match Common.get source "provider" with JString name => name | _ => "vercel" end)
-      providers enabled (fun raw => commit (set_member "provider" (JString raw) source));
-    text "model" "Model override"; wide (text "endpoint" "Endpoint override");
-    text "api_key_env" "API key environment variable"; number "timeout_ms" "Timeout (ms)";
-    number "max_attempts" "Maximum attempts"]
+   [field_row parent "evaluator-model" (fun row =>
+      [select_field row "provider" "Provider"
+         (match Common.get source "provider" with JString name => name | _ => "vercel" end)
+         providers enabled (fun raw => commit (set_member "provider" (JString raw) source));
+       text row "model" "Model override"]);
+    wide (text parent "endpoint" "Endpoint override");
+    text parent "api_key_env" "API key environment variable";
+    field_row parent "evaluator-retries" (fun row =>
+      [number row "timeout_ms" "Timeout (ms)"; number row "max_attempts" "Maximum attempts"])]
  | ["chatgpt_plugin"] =>
    [text_field parent "token_env" "Token environment variable" source enabled commit;
     list_member parent "project_ids" "Allowed projects" "project ID" (JString "") source enabled
@@ -178,32 +183,42 @@ Definition relay_form parent source enabled : list (node Input.input) :=
   description parent "relay-help"
     "Enter the relay's HTTPS origin. Leave blank to remove the relay. Pair controllers with the remote command after restarting the service."].
 
-Definition cloud_form parent source view enabled : list (node Input.input) :=
+Definition cloud_form parent saved source view enabled : list (node Input.input) :=
  let path := ["cloud"] in
  let backend := "tencent_cvm" in
- match source with
- | JObject _ =>
-   let config := Common.get source backend in
-   let commit value := assign path (set_member backend value source) in
+ match saved, source with
+ | JObject _, JBool false =>
+   [description parent "cloud-removal" "Saving removes the Tencent Cloud workspace configuration."]
+ | _, _ =>
+   (* An empty form previews the fields without changing the draft. The
+      first field edit supplies the backend alongside the edited value. *)
+   let draft := match source with JObject _ => source | _ => JObject [("backend", JString backend)] end in
+   let config := Common.get draft backend in
+   let commit value := assign path (set_member backend value draft) in
    let label := CloudConfiguration.setting_label in
    let section key label fields :=
      group "settings-form-group" parent key label [region (part parent key) "form-fields" "" Roles.Section
        (fields (part (part parent key) "form-fields"))] in
    let fields panel names :=
      map (fun key => text_field panel key (label key) config enabled commit) names in
-   ([section "cloud-compute" "Compute" (fun panel => fields panel
-      ["region"; "zone"; "image_id"; "instance_type"; "spot_max_price"]);
+   ([description parent "cloud-credentials" "Tencent Cloud API credentials come from the local service environment.";
+     section "cloud-compute" "Compute" (fun panel =>
+       [field_row panel "placement" (fun row => fields row ["region"; "zone"]);
+        field_row panel "instance" (fun row => fields row ["image_id"; "instance_type"]);
+        text_field panel "spot_max_price" (label "spot_max_price") config enabled commit]);
     section "cloud-network" "Network" (fun panel =>
-      (fields panel ["vpc_id"; "subnet_id"]
-      ++ [list_member panel "security_group_ids" (label "security_group_ids") "security group ID" (JString "") config enabled JString commit])%list);
+      [field_row panel "network-ids" (fun row => fields row ["vpc_id"; "subnet_id"]);
+       list_member panel "security_group_ids" (label "security_group_ids") "security group ID" (JString "") config enabled JString commit]);
     section "cloud-ssh" "SSH" (fun panel =>
-      [text_field panel "key_id" (label "key_id") config enabled commit;
-       ModelProfiles.wide_field panel (text_field panel "ssh_private_key" (label "ssh_private_key") config enabled commit)])]
+      [field_row panel "authentication" (fun row =>
+        [text_field row "key_id" (label "key_id") config enabled commit;
+         ModelProfiles.wide_field row (text_field row "ssh_private_key" (label "ssh_private_key") config enabled commit)])])]
     ++ optional_details parent "cloud-options" "Connection options" view config
        ["ssh_user"; "ssh_port"; "address_type"; "api_endpoint"; "internet_max_bandwidth_out"; "startup_timeout_ms"]
        enabled (fun panel =>
-      [optional_field panel "ssh_user" (label "ssh_user") config enabled empty_text commit;
-       optional_field panel "ssh_port" (label "ssh_port") config enabled optional_number commit;
+      [field_row panel "ssh-connection" (fun row =>
+        [optional_field row "ssh_user" (label "ssh_user") config enabled empty_text commit;
+         optional_field row "ssh_port" (label "ssh_port") config enabled optional_number commit]);
        select_field panel "address_type" (label "address_type") (value_text (Common.get config "address_type"))
          [Fields.ChoiceValue "" "Default"; Fields.ChoiceValue "public" "Public"; Fields.ChoiceValue "private" "Private"]
          enabled (fun raw => commit (optional_member "address_type" (empty_text raw) config));
@@ -211,11 +226,9 @@ Definition cloud_form parent source view enabled : list (node Input.input) :=
          (optional_field panel "api_endpoint" (label "api_endpoint") config enabled empty_text commit);
        optional_field panel "internet_max_bandwidth_out" (label "internet_max_bandwidth_out") config enabled optional_number commit;
        optional_field panel "startup_timeout_ms" (label "startup_timeout_ms") config enabled optional_number commit])
-    ++ [button parent "remove-cloud" "Remove cloud configuration" enabled (assign path (JBool false))])%list
- | _ =>
-   [description parent "cloud-empty" "Add Tencent Cloud compute, network and SSH settings to provision workspaces. Credentials are supplied by the local service environment.";
-    button parent "configure-cloud" "Set up Tencent Cloud" enabled
-      (assign path (JObject [("backend", JString backend); (backend, JObject [])]))]
+    ++ match saved with
+       | JObject _ => [button parent "remove-cloud" "Remove cloud configuration" enabled (assign path (JBool false))]
+       | _ => [] end)%list
  end.
 
 Definition targets_form parent source enabled : list (node Input.input) :=
@@ -226,15 +239,17 @@ Definition targets_form parent source enabled : list (node Input.input) :=
    let panel := part parent key in
    let fields := part panel "form-fields" in
    let commit value := assign path (JArray (replace_at index value targets)) in
-   group "settings-form-group" parent key ("Target " ++ index_label index)
+   group "settings-form-record" parent key ("Target " ++ index_label index)
      [region panel "form-fields" "" Roles.Section
        [text_field fields "profile" "Profile name" target enabled commit;
-        optional_field fields "window_tokens" "Context window (tokens)" target enabled optional_number commit;
-        optional_field fields "output_reserve_tokens" "Output reserve (tokens)" target enabled optional_number commit;
-        optional_field fields "cache_ttl_ms" "Cache lifetime (ms)" target enabled optional_number commit;
-        select_field fields "method" "Method" (value_text (Common.get target "method"))
-          [Fields.ChoiceValue "" "Default"; Fields.ChoiceValue "auto" "Automatic"; Fields.ChoiceValue "summary" "Summary"]
-          enabled (fun raw => commit (optional_member "method" (empty_text raw) target))];
+        field_row fields "token-budget" (fun row =>
+          [optional_field row "window_tokens" "Context window (tokens)" target enabled optional_number commit;
+           optional_field row "output_reserve_tokens" "Output reserve (tokens)" target enabled optional_number commit]);
+        field_row fields "compaction-policy" (fun row =>
+          [optional_field row "cache_ttl_ms" "Cache lifetime (ms)" target enabled optional_number commit;
+           select_field row "method" "Method" (value_text (Common.get target "method"))
+             [Fields.ChoiceValue "" "Default"; Fields.ChoiceValue "auto" "Automatic"; Fields.ChoiceValue "summary" "Summary"]
+             enabled (fun raw => commit (optional_member "method" (empty_text raw) target))])];
       button panel "remove-value" ("Remove target " ++ index_label index) enabled
         (assign path (JArray (remove_at index targets)))]) (indexed targets)
   ++ [button parent "add-value" "Add target" enabled
@@ -244,7 +259,7 @@ Definition structured_form path parent saved source view enabled : list (node In
  match path with
  | ["chatgpt"] => account_form parent saved source view enabled
  | ["remote"] => relay_form parent source enabled
- | ["cloud"] => cloud_form parent source view enabled
+ | ["cloud"] => cloud_form parent saved source view enabled
  | ["compaction"; "targets"] => targets_form parent source enabled
  | _ => [value_list parent "paths" "Files and directories" "path" (JString "")
            (Common.items source) enabled JString (assign path)]

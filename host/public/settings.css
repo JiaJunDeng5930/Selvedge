@@ -609,13 +609,17 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   content: "+";
   margin-inline-end: .125rem;
 }
-[data-semantic-key="settings-form-group"] {
+:is([data-semantic-key="settings-form-group"], [data-semantic-key="settings-form-record"]) {
   padding: 0 !important;
   gap: .625rem !important;
 }
-[data-semantic-key="settings-form-group"] + [data-semantic-key="settings-form-group"] {
+[data-semantic-key="settings-form-group"] + [data-semantic-key="settings-form-group"],
+[data-semantic-key="settings-form-record"] + [data-semantic-key="settings-form-record"] {
   margin-block-start: .375rem !important;
   padding-block-start: .875rem !important;
+}
+/* Repeated records keep their boundary when the same field labels recur. */
+[data-semantic-key="settings-form-record"] + [data-semantic-key="settings-form-record"] {
   border-block-start: 1px solid var(--settings-rule) !important;
 }
 [data-semantic-key="settings-value-list"] {
@@ -637,20 +641,25 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 /* A path needs reading width. The duration shares its line only when both
    fields can keep their usable width. */
-[data-semantic-key="settings-execution-fields"] {
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) {
   display: flex !important;
   flex-flow: row wrap !important;
   align-items: end !important;
   gap: .75rem !important;
   padding: 0 !important;
 }
-[data-semantic-key="settings-execution-fields"] > [data-semantic-key="settings-wide-field"] {
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) > * {
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+}
+[data-semantic-key="settings-field-row"] > * {
+  flex: 1 1 var(--settings-entry-measure) !important;
+}
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) > [data-semantic-key="settings-wide-field"] {
   flex: 1 1 var(--settings-copy-measure) !important;
 }
 [data-semantic-key="settings-execution-fields"] > :not([data-semantic-key="settings-wide-field"]) {
   flex: 0 1 var(--settings-number-width) !important;
-  min-inline-size: 0 !important;
-  max-inline-size: 100% !important;
 }
 [data-semantic-key="settings-value-row"] {
   display: grid !important;
