@@ -249,6 +249,11 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   line-height: 1.2 !important;
   letter-spacing: -.025em;
 }
+/* In a compact header the category picker supplies the title. Its
+   introduction still needs a full reading line before sharing with Add. */
+[data-semantic-key="settings-title"] [data-semantic-key="settings-copy"]:has(> [data-semantic-key="description"]) {
+  flex-basis: max-content !important;
+}
 :is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="description"],
 [data-semantic-key="settings-configuration-editor"] [data-semantic-key="description"],
 [data-semantic-key="settings-values"] > [data-semantic-key] {
@@ -372,6 +377,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-entries"] [data-semantic-key="settings-controls"] {
   justify-self: end;
+}
+/* A saved object's name identifies its row. Keep the rest of the collection
+   visible even when that name is long; the editor exposes the full name. */
+[data-semantic-key="settings-entries"] [data-semantic-key="setting-name"] {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 [data-semantic-key="settings-collection"] {
   align-items: stretch !important;
@@ -1128,8 +1141,8 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   white-space: normal !important;
 }
 /* Object operations and the decision share a footer. If they cannot share
-   a line, move the decision pair together to the next line. The decisions
-   can wrap within that line if the editor is narrower than their labels. */
+   a line, move the decision pair together to the next line. Let the captions
+   wrap inside their buttons when the pair itself needs to fit a narrow form. */
 [data-semantic-key="settings-editor-actions"] {
   flex-flow: row wrap !important;
   align-items: center !important;
@@ -1140,8 +1153,9 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   padding-inline: 0 !important;
 }
 [data-semantic-key="settings-editor-decisions"] {
-  flex-flow: row wrap !important;
-  justify-content: flex-end !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  flex: 0 0 auto !important;
   margin-inline-start: auto !important;
   inline-size: fit-content !important;
   max-inline-size: 100% !important;
@@ -1149,7 +1163,6 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   padding: 0 !important;
 }
 [data-semantic-key="settings-editor-decisions"] > button {
-  flex: 0 1 auto !important;
   min-inline-size: min(5em, 100%) !important;
   max-inline-size: 100% !important;
   white-space: normal !important;

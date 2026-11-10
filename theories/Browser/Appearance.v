@@ -22,6 +22,7 @@ Definition symbols : list symbol := [
   Symbol "globe" "M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667" Outline;
   Symbol "globe-off" "M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667 M3 3L17 17" Outline;
   Symbol "chevron-right" "M7.5 4.5 L13 10 L7.5 15.5" Outline;
+  Symbol "chevron-left" "M12.5 4.5 L7 10 L12.5 15.5" Outline;
   Symbol "chevron-down" "M4.5 7.5 L10 13 L15.5 7.5" Outline;
   Symbol "stop-square" "M6 5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" Outline;
   Symbol "pause-bars" "M7 5v10M13 5v10" Outline;

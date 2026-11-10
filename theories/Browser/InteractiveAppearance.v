@@ -37,16 +37,24 @@ Definition component_properties env (value : Presentation.component) : list (str
  | Expand.FieldLink _ _ | Expand.ActionLink _ _ =>
      [("padding","0"); ("border-width","0"); ("background","transparent"); ("min-block-size","0")]
  | _ => [] end).
-Definition npx value := String.append (Numbers.show_natural value) "px".
-Definition zpx value := String.append (Numbers.show_integer value) "px".
+Definition graph_distance scale value :=
+ match scale with
+ | Presentation.FixedPixels => String.append (Numbers.show_integer value) "px"
+ | Presentation.RootFontScale =>
+     String.concat "" ["calc(";Numbers.show_integer value;" * .0625rem)"]
+ end.
 Definition placement_properties (env : Layout.environment) (value : Presentation.placement) : list (string * string) :=
  match value with
  | Presentation.ChartViewport => [("position","relative");("inline-size","100%");("block-size","240px");("overflow-x","auto");("overflow-y","hidden")]
  | Presentation.GraphViewport => [("position","relative"); ("inline-size","100%"); ("block-size","420px"); ("overflow","auto")]
- | Presentation.GraphCanvas width height => [("position","relative"); ("inline-size",npx width); ("block-size",npx height); ("flex","none")]
+ | Presentation.GraphCanvas scale width height =>
+     let distance := graph_distance scale in
+     [("position","relative"); ("inline-size",distance (Z.of_N width)); ("block-size",distance (Z.of_N height)); ("flex","none")]
  | Presentation.GraphEdges => [("position","absolute"); ("inset","0"); ("pointer-events","none")]
- | Presentation.GraphNode x y width height selected => Appearance.role_properties env Roles.Card ++
-     [("position","absolute"); ("inset-inline-start",zpx x); ("inset-block-start",zpx y);
-      ("inline-size",npx width); ("block-size",npx height); ("overflow-y","auto"); ("overflow-x","hidden");
+ | Presentation.GraphNode scale x y width height selected =>
+     let distance := graph_distance scale in
+     Appearance.role_properties env Roles.Card ++
+     [("position","absolute"); ("inset-inline-start",distance x); ("inset-block-start",distance y);
+      ("inline-size",distance (Z.of_N width)); ("block-size",distance (Z.of_N height)); ("overflow-y","auto"); ("overflow-x","hidden");
       ("border-color",if selected then Appearance.focus_color else Appearance.border_color)]
  end.

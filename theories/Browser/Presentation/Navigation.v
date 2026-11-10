@@ -69,17 +69,22 @@ Definition project_entry snapshot s current parent tasks (project:project) :=
      declared key Roles.Button(secondary "create" "New task"(Input.BeginTask(Some id)));
      declared key Roles.Button(secondary "more" "Project actions"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
    if expanded then map(task_entry_tree current (State.collapsed_tasks s) key)(forest(project_tasks(Some id)tasks)) else []).
-Definition work_destinations s :=
+Definition rename_work s :=
+ match State.active_work(State.navigation_state s)with
+ |None=>[]
+ |Some work=>[declared "/navigation" Roles.Button
+   (secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]
+ end.
+Definition work_destinations s controls :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
  region "/navigation" "work-destinations" "Work destinations" Roles.NavigationSection
   (destination_node current "/global-navigation" graph_destination::
-   match State.active_work navigation with None=>[]|Some work=>
+   List.app (match State.active_work navigation with None=>[]|Some work=>
     [declared "/navigation"(Roles.NavigationEntry(match current with SharedUI selected _=>N.eqb selected work|_=>false end))
       (secondary "work/shared-ui" "共享 UI"(Input.Navigate(SharedUI work
-        (match current with SharedUI _ task=>task|_=>None end))));
-     declared "/navigation" Roles.Button(secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]
-   end).
+        (match current with SharedUI _ task=>task|_=>None end))))]
+   end) controls).
 Definition task_collection snapshot s :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
@@ -102,8 +107,8 @@ Definition task_collection snapshot s :=
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   [region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   [title(part "/navigation" "header") "Task tree"];
-   work_destinations s;
+   (title(part "/navigation" "header") "Task tree"::rename_work s);
+   work_destinations s [];
    task_collection snapshot s].
 Definition desktop_task_navigation snapshot s :=
  let '(home_key,home_label,home_route):=home_destination in
@@ -114,7 +119,7 @@ Definition desktop_task_navigation snapshot s :=
      declared(part "/navigation" "header") Roles.Button
       (secondary "toggle" "Collapse Task sidebar"(Input.TaskListVisible false))];
    work_picker snapshot s "/work-tabs" "work/overview";
-   work_destinations s;
+   work_destinations s (rename_work s);
    task_collection snapshot s;
    global_navigation s].
 Definition work_summary snapshot selected :=

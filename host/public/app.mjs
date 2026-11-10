@@ -288,7 +288,11 @@ function render() {
       // Keep the same DOM and finish the native work that was waiting for publication.
       surface.dataset.displayPending = String(publicationEvent('pending'));
       synchronizeNativeAuthority();
-      if (publicationEvent('ready')) renderer.refreshNativeTargets();
+      if (publicationEvent('ready')) {
+        renderer.refreshNativeTargets();
+        // The published dialog is no longer inert, so its selected row can be revealed.
+        reveal();
+      }
       retryHistoryLocation(); retryFocus();
     }).catch(fatal);
   }

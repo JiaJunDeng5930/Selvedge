@@ -161,7 +161,8 @@ Definition graph_task_card snapshot parent placed :=
   let task := Read.node_task entry in
   let key := part parent (String.append "node/" (Read.node_key entry)) in
   let label := String.concat "" [Read.node_key entry; " · Task #"; show_natural task] in
-  let placement := Presentation.GraphNode (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
+  let placement := Presentation.GraphNode Presentation.RootFontScale
+    (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
     (Z.to_N TaskGraphCanvas.node_width) (Z.to_N TaskGraphCanvas.node_height) false in
   Node key "task-graph/node" label Roles.Section (InteractivePlacement placement)
     (match find_task task snapshot with
@@ -189,7 +190,7 @@ Definition graph_canvas snapshot parent graph :=
   graph_placement parent "task-graph/viewport" "Task graph canvas" Roles.Section
     Presentation.GraphViewport
     [graph_placement viewport "task-graph/canvas" "" Roles.Content
-      (Presentation.GraphCanvas (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
+      (Presentation.GraphCanvas Presentation.RootFontScale (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
       (graph_placement canvas "edges" "" Roles.Content Presentation.GraphEdges
         [Node (part edges "drawing") "task-graph/edges" "" Roles.Content (Graphic drawing) []] ::
         map (graph_task_card snapshot canvas) (TaskGraphCanvas.nodes layout))].

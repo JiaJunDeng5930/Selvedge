@@ -17,9 +17,15 @@
   --panel-background: var(--selvedge-surface);
   background: var(--panel-background) !important;
 
-  &:is(dialog):has(> [data-surface-role="dialog-body"]) { padding: 0 !important; }
+  &:is(dialog):has(> :is([data-surface-role="dialog-body"], form[data-semantic-key="editor"])) {
+    padding: 0 !important;
+  }
+  /* A form exposes focus on the field or action receiving it. Its layout
+     wrapper must not draw a second ring across the dialog header. */
+  & > form[data-semantic-key="editor"]:focus-within { outline: none; }
 
-  & > :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
+  :is(&, & > form[data-semantic-key="editor"]) >
+    :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
     padding-inline: var(--panel-inset) !important;
   }
   & > [data-surface-role="dialog-header"] {
@@ -38,16 +44,16 @@
     overflow-wrap: anywhere;
     scrollbar-width: thin;
   }
-  & > [data-surface-role="dialog-header"] > h2[tabindex="-1"] { outline: none; }
+  & > [data-surface-role="dialog-header"] > h2[tabindex="-1"] { outline: none !important; }
   & > [data-surface-role="dialog-header"] > button { flex: none !important; }
-  & > [data-surface-role="dialog-body"] {
+  :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] {
     flex: 1 1 auto !important;
     min-block-size: 0 !important;
     padding-block: var(--panel-related-space) var(--panel-inset) !important;
     overflow: hidden auto !important;
     overscroll-behavior: contain;
   }
-  & > [data-surface-role="dialog-actions"] {
+  :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-actions"] {
     display: flex !important;
     flex-flow: row wrap !important;
     justify-content: flex-end !important;
@@ -55,7 +61,7 @@
     gap: var(--panel-related-space) !important;
     padding-block: var(--panel-related-space) !important;
   }
-  & > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
+  :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
   }
   & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
@@ -125,6 +131,14 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
 dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-source"], [data-semantic-key="workspace-settings"])::backdrop {
   background: transparent;
 }
+dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !important; }
+[data-semantic-key="object-actions"] > [role="menu"] > h2 {
+  /* The dialog has an accessible name. The first visible row is an action. */
+  position: absolute;
+  inline-size: 1px !important;
+  block-size: 1px !important;
+  clip-path: inset(50%);
+}
 [data-semantic-key="workspace-member"] {
   display: flex !important;
   flex-flow: row wrap !important;
@@ -167,6 +181,17 @@ dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-sou
     overflow-wrap: anywhere;
   }
   & h2[tabindex="-1"] { outline: none; }
+}
+/* The source pane has one column of short explanations. Include the
+   enclosure inset in the pane, outside that column's reading measure. */
+dialog[data-semantic-key="property-source"] {
+  --source-reading-measure: 42ch;
+  padding: var(--layer-gap) !important;
+  max-inline-size: min(100%, calc(var(--source-reading-measure) + 2 * var(--layer-gap))) !important;
+}
+[data-semantic-key="property-source"] [data-semantic-key="configuration-source"] {
+  max-inline-size: min(100%, var(--source-reading-measure)) !important;
+  overflow-wrap: anywhere;
 }
 
 [data-semantic-key="board-filters"] [data-semantic-key^="filter/"] {

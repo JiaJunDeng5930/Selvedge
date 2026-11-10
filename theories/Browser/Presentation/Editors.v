@@ -171,7 +171,9 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let attachments:=match ServiceControls.file_items e parent s with
+ let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
+   (ServiceControls.file_items e parent s) in
+ let attachments:=match List.app failed files with
   |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
  let tools:=composer_tools snapshot s e parent in
  let tools:=match e with
@@ -189,7 +191,6 @@ Definition composer_view snapshot (s:Session.state) e parent :=
 Definition execution_section :=("Execution context",Parameters.context_fields).
 Definition model_section :=("Model",Parameters.model_fields).
 Definition editor_sections e :=match e with
-|WorkName _=>[("Work",[Fields.WorkName])]
 |NewTask _=>[("Message",[Fields.MessageText]);model_section;execution_section;("Workspace",[Fields.TaskEnvironment])]
 |Message _=>[("Message",[Fields.MessageText;Fields.DeliveryIntent]);model_section;
  ("Permissions",[Fields.SandboxMode;Fields.NetworkAccess;Fields.ApprovalPolicy;Fields.ApprovalReviewer])]
@@ -201,12 +202,13 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|TitlePrompts=>[]end.
+|WorkName _|TitlePrompts=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
 Definition section_nodes snapshot s e parent :=
  match e with
+ |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts=>field_nodes snapshot s e parent
    [Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt]
  |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
@@ -234,7 +236,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      ((match e with TitlePrompts=>[declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)]
-         |_=>[]end) ++
+      ([declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]])%list])].

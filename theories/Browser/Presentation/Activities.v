@@ -35,8 +35,12 @@ Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.deci
   ([information key "label" Information.OptionLabel label]++
    (if String.eqb label(UX.alternative_explanation alternative)then[]else
     [information key "description" Information.Description(UX.alternative_explanation alternative)])++
-   map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
-    (UX.readable_text(UX.summary_observation consequence)))(UX.alternative_consequences alternative))].
+   (match UX.alternative_consequences alternative with
+    |[]=>[]
+    |consequences=>[region key "choice-consequences" "" Roles.Content
+      (map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
+        (UX.readable_text(UX.summary_observation consequence)))consequences)]
+    end))].
 Definition alternative_search_key {e}(subject:UX.subject e)(value:denote(UX.subject_kind subject)) :=
  let encoded:=Schema.encode_value(UX.subject_kind subject)value in
  match UX.subject_declaration subject,encoded with
@@ -185,13 +189,16 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
    match view with
    |Act.InspectionView None=>[Node key "supporting-value" ""Roles.Section(ActivityRow SupportingRow)
-     ([read_only key "scope" "Scope"(match e with Identity.Project _=>"Applies to future tasks; existing working directories and explicit overrides are unchanged"|_=>editor_key e end);
-      declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
+     ((match e with Identity.Project _=>
+        [read_only key "scope" "Scope" "Applies to future tasks; existing working directories and explicit overrides are unchanged"]
+       |_=>[]end)++
+      [declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
       match UX.property_kind_of property with
       |UX.PermissionsProperty=>inherited_permission_controls s e key|_=>[]end)]
-   |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
+   |Act.CompoundView=>match e with Identity.Project None=>[]|_=>
+     [Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
      (Composer.property_information key property++[declared key Roles.Button
-       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]) ]
+       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))])]end
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
  |Observation.CompoundContent,Act.AssessedAction action outcome=>

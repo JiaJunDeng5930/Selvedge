@@ -1,4 +1,9 @@
 /* Keep one reading hierarchy in the main timeline and its side occurrence. */
+:is([data-view^="main-task/"], [data-view^="side-task/"]) {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+}
+[data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
 [data-reading-root] { gap: .75rem !important; }
 [data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
 [data-reading-root] [data-activity-summary] { color: var(--selvedge-muted); }
@@ -49,6 +54,23 @@
 [data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) > * {
   inline-size: auto !important;
 }
+[data-reading-root] [data-semantic-key="unfinished-notice"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .2rem .6rem !important;
+}
+[data-reading-root] [data-semantic-key="unfinished-notice"] > span {
+  flex: 1 1 18ch !important;
+  inline-size: auto !important;
+}
+:is([data-workspace-heading] [data-semantic-key="task-actions"], [data-semantic-key="side/actions"]) > button > svg {
+  inline-size: 1em !important;
+  block-size: 1em !important;
+}
+:is([data-workspace-heading], [data-semantic-key="side/actions"]) [data-semantic-key="more"] > svg > path {
+  stroke-width: 2.5;
+}
 [data-page-region="conversation-title"] > [data-semantic-key="heading"] {
   min-inline-size: 0 !important;
   overflow: hidden;
@@ -77,6 +99,7 @@
   background: color-mix(in srgb, var(--selvedge-surface) 94%, var(--selvedge-warning)) !important;
 }
 [data-semantic-key="approval-heading"], [data-semantic-key="approval-actions"] {
+  flex: none !important;
   flex-flow: row wrap !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -87,11 +110,15 @@
   flex: 1 1 auto !important;
   inline-size: auto !important;
 }
-[data-semantic-key="approval-status"] { color: var(--selvedge-warning) !important; }
+[data-semantic-key="approval-status"] {
+  inline-size: auto !important;
+  color: var(--selvedge-warning) !important;
+}
 [data-semantic-key="approval-details"] {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: .35rem .65rem !important;
+  min-block-size: 0 !important;
   max-block-size: min(22dvh, 10rem);
   overflow: auto;
   overscroll-behavior: contain;
@@ -120,6 +147,27 @@
 :is([data-view^="main-task/"], [data-view^="side-task/"]) [data-composer-dock]:has(> textarea:focus-visible) {
   border-color: var(--selvedge-focus) !important;
 }
+[data-view] [data-voice-controls-body] { border: 1px solid var(--selvedge-border) !important; }
+/* A row of short controls can stay together at the normal reading size.
+   When the same available width represents fewer characters, wrap controls
+   together instead of reducing their visible captions to single letters. */
+@container composer (inline-size < 14em) {
+  [data-view] [data-semantic-key="composer/tools"] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+  [data-view] [data-semantic-key="composer/tools"] > :is([data-semantic-key="composer/permissions"], :not(button)) {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  [data-view] [data-semantic-key="composer/tools"] > [data-semantic-key="composer/model"] {
+    grid-column: 1;
+    min-inline-size: 0 !important;
+  }
+  [data-view] [data-semantic-key="composer/tools"] > [data-semantic-key="composer/delivery"] {
+    grid-column: 2;
+  }
+}
 [data-composer-dock] [data-semantic-key="attachments"] > [data-semantic-key^="upload/"] {
   display: flex !important;
   flex: none !important;
@@ -142,4 +190,41 @@
 [data-composer-dock] [data-semantic-key^="upload-error/"] > [data-semantic-key="label"],
 [data-composer-dock] > [data-semantic-key="submission-feedback"] {
   color: var(--selvedge-danger) !important;
+}
+
+[data-semantic-key="task-details"][data-workspace-side] {
+  block-size: 100% !important;
+  min-block-size: 0 !important;
+  overflow: hidden !important;
+}
+[data-semantic-key="task-details"] > [data-surface-role="dialog-header"] > [data-semantic-key="details"] {
+  justify-content: center !important;
+  padding-inline: .35rem !important;
+}
+[data-semantic-key="task-details"] > [data-surface-role="dialog-header"] > [data-semantic-key="details"] > span {
+  display: none;
+}
+[data-semantic-key="task-details"] > [data-surface-role="dialog-body"] {
+  gap: .55lh !important;
+}
+[data-semantic-key="task-details"] > [data-surface-role="dialog-body"] [data-semantic-key="label"] {
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="side/heading"] > h2[tabindex="-1"] { outline: none; }
+dialog[data-semantic-key="object-actions"]:has(button[data-semantic-key="fork"]) [data-surface-role="dialog-body"] {
+  gap: .2rem !important;
+  padding: .45rem !important;
+}
+dialog[data-semantic-key="object-actions"]:has(button[data-semantic-key="fork"]) [data-surface-role="dialog-body"] > button {
+  inline-size: 100% !important;
+}
+/* A portrait attachment should fit between the header and download action
+   even when the preview is opened in a short window. */
+[data-semantic-key="file-preview"] > [data-surface-role="dialog-body"]:has(> img) {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr);
+}
+[data-semantic-key="file-preview"] img[data-semantic-key="preview-image"] {
+  max-block-size: 100% !important;
+  justify-self: center;
 }

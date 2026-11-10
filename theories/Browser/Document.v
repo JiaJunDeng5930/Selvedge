@@ -136,7 +136,9 @@ Definition choices parent selected values := map (fun value => DOM.Element
  [] [] empty [DOM.Text (Fields.choice_label value)]) values.
 Definition descriptions {A}(children:list(S.node A)) := String.concat " "
  (map S.node_key (filter(fun child=>match S.node_meaning child with
- |S.InformationText Information.FieldValue|S.InformationText Information.Description=>true|_=>false end)children)).
+ |S.InformationText Information.FieldValue|S.InformationText Information.Description=>true
+ |S.Region=>String.eqb(S.semantic_key child)"choice-consequences"
+ |_=>false end)children)).
 Definition fact_content {A} (values:list(S.node A)) :=
  match values with
  |[value]=>match S.node_meaning value with S.ReadOnly _|S.Fact _=>true|_=>false end
@@ -308,6 +310,7 @@ Definition purpose_icon purpose := let purpose:=C.action_purpose purpose in matc
  |C.ForkTask=>Some "branch"|C.CompactTask=>Some "compact"
  |C.MoreActions _=>Some "more-dots"|C.WorkspacePicker _=>Some "folder"
  |C.Dismiss|C.AbortOperation=>Some "close-cross"
+ |C.ActivityBack=>Some "chevron-left"
  |C.StopExecution|C.InterruptExecution=>Some "stop-square"|C.PauseExecution=>Some "pause-bars"
  |C.ResumeExecution=>Some "play-triangle"|C.ApprovalDecision true=>Some "check"
  |C.ApprovalDecision false|C.RemoveValue=>Some "close-cross"|C.DeleteItem=>Some "trash"
@@ -324,7 +327,7 @@ Definition icon_only purpose area := let purpose:=C.action_purpose purpose in ma
  |C.Dismiss,DialogActionsArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
  |C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
- |C.ShowActivity _,_
+ |C.ActivityBack,_|C.ShowActivity _,_
  |C.ProjectTaskCreation,NavigationArea|C.ProjectTaskCreation,TouchNavigationArea|C.CreateItem,BoardLaneArea
  |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.ApplicationSettings _,_|C.GlobalDestinations _,_|C.OpenPanel "filter-funnel" _ _,_
  |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
@@ -1047,7 +1050,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
  let marker:=if existsb(fun child=>match S.node_meaning child with S.PanelToggle _ _=>true|_=>false end)(S.node_children value)
    then [] else [DOM.Element (key++"/marker")%string "span" [("data-task-marker","");("aria-hidden","true")] [] [] empty []] in
- let row:=DOM.Element (key++"/row")%string "div" [("data-task-tree-row","")]
+ let row:=DOM.Element (key++"/row")%string "div"
+   [("data-task-tree-row","");("data-reveal-on-layout",flag selected)]
    [("display","flex");("align-items","center");("min-inline-size","0")] [] empty
    (marker++map snd(filter(fun pair=>negb(nested pair))paired)) in
  element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
@@ -1070,7 +1074,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      [DOM.Element (key++"/summary")%string "summary" [("aria-label","Voice");("title","Voice")] [] [] empty (artwork "microphone");
       DOM.Element (key++"/controls")%string "div" [("data-voice-controls-body","")]
        (styles++[("flex-wrap","wrap");("block-size","auto")]) [] empty children]
-  else element (role_tag role) [] [] empty children
+  else element (if String.eqb(S.semantic_key value)"choice-consequences" then "span" else role_tag role)
+   [] [] empty children
  |S.ActivityRow _|S.WorkspaceMember _ _ _
  |S.ActionExplanation _ _|S.ProjectChooser _|S.DirectoryRow _ _
  |S.ContextSummary _=>element (role_tag role) [] [] empty children

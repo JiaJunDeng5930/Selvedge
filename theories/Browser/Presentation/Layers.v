@@ -150,7 +150,8 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
    (Input.ServiceInput(Services.OpenPreview file(part parent("preview/"++asset_id file))))))(Read.card_attachments card)++
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with
   |Some entry=>[Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]|None=>[]end)++
- detail_action_nodes snapshot s(CardActions id)parent)%list end.
+ [region parent "card-detail-actions" "Card actions" Roles.Toolbar
+   (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
 Definition board_settings snapshot s parent :=match Read.board_configuration snapshot with
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
 |Some board=>let automatic:=Read.board_automatic board in
@@ -184,7 +185,6 @@ Definition board_filters snapshot s parent :=
     (Choice MultipleChoice(existsb(String.eqb value)(BoardFilter.filter_values(State.board_selection s)category))""
      (secondary("filter/"++name++"/"++value)label(Input.BoardToggle name value)))[])(filter_choices snapshot category)))BoardFilter.categories.
 Definition panel_kind capacity panel :=match panel with
-|State.PropertyPanel _ (Activity.PropertyActivity UX.ProjectProperty)=>ModalDialog
 |State.PropertyPanel _ _|State.ObjectActionsPanel _|State.InformationPanel(State.PropertySource _ _)
 |State.NavigationPanel GlobalMenu=>AnchoredMenu
 |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>if details_beside_timeline capacity then TrailingDetails else ModalDialog
@@ -306,6 +306,7 @@ Definition layer_view snapshot s capacity layer :=
   let semantic:=match panel with
     |State.SideConversationPanel _=>"side-conversation"
     |State.EditorPanel Identity.TitlePrompts=>"settings-title-editor"
+    |State.EditorPanel(Identity.WorkName _)=>"work-name-editor"
     |State.NavigationPanel GlobalMenu=>"global-navigation-menu"
     |State.NavigationPanel WorkOverview=>"work-overview"
     |State.EditorPanel _=>"object-editor"
