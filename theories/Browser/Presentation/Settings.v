@@ -516,23 +516,27 @@ Definition configuration_action parent key caption label emphasis (enabled : boo
      (if enabled then Available else Unavailable "Unavailable in the current state")))
    [information id "label" Information.OptionLabel caption].
 
-(* The object and decision stay in view while the field region scrolls.
-   A write's result belongs with the controls that initiated it. *)
+(* The fields describe the object and can scroll. Operations on the whole
+   object share the fixed footer with the decision, outside the field order.
+   A write's result belongs with the decision that initiated it. *)
 Definition configuration_dialog generation id caption trigger fallback view
-  (fields : list (node Input.input)) primary : node Input.input :=
+  (fields object_actions : list (node Input.input)) primary : node Input.input :=
  let dirty := Configuration.has_unsaved_work view in
  let ready := negb (Configuration.pending view) in
+ let footer := part id "actions" in
+ let controls := part footer "settings-editor-actions" in
  Node id "settings-configuration-editor" caption Roles.Dialog
    (LayerRegion (LayerBehavior ModalDialog false generation (part id "heading")
      trigger fallback trigger (Input.ServiceInput Services.CancelConfigurationEdit)
      false (ready && negb dirty)))
    [dialog_header id [title id caption];
     dialog_body id fields;
-    dialog_actions id (write_status (part id "actions") view ++
-      [named_region (part id "actions") "settings-editor-decisions" ""
-        [configuration_action id "cancel" (if dirty then "Discard" else "Cancel")
-           (if dirty then "Discard changes" else "Cancel") Secondary ready Services.CancelConfigurationEdit;
-         primary]])].
+    dialog_actions id (write_status footer view ++
+      [named_region footer "settings-editor-actions" "" (object_actions ++
+        [named_region controls "settings-editor-decisions" ""
+          [configuration_action id "cancel" (if dirty then "Discard" else "Cancel")
+             (if dirty then "Discard changes" else "Cancel") Secondary ready Services.CancelConfigurationEdit;
+           primary]])])].
 
 Definition configuration_save id entry raw view enabled :=
  action id "save" "Save" Primary (save_enabled entry raw view enabled) Services.SetConfiguration.
@@ -546,7 +550,7 @@ Definition collection_editor generation id entry draft view enabled item : list 
  | Some (name, value) =>
    [dialog ("New " ++ item) add
      [ConfigurationForms.new_item_field id name enabled;
-      ConfigurationForms.item_fields path id value view enabled]
+      ConfigurationForms.item_fields path id value view enabled] []
      (configuration_action id "add" "Add" ("Add " ++ item) Primary (enabled && Configuration.can_add_item view)
        Services.SetConfiguration)]
  | None => match Configuration.preferred_item (Configuration.form_editor_current view) with
@@ -557,10 +561,11 @@ Definition collection_editor generation id entry draft view enabled item : list 
        | Some _ => editor_trigger path (edit_item_key name) | None => add end in
      match lookup name (Configuration.collection_entries view) with
      | Some source => [dialog ("Edit " ++ name) trigger
-         (ConfigurationForms.item_form path id item name source view enabled)
+         [ConfigurationForms.item_fields path id source view enabled]
+         [ConfigurationForms.button id "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)]
          (configuration_save id entry raw view enabled)]
      | None => [dialog ("Remove " ++ name ++ "?") trigger
-         [note id "description" ("This " ++ item ++ " will be removed from settings.")]
+         [note id "description" ("This " ++ item ++ " will be removed from settings.")] []
          (configuration_action id "confirm-remove" "Remove" ("Remove " ++ item) Destructive
            (save_enabled entry raw view enabled) Services.SetConfiguration)]
      end
@@ -594,7 +599,7 @@ Definition configuration_editor s : list (node Input.input) :=
        let restore := if Configuration.dirty view then []
                       else reset_button id entry enabled "Restore default" in
        [configuration_dialog generation id label trigger (part settings_root "close") view
-         (fields ++ restore)%list
+         fields restore
          (configuration_save id entry raw view enabled)]
      end
    else []

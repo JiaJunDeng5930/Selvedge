@@ -145,10 +145,6 @@ Definition item_fields path parent source view enabled : node Input.input :=
     | ["profiles"] => ModelProfiles.profile_fields fields enabled source
     | _ => collection_item_fields path fields source view enabled Services.EditConfigurationItemValue
     end).
-Definition item_form path parent item name source view enabled : list (node Input.input) :=
- [item_fields path parent source view enabled;
-  button parent "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)].
-
 Definition account_form parent saved source view (enabled : bool) : list (node Input.input) :=
  let path := ["chatgpt"] in
  let active := match source with JBool false => false | _ => true end in
