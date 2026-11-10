@@ -156,6 +156,7 @@ Definition compact_setting parent services entry :=
  let controls := part id "settings-controls" in
  let widget := match Config.setting_input entry with
  | Config.Boolean => boolean_control controls path label (Config.initial_input entry) enabled
+ | Config.Number => configuration_field controls "setting-number" label false raw None enabled path
  | Config.Choice options => configuration_field controls "setting-value" label false raw
        (Some (options_for raw options)) enabled path
  | _ => configuration_field controls "setting-value" label false raw None enabled path

@@ -16,18 +16,22 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-surface: light-dark(#faf9f7, #252422);
   --settings-scrim: light-dark(#1f1f1ab8, #080706a6);
   --settings-field: light-dark(#fffefd, #2f2d2a);
-  --settings-selected: light-dark(#edeae4, #37332e);
+  --settings-selection: light-dark(#edeae4, #1b1917);
+  --settings-disabled-control: light-dark(#edeae4, #34302c);
   --settings-rule: light-dark(#e6e2dc, #413d37);
-  --settings-control-border: light-dark(#ded9d1, #4d473f);
+  --settings-control-border: light-dark(#ded9d1, #413d36);
   --settings-control-hover: light-dark(#f1eee8, #39352f);
-  --settings-muted: light-dark(#69645e, #b8b0a6);
+  --settings-muted: light-dark(#69645e, #aaa298);
   --settings-action: light-dark(#302a26, #e9dfd2);
   --settings-on-action: light-dark(#fffaf3, #28231d);
   --settings-focus: light-dark(#8c523a, #d39b7e);
+  --settings-toggle-on: light-dark(#86573f, #9c6248);
 }
 dialog[data-semantic-key="settings"] {
-  /* The settings window anchors navigation to its edge. The reading surface
-     takes the space left after the rail and keeps its own scroll position. */
+  /* Navigation and the reading surface share a bounded frame. Extra window
+     width becomes a margin while the content scrollport reaches the edge. */
+  --settings-frame: 80rem;
+  --settings-frame-inset: max(0rem, calc((100vi - var(--settings-frame)) / 2));
   --settings-edge: clamp(1rem, 2vi, 1.75rem);
   --settings-rail: clamp(8rem, 18vi, 14.5rem);
   --settings-gutter: clamp(1.125rem, 3.2vi, 3rem);
@@ -85,7 +89,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   align-items: stretch !important;
   gap: 0 var(--settings-gutter) !important;
   min-block-size: 0 !important;
-  padding: 0 0 0 var(--settings-edge) !important;
+  padding: 0 !important;
+  padding-inline-start: calc(var(--settings-frame-inset) + var(--settings-edge)) !important;
   overflow: clip !important;
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button {
@@ -131,7 +136,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is(:disabled, [aria-disabled="true"]) { opacity: .46 !important; }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):is(:disabled, [aria-disabled="true"]) {
-  background: var(--settings-selected) !important;
+  background: var(--settings-disabled-control) !important;
   border-color: transparent !important;
   color: var(--settings-muted) !important;
   opacity: 1 !important;
@@ -179,7 +184,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   text-align: start;
 }
 [data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
-  --control-rest-background: var(--settings-selected) !important;
+  --control-rest-background: var(--settings-selection) !important;
+  --control-hover-background: var(--settings-selection) !important;
+  --control-pressed-background: var(--settings-selection) !important;
   font-weight: 600 !important;
 }
 [data-semantic-key="settings"] :is([data-semantic-key="settings-category"], [data-semantic-key="theme-options"] > button) > [aria-hidden="true"] {
@@ -191,7 +198,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   inline-size: 100% !important;
   align-items: stretch !important;
   gap: 0 !important;
-  padding: .3125rem calc(var(--settings-edge) + .875rem) 2.25rem .2rem !important;
+  padding: .3125rem .2rem 2.25rem !important;
+  padding-inline-end: calc(var(--settings-frame-inset) + var(--settings-edge) + .875rem) !important;
   scrollbar-gutter: stable;
   scroll-padding-block: .5rem;
 }
@@ -224,6 +232,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings-group"] + [data-semantic-key="settings-group"] {
   margin-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
   padding-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
+}
+/* A heading marks the new scope on its own. An untitled group needs a rule. */
+[data-semantic-key="settings-group"] + [data-semantic-key="settings-group"]:not(:has(> h3[data-semantic-key="heading"])) {
   border-block-start: 1px solid var(--settings-rule) !important;
 }
 :is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
@@ -253,6 +264,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-copy"]:not(:has(> [data-semantic-key="description"])),
 [data-semantic-key="settings-entries"] [data-semantic-key="settings-copy"] {
+  flex-basis: var(--settings-entry-measure) !important;
+}
+/* A short value and its label can share a row at a narrower measure than
+   the copy beside a longer action. All controls wrap below when that row no longer fits. */
+[data-semantic-key="settings-row"]:has(
+  > [data-semantic-key="settings-controls"] > [data-semantic-key="setting-switch"],
+  > [data-semantic-key="settings-controls"] > * > :is(input[data-semantic-key="setting-number"], select)
+) > [data-semantic-key="settings-copy"] {
   flex-basis: var(--settings-entry-measure) !important;
 }
 [data-semantic-key="settings-copy"],
@@ -405,6 +424,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   inline-size: var(--settings-control-width) !important;
   max-inline-size: 100% !important;
 }
+[data-semantic-key="settings-controls"] > :has(> input[data-semantic-key="setting-number"]) {
+  inline-size: calc(9ch + 1.5rem) !important;
+}
 [data-semantic-key="settings-controls"] > :has(> :is(input, select)) > span { display: none !important; }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"] {
   --control-rest-background: light-dark(#d9d4cb, #514a42) !important;
@@ -429,7 +451,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   content: "";
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"][aria-checked="true"] {
-  --control-rest-background: var(--settings-focus) !important;
+  --control-rest-background: var(--settings-toggle-on) !important;
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"][aria-checked="true"]::after {
   inset-inline-start: 1.125rem;
