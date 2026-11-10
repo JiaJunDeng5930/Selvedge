@@ -99,21 +99,23 @@ Definition collection_item path : option string :=
 Definition collection_item_fields path parent source view enabled commit : list (node Input.input) :=
  let text panel key label := optional_field panel key label source enabled empty_text commit in
  let number panel key label := optional_field panel key label source enabled optional_number commit in
- let wide := ModelProfiles.wide_field parent in
  match path with
  | ["reasoning_evaluators"] =>
    let providers := map (fun provider =>
      let name := Selvedge.Adapters.Configuration.evaluator_name provider in Fields.ChoiceValue name name)
      Selvedge.Adapters.Configuration.evaluator_providers in
-   [field_row parent "evaluator-model" (fun row =>
+   ([field_row parent "evaluator-model" (fun row =>
       [select_field row "provider" "Provider"
          (match Common.get source "provider" with JString name => name | _ => "vercel" end)
          providers enabled (fun raw => commit (set_member "provider" (JString raw) source));
-       text row "model" "Model override"]);
-    wide (text parent "endpoint" "Endpoint override");
-    text parent "api_key_env" "API key environment variable";
-    field_row parent "evaluator-retries" (fun row =>
-      [number row "timeout_ms" "Timeout (ms)"; number row "max_attempts" "Maximum attempts"])]
+       text row "model" "Model override"])]
+    ++ optional_details parent "evaluator-options" "Connection and retries" view source
+      ["endpoint"; "api_key_env"; "timeout_ms"; "max_attempts"] enabled (fun fields =>
+      [description fields "override-hint" "Blank fields use the provider defaults.";
+       ModelProfiles.wide_field fields (text fields "endpoint" "Endpoint override");
+       text fields "api_key_env" "API key environment variable";
+       field_row fields "evaluator-retries" (fun row =>
+         [number row "timeout_ms" "Timeout (ms)"; number row "max_attempts" "Maximum attempts"])]))%list
  | ["chatgpt_plugin"] =>
    [text_field parent "token_env" "Token environment variable" source enabled commit;
     list_member parent "project_ids" "Allowed projects" "project ID" (JString "") source enabled
