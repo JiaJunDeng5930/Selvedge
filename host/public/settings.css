@@ -90,8 +90,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
   display: grid !important;
-  /* Keep surplus outside the rail and reading track. Rows inside a
-     document still share only the width their own group needs. */
+  /* Keep surplus outside the rail and the shared reading track. */
   grid-template-columns: max-content minmax(0, max-content) !important;
   grid-template-rows: minmax(0, 1fr) !important;
   align-self: stretch !important;
@@ -259,14 +258,6 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
   gap: 0 !important;
 }
-/* Rows that are read together share the same trailing edge. The largest
-   useful row determines that edge, independently of the other groups. A
-   page's primary collection shares its measure with the page heading. */
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) > :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) {
-  align-self: start !important;
-  inline-size: fit-content !important;
-  max-inline-size: 100% !important;
-}
 :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) + [data-semantic-key="settings-group"] {
   margin-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
   padding-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
@@ -282,8 +273,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   font-weight: 650 !important;
   line-height: 1.4 !important;
 }
-/* Controls share the trailing edge while the copy has room to read. If an
-   individual control needs more room, its row wraps in source order. */
+/* Groups stretch to the same reading edge. A control stays at that edge
+   even when the available width moves it onto the next line. */
 [data-semantic-key="settings-item"] {
   min-inline-size: 0 !important;
   padding: var(--settings-row-space) 0 !important;
@@ -337,14 +328,12 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   flex: 0 1 auto !important;
   inline-size: fit-content !important;
   max-inline-size: min(100%, var(--settings-control-limit)) !important;
+  margin-inline-start: auto !important;
   flex-flow: row wrap !important;
   justify-content: flex-end !important;
   align-items: center !important;
 }
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
-[data-semantic-key="settings-controls"]:has(> :is([data-semantic-key="service-connected"], [data-semantic-key="service-connecting"])) {
-  margin-inline-start: auto !important;
-}
 [data-semantic-key="settings-values"] {
   align-items: stretch !important;
   /* A saved URL or profile name wraps under the setting that describes it. */
@@ -352,9 +341,13 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-summary-item"] {
   flex-flow: row wrap !important;
-  justify-content: space-between !important;
+  align-items: baseline !important;
   gap: var(--settings-related-gap) var(--settings-column-gap) !important;
   padding: .375rem 0 !important;
+}
+[data-semantic-key="settings-summary-item"] > [data-semantic-key="description"] {
+  margin-inline-start: auto !important;
+  text-align: end !important;
 }
 [data-semantic-key="settings-entries"] {
   align-items: stretch !important;

@@ -514,8 +514,7 @@ Definition content root parent section services (measuring : bool) :=
  let design := section_design section in
  let header := (page_heading id services section ::
    if measuring then [] else catalog_status id services ++ draft_notice id section view)%list in
- (* The page introduction and Add control set the primary collection's
-    reading width. Secondary groups lay out their own rows independently. *)
+ (* The primary collection shares the page heading and its Add control. *)
  let primary := match primary_group design with
    | Some group => [named_region id "settings-primary" ""
        (header ++ overview root id section services measuring [group])%list]
