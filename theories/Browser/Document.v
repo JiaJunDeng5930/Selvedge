@@ -404,6 +404,7 @@ Definition purpose_attributes purpose := match purpose with
  |C.DialogTrigger _ expanded=>[("aria-haspopup","dialog");("aria-expanded",flag expanded)]
  |C.MoreActions expanded|C.ChooseValue expanded|C.WorkspacePicker expanded=>[("aria-haspopup","true");("aria-expanded",flag expanded)]
  |C.OpenPanel _ menu expanded=>[("aria-haspopup",if menu then "menu"else"dialog");("aria-expanded",flag expanded)]
+ |C.ActivityDestination=>[("data-activity-destination","")]
  |C.ShowActivity expanded|C.ToggleNavigation expanded=>[("aria-expanded",flag expanded)]
  |C.ApplicationSettings expanded|C.GlobalDestinations expanded=>[("aria-haspopup","dialog");("aria-expanded",flag expanded);("data-focus-alias","settings-return")]
  |C.Connect true _|C.CopyCode(CodeBlock.Pending _)=>[("aria-busy","true");("data-feedback","working");("data-interactive-motion","spin")]
@@ -424,6 +425,7 @@ Definition control_styles purpose role := let purpose:=C.action_purpose purpose 
  |C.OpenPanel icon _ _,Roles.GlobalNavigationEntry _ _=>
  if String.eqb icon "settings" then [("margin-block-start","auto")]else[]
  |C.ApplicationSettings _,Roles.GlobalNavigationEntry _ _=>[("margin-block-start","auto")]
+ |C.ActivityDestination,_=>[("inline-size","100%");("justify-content","space-between");("text-align","start")]
  |_,_=>[]end.
 Definition face_children purpose area role label children :=
  let purpose:=C.action_purpose purpose in
@@ -449,6 +451,7 @@ Definition face_children purpose area role label children :=
    |_,_=>icon++text end
  |_=>match purpose with
  |C.ChooseValue _|C.WorkspacePicker _=>icon++text++artwork "chevron-down"
+ |C.ActivityDestination=>text++artwork "chevron-right"
  |C.ShowActivity expanded=>artwork(if expanded then "chevron-down"else "chevron-right")
  |C.SelectedOption checked=>text++if checked then artwork "check"else[]
  |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
@@ -542,12 +545,15 @@ Definition node_styles {A} (describe:A->C.purpose) env activity (source:S.meanin
 let styles:=NativeAppearance.role_properties_at env activity role ++
  native_node_dimensions role current_area meaning ++
  (match meaning with S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
- |Model.AnchoredMenu=>[("position","fixed");("inset","auto");
+ |Model.AnchoredMenu=>
+  let above:=match meaning with S.ActivityGroup _ _ _ _=>true|_=>false end in
+  [("position","fixed");("inset","auto");
   ("--layer-clearance",Typography.px(Layout.layer_clearance env));
   ("--layer-gap",Typography.px(Layout.layer_unit env));
-  ("position-area","bottom span-right");("position-try-fallbacks","flip-block, --native-menu-confined");
-  ("position-try-order","normal");("align-self","start");("justify-self","start");
-  ("top","calc(var(--layer-gap) - var(--layer-clearance))");
+  ("position-area",if above then "top span-right" else "bottom span-right");
+  ("position-try-fallbacks","flip-block, --native-menu-confined");
+  ("position-try-order","normal");("align-self",if above then "end" else "start");("justify-self","start");
+  ((if above then "bottom" else "top"),"calc(var(--layer-gap) - var(--layer-clearance))");
   ("left","calc(0px - var(--layer-clearance))");
   ("margin",Typography.px(Layout.layer_clearance env));("block-size","fit-content")]
  |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []

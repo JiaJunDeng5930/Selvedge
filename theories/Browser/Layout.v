@@ -39,6 +39,10 @@ Record layout_parameters := Parameters {
   creation_balanced_minimum_height : nat; lane_minimum_width : nat;
   navigation_minimum_width : nat; activity_primary_advance : nat; activity_support_advance : nat
 }.
+Definition base_motor_minimum := 32%nat.
+Definition motor_minimum env := Nat.max base_motor_minimum
+  (Typography.scaled (root_font_size_milli env) base_motor_minimum).
+Definition main_reading_characters := 56%nat.
 Definition parameters env :=
   let root := root_font_size_milli env in
   let scale := Typography.scaled root in
@@ -50,13 +54,20 @@ Definition parameters env :=
   let input_minimum := Nat.max (scale 44) (leading + 2 * scale 12) in
   let balanced := toolbar + 2 * (Typography.line_height root Typography.Display +
     input_minimum + scale 32 + 3 * scale 16) in
-  Parameters (scale 232) (Nat.max (scale 360) (advance * 40 + 2 * scale 16))
+  let page_edges := 2 * Enclosure.inline_inset (Enclosure.spacing Enclosure.PageContent) in
+  let composer_edges := 2 * (1 + Enclosure.inline_inset (Enclosure.spacing Enclosure.Composer)) in
+  let target := motor_minimum env in
+  (* Leave room for attachments, voice and submit, plus the three labeled
+     creation controls. Each labeled control needs room beyond its target. *)
+  let authoring := 3 * target + 3 * (2 * target) +
+    5 * Enclosure.separation Enclosure.ComposerControls + composer_edges in
+  Parameters (scale 232) (page_edges + Nat.max authoring (advance * main_reading_characters))
     (scale 320) (advance * 84) (advance * 144) toolbar input_minimum
     (Nat.max (scale 240) input_minimum) leading balanced (advance * 32 + 2 * scale 8)
     (scale 224) (metric_advance (primary_metric metrics)) (metric_advance (support_metric metrics)).
 
 Definition reading_minimum env :=
-  metric_advance (body_metric (font_metrics env)) * 56 +
+  metric_advance (body_metric (font_metrics env)) * main_reading_characters +
     2 * Typography.scaled (root_font_size_milli env) 16.
 Definition navigation_requirement env :=
   let p := parameters env in navigation_width p + main_minimum_width p.
@@ -69,9 +80,6 @@ Definition observe_capacity env : option (bool * bool) :=
   | _, _ => None
   end.
 
-Definition base_motor_minimum := 32%nat.
-Definition motor_minimum env := Nat.max base_motor_minimum
-  (Typography.scaled (root_font_size_milli env) base_motor_minimum).
 Definition touch_minimum env := Nat.max 44 (Typography.scaled (root_font_size_milli env) 44).
 Definition writing_lines := 2%nat.
 Definition clearance env := Typography.scaled (root_font_size_milli env) 12.

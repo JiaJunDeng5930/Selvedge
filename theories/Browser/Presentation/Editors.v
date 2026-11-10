@@ -164,12 +164,16 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  let attachments:=match ServiceControls.file_items e parent s with
   |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
+ let tools:=composer_tools snapshot s e parent in
+ let tools:=match e with
+  |NewTask _=>(field_nodes snapshot s e parent [Fields.TaskEnvironment] ++
+    match tools with []=>[]|_=>[region parent "composer/property-tools" "Model and permissions" Roles.Toolbar tools]end)%list
+  |_=>tools end in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
-  ((match e with NewTask _=>field_nodes snapshot s e parent [Fields.TaskEnvironment]|_=>[]end)++
-    attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
+  (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
   [ServiceControls.file_picker e parent s;
    ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
-  (composer_tools snapshot s e parent)assessment commit feedback)end.
+  tools assessment commit feedback)end.
 
 (** Product sections reference the shared parameter declaration; they do not
     repeat field types, codecs, validation or assignments. *)

@@ -76,7 +76,7 @@ Definition describe snapshot state input:P.purpose:=match input with
    match Schema.encode_value (Model.subject_kind(Activity.assignment_subject assignment))
      (Activity.assignment_value assignment)with JNull=>P.ResetDefaults|_=>P.NamedAction end
  |_=>P.NamedAction end
-|Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
+|Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ActivityDestination
 |Input.BeginSide _ trigger|Input.ShowSide _ trigger=>P.DialogTrigger(P.OpenPanel "conversation"false false)(panel_open trigger state)
 |Input.ClosePanel=>P.Dismiss|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)

@@ -65,7 +65,8 @@ Definition surface_maximum_width env := Nat.max (scaled env 200)
   (Layout.activity_primary_advance (Layout.parameters env) * 56 + scaled env 16).
 Definition surface_properties env : list (string * string) :=
   let width := surface_maximum_width env in
-  [("min-inline-size",pixels env 200);
+  let available := Nat.sub (Layout.viewport_width env) (2 * Layout.layer_clearance env) in
+  [("min-inline-size",Typography.px (Nat.min (scaled env 200) available));
    ("inline-size","fit-content");
    ("max-inline-size",String.append "min(100%," (String.append (Typography.px width) ")"))].
 Definition description_properties env : list (string * string) :=

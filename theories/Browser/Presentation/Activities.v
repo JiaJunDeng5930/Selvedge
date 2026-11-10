@@ -172,8 +172,9 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
     (field_specification snapshot s occurrence parent subject)]
  |Observation.RequiredExpression,Act.RequiredValue property=>
    let key:=part parent("required/"++UX.subject_name(UX.property_subject property))in
-   [Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)
-    (flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property))]
+   match flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property)with
+   |[]=>[]
+   |facts=>[Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)facts]end
  |Observation.RequestedInformation,Act.SupportingValue property=>
    let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
    match view with

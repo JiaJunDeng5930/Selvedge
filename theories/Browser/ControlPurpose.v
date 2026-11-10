@@ -22,7 +22,7 @@ Inductive purpose :=
 | ApprovalDecision (allow : bool) | DeleteItem | ArchiveItem (archived : bool)
 | PinItem (pinned : bool) | AutomaticScheduling (enabled : bool) | Regenerate
 | CopyCode (state : CodeBlock.copy_state) | WrapCode (enabled : bool)
-| ShowActivity (expanded : bool) | Latest | ToggleNavigation (expanded : bool)
+| ActivityDestination | ShowActivity (expanded : bool) | Latest | ToggleNavigation (expanded : bool)
 | ResetDefaults | RemoveValue | RetryTransfer | PreviewFile | DownloadFile
 | Connect (connecting : bool) (failure : option string)
 | DialogTrigger (action : purpose) (expanded : bool).
