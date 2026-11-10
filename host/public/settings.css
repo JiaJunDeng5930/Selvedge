@@ -24,6 +24,10 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-control-border: light-dark(#ded9d1, #413d36);
   --settings-control-hover: light-dark(#f1eee8, #39352f);
   --settings-muted: light-dark(#69645e, #aaa298);
+  --picker-surface: var(--settings-field);
+  --picker-border: var(--settings-control-border);
+  --picker-muted: var(--settings-muted);
+  --picker-hover: var(--settings-control-hover);
   --settings-action: light-dark(#302a26, #e9dfd2);
   --settings-on-action: light-dark(#fffaf3, #28231d);
   --settings-focus: light-dark(#8c523a, #d39b7e);
@@ -403,52 +407,6 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   font-family: inherit !important;
   font-size: var(--settings-control-font) !important;
   line-height: 1.45 !important;
-}
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select {
-  appearance: none !important;
-  padding-inline-end: 2.45em !important;
-  background: var(--settings-field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23878076' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right .75em center / 1.08em no-repeat !important;
-}
-@supports (appearance: base-select) and selector(::picker(select)) {
-  :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select {
-    appearance: base-select !important;
-    display: flex !important;
-    flex-flow: row nowrap !important;
-    align-items: center !important;
-    gap: .625em !important;
-    padding-inline-end: .75em !important;
-    background: var(--settings-field) !important;
-  }
-  :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select::picker-icon {
-    content: "";
-    flex: none;
-    inline-size: .46em;
-    block-size: .46em;
-    margin: -.23em .15em 0 auto;
-    border: solid var(--settings-muted);
-    border-width: 0 .1em .1em 0;
-    rotate: 45deg;
-  }
-  :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select::picker(select) {
-    appearance: base-select;
-    margin-block: .3em;
-    max-block-size: min(18.75rem, 55dvh);
-    padding: .3em;
-    border: 1px solid var(--settings-control-border);
-    border-radius: .7em;
-    background: var(--settings-field);
-    color: var(--selvedge-text);
-    box-shadow: 0 5px 16px #201a1426;
-  }
-  :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select option {
-    min-block-size: 2.4em;
-    padding: .38em .62em;
-    border-radius: .38em;
-    font: inherit;
-  }
-  :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) select option:is(:checked, :hover, :focus) {
-    background: var(--settings-control-hover);
-  }
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) textarea {
   min-block-size: 112px !important;
@@ -1061,6 +1019,13 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   font-size: 1.25rem !important;
   line-height: 1.3 !important;
 }
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-header"] > h2 {
+  /* An object name can be longer than the whole form. Let the heading wrap
+     to two lines before it scrolls, leaving room for the fields and actions. */
+  max-block-size: 2lh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 [data-semantic-key="settings-title-editor"] > [data-semantic-key="editor"] {
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
@@ -1163,7 +1128,8 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   white-space: normal !important;
 }
 /* Object operations and the decision share a footer. If they cannot share
-   a line, move the decision pair together to the next line. */
+   a line, move the decision pair together to the next line. The decisions
+   can wrap within that line if the editor is narrower than their labels. */
 [data-semantic-key="settings-editor-actions"] {
   flex-flow: row wrap !important;
   align-items: center !important;
@@ -1174,7 +1140,7 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   padding-inline: 0 !important;
 }
 [data-semantic-key="settings-editor-decisions"] {
-  flex-flow: row nowrap !important;
+  flex-flow: row wrap !important;
   justify-content: flex-end !important;
   margin-inline-start: auto !important;
   inline-size: fit-content !important;
@@ -1184,12 +1150,14 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 }
 [data-semantic-key="settings-editor-decisions"] > button {
   flex: 0 1 auto !important;
-  min-inline-size: min(5em, 40vi) !important;
-  white-space: nowrap !important;
+  min-inline-size: min(5em, 100%) !important;
+  max-inline-size: 100% !important;
+  white-space: normal !important;
 }
 [data-semantic-key="settings-editor-decisions"] > button > [data-semantic-key="label"] {
   text-align: center !important;
-  white-space: nowrap !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
 }
 /* In a short, narrow window, let the foreground editor use the window. */
 @media (max-width: 28rem) and (max-height: 32rem) {

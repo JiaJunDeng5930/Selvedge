@@ -1,0 +1,145 @@
+/* Keep one reading hierarchy in the main timeline and its side occurrence. */
+[data-reading-root] { gap: .75rem !important; }
+[data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
+[data-reading-root] [data-activity-summary] { color: var(--selvedge-muted); }
+[data-reading-root] [data-surface-role="activity"][data-expanded="true"] > section {
+  min-inline-size: 0;
+  padding: .5rem .7rem;
+  border-inline-start: 2px solid var(--selvedge-border);
+  background: var(--selvedge-inset);
+}
+[data-reading-root] [data-surface-role="activity"][data-expanded="true"] > section > h4 {
+  margin-block-end: .25rem;
+  color: var(--selvedge-text);
+  font-weight: var(--rich-strong-weight);
+  overflow-wrap: anywhere;
+}
+
+/* The language and native code actions share a line. The source itself still
+   controls wrapping and owns its horizontal scrollport. */
+[data-reading-root] .code-block:has(> .code-toolbar:not(:empty)) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+[data-reading-root] .code-block > .code-language {
+  grid-area: 1 / 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-reading-root] .code-block > .code-toolbar:not(:empty) { grid-area: 1 / 2; }
+[data-reading-root] .code-block > :not(.code-language, .code-toolbar) {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+}
+[data-reading-root] .code-toolbar > button[aria-pressed="true"] {
+  --control-rest-background: var(--selvedge-selection) !important;
+}
+
+[data-reading-root] [data-semantic-key="active-operations"] {
+  padding: .5rem .65rem !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 8px !important;
+}
+[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) {
+  flex-flow: row wrap !important;
+  gap: .1rem .4rem !important;
+}
+[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) > * {
+  inline-size: auto !important;
+}
+[data-page-region="conversation-title"] > [data-semantic-key="heading"] {
+  min-inline-size: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-page-region="conversation-title"] > [data-semantic-key="worktree/error"] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="conversation-empty"], [data-semantic-key="conversation-unavailable"] {
+  margin-block-start: .75rem;
+  overflow-wrap: anywhere;
+}
+[data-page-region="latest-action"] { align-items: flex-end !important; }
+
+/* Keep the dock from using the whole reading viewport when an operation has
+   long arguments. Its decisions remain outside the argument scrollport. */
+[data-page-region="approval-decisions"] [data-semantic-key="approval-queue"] {
+  max-block-size: min(44dvh, 19rem);
+  overscroll-behavior: contain;
+}
+[data-surface-role="approval"] {
+  flex: none !important;
+  padding: .5rem .7rem !important;
+  gap: .4rem !important;
+  background: color-mix(in srgb, var(--selvedge-surface) 94%, var(--selvedge-warning)) !important;
+}
+[data-semantic-key="approval-heading"], [data-semantic-key="approval-actions"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: .25rem .6rem !important;
+}
+[data-semantic-key="approval-actions"] { justify-content: flex-end !important; }
+[data-semantic-key="approval-heading"] > [data-semantic-key="heading"] {
+  flex: 1 1 auto !important;
+  inline-size: auto !important;
+}
+[data-semantic-key="approval-status"] { color: var(--selvedge-warning) !important; }
+[data-semantic-key="approval-details"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: .35rem .65rem !important;
+  max-block-size: min(22dvh, 10rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+[data-semantic-key="approval-details"] > :is([data-semantic-key="argument/command"], [data-semantic-key="argument/justification"], [data-semantic-key="directory"]) {
+  grid-column: 1 / -1;
+}
+[data-semantic-key="approval-details"] > * { gap: .15rem !important; }
+[data-semantic-key="approval-details"] > [data-semantic-key="argument/command"] { order: -2; }
+[data-semantic-key="approval-details"] > [data-semantic-key="directory"] { order: -1; }
+[data-semantic-key="approval-details"] [data-semantic-key="label"] {
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size) !important;
+  line-height: var(--rich-support-line) !important;
+}
+[data-semantic-key="approval-details"] > [data-semantic-key="argument/command"] > [data-semantic-key="value"] {
+  padding: .35rem .5rem;
+  border-radius: 5px;
+  background: var(--selvedge-inset) !important;
+  font-family: var(--rich-code-font) !important;
+  white-space: pre-wrap;
+}
+
+:is([data-view^="main-task/"], [data-view^="side-task/"]) [data-composer-dock]:focus-within { outline: none; }
+:is([data-view^="main-task/"], [data-view^="side-task/"]) [data-composer-dock]:has(> textarea:focus-visible) {
+  border-color: var(--selvedge-focus) !important;
+}
+[data-composer-dock] [data-semantic-key="attachments"] > [data-semantic-key^="upload/"] {
+  display: flex !important;
+  flex: none !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .1rem .35rem !important;
+  padding: .3rem .45rem !important;
+  border-radius: 6px !important;
+  background: var(--selvedge-inset) !important;
+}
+[data-composer-dock] [data-semantic-key^="upload/"][data-surface-role="alert"] {
+  background: var(--selvedge-danger-wash) !important;
+}
+[data-composer-dock] > [data-semantic-key="attachments"]:has(> [data-surface-role="alert"]) {
+  max-block-size: min(9rem, 26dvh) !important;
+}
+[data-composer-dock] [data-semantic-key^="upload/"] > [data-semantic-key^="upload-error/"] {
+  flex-basis: 100%;
+}
+[data-composer-dock] [data-semantic-key^="upload-error/"] > [data-semantic-key="label"],
+[data-composer-dock] > [data-semantic-key="submission-feedback"] {
+  color: var(--selvedge-danger) !important;
+}

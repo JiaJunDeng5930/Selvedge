@@ -1,0 +1,198 @@
+/* Dialogs that contain a form or detail view share a reading track. The
+   body scrolls between its heading and the actions that apply to it. */
+:where(dialog[data-surface-role], [data-workspace-side])
+  :where([data-surface-role="dialog-body"]) { min-inline-size: 0 !important; }
+
+:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side])
+  :where([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
+  flex: none !important;
+}
+
+:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side]):not(
+  [data-semantic-key^="settings"], [data-semantic-key="task-navigation"],
+  [data-semantic-key="work-overview"], [data-semantic-key="side-conversation"]
+) {
+  --panel-inset: 1lh;
+  --panel-related-space: .5lh;
+  --panel-background: var(--selvedge-surface);
+  background: var(--panel-background) !important;
+
+  &:is(dialog):has(> [data-surface-role="dialog-body"]) { padding: 0 !important; }
+
+  & > :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
+    padding-inline: var(--panel-inset) !important;
+  }
+  & > [data-surface-role="dialog-header"] {
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    align-items: start !important;
+    gap: var(--panel-related-space) !important;
+    padding-block: var(--panel-related-space) 0 !important;
+  }
+  & > [data-surface-role="dialog-header"] > h2 {
+    flex: 1 1 auto;
+    font-weight: 600 !important;
+    min-inline-size: 0 !important;
+    max-block-size: calc(2 * 1lh);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+  }
+  & > [data-surface-role="dialog-header"] > h2[tabindex="-1"] { outline: none; }
+  & > [data-surface-role="dialog-header"] > button { flex: none !important; }
+  & > [data-surface-role="dialog-body"] {
+    flex: 1 1 auto !important;
+    min-block-size: 0 !important;
+    padding-block: var(--panel-related-space) var(--panel-inset) !important;
+    overflow: hidden auto !important;
+    overscroll-behavior: contain;
+  }
+  & > [data-surface-role="dialog-actions"] {
+    display: flex !important;
+    flex-flow: row wrap !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    gap: var(--panel-related-space) !important;
+    padding-block: var(--panel-related-space) !important;
+  }
+  & > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
+    border-block-start: 1px solid var(--selvedge-border) !important;
+  }
+  & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
+    max-inline-size: 100% !important;
+  }
+  & :is(button, button > span) {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  & :is(label, input, textarea):has(> [data-surface-role="field"]),
+  & :is(input, textarea, select)[data-surface-role="field"] {
+    min-inline-size: 0 !important;
+  }
+  & :is(input[type="text"], input[type="search"], textarea)[data-surface-role="field"],
+  & label:has(> :is(input[type="text"], input[type="search"], textarea)[data-surface-role="field"]) {
+    inline-size: 100% !important;
+    align-self: stretch !important;
+  }
+  & [data-key$="/@members"]:has(> label) { padding-inline: 0 !important; }
+  & > [data-surface-role="dialog-actions"] :is([data-semantic-key="commit"], [data-semantic-key="terminal"]) {
+    display: contents !important;
+  }
+  & > [data-surface-role="dialog-actions"] :is([data-semantic-key="assessment"], [data-semantic-key="submission-feedback"]) {
+    flex-basis: 100% !important;
+    order: -1;
+  }
+  & > [data-surface-role="dialog-actions"] [data-semantic-key="assessment"]:empty {
+    display: none !important;
+  }
+}
+
+/* These short views use the width of the action, field or preview they
+   contain, subject to the same viewport and reading limits. */
+dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"],
+  [data-semantic-key="board-settings"], [data-semantic-key="archived-cards"]:has([data-semantic-key="empty"])) {
+  inline-size: fit-content !important;
+}
+[data-semantic-key="file-preview"] [data-semantic-key="preview-image"] {
+  inline-size: auto !important;
+  max-inline-size: 100% !important;
+  block-size: auto !important;
+  align-self: center;
+  object-fit: contain;
+}
+
+/* Directory location and Go are one operation. The folder list and the
+   action that confirms the current location occupy separate parts. */
+[data-semantic-key="directory-browser"] [data-semantic-key="directory-location-actions"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
+[data-semantic-key="directory-browser"] [data-semantic-key="folders"] {
+  gap: 0 !important;
+  border-block-start: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="folders"] > button {
+  inline-size: 100% !important;
+  justify-content: flex-start !important;
+  text-align: start !important;
+}
+
+/* Local action lists are anchored to their trigger. Each row owns the
+   full hit area, with names in reading order and no modal backdrop. */
+dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-source"], [data-semantic-key="workspace-settings"])::backdrop {
+  background: transparent;
+}
+[data-semantic-key="workspace-member"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: var(--layer-gap, .5em) !important;
+}
+[data-semantic-key="workspace-member-copy"] {
+  flex: 1 1 min-content !important;
+  min-inline-size: 0 !important;
+  gap: 0 !important;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="workspace-member-actions"],
+[data-semantic-key="directory-entry-actions"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  inline-size: fit-content !important;
+  align-self: end !important;
+  justify-content: flex-end !important;
+  margin-inline-start: auto;
+  gap: var(--layer-gap, .5em) !important;
+}
+[data-semantic-key="workspace-member-actions"]:empty { display: none !important; }
+[data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] > div {
+  padding-inline: 0 !important;
+  gap: var(--layer-gap) !important;
+}
+[data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] h3 {
+  color: var(--selvedge-muted) !important;
+}
+:is([data-semantic-key="object-actions"], [data-semantic-key="property-source"]) {
+  & button:not([data-semantic-key="back"]) {
+    inline-size: 100% !important;
+    justify-content: flex-start !important;
+    white-space: normal !important;
+    text-align: start !important;
+  }
+  & :is(button > span, [data-semantic-key="value"]) {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  & h2[tabindex="-1"] { outline: none; }
+}
+
+[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] > h3 { flex-basis: 100%; }
+[data-semantic-key="board-filters"] [data-semantic-key^="filter/"]:not(:has(> button)) { display: none !important; }
+[data-semantic-key="board-filters"] button[data-semantic-key="filter-option"] {
+  inline-size: fit-content !important;
+  border: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="board-filters"] button[data-semantic-key="filter-option"][aria-checked="true"] {
+  background: var(--selvedge-selection) !important;
+}
+[data-semantic-key="board-filters"] button[data-semantic-key="filters/clear"] {
+  align-self: end !important;
+}
+
+/* Startup and rendering failures can appear before the workspace exists. */
+#surface > :is([role="status"], [role="alert"]) {
+  inline-size: min(100%, 56ch) !important;
+  margin-inline: auto;
+  padding: 1lh !important;
+  overflow-wrap: anywhere;
+}
+#surface > [role="alert"] { color: var(--selvedge-danger); }

@@ -48,6 +48,52 @@ body { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe U
 button, input, textarea, select { font: inherit; color: inherit; }
 button { appearance: none; cursor: pointer; }
 button:disabled { cursor: default; }
+/* Keep native choice, keyboard and focus behavior. The same picker surface
+   is used in forms and toolbars, including when a panel needs to scroll. */
+select[data-surface-role="field"]:not([multiple]) {
+  appearance: auto !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+}
+@supports (appearance: base-select) and selector(::picker(select)) {
+  select[data-surface-role="field"]:not([multiple]) {
+    appearance: base-select !important;
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    align-items: center !important;
+    gap: .5em !important;
+  }
+  select[data-surface-role="field"]::picker-icon {
+    content: "";
+    flex: none;
+    inline-size: .45em;
+    block-size: .45em;
+    margin: -.22em .15em 0 auto;
+    border: solid var(--picker-muted, var(--selvedge-muted));
+    border-width: 0 .1em .1em 0;
+    rotate: 45deg;
+  }
+  select[data-surface-role="field"]::picker(select) {
+    appearance: base-select;
+    max-block-size: calc(100dvb - 2lh);
+    padding: .25em;
+    border: 1px solid var(--picker-border, var(--selvedge-border));
+    border-radius: .65em;
+    background: var(--picker-surface, var(--selvedge-surface));
+    color: var(--selvedge-text);
+    box-shadow: var(--selvedge-shadow);
+    overscroll-behavior: contain;
+  }
+  select[data-surface-role="field"] option {
+    min-block-size: 2lh;
+    padding: .25em .5em;
+    border-radius: .4em;
+    overflow-wrap: anywhere;
+  }
+  select[data-surface-role="field"] option:is(:checked, :hover, :focus) {
+    background: var(--picker-hover, var(--selvedge-hover));
+  }
+}
 h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
 [hidden] { display: none !important; }
 [data-native-row-direction="column"] > * { flex-basis: auto; flex-shrink: 0; }
@@ -323,7 +369,6 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 }
 [data-workspace-navigation="destinations"] > :first-child { grid-column: 1 / -1; }
 [data-workspace-navigation="global"] { border-block-start: 1px solid var(--selvedge-border) !important; }
-[data-workspace-navigation="global"] [data-semantic-key="settings/open"] > span { display: none; }
 [data-workspace-navigation="collection"] { scrollbar-width: thin; }
 [data-workspace-sidebar] > [data-surface-role="compact-work-scope"] {
   box-shadow: inset 0 0 0 1px var(--selvedge-border);
@@ -806,6 +851,15 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
   & select[data-semantic-key="task_environment"]:hover:not(:disabled) {
     background: var(--selvedge-hover) !important;
   }
+  @supports (appearance: base-select) and selector(::picker(select)) {
+    & select[data-semantic-key="task_environment"] {
+      appearance: base-select !important;
+      padding-inline-end: .5em !important;
+    }
+    & [data-semantic-key="composer/tools"] > :has(> select[data-semantic-key="task_environment"])::after {
+      display: none;
+    }
+  }
   /* The select's accessible name identifies the field. The inline control
      only needs to show its selected environment. */
   & :has(> select[data-semantic-key="task_environment"]) > span { display: none !important; }
@@ -857,12 +911,6 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
 }
 @container board-controls (max-width: 410px) {
   [data-page-region="board-controls"] > [data-board-group="search"] { flex-basis: 100% !important; }
-  [data-board-group="primary-action"] > button {
-    justify-content: center !important;
-    min-inline-size: 36px !important;
-    padding-inline: 0 !important;
-  }
-  [data-board-group="primary-action"] > button > span { display: none !important; }
 }
 main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !important; }
 [data-semantic-key="task-graph/actions"] {
@@ -887,22 +935,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
     padding-inline: 0 !important;
   }
   [data-semantic-key="task-graph/actions"] > [data-semantic-key="edit"] > span { display: none !important; }
-}
-[data-semantic-key="work-choices"] { container: work-choices / inline-size; }
-@container work-choices (max-width: 420px) {
-  [data-surface-role="work-choice-row"] {
-    flex-direction: column !important;
-    gap: .35rem !important;
-  }
-  [data-semantic-key="work-choice"] {
-    align-self: stretch !important;
-    inline-size: 100% !important;
-    min-block-size: 60px !important;
-  }
-  [data-surface-role="work-choice-row"] > [data-semantic-key="gap"] { display: none !important; }
-}
-@media (max-height: 450px) {
-  [data-semantic-key="work-choice"] { min-block-size: 60px !important; }
 }
 [data-agent-attribution] {
   display: flex;

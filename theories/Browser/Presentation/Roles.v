@@ -7,7 +7,7 @@ Inductive role :=
 | CompactHeader | CompactWorkScope (title : string) (count : N)
 | CompactNavigationMenu | CompactNavigationEntry (selected : bool)
 | WorkTabs | WorkTab (selected : bool) | WorkTabGroup
-| WorkOverviewButton (count : N) | WorkChoiceRow
+| WorkOverviewButton (count : N)
 | Navigation | NavigationHeader | NavigationEntry (selected : bool)
 | NavigationCollection | NavigationSection
 | Main | Heading | PrimaryButton | DestructiveButton | SelectedButton
@@ -24,7 +24,7 @@ Definition role_name value :=
   | CompactNavigationMenu => "compact-navigation-menu"
   | CompactNavigationEntry _ => "compact-navigation-entry"
   | WorkTabs => "work-tabs" | WorkTab _ => "work-tab" | WorkTabGroup => "work-tab-group"
-  | WorkOverviewButton _ => "work-overview-button" | WorkChoiceRow => "work-choice-row"
+  | WorkOverviewButton _ => "work-overview-button"
   | Navigation => "navigation" | NavigationHeader => "navigation-header"
   | NavigationEntry _ => "navigation-entry" | NavigationCollection => "navigation-collection"
   | NavigationSection => "navigation-section" | Main => "main" | Heading => "heading"

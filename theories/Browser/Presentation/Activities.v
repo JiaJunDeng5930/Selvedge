@@ -74,26 +74,32 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
  Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e members)
  (map(fun path=>let key:=part parent path in
+  let primary:=match Domain.workspace_primary workspace with Some root=>String.eqb path root|None=>false end in
   Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
-   (read_only key "path" "Directory"path::
-    information key "primary-state" Information.Status(if match Domain.workspace_primary workspace with Some primary=>String.eqb path primary|None=>false end then "Primary directory"else"")::
-    if editable then
-     [declared key Roles.Button(secondary "primary" "Use as primary"(Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)));
-      declared key Roles.Button(secondary "remove" "Remove directory"(Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))]else[]))roots ++
+   [region key "workspace-member-copy" "" Roles.Section
+     (information key "path" Information.FieldValue path ::
+      if primary then [information key "primary-state" Information.Description "Primary directory"] else []);
+    region key "workspace-member-actions" "" Roles.Section
+     (if editable then
+       ((if primary then [] else [declared key Roles.Button(secondary "primary" "Use as primary"
+          (Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)))]) ++
+        [declared key Roles.Button(secondary "remove" "Remove directory"
+          (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots ++
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status "Add or clear the directory before saving"])++
-   [Node(part parent "directory")"directory" "Add directory"Roles.Field
+   [Node(part parent "directory")"directory" "Directory path"Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
     region parent "directory-entry-actions" ""Roles.Toolbar
-     [declared parent Roles.Button(Control "add" "Add directory"Secondary
+     ([declared parent Roles.Button(Control "add" "Add directory"Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
-       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available));
-      declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""));
-      declared parent Roles.Button(Control "browse" "Browse…" Secondary
+       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available))] ++
+      (if String.eqb buffer "" then [] else
+       [declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""))]) ++
+      [declared parent Roles.Button(Control "browse" "Browse…" Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))]] ++
+       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))])%list] ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -219,7 +225,7 @@ Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:
    (match Observation.observe_collection snapshot s e with
     |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
     |None=>[read_only parent "unavailable" "Workspace" "The working directory observation is unavailable"]end)++
-   [declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)])%list.
+   [])%list.
 Definition workspace_request request:=match request with
 |Act.WorkspaceActivity|Act.PropertyActivity UX.WorkspaceProperty=>true|_=>false end.
 Definition project_choice_details snapshot s {e}(subject:UX.subject e)(choice:Fields.choice_value):string*string:=
@@ -287,10 +293,10 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
     |_=>[title parent caption]end in
   let relations:=Act.activity_relations activity in
   let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in
-  let actions:=(flat_map(relation_nodes snapshot s occurrence parent query request activity view)
-    (filter terminal relations) ++ match completion with
+ let actions:=((match completion with
     |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
-    |_=>[]end)%list in
+    |_=>[]end) ++ flat_map(relation_nodes snapshot s occurrence parent query request activity view)
+    (filter terminal relations))%list in
   let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++

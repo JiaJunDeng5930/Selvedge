@@ -185,7 +185,8 @@ Definition board_filters snapshot s parent :=
      (secondary("filter/"++name++"/"++value)label(Input.BoardToggle name value)))[])(filter_choices snapshot category)))BoardFilter.categories.
 Definition panel_kind capacity panel :=match panel with
 |State.PropertyPanel _ (Activity.PropertyActivity UX.ProjectProperty)=>ModalDialog
-|State.PropertyPanel _ _|State.ObjectActionsPanel _|State.InformationPanel(State.PropertySource _ _)=>AnchoredMenu
+|State.PropertyPanel _ _|State.ObjectActionsPanel _|State.InformationPanel(State.PropertySource _ _)
+|State.NavigationPanel GlobalMenu=>AnchoredMenu
 |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>if details_beside_timeline capacity then TrailingDetails else ModalDialog
 |_=>ModalDialog end.
 Definition source_origin_matches e request panel:=match panel with
@@ -254,6 +255,9 @@ Definition panel_title panel := match panel with
  |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选任务"
  |State.ArchivedCardsPanel=>"Archived cards"|State.Confirmation _ caption _=>caption
  |State.PropertyPanel _ _=>"Settings"end.
+Definition dismissible_heading parent caption : node Input.input :=
+ dialog_header parent [title parent caption;
+  declared parent Roles.Button(secondary "close" "Close panel" Input.ClosePanel)].
 Definition layer_view snapshot s capacity layer :=
  let parent:=SessionNavigation.panel_key(State.layer_panel layer)in
  let behavior:=behavior s capacity layer in
@@ -264,7 +268,7 @@ Definition layer_view snapshot s capacity layer :=
  |panel=>let content:=match panel with
   |State.EditorPanel e=>Editors.editor_view snapshot s e parent
   |State.SideConversationPanel task=>side_content snapshot s task parent
-  |State.NavigationPanel GlobalMenu=>[Navigation.global_menu s parent]
+  |State.NavigationPanel GlobalMenu=>Navigation.global_menu s parent
   |State.NavigationPanel WorkOverview=>Navigation.work_overview snapshot s parent
   |State.NavigationPanel TasksDrawer=>
     [dialog_header parent [title parent "Tasks"];
@@ -276,33 +280,45 @@ Definition layer_view snapshot s capacity layer :=
   |State.BoardFiltersPanel=>board_filters snapshot s parent
   |State.ArchivedCardsPanel=>
    let candidates:=value_or[](Read.board_cards snapshot)in
-   map(Collections.card_node snapshot s parent candidates parent)(filter Read.card_archived candidates)
+   match filter Read.card_archived candidates with
+   |[]=>[information parent "empty" Information.Description "No archived cards."]
+   |archived=>map(Collections.card_node snapshot s parent candidates parent)archived end
   |State.Confirmation command caption destination=>
-   [dialog_header parent [title parent caption];
-    dialog_body parent(match State.layer_feedback layer with
-     |None=>[]|Some reason=>[Node(part parent "feedback")"confirmation-feedback" "Action failed"Roles.Alert(ReadOnly(Codec.diagnostic_message reason))[]]end);
-    dialog_actions parent
+   ([dialog_header parent [title parent caption]] ++
+    (match State.layer_feedback layer with
+     |None=>[]|Some reason=>[dialog_body parent
+       [Node(part parent "feedback")"confirmation-feedback" "Action failed"Roles.Alert(ReadOnly(Codec.diagnostic_message reason))[]]]end) ++
+    [dialog_actions parent
     [declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel);
      declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
       (if State.layer_pending layer then Busy "This action is pending"else
-       domain_availability(Selvedge.Browser.Session.Authoring.confirmation_availability snapshot s command)))]]
+       domain_availability(Selvedge.Browser.Session.Authoring.confirmation_availability snapshot s command)))]])%list
   |_=>[]end in
   let content:=match State.layer_panel layer with
-  |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel WorkOverview|State.NavigationPanel TasksDrawer
+  |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel _
   |State.Confirmation _ _ _=>content
   |State.InformationPanel(State.TaskDetails _)=>
-    [dialog_header parent
-      [region parent "side/heading" "" Roles.Toolbar
-        ([title parent(panel_title panel)]++
-         if Model.layer_beside behavior then [declared parent Roles.Button(secondary "close" "Close details" Input.ClosePanel)]else[])];
-     dialog_body parent content]
+    [dismissible_heading parent (panel_title panel); dialog_body parent content]
   |State.InformationPanel(State.TaskContext _)
   |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
-  |State.ArchivedCardsPanel|State.CardDecisionPanel _ _=>[dialog_header parent[title parent(panel_title panel)];dialog_body parent content]
+  |State.ArchivedCardsPanel|State.CardDecisionPanel _ _=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with
     |State.SideConversationPanel _=>"side-conversation"
     |State.EditorPanel Identity.TitlePrompts=>"settings-title-editor"
+    |State.NavigationPanel GlobalMenu=>"global-navigation-menu"
+    |State.NavigationPanel WorkOverview=>"work-overview"
+    |State.EditorPanel _=>"object-editor"
+    |State.ObjectActionsPanel _=>"object-actions"
+    |State.CardDecisionPanel _ _=>"card-decision"
+    |State.InformationPanel(State.PropertySource _ _)=>"property-source"
+    |State.InformationPanel(State.TaskDetails _)=>"task-details"
+    |State.InformationPanel(State.TaskContext _)=>"task-context"
+    |State.InformationPanel(State.CardDetails _)=>"card-details"
+    |State.BoardSettingsPanel=>"board-settings"
+    |State.BoardFiltersPanel=>"board-filters"
+    |State.ArchivedCardsPanel=>"archived-cards"
+    |State.Confirmation _ _ _=>"confirmation"
     |_=>"layer"end in
   Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.

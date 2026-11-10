@@ -204,7 +204,7 @@ Definition role_style (role : Roles.role) :=
   | Roles.SelectedButton => button_style (ChoicePaint true)
   | Roles.Button => button_style QuietActionPaint
   | Roles.Field => enclosure_fields FieldPaint border_color 1 7 false Stretch BlockFlow ContentFlow Enclosure.Field 0 32 100 true false
-  | Roles.CompactNavigationMenu | Roles.WorkTabGroup | Roles.WorkChoiceRow
+  | Roles.CompactNavigationMenu | Roles.WorkTabGroup
   | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Decorative | Roles.Alert => base_style
   end.
 
@@ -280,7 +280,7 @@ Definition role_typography env role : list (string * string) :=
   | Roles.WorkOverviewButton _ | Roles.WorkTab _ => set Typography.ActivityPrimary Typography.Medium
   | Roles.NavigationHeader => set Typography.Body Typography.Medium
   | Roles.Heading => set Typography.Section Typography.Medium
-  | Roles.WorkChoiceRow | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
   | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
   | Roles.DialogActions | Roles.DialogHeader | Roles.DialogBody | Roles.ComposerActions => set Typography.Body Typography.Regular
   | Roles.Activity => set Typography.Support Typography.Regular

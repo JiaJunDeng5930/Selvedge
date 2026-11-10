@@ -36,9 +36,10 @@ Definition work_label snapshot s :=
  |Some id=>match find_work id snapshot with Some work=>work_name work|None=>"Work unavailable"end
  end.
 Definition work_count snapshot := N.of_nat(S(List.length(value_or[](works snapshot)))).
-Definition work_picker snapshot s parent identity label :=
- declared parent (Roles.CompactWorkScope(work_label snapshot s)(work_count snapshot))
-  (secondary identity label(Input.OpenNavigation WorkOverview(part parent identity))).
+Definition work_picker snapshot s parent identity :=
+ let label:=work_label snapshot s in
+ declared parent (Roles.CompactWorkScope label(work_count snapshot))
+  (secondary identity ("Work overview: "++label)(Input.OpenNavigation WorkOverview(part parent identity))).
 Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.input :=
  let 'TaskTree task children:=tree in
  let id:=task_id task in
@@ -101,9 +102,7 @@ Definition task_collection snapshot s :=
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   [region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   [title(part "/navigation" "header") "Task tree";
-    declared(part "/navigation" "header") Roles.Button
-      (secondary "toggle" "Collapse Task sidebar"(Input.NavigationExpanded false))];
+   [title(part "/navigation" "header") "Task tree"];
    work_destinations s;
    task_collection snapshot s].
 Definition desktop_task_navigation snapshot s :=
@@ -114,7 +113,7 @@ Definition desktop_task_navigation snapshot s :=
       (secondary home_key home_label(Input.Navigate home_route));
      declared(part "/navigation" "header") Roles.Button
       (secondary "toggle" "Collapse Task sidebar"(Input.TaskListVisible false))];
-   work_picker snapshot s "/work-tabs" "work/overview" ("Work overview: "++work_label snapshot s);
+   work_picker snapshot s "/work-tabs" "work/overview";
    work_destinations s;
    task_collection snapshot s;
    global_navigation s].
@@ -128,18 +127,6 @@ Definition work_summary snapshot selected :=
     (if Nat.eqb count 1 then "1 task"else show_natural(N.of_nat count)++" tasks")++
      " · "++task_title first++" · "++task_caption first
   end end.
-Fixpoint work_choice_rows(parent:string)(index:N)(choices:list(node Input.input))
- {struct choices}:list(node Input.input):=match choices with
-|[]=>[]
-|first::rest=>
- let key:=part parent("work-row/"++show_natural index)in
- match rest with
- |[]=>[region parent("work-row/"++show_natural index)"" Roles.WorkChoiceRow
-    [first;region key "gap" "" Roles.Section []]]
- |second::remaining=>
-   region parent("work-row/"++show_natural index)"" Roles.WorkChoiceRow[first;second]::
-   work_choice_rows parent(N.succ index)remaining
- end end.
 Definition work_overview snapshot s parent :=
  let active:=State.active_work(State.navigation_state s)in
  let choice work name :=
@@ -152,24 +139,24 @@ Definition work_overview snapshot s parent :=
    match works snapshot with
    |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
- [dialog_header parent [title parent "Works"];
-  dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries)];
+ [dialog_header parent
+   [title parent "Works";
+    declared parent Roles.Button(secondary "done" "Close work overview" Input.ClosePanel)];
+  dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup entries];
   dialog_actions parent
-   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
-    declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]].
+   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork))]].
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
- region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu
- (title parent "Global navigation" :: List.app(map(fun entry=>let '(identity,label,target):=entry in
-   declared parent(Roles.CompactNavigationEntry(same_route current target))
-     (secondary identity label(Input.Navigate target)))(home_destination::destinations))
-  [declared parent(Roles.CompactNavigationEntry false)(secondary "settings" "Settings"(Input.ServiceInput Services.OpenSettings));
-   declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]).
+ [region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu
+   (List.app(map(fun entry=>let '(identity,label,target):=entry in
+     declared parent(Roles.CompactNavigationEntry(same_route current target))
+       (secondary identity label(Input.Navigate target)))(home_destination::destinations))
+    [declared parent(Roles.CompactNavigationEntry false)
+      (secondary "settings" "Settings"(Input.ServiceInput Services.OpenSettings))])].
 Definition compact_header snapshot s :=
  region "/workspace" "compact-header" "Workspace navigation" Roles.CompactHeader
   [declared "/compact-header" Roles.Button (secondary "global" "Global navigation"(Input.OpenNavigation GlobalMenu(part "/compact-header" "global")));
-   work_picker snapshot s "/compact-header" "works"
-    (work_label snapshot s++", Work overview, "++show_natural(work_count snapshot)++" works");
+   work_picker snapshot s "/compact-header" "works";
    declared "/compact-header" Roles.Button(secondary "tasks" (if SessionNavigation.expanded_for false s then "Back to conversation"else"Open Task list")(Input.NavigationExpanded(negb(SessionNavigation.expanded_for false s))))].
 Definition navigation_base snapshot s capacity :=
  let expanded:=SessionNavigation.expanded_for(navigation_beside_content capacity)s in

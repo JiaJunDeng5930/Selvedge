@@ -18,10 +18,13 @@ Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
 Definition more parent subject :=declared parent Roles.Button
  (secondary "more" "More actions"(Input.OpenObjectActions subject(part parent "more"))).
+Definition browse_heading {A} parent leading (trailing : list (node A)) :=
+ region parent "workspace-browse-heading" "" Roles.Section (leading :: trailing).
 Definition projects_page snapshot s parent :=
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition [title parent "Projects"];
-  page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "project/new" "New project"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))];
+ [browse_heading parent
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition [title parent "Projects"])
+   [page_region parent Composition.CollectionActions Composition.HeadingPosition
+     [declared parent Roles.PrimaryButton(primary "project/new" "New project"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))]];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
    (match projects snapshot,tasks snapshot with
    |Some [],_=>[read_only parent "empty" "" "Create a project to group tasks and choose default working folders."]
@@ -29,10 +32,12 @@ Definition projects_page snapshot s parent :=
    |_,_=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
- [page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)];
-  page_region parent Composition.ProjectActions Composition.HeadingPosition
-   [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
-    declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));more parent(ProjectActions id)];
+ [browse_heading parent
+   (page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)])
+   [page_region parent Composition.ProjectActions Composition.HeadingPosition
+     [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
+      declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));
+      more parent(ProjectActions id)]];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
    [read_only parent "workspace-roots" "Default workspace"(String.concat "
 "(Domain.workspace_roots(project_workspace project)));
@@ -40,9 +45,11 @@ Definition project_page snapshot s parent project :=
   page_region parent Composition.ProjectGuidance Composition.BodyPosition
    [read_only parent "guidance" "Project guidance"(value_or "No project guidance"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition
-   (match Projection.project_members snapshot id with
+   (information parent "project/conversations" Information.GroupTitle "Conversations" ::
+    match Projection.project_members snapshot id with
+    |Some []=>[read_only parent "tasks-empty" "" "No conversations in this project."]
     |Some values=>map(task_entry_tree(State.location(State.navigation_state s))(State.collapsed_tasks s)parent)(forest values)
-    |None=>[read_only parent "tasks-unavailable" "Tasks" "Task observations unavailable"]end)].
+    |None=>[read_only parent "tasks-unavailable" "" "Task observations unavailable"]end)].
 Definition elapsed_label seconds:=
  if N.ltb seconds 60 then "刚刚"else if N.ltb seconds 3600 then show_natural(N.div seconds 60)++"分钟前"
  else if N.ltb seconds 86400 then show_natural(N.div seconds 3600)++"小时前"else show_natural(N.div seconds 86400)++"天前".
@@ -112,12 +119,12 @@ Definition board_toolbar snapshot s parent :=
     declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
     Node(part parent "archive-destination")"board/archive" "归档任务"Roles.Section
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))
-     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档任务"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]];
-  board_group parent "primary-action" PrimaryAction
-   [declared parent Roles.PrimaryButton(primary "card/new" "新建任务"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]]
- .
+     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档任务"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
 Definition board_page snapshot s parent :=
- [page_region parent Composition.BoardTitle Composition.HeadingPosition[title parent "任务看板"];
+ [browse_heading parent
+   (page_region parent Composition.BoardTitle Composition.HeadingPosition[title parent "任务看板"])
+   [board_group parent "primary-action" PrimaryAction
+     [declared parent Roles.PrimaryButton(primary "card/new" "新建任务"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
   page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent);
   page_region parent Composition.BoardStages Composition.BodyPosition
    (match Projection.visible_cards snapshot s with
@@ -136,7 +143,7 @@ Definition graph_endpoint_label graph name :=
  |None=>String.append name " (unavailable)"end.
 Definition graph_rule_nodes {A} parent graph:list(node A):=map(fun rule=>let key:=part parent(String.append "rule/"(Read.rule_key rule))in
  region parent(String.append "rule/"(Read.rule_key rule))(Read.rule_key rule)Roles.Section
-  (group_title key(Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"Output delivery"
+  (information key "rule-name" Information.FieldLabel (Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"Output delivery"
     (String.concat ""[graph_endpoint_label graph(rule_source rule);" → ";graph_endpoint_label graph(Read.action_target action);": ";
      TextJson.render_json(Read.action_message action)]))
    (combine(seq 0(List.length(Read.rule_actions rule)))(Read.rule_actions rule))))
@@ -206,9 +213,10 @@ Definition graph_node snapshot s parent value :=
     region key "task-graph/receipts" "Last delivery results" Roles.Section
       (group_title (part key "task-graph/receipts") "Last delivery results" :: graph_receipt_nodes key value)])%list.
 Definition graphs_page snapshot s parent :=
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"];
-  page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))];
+ [browse_heading parent
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"])
+   [page_region parent Composition.CollectionActions Composition.HeadingPosition
+     [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))]];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
    (match scoped_graphs(State.active_work(State.navigation_state s))snapshot with
     |Some []=>[read_only parent "empty" "" "Create a task graph to route output between conversations."]

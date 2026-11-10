@@ -110,7 +110,7 @@ Definition common key semantic label role := [("id",key);("data-logical-key",sem
 (* Local navigation and dialog headings must not introduce page banner landmarks. *)
 Definition role_tag role := match role with
  | Roles.GlobalNavigation _ | Roles.Navigation | Roles.WorkTabs => "nav"
- | Roles.CompactHeader => "nav"
+ | Roles.CompactHeader | Roles.CompactNavigationMenu => "nav"
  | Roles.NavigationHeader | Roles.DialogHeader => "div"
  | Roles.Main => "main" | Roles.Heading => "h2"
  | Roles.Section | Roles.Activity | Roles.Approval => "section"
@@ -272,7 +272,7 @@ Definition layer_metadata {A} key (behavior:Model.layer_behavior A) :=
  ("fallback",JString (Model.layer_fallback_attention behavior));
  ("outside",JBool (Model.layer_outside behavior));("escape",JBool (Model.layer_escape behavior))])].
 Module C := ControlPurpose.
-Inductive area := OutsideArea|PageArea|CreationArea|ComposerArea|ToolbarArea|DialogArea|MenuArea|NavigationArea|WorkStripArea|WorkCollectionArea
+Inductive area := OutsideArea|PageArea|CreationArea|ComposerArea|ToolbarArea|DialogArea|DialogActionsArea|MenuArea|NavigationArea|WorkStripArea|WorkCollectionArea
  |TouchNavigationArea|BoardLaneArea|BoardViewArea|CardArea|CollectionArea|CodeArea|ChoiceGroupArea.
 Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning with
  |S.BoardLane _ _=>BoardLaneArea|S.WorkspaceCollection _ _=>CollectionArea|S.CodeFacts _=>CodeArea
@@ -288,7 +288,8 @@ Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning wi
  |_=>match role with Roles.Composer|Roles.ComposerActions=>ComposerArea
  |Roles.Main=>PageArea|Roles.CodeBlock=>CodeArea|Roles.Field=>CollectionArea
  |Roles.Toolbar=>match inherited with ComposerArea=>ComposerArea|_=>ToolbarArea end
- |Roles.Dialog|Roles.DialogActions|Roles.Details=>match inherited with MenuArea=>MenuArea|_=>DialogArea end|Roles.Menu=>MenuArea
+ |Roles.DialogActions=>match inherited with MenuArea=>MenuArea|_=>DialogActionsArea end
+ |Roles.Dialog|Roles.Details=>match inherited with MenuArea=>MenuArea|_=>DialogArea end|Roles.Menu=>MenuArea
  |Roles.GlobalNavigation _=>NavigationArea
  |Roles.Navigation=>match inherited with TouchNavigationArea=>TouchNavigationArea|_=>NavigationArea end
  |Roles.WorkTabs=>WorkStripArea|Roles.WorkTabGroup=>WorkCollectionArea
@@ -319,7 +320,8 @@ Definition purpose_icon purpose := let purpose:=C.action_purpose purpose in matc
  |C.ResetDefaults=>Some "undo"|C.PreviewFile=>Some "preview"|C.DownloadFile=>Some "download"
  |C.Connect true _=>Some "spinner"|_=>None end.
 Definition icon_only purpose area := let purpose:=C.action_purpose purpose in match purpose,area with
- |C.WorkCreation,DialogArea|C.WorkCreation,TouchNavigationArea=>false
+ |C.WorkCreation,DialogArea|C.WorkCreation,DialogActionsArea|C.WorkCreation,TouchNavigationArea
+ |C.Dismiss,DialogActionsArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
  |C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
  |C.ShowActivity _,_
@@ -354,6 +356,11 @@ Definition navigation_target env role area :=
   | _, Roles.GlobalNavigationEntry _ true => true
   | NavigationArea, _ => compact
   | _, _ => false end.
+Definition icon_control purpose area role :=
+  match role, C.action_purpose purpose with
+  | Roles.CompactNavigationEntry _, _
+  | Roles.NavigationEntry _, C.ApplicationSettings _ => false
+  | _, _ => icon_only purpose area end.
 Definition control_geometry_properties env (activity : bool) role area purpose icon choice supporting :=
   let value := geometry_for purpose area icon choice supporting in
   let scale := fun amount => if activity then match amount with
@@ -388,7 +395,7 @@ Definition meaning_geometry {A} (describe : A -> C.purpose) env activity role ar
       | Roles.GlobalNavigationEntry _ _ | Roles.CompactNavigationEntry _
       | Roles.CompactWorkScope _ _ | Roles.NavigationEntry _ | Roles.WorkOverviewButton _ => true
       | _ => false end in
-    control_geometry_properties env activity role area purpose (icon_only purpose area) choice supporting in
+    control_geometry_properties env activity role area purpose (icon_control purpose area role) choice supporting in
   match role, meaning with
   | Roles.WorkOverviewButton _, _ =>
       [("min-block-size",Typography.px (Typography.scaled (Layout.root_font_size_milli env) 36))]
@@ -425,8 +432,18 @@ Definition control_styles purpose role := let purpose:=C.action_purpose purpose 
  |C.OpenPanel icon _ _,Roles.GlobalNavigationEntry _ _=>
  if String.eqb icon "settings" then [("margin-block-start","auto")]else[]
  |C.ApplicationSettings _,Roles.GlobalNavigationEntry _ _=>[("margin-block-start","auto")]
+ |_,Roles.CompactNavigationEntry _=>[("inline-size","100%");("justify-content","start")]
  |C.ActivityDestination,_=>[("inline-size","100%");("justify-content","space-between");("text-align","start")]
  |_,_=>[]end.
+Definition navigation_title key label children :=
+ DOM.Element key "span"
+  ([("data-navigation-slot","title")]++ControlContent.single_line_attributes label)
+  (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty
+  (match children with []=>[DOM.Text label]|_=>children end).
+Definition navigation_glyph key slot attrs content :=
+ DOM.Element key "span" (("data-navigation-slot",slot)::attrs)
+  [("display","inline-grid");("place-items","center");("inline-size","16px");
+   ("block-size","16px");("flex","none")] [] empty content.
 Definition face_children purpose area role label children :=
  let purpose:=C.action_purpose purpose in
  let text:=match children with []=>
@@ -443,15 +460,18 @@ Definition face_children purpose area role label children :=
      (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty [DOM.Text title]]++
    artwork "chevron-down"
  |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++text
- |Roles.CompactNavigationEntry _=>icon++text
+ |Roles.CompactNavigationEntry _=>
+   [navigation_glyph "" "leading" [] icon;navigation_title "" label children]
  |Roles.NavigationEntry _=>match purpose,area with
    |C.NavigateTo "home",NavigationArea=>
     [DOM.Element "" "span" [("data-selvedge-mark","");("aria-hidden","true")] [] [] empty [DOM.Text "S"];
      DOM.Element "" "span" [] [("font-weight","600")] [] empty [DOM.Text "Selvedge"]]
-   |_,_=>icon++text end
+   |_,_=>match icon with []=>[]|_=>[navigation_glyph "" "leading" [] icon]end++
+    [navigation_title "" label children] end
  |_=>match purpose with
  |C.ChooseValue _|C.WorkspacePicker _=>icon++text++artwork "chevron-down"
  |C.ActivityDestination=>text++artwork "chevron-right"
+ |C.Dismiss=>match area with DialogActionsArea=>text|_=>icon end
  |C.ShowActivity expanded=>artwork(if expanded then "chevron-down"else "chevron-right")
  |C.SelectedOption checked=>text++if checked then artwork "check"else[]
  |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
@@ -623,7 +643,7 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
    else styles
  |_=>styles end in
  let styles:=match meaning with S.NavigationRegion NavigationIdentity.WorkOverview _=>
-   set_style "inline-size" (Typography.px(Layout.work_overview_width env))
+   set_style "max-inline-size" (Typography.px(Layout.work_overview_width env))
     (set_style "max-block-size" (Typography.px(Layout.work_overview_height env)) styles)
  |S.NavigationRegion NavigationIdentity.TasksDrawer _=>styles++Layout.modal_navigation_properties env++
    [("background",NativeAppearance.background NativeAppearance.NavigationPaint NativeAppearance.Rest)]
@@ -745,7 +765,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  DOM.Element key tag (attrs++extra) (styles++field_styles) events metadata content in
  let button (submit:bool) action extra:=
  let purpose:=describe(Model.control_input action)in
- let focusable:=andb (icon_only purpose current_area) (match role with Roles.NavigationEntry _=>false|_=>true end) in
+ let focusable:=andb (icon_control purpose current_area role) (match role with Roles.NavigationEntry _=>false|_=>true end) in
  let available:=Model.available(Model.control_availability action) in
  let property_help:=match meaning with S.SettingEntry _ property _|S.SupportingControl _ _ property _=>Some(UX.property_help property)|_=>None end in
  let description:=match Model.control_availability action with Model.Unavailable reason|Model.Busy reason=>reason
@@ -755,6 +775,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    match property_help with Some _=>true|None=>match role with Roles.NavigationEntry _=>true|_=>false end end in
  let type_:=(if andb submit available then "submit" else "button") in
  let events:=if available then [event key generation "click" "activate" Gesture.Press] else [] in
+ let extra:=match source,C.action_purpose purpose with
+  |S.TaskRow _ _ _ _ _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
+  |_,_=>extra end in
  DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++
  (match property_help with Some name=>[("title",description);("aria-label",name)]|None=>[]end)++
  (match role with Roles.WorkTab _|Roles.GlobalNavigationEntry _ _|Roles.CompactNavigationEntry _|Roles.CompactWorkScope _ _=>[("title",Model.control_label action)]
@@ -771,12 +794,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  else face_children purpose current_area role(Model.control_label action)children
  |S.WorkChoice _ _ _,_=>artwork "columns"++children
  |S.TaskRow _ status caption working _,C.NavigateTo _=>
- [DOM.Element(key++"/title-slot")%string "span" ([("data-navigation-slot","title")] ++
- NativeAppearance.overflow_attributes NativeAppearance.SingleLineOverflow (Model.control_label action))
- [("flex","1 1 0%");("min-inline-size","0");("overflow","hidden");("text-overflow","ellipsis");("white-space","nowrap");("text-align","start")] [] empty
- (match children with []=>[DOM.Text(Model.control_label action)]|_=>children end);
- DOM.Element(key++"/status-slot")%string "span"[("data-navigation-slot","status");("role","img");("aria-label",caption);("title",caption)]
- [("display","flex");("align-items","center");("justify-content","center");("inline-size","16px");("block-size","16px");("flex","none")][]empty(glyph(task_status_symbol status working))]
+ let status_key:=(key++"/status-slot")%string in
+ [navigation_title (key++"/title-slot")%string (Model.control_label action) children;
+  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption)]
+    (glyph(task_status_symbol status working))]
  |_,_=>match meaning with
    |S.Choice _ selected _ _=>match current_area with
     |BoardViewArea=>face_children purpose current_area role(Model.control_label action)authored_children
@@ -909,7 +930,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ([event key generation "input" "value" Gesture.Directory] ++match confirm with Some _=>[event key generation "keydown" "confirm" Gesture.ConfirmDirectory]|None=>[] end) empty [])
  |S.BoardProfile automatic selected values enabled busy _=>label_field env activity key label false (element "select"
  ([("value",selected);("data-automatic",flag automatic);("aria-busy",flag busy)]++(if busy then[("title","This action is pending");("aria-description","This action is pending")]else if enabled then[]else[("title","Unavailable in the current state");("aria-description","Unavailable in the current state")])++disabled (enabled && negb busy))
- [event key generation "change" "value" Gesture.SelectBoardProfile] empty (choices key selected values))
+ [event key generation "change" "value" Gesture.SelectBoardProfile] empty
+ ((if String.eqb selected "" then
+   [DOM.Element (NavigationIdentity.key_part key "prompt") "option"
+    [("value","");("disabled","");("selected","")] [] [] empty [DOM.Text "请选择草稿模型"]] else []) ++
+  choices key selected values))
  |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
  (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
@@ -919,10 +944,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [event key generation "cancel" "dismiss" Gesture.Dismiss] (layer_metadata key behavior)
  (* The native dialog supplies inertness and focus isolation; its content keeps
     the menu role required by the choices it contains. *)
- (match Model.layer_presentation behavior with Model.AnchoredMenu=>
+ (match meaning, Model.layer_presentation behavior with
+ |S.NavigationRegion NavigationIdentity.GlobalMenu _,_=>children
+ |_,Model.AnchoredMenu=>
    [DOM.Element (key++"/menu")%string "div" [("role","menu");("aria-label",label)]
     [("display","flex");("flex-direction","column");("gap","inherit")] [] empty children]
-  |_=>children end)
+  |_,_=>children end)
  |S.Graphic plot=>DOM.Element key "svg" (attrs++[("viewBox",("0 0 "++text_number (Npos (Graphics.width plot))++" "++text_number (Npos (Graphics.height plot)))%string);("role","img");("stroke-linecap","round");("stroke-linejoin","round");
  ("width",text_number(Npos(Graphics.width plot)));("height",text_number(Npos(Graphics.height plot)))])
  (styles++[("max-inline-size","none");("flex","none")]) [] empty (map (graphic_primitive generation) (Graphics.primitives plot))

@@ -100,12 +100,21 @@ Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.
  ([Node key "property-repair"(UX.obstruction_message cause)Roles.Alert(ReadOnly(UX.obstruction_message cause))[]]++
  if String.eqb(UX.obstruction_code cause)"workspace_observation_failed"then
  [declared key Roles.Button(secondary "retry" "Retry"(Input.RetryWorkspace e(part key "retry")))]else[])%list.
+Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstruction e) :=
+ (* An empty project name is the initial input state. Keep the action
+    unavailable through the assessment and show errors for entered names. *)
+ match Draft.contents draft with
+ |Draft.ProjectBody _ name _ _=>
+   negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
+ |_=>true end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  fold_right(fun field rest=>match field_node snapshot s e parent field with
  |Some node=>node::((match Observe.attention_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
   |Some cause=>match UX.obstruction_target cause with
    |UX.RepairField subject=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
-     then obstruction_nodes parent cause else[]|UX.RepairEditor=>[]end
+     then if field_obstruction_visible (Session.current_draft s e) cause
+          then obstruction_nodes parent cause else[] else[]
+   |UX.RepairEditor=>[]end
   |None=>[]end)++rest)%list
  |None=>rest end)[]fields.
 Definition property_button (snapshot:json) (s:Session.state) e parent (property:UX.property e) :=

@@ -129,19 +129,21 @@ Definition directory_view s :=
      dialog_body parent(match resource with
       |Resource.Loaded _ _ catalog=>
        [region parent "navigation" "Folder navigation" Roles.Section
-        ([Node(part parent "location")"directory-location" "Directory"Roles.Field
+        ([region parent "directory-location-actions" "" Roles.Toolbar
+         [Node(part parent "location")"directory-location" "Directory"Roles.Field
           (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]++
+         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]]++
          match string_field "parent" catalog with None=>[]|Some path=>
           [declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end);
         region parent "folders" "Folders" Roles.Section content]
       |_=>content end);
      dialog_actions parent
-      (List.app(match resource with Resource.Loaded _ _ _=>
+      (declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))::
+       match resource with Resource.Loaded _ _ _=>
        [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
-       [declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))])]]
+       ]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]

@@ -24,7 +24,7 @@ Definition command_purpose (command:SS.public_command):=let source:=Schema.encod
  match string_field "op" source with
  |Some "stop"=>P.StopExecution|Some "freeze"=>P.PauseExecution|Some "unfreeze"=>P.ResumeExecution
  |Some "interrupt"=>P.InterruptExecution|Some "cancel_operation"=>P.AbortOperation
- |Some "review_approval"=>P.ApprovalDecision(flag "allow" source)
+ |Some "review_approval"=>P.ApprovalDecision(String.eqb (text "decision" source) "allow")
  |Some "archive"|Some "archive_card"|Some "delete_work"=>P.ArchiveItem false
  |Some "restore_card"=>P.ArchiveItem true
  |Some "delete_project"|Some "delete_card"|Some "delete_task_graph"=>P.DeleteItem
