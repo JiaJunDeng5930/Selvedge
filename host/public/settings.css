@@ -14,7 +14,7 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-control-limit: 12rem;
   --settings-control-height: 2.125rem;
   --settings-surface: light-dark(#faf9f7, #252422);
-  --settings-scrim: light-dark(#211d1899, #080706a6);
+  --settings-scrim: light-dark(#1f1f1ab8, #080706a6);
   --settings-field: light-dark(#fffefd, #2f2d2a);
   --settings-selected: light-dark(#edeae4, #37332e);
   --settings-rule: light-dark(#e6e2dc, #413d37);
@@ -26,10 +26,11 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-focus: light-dark(#8c523a, #d39b7e);
 }
 dialog[data-semantic-key="settings"] {
-  /* The heading, categories and reading column share the same page measure. */
-  --settings-edge: max(clamp(1.5rem, 4.5vi, 3.5rem), (100vi - 62rem) / 2);
-  --settings-rail: clamp(7.25rem, 17vi, 11rem);
-  --settings-gutter: clamp(1.375rem, 3.8vi, 3.25rem);
+  /* The settings window anchors navigation to its edge. The reading surface
+     takes the space left after the rail and keeps its own scroll position. */
+  --settings-edge: clamp(1rem, 2vi, 1.75rem);
+  --settings-rail: clamp(8rem, 18vi, 14.5rem);
+  --settings-gutter: clamp(1.125rem, 3.2vi, 3rem);
   container: settings-shell / inline-size;
   position: fixed !important;
   inset: 0 !important;
@@ -64,7 +65,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: .375rem !important;
   inline-size: fit-content !important;
   max-inline-size: 100% !important;
-  margin-inline-start: .75rem;
+  margin-inline-start: 1.875rem;
   padding: 0 !important;
 }
 [data-semantic-key="settings-identity"] > [data-semantic-key="heading"] {
@@ -190,7 +191,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   inline-size: 100% !important;
   align-items: stretch !important;
   gap: 0 !important;
-  padding: .3125rem var(--settings-edge) 2.25rem .2rem !important;
+  padding: .3125rem calc(var(--settings-edge) + .875rem) 2.25rem .2rem !important;
   scrollbar-gutter: stable;
   scroll-padding-block: .5rem;
 }
@@ -200,9 +201,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
   gap: 6px !important;
 }
-[data-semantic-key="settings-title"] > [data-semantic-key="heading"] {
+[data-semantic-key="settings-title"] [data-semantic-key="heading"] {
   margin: 0 !important;
-  font-size: 1.25rem !important;
+  font-size: 1.0625rem !important;
   font-weight: 600 !important;
   line-height: 1.2 !important;
   letter-spacing: -.025em;
@@ -294,7 +295,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
 }
 [data-semantic-key="settings-entries"] > [data-semantic-key="settings-item"] {
-  padding: .375rem 0 .375rem var(--settings-inset) !important;
+  padding: calc(var(--settings-group-space) / 2) 0 !important;
 }
 /* An object name can wrap, but its Edit action still belongs to the same row. */
 [data-semantic-key="settings-entries"] [data-semantic-key="settings-row"] {
@@ -309,11 +310,13 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: .625rem !important;
   padding: var(--settings-row-space) 0 !important;
 }
-[data-semantic-key="settings-collection-heading"] {
-  gap: var(--settings-related-gap) !important;
+[data-semantic-key="settings-collection"]:not(:has(> [data-semantic-key="settings-row"])) {
   padding: 0 !important;
 }
-[data-semantic-key="settings-collection-heading"] > h3[data-semantic-key="heading"] {
+[data-semantic-key="settings-collection"]:has(> [data-semantic-key="settings-row"]) > [data-semantic-key="settings-entries"] {
+  padding-inline-start: var(--settings-inset) !important;
+}
+[data-semantic-key="settings-collection"] h3[data-semantic-key="heading"] {
   margin-block-end: 0 !important;
 }
 [data-semantic-key="settings-collection-actions"] {
@@ -445,43 +448,77 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: normal !important;
   overflow-wrap: anywhere;
 }
-/* A small set of visible, mutually exclusive values shares a track.
-   The selected segment looks like a value, even when focus moves away. */
-[data-semantic-key="settings"] [data-semantic-key="theme-options"] {
-  flex-flow: row wrap !important;
-  justify-content: flex-start !important;
+[data-semantic-key="settings-content"] [data-semantic-key="theme"] {
   align-items: stretch !important;
-  inline-size: fit-content !important;
+  gap: var(--settings-row-space) !important;
+  padding: var(--settings-row-space) 0 !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  inline-size: 52.5rem !important;
   max-inline-size: 100% !important;
-  padding: .1875rem !important;
-  gap: .125rem !important;
-  border-radius: .5rem !important;
-  background: var(--settings-selected) !important;
+  padding: 0 !important;
+  gap: min(.875rem, 3cqi) !important;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
   --control-rest-background: transparent !important;
-  min-block-size: calc(var(--settings-control-height) - .375rem) !important;
-  padding: .1875rem .5rem !important;
+  display: grid !important;
+  grid-template-areas: "sample" "label";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  align-items: start !important;
+  justify-content: stretch !important;
+  gap: .375rem !important;
+  min-inline-size: 0 !important;
+  inline-size: 100% !important;
+  padding: 0 !important;
   border-color: transparent !important;
-  border-radius: .375rem !important;
+  text-align: center !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
   color: var(--settings-muted) !important;
 }
-[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
-  --control-rest-background: var(--settings-field) !important;
-  border-color: var(--settings-control-border) !important;
-  color: var(--selvedge-text) !important;
+[data-semantic-key="theme-options"] > button > span:not([aria-hidden="true"]) {
+  grid-area: label;
+  text-align: center !important;
+  white-space: normal !important;
 }
-/* Three short labels fit a single track at ordinary sizes. With enlarged
-   text, keep the choices equal and in order by turning the whole track. */
-@container settings-content (inline-size < 11rem) {
-  [data-semantic-key="settings"] [data-semantic-key="theme-options"] {
-    flex-flow: column nowrap !important;
-  }
-  [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
-    inline-size: 100% !important;
-    justify-content: flex-start !important;
-    text-align: start !important;
-  }
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
+  color: var(--selvedge-text) !important;
+  font-weight: 600 !important;
+}
+/* Each sample resolves the same palette as the workspace. The system choice
+   shows both color schemes with the same sidebar and composer geometry. */
+[data-semantic-key="theme-options"] > button::before,
+[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
+  content: "";
+  grid-area: sample;
+  color-scheme: light;
+  inline-size: 100%;
+  aspect-ratio: 2;
+  box-sizing: border-box;
+  border: 1px solid var(--selvedge-border);
+  border-radius: .625rem;
+  background:
+    radial-gradient(circle closest-side, var(--selvedge-accent) 88%, transparent 99%) right 13% bottom 26% / 7% 17% no-repeat,
+    linear-gradient(var(--selvedge-muted) 0 0) right 39% bottom 29% / 25% 1px no-repeat,
+    linear-gradient(var(--selvedge-surface) 0 0) right 9% bottom 17% / 56% 26% no-repeat,
+    linear-gradient(var(--selvedge-muted) 0 0) right 33% top 28% / 36% 2px no-repeat,
+    linear-gradient(var(--selvedge-selection) 0 0) left 7% top 34% / 19% 9% no-repeat,
+    linear-gradient(var(--selvedge-connector) 0 0) left 9% top 51% / 14% 1px no-repeat,
+    linear-gradient(90deg, var(--selvedge-navigation) 30%, var(--selvedge-border) 30% calc(30% + 1px), var(--selvedge-canvas) calc(30% + 1px));
+}
+[data-semantic-key="theme-options"] > [data-semantic-key="theme-DarkAppearance"]::before,
+[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
+  color-scheme: dark;
+}
+[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
+  clip-path: inset(0 0 0 50%);
+}
+[data-semantic-key="theme-options"] > button[aria-checked="true"]::before,
+[data-semantic-key="theme-options"] > button[aria-checked="true"]::after {
+  border-color: var(--settings-focus);
 }
 [data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
   font-size: .8125rem !important;
@@ -563,21 +600,41 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: .4375rem !important;
 }
 [data-semantic-key="settings-value-row"] {
-  display: flex !important;
-  flex-flow: row wrap !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end !important;
   padding: 0 !important;
   gap: .375rem !important;
 }
-[data-semantic-key="settings-value-row"] > :has(> input) {
-  flex: 1 1 var(--settings-entry-measure) !important;
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"] {
+  position: relative;
+  align-self: end !important;
+  inline-size: var(--settings-control-height) !important;
+  padding: 0 !important;
+  font-size: 0 !important;
 }
-[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="connection-overrides"] {
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"] > * {
+  display: none !important;
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::before,
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  inline-size: .625rem;
+  block-size: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"] {
   --control-rest-background: transparent !important;
   border-color: transparent !important;
   color: var(--settings-muted) !important;
 }
-[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="connection-overrides"]::before {
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"]::before {
   content: "";
   inline-size: 5px;
   block-size: 5px;
@@ -586,7 +643,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-width: 0 1px 1px 0;
   transform: rotate(-45deg);
 }
-[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="connection-overrides"][aria-expanded="true"]::before {
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"][aria-expanded="true"]::before {
   transform: rotate(45deg);
 }
 [data-semantic-key="settings"] button:is([data-semantic-key="begin-add"], [data-semantic-key="add-value"]) span {
@@ -641,8 +698,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
     padding-block: .25rem !important;
   }
   [data-semantic-key="settings-content"] { padding: min(1rem, 3dvh) var(--settings-edge) 1.75rem !important; }
-  /* The compact picker supplies the visible category title. */
-  [data-semantic-key="settings-title"] {
+  /* The compact picker replaces the category name. Any introduction or
+     action that belongs to the page still belongs in the reading order. */
+  [data-semantic-key="settings-title"] [data-semantic-key="heading"],
+  [data-semantic-key="settings-title"]:not(:has([data-semantic-key="description"], button)) {
     position: absolute !important;
     inline-size: 1px !important;
     block-size: 1px !important;
@@ -722,7 +781,7 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
 }
 
 dialog[data-semantic-key="settings-configuration-editor"] {
-  --settings-editor-measure: 29rem;
+  --settings-editor-measure: 33rem;
 }
 dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="settings-instructions-field"]) {
   --settings-editor-measure: 38rem;
@@ -730,6 +789,53 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-body"] {
   gap: .875rem !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
+  flex-flow: column nowrap !important;
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] > [role="status"] {
+  flex: none !important;
+  max-block-size: min(6lh, 22dvh);
+  overflow: hidden auto !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+/* The decision row has the same footprint before and after an edit. */
+[data-semantic-key="settings-editor-decisions"] {
+  flex-flow: row nowrap !important;
+  justify-content: flex-end !important;
+  gap: .5rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-editor-decisions"] > button {
+  flex: 0 1 auto !important;
+  min-inline-size: 0 !important;
+  white-space: nowrap !important;
+}
+[data-semantic-key="settings-editor-decisions"] > button > span {
+  white-space: nowrap !important;
+}
+[data-semantic-key="settings-editor-decisions"] > button[data-semantic-key="cancel"] {
+  flex: 0 0 min(8ch + 1rem, 55%) !important;
+  padding-inline: .5rem !important;
+}
+/* In a short, narrow window, let the foreground editor use the window. */
+@media (max-width: 28rem) and (max-height: 32rem) {
+  dialog[data-semantic-key="settings-configuration-editor"] {
+    --settings-dialog-clearance: 0px;
+    block-size: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+  [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-header"] > h2 {
+    font-size: 1rem !important;
+    line-height: 1.2 !important;
+  }
+  [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
+    gap: .25rem !important;
+    padding-block-start: .375rem !important;
+  }
 }
 [data-semantic-key="settings-instructions-field"],
 [data-semantic-key="settings-instructions-field"] :has(> textarea) {

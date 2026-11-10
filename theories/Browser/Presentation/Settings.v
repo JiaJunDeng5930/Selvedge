@@ -17,12 +17,11 @@ Module Config := Configuration.Config.
 
 Definition settings_root := "/settings".
 
-Definition sections :=
- [SettingsGeneral; SettingsModels; SettingsTools; SettingsTasks; SettingsContext; SettingsConnection].
 Definition section_label section :=
  match section with
- | SettingsGeneral => "General" | SettingsModels => "Models" | SettingsTools => "Tools"
- | SettingsTasks => "Tasks" | SettingsContext => "Context" | SettingsConnection => "Connection"
+ | SettingsGeneral => "General" | SettingsModels => "Models" | SettingsTools => "Connectors"
+ | SettingsExtensions => "Extensions"
+ | SettingsTasks => "Tasks" | SettingsContext => "Context" | SettingsConnection => "Service"
  end.
 Definition same_section left right :=
  String.eqb (settings_section_name left) (settings_section_name right).
@@ -30,7 +29,8 @@ Definition section_for path :=
  match path with
  | ["instructions"] => SettingsGeneral
  | ("profiles" | "chatgpt" | "reasoning_evaluators") :: _ => SettingsModels
- | ("mcp" | "plugins" | "skills" | "chatgpt_plugin") :: _ => SettingsTools
+ | ("mcp" | "chatgpt_plugin") :: _ => SettingsTools
+ | ("plugins" | "skills") :: _ => SettingsExtensions
  | ("max_fork" | "max_descendants" | "cloud") :: _ => SettingsTasks
  | ("host" | "port" | "remote") :: _ => SettingsConnection
  | _ => SettingsContext
@@ -83,10 +83,13 @@ Definition action parent key label emphasis (enabled : bool) input : node Input.
 Definition button parent key label := action parent key label Secondary.
 Definition note parent key text : node Input.input := information parent key Information.Description text.
 Definition named_region parent key label (children : list (node Input.input)) := region parent key label Roles.Section children.
-Definition title_block parent label description :=
+Definition title_block parent label description controls :=
  let heading := part parent "settings-title" in
  named_region parent "settings-title" ""
-   (title heading label :: if String.eqb description "" then [] else [note heading "description" description]).
+   [named_region heading "settings-row" ""
+      [named_region heading "settings-copy" ""
+         (title heading label :: if String.eqb description "" then [] else [note heading "description" description]);
+       named_region heading "settings-controls" "" controls]].
 Definition section_group parent key label rows : list (node Input.input) :=
  match rows with
  | [] => []
@@ -248,11 +251,16 @@ Definition form_setting parent services entry :=
 
 (* The overview enumerates saved objects. Draft edits and removals become
    visible here after a successful write. *)
-Definition collection_setting parent services entry item :=
+Definition collection_add services path item :=
+ button (setting_entry_parent path) "begin-add" ("Add " ++ item) (can_edit path services)
+   (Services.BeginAddConfigurationItem path).
+
+Definition collection_setting parent services entry item (page_collection : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
  let list_id := part id "settings-entries" in
+ let header := part id "settings-collection-heading" in
  let view := service_configuration services in
  let enabled := can_edit path services in
  let entries := child_items path (Config.setting_value entry) in
@@ -264,6 +272,7 @@ Definition collection_setting parent services entry item :=
  let entries_body := match entries with
    | [] => [] | _ => [named_region id "settings-entries" label (map entry_row entries)] end in
  let footer := part id "settings-collection-actions" in
+ let add := collection_add services path item in
  let actions := if is_resettable entry then
    [button footer "restore-default" "Restore list defaults" enabled (Services.ResetConfigurationAt path)]
    else [] in
@@ -271,20 +280,28 @@ Definition collection_setting parent services entry item :=
    | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
    | _, _ => []
    end in
- (* A collection has a heading, saved objects and actions on the whole
-    collection. Editing one object belongs to that object's row. *)
+ (* A collection that gives the page its purpose already has a title and
+    an Add action in the page header. Embedded collections own both. *)
+ let '(heading, footer_actions) := if page_collection then ([], actions) else
+   let '(header_actions, footer_actions) :=
+     match entries with [] => ([add], actions) | _ => ([], add :: actions) end in
+   ([named_region id "settings-row" ""
+       [named_region header "settings-copy" ""
+          [group_title header label; note header "description" description];
+        named_region header "settings-controls" "" header_actions]], footer_actions) in
  Node id "settings-collection" "" Roles.Section Region
-   ([named_region id "settings-collection-heading" ""
-      [group_title (part id "settings-collection-heading") label;
-       note (part id "settings-collection-heading") "description" description]]
-    ++ entries_body
-    ++ [named_region id "settings-collection-actions" ""
-      (button (setting_entry_parent path) "begin-add" ("Add " ++ item) enabled
-        (Services.BeginAddConfigurationItem path) :: (actions ++ feedback)%list)])%list.
+   (heading ++ entries_body ++
+    match (footer_actions ++ feedback)%list with
+    | [] => []
+    | controls => [named_region id "settings-collection-actions" "" controls]
+    end)%list.
 
-Definition normal_entry parent services entry :=
- match ConfigurationForms.collection_item (Config.setting_path entry) with
+Definition normal_entry parent services primary entry :=
+ let path := Config.setting_path entry in
+ match ConfigurationForms.collection_item path with
  | Some item => collection_setting parent services entry item
+     (match primary with Some main => String.eqb (Config.setting_key main) (Config.setting_key path)
+       | None => false end)
  | None => if Configuration.focused_editor entry then form_setting parent services entry
            else compact_setting parent services entry
  end.
@@ -299,6 +316,19 @@ Definition entries_for_paths services paths :=
  | None => []
  end.
 
+Definition primary_collection section : option (list string) :=
+ match section with SettingsTools => Some ["mcp"] | _ => None end.
+
+Definition page_heading parent services section :=
+ let label := section_label section in
+ match primary_collection section with
+ | None => title_block parent label "" []
+ | Some path =>
+   let controls := match entries_for_paths services [path], ConfigurationForms.collection_item path with
+     | _ :: _, Some item => [collection_add services path item] | _, _ => [] end in
+   title_block parent label (snd (copy path)) controls
+ end.
+
 Definition configuration_groups section : list (string * string * list (list string)) :=
  match section with
  | SettingsGeneral => []
@@ -306,8 +336,9 @@ Definition configuration_groups section : list (string * string * list (list str
    [("model-configurations", "", [["profiles"]]);
     ("model-services", "", [["chatgpt"]; ["reasoning_evaluators"]])]
  | SettingsTools =>
-   [("tool-connections", "", [["mcp"]; ["chatgpt_plugin"]]);
-    ("tool-sources", "", [["plugins"]; ["skills"]])]
+   [("tool-connections", "", [["mcp"]]); ("project-sharing", "", [["chatgpt_plugin"]])]
+ | SettingsExtensions =>
+   [("tool-sources", "", [["plugins"]; ["skills"]])]
  | SettingsTasks =>
    [("limits", "Task limits", [["max_fork"]; ["max_descendants"]]);
     ("workspaces", "", [["cloud"]])]
@@ -333,15 +364,17 @@ Definition section_entries services section : list (string * string * list Confi
  | _ => [] end)%list.
 
 Definition appearance parent current :=
- let id := part (part (part parent "theme") "settings-controls") "theme-options" in
- let themes := [("Light", Appearance.LightAppearance); ("System", Appearance.SystemAppearance); ("Dark", Appearance.DarkAppearance)] in
- row parent "theme" "Appearance" ""
-   [Node id "theme-options" "Color theme" Roles.Section ChoiceGroup
+ let section := part parent "theme" in
+ let id := part (part section "settings-controls") "theme-options" in
+ let themes := [("Light", Appearance.LightAppearance); ("Match system", Appearance.SystemAppearance); ("Dark", Appearance.DarkAppearance)] in
+ named_region parent "theme" ""
+   [group_title section "Appearance";
+    Node id "theme-options" "Color theme" Roles.Section ChoiceGroup
      (map (fun '(label, theme) =>
         let key := Appearance.appearance_name theme in
-        Node (part id key) "theme-option" label Roles.Button
+        Node (part id key) ("theme-" ++ key) label Roles.Button
           (Choice SingleChoice (String.eqb key (Appearance.appearance_name current)) ""
-             (secondary key label (Input.ServiceInput (Services.ChooseAppearance theme)))) []) themes)] [].
+             (secondary key label (Input.ServiceInput (Services.ChooseAppearance theme)))) []) themes)].
 
 Definition local_connection parent services :=
  let id := part (part parent "local") "settings-controls" in
@@ -370,7 +403,8 @@ Definition overview root parent section services :=
  | _ => []
  end in
  (local ++ flat_map (fun '(key, label, entries) =>
-   group key label (fun p => map (normal_entry p services) entries)) (section_entries services section))%list.
+   group key label (fun p => map (normal_entry p services (primary_collection section)) entries))
+   (section_entries services section))%list.
 
 Definition catalog_status parent services :=
  let load label := button parent "load-configuration" label (Services.connected services) Services.LoadConfiguration in
@@ -403,12 +437,13 @@ Definition navigation parent current : list (node Input.input) :=
    Node (part id key) "settings-category" label Roles.Button
      (Choice SingleChoice (same_section current section) ""
        (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
- [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup (map section_choice sections)].
+ [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup
+   (map section_choice settings_sections)].
 
 (* The same category choice moves from the rail to the settings heading
    when the rail would take up the document's reading space. *)
 Definition compact_navigation parent current :=
- let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) sections in
+ let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) settings_sections in
  named_region parent "settings-mobile-nav" ""
    [Node (part parent "settings-section-picker") "settings-section-picker" "Settings section" Roles.Field
      (ConfigurationField false (settings_section_name current) (Some options) true
@@ -420,7 +455,7 @@ Definition content root parent section services :=
  let view := service_configuration services in
  let id := part parent ("settings-content/" ++ settings_section_name section) in
  Node id "settings-content" "" Roles.Section Region
-   ([title_block id (section_label section) ""] ++ catalog_status id services ++
+   ([page_heading id services section] ++ catalog_status id services ++
     draft_notice id section view ++ overview root id section services)%list.
 
 Definition view s :=
@@ -443,8 +478,15 @@ Definition view s :=
        dialog_body root (navigation body section ++ [content root body section services])]]
  end.
 
-(* A form has one reading order: object, fields, outcome, then decision.
-   Only the field region scrolls. The saved overview stays in its own layer. *)
+Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=
+ let id := part parent key in
+ Node id key label Roles.Button
+   (Activate (Control key label emphasis (Input.ServiceInput input)
+     (if enabled then Available else Unavailable "Unavailable in the current state")))
+   [information id "label" Information.OptionLabel caption].
+
+(* The object and decision stay in view while the field region scrolls.
+   A write's result belongs with the controls that initiated it. *)
 Definition configuration_dialog generation id caption trigger fallback view
   (fields : list (node Input.input)) primary : node Input.input :=
  let dirty := Configuration.has_unsaved_work view in
@@ -454,10 +496,12 @@ Definition configuration_dialog generation id caption trigger fallback view
      trigger fallback trigger (Input.ServiceInput Services.CancelConfigurationEdit)
      false (ready && negb dirty)))
    [dialog_header id [title id caption];
-    dialog_body id (fields ++ write_status id view)%list;
-    dialog_actions id [
-      button id "cancel" (if dirty then "Discard changes" else "Cancel") ready Services.CancelConfigurationEdit;
-      primary]].
+    dialog_body id fields;
+    dialog_actions id (write_status (part id "actions") view ++
+      [named_region (part id "actions") "settings-editor-decisions" ""
+        [configuration_action id "cancel" (if dirty then "Discard" else "Cancel")
+           (if dirty then "Discard changes" else "Cancel") Secondary ready Services.CancelConfigurationEdit;
+         primary]])].
 
 Definition configuration_save id entry raw view enabled :=
  action id "save" "Save" Primary (save_enabled entry raw view enabled) Services.SetConfiguration.
@@ -471,8 +515,8 @@ Definition collection_editor generation id entry draft view enabled item : list 
  | Some (name, value) =>
    [dialog ("New " ++ item) add
      [ConfigurationForms.new_item_field id name enabled;
-      ConfigurationForms.item_fields path id value enabled]
-     (action id "add" ("Add " ++ item) Primary (enabled && Configuration.can_add_item view)
+      ConfigurationForms.item_fields path id value view enabled]
+     (configuration_action id "add" "Add" ("Add " ++ item) Primary (enabled && Configuration.can_add_item view)
        Services.SetConfiguration)]
  | None => match Configuration.preferred_item (Configuration.form_editor_current view) with
    | None => []
@@ -482,11 +526,11 @@ Definition collection_editor generation id entry draft view enabled item : list 
        | Some _ => editor_trigger path (edit_item_key name) | None => add end in
      match lookup name (Configuration.collection_entries view) with
      | Some source => [dialog ("Edit " ++ name) trigger
-         (ConfigurationForms.item_form path id item name source enabled)
+         (ConfigurationForms.item_form path id item name source view enabled)
          (configuration_save id entry raw view enabled)]
      | None => [dialog ("Remove " ++ name ++ "?") trigger
          [note id "description" ("This " ++ item ++ " will be removed from settings.")]
-         (action id "confirm-remove" ("Remove " ++ item) Destructive
+         (configuration_action id "confirm-remove" "Remove" ("Remove " ++ item) Destructive
            (save_enabled entry raw view enabled) Services.SetConfiguration)]
      end
    end

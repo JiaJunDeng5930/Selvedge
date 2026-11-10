@@ -92,19 +92,24 @@ Definition decode_connection value := match string_field "status" value with
  |Some "revoked"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionRevoked ticket reason)
  |_=>None end.
 Inductive SettingsSection :=
-| SettingsGeneral | SettingsModels | SettingsTools | SettingsTasks | SettingsContext | SettingsConnection.
+| SettingsGeneral | SettingsModels | SettingsTools | SettingsExtensions
+| SettingsTasks | SettingsContext | SettingsConnection.
+Definition settings_sections :=
+  [SettingsGeneral; SettingsModels; SettingsTools; SettingsExtensions;
+   SettingsTasks; SettingsContext; SettingsConnection].
 Definition settings_section_name section :=
   match section with
   | SettingsGeneral => "general"
   | SettingsModels => "models"
   | SettingsTools => "tools"
+  | SettingsExtensions => "extensions"
   | SettingsTasks => "tasks"
   | SettingsContext => "context"
   | SettingsConnection => "connection"
   end.
 Definition decode_settings_section name :=
   find (fun section => String.eqb (settings_section_name section) name)
-    [SettingsGeneral; SettingsModels; SettingsTools; SettingsTasks; SettingsContext; SettingsConnection].
+    settings_sections.
 Record services := Services {
   connection:connection_observation; settings_return:option string; settings_section:SettingsSection;
   theme:appearance; next_ticket:N;
@@ -183,7 +188,7 @@ Inductive service_input :=
 | EditConfigurationItemName(raw:string)
 | EditConfigurationItemValue(value:json) | RemoveConfigurationItem(name:string)
 | EditModelProfileField(field raw:string)
-| ShowConnectionOverrides(show:bool)
+| ShowConfigurationDetails(show:bool)
 | SetConfiguration | SetConfigurationAt(path:list string)(raw:string)
 | ResetConfiguration | ResetConfigurationAt(path:list string)
 | ConfigurationLoaded(ticket:N)(outcome:sum string Configuration.Config.snapshot)
@@ -344,8 +349,8 @@ Definition service_step input s :=
       keep (with_configuration (Configuration.remove_item name (service_configuration s)) s)
   | EditModelProfileField field raw =>
       keep (with_configuration (Configuration.edit_model_profile_field field raw (service_configuration s)) s)
-  | ShowConnectionOverrides show =>
-      keep (with_configuration (Configuration.show_connection_overrides show (service_configuration s)) s)
+  | ShowConfigurationDetails show =>
+      keep (with_configuration (Configuration.show_details show (service_configuration s)) s)
   | SetConfiguration => configuration_write false s
   | SetConfigurationAt path raw =>
       write_configuration_at path (Configuration.write_input_at path raw (service_configuration s)) false s

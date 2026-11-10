@@ -9,10 +9,11 @@ Open Scope string_scope.
 Module Config := ServiceConfiguration.
 
 Record draft := Draft { draft_path : list string; draft_input : string }.
-Inductive form_mode := FormFields | NewItem (name : string) (value : json) | ConnectionOverrides.
+Inductive form_mode := FormFields | NewItem (name : string) (value : json).
 Record form_editor := FormEditor {
   preferred_item : option string;
-  form_mode_current : form_mode
+  form_mode_current : form_mode;
+  details_choice : option bool
 }.
 
 Record state := State {
@@ -22,7 +23,7 @@ Record state := State {
   form_editor_current : form_editor
 }.
 
-Definition initial_form_editor := FormEditor None FormFields.
+Definition initial_form_editor := FormEditor None FormFields None.
 Definition initial := State Dormant None Dormant initial_form_editor.
 Definition pending s := match writing s with Loading _ _ => true | _ => false end.
 Definition reading s := match catalog s with Loading _ _ => true | _ => false end.
@@ -147,12 +148,9 @@ Definition collection_object s :=
   end.
 Definition collection_entries s := value_or [] (collection_object s).
 
-Definition overrides_open s :=
-  match form_mode_current (form_editor_current s) with ConnectionOverrides => true | _ => false end.
+Definition details_open s initial := value_or initial (details_choice (form_editor_current s)).
 Definition with_form_editor editor s :=
   State (catalog s) (current_draft s) (writing s) editor.
-Definition with_form_mode mode s :=
-  with_form_editor (FormEditor (preferred_item (form_editor_current s)) mode) s.
 Definition editable_collection s :=
   if pending s then None else collection_object s.
 Definition update_collection change s :=
@@ -165,18 +163,19 @@ Definition select_item name :=
   update_collection (fun entries s =>
     match new_item s with
     | None => if existsb (fun entry => String.eqb name (fst entry)) entries then
-        with_form_editor (FormEditor (Some name) FormFields) s else s
+        with_form_editor (FormEditor (Some name) FormFields None) s else s
     | Some _ => s
     end).
 Definition begin_add_item :=
   update_collection (fun _ s =>
     match new_item s, current_draft s with
     | None, Some draft =>
-        with_form_editor (FormEditor None (NewItem "" (collection_seed (draft_path draft)))) s
+        with_form_editor (FormEditor None (NewItem "" (collection_seed (draft_path draft))) None) s
     | _, _ => s
     end).
 Definition change_new_item name value s :=
-  State (catalog s) (current_draft s) Dormant (FormEditor None (NewItem name value)).
+  State (catalog s) (current_draft s) Dormant
+    (FormEditor None (NewItem name value) (details_choice (form_editor_current s))).
 Definition edit_item_name name :=
   update_collection (fun _ s => match new_item s with
     | Some (_, value) => change_new_item name value s
@@ -253,11 +252,13 @@ Definition edit_model_profile_field field raw :=
   edit_item_value (fun value =>
     profile <- as_object value ;;
     option_map JObject (write_model_profile_field field raw profile)).
-Definition show_connection_overrides (show : bool) s :=
+Definition show_details (show : bool) s :=
   if pending s then s else
-  match current_draft s with
-  | Some draft => if matches_path ["chatgpt"] draft then
-      with_form_mode (if show then ConnectionOverrides else FormFields) s else s
+  match editing s with
+  | Some (_, _, entry) => if focused_editor entry then
+      let editor := form_editor_current s in
+      with_form_editor (FormEditor (preferred_item editor) (form_mode_current editor) (Some show)) s
+    else s
   | None => s
   end.
 Definition encode_unit (_ : unit) := JNull.
@@ -275,25 +276,26 @@ Definition decode_optional_profile_text j :=
 Definition encode_form_editor editor :=
   JObject
     [("selected", encode_optional_profile_text (preferred_item editor));
+     ("details", match details_choice editor with Some show => JBool show | None => JNull end);
      ("mode", match form_mode_current editor with
-      | ConnectionOverrides => JObject [("kind", JString "connection_overrides")]
       | FormFields => JObject [("kind", JString "fields")]
       | NewItem name value => JObject
           [("kind", JString "new_item"); ("name", JString name); ("value", value)]
       end)].
 Definition decode_form_editor j :=
   selected <- bind (field "selected" j) decode_optional_profile_text ;;
+  details <- bind (field "details" j) (fun value =>
+    match value with JBool show => Some (Some show) | JNull => Some None | _ => None end) ;;
   mode <- field "mode" j ;;
   kind <- string_field "kind" mode ;;
   editor <- match kind with
-    | "connection_overrides" => Some ConnectionOverrides
     | "fields" => Some FormFields
     | "new_item" =>
         name <- string_field "name" mode ;;
         option_map (NewItem name) (field "value" mode)
     | _ => None
     end ;;
-  Some (FormEditor selected editor).
+  Some (FormEditor selected editor details).
 Definition encode s := JObject
   [("catalog", encode_resource encode_unit Config.encode_snapshot (catalog s));
    ("draft", match current_draft s with None => JNull | Some value => encode_draft value end);

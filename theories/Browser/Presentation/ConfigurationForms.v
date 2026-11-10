@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
-From Selvedge.Adapters Require Common Configuration.
+From Selvedge.Adapters Require CloudConfiguration Common Configuration.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Session Require Import Input Services.
@@ -71,6 +71,18 @@ Definition list_member parent key label item empty source enabled parse commit :
  value_list parent key label item empty (Common.items (Common.get source key)) enabled parse
    (fun value => commit (set_member key value source)).
 
+(* Keep the first view focused on the task's inputs. Show optional settings
+   by default when they contain saved values. An explicit choice wins. *)
+Definition optional_details parent key label view source keys (enabled : bool)
+  (fields : string -> list (node Input.input)) : list (node Input.input) :=
+ let open := Draft.details_open view (existsb (fun key => negb (is_null (Common.get source key))) keys) in
+ let scope := part parent key in
+ Node scope "settings-form-disclosure" label Roles.Button
+   (PanelToggle open (Control key label Secondary
+     (Input.ServiceInput (Services.ShowConfigurationDetails (negb open)))
+     (if enabled then Available else Unavailable "Finish saving first"))) []
+ :: if open then [region scope "form-fields" "" Roles.Section (fields (part scope "form-fields"))] else [].
+
 Definition collection_item path : option string :=
  match path with
  | ["profiles"] => Some "profile"
@@ -81,7 +93,7 @@ Definition collection_item path : option string :=
  | _ => None
  end.
 
-Definition collection_item_fields path parent source enabled commit : list (node Input.input) :=
+Definition collection_item_fields path parent source view enabled commit : list (node Input.input) :=
  let text key label := optional_field parent key label source enabled empty_text commit in
  let number key label := optional_field parent key label source enabled optional_number commit in
  let wide := ModelProfiles.wide_field parent in
@@ -101,26 +113,30 @@ Definition collection_item_fields path parent source enabled commit : list (node
     list_member parent "project_ids" "Allowed projects" "project ID" (JString "") source enabled
       (fun raw => value_or (JString raw) (Config.interpret_input Config.Number raw)) commit]
  | _ =>
+   let plugin_options := if list_eq_dec String.string_dec path ["plugins"] then
+     [("event_timeout_ms", "Event timeout (ms)"); ("event_queue", "Event queue size")] else [] in
    ([wide (text_field parent "command" "Command" source enabled commit);
-     wide (text "cwd" "Working directory"); number "timeout_ms" "Timeout (ms)"]
-    ++ (if list_eq_dec String.string_dec path ["plugins"] then
-      [number "event_timeout_ms" "Event timeout (ms)"; number "event_queue" "Event queue size"] else [])
-    ++ [list_member parent "args" "Arguments" "argument" (JString "") source enabled JString commit])%list
+     list_member parent "args" "Arguments" "argument" (JString "") source enabled JString commit]
+    ++ optional_details parent "execution-options" "Execution options" view source
+      (["cwd"; "timeout_ms"] ++ map fst plugin_options)%list enabled (fun fields =>
+        [optional_field fields "cwd" "Working directory" source enabled empty_text commit;
+         optional_field fields "timeout_ms" "Timeout (ms)" source enabled optional_number commit]
+        ++ map (fun '(key, label) => optional_field fields key label source enabled optional_number commit) plugin_options))%list
  end.
 
 Definition new_item_field parent name enabled : node Input.input :=
  ModelProfiles.field parent "item-name" "Name" false name None enabled
    Services.EditConfigurationItemName.
 
-Definition item_fields path parent source enabled : node Input.input :=
+Definition item_fields path parent source view enabled : node Input.input :=
  let fields := part parent "form-fields" in
  region parent "form-fields" "" Roles.Section
    (match path with
     | ["profiles"] => ModelProfiles.profile_fields fields enabled source
-    | _ => collection_item_fields path fields source enabled Services.EditConfigurationItemValue
+    | _ => collection_item_fields path fields source view enabled Services.EditConfigurationItemValue
     end).
-Definition item_form path parent item name source enabled : list (node Input.input) :=
- [item_fields path parent source enabled;
+Definition item_form path parent item name source view enabled : list (node Input.input) :=
+ [item_fields path parent source view enabled;
   button parent "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)].
 
 Definition account_form parent saved source view (enabled : bool) : list (node Input.input) :=
@@ -137,22 +153,16 @@ Definition account_form parent saved source view (enabled : bool) : list (node I
         (Control key label Secondary
           (Input.ServiceInput (assign path (if active then JBool false else allow)))
           (if enabled then Available else Unavailable "Finish saving first"))) []] in
- let details := Draft.overrides_open view in
- let edit key label parse := optional_field parent key label source enabled parse (assign path) in
+ let edit fields key label parse := optional_field fields key label source enabled parse (assign path) in
  ([mode] ++ if active then
-   [description parent "account-sign-in" "To connect your account, run the login command on the machine running Selvedge.";
-    Node (part parent "connection-overrides") "connection-overrides" "Connection overrides" Roles.Button
-      (PanelToggle details (Control "connection-overrides"
-        (if details then "Hide connection overrides" else "Connection overrides") Secondary
-        (Input.ServiceInput (Services.ShowConnectionOverrides (negb details)))
-        (if enabled then Available else Unavailable "Finish saving first"))) []]
-    ++ (if details then
-      [description parent "override-hint" "Blank fields use the default connection settings.";
-       region parent "form-fields" "" Roles.Section
-         [ModelProfiles.wide_field parent (edit "endpoint" "Responses endpoint" empty_text);
-          ModelProfiles.wide_field parent (edit "issuer" "Issuer" empty_text);
-          ModelProfiles.wide_field parent (edit "auth_file" "Credential file path" empty_text);
-          edit "timeout_ms" "Timeout (ms)" optional_number]] else [])
+   [description parent "account-sign-in" "To connect your account, run the login command on the machine running Selvedge."]
+   ++ optional_details parent "connection-overrides" "Connection overrides" view source
+      ["endpoint"; "issuer"; "auth_file"; "timeout_ms"] enabled (fun fields =>
+      [description fields "override-hint" "Blank fields use the default connection settings.";
+       edit fields "endpoint" "Responses endpoint" empty_text;
+       edit fields "issuer" "Issuer" empty_text;
+       edit fields "auth_file" "Credential file path" empty_text;
+       edit fields "timeout_ms" "Timeout (ms)" optional_number])
    else match saved with
    | JObject (_ :: _) => [description parent "account-off" "Saving removes the current connection overrides and disables account model access."]
    | _ => [] end)%list.
@@ -163,38 +173,40 @@ Definition relay_form parent source enabled : list (node Input.input) :=
   description parent "relay-help"
     "Enter the relay's HTTPS origin. Leave blank to remove the relay. Pair controllers with the remote command after restarting the service."].
 
-Definition cloud_form parent source enabled : list (node Input.input) :=
+Definition cloud_form parent source view enabled : list (node Input.input) :=
  let path := ["cloud"] in
  let backend := "tencent_cvm" in
  match source with
  | JObject _ =>
    let config := Common.get source backend in
    let commit value := assign path (set_member backend value source) in
+   let label := CloudConfiguration.setting_label in
    let section key label fields :=
      group "settings-form-group" parent key label [region (part parent key) "form-fields" "" Roles.Section
        (fields (part (part parent key) "form-fields"))] in
    let fields panel names :=
-     map (fun '(key, label) => text_field panel key label config enabled commit) names in
-   [section "cloud-compute" "Compute" (fun panel => fields panel
-      [("region", "Region"); ("zone", "Zone"); ("image_id", "Image ID");
-       ("instance_type", "Instance type"); ("spot_max_price", "Maximum spot price")]);
+     map (fun key => text_field panel key (label key) config enabled commit) names in
+   ([section "cloud-compute" "Compute" (fun panel => fields panel
+      ["region"; "zone"; "image_id"; "instance_type"; "spot_max_price"]);
     section "cloud-network" "Network" (fun panel =>
-      (fields panel [("vpc_id", "VPC ID"); ("subnet_id", "Subnet ID")]
-      ++ [list_member panel "security_group_ids" "Security groups" "security group ID" (JString "") config enabled JString commit])%list);
+      (fields panel ["vpc_id"; "subnet_id"]
+      ++ [list_member panel "security_group_ids" (label "security_group_ids") "security group ID" (JString "") config enabled JString commit])%list);
     section "cloud-ssh" "SSH" (fun panel =>
-      [text_field panel "key_id" "SSH key ID" config enabled commit;
-       ModelProfiles.wide_field panel (text_field panel "ssh_private_key" "Private key path" config enabled commit);
-       optional_field panel "ssh_user" "SSH user" config enabled empty_text commit;
-       optional_field panel "ssh_port" "SSH port" config enabled optional_number commit]);
-    section "cloud-options" "Connection options" (fun panel =>
-      [select_field panel "address_type" "Address type" (value_text (Common.get config "address_type"))
+      [text_field panel "key_id" (label "key_id") config enabled commit;
+       ModelProfiles.wide_field panel (text_field panel "ssh_private_key" (label "ssh_private_key") config enabled commit)])]
+    ++ optional_details parent "cloud-options" "Connection options" view config
+       ["ssh_user"; "ssh_port"; "address_type"; "api_endpoint"; "internet_max_bandwidth_out"; "startup_timeout_ms"]
+       enabled (fun panel =>
+      [optional_field panel "ssh_user" (label "ssh_user") config enabled empty_text commit;
+       optional_field panel "ssh_port" (label "ssh_port") config enabled optional_number commit;
+       select_field panel "address_type" (label "address_type") (value_text (Common.get config "address_type"))
          [Fields.ChoiceValue "" "Default"; Fields.ChoiceValue "public" "Public"; Fields.ChoiceValue "private" "Private"]
          enabled (fun raw => commit (optional_member "address_type" (empty_text raw) config));
        ModelProfiles.wide_field panel
-         (optional_field panel "api_endpoint" "API endpoint override" config enabled empty_text commit);
-       optional_field panel "internet_max_bandwidth_out" "Outbound bandwidth (Mbps)" config enabled optional_number commit;
-       optional_field panel "startup_timeout_ms" "Startup timeout (ms)" config enabled optional_number commit]);
-    button parent "remove-cloud" "Remove cloud configuration" enabled (assign path (JBool false))]
+         (optional_field panel "api_endpoint" (label "api_endpoint") config enabled empty_text commit);
+       optional_field panel "internet_max_bandwidth_out" (label "internet_max_bandwidth_out") config enabled optional_number commit;
+       optional_field panel "startup_timeout_ms" (label "startup_timeout_ms") config enabled optional_number commit])
+    ++ [button parent "remove-cloud" "Remove cloud configuration" enabled (assign path (JBool false))])%list
  | _ =>
    [description parent "cloud-empty" "Add Tencent Cloud compute, network and SSH settings to provision workspaces. Credentials are supplied by the local service environment.";
     button parent "configure-cloud" "Set up Tencent Cloud" enabled
@@ -227,7 +239,7 @@ Definition structured_form path parent saved source view enabled : list (node In
  match path with
  | ["chatgpt"] => account_form parent saved source view enabled
  | ["remote"] => relay_form parent source enabled
- | ["cloud"] => cloud_form parent source enabled
+ | ["cloud"] => cloud_form parent source view enabled
  | ["compaction"; "targets"] => targets_form parent source enabled
  | _ => [value_list parent "paths" "Files and directories" "path" (JString "")
            (Common.items source) enabled JString (assign path)]

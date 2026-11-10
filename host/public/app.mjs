@@ -6,7 +6,7 @@ import { editorKeyboard, applyByteSelection } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
-import { createLayoutRevealer, revealAndFocus } from './layout-reveal.mjs';
+import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -355,7 +355,13 @@ const renderer = new Renderer(surface, {
   keyboard(source) { return browser('key', source); },
   focus(event, key, node) {
     focusRequest++;
-    if (event.target !== node || typeof node.selectionStart !== 'number') return;
+    if (event.target !== node) return;
+    if (node.matches('input,textarea,select') &&
+        node.closest('dialog[data-semantic-key="settings-configuration-editor"] [data-surface-role="dialog-body"]')) {
+      // Native focus can leave the lower edge of an already exposed field clipped.
+      revealInScrollport(node);
+    }
+    if (typeof node.selectionStart !== 'number') return;
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
