@@ -897,7 +897,12 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   overflow: hidden !important;
   box-shadow: 0 .625rem 2.5rem #1c18142e !important;
 }
-dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"])::backdrop { background: var(--settings-scrim); }
+/* Keep the covered page's landmarks in place while the foreground task is
+   the only layer with crisp text. Both editors share this layer treatment. */
+dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"])::backdrop {
+  background: var(--settings-scrim);
+  backdrop-filter: blur(.125rem);
+}
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] {
   flex: none !important;
   padding: 0 .1875rem .375rem !important;
@@ -1034,7 +1039,8 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
   min-inline-size: min(5em, 40vi) !important;
   white-space: nowrap !important;
 }
-[data-semantic-key="settings-editor-decisions"] > button > span {
+[data-semantic-key="settings-editor-decisions"] > button > [data-semantic-key="label"] {
+  text-align: center !important;
   white-space: nowrap !important;
 }
 /* In a short, narrow window, let the foreground editor use the window. */
