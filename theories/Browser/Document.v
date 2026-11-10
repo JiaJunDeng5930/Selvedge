@@ -682,6 +682,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value) label role ++
+ (if String.eqb (S.semantic_key value) "settings-measure"
+  then [("inert","true");("aria-hidden","true")] else []) ++
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
@@ -1001,7 +1003,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");
    ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
- |S.ChoiceGroup=>element "section" [("role","radiogroup")] [] empty children
+ |S.ChoiceGroup=>element "section" ([("role","radiogroup")] ++
+   if String.eqb (S.semantic_key value) "theme-options"
+   then [("data-native-responsive-row",key);("data-native-equal-columns","");("data-native-row-direction","column")]
+   else []) [] empty children
  |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>NavigationIdentity.task_view_scope v|None=>"" end)] [] empty children
  |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
  |S.TaskRow task status caption working selected=>

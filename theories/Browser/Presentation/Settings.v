@@ -295,7 +295,7 @@ Definition editor_button path key caption label (enabled : bool) input : node In
      (if enabled then Available else Unavailable "Finish the current edit first")))
    [information id "label" Information.OptionLabel caption].
 
-Definition form_setting parent services entry :=
+Definition form_setting parent services entry (measuring : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
@@ -304,7 +304,7 @@ Definition form_setting parent services entry :=
  let description := match path, saved with
    | ["chatgpt"], JBool false => "ChatGPT account access is turned off."
    | _, _ => description end in
- let lines := summary_lines (part id "settings-values") path saved in
+ let lines := if measuring then [] else summary_lines (part id "settings-values") path saved in
  row parent key label description
    [editor_button path "open" (open_label path) (open_label path)
       (can_edit path services) (Services.SelectConfiguration path)]
@@ -316,7 +316,7 @@ Definition collection_add services path item :=
  button (setting_entry_parent path) "begin-add" ("Add " ++ item) (can_edit path services)
    (Services.BeginAddConfigurationItem path).
 
-Definition collection_setting parent services entry item (page_collection : bool) :=
+Definition collection_setting parent services entry item (page_collection measuring : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
@@ -330,14 +330,14 @@ Definition collection_setting parent services entry item (page_collection : bool
    row list_id (part "entry" name) name (item_detail path value)
      [editor_button path (edit_item_key name) "Edit" ("Edit " ++ name) enabled
        (Services.SelectConfigurationItem path name)] [] in
- let entries_body := match entries with
+ let entries_body := if measuring then [] else match entries with
    | [] => [] | _ => [named_region id "settings-entries" label (map entry_row entries)] end in
  let footer := part id "settings-collection-actions" in
  let add := collection_add services path item in
  let actions := if is_resettable entry then
    [button footer "restore-default" "Restore list defaults" enabled (Services.ResetConfigurationAt path)]
    else [] in
- let feedback := match active_raw path view, Configuration.writing view with
+ let feedback := if measuring then [] else match active_raw path view, Configuration.writing view with
    | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
    | _, _ => []
    end in
@@ -357,13 +357,13 @@ Definition collection_setting parent services entry item (page_collection : bool
     | controls => [named_region id "settings-collection-actions" "" controls]
     end)%list.
 
-Definition normal_entry parent services primary entry :=
+Definition normal_entry parent services primary measuring entry :=
  let path := Config.setting_path entry in
  match ConfigurationForms.collection_item path with
  | Some item => collection_setting parent services entry item
      (match primary with Some main => String.eqb (Config.setting_key main) (Config.setting_key path)
-       | None => false end)
- | None => if Configuration.focused_editor entry then form_setting parent services entry
+       | None => false end) measuring
+ | None => if Configuration.focused_editor entry then form_setting parent services entry measuring
            else compact_setting parent services entry
  end.
 
@@ -435,18 +435,20 @@ Definition local_connection parent services :=
       [information id "service-connecting" Information.Status "Connecting"] []
  | ConnectionDormant => row parent "local" "Local service" "Connect this browser to Selvedge."
       [button id "connect" "Connect" true Services.Connect] []
- | ConnectionFailed _ reason | ConnectionRevoked _ reason => row parent "local" "Local service" reason
-      [button id "connect" "Reconnect" true Services.Connect] []
+ | ConnectionFailed _ reason | ConnectionRevoked _ reason =>
+      row parent "local" "Local service" "Connect this browser to Selvedge."
+        [button id "connect" "Reconnect" true Services.Connect]
+        [information (part parent "local") "service-error" Information.Status reason]
  end.
-Definition overview root parent section services groups :=
+Definition overview root parent section services measuring groups :=
  let render_group '(key, label, content) :=
    let id := part parent key in
-   let render_entries := map (normal_entry id services (primary_collection section)) in
+   let render_entries := map (normal_entry id services (primary_collection section) measuring) in
    let body :=
      match content with
-     | AppearanceSettings => [appearance id (Services.theme services)]
+     | AppearanceSettings => if measuring then [] else [appearance id (Services.theme services)]
      | ConversationSettings instructions =>
-       (map (form_setting id services) (entries_for_paths services [instructions])
+       (map (fun entry => form_setting id services entry measuring) (entries_for_paths services [instructions])
        ++ [row id "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
            [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
               (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
@@ -506,21 +508,29 @@ Definition compact_navigation parent current :=
          (bind (as_string value) decode_settings_section))) []].
 (* Changing the category changes the scroll document. Editing a setting
    within it preserves the document and its scroll position. *)
-Definition content root parent section services :=
+Definition content root parent section services (measuring : bool) :=
  let view := service_configuration services in
  let id := part parent ("settings-content/" ++ settings_section_name section) in
  let design := section_design section in
- let header := ([page_heading id services section] ++ catalog_status id services ++
-   draft_notice id section view)%list in
+ let header := (page_heading id services section ::
+   if measuring then [] else catalog_status id services ++ draft_notice id section view)%list in
  (* The page introduction and Add control set the primary collection's
     reading width. Secondary groups lay out their own rows independently. *)
  let primary := match primary_group design with
    | Some group => [named_region id "settings-primary" ""
-       (header ++ overview root id section services [group])%list]
+       (header ++ overview root id section services measuring [group])%list]
    | None => header
    end in
- Node id "settings-content" "" Roles.Section Region
-   (primary ++ overview root id section services (section_groups design))%list.
+ Node id (if measuring then "settings-measure" else "settings-content") "" Roles.Section Region
+   (primary ++ overview root id section services measuring (section_groups design))%list.
+
+(* All categories contribute to the same desktop reading track. Keep only
+   the selected document operable. Saved record details have no influence on
+   the track, so the other documents need only their headings and controls. *)
+Definition documents root parent section services :=
+ named_region parent "settings-documents" ""
+   (map (fun candidate => content root parent candidate services (negb (same_section candidate section)))
+      settings_sections).
 
 Definition view s :=
  let services := State.service_state s in
@@ -539,7 +549,7 @@ Definition view s :=
            [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
             title root "Settings"];
           compact_navigation root section];
-       dialog_body root (navigation body section ++ [content root body section services])]]
+       dialog_body root (navigation body section ++ [documents root body section services])]]
  end.
 
 Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=

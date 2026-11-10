@@ -53,9 +53,9 @@ dialog[data-semantic-key="settings"][open] {
   grid-template-rows: auto minmax(0, 1fr) !important;
   align-items: stretch !important;
   align-content: stretch !important;
-  /* Keep the back button, rail and reading start anchored when the
-     document changes. Only the trailing edge follows the active content. */
-  justify-content: start !important;
+  /* Center one frame shared by the rail and all documents. The active
+     document lays out its own groups inside the common reading track. */
+  justify-content: center !important;
   padding-inline: min(var(--settings-edge), 5vi) !important;
 }
 dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
@@ -90,9 +90,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
   display: grid !important;
-  /* The rail and the current document use their preferred widths. Spare
-     window width stays outside the document instead of between a name and
-     its control. When space runs out, only the document track contracts. */
+  /* Keep surplus outside the rail and reading track. Rows inside a
+     document still share only the width their own group needs. */
   grid-template-columns: max-content minmax(0, max-content) !important;
   grid-template-rows: minmax(0, 1fr) !important;
   align-self: stretch !important;
@@ -203,14 +202,33 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   display: none !important;
 }
 [data-semantic-key="settings-mobile-nav"] { display: none !important; }
-[data-semantic-key="settings-content"] {
+[data-semantic-key="settings-documents"] {
+  display: grid !important;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  min-inline-size: 0 !important;
+  min-block-size: 0 !important;
+  block-size: 100% !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+/* Inert documents contribute their preferred inline size to the same
+   track. Only the selected document occupies vertical reading space. */
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) {
+  grid-area: 1 / 1;
   align-items: stretch !important;
   gap: 0 !important;
   padding: .3125rem .2rem 2.25rem !important;
   scrollbar-gutter: stable;
   scroll-padding-block: .5rem;
 }
-[data-semantic-key="settings-content"] :is(section, footer) { min-inline-size: 0 !important; }
+[data-semantic-key="settings-measure"] {
+  visibility: hidden;
+  block-size: 0 !important;
+  min-block-size: 0 !important;
+  padding-block: 0 !important;
+  overflow: hidden !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) :is(section, footer) { min-inline-size: 0 !important; }
 [data-semantic-key="settings-primary"] {
   align-items: stretch !important;
   gap: 0 !important;
@@ -228,7 +246,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   line-height: 1.2 !important;
   letter-spacing: -.025em;
 }
-[data-semantic-key="settings-content"] [data-semantic-key="description"],
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="description"],
 [data-semantic-key="settings-configuration-editor"] [data-semantic-key="description"],
 [data-semantic-key="settings-values"] > [data-semantic-key] {
   color: var(--settings-muted) !important;
@@ -244,7 +262,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 /* Rows that are read together share the same trailing edge. The largest
    useful row determines that edge, independently of the other groups. A
    page's primary collection shares its measure with the page heading. */
-[data-semantic-key="settings-content"] > :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) > :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) {
   align-self: start !important;
   inline-size: fit-content !important;
   max-inline-size: 100% !important;
@@ -257,7 +275,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) + [data-semantic-key="settings-group"]:not(:has(> h3[data-semantic-key="heading"])) {
   border-block-start: 1px solid var(--settings-rule) !important;
 }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
   margin: 0 0 var(--settings-related-gap) !important;
   color: var(--selvedge-text) !important;
   font-size: .9375rem !important;
@@ -296,14 +314,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
    line boxes supply the spacing. The outer item keeps its separation after
    all of the copy, controls and details, even when any of them wraps. */
 [data-semantic-key="settings-copy"] { gap: 0 !important; }
-[data-semantic-key="settings-content"] [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="description"]) {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="description"]) {
   margin: 0 !important;
 }
 [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="setting-name"]) {
   inline-size: max-content !important;
   max-inline-size: 100% !important;
 }
-[data-semantic-key="settings-content"] [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
   overflow-wrap: break-word;
 }
 [data-semantic-key="settings-copy"] > [data-semantic-key="setting-name"],
@@ -504,29 +522,38 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: normal !important;
   overflow-wrap: anywhere;
 }
-[data-semantic-key="settings-content"] [data-semantic-key="theme"] {
+[data-semantic-key="settings"] [data-semantic-key="theme"] {
   align-items: stretch !important;
   gap: var(--settings-row-space) !important;
   padding: var(--settings-row-space) 0 !important;
 }
+/* Appearance can fill the reading track for comparison, but its chosen
+   arrangement cannot move that track's boundaries. */
+[data-semantic-key="settings"] [data-semantic-key="settings-group"]:has(> [data-semantic-key="theme"]) {
+  inline-size: 100% !important;
+  contain: inline-size;
+}
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] {
-  /* Wrap the whole option when its workspace sample and caption no longer
-     fit alongside the other options and their shared gaps. */
-  display: flex !important;
-  flex-flow: row wrap !important;
-  inline-size: fit-content !important;
-  max-inline-size: 100% !important;
+  /* Read all palettes at the same scale. The measured row is used only if
+     every equal track can fit the widest actual sample and caption. */
+  display: grid !important;
+  grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr);
+  inline-size: 100% !important;
+  min-inline-size: 0 !important;
   padding: 0 !important;
   gap: var(--settings-row-space) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"][data-native-row-direction="row"] {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
   --control-rest-background: transparent !important;
   display: block !important;
-  /* A wrapped thumbnail keeps the same scale as its neighbours. */
-  flex: 0 1 min-content !important;
   min-inline-size: 0 !important;
+  justify-self: stretch;
   inline-size: auto !important;
-  max-inline-size: 100% !important;
   padding: 0 !important;
   border-color: transparent !important;
   text-align: center !important;
@@ -545,7 +572,32 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="theme-choice-label"] {
   grid-area: label;
   text-align: center !important;
+  white-space: nowrap !important;
   overflow-wrap: normal !important;
+}
+/* In a list, each option is still one control. Share the preview and label
+   columns across the whole list so the reader can compare down the page. */
+[data-semantic-key="settings"] [data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button {
+  grid-column: 1 / -1;
+  display: grid !important;
+  grid-template-columns: subgrid;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) {
+  grid-column: 1 / -1;
+  grid-template: none;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: inherit !important;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-choice-label"] {
+  grid-area: 1 / 2;
+  text-align: start !important;
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) > :is([data-semantic-key="theme-sample-light"], [data-semantic-key="theme-sample-dark"]),
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
+  grid-area: 1 / 1;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
   color: var(--selvedge-text) !important;
@@ -641,6 +693,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: nowrap;
   text-align: start;
 }
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-sample-task"] {
+  white-space: normal;
+  overflow-wrap: normal !important;
+}
 [data-semantic-key="theme-sample-title"] {
   font-weight: 650 !important;
   white-space: nowrap;
@@ -682,7 +738,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   color: var(--selvedge-on-accent) !important;
   background: var(--selvedge-accent) !important;
 }
-[data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="service-connected"] {
   font-size: .8125rem !important;
   color: var(--settings-muted) !important;
 }
@@ -727,6 +783,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   margin-inline-end: auto !important;
   font-size: .8125rem !important;
   line-height: 1.45 !important;
+}
+/* Temporary feedback uses the width set by the section's stable content. */
+[data-semantic-key="settings-documents"] :is([data-semantic-key="load-error"], [data-semantic-key="service-error"], [data-semantic-key="draft-notice"], [data-semantic-key="setting-feedback"]) {
+  contain: inline-size;
+  align-self: stretch !important;
+  inline-size: auto !important;
+  margin-inline-end: 0 !important;
+  overflow-wrap: anywhere;
 }
 :is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) [data-semantic-key="save-error"] {
   flex-basis: 100% !important;
@@ -789,7 +853,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   background: var(--settings-focus);
   box-shadow: inset 0 0 0 .125rem var(--settings-selection);
 }
-[data-semantic-key="settings-content"] button[data-semantic-key="begin-add"]::before,
+[data-semantic-key="settings-documents"] button[data-semantic-key="begin-add"]::before,
 [data-semantic-key="settings-configuration-editor"] button[data-semantic-key="add-value"]::before {
   content: "+";
   margin-inline-end: .125rem;
@@ -907,6 +971,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 /* This switches the navigation control for the whole settings shell. Local
    row and theme wrapping are independent of the navigation mode. */
 @container settings-shell (inline-size < calc(8rem + 16rem + 9rem + 2.5rem)) {
+  [data-semantic-key="settings-measure"] { display: none !important; }
   [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
     grid-template-columns: minmax(0, 1fr) !important;
     padding: 0 !important;

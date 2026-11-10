@@ -62,8 +62,14 @@ export function createPhysicalMeasurer({ surface, onChange }) {
             .filter(node => node.hasAttribute('data-native-minimum-inline') ||
               node.closest('[data-supporting-form]')?.dataset.supportingForm === 'compact') : [];
         const previous = minima.map(node => node.style.cssText);
-        let width = gap;
+        const equalColumns = row.hasAttribute('data-native-equal-columns');
+        const direction = row.getAttribute('data-native-row-direction');
+        let width = 0;
+        let widest = 0;
         try {
+          // Measure the comparison cards, even when the published layout
+          // is a list. The available width above belongs to the same group.
+          if (equalColumns) row.dataset.nativeRowDirection = 'row';
           // Single-line captions declare a shrinkable measured-advance floor;
           // their unbroken DOM text is still needed for the preferred width.
           minima.forEach(node => Object.assign(node.style, { flex: 'none',
@@ -73,14 +79,22 @@ export function createPhysicalMeasurer({ surface, onChange }) {
             const original = child.style.cssText;
             try {
               Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
-              width += child.getBoundingClientRect().width;
+              if (equalColumns) {
+                child.style.setProperty('inline-size', size, 'important');
+                child.style.setProperty('max-inline-size', 'none', 'important');
+              }
+              const measured = child.getBoundingClientRect().width;
+              width += measured;
+              widest = Math.max(widest, measured);
             } finally { child.style.cssText = original; }
           }
         } finally {
+          if (equalColumns) row.setAttribute('data-native-row-direction', direction);
           minima.forEach((node, index) => { node.style.cssText = previous[index]; });
           if (nestedForm) nestedSupporting.forEach((node, index) => node.setAttribute('data-supporting-form', forms[index]));
         }
-        return Math.ceil(width);
+        // Every track in an equal-width row must fit its widest member.
+        return Math.ceil(gap + (equalColumns ? widest * children.length : width));
       };
       const observation = { key: row.dataset.nativeResponsiveRow,
         available: Math.max(0, Math.floor(available)), minimum: preferred('min-content') };
