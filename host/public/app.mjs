@@ -2,7 +2,7 @@ import { boundary } from './model-boundary.mjs';
 import { browser, interaction } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Renderer, filesFromEvent } from './renderer.mjs';
-import { editorKeyboard, applyByteSelection } from './keyboard.mjs';
+import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
@@ -436,13 +436,24 @@ const renderer = new Renderer(surface, {
         scope: renderer.focusScope, within_scope: !!renderer.modal?.contains(form), composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled && submitter?.getAttribute('aria-disabled') !== 'true', pending: submitter?.getAttribute('aria-busy') === 'true' }), () => form.requestSubmit(), composing);
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
-    if (dialog && event.key === 'Tab') {
-      const targets = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
+    const radioArrow = node === event.target && keyboard.unmodified && !composing &&
+      ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) ? selectingRadioGroup(node) : null;
+    if (dialog && (event.key === 'Tab' || radioArrow)) {
+      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
         target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') && !target.closest('[inert],[hidden]') &&
         target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
+      const { targets, current } = radioArrow
+        ? { targets: candidates.filter(target => selectingRadioGroup(target) === radioArrow), current: node }
+        : radioTabTargets(candidates, event.target);
       const keys = targets.map((_, index) => String(index));
-      const next = browser('focus_cycle', { current: String(targets.indexOf(event.target)), targets: keys, backward: event.shiftKey });
-      if (next !== null) { event.preventDefault(); targets[Number(next)].focus(); }
+      const backward = radioArrow ? event.key === 'ArrowLeft' || event.key === 'ArrowUp' : event.shiftKey;
+      const next = browser('focus_cycle', { current: String(targets.indexOf(current)), targets: keys, backward });
+      if (next !== null) {
+        event.preventDefault();
+        const target = targets[Number(next)];
+        target.focus();
+        if (radioArrow && target !== current) target.click();
+      }
     }
     if (node.dataset.readingRoot === 'true' && event.target.closest('[data-reading-root="true"]') === node) {
       const state = readingState(key, node);

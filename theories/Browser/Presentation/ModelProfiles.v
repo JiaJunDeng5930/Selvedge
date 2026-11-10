@@ -5,7 +5,6 @@ From Selvedge.Programming Require DeclarationRegistry.
 From Selvedge.Browser.Session Require Import Input Services.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Roles.
-From Selvedge.Interaction.Submission Require Fields.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -16,10 +15,6 @@ Definition provider_label (provider : ProviderCatalog.provider) :=
  | ProviderCatalog.AccountSSE => "ChatGPT"
  | ProviderCatalog.WebConnection _ _ => "ChatGPT Web"
  end.
-
-Definition providers :=
- map (fun provider => Fields.ChoiceValue (ProviderCatalog.provider_name provider) (provider_label provider))
-   (DeclarationRegistry.values ProviderCatalog.registered).
 
 Definition value_text value :=
  match value with JNull => "" | JString text | JNumber text => text | _ => render_json value end.
@@ -35,25 +30,27 @@ Definition field parent key label multiline raw choices enabled
 Definition wide_field parent (value : node Input.input) : node Input.input :=
  Node (part parent ("wide-" ++ semantic_key value)) "settings-wide-field" "" Roles.Section Region [value].
 
-Definition profile_fields parent enabled profile : list (node Input.input) :=
- let edit key label choices :=
-   field parent key label false (value_text (Common.get profile key)) choices enabled
-     (Services.EditModelProfileField key) in
- let backend := ProviderCatalog.backend profile in
- (* DEFENSE: Profiles are loaded as a raw object and can name a provider outside the registry. *)
- let choices := match backend with
-   | Some _ => providers
-   | None => Fields.ChoiceValue (value_text (Common.get profile "provider")) "Choose a provider" :: providers
+(* A provider selects which inputs the rest of the profile needs. Keep the
+   alternatives visible before those inputs, in registry order. *)
+Definition provider_choices parent (enabled : bool) profile : node Input.input :=
+ let id := part parent "provider" in
+ let group := part id "options" in
+ let current := value_text (Common.get profile "provider") in
+ let choice provider :=
+   let key := ProviderCatalog.provider_name provider in
+   let label := provider_label provider in
+   Node (part group key) "settings-provider-option" label Roles.Button
+     (Choice SingleChoice (String.eqb key current) ""
+       (Control key label Secondary (Input.ServiceInput (Services.EditModelProfileField "provider" key))
+         (if enabled then Available else Unavailable "Finish saving first"))) [] in
+ (* DEFENSE: The configuration can contain a provider outside the registry.
+    Keep it in the draft until the user chooses a replacement. *)
+ let unregistered := match ProviderCatalog.backend profile with
+   | None => if String.eqb current "" then [] else
+       [information id "unregistered-provider" Information.Description ("Current provider: " ++ current)]
+   | Some _ => []
    end in
- ([edit "provider" "Provider" (Some choices); edit "model" "Model" None]
- ++ (match backend with
-     | Some (ProviderCatalog.EnvironmentSSE _ _ _) | Some (ProviderCatalog.WebConnection _ _) =>
-       [wide_field parent (edit "endpoint" "Endpoint" None);
-        edit "api_key_env" "API key environment variable" None;
-        edit "timeout_ms" "Timeout (ms)" None]
-     | Some ProviderCatalog.AccountSSE =>
-       [wide_field parent (edit "auth_file" "Auth file" None);
-        wide_field parent (edit "issuer" "Issuer" None); edit "timeout_ms" "Timeout (ms)" None]
-     | _ => match Common.get profile "timeout_ms" with
-            | JNull => [] | _ => [edit "timeout_ms" "Timeout (ms)" None] end
-     end))%list.
+ Node id "settings-provider" "" Roles.Section Region
+   ([information id "provider-label" Information.FieldLabel "Provider"] ++ unregistered ++
+    [Node group "settings-provider-options" "Provider" Roles.Section ChoiceGroup
+      (map choice (DeclarationRegistry.values ProviderCatalog.registered))])%list.

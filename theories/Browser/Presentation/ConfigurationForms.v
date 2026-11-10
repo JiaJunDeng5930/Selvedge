@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
-From Selvedge.Adapters Require CloudConfiguration Common Configuration.
+From Selvedge.Adapters Require CloudConfiguration Common Configuration ProviderCatalog.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Session Require Import Input Services.
@@ -86,6 +86,25 @@ Definition optional_details parent key label view source keys (enabled : bool)
      (if enabled then Available else Unavailable "Finish saving first"))) []
  :: if open then [region scope "form-fields" "" Roles.Section (fields (part scope "form-fields"))] else [].
 
+Definition profile_fields parent enabled profile view : list (node Input.input) :=
+ let edit fields key label := ModelProfiles.field fields key label false
+   (value_text (Common.get profile key)) None enabled (Services.EditModelProfileField key) in
+ let details keys fields := optional_details parent "connection-overrides" "Connection overrides"
+   view profile keys enabled fields in
+ ([ModelProfiles.provider_choices parent enabled profile; edit parent "model" "Model"] ++
+  match ProviderCatalog.backend profile with
+  | Some (ProviderCatalog.EnvironmentSSE _ _ _) | Some (ProviderCatalog.WebConnection _ _) =>
+    details ["endpoint"; "api_key_env"; "timeout_ms"] (fun fields =>
+      [ModelProfiles.wide_field fields (edit fields "endpoint" "Endpoint");
+       edit fields "api_key_env" "API key environment variable"; edit fields "timeout_ms" "Timeout (ms)"])
+  | Some ProviderCatalog.AccountSSE =>
+    details ["auth_file"; "issuer"; "timeout_ms"] (fun fields =>
+      [ModelProfiles.wide_field fields (edit fields "auth_file" "Auth file");
+       ModelProfiles.wide_field fields (edit fields "issuer" "Issuer"); edit fields "timeout_ms" "Timeout (ms)"])
+  | _ => match Common.get profile "timeout_ms" with
+         | JNull => [] | _ => [edit parent "timeout_ms" "Timeout (ms)"] end
+  end)%list.
+
 Definition collection_item path : option string :=
  match path with
  | ["profiles"] => Some "profile"
@@ -144,7 +163,7 @@ Definition item_fields path parent source view enabled : node Input.input :=
  let fields := part parent "form-fields" in
  region parent "form-fields" "" Roles.Section
    (match path with
-    | ["profiles"] => ModelProfiles.profile_fields fields enabled source
+    | ["profiles"] => profile_fields fields enabled source view
     | _ => collection_item_fields path fields source view enabled Services.EditConfigurationItemValue
     end).
 Definition account_form parent saved source view (enabled : bool) : list (node Input.input) :=
