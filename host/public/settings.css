@@ -486,13 +486,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
   --control-rest-background: transparent !important;
-  display: grid !important;
-  grid-template-areas: "sample" "label";
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
-  align-items: start !important;
-  justify-content: stretch !important;
-  gap: .375rem !important;
+  display: block !important;
   min-inline-size: 0 !important;
   inline-size: 100% !important;
   padding: 0 !important;
@@ -503,45 +497,136 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   color: var(--settings-muted) !important;
 }
 [data-semantic-key="theme-options"] > button > span:not([aria-hidden="true"]) {
-  grid-area: label;
+  display: grid !important;
+  grid-template: "sample" auto "label" 1fr / minmax(0, 1fr);
+  gap: .375rem !important;
+  overflow: visible !important;
   text-align: center !important;
   white-space: normal !important;
+}
+[data-semantic-key="theme-choice-label"] {
+  grid-area: label;
+  text-align: center !important;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
   color: var(--selvedge-text) !important;
   font-weight: 600 !important;
 }
-/* Each sample resolves the same palette as the workspace. The system choice
-   shows both color schemes with the same sidebar and composer geometry. */
-[data-semantic-key="theme-options"] > button::before,
-[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
-  content: "";
+/* The same workspace sample uses both palettes. The selection belongs to
+   the settings control, so its outline uses the current window palette. */
+:is([data-semantic-key="theme-sample-light"], [data-semantic-key="theme-sample-dark"]) {
   grid-area: sample;
   color-scheme: light;
-  inline-size: 100%;
+  container: theme-sample / inline-size;
+  display: grid !important;
+  grid-template-columns: 28% minmax(0, 1fr);
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
   aspect-ratio: 2;
-  box-sizing: border-box;
-  border: 1px solid var(--selvedge-border);
-  border-radius: .625rem;
-  background:
-    radial-gradient(circle closest-side, var(--selvedge-accent) 88%, transparent 99%) right 13% bottom 26% / 7% 17% no-repeat,
-    linear-gradient(var(--selvedge-muted) 0 0) right 39% bottom 29% / 25% 1px no-repeat,
-    linear-gradient(var(--selvedge-surface) 0 0) right 9% bottom 17% / 56% 26% no-repeat,
-    linear-gradient(var(--selvedge-muted) 0 0) right 33% top 28% / 36% 2px no-repeat,
-    linear-gradient(var(--selvedge-selection) 0 0) left 7% top 34% / 19% 9% no-repeat,
-    linear-gradient(var(--selvedge-connector) 0 0) left 9% top 51% / 14% 1px no-repeat,
-    linear-gradient(90deg, var(--selvedge-navigation) 30%, var(--selvedge-border) 30% calc(30% + 1px), var(--selvedge-canvas) calc(30% + 1px));
+  overflow: hidden;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .625rem !important;
+  background: var(--selvedge-canvas) !important;
 }
-[data-semantic-key="theme-options"] > [data-semantic-key="theme-DarkAppearance"]::before,
-[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
-  color-scheme: dark;
-}
-[data-semantic-key="theme-options"] > [data-semantic-key="theme-SystemAppearance"]::after {
+[data-semantic-key="theme-sample-dark"] { color-scheme: dark; }
+[data-semantic-key="theme-SystemAppearance"] [data-semantic-key="theme-sample-dark"] {
   clip-path: inset(0 0 0 50%);
 }
-[data-semantic-key="theme-options"] > button[aria-checked="true"]::before,
-[data-semantic-key="theme-options"] > button[aria-checked="true"]::after {
-  border-color: var(--settings-focus);
+[data-semantic-key="theme-options"] > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
+  content: "";
+  grid-area: sample;
+  z-index: 1;
+  border: 1px solid var(--settings-focus);
+  border-radius: .625rem;
+  pointer-events: none;
+}
+:is([data-semantic-key="theme-sample-rail"], [data-semantic-key="theme-sample-main"]) {
+  min-inline-size: 0 !important;
+  block-size: 100% !important;
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: .5em !important;
+  padding: min(.625rem, 4cqi) !important;
+  color: var(--selvedge-text) !important;
+  font-size: clamp(.3125rem, 4.1cqi, .6875rem) !important;
+  font-weight: 400 !important;
+}
+[data-semantic-key="theme-sample-rail"] {
+  justify-content: flex-start !important;
+  background: var(--selvedge-navigation) !important;
+  border-inline-end: 1px solid var(--selvedge-border) !important;
+  padding-inline: min(.4rem, 2.4cqi) !important;
+}
+[data-semantic-key="theme-sample-main"] { justify-content: center !important; }
+:is([data-semantic-key="theme-sample-rail"], [data-semantic-key="theme-sample-main"]) span {
+  font-size: inherit !important;
+  line-height: 1.25 !important;
+  color: inherit !important;
+}
+[data-semantic-key="theme-sample-brand"] {
+  display: flex !important;
+  align-items: center;
+  gap: .25em;
+  white-space: nowrap;
+  font-weight: 600 !important;
+}
+[data-semantic-key="theme-sample-brand"]::before {
+  content: "S" / "";
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 1.3em;
+  block-size: 1.3em;
+  color: var(--selvedge-accent);
+  background: var(--selvedge-accent-wash);
+  border-radius: .25em;
+}
+[data-semantic-key="theme-sample-task"] {
+  padding: .28em .4em !important;
+  border-radius: .32em !important;
+  background: var(--selvedge-selection) !important;
+  white-space: nowrap;
+  text-align: start;
+}
+[data-semantic-key="theme-sample-title"] { font-weight: 650 !important; }
+[data-semantic-key="theme-sample-composer"] {
+  display: grid !important;
+  grid-template: "prompt prompt" auto "mode send" auto / minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: .7em .35em !important;
+  padding: .65em !important;
+  background: var(--selvedge-surface) !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .55em !important;
+  text-align: start;
+}
+[data-semantic-key="theme-sample-prompt"] { grid-area: prompt; }
+[data-semantic-key="theme-sample-mode"] { grid-area: mode; }
+[data-semantic-key="theme-sample-composer"] :is([data-semantic-key="theme-sample-prompt"], [data-semantic-key="theme-sample-mode"]) {
+  color: var(--selvedge-muted) !important;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-semantic-key="theme-sample-composer"] [data-semantic-key="theme-sample-send"] {
+  grid-area: send;
+  display: grid !important;
+  place-items: center;
+  inline-size: 1.4em !important;
+  block-size: 1.4em !important;
+  border-radius: .4em !important;
+  color: var(--selvedge-on-accent) !important;
+  background: var(--selvedge-accent) !important;
+}
+@container theme-sample (inline-size < 8rem) {
+  [data-semantic-key="theme-sample-rail"] :is([data-semantic-key="theme-sample-brand"], [data-semantic-key="theme-sample-task"]) {
+    font-size: 0 !important;
+  }
+  [data-semantic-key="theme-sample-brand"]::before { font-size: .4rem; }
+  [data-semantic-key="theme-sample-task"] { min-block-size: .375rem !important; }
 }
 [data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
   font-size: .8125rem !important;

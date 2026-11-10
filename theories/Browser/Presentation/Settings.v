@@ -368,6 +368,23 @@ Definition section_entries services section : list (string * string * list Confi
    [("sources", "Context sources", sources)]
  | _ => [] end)%list.
 
+Definition appearance_sample parent key : node Input.input :=
+ let sample := part parent key in
+ let rail := part sample "theme-sample-rail" in
+ let main := part sample "theme-sample-main" in
+ let composer := part main "theme-sample-composer" in
+ let text parent name value := Node (part parent name) name "" Roles.Content (ReadOnly value) [] in
+ region parent key "" Roles.Decorative
+   [region sample "theme-sample-rail" "" Roles.Decorative
+      [text rail "theme-sample-brand" "Selvedge";
+       text rail "theme-sample-task" "All Tasks"];
+    region sample "theme-sample-main" "" Roles.Decorative
+      [text main "theme-sample-title" "New task";
+       region main "theme-sample-composer" "" Roles.Decorative
+         [text composer "theme-sample-prompt" "Describe a task…";
+          text composer "theme-sample-mode" "Ask";
+          text composer "theme-sample-send" "↑"]]].
+
 Definition appearance parent current :=
  let section := part parent "theme" in
  let id := part (part section "settings-controls") "theme-options" in
@@ -377,9 +394,18 @@ Definition appearance parent current :=
     Node id "theme-options" "Color theme" Roles.Section ChoiceGroup
      (map (fun '(label, theme) =>
         let key := Appearance.appearance_name theme in
-        Node (part id key) ("theme-" ++ key) label Roles.Button
+        let choice := part id key in
+        let light := appearance_sample choice "theme-sample-light" in
+        let dark := appearance_sample choice "theme-sample-dark" in
+        let samples := match theme with
+          | Appearance.LightAppearance => [light]
+          | Appearance.DarkAppearance => [dark]
+          | Appearance.SystemAppearance => [light; dark]
+          end in
+        Node choice ("theme-" ++ key) label Roles.Button
           (Choice SingleChoice (String.eqb key (Appearance.appearance_name current)) ""
-             (secondary key label (Input.ServiceInput (Services.ChooseAppearance theme)))) []) themes)].
+             (secondary key label (Input.ServiceInput (Services.ChooseAppearance theme))))
+          (samples ++ [Node (part choice "theme-choice-label") "theme-choice-label" "" Roles.Content (ReadOnly label) []])%list) themes)].
 
 Definition local_connection parent services :=
  let id := part (part parent "local") "settings-controls" in

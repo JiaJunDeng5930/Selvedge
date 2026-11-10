@@ -104,7 +104,8 @@ Definition control_children {A} (action:Model.control A) (children:list DOM.node
 Definition common key semantic label role := [("id",key);("data-logical-key",semantic);("data-semantic-key",semantic);
  ("data-surface-role",Roles.role_name role)] ++
  (match role with Roles.Main|Roles.Heading|Roles.Dialog|Roles.Menu=>[("tabindex","-1")]|_=>[]end) ++
- (match role with Roles.Alert=>[("role","alert")]|_=>[]end) ++
+ (match role with Roles.Alert=>[("role","alert")]
+   |Roles.Decorative=>[("aria-hidden","true")]|_=>[]end) ++
  (if String.eqb label "" then [] else [("aria-label",label)]).
 (* Local navigation and dialog headings must not introduce page banner landmarks. *)
 Definition role_tag role := match role with
@@ -114,6 +115,7 @@ Definition role_tag role := match role with
  | Roles.Main => "main" | Roles.Heading => "h2"
  | Roles.Section | Roles.Activity | Roles.Approval => "section"
   | Roles.UserMessage | Roles.AssistantMessage => "article"
+ | Roles.Decorative => "span"
   | Roles.Dialog => "dialog" | Roles.DialogActions => "footer" | _ => "div" end.
 Definition text_tag role := match role with
  | Information.IntroductionTitle => "h1" | Information.SurfaceTitle=>"h2"

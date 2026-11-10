@@ -205,7 +205,7 @@ Definition role_style (role : Roles.role) :=
   | Roles.Button => button_style QuietActionPaint
   | Roles.Field => enclosure_fields FieldPaint border_color 1 7 false Stretch BlockFlow ContentFlow Enclosure.Field 0 32 100 true false
   | Roles.CompactNavigationMenu | Roles.WorkTabGroup | Roles.WorkChoiceRow
-  | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Alert => base_style
+  | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Decorative | Roles.Alert => base_style
   end.
 
 Definition flow_properties value : list (string * string) :=
