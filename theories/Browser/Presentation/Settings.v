@@ -65,10 +65,13 @@ Definition section_design section : settings_section_design :=
     ("remote", "", ConfigurationSettings [["remote"]])]
  end.
 
+Definition primary_group design :=
+ option_map (fun '(key, path) => (key, "", ConfigurationSettings [path])) (section_primary design).
+
 Definition configuration_groups section :=
  let design := section_design section in
- match section_primary design with
- | Some (key, path) => (key, "", ConfigurationSettings [path]) :: section_groups design
+ match primary_group design with
+ | Some group => group :: section_groups design
  | None => section_groups design
  end.
 
@@ -435,7 +438,7 @@ Definition local_connection parent services :=
  | ConnectionFailed _ reason | ConnectionRevoked _ reason => row parent "local" "Local service" reason
       [button id "connect" "Reconnect" true Services.Connect] []
  end.
-Definition overview root parent section services :=
+Definition overview root parent section services groups :=
  let render_group '(key, label, content) :=
    let id := part parent key in
    let render_entries := map (normal_entry id services (primary_collection section)) in
@@ -456,7 +459,7 @@ Definition overview root parent section services :=
        render_entries (filter unlisted (catalog_entries services))
      end in
    section_group parent key label body in
- flat_map render_group (configuration_groups section).
+ flat_map render_group groups.
 
 Definition catalog_status parent services :=
  let load label := button parent "load-configuration" label (Services.connected services) Services.LoadConfiguration in
@@ -506,9 +509,18 @@ Definition compact_navigation parent current :=
 Definition content root parent section services :=
  let view := service_configuration services in
  let id := part parent ("settings-content/" ++ settings_section_name section) in
+ let design := section_design section in
+ let header := ([page_heading id services section] ++ catalog_status id services ++
+   draft_notice id section view)%list in
+ (* The page introduction and Add control set the primary collection's
+    reading width. Secondary groups lay out their own rows independently. *)
+ let primary := match primary_group design with
+   | Some group => [named_region id "settings-primary" ""
+       (header ++ overview root id section services [group])%list]
+   | None => header
+   end in
  Node id "settings-content" "" Roles.Section Region
-   ([page_heading id services section] ++ catalog_status id services ++
-    draft_notice id section view ++ overview root id section services)%list.
+   (primary ++ overview root id section services (section_groups design))%list.
 
 Definition view s :=
  let services := State.service_state s in
