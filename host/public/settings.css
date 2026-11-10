@@ -544,6 +544,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="theme-options"] > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
   content: "";
   grid-area: sample;
+  place-self: stretch;
   z-index: 1;
   border: 1px solid var(--settings-focus);
   border-radius: .625rem;
@@ -635,6 +636,19 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   }
   [data-semantic-key="theme-sample-brand"]::before { font-size: .4rem; }
   [data-semantic-key="theme-sample-task"] { min-block-size: .375rem !important; }
+}
+/* Three previews need a readable measure each. Below that measure, pair
+   each preview with its label and read the choices down the page. */
+@container settings-content (inline-size < calc(3 * 5.25rem + 1rem)) {
+  [data-semantic-key="settings"] [data-semantic-key="theme-options"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-semantic-key="theme-options"] > button > span:not([aria-hidden="true"]) {
+    grid-template: "sample label" auto / min(55%, 6rem) minmax(0, 1fr);
+    align-items: center;
+    gap: .625rem !important;
+  }
+  [data-semantic-key="theme-choice-label"] { text-align: start !important; }
 }
 [data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
   font-size: .8125rem !important;
@@ -812,9 +826,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: normal !important;
   text-overflow: clip !important;
 }
-/* A rail also spends reading width. Move category choice above the page
-   when the shell cannot fit both at the reader's font size. */
-@container settings-shell (inline-size <= 36rem) {
+/* Keep the rail only when the shell can also fit a full setting row:
+   minimum rail, copy, control, both column gaps, edges and scroll gutter. */
+@container settings-shell (inline-size < calc(8rem + 16rem + 9rem + 2.5rem + 3rem)) {
   [data-semantic-key="settings"] > :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"]) {
     --settings-edge: min(1rem, 5vi);
   }
@@ -1045,17 +1059,17 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 }
 /* In a short, narrow window, let the foreground editor use the window. */
 @media (max-width: 28rem) and (max-height: 32rem) {
-  dialog[data-semantic-key="settings-configuration-editor"] {
+  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
     --settings-dialog-clearance: 0px;
     block-size: 100dvh !important;
     border: 0 !important;
     border-radius: 0 !important;
   }
-  [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-header"] > h2 {
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] > h2 {
     font-size: 1rem !important;
     line-height: 1.2 !important;
   }
-  [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] {
     gap: .25rem !important;
     padding-block-start: .375rem !important;
   }
