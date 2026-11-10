@@ -23,7 +23,8 @@ Definition description parent key label : node Input.input := information parent
    keeps each value with the action that removes it, at any column count. *)
 Definition group semantic parent key label (body : list (node Input.input)) : node Input.input :=
  let id := part parent key in
- Node id semantic "" Roles.Section Region (group_title id label :: body).
+ Node id semantic "" Roles.Section Region
+   (if String.eqb label "" then body else group_title id label :: body).
 Definition assign path value := Services.EditConfigurationAt path (render_json value).
 Definition value_text value := ModelProfiles.value_text value.
 Definition set_member name value source :=
@@ -115,12 +116,16 @@ Definition collection_item_fields path parent source view enabled commit : list 
  | _ =>
    let plugin_options := if list_eq_dec String.string_dec path ["plugins"] then
      [("event_timeout_ms", "Event timeout (ms)"); ("event_queue", "Event queue size")] else [] in
-   ([wide (text_field parent "command" "Command" source enabled commit);
-     list_member parent "args" "Arguments" "argument" (JString "") source enabled JString commit]
+   let launch := part parent "settings-command-fields" in
+   ([region parent "settings-command-fields" "" Roles.Section
+      [text_field launch "command" "Command" source enabled commit;
+       list_member launch "args" "" "argument" (JString "") source enabled JString commit]]
     ++ optional_details parent "execution-options" "Execution options" view source
       (["cwd"; "timeout_ms"] ++ map fst plugin_options)%list enabled (fun fields =>
-        [optional_field fields "cwd" "Working directory" source enabled empty_text commit;
-         optional_field fields "timeout_ms" "Timeout (ms)" source enabled optional_number commit]
+        let pair := part fields "settings-execution-fields" in
+        [region fields "settings-execution-fields" "" Roles.Section
+          [ModelProfiles.wide_field pair (optional_field pair "cwd" "Working directory" source enabled empty_text commit);
+           optional_field pair "timeout_ms" "Timeout (ms)" source enabled optional_number commit]]
         ++ map (fun '(key, label) => optional_field fields key label source enabled optional_number commit) plugin_options))%list
  end.
 

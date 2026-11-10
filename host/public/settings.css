@@ -11,6 +11,7 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-entry-measure: 9rem;
   --settings-inset: min(.875rem, 4cqi);
   --settings-control-width: 9rem;
+  --settings-number-width: calc(9ch + 1.5rem);
   --settings-control-limit: 12rem;
   --settings-control-height: 2.125rem;
   --settings-surface: light-dark(#faf9f7, #252422);
@@ -425,7 +426,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   max-inline-size: 100% !important;
 }
 [data-semantic-key="settings-controls"] > :has(> input[data-semantic-key="setting-number"]) {
-  inline-size: calc(9ch + 1.5rem) !important;
+  inline-size: var(--settings-number-width) !important;
 }
 [data-semantic-key="settings-controls"] > :has(> :is(input, select)) > span { display: none !important; }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"] {
@@ -621,6 +622,36 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: .5rem 0 0 !important;
   gap: .4375rem !important;
 }
+[data-semantic-key="settings-command-fields"] {
+  align-items: stretch !important;
+  gap: .375rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-command-fields"] > [data-semantic-key="settings-value-list"] {
+  padding-block-start: 0 !important;
+}
+[data-semantic-key="settings-command-fields"] button[data-semantic-key="add-value"] {
+  --control-rest-background: transparent !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+/* A path needs reading width. The duration shares its line only when both
+   fields can keep their usable width. */
+[data-semantic-key="settings-execution-fields"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: end !important;
+  gap: .75rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-execution-fields"] > [data-semantic-key="settings-wide-field"] {
+  flex: 1 1 var(--settings-copy-measure) !important;
+}
+[data-semantic-key="settings-execution-fields"] > :not([data-semantic-key="settings-wide-field"]) {
+  flex: 0 1 var(--settings-number-width) !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+}
 [data-semantic-key="settings-value-row"] {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -653,8 +684,12 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"] {
   --control-rest-background: transparent !important;
+  padding-inline: 0 !important;
   border-color: transparent !important;
   color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"][aria-expanded="true"] {
+  color: var(--selvedge-text) !important;
 }
 [data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"]::before {
   content: "";
@@ -784,6 +819,43 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   justify-content: flex-end !important;
   gap: .5rem !important;
   padding: .625rem .1875rem 0 !important;
+}
+/* A fitted form is continuous. Mark a fixed edge only when fields continue
+   behind it, using the form scrollport as the source of that state. */
+@supports (timeline-scope: --settings-form-scroll) and (animation-range: 0px 1px) {
+  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+    timeline-scope: --settings-form-scroll;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
+    scroll-timeline: --settings-form-scroll block;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
+    position: relative;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"])::after {
+    position: absolute;
+    inset-inline: .1875rem;
+    block-size: 1px;
+    background: var(--settings-rule);
+    pointer-events: none;
+    content: "";
+    opacity: 0;
+    animation: settings-form-edge auto linear both;
+    animation-timeline: --settings-form-scroll;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-header"]::after {
+    inset-block-end: 0;
+    animation-range: 0px .375rem;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"]::after {
+    inset-block-start: 0;
+    animation-direction: reverse;
+    animation-range: calc(100% - .375rem) 100%;
+  }
+  @keyframes settings-form-edge {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] button > svg {
   display: none !important;
