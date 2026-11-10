@@ -246,8 +246,8 @@ Definition form_setting parent services entry :=
       (can_edit path services) (Services.SelectConfiguration path)]
    (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
 
-(* Add belongs to the collection heading. Each saved item owns its own Edit
-   action. Draft edits and removals become visible here after a successful write. *)
+(* The overview enumerates saved objects. Draft edits and removals become
+   visible here after a successful write. *)
 Definition collection_setting parent services entry item :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
@@ -271,11 +271,16 @@ Definition collection_setting parent services entry item :=
    | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
    | _, _ => []
    end in
- row parent key label description
-   [button (setting_entry_parent path) "begin-add" ("Add " ++ item) enabled
-       (Services.BeginAddConfigurationItem path)]
-   (entries_body ++ match (actions ++ feedback)%list with
-    | [] => [] | controls => [named_region id "settings-collection-actions" "" controls] end)%list.
+ (* A collection has a heading, saved objects and actions on the whole
+    collection. Editing one object belongs to that object's row. *)
+ Node id "settings-collection" "" Roles.Section Region
+   ([named_region id "settings-collection-heading" ""
+      [group_title (part id "settings-collection-heading") label;
+       note (part id "settings-collection-heading") "description" description]]
+    ++ entries_body
+    ++ [named_region id "settings-collection-actions" ""
+      (button (setting_entry_parent path) "begin-add" ("Add " ++ item) enabled
+        (Services.BeginAddConfigurationItem path) :: (actions ++ feedback)%list)])%list.
 
 Definition normal_entry parent services entry :=
  match ConfigurationForms.collection_item (Config.setting_path entry) with
@@ -298,11 +303,11 @@ Definition configuration_groups section : list (string * string * list (list str
  match section with
  | SettingsGeneral => []
  | SettingsModels =>
-   [("model-configurations", "", [["profiles"]; ["chatgpt"]]);
-    ("adaptive", "", [["reasoning_evaluators"]])]
+   [("model-configurations", "", [["profiles"]]);
+    ("model-services", "", [["chatgpt"]; ["reasoning_evaluators"]])]
  | SettingsTools =>
-   [("tool-connections", "", [["mcp"]; ["plugins"]; ["chatgpt_plugin"]]);
-    ("sources", "", [["skills"]])]
+   [("tool-connections", "", [["mcp"]; ["chatgpt_plugin"]]);
+    ("tool-sources", "", [["plugins"]; ["skills"]])]
  | SettingsTasks =>
    [("limits", "Task limits", [["max_fork"]; ["max_descendants"]]);
     ("workspaces", "", [["cloud"]])]
@@ -400,8 +405,8 @@ Definition navigation parent current : list (node Input.input) :=
        (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
  [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup (map section_choice sections)].
 
-(* Both layouts select from the same categories. In a compact viewport the
-   picker shares the top bar with Back, leaving a single scrollable document. *)
+(* The same category choice moves from the rail to the settings heading
+   when the rail would take up the document's reading space. *)
 Definition compact_navigation parent current :=
  let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) sections in
  named_region parent "settings-mobile-nav" ""
@@ -431,8 +436,9 @@ Definition view s :=
         (part root "close") (Services.settings_focus_target trigger) "/main" trigger
         (Input.ServiceInput Services.CloseSettings) true true))
       [dialog_header root
-         [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
-          title root "Settings";
+         [named_region root "settings-identity" ""
+           [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
+            title root "Settings"];
           compact_navigation root section];
        dialog_body root (navigation body section ++ [content root body section services])]]
  end.
