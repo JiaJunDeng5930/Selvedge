@@ -21,25 +21,27 @@ Definition workspace_git_request := Selvedge.Interaction.Submission.Observation.
 Definition workspace_git_request_matches := Selvedge.Interaction.Submission.Observation.workspace_git_request_matches.
 Definition worktree_required := Selvedge.Interaction.Submission.Observation.worktree_required.
 
-Inductive directory_git_preview := AwaitingDirectory
+Inductive directory_selection_preview := AwaitingDirectory
  | PreviewDirectory (request:editor * string) (primary:bool) (problem:option Observation.git_problem).
-Definition directory_preview snapshot state : option directory_git_preview :=
+Definition directory_preview snapshot state : option directory_selection_preview :=
  let services:=State.service_state state in
- request<-resource_request(Services.directory services);;
+ let listing:=Services.directory services in
+ request<-resource_request listing;;
  let owner:=Services.directory_editor request in
  let draft:=State.current_draft state owner in
- if worktree_required draft then
-  match Services.directory services with
-  |Loaded _ _ catalog=>match Json.string_field "path" catalog,workspace_for_edit snapshot draft with
-    |Some path,inr workspace=>if String.eqb path(Services.directory_location services)then
-     body<-Values.add_workspace_directory snapshot(Draft.contents draft)workspace path;;
+ let requires_git:=worktree_required draft in
+ match listing with
+ |Loaded _ _ catalog=>match Json.string_field "path" catalog with
+  |Some path=>if String.eqb path(Services.directory_location services)then
+   if requires_git then match workspace_for_edit snapshot draft with
+    |inr workspace=>body<-Values.add_workspace_directory snapshot(Draft.contents draft)workspace path;;
      let primary:=match workspace_git_request snapshot(Draft.with_body body draft)with
       |Some(_,next)=>String.eqb next path|None=>false end in
      Some(PreviewDirectory(owner,path)primary(Observation.git_request_problem(owner,path)(Services.workspace_git services)))
-     else Some AwaitingDirectory
-    |_,_=>Some AwaitingDirectory end
-  |_=>Some AwaitingDirectory end
- else None.
+    |inl _=>Some AwaitingDirectory end
+   else None else Some AwaitingDirectory
+  |None=>Some AwaitingDirectory end
+ |_=>if requires_git then Some AwaitingDirectory else None end.
 Definition directory_selection_allowed preview := match preview with
  |Some AwaitingDirectory|Some(PreviewDirectory _ true (Some _))=>false
  |_=>true end.

@@ -182,7 +182,7 @@ Definition directory_backend snapshot owner := match Identity.editor_task owner 
  end.
 Definition directory_git_status (label:string->string->string) preview := match preview with
  |None=>None
- |Some SO.AwaitingDirectory=>Some(label "请先前往要选择的目录。" "Open the entered directory before selecting it.")
+ |Some SO.AwaitingDirectory=>Some(label "按 Enter 或点「前往」打开输入的目录。" "Press Enter or click Go to open the entered directory.")
  |Some(SO.PreviewDirectory _ primary problem)=>Some(
   (if primary then "" else label "将作为辅助目录添加。" "This will be added as an additional directory. ")++
   match problem with
@@ -208,32 +208,35 @@ Definition directory_view snapshot s :=
     |None=>"Choose a directory" end) in
    let content:=match resource with
     |Resource.Loading _ _=>[information parent "loading" Information.Status (label "正在读取目录…" "Loading directories…")]
-    |Resource.Failed _ _ reason=>[read_only parent "failure" (label "无法读取目录" "Directory listing failed")reason;
-      declared parent Roles.Button(secondary "retry" (label "重试" "Retry")(Input.ServiceInput Services.GoDirectory))]
+    |Resource.Failed _ _ reason=>
+      region parent "failure" "" Roles.Alert [read_only parent "failure-detail" (label "无法读取目录" "Directory listing failed")reason]::
+      (match Services.directory_previous request with None=>[]|Some path=>
+       [declared parent Roles.Button(secondary "previous" (label "返回上一个可用目录" "Back to previous directory")
+        (Input.ServiceInput(Services.VisitDirectory path)))]end)
     |Resource.Loaded _ _ catalog=>(
       map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
        (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))(Selvedge.Interaction.Codec.items "entries" catalog)++
       (if flag "truncated" catalog then[information parent "truncated" Information.Description
         (label "目录列表仅显示部分结果。" "The directory listing is truncated.")]else[]))%list
     |_=>[]end in
-   [Node parent "directory-browser" caption Roles.Dialog
-    (LayerRegion(LayerBehavior ModalDialog false ticket
-     (match resource with Resource.Loaded _ _ _=>part parent "location"|_=>parent end)
-     (Services.directory_trigger request)"/main"(Services.directory_trigger request)
-     (Input.ServiceInput Services.CloseDirectory)true true))
-    [dialog_header parent [title parent caption];
-     dialog_body parent(match resource with
-      |Resource.Loaded _ _ catalog=>
-       [region parent "navigation" (label "目录导航" "Folder navigation") Roles.Section
+   let navigation:=region parent "navigation" (label "目录导航" "Folder navigation") Roles.Section
         ([region parent "directory-location-actions" "" Roles.Toolbar
          [Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
           (EnterDirectory owner (Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
          declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))]]++
-         match string_field "parent" catalog with None=>[]|Some path=>
-          [declared parent Roles.Button(secondary "parent" (label "上一级目录" "Parent directory")(Input.ServiceInput(Services.VisitDirectory path)))]end);
-        region parent "folders" (label "子目录" "Folders") Roles.Section content]
+         match resource with Resource.Loaded _ _ catalog=>
+          match string_field "parent" catalog with None=>[]|Some path=>
+           [declared parent Roles.Button(secondary "parent" (label "上一级目录" "Parent directory")(Input.ServiceInput(Services.VisitDirectory path)))]end
+         |_=>[]end) in
+   [Node parent "directory-browser" caption Roles.Dialog
+    (LayerRegion(LayerBehavior ModalDialog false ticket (part parent "location")
+     (Services.directory_trigger request)"/main"(Services.directory_trigger request)
+     (Input.ServiceInput Services.CloseDirectory)true true))
+    [dialog_header parent [title parent caption];
+     dialog_body parent(navigation::match resource with
+      |Resource.Loaded _ _ _=>[region parent "folders" (label "子目录" "Folders") Roles.Section content]
       |_=>content end);
      dialog_actions parent
       ((match resource,git_status with Resource.Loaded _ _ _,Some status=>

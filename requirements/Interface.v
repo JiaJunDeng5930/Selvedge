@@ -267,6 +267,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     A project can be created with its name alone. Its editor marks the default
     working directory as optional and uses the language of the project page.
     A directory chooser identifies the execution environment that owns its paths.
+    Confirmation applies to an opened directory that matches the address
+    field. A failed lookup keeps that field editable and offers a return to
+    the last successfully opened directory when available.
     A conversation keeps its selected run environment when verification is
     pending or fails. [git_observation_settles_only_the_workspace_check]
     constrains the actual receipt. A local Git worktree requires verifying

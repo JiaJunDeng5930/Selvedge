@@ -20,9 +20,13 @@ Definition decode_upload j := e <- bind(field "editor" j) decode_editor ;; f <- 
 Record preview_request := PreviewRequest { preview_file:attachment; preview_trigger:string }.
 Definition encode_preview p := JObject[("file",encode_attachment(preview_file p));("trigger",JString(preview_trigger p))].
 Definition decode_preview j := f <- bind(field "file" j) decode_attachment ;; t <- string_field "trigger" j ;; Some(PreviewRequest f t).
-Record directory_request := DirectoryRequest { directory_editor:editor; directory_path:string; directory_trigger:string }.
-Definition encode_directory d := JObject[("editor",encode_editor(directory_editor d));("path",JString(directory_path d));("trigger",JString(directory_trigger d))].
-Definition decode_directory j := e <- bind(field "editor" j) decode_editor ;; p <- string_field "path" j ;; t <- string_field "trigger" j ;; Some(DirectoryRequest e p t).
+Record directory_request := DirectoryRequest { directory_editor:editor; directory_path:string;
+ directory_trigger:string; directory_previous:option string }.
+Definition encode_directory d := JObject[("editor",encode_editor(directory_editor d));("path",JString(directory_path d));
+ ("trigger",JString(directory_trigger d));("previous",DraftCodec.optional_value JString(directory_previous d))].
+Definition decode_directory j := e<-bind(field "editor" j)decode_editor;;p<-string_field "path" j;;
+ t<-string_field "trigger" j;;previous<-bind(field "previous" j)(DraftCodec.parse_optional as_string);;
+ Some(DirectoryRequest e p t previous).
 Definition directory_entry_schema := [Schema.Field "name" Schema.KText;Schema.Field "path" Schema.KText].
 Definition directory_catalog_schema := [Schema.Field "ok" Schema.KBool;Schema.Field "path" Schema.KText;
  Schema.Field "parent" Schema.KJson;Schema.Field "entries" (Schema.KArray Schema.KJson);
@@ -279,8 +283,17 @@ Definition finish_upload t result s :=
     | inl error=>keep(with_uploads(map(settle t (inl error))(uploads s))s)
     | inr value=>ServiceResult(forget_upload t s)[] (Some(upload_editor a,value)) end
   | _=>keep s end.
-Definition begin_directory e path trigger s := let t:=next_ticket s in
-  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger))path s))[ListDirectory t path e].
+Definition begin_directory e path trigger previous s := let t:=next_ticket s in
+  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger previous))path s))[ListDirectory t path e].
+Definition visit_directory path s :=
+ let browsing:=directory s in
+ match resource_request browsing with
+ |None=>keep s
+ |Some request=>let previous:=match browsing with
+   |Loaded _ _ catalog=>string_field "path" catalog
+   |_=>directory_previous request end in
+  begin_directory(directory_editor request)path(directory_trigger request)previous s
+ end.
 Definition configuration_write (reset:bool) s :=
   let view := service_configuration s in
   if settings_open s && connected s && negb (Configuration.pending view) then
@@ -390,14 +403,16 @@ Definition service_step input s :=
       effects s(match r with inr url=>[ReleasePreview url]|inl _=>[]end)end
   | ClosePreview=>effects(with_preview Dormant s)(release_preview s++match preview s with Loading _ p|Loaded _ p _|Failed _ p _=>[Focus(preview_trigger p)]|Dormant=>[]end)
   | Download f=>effects s[DownloadFile f]
-  | OpenDirectory e path trigger=>begin_directory e path trigger s
+  | OpenDirectory e path trigger=>begin_directory e path trigger None s
   | WriteDirectoryLocation v=>keep(with_directory(directory s)v s)
-  | VisitDirectory path=>match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>begin_directory(directory_editor r)path(directory_trigger r)s|Dormant=>keep s end
-  | GoDirectory=>match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>begin_directory(directory_editor r)(directory_location s)(directory_trigger r)s|Dormant=>keep s end
+  | VisitDirectory path=>visit_directory path s
+  | GoDirectory=>visit_directory(directory_location s)s
   | DirectoryListed t r=>let ready:=settle t r(directory s)in
-    let location:=match directory s,ready with
-    |Loading _ _,Loaded _ _ catalog=>text "path" catalog
-    |_,_=>directory_location s end in keep(with_directory ready location s)
+    let location:=directory_location s in
+    let address:=match directory s,ready with
+    |Loading _ request,Loaded _ _ catalog=>
+     if String.eqb location(directory_path request)then text "path" catalog else location
+    |_,_=>location end in keep(with_directory ready address s)
   | ChooseDirectory=>match directory s with Loaded _ r catalog=>effects(with_directory Dormant "" s)[DirectoryChosen(directory_editor r)(text "path" catalog);Focus(directory_trigger r)]|_=>keep s end
   | CloseDirectory=>effects(with_directory Dormant "" s)(match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>[Focus(directory_trigger r)]|Dormant=>[]end)
   end.

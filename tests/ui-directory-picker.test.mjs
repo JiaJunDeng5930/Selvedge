@@ -20,10 +20,11 @@ test('the English workspace picker identifies host directories and supports keyb
 
   const picker = page.getByRole('dialog', { name: 'Choose a directory on the Selvedge host', exact: true });
   const location = picker.getByRole('textbox', { name: 'Directory', exact: true });
+  const folderButton = picker.getByRole('button', { name: folder, exact: true });
+  await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
   assert.equal(await picker.getByRole('status').count(), 0, 'Ordinary browsing has no Git status');
   const nested = picker.getByRole('button', { name: 'Nested folder', exact: true });
-  const folderButton = picker.getByRole('button', { name: folder, exact: true });
   await folderButton.press('Enter');
   await nested.waitFor();
   assert.equal(await location.inputValue(), directory);
@@ -31,10 +32,20 @@ test('the English workspace picker identifies host directories and supports keyb
   await picker.getByRole('button', { name: 'Parent directory', exact: true }).press('Enter');
   await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
+  const choose = picker.getByRole('button', { name: 'Use this directory', exact: true });
+  const unvisited = picker.getByRole('status').filter({ hasText: 'Press Enter or click Go to open the entered directory.' });
   await location.fill(directory);
+  await unvisited.waitFor();
+  assert.equal(await choose.isDisabled(), true);
+  await location.fill(root);
+  await unvisited.waitFor({ state: 'hidden' });
+  assert.equal(await choose.isEnabled(), true);
+  await location.fill(directory);
+  await unvisited.waitFor();
   await location.press('Enter');
   await nested.waitFor();
-  await picker.getByRole('button', { name: 'Use this directory', exact: true }).press('Enter');
+  await unvisited.waitFor({ state: 'hidden' });
+  await choose.press('Enter');
   await picker.waitFor({ state: 'hidden' });
   await workspace.getByText(directory, { exact: true }).waitFor();
   assert.equal(await browse.evaluate(button => document.activeElement === button), true);
@@ -88,7 +99,7 @@ test('a local worktree picker checks the visited directory before selecting a pr
   });
 
   await location.fill(repository);
-  await status('Open the entered directory before selecting it.').waitFor();
+  await status('Press Enter or click Go to open the entered directory.').waitFor();
   assert.equal(await rejected.count(), 0);
   assert.equal(await choose.isDisabled(), true);
   await location.press('Enter');
@@ -120,4 +131,90 @@ test('a local worktree picker checks the visited directory before selecting a pr
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(gitChecks, 4, 'The selected primary reuses its verified Git result');
+});
+
+test('a failed directory visit keeps the address editable and can return to the last listed directory', { timeout: 60000 }, async t => {
+  const { page, root, command } = await browserFixture(t);
+  const directory = path.join(root, 'Previous directory');
+  const corrected = path.join(root, 'Corrected directory');
+  const missing = path.join(directory, 'Missing directory');
+  await mkdir(path.join(directory, 'Visible child'), { recursive: true });
+  await mkdir(corrected);
+
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '新建项目', exact: true }).click();
+  const project = page.getByRole('dialog', { name: '新建项目', exact: true });
+  const name = project.getByRole('textbox', { name: '项目名称', exact: true });
+  const browse = project.getByRole('button', { name: '浏览…', exact: true });
+  await name.fill('目录恢复测试');
+  await browse.click();
+
+  const picker = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
+  const location = picker.getByRole('textbox', { name: '目录路径', exact: true });
+  const go = picker.getByRole('button', { name: '前往', exact: true });
+  const choose = picker.getByRole('button', { name: '使用此目录', exact: true });
+  const previous = picker.getByRole('button', { name: '返回上一个可用目录', exact: true });
+  const child = picker.getByRole('button', { name: 'Visible child', exact: true });
+  const failure = target => picker.getByRole('alert').filter({ hasText: 'ENOENT' }).filter({ hasText: target });
+  const addressFocused = () => location.evaluate(input => document.activeElement === input);
+  await choose.waitFor();
+
+  const entered = `${directory}/.`;
+  const observed = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  await page.route('**/api/browser/observation', async route => {
+    const request = route.request().postDataJSON();
+    if (request?.kind !== 'browse-directories' || request.path !== entered) return route.continue();
+    const response = await route.fetch();
+    observed.resolve(await response.json());
+    await release.promise;
+    await route.fulfill({ response });
+  });
+  await location.fill(entered);
+  await location.press('Enter');
+  assert.equal((await observed.promise).path, directory);
+  await location.fill(missing);
+  release.resolve();
+  await child.waitFor();
+  assert.equal(await location.inputValue(), missing, 'A listing receipt cannot overwrite a newer address edit');
+  assert.equal(await choose.isDisabled(), true, 'An edited address cannot confirm the earlier listing');
+
+  await go.click();
+  await failure(missing).waitFor();
+  assert.equal(await location.inputValue(), missing);
+  assert.equal(await location.isEditable(), true);
+  assert.equal(await addressFocused(), true);
+  assert.equal(await go.isEnabled(), true);
+  assert.equal(await picker.getByRole('button', { name: '重试', exact: true }).count(), 0);
+
+  const anotherMissing = path.join(directory, 'Another missing directory');
+  await location.fill(anotherMissing);
+  await location.press('Enter');
+  await failure(anotherMissing).waitFor();
+  const returnRequest = page.waitForRequest(request => {
+    if (!request.url().endsWith('/api/browser/observation')) return false;
+    const body = request.postDataJSON();
+    return body?.kind === 'browse-directories' && body.path === directory;
+  });
+  await previous.press('Enter');
+  await returnRequest;
+  await child.waitFor();
+  assert.equal(await location.inputValue(), directory);
+  assert.equal(await addressFocused(), true);
+
+  await location.fill(missing);
+  await location.press('Enter');
+  await failure(missing).waitFor();
+  await location.fill(corrected);
+  await location.press('Enter');
+  await choose.click();
+  await picker.waitFor({ state: 'hidden' });
+  await project.getByRole('region', { name: corrected, exact: true }).waitFor();
+  assert.equal(await browse.evaluate(button => document.activeElement === button), true);
+  await project.getByRole('button', { name: '创建项目', exact: true }).click();
+  await project.waitFor({ state: 'hidden' });
+  const [saved] = await command({ op: 'list_projects' });
+  assert.equal(saved.name, '目录恢复测试');
+  assert.deepEqual(saved.workspace, { roots: [corrected], primary_root: corrected });
 });
