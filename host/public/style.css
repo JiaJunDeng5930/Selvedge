@@ -940,6 +940,13 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
 [data-page-region="creation-context"] [data-editor-options-body] {
   align-items: flex-start;
 }
+[data-page-region="creation-context"] [data-semantic-key="run-environment-status"] {
+  color: var(--selvedge-warning) !important;
+  overflow-wrap: anywhere;
+}
+[data-page-region="creation-context"] [data-editor-options][open] + [data-semantic-key="run-environment-status"] {
+  display: none !important;
+}
 @media (max-width: 480px) {
   [data-composer-dock] { border-radius: 16px !important; }
 }

@@ -15,6 +15,9 @@ Definition draft_context := Selvedge.Interaction.Submission.Observation.draft_co
 Definition draft_preview := Selvedge.Interaction.Submission.Observation.draft_preview.
 Definition workspace_for := Selvedge.Interaction.Submission.Observation.workspace_for.
 Definition workspace_for_edit := Selvedge.Interaction.Submission.Observation.workspace_for_edit.
+Definition workspace_git_request := Selvedge.Interaction.Submission.Observation.workspace_git_request.
+Definition workspace_git_request_matches := Selvedge.Interaction.Submission.Observation.workspace_git_request_matches.
+Definition worktree_required := Selvedge.Interaction.Submission.Observation.worktree_required.
 
 (** Directory evidence belongs to the requested workspace and editor. Message
     edits may reuse that evidence; captured submissions have independent worker
@@ -31,8 +34,8 @@ Definition matching_directory (draft:Draft.draft)
  end.
 Definition directory_evidence state draft :=
  find(matching_directory draft)(Services.preparations(State.service_state state)).
-Definition worktree_submission_allowed snapshot state :=
- Selvedge.Interaction.Submission.Observation.worktree_submission_allowed snapshot
+Definition worktree_submission_problem snapshot state :=
+ Selvedge.Interaction.Submission.Observation.worktree_submission_problem snapshot
    (Services.workspace_git(State.service_state state)).
 Definition worktree_preference snapshot state :=
  Selvedge.Interaction.Submission.Observation.worktree_preference snapshot

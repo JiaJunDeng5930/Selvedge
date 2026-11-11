@@ -31,6 +31,15 @@ Definition creation_heading snapshot s e :=match SessionObserve.draft_preview sn
 |_=>"New conversation"end.
 Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
+ let owner:=editor_key e in
+ let draft:=State.current_draft s e in
+ let issue:=Observe.run_environment_obstruction snapshot s e draft in
+ let environment_status key:=match issue with
+  |Some cause=>[information key "run-environment-status" Information.Status(UX.obstruction_message cause)]
+  |None=>[]end in
+ let environment:=match Editors.field_node snapshot s e owner Fields.TaskEnvironment with
+  |Some node=>node::environment_status (part parent "creation-options")
+  |None=>[]end in
  let properties:=Observe.observe_properties snapshot s e in
  let context:=flat_map(fun property=>match UX.property_kind_of property with
   |UX.ProjectProperty=>
@@ -41,10 +50,10 @@ Definition creation_composer snapshot (s:State.state) parent :=
    Editors.property_controls snapshot s e parent [property]
   |_=>[]end)properties in
  page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)++
+   ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++
     [page_region parent Composition.CreationContext Composition.BodyPosition
-      [Editors.editor_options parent "creation-options" "Project and run settings"
-        (context++Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])]])%list.
+      (Editors.editor_options parent "creation-options" "Project and run settings"
+        (context++environment)::environment_status parent)])%list.
 Definition creation_page snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let graph_return:=match State.location(State.navigation_state s)with

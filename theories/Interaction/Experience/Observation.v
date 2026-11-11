@@ -391,13 +391,21 @@ Definition card_save_consequence snapshot state (draft:Draft.draft) :=
   else None
  |_=>None end.
 Definition unadded_project_directory := "请先添加或清空目录路径。".
+Definition project_git_problem_message problem := match problem with
+ |FieldsObservation.GitPrimaryRequired=>"请先添加并选择主目录。"
+ |FieldsObservation.GitCheckPending=>"正在检查主目录是否可用于创建 Git 工作树。"
+ |FieldsObservation.GitRepositoryRequired=>"主目录需要位于包含至少一次提交的 Git 仓库中。"
+ |FieldsObservation.GitCheckFailed=>"无法检查主目录。请选择其他目录，或关闭默认创建 Git 工作树。"
+ end.
 Definition project_precondition snapshot state (draft:Draft.draft):option(option Fields.field*string*string):=
  match Draft.contents draft with
  |Draft.ProjectBody project name workspace worktree=>
    if negb(String.eqb(Draft.directory_entry draft)"") ||
       negb(String.eqb(EC.directory_entry(EC.observed state)(Draft.owner draft))"")
    then Some(Some Fields.WorkspaceDirectories,"unadded_directory",unadded_project_directory)
-   else match project with
+   else match FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft with
+   |Some problem=>Some(Some Fields.CreateWorktree,"project_git_primary",project_git_problem_message problem)
+   |None=>match project with
     |None=>None
     |Some id=>match FieldsObservation.project_by_id id snapshot with
      |Some original=>match string_field "name" original,bind(field "workspace" original)Selvedge.Kernel.Codec.parse_workspace,bool_field "create_worktree" original with
@@ -405,13 +413,26 @@ Definition project_precondition snapshot state (draft:Draft.draft):option(option
        if String.eqb name previous&&Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json previous_workspace)&&Bool.eqb worktree previous_worktree
        then Some(None,"unchanged_project","没有要保存的更改。")else None
       |_,_,_=>Some(None,"unavailable_project","当前项目设置不可用。")end
-     |None=>None end end
+     |None=>None end end end
  |_=>None end.
 Definition requirement_obstruction e(field:option Fields.field)(code reason:string):obstruction e:=
  Obstruction(match field with Some field=>match Model.admit_subject e(Parameters.name field)with
    Some subject=>RepairField subject|None=>RepairEditor end|None=>RepairEditor end)code reason.
 Definition failed_requirement e (valid:bool) field code reason:list(obstruction e):=
  if valid then []else [requirement_obstruction e field code reason].
+Definition run_environment_git_message (problem:FieldsObservation.git_problem) :=
+ match problem with
+ |FieldsObservation.GitPrimaryRequired=>"Choose a primary Git working directory, or use the working directory as is."
+ |FieldsObservation.GitCheckPending=>"Checking the working directory for Git…"
+ |FieldsObservation.GitRepositoryRequired=>"Choose a Git repository with a commit, or use the working directory as is."
+ |FieldsObservation.GitCheckFailed=>"Git check failed. Choose another directory or use the working directory as is."
+ end.
+Definition run_environment_obstruction snapshot state e (draft:Draft.draft):option(obstruction e):=
+ match e with
+ |Identity.NewTask _=>
+   problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
+   Some(requirement_obstruction e (Some Fields.TaskEnvironment) "workspace_git_unavailable" (run_environment_git_message problem))
+ |_=>None end.
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
  match ModelSelection.observed_profile snapshot profile with
  |None=>[requirement_obstruction e(Some Fields.ModelProfile)"model_not_found" "Choose a configured model"]
@@ -522,6 +543,7 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (match FieldsObservation.draft_context draft with None=>[]|Some _=>
   match FieldsObservation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
    [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
+ (match run_environment_obstruction snapshot state e draft with Some cause=>[cause]|None=>[]end)++
  record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
@@ -572,8 +594,6 @@ Definition observe_assessment snapshot state e:assessment e:=
  Assessment(ActionIdentity(Draft.revision draft))
  (if negb(EC.connected(EC.observed state))then restrict_outcome "Connect to continue." outcome
  else if EC.editor_uploading(EC.observed state)e then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
- else if negb(FieldsObservation.worktree_submission_allowed snapshot(EC.git_observation(EC.observed state)) draft)
- then restrict_outcome "Wait for Git verification of the primary workspace before creating a worktree." outcome
  else outcome).
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
@@ -602,16 +622,6 @@ Definition assignment_shape_available snapshot state {e}(assignment:assignment e
  assignment_shape snapshot subject(entry snapshot state subject)(fun _=>observe_subject snapshot state subject)
   (fun incoming=>includes_choice subject(choices snapshot state subject)incoming)
   (Schema.encode_value(subject_kind subject)(assignment_value assignment)).
-Definition workspace_choice_available snapshot state (draft:Draft.draft) incoming:availability:=
- if Json.equal incoming(JString(WorkspaceBackend.name WorkspaceBackend.Local))then
- match bind(FieldsObservation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
- |None=>Unavailable "Choose a primary working directory before creating a local worktree."
- |Some _=>match FieldsObservation.worktree_observation snapshot(EC.git_observation(EC.observed state)) draft with
-   |Some(Loaded _ _ true)=>Available
-   |Some(Loaded _ _ false)=>Unavailable "The primary working directory is not a Git repository."
-   |Some(Failed _ _ reason)=>Unavailable reason
-   |_=>Unavailable "Checking the primary working directory for Git."end end
- else Available.
 Definition reviewer_assignment_reason snapshot current {e}(assignment:assignment e):option string:=
  let incoming:=Schema.encode_value(subject_kind(assignment_subject assignment))(assignment_value assignment)in
  match subject_declaration(assignment_subject assignment),incoming with
@@ -635,12 +645,9 @@ Definition assignment_availability snapshot state {e}(assignment:assignment e) c
   |Some command=>admission snapshot state(candidate_owner subject
     (Schema.encode_value(subject_kind subject)(assignment_value assignment)))(Draft.revision current)command
   |None=>Unavailable "This configuration change is not available in the current task."end
- else match (match subject_declaration subject with Fields.TaskEnvironment=>workspace_choice_available snapshot state current
-    (Schema.encode_value(subject_kind subject)(assignment_value assignment))|_=>Available end)with
-  |Unavailable reason=>Unavailable reason
-  |Available=>match apply tt with
+ else match apply tt with
    |Some _=>Available
-   |None=>Unavailable "This field cannot be changed in the current context."end end
+   |None=>Unavailable "This field cannot be changed in the current context."end
  else Unavailable "Select a value permitted by the current field specification." end.
 Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
  let current:=EC.current_draft state e in

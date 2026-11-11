@@ -144,8 +144,6 @@ Proof.
  destruct(negb(EditorContext.connected(EditorContext.observed state)));cbn[assessment_outcome];
  try(eexists;reflexivity).
  destruct(EditorContext.editor_uploading(EditorContext.observed state)e);cbn[assessment_outcome];try(eexists;reflexivity).
- destruct(negb(Selvedge.Interaction.Submission.Observation.worktree_submission_allowed snapshot(EditorContext.git_observation(EditorContext.observed state))(EditorContext.current_draft state e)));cbn[assessment_outcome];
- try(eexists;reflexivity).
  exists[]. rewrite app_nil_r. reflexivity.
 Qed.
 

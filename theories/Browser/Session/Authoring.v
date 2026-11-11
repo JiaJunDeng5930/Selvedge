@@ -126,9 +126,11 @@ Definition current_voice_command state draft:=match Draft.explicit_workspace dra
  |_=>None end end.
 Definition voice_owner (command:SS.public_command):=CommandAssessment.DirectOwner(CommandAssessment.command_identity command).
 Definition new_voice_availability snapshot (state:SS.state) owner:=let draft:=SS.current_draft state owner in
- match current_voice_command state draft with
- |Some command=>EO.admission snapshot state(voice_owner command)(Draft.revision draft)command
- |None=>EM.Unavailable "Create the cloud task before starting voice, or finish observing its workspace."end.
+ match SO.worktree_submission_problem snapshot state draft with
+ |Some problem=>EM.Unavailable(EO.run_environment_git_message problem)
+ |None=>match current_voice_command state draft with
+   |Some command=>EO.admission snapshot state(voice_owner command)(Draft.revision draft)command
+   |None=>EM.Unavailable "Create the cloud task before starting voice, or finish observing its workspace."end end.
 Definition canonical_ready snapshot (state:SS.state) owner revision command:=
  match EO.admission snapshot state owner revision command with EM.Available=>true|EM.Unavailable _=>false end.
 Definition command_owner snapshot state command:=match ObjectActions.descriptor_for_command snapshot state command with
@@ -139,12 +141,13 @@ Definition command_availability snapshot (state:SS.state) command:EM.availabilit
  EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
- if negb(SO.worktree_submission_allowed snapshot state draft)then Some "Wait for Git verification of the primary workspace before creating a worktree."else
  match EO.project_precondition snapshot state draft with
  |Some(_,_,reason)=>Some reason
  |None=>let owner:=Draft.owner draft in
- if SS.pending_editor owner state || Services.preparing owner(SS.service_state state) || Services.blocks owner(SS.service_state state)then
- Some "Wait for the current submission or file transfer to finish."else None end.
+  match EO.run_environment_obstruction snapshot state owner draft with
+  |Some cause=>Some(EM.obstruction_message cause)
+  |None=>if SS.pending_editor owner state || Services.preparing owner(SS.service_state state) || Services.blocks owner(SS.service_state state)then
+    Some "Wait for the current submission or file transfer to finish."else None end end.
 Definition issue_draft snapshot draft trigger state:=
  match submission_obstruction snapshot draft state with
  |Some reason=>fail state reason
@@ -422,10 +425,9 @@ Definition complete snapshot (executed:SS.public_command) purpose outcome state:
     (fun layer=>Some(set SS.layer_feedback(fun _=>Some diagnostic)layer))state)
    else alert_diagnostic state diagnostic)
 |SS.ProjectPreference captured command generation layer trigger=>Some(if completion_success outcome then
-  if SO.worktree_submission_allowed snapshot state captured then
-    issue command(SS.DraftSubmission captured generation layer trigger)state
-  else complete_draft snapshot captured generation layer trigger
-    (inl "Check the selected working directory again before creating its Git worktree.")state
+  (* The prepared command belongs to the captured draft. The host checks
+     its canonical workspace again when creating the worktree. *)
+  issue command(SS.DraftSubmission captured generation layer trigger)state
   else complete_draft snapshot captured generation layer trigger outcome state)
 |_=>None end.
 Definition apply_field snapshot (owner:editor) (assignment:Activity.assignment owner) state:=
@@ -518,27 +520,6 @@ Definition change_workspace snapshot owner change state:=
       |_=>updated end in keep updated
    |None=>fail state "The working directory change is not valid."end end end
  else fail state "A running task keeps its committed workspace.".
-(** Git observations describe an editor's current primary directory. A failed
-    observation can revoke its local-worktree choice, but cannot edit another
-    draft or a primary directory selected after the request. *)
-Definition unavailable_local_workspace snapshot owner path state:=
- match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
- |Some draft=>match bind(SO.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary,
-   Draft.contents draft with
-  |Some current,Draft.NewTaskBody message profile reasoning configuration
-    (Draft.ManagedWorkspace Selvedge.Kernel.WorkspaceBackend.Local)work=>
-    if String.eqb current path then SS.save_draft
-     (Draft.with_body(Draft.NewTaskBody message profile reasoning configuration Draft.CurrentWorkspace work)draft)state
-    else state
-  |_,_=>state end
- |None=>state end.
-Definition workspace_git_completed snapshot input previous state:=
- match input,Services.workspace_git(SS.service_state previous)with
- |Services.WorkspaceGitCompleted ticket outcome,Resource.Loading current(owner,path)=>
-   if N.eqb ticket current then match outcome with
-    |inr true=>state|_=>unavailable_local_workspace snapshot owner path state end
-   else state
- |_,_=>state end.
 Definition directory_editor_ready owner state:=
  match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
  |Some _=>negb(SS.pending_editor owner state)&&Parameters.editable owner Fields.WorkspaceDirectories&&
@@ -565,8 +546,7 @@ Definition service_step snapshot input state:=
  |_=>state end in
  let previous_connection:=Services.connection(SS.service_state state)in
  let decision:=Services.service_step(admitted_upload input state)(SS.service_state state)in
- let state:=workspace_git_completed snapshot input state
-   (SS.with_services(Services.service_state decision)state)in
+ let state:=SS.with_services(Services.service_state decision)state in
  let state:=match Services.attached decision with Some(owner,file)=>attached snapshot owner file state|None=>state end in
  (* DEFENSE: Stale connection receipts emit neither authentication nor owned
     reconnect effects and must not retire the current microphone session. *)
@@ -704,12 +684,15 @@ Definition resolve_creation_model snapshot state:=
 Definition ensure_workspace_git snapshot state:=
  let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
  let services:=SS.service_state state in
- let selected:=bind(SO.workspace_for snapshot(SS.current_draft state owner))Selvedge.Kernel.Domain.workspace_primary in
+ let draft:=match find(fun owner=>match owner with Identity.Project _=>true|_=>false end)(visible_editors state)with
+  |Some project=>let edited:=SS.current_draft state project in
+    if SO.worktree_required edited then edited else SS.current_draft state owner
+  |None=>SS.current_draft state owner end in
+ let selected:=SO.workspace_git_request snapshot draft in
  match selected with
  |None=>keep(SS.with_services(Services.with_workspace_git Resource.Dormant services)state)
- |Some path=>let current:=Services.workspace_git services in
-  let matches:=match resource_request current with Some(previous,root)=>same_editor owner previous && String.eqb path root|None=>false end in
-  if matches then keep state else
+ |Some (owner,path)=>
+  if SO.workspace_git_request_matches (owner,path)(Services.workspace_git services) then keep state else
   let ticket:=Services.next_ticket services in
   changed(SS.with_services(Services.with_next(N.succ ticket)
     (Services.with_workspace_git(Resource.Loading ticket(owner,path))services))state)

@@ -49,11 +49,15 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 object with `project_id`, `workspace`, `sandbox`, `approval`, and
 `realtime_context`.
 
-When the primary workspace has a Git commit, the New task dialog lets you choose
-the current workspace, a local Git worktree, or Tencent Cloud CVM.
-A project's `create_worktree` preference initializes the local choice. Creating
-a Task with a local choice remembers that preference for the Project; choosing
-a cloud environment does not change it. The programmatic local entry is
+When starting a conversation, the run settings offer the current workspace,
+a local Git worktree, or Tencent Cloud CVM. A local worktree requires verifying
+that the primary directory belongs to a Git repository with a commit. The
+selected environment remains in place during verification and if it fails, so
+you can correct the directory or choose another environment.
+A project's `create_worktree` preference initializes the local choice. The
+Project editor requires a verified primary to save with that default enabled.
+Starting a conversation with a local worktree remembers it as the Project default
+when the verified primary is also the Project primary. The programmatic local entry is
 `create_worktree_task`; `create_workspace_task` additionally accepts the typed
 `backend` name `local` or `tencent_cvm`. Both use the existing task startup and
 archive lifecycle.

@@ -101,7 +101,8 @@ Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   a_pending_command_is_not_executed_twice).
 Export ObjectActionsProof(available_native_has_current_admission).
 Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
-  completion_of_an_older_revision_preserves_the_newer_editor).
+  completion_of_an_older_revision_preserves_the_newer_editor,
+  git_observation_settles_only_the_workspace_check).
 Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
   new_selection_intent_prevents_side_completion_selection).
 
@@ -265,6 +266,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     A project can be created with its name alone. Its editor marks the default
     working directory as optional and uses the language of the project page.
     A directory chooser identifies the execution environment that owns its paths.
+    A conversation keeps its selected run environment when verification is
+    pending or fails. [git_observation_settles_only_the_workspace_check]
+    constrains the actual receipt. A local Git worktree requires verifying
+    that the current primary directory belongs to a repository with a commit.
+    A project requires the same verification when saving a local worktree as
+    the default.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.

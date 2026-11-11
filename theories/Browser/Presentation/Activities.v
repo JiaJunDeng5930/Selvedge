@@ -7,7 +7,7 @@ From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Browser.Session Require Import Input.
-From Selvedge.Browser.Session Require Services.
+From Selvedge.Browser.Session Require Services Observation.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Browser.Session Require State.
 From Selvedge.Interaction.Submission Require Draft.
@@ -94,7 +94,9 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
  let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
- let heading:=label "工作目录（可选）" "Working directories" in
+ let heading:=label
+  (if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
+   then "工作目录" else "工作目录（可选）") "Working directories" in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
  Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)

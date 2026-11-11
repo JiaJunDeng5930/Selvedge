@@ -269,9 +269,10 @@ Definition begin_new_voice snapshot owner state:=
  let state:=Authoring.ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
  match owner,Authoring.current_voice_command state draft with
- |Identity.NewTask _,Some command=>if Authoring.canonical_ready snapshot state(Authoring.voice_owner command)(Draft.revision draft)command then
-   Authoring.speech_step snapshot(Speech.BeginNewVoice owner(Draft.revision draft)(SS.generation(SS.navigation_state state))command)state
-   else Authoring.fail state "The voice task has not been admitted against the current state."
+ |Identity.NewTask _,Some command=>match Authoring.new_voice_availability snapshot state owner with
+   |EM.Available=>Authoring.speech_step snapshot
+     (Speech.BeginNewVoice owner(Draft.revision draft)(SS.generation(SS.navigation_state state))command)state
+   |EM.Unavailable reason=>Authoring.fail state reason end
  |_,_=>Authoring.fail state "A valid task draft is required to start a voice session."end.
 Definition voice_created snapshot ticket task state:=match Speech.current(SS.speech_state state)with
 |Speech.CreatingTask current owner revision generation=>if N.eqb ticket current then

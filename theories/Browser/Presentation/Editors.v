@@ -141,8 +141,11 @@ Definition property_button (snapshot:json) (s:Session.state) e parent (property:
 Definition property_controls snapshot (s:Session.state) e parent properties :=
  flat_map(fun property=>property_button snapshot s e parent property::
   match Observe.property_obstruction property(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
-  |Some cause=>if String.eqb(UX.obstruction_code cause)"model_not_found" then []
-               else obstruction_nodes parent cause
+  |Some cause=>let run_environment:=match UX.obstruction_target cause with
+     |UX.RepairField subject=>match UX.subject_declaration subject with Fields.TaskEnvironment=>true|_=>false end
+     |UX.RepairEditor=>false end in
+   if run_environment || String.eqb(UX.obstruction_code cause)"model_not_found" then []
+   else obstruction_nodes parent cause
   |None=>[]end)
  (filter(fun property=>Observe.support_visible(Observe.property_support(Observe.action_unit_for s e)property))properties).
 Definition composer_tools snapshot (s:Session.state) e parent :=

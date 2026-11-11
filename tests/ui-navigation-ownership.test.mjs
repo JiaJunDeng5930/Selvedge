@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { browserFixture } from './fixtures/browser.mjs';
@@ -55,8 +56,9 @@ async function selectTask(fixture, taskId) {
   return task;
 }
 
-async function openProjectTask(fixture, name, directory) {
-  await fixture.command({ op: 'create_project', name, workspace: { roots: [directory], primary_root: directory } });
+async function openProjectTask(fixture, name, directory, createWorktree = false) {
+  await fixture.command({ op: 'create_project', name, create_worktree: createWorktree,
+    workspace: { roots: [directory], primary_root: directory } });
   await fixture.page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await fixture.page.getByRole('main').getByRole('button', { name, exact: true }).click();
@@ -252,27 +254,46 @@ async function replaceWorkspace(page, directory) {
   await dialog.waitFor({ state: 'hidden' });
 }
 
-test('a real non-Git observation resets the local environment and an old Git reply cannot change a newer draft', { timeout: 60000 }, async t => {
+test('an unavailable Git worktree preserves Local intent and a stale Git reply cannot authorize another draft', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
-  const { page, root } = fixture;
+  const { page, root, command } = fixture;
   const source = path.join(root, 'Git primary');
   const nonGit = path.join(root, 'Plain primary');
   await repository(source);
   await mkdir(nonGit);
-  const observed = gitResponse(page, source);
-  await openProjectTask(fixture, 'Observed Git project', source);
-  await (await observed).finished();
-  await page.getByText('Project and run settings', { exact: true }).click();
-  const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
-  await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
-  assert.equal(await environment.inputValue(), 'local');
-
   const plain = gitResponse(page, nonGit);
-  await replaceWorkspace(page, nonGit);
+  await openProjectTask(fixture, 'Legacy local worktree default', nonGit, true);
   const response = await plain;
-  assert.equal(response.status(), 200, await response.text());
-  await page.waitForFunction(() => document.querySelector('select[aria-label="Run environment"]')?.value === 'current');
-  assert.equal(await environment.inputValue(), 'current', 'A real observation of the replacement primary removes the obsolete local choice');
+  assert.equal(response.status(), 200);
+  assert.equal((await response.json()).available, false);
+
+  const options = page.getByText('Project and run settings', { exact: true });
+  const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
+  const message = page.getByRole('combobox', { name: 'Task', exact: true });
+  const start = page.getByRole('button', { name: 'Start task', exact: true });
+  const ready = page.getByRole('button', { name: 'Start task', exact: true, disabled: false });
+  const repositoryRequired = 'Choose a Git repository with a commit, or use the working directory as is.';
+  const required = page.getByRole('status').filter({ hasText: repositoryRequired });
+  await page.setViewportSize({ width: 390, height: 700 });
+  await message.fill('Keep my selected run environment.');
+  await required.waitFor();
+  assert.equal(await required.count(), 1, 'A collapsed settings disclosure still exposes the reason');
+  assert.equal(await environment.isVisible(), false);
+  assert.equal(await start.isDisabled(), true);
+  await options.click();
+  assert.equal(await environment.inputValue(), 'local');
+  await required.waitFor();
+  assert.equal(await required.count(), 1, 'Opening the settings moves the visible reason beside the selector');
+  const selectBounds = await environment.boundingBox(), reasonBounds = await required.boundingBox();
+  assert.ok(selectBounds && reasonBounds && reasonBounds.y >= selectBounds.y + selectBounds.height
+    && reasonBounds.x >= 0 && reasonBounds.x + reasonBounds.width <= 390);
+  await environment.selectOption({ label: 'Use working directory as is' });
+  await ready.waitFor();
+  await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
+  await required.waitFor();
+  assert.equal(await environment.inputValue(), 'local', 'The explicit Local choice is accepted even for the failed Git check');
+  assert.equal(await start.isDisabled(), true);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   const started = deferred(), released = deferred(), completed = deferred();
   let held = false;
@@ -282,25 +303,105 @@ test('a real non-Git observation resets the local environment and an old Git rep
     if (held || request.kind !== 'workspace-git' || request.primary !== source) return route.continue();
     held = true;
     const response = await route.fetch();
-    started.resolve();
+    started.resolve(await response.json());
     await released.promise;
     await route.fulfill({ response });
     completed.resolve();
   });
   await replaceWorkspace(page, source);
-  await started.promise;
+  assert.equal((await started.promise).available, true);
+  await page.getByRole('status').filter({ hasText: 'Checking the working directory for Git…' }).waitFor();
+  assert.equal(await environment.inputValue(), 'local');
+  assert.equal(await start.isDisabled(), true);
   await startWork(page);
-  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Retain the newer default-workspace draft.');
-  if (!(await environment.isVisible())) await page.getByText('Project and run settings', { exact: true }).click();
+  const newerMessage = 'Retain the newer default-workspace draft.';
+  await message.fill(newerMessage);
+  if (!(await environment.isVisible())) await options.click();
   const primary = await page.locator('button[data-logical-key="composer/workspace"]').innerText();
   assert.ok(primary.includes(root), primary);
   assert.ok(!primary.includes(source), primary);
+  await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
+  await required.waitFor();
   released.resolve();
   await completed.promise;
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await environment.inputValue(), 'current');
-  assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Retain the newer default-workspace draft.');
+  assert.equal(await environment.inputValue(), 'local');
+  assert.equal(await message.inputValue(), newerMessage);
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').innerText(), primary);
+  assert.equal(await start.isDisabled(), true, 'An old Git success cannot authorize a worktree in the newer non-Git draft');
+  await required.waitFor();
+  await environment.selectOption({ label: 'Use working directory as is' });
+  await ready.waitFor();
+  const creation = commandResponse(page, 'create_work_task');
+  await start.click();
+  const { reply } = await (await creation).json();
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
+});
+
+test('a verified Local choice creates a real managed Git worktree', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, root, command } = fixture;
+  const source = path.join(root, 'Verified Git primary');
+  await repository(source);
+  const git = gitResponse(page, source);
+  await openProjectTask(fixture, 'Verified Git project', source);
+  assert.equal((await (await git).json()).available, true);
+  await page.getByText('Project and run settings', { exact: true }).click();
+  const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
   await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
-  assert.equal(await environment.inputValue(), 'current', 'The stale Git success must not authorize Local worktree for a non-Git draft');
+  assert.equal(await environment.inputValue(), 'local');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Start in the verified Git worktree.');
+  const creation = commandResponse(page, 'create_worktree_task');
+  await page.getByRole('button', { name: 'Start task', exact: true }).click();
+  const { reply } = await (await creation).json();
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  const taskId = reply.result.task_id;
+  const deadline = Date.now() + 10_000;
+  let checkout;
+  do {
+    checkout = await command({ op: 'read_worktree', task_id: taskId });
+    assert.notEqual(checkout.status, 'create_failed', JSON.stringify(checkout));
+    if (checkout.status === 'ready') break;
+    await delay(20);
+  } while (Date.now() < deadline);
+  assert.equal(checkout.status, 'ready', JSON.stringify(checkout));
+  assert.equal(checkout.source_root, source);
+  assert.equal(checkout.backend, 'local');
+  assert.notEqual(checkout.root, source);
+  const [project] = await command({ op: 'list_projects' });
+  assert.equal(project.create_worktree, true, 'A verified project default remains a deliberate saved preference');
+});
+
+test('a captured Git worktree submission survives another Project form taking over the Git check', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, root, command } = fixture;
+  const source = path.join(root, 'Captured Git primary');
+  await repository(source);
+  const git = gitResponse(page, source);
+  await openProjectTask(fixture, 'Project with a valid Git primary', source);
+  assert.equal((await (await git).json()).available, true);
+  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Run environment', exact: true })
+    .selectOption({ label: 'New Git worktree on the Selvedge host' });
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Start the captured Git worktree.');
+  const preference = await holdNextCommand(t, page, 'update_project');
+  await page.getByRole('button', { name: 'Start task', exact: true }).click();
+  await preference.started;
+
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '新建项目', exact: true }).click();
+  const project = page.getByRole('dialog', { name: '新建项目', exact: true });
+  await project.getByRole('checkbox', { name: '新对话默认创建 Git 工作树', exact: true }).check();
+  await project.getByRole('alert').filter({ hasText: '请先添加并选择主目录。' }).waitFor();
+
+  const creation = commandResponse(page, 'create_worktree_task');
+  await preference.release();
+  const { reply } = await (await creation).json();
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  const checkout = await command({ op: 'read_worktree', task_id: reply.result.task_id });
+  assert.equal(checkout.source_root, source);
+  assert.equal(checkout.backend, 'local');
+  assert.equal(await project.isVisible(), true, 'The captured submission leaves the newer Project dialog in place');
 });
