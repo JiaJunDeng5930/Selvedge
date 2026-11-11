@@ -280,6 +280,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether
     saving schedules execution or leaves the card for a later action.
+    Assisted capture offers the board default when it names an eligible
+    drafting model. A missing selection leaves a prompt in the model field.
+    When a field requires correction before a dialog can submit, the reason
+    is visible at that field and in the fixed action area.
 
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy

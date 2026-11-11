@@ -7,11 +7,10 @@ From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
 From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
+From Selvedge.Features Require Import Domain State Observation Titles Worktree BoardFacts.
 From Selvedge.Features Require Import BoardParameters BoardDrafting.
 From Selvedge.Programming Require CardScope.
 Module BD := BoardDrafting.
-Module FRA := FeatureRequestAdmission.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
@@ -57,16 +56,13 @@ Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) 
 Definition handle_read_card (p:Selvedge.Generated.Commands.read_card_payload) (caller:option N) (value:world) :json :=
  match CardScope.lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end.
 Definition request_text_result {value} (target:BD.drafting_target value) (profile_name:string) :=
- let name:=if String.eqb profile_name "" then Selvedge.Features.Domain.board_draft_profile (registry value) else profile_name in
- FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
- (fun profile Selected =>
-   CommandResult.require (TitleRuntime.ordinary profile) (fun Ordinary =>
+ let name:=BD.profile_name (Selvedge.Features.Domain.board_draft_profile (registry value)) profile_name in
+ BD.require_profile name (environment_profiles (world_environment value))
+ (fun profile Selected Ordinary =>
      let request:=BD.plan target name profile Selected Ordinary in
      let issued:=FeatureRequest.feature_issue_change request in
      CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
-       (CommandResult.change_world issued) (CommandResult.change_effects issued)))
-   "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
- (fun _ => CommandResult.refuse "draft_profile_required" "Choose a configured ordinary drafting endpoint").
+       (CommandResult.change_world issued) (CommandResult.change_effects issued))).
 Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card_draft) := if assisted then
    match Utf8.chunks (Selvedge.Features.Domain.draft_title draft) with
    | None=>draft
@@ -191,7 +187,7 @@ Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:o
 Definition run (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  CommandResult.decide value (run_result id revision observed caller value).
 Definition settings (automatic:bool) (profile:string) (value:world) :=
- let valid:=String.eqb profile "" || match Tasks.find_profile profile (environment_profiles (world_environment value)) with Some chosen=>TitleRuntime.ordinary chosen | None=>false end in
+ let valid:=String.eqb profile "" || BD.profile_available profile (environment_profiles (world_environment value)) in
  if valid then let b:=registry value in Selvedge.Kernel.State.accept JNull
  (store ((set Selvedge.Features.Domain.board_draft_profile (fun _=>profile) (set Selvedge.Features.Domain.board_automatic (fun _=>automatic) (b)))) value) []
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.

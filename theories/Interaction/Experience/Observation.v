@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
-From Selvedge.Features Require Domain BoardParameters Work Titles TaskGraph.
+From Selvedge.Features Require Domain BoardParameters BoardDrafting Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
@@ -24,6 +24,21 @@ Definition profile_choices profiles :=
    (ContextObservation.profile_label profiles profile))profiles.
 Definition selectable_profile_choices snapshot :=
  profile_choices(ModelSelection.selectable_profiles(FieldsObservation.catalog snapshot)).
+Definition drafting_profile_choices snapshot :=
+ profile_choices(filter FeatureRequestAdmission.ordinary_profile
+   (ModelSelection.selectable_profiles(FieldsObservation.catalog snapshot))).
+Definition board_default_drafting_profile snapshot :=
+ value_or "" (option_map Read.board_draft_profile(Read.board_configuration snapshot)).
+Definition drafting_profile_available snapshot profile :=
+ BoardDrafting.profile_available profile (FieldsObservation.catalog snapshot).
+Definition assistance_profile_available snapshot selected :=
+ drafting_profile_available snapshot
+   (BoardDrafting.profile_name (board_default_drafting_profile snapshot) selected).
+Definition assistance_profile_choices snapshot selected :=
+ let default:=board_default_drafting_profile snapshot in
+ (if assistance_profile_available snapshot selected then [] else [Fields.ChoiceValue selected "请选择模型"]) ++
+ (if drafting_profile_available snapshot default then [Fields.ChoiceValue "" "看板默认模型"] else []) ++
+ drafting_profile_choices snapshot.
 Definition observe_subject snapshot state {e}(subject:Model.subject e):Fields.observed:=
   let draft := EC.current_draft state e in
  match FieldsObservation.observe_field snapshot draft (subject_declaration subject) with
@@ -68,7 +83,9 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
  |Fields.ContextOrigin=>context_origin_choices snapshot state subject
  |Fields.CardProject=>project_choices snapshot "不关联项目"
  |Fields.ModelProfile=>models tt
- |Fields.AssistanceProfile=>Fields.ChoiceValue "" "看板默认模型"::models tt
+ |Fields.AssistanceProfile=>match observe tt with
+   |Fields.AssistanceValue _ selected=>assistance_profile_choices snapshot selected
+   |_=>[]end
  |Fields.AgentTitleProfile=>
    let available:=profile_choices(filter FeatureRequestAdmission.ordinary_profile(FieldsObservation.catalog snapshot))in
    let retained:=match observe tt with
@@ -465,6 +482,15 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
    (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
+ |Draft.CardBody _ _ _ true selected _=>
+   if assistance_profile_available snapshot selected then [] else
+   [requirement_obstruction e (Some Fields.AssistanceProfile) "draft_profile_unavailable"
+    (match drafting_profile_choices snapshot with
+    |[]=>"没有可用的整理模型。请配置模型，或关闭模型整理。"
+    |_=>if String.eqb selected "" then
+      if String.eqb (board_default_drafting_profile snapshot) "" then "看板未设置默认整理模型，请选择模型。"
+      else "看板默认整理模型不可用，请选择其他模型。"
+     else "所选整理模型不可用，请重新选择。" end)]
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
  |Draft.TaskGraphBody graph _ parsed work=>
    if graph_declaration_valid body then [] else

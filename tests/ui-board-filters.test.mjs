@@ -19,6 +19,124 @@ test('task board exposes ordinary model and unassigned filter choices', async t 
   }
 });
 
+test('assisted card creation keeps model selection truthful when the catalog changes', async t => {
+  const fixture = await browserFixture(t, { images: true });
+  const { page, command, upstream, running } = fixture;
+  const delegate = upstream.options.respond;
+  const requests = [];
+  let models = [];
+  const complete = (response, text) => {
+    const output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);
+  };
+  upstream.options.respond = async (entry, response) => {
+    if (new URL(entry.url, upstream.address).pathname === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ models }));
+      return;
+    }
+    const schema = entry.body.text?.format?.schema;
+    if (schema?.properties?.title && schema?.properties?.description) {
+      requests.push(entry.body.model);
+      complete(response, JSON.stringify({ title: 'Organized card', description: 'A completed model draft' }));
+      return;
+    }
+    return delegate(entry, response);
+  };
+  async function refresh(slugs) {
+    models = slugs.map(slug => ({ slug, display_name: slug, visibility: 'list', context_window: 128000,
+      effective_context_window_percent: 100, default_reasoning_level: 'medium',
+      supported_reasoning_levels: [{ effort: 'medium' }] }));
+    const response = await fetch(`${running.address}/api/accounts/refresh`, {
+      method: 'POST', headers: { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' }, body: '{}',
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const reply = await response.json();
+    assert.ok(reply.ok, JSON.stringify(reply));
+    return reply.result.profiles;
+  }
+  const configured = await refresh(['image-fixture', 'replacement-fixture']);
+  const replacement = configured.find(model => model.name === 'replacement-fixture');
+  assert.ok(replacement?.key);
+  await command({ op: 'board_settings', automatic: false, draft_profile: fixture.profile });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const create = dialog.getByRole('button', { name: '创建卡片', exact: true });
+  const assisted = dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
+  const profile = dialog.getByRole('combobox', { name: '整理用的模型', exact: true });
+  async function openAssistedCard(title) {
+    await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
+    await dialog.getByText('更多卡片选项', { exact: true }).click();
+    await assisted.check();
+  }
+  const selected = label => profile.locator('option:checked').filter({ hasText: label }).waitFor({ state: 'attached' });
+  async function blocked(message) {
+    await selected('请选择模型');
+    await dialog.getByRole('alert').filter({ hasText: message }).waitFor();
+    assert.equal(await create.isEnabled(), false);
+  }
+
+  await openAssistedCard('A valid Board default');
+  await selected('看板默认模型');
+  await create.click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.getByRole('article', { name: 'Organized card', exact: true }).waitFor();
+  assert.deepEqual(requests, ['image-fixture']);
+
+  await openAssistedCard('Preserve this card draft');
+  await selected('看板默认模型');
+  await refresh(['replacement-fixture']);
+  await blocked('看板默认整理模型不可用，请选择其他模型。');
+  assert.ok(!(await profile.locator('option').allTextContents()).includes('看板默认模型'));
+  await profile.selectOption(replacement.key);
+  await page.waitForFunction(() => {
+    const submit = document.querySelector('dialog[open] button[data-semantic-key="submit"]');
+    return submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true';
+  });
+  await refresh(['image-fixture']);
+  await blocked('所选整理模型不可用，请重新选择。');
+  assert.ok((await profile.locator('option').allTextContents()).includes('看板默认模型'));
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+
+  await refresh(['replacement-fixture']);
+  await page.getByRole('button', { name: '看板设置', exact: true }).click();
+  const settingsProfile = page.getByRole('combobox', { name: '草稿模型', exact: true });
+  await settingsProfile.locator('option:checked').filter({ hasText: '请选择草稿模型' }).waitFor({ state: 'attached' });
+});
+
+test('assisted card creation can fall back to manual save when no drafting model exists', async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, requests } = fixture;
+  const { demo } = fixture.running.service.config.profiles;
+  await fixture.restart({ profiles: { demo } });
+  await page.goto(fixture.running.url);
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const title = 'Preserve this card draft';
+  await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
+  await dialog.getByText('更多卡片选项', { exact: true }).click();
+  const assisted = dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
+  await assisted.check();
+  await dialog.getByRole('alert').filter({ hasText: '没有可用的整理模型。请配置模型，或关闭模型整理。' }).waitFor();
+  const profile = dialog.getByRole('combobox', { name: '整理用的模型', exact: true });
+  assert.deepEqual(await profile.locator('option').allTextContents(), ['请选择模型']);
+  const create = dialog.getByRole('button', { name: '创建卡片', exact: true });
+  assert.equal(await create.isEnabled(), false);
+  await assisted.uncheck();
+  await create.click();
+  await dialog.waitFor({ state: 'hidden' });
+  const [saved] = (await command({ op: 'list_cards' })).cards;
+  assert.equal(saved.title, title);
+  assert.equal(requests.length, 0);
+});
+
 test('card save shows whether a model will start, wait, or remain manual', async t => {
   const { page, command, running, requests, finish } = await browserFixture(t);
   const settings = automatic => command({ op: 'board_settings', automatic, draft_profile: 'interactive' });
@@ -104,6 +222,76 @@ test('card save shows whether a model will start, wait, or remain manual', async
     .getByRole('article', { name: waitingTitle, exact: true }).waitFor();
   const started = await command({ op: 'read_card', card_id: waiting.card_id });
   assert.notEqual(started.task_id, null);
+});
+
+test('the blocked card commit keeps its repair visible while the mobile form scrolls', async t => {
+  const { page, command, requests, finish } = await browserFixture(t);
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 500 });
+  await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const title = dialog.getByRole('textbox', { name: '标题', exact: true });
+  const description = dialog.getByRole('textbox', { name: '描述', exact: true });
+  const body = dialog.locator('[data-surface-role="dialog-body"]');
+  const footer = dialog.locator('[data-surface-role="dialog-actions"]');
+  const submit = footer.getByRole('button', { name: '创建卡片', exact: true });
+  const reasonText = '看板未设置默认整理模型，请选择模型。';
+  const reason = footer.locator('[data-semantic-key="editor-commit-reason"]');
+  await submit.waitFor();
+  assert.equal(await reason.count(), 0);
+  await title.fill('A card with a long description');
+  await description.fill('Review this step and keep the details in the card.\n'.repeat(18));
+  await dialog.getByText('更多卡片选项', { exact: true }).click();
+  await dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
+  const model = dialog.getByRole('combobox', { name: '整理用的模型', exact: true });
+  await reason.waitFor();
+  assert.equal(await reason.textContent(), reasonText);
+  await body.getByRole('alert').filter({ hasText: reasonText }).waitFor();
+  assert.equal(await model.locator('option:checked').textContent(), '请选择模型');
+  assert.equal(await submit.isDisabled(), true);
+
+  await title.focus();
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(({ descriptionId, modelId, reasonText }) => {
+    const input = document.getElementById(descriptionId);
+    const picker = document.getElementById(modelId);
+    const panel = input?.closest('dialog');
+    const body = panel?.querySelector('[data-surface-role="dialog-body"]');
+    const footer = panel?.querySelector('[data-surface-role="dialog-actions"]');
+    const reason = [...(footer?.children ?? [])].find(node => node.textContent === reasonText);
+    const disabledCommit = footer?.querySelector('button[aria-disabled="true"]');
+    if (!body || !picker || document.activeElement !== input || body.scrollHeight <= body.clientHeight) return false;
+    const bodyBounds = body.getBoundingClientRect();
+    return picker.getBoundingClientRect().top >= bodyBounds.bottom
+      && [reason, disabledCommit].every(node => {
+        const rect = node?.getBoundingClientRect();
+        return rect && rect.top >= bodyBounds.bottom && rect.bottom <= window.innerHeight
+          && rect.left >= 0 && rect.right <= window.innerWidth;
+      });
+  }, { descriptionId: await description.getAttribute('id'), modelId: await model.getAttribute('id'), reasonText });
+
+  const focused = locator => locator.evaluate(element => element === document.activeElement);
+  for (let index = 0; index < 12 && !(await focused(model)); index++) await page.keyboard.press('Tab');
+  assert.equal(await focused(model), true, 'Tab reaches the field named in the footer');
+  await page.keyboard.press('i');
+  assert.equal(await model.inputValue(), 'interactive');
+  await reason.waitFor({ state: 'hidden' });
+  await footer.getByText('保存后先生成卡片内容，暂不启动对话。', { exact: true }).waitFor();
+  assert.equal(await submit.isEnabled(), true);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(submit), true);
+  await page.keyboard.press('Enter');
+  await dialog.waitFor({ state: 'hidden' });
+
+  const generatedTitle = 'Drafted with keyboard';
+  const deadline = Date.now() + 5000;
+  while (!requests.length && Date.now() < deadline) await delay(10);
+  assert.ok(requests[0], 'The keyboard submission reaches the drafting model');
+  finish(0, { text: JSON.stringify({ title: generatedTitle, description: 'Review the saved request.' }) });
+  await page.getByRole('article', { name: generatedTitle, exact: true }).waitFor();
+  assert.equal((await command({ op: 'list_cards' })).cards[0].title, generatedTitle);
 });
 
 test('the board keeps empty stages visible and counts only matching cards linked to executing conversations', async t => {

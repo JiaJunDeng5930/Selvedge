@@ -72,7 +72,9 @@ test('conversation and board controls distinguish same-name configurations and e
     'The connected catalog must contain the dedicated profile before testing its exclusion');
   const astraProfiles = catalog.result.profiles.filter(profile => profile.name === 'gpt-6-astra');
   assert.equal(astraProfiles.length, 2);
+  const fixed = astraProfiles.find(profile => !profile.adaptive_reasoning);
   const adaptive = astraProfiles.find(profile => profile.adaptive_reasoning);
+  assert.ok(fixed?.key);
   assert.ok(adaptive?.key);
   await page.reload();
   await page.getByRole('button', { name: /^Model:/ }).click();
@@ -102,8 +104,9 @@ test('conversation and board controls distinguish same-name configurations and e
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
   const draftModels = page.getByRole('combobox', { name: '草稿模型', exact: true });
   const draftNames = await draftModels.locator('option').allTextContents();
-  for (const label of ['image-fixture', fixedAstra, adaptiveAstra]) assert.ok(draftNames.includes(label), label);
-  assert.ok(!draftNames.includes('codex-auto-review'));
+  for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(draftNames.includes(label), label);
+  for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!draftNames.includes(label), label);
+  assert.equal(await draftModels.locator('option').filter({ hasText: 'gpt-6-astra' }).getAttribute('value'), fixed.key);
   await page.keyboard.press('Escape');
   await page.getByRole('main').getByRole('button', { name: '新建卡片', exact: true }).first().click();
   const card = page.getByRole('dialog');
@@ -112,8 +115,9 @@ test('conversation and board controls distinguish same-name configurations and e
   assert.equal(await assistance.isVisible(), false);
   await card.getByText('更多卡片选项', { exact: true }).click();
   const assistanceNames = await assistance.locator('option').allTextContents();
-  for (const label of ['image-fixture', fixedAstra, adaptiveAstra]) assert.ok(assistanceNames.includes(label), label);
-  assert.ok(!assistanceNames.includes('codex-auto-review'));
+  for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(assistanceNames.includes(label), label);
+  for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!assistanceNames.includes(label), label);
+  assert.equal(await assistance.locator('option').filter({ hasText: 'gpt-6-astra' }).getAttribute('value'), fixed.key);
   const assignee = card.getByRole('combobox', { name: '负责人', exact: true });
   const assigneeNames = await assignee.locator('option').allTextContents();
   for (const label of ['image-fixture', fixedAstra, adaptiveAstra]) assert.ok(assigneeNames.includes(label), label);

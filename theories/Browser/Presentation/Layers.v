@@ -160,6 +160,8 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
 |Some board=>let automatic:=Read.board_automatic board in
  let profile:=Read.board_draft_profile board in
+ let choices:=Observation.drafting_profile_choices snapshot in
+ let selected:=if existsb(fun choice=>String.eqb profile(Fields.choice_value_of choice))choices then profile else "" in
  let busy:=existsb(fun pending=>String.eqb "board_settings"
    (text "op"(Schema.encode_command(State.accepted_command pending))))
    (State.awaiting(State.authoring_state s)) in
@@ -167,7 +169,7 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
  ((match toggle with None=>[]|Some input=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input))]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
-  (BoardProfile automatic profile(Observation.selectable_profile_choices snapshot)
+  (BoardProfile automatic selected choices
     (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages

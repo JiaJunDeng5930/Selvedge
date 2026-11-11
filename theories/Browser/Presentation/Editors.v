@@ -114,14 +114,18 @@ Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstructi
  |Draft.ProjectBody _ name _ _=>
    negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
  |_=>true end.
+Definition visible_field_obstruction {e} draft (outcome:UX.assessment_result e) :=
+ cause<-Observe.attention_obstruction outcome;;
+ match UX.obstruction_target cause with
+ |UX.RepairField subject=>if field_obstruction_visible draft cause then Some(subject,cause)else None
+ |UX.RepairEditor=>None end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
+ let obstruction:=visible_field_obstruction(Session.current_draft s e)
+   (UX.assessment_outcome(Observe.observe_assessment snapshot s e))in
  fold_right(fun field rest=>match field_node snapshot s e parent field with
- |Some node=>node::((match Observe.attention_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
-  |Some cause=>match UX.obstruction_target cause with
-   |UX.RepairField subject=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
-     then if field_obstruction_visible (Session.current_draft s e) cause
-          then obstruction_nodes parent cause else[] else[]
-   |UX.RepairEditor=>[]end
+ |Some node=>node::((match obstruction with
+  |Some(subject,cause)=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
+     then obstruction_nodes parent cause else[]
   |None=>[]end)++rest)%list
  |None=>rest end)[]fields.
 Definition property_button (snapshot:json) (s:Session.state) e parent (property:UX.property e) :=
@@ -322,6 +326,9 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let reason:=match visible_field_obstruction draft (UX.assessment_outcome assessment)with
+ |Some(_,cause)=>[information parent "editor-commit-reason" Information.Description (UX.obstruction_message cause)]
+ |None=>[]end in
  let consequence:=match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some value=>[information parent "card-save-consequence" Information.Description
@@ -345,7 +352,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      (consequence ++ [declared parent Roles.Button(secondary "cancel"
+      (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
         (match e with Card _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

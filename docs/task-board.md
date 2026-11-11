@@ -48,7 +48,9 @@ Assisted creation uses a separately selected ordinary profile to organize the
 request into a title and description. This request has no tools. Its profile is
 separate from the execution assignee; quality and availability depend on that
 endpoint. Explicit offline echo and adaptive task profiles are not drafting
-profiles.
+profiles. The form uses the configured Board default when it is available.
+When the default is unavailable, choose a model in **整理用的模型**. Turning
+assistance off saves the title and description you enter.
 **Settings → Conversation titles → Edit title prompts** edits **Task title prompt**
 for board cards independently of **Conversation title prompt**. Both retain the shared
 schema and normalization. Linked conversations generate their own names;

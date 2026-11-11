@@ -377,7 +377,7 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
 Proof.
  intros id revision value card profile_name selected observed Found Current Ready Available Ordinary.
  subst revision. rewrite (available_regeneration_uses_drafting_policy id value card profile_name observed Found Ready).
- unfold Board.request_text_result.
+ unfold Board.request_text_result, BoardDrafting.profile_name, BoardDrafting.require_profile.
  eapply observe_present; [exact Available|]; intros Selected.
  eapply CommandResult.require_satisfied; [exact Ordinary|]; intros Capable.
  eexists; repeat split; reflexivity.

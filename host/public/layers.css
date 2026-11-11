@@ -64,9 +64,12 @@
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
   }
-  & [data-semantic-key="card-save-consequence"] {
+  & :is([data-semantic-key="card-save-consequence"], [data-semantic-key="editor-commit-reason"]) {
     flex: 1 0 100%;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
   }
+  & [data-semantic-key="editor-commit-reason"] { color: var(--selvedge-warning) !important; }
   & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
     max-inline-size: 100% !important;
   }
