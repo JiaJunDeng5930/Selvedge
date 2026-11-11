@@ -1,7 +1,8 @@
 /** Lifecycle observation for the finite motion vocabulary authored by the extracted model. */
 export class PresentationMotion {
-  constructor(root) {
+  constructor(root, activeModal) {
     this.root = root;
+    this.activeModal = activeModal;
     this.nodes = new Set();
     this.visible = new WeakMap();
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -15,7 +16,7 @@ export class PresentationMotion {
   }
   refresh() {
     const current = new Set(this.root.querySelectorAll('[data-interactive-motion]'));
-    const modal = this.root.querySelector('dialog:modal');
+    const modal = this.activeModal();
     for (const node of this.nodes) if (!current.has(node)) this.observer.unobserve(node);
     for (const node of current) {
       if (!this.nodes.has(node)) this.observer.observe(node);

@@ -35,3 +35,15 @@ Theorem unknown_document_callback_is_idle namespace snapshot lagged input state 
 Proof.
  intros callback unknown. unfold Runtime.language_step. rewrite callback,unknown. reflexivity.
 Qed.
+
+Theorem synchronizing_language_reuses_document_visibility namespace snapshot lagged state:
+ Runtime.synchronize_language namespace snapshot lagged state=
+ Runtime.apply_language namespace snapshot lagged
+   Selvedge.Interaction.Interactive.Types.EnvironmentChanged state.
+Proof.
+ unfold Runtime.synchronize_language,Runtime.apply_language,Runtime.language_step,Runtime.callback_owner.
+ destruct (Selvedge.Interaction.Interactive.State.blocks (SS.interactive_state state)) eqn:Blocks.
+ - unfold Selvedge.Interaction.Interactive.Language.step_visible,
+     Selvedge.Interaction.Interactive.Runtime.step_visible. now rewrite Blocks.
+ - reflexivity.
+Qed.

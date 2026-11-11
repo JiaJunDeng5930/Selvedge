@@ -4,12 +4,37 @@ From Selvedge.Browser Require Import Publication.
 Theorem retained_document_keeps_its_input_authority current requested :
  admit requested(advance current)=admit requested current.
 Proof. unfold admit,advance; reflexivity. Qed.
-Theorem unpublished_document_is_not_ready : forall generation namespace sequence,
- fresh(State generation Prepared namespace sequence None)=false.
+Theorem unpublished_prefix_is_not_ready : forall generation namespace sequence native,
+ fresh(State generation Prepared namespace sequence None native)=false.
 Proof. reflexivity. Qed.
-Theorem a_prepared_document_has_no_input_authority generation namespace sequence requested :
- admit requested(State generation Prepared namespace sequence None)=false.
+Theorem a_prepared_document_has_no_prefix_authority generation namespace sequence native requested :
+ admit requested(State generation Prepared namespace sequence None native)=false.
 Proof. reflexivity. Qed.
+Theorem committed_dom_accepts_native_controls_before_prefix generation namespace sequence displayed native :
+ let committed := document_ready generation(State generation AwaitingDocument namespace sequence displayed native) in
+ native_admit generation committed=true /\
+ admit generation committed=false /\ semantic_pending committed=true.
+Proof.
+ unfold document_ready. simpl. rewrite N.eqb_refl.
+ unfold native_admit,admit,semantic_pending. simpl. now rewrite N.eqb_refl.
+Qed.
+Theorem retained_dom_keeps_native_authority current requested :
+ native_admit requested(advance current)=native_admit requested current /\
+ native_admit requested(present current)=native_admit requested current.
+Proof. split; reflexivity. Qed.
+Theorem publishing_the_prefix_does_not_reassign_native_authority current requested :
+ native_displayed_generation(publish requested current)=native_displayed_generation current.
+Proof. unfold publish. destruct(N.eqb requested(generation current)); [destruct(current_phase current)|]; reflexivity. Qed.
+Theorem native_authority_is_revoked_by_failure_retry_or_invalidation current reason requested :
+ native_admit requested(failed reason current)=false /\
+ native_admit requested(retry current)=false /\ native_admit requested(invalidate current)=false.
+Proof. repeat split; reflexivity. Qed.
+Theorem replacing_the_namespace_retires_both_receipts current incoming cursor :
+ incoming<>namespace current ->
+ native_displayed_generation(observe incoming cursor current)=None /\
+ displayed_generation(observe incoming cursor current)=None /\
+ generation(observe incoming cursor current)=N.succ(generation current).
+Proof. intro Foreign. unfold observe. apply String.eqb_neq in Foreign. rewrite Foreign. repeat split; reflexivity. Qed.
 Theorem publication_needs_current_prepared_document : forall current requested,
   current_phase current = AwaitingDocument -> publish requested current = current.
 Proof. intros current requested phase; unfold publish; destruct (N.eqb requested (generation current)); rewrite ?phase; reflexivity. Qed.
@@ -75,21 +100,21 @@ Proof. intro; unfold install_snapshot; now rewrite String.eqb_refl,N.ltb_irrefl.
 
 Theorem presentation_preserves_semantic_pending : forall current,
  semantic_pending(present current)=semantic_pending current.
-Proof. intro; destruct current as [generation phase namespace sequence displayed]; destruct phase; reflexivity. Qed.
+Proof. intro; destruct current as [generation phase namespace sequence displayed native]; destruct phase; reflexivity. Qed.
 Theorem unpublished_semantic_change_survives_presentation : forall current,
  semantic_pending(present(advance current))=true.
-Proof. intro; destruct current as [generation phase namespace sequence displayed]; destruct phase; reflexivity. Qed.
-Theorem prepared_presentation_preserves_semantic_freshness generation namespace sequence :
- semantic_pending(State generation PreparedPresentation namespace sequence None)=false /\
- admit generation(State generation PreparedPresentation namespace sequence None)=false.
+Proof. intro; destruct current as [generation phase namespace sequence displayed native]; destruct phase; reflexivity. Qed.
+Theorem prepared_presentation_preserves_semantic_freshness generation namespace sequence native :
+ semantic_pending(State generation PreparedPresentation namespace sequence None native)=false /\
+ admit generation(State generation PreparedPresentation namespace sequence None native)=false.
 Proof. split;reflexivity. Qed.
-Theorem remeasurement_preserves_display_readiness_and_admission generation displayed namespace sequence :
- fresh(State generation AwaitingPresentation namespace sequence(Some displayed))=true /\
- admit displayed(State generation AwaitingPresentation namespace sequence(Some displayed))=true.
+Theorem remeasurement_preserves_display_readiness_and_admission generation displayed namespace sequence native :
+ fresh(State generation AwaitingPresentation namespace sequence(Some displayed)native)=true /\
+ admit displayed(State generation AwaitingPresentation namespace sequence(Some displayed)native)=true.
 Proof. split;[reflexivity|apply N.eqb_refl]. Qed.
 Theorem renderer_receipt_establishes_the_displayed_identity generation namespace sequence requested :
  requested=generation ->
- displayed_generation(publish requested(State generation Prepared namespace sequence None))=Some requested.
+ displayed_generation(publish requested(State generation Prepared namespace sequence None(Some generation)))=Some requested.
 Proof. intro Same;subst;unfold publish;simpl;now rewrite N.eqb_refl. Qed.
 Theorem newer_cursor_rejects_an_older_request_failure expected seq ticket connection current :
  N.eqb seq (sequence current)=false ->

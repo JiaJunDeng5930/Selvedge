@@ -348,7 +348,7 @@ export async function build(options = {}) {
       const stagedRuntime = path.join(publicationDirectory, `${name}-runtime.js`);
       await run('js_of_ocaml', ['--target-env', 'browser', '-o', stagedRuntime, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
       const extraExports = name === 'host' ? 'export const callStructured = runtime.callStructured;\n'
-        : name === 'interaction' ? 'export const prepareInteraction = runtime.prepare;\nexport const preparedInteractionCall = runtime.preparedCall;\nexport const publishNativePicker = runtime.publishNativePicker;\n' : '';
+        : name === 'interaction' ? 'export const prepareInteraction = runtime.prepare;\nexport const rebaseInteraction = runtime.rebase;\nexport const preparedInteractionCall = runtime.preparedCall;\nexport const publishNativePicker = runtime.publishNativePicker;\nexport const publishNativeStream = runtime.publishNativeStream;\n' : '';
       const exports = name === 'kernel'
         ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
         : `export const ${target.exported} = runtime.call;\n${extraExports}`;

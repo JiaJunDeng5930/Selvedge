@@ -29,7 +29,7 @@ Definition history_documents viewing world:=
  match find_task viewing world with None=>[]|Some task=>
   fold_right(fun message rest=>match history_document viewing message with Some doc=>doc::rest|None=>rest end)[](items "history" task)end.
 
-Definition live_documents viewing observation :=
+Definition live_documents_with_previews viewing observation previews :=
  flat_map (fun output=>if N.eqb (Streams.output_task output) viewing then
    match find_task viewing (context_world observation) with
    | None=>[]
@@ -37,12 +37,16 @@ Definition live_documents viewing observation :=
      | None|Some Plain=>[]
      | Some InteractiveV1=>map (fun '(part,text)=>Document viewing
          (OutputOrigin (Streams.output_task output) (Streams.output_operation output) part InteractiveV1) text false)
-         (Streams.output_parts output) end end else []) (current_previews observation).
+         (Streams.output_parts output) end end else []) previews.
+Definition documents_for_with_previews viewing observation previews :=
+ history_documents viewing (context_world observation) ++ live_documents_with_previews viewing observation previews.
 Definition documents_for viewing observation :=
- history_documents viewing (context_world observation) ++ live_documents viewing observation.
+ documents_for_with_previews viewing observation (current_previews observation).
 Definition authoritative_documents observation :=
  if valid_namespace (context_namespace observation)
- then flat_map (fun viewing=>documents_for viewing observation) (visible_tasks observation) else [].
+ then let previews:=current_previews observation in
+      flat_map (fun viewing=>documents_for_with_previews viewing observation previews) (visible_tasks observation)
+ else [].
 Definition stamp_in_namespace namespace stamp:=
  valid_namespace namespace&&interactive_origin(document_origin stamp)&&
  String.eqb(document_identity stamp)(content_key namespace(document_viewer stamp)(document_origin stamp)).
@@ -153,9 +157,11 @@ Definition scoped_retention namespace world r :=
 Definition synchronize_documents observation lagged r :=
  let namespace:=context_namespace observation in
  let r:=scoped_retention namespace (context_world observation) r in
+ let previews:=current_previews observation in
  let viewers:=nodup N.eq_dec (visible_tasks observation ++ map document_viewer (document_lifetimes r) ++
-   map Streams.output_task (current_previews observation)) in
- let docs:=if valid_namespace namespace then flat_map (fun viewing=>documents_for viewing observation) viewers else [] in
+   map Streams.output_task previews) in
+ let docs:=if valid_namespace namespace then
+   flat_map (fun viewing=>documents_for_with_previews viewing observation previews) viewers else [] in
  let next:=fold_left (fun current doc=>remember_document namespace doc current) docs r in
  let ended:=map (mark_interrupted observation lagged) (document_lifetimes next) in
  let '(kept,discarded):=trim_archives (bound_interrupted (retention_order ended) [] 0) 0 in
@@ -182,8 +188,10 @@ Definition document_owns namespace owner s doc:=
  |Some ordinal,Some stamp=>negb(document_archived stamp)&&N.eqb(Types.epoch owner)(document_epoch stamp)&&existsb(N.eqb ordinal)(document_fences stamp)
  |_,_=>false end.
 
+Definition find_document_in observation owner r documents :=
+ find (document_owns (context_namespace observation) owner r) documents.
 Definition find_document observation owner r :=
- find (document_owns (context_namespace observation) owner r) (visible_documents observation r).
+ find_document_in observation owner r (visible_documents observation r).
 Definition shared_key namespace work:=(show_nat(String.length namespace)++":"++namespace++"/work/"++show_natural work)%string.
 
 Definition known_owner observation owner r:=
@@ -249,15 +257,20 @@ Definition portal_target observation owner r :=
  |Some doc=>ordinal<-owner_ordinal (context_namespace observation) doc owner;;
    Some (DocumentPublication.target_key (code_identity (context_namespace observation) doc ordinal) Preview)
  |None=>option_map work_ui_target (shared_work observation owner) end.
-Definition portal_targets observation owner r :=
- match find_document observation owner r with
+Definition portal_targets_in observation owner r documents :=
+ match find_document_in observation owner r documents with
  |Some doc=>match owner_ordinal (context_namespace observation) doc owner with
    |Some ordinal=>map (fun view=>(task_view_scope view,
        DocumentPublication.target_key (code_identity (context_namespace observation) doc ordinal) Preview))
        (filter (fun view=>N.eqb (task_view_task view) (viewer doc)) (context_views observation))
    |None=>[] end
  |None=>match shared_work observation owner with Some work=>[(EmptyString,work_ui_target work)]|None=>[] end end.
-Definition visible_owner observation owner r := match portal_targets observation owner r with []=>false|_=>true end.
+Definition portal_targets observation owner r :=
+ portal_targets_in observation owner r (visible_documents observation r).
+Definition visible_owner_in observation owner r documents :=
+ match portal_targets_in observation owner r documents with []=>false|_=>true end.
+Definition visible_owner observation owner r :=
+ visible_owner_in observation owner r (visible_documents observation r).
 Record fence_observation:=FenceObservation {
  observation_key:string;observation_origin:output_origin;observation_viewer:N;observation_namespace:string;
  observation_prefix:string;observation_code:string;observation_ordinal:N;observation_epoch:N;observation_revision:N;observation_closed:bool }.

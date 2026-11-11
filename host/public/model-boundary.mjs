@@ -11,7 +11,7 @@ export function unwrapResult(envelope) {
 }
 
 // Canonicalize through the shared JSON codec before constructing the same domain JSON type.
-function numberText(value) {
+export function numberText(value) {
   if (value instanceof JsonNumber) return value.source;
   if (typeof value === 'number') return JSON.stringify(value);
   return undefined;

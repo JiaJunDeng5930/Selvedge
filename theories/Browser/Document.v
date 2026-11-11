@@ -214,7 +214,7 @@ Definition interactive_editor {A} env key label generation (component:option IP.
    then native_string (IP.editing_value value)
    else match IP.editing_raw value with Some raw=>raw|None=>native_string (IP.editing_value value) end in
  let enabled:=IP.editing_enabled value in
- let attrs:=attrs ++ [("aria-label",label)] ++ disabled enabled ++
+ let attrs:=attrs ++ [("aria-label",label);("data-prefix-field","true")] ++ disabled enabled ++
  (match IP.editing_validation value with Some _=>[("aria-invalid","true");("aria-describedby",String.append key "/validation")]|None=>[] end) in
  let events name kind:=match IP.editing_receive value with None=>[]|Some _=>[event key generation name kind Gesture.Change] end in
  let schema:=Local.shape_json(IP.editing_shape value) in

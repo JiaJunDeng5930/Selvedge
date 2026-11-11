@@ -325,6 +325,7 @@ button[data-semantic-key="composer/model"][data-native-anchor-owner] {
 }
 @media (orientation: portrait) and (max-width: 600px) {
   dialog[data-semantic-key="model-picker"][data-native-layer="menu"] {
+    --menu-css-confined: 1;
     position-area: none !important;
     position-try-fallbacks: none !important;
     inset-block: auto max(.65rem, env(safe-area-inset-bottom)) !important;

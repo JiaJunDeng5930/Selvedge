@@ -39,7 +39,7 @@ Theorem stale_element_cannot_produce_a_product_input actual generation raw incom
  natural_field "generation" raw=Some incoming -> incoming<>generation ->
  Application.element actual generation raw=None.
 Proof.
- intros Incoming Different. unfold Application.element. rewrite Incoming.
+ intros Incoming Different. unfold Application.element, Application.resolve_native_element. rewrite Incoming.
  apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
 Qed.
 
@@ -91,3 +91,23 @@ Theorem repeated_native_selection_keeps_its_publication input current updated :
  input<>Input.Snapshot -> input<>Input.EnvironmentObserved ->
  Application.input_publication input current updated="keep".
 Proof. intros Equal NoSnapshot NoEnvironment; unfold Application.input_publication; destruct input; try contradiction; now rewrite Equal. Qed.
+
+(** Retaining the admitted state changes neither the new scene nor the
+    request's admission of the new world and environment. *)
+Theorem rebasing_the_same_admitted_state_keeps_the_prepared_scene request context :
+ Application.state request = Some(Application.prepared_state context) ->
+ option_map Application.prepared_scene (Application.rebase request context) =
+ option_map Application.prepared_scene (Application.prepare request).
+Proof.
+ intro Same. unfold Application.rebase, Application.prepare.
+ destruct (field "world" request); cbn [bind]; [rewrite Same|]; reflexivity.
+Qed.
+
+Theorem rebasing_a_canonical_prepared_state_agrees_with_prepare request context :
+ Application.state request = Some(Application.prepared_state context) ->
+ Application.prepared_encoding context = Application.SC.encode_state(Application.prepared_state context) ->
+ Application.rebase request context = Application.prepare request.
+Proof.
+ intros Same Canonical. unfold Application.rebase, Application.prepare.
+ destruct (field "world" request); cbn [bind]; [rewrite Same, Canonical|]; reflexivity.
+Qed.

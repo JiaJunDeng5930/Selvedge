@@ -7,12 +7,12 @@ export function revealAndFocus(node) {
   revealInScrollport(node);
   node.focus({ preventScroll: true });
 }
-export function createLayoutRevealer(root) {
+export function createLayoutRevealer(root, activeModal) {
   let previous = new Map();
   const coordinate = value => Math.round(value * 100) / 100;
   return function revealLayoutTargets() {
     const current = new Map();
-    const modal = root.querySelector('dialog:modal');
+    const modal = activeModal();
     for (const node of root.querySelectorAll('[data-reveal-on-layout="true"]')) {
       if (modal && !modal.contains(node)) {
         // A foreground native dialog makes the background inert without adding an inert attribute.

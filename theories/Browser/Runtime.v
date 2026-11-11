@@ -35,24 +35,28 @@ Definition native_key_in_scope (permitted:bool) (source : json) : json :=
         ("activate", JBool (Keyboard.control_activation input editor_composing));
         ("input_started", JBool (Keyboard.begins_input input editor_composing))])
   end.
+Definition optional_publication_generation name source :=
+ match field name source with Some JNull=>Some None
+ |Some(JNumber text)=>option_map (@Some N)(parse_natural text)
+ |_=>None end.
 Definition publication_state source : option Publication.state :=
  match binary_field "generation" source, string_field "phase" source,
  string_field "namespace" source,binary_field "sequence" source,
- (match field "displayed_generation" source with Some JNull=>Some None
- |Some value=>option_map (@Some N)(match value with JNumber text=>parse_natural text|_=>None end)
- |None=>None end) with
- |Some generation,Some phase,Some namespace,Some sequence,Some displayed=>
- match phase with "awaiting"=>Some(Publication.State generation Publication.AwaitingDocument namespace sequence displayed)
- |"prepared"=>Some(Publication.State generation Publication.Prepared namespace sequence displayed)
- |"published"=>Some(Publication.State generation Publication.Published namespace sequence displayed)
- |"awaiting_presentation"=>Some(Publication.State generation Publication.AwaitingPresentation namespace sequence displayed)
- |"prepared_presentation"=>Some(Publication.State generation Publication.PreparedPresentation namespace sequence displayed)
- |"recovery"=>match string_field "reason" source with Some reason=>Some(Publication.State generation(Publication.Recovering reason)namespace sequence displayed)|None=>None end
+ optional_publication_generation "displayed_generation" source,
+ optional_publication_generation "native_displayed_generation" source with
+ |Some generation,Some phase,Some namespace,Some sequence,Some displayed,Some native=>
+ match phase with "awaiting"=>Some(Publication.State generation Publication.AwaitingDocument namespace sequence displayed native)
+ |"prepared"=>Some(Publication.State generation Publication.Prepared namespace sequence displayed native)
+ |"published"=>Some(Publication.State generation Publication.Published namespace sequence displayed native)
+ |"awaiting_presentation"=>Some(Publication.State generation Publication.AwaitingPresentation namespace sequence displayed native)
+ |"prepared_presentation"=>Some(Publication.State generation Publication.PreparedPresentation namespace sequence displayed native)
+ |"recovery"=>match string_field "reason" source with Some reason=>Some(Publication.State generation(Publication.Recovering reason)namespace sequence displayed native)|None=>None end
  |_=>None end
- |_,_,_,_,_=>None end.
+ |_,_,_,_,_,_=>None end.
 Definition publication_json state := JObject [
  ("generation",binary_json(Publication.generation state));
  ("displayed_generation",match Publication.displayed_generation state with Some generation=>binary_json generation|None=>JNull end);
+ ("native_displayed_generation",match Publication.native_displayed_generation state with Some generation=>binary_json generation|None=>JNull end);
  ("phase",JString(match Publication.current_phase state with Publication.AwaitingDocument=>"awaiting"|Publication.Prepared=>"prepared"|Publication.Published=>"published"|Publication.AwaitingPresentation=>"awaiting_presentation"|Publication.PreparedPresentation=>"prepared_presentation"|Publication.Recovering _=>"recovery" end));
  ("reason",match Publication.recovery_reason state with Some reason=>JString reason|None=>JNull end);
  ("namespace",JString(Publication.namespace state));("sequence",binary_json(Publication.sequence state))].
@@ -69,18 +73,24 @@ Definition publication_call source :=
  |None=>invalid "Request failure requires its connection" end
  |_,_,_,_=>success(JBool false)end
  |Some state,Some "semantic_pending"=>success(JBool(Publication.semantic_pending state))
+ |Some state,Some "observe"=>match string_field "observed_namespace" source,binary_field "observed_sequence" source with
+  |Some namespace,Some sequence=>success(publication_json(Publication.observe namespace sequence state))
+  |_,_=>invalid "Source observation requires its namespace and sequence" end
  |Some state,Some "invalidate"=>success(publication_json(Publication.invalidate state))
  |Some state,Some "failure"=>match string_field "reason" source with
  |Some reason=>success(publication_json(Publication.failed reason state))|None=>invalid "Recovery requires its failure reason" end
  |Some state,Some "retry"=>success(publication_json(Publication.retry state))
  |Some state,Some "recovery"=>success(match Publication.recovery_reason state with Some reason=>JString reason|None=>JNull end)
  |Some state,Some "ready"=>success(JBool(Publication.fresh state))
+ |Some state,Some "native_ready"=>success(JBool(Publication.native_fresh state))
  |Some state,Some "document"=>match binary_field "receipt_generation" source with
  Some n=>success(publication_json(Publication.document_ready n state))|None=>invalid "Document receipt requires its generation" end
  |Some state,Some "publish"=>match binary_field "receipt_generation" source with
  Some n=>success(publication_json(Publication.publish n state))|None=>invalid "Publication receipt requires its generation" end
  |Some state,Some "admit"=>match binary_field "receipt_generation" source with
  Some n=>success(JBool(Publication.admit n state))|None=>invalid "Input requires its publication generation" end
+ |Some state,Some "native_admit"=>match binary_field "receipt_generation" source with
+ Some n=>success(JBool(Publication.native_admit n state))|None=>invalid "Native input requires its DOM generation" end
  |Some state,Some "refresh"=>match field "connection" source with
  |Some raw=>match Services.decode_connection raw with
  |Some connection=>success(JBool(Publication.refresh_needed (string_field "source_namespace" source)

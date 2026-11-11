@@ -3,48 +3,57 @@ From Selvedge.Browser.Session Require Import Services.
 From Selvedge.Interaction Require Import Origin.
 Open Scope string_scope.
 
-(** Requested work and the document actually published have different identities.
-    A pending measurement retains the previous document and its input authority;
-    a newly prepared DOM has no authority until its renderer receipt arrives. *)
+(** Requested work, committed native controls, and the published source prefix
+    have different lifetimes. The synchronous DOM receipt authorizes ordinary
+    controls. Authored controls also need the asynchronous prefix receipt. *)
 Inductive phase := AwaitingDocument | Prepared | Published
  | AwaitingPresentation | PreparedPresentation | Recovering (reason : string).
 Record state := State {
  generation : N; current_phase : phase; namespace : string; sequence : N;
- displayed_generation : option N
+ displayed_generation : option N; native_displayed_generation : option N
 }.
-Definition initial namespace sequence := State 0 AwaitingDocument namespace sequence None.
+Definition initial namespace sequence := State 0 AwaitingDocument namespace sequence None None.
 Definition fresh value := match displayed_generation value with Some _=>true|None=>false end.
 Definition admit requested value := match displayed_generation value with
+ |Some displayed=>N.eqb requested displayed|None=>false end.
+Definition native_fresh value := match native_displayed_generation value with Some _=>true|None=>false end.
+Definition native_admit requested value := match native_displayed_generation value with
  |Some displayed=>N.eqb requested displayed|None=>false end.
 Definition semantic_pending value := match current_phase value with
  |Published|AwaitingPresentation|PreparedPresentation=>false|_=>true end.
 Definition advance value :=
  State (N.succ(generation value))
    (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end)
-   (namespace value)(sequence value)(displayed_generation value).
+   (namespace value)(sequence value)(displayed_generation value)(native_displayed_generation value).
 Definition present value := State (N.succ(generation value))
  (match current_phase value with Recovering reason=>Recovering reason
   |_=>if semantic_pending value then AwaitingDocument else AwaitingPresentation end)
- (namespace value)(sequence value)(displayed_generation value).
-Definition failed reason value := State(generation value)(Recovering reason)(namespace value)(sequence value)None.
-Definition retry value := State(N.succ(generation value))AwaitingDocument(namespace value)(sequence value)None.
+ (namespace value)(sequence value)(displayed_generation value)(native_displayed_generation value).
+Definition failed reason value := State(generation value)(Recovering reason)(namespace value)(sequence value)None None.
+Definition retry value := State(N.succ(generation value))AwaitingDocument(namespace value)(sequence value)None None.
 Definition recovery_reason value := match current_phase value with Recovering reason=>Some reason|_=>None end.
-(* DEFENSE: DOM work and its completion promises can finish after a newer request.
-   Replacing the document retires the prior native basis; preparation is not publication. *)
+(* DEFENSE: A stale DOM receipt cannot install a new basis for input. Committing
+   current native controls retires the preceding DOM and its prefix receipt. *)
 Definition document_ready requested value :=
  if N.eqb requested(generation value)then match current_phase value with
- |AwaitingDocument=>State(generation value)Prepared(namespace value)(sequence value)None
- |AwaitingPresentation=>State(generation value)PreparedPresentation(namespace value)(sequence value)None
+ |AwaitingDocument=>State(generation value)Prepared(namespace value)(sequence value)None(Some requested)
+ |AwaitingPresentation=>State(generation value)PreparedPresentation(namespace value)(sequence value)None(Some requested)
  |_=>value end else value.
 (* DEFENSE: A renderer receipt can settle after another request replaced its DOM. *)
 Definition publish requested value :=
  if N.eqb requested(generation value)then match current_phase value with
- |Prepared|PreparedPresentation=>State(generation value)Published(namespace value)(sequence value)(Some requested)
+ |Prepared|PreparedPresentation=>State(generation value)Published(namespace value)(sequence value)(Some requested)(native_displayed_generation value)
  |_=>value end else value.
-Definition observe namespace sequence value :=
- State(generation value)(current_phase value)namespace sequence(displayed_generation value).
-Definition invalidate value := State(generation value)
- (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end) "" 0 None.
+Definition replace_source observed_namespace observed_sequence value :=
+ State(N.succ(generation value))
+  (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end)
+  observed_namespace observed_sequence None None.
+Definition observe observed_namespace observed_sequence value :=
+ if String.eqb observed_namespace(namespace value)then
+ State(generation value)(current_phase value)observed_namespace observed_sequence
+   (displayed_generation value)(native_displayed_generation value)
+ else replace_source observed_namespace observed_sequence value.
+Definition invalidate value := replace_source "" 0 value.
 Definition refresh_needed source_namespace source_sequence sources_fresh connection value :=
   match source_namespace,source_sequence with
   |Some ns,Some seq => negb (Origin.valid_namespace (namespace value) &&

@@ -7,8 +7,11 @@ let retain context : Js.Unsafe.any =
   ignore (Js.Unsafe.meth_call contexts "set" [| Js.Unsafe.inject token; Js.Unsafe.inject context |]);
   token
 
-let prepare source =
-  Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (Json.parse (Js.to_string source))))
+let structured source number_text =
+  Json.of_js_exn source ~number_text:(fun value -> Js.Unsafe.fun_call number_text [| value |])
+
+let prepare source number_text =
+  Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (structured source number_text)))
 
 let rec to_js number = function
   | Model.JNull -> Js.Unsafe.inject Js.null
@@ -29,18 +32,23 @@ let context_for token =
   | None -> Json.raise_input_exn "TypeError" "Invalid prepared interaction context"
   | Some context -> context
 
-let prepared_call operation source token number =
+let rebase source token number_text =
+  let context = context_for token in
+  Js.Opt.option (Option.map retain
+    (Model.selvedge_interaction_rebase (structured source number_text) context))
+
+let prepared_call operation source token number_text number =
   let context = context_for token in
   let value, next = Model.selvedge_interaction_prepared_call
-    (Js.to_string operation) (Json.parse (Js.to_string source)) context in
+    (Js.to_string operation) (structured source number_text) context in
   let next_token = if context == next then token else retain next in
   Js.array [| to_js number value; Js.Unsafe.inject next_token |]
 
 let native_array nodes = Js.Unsafe.inject (Js.array (Array.of_list nodes))
 
-let publish_native_picker source token number ops =
+let publish_native project source token number ops =
   let context = context_for token in
-  match Model.selvedge_interaction_native_picker (Json.parse (Js.to_string source)) context with
+  match project (Json.parse (Js.to_string source)) context with
   | None -> Js.Opt.empty
   | Some (metadata, roots) ->
       let text value =
@@ -57,5 +65,7 @@ let publish_native_picker source token number ops =
 let () =
   let runtime = Js.Unsafe.get Js.Unsafe.global "@GLOBAL@" in
   Js.Unsafe.set runtime "prepare" (Js.wrap_callback prepare);
+  Js.Unsafe.set runtime "rebase" (Js.wrap_callback rebase);
   Js.Unsafe.set runtime "preparedCall" (Js.wrap_callback prepared_call);
-  Js.Unsafe.set runtime "publishNativePicker" (Js.wrap_callback publish_native_picker)
+  Js.Unsafe.set runtime "publishNativePicker" (Js.wrap_callback (publish_native Model.selvedge_interaction_native_picker));
+  Js.Unsafe.set runtime "publishNativeStream" (Js.wrap_callback (publish_native Model.selvedge_interaction_native_stream))

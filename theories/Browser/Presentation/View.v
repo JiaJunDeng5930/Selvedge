@@ -60,17 +60,28 @@ Definition relocate_details_trigger state capacity base overlays:=
   |_ =>(base,overlays)end
  |[] =>(base,overlays)end.
 
-Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) (compact_model_picker : bool) : Surface.surface Input.input :=
- let base:=List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state)in
- let render:=map (Layers.layer_view snapshot state capacity compact_model_picker) in
+Definition workspace_key := "/workspace".
+Definition main_key := "/main".
+Definition view_base snapshot state capacity :=
+ List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state).
+Definition view_overlays_with render_layer snapshot state capacity :=
+ let render:=map render_layer in
  let '(settings_editors, workspace_layers):=partition
    (fun layer => match State.layer_panel layer with
      | State.EditorPanel Identity.TitlePrompts => true | _ => false end)
    (rev (Layers.visible_layers (State.layers (State.navigation_state state)))) in
  (* An editor launched from Settings returns to its settings row. Keep the
     settings layer beneath it, and keep service-owned pickers above both. *)
- let overlays:=(Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
+ (Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
    ServiceControls.settings state ++ Settings.configuration_editor state ++ render settings_editors ++
-   ServiceControls.directory_view state ++ ServiceControls.preview_view state ++ ServiceControls.account_login_view state)%list in
- let '(base,overlays):=relocate_details_trigger state capacity base overlays in
- Surface.Surface "/workspace" "/main"base overlays(Services.theme(State.service_state state)).
+   ServiceControls.directory_view state ++ ServiceControls.preview_view state ++ ServiceControls.account_login_view state)%list.
+
+Definition view_overlays snapshot state capacity compact_model_picker :=
+ view_overlays_with (Layers.layer_view snapshot state capacity compact_model_picker) snapshot state capacity.
+Definition view_overlay_scopes snapshot state capacity compact_model_picker :=
+ view_overlays_with (Layers.layer_scope_view snapshot state capacity compact_model_picker) snapshot state capacity.
+
+Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) (compact_model_picker : bool) : Surface.surface Input.input :=
+ let '(base,overlays):=relocate_details_trigger state capacity (view_base snapshot state capacity)
+   (view_overlays snapshot state capacity compact_model_picker) in
+ Surface.Surface workspace_key main_key base overlays(Services.theme(State.service_state state)).

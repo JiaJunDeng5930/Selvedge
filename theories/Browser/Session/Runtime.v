@@ -170,11 +170,20 @@ Definition interpret_language namespace snapshot lagged effect state:Authoring.r
         end end end end
    else Authoring.fail state "This interactive document is read only."end
  |_=>Authoring.changed state[IT.encode_effect effect]end.
-Definition apply_language namespace snapshot lagged input state:=
- let ctx:=context namespace snapshot state in
- let decision:=language_step namespace snapshot lagged input state in
+Definition apply_language_decision namespace snapshot lagged decision state:=
  fold_left(fun result effect=>Authoring.append result(interpret_language namespace snapshot lagged effect(Authoring.result_state result)))
  (IS.effects decision)(Authoring.keep(SS.with_interactive_state(IS.next_state decision)state)).
+Definition apply_language namespace snapshot lagged input state:=
+ apply_language_decision namespace snapshot lagged(language_step namespace snapshot lagged input state)state.
+Definition synchronize_language namespace snapshot lagged state:=
+ let ctx:=context namespace snapshot state in
+ let retained:=SS.document_retention state in
+ let language:=SS.interactive_state state in
+ (* A refresh can ask for the same document visibility for every authored block. *)
+ let documents:=match IS.blocks language with []=>[]|_=>Documents.visible_documents ctx retained end in
+ let visible owner:=Documents.visible_owner_in ctx owner retained documents in
+ let decision:=Language.step_visible visible IT.EnvironmentChanged language (Documents.environment ctx lagged) in
+ apply_language_decision namespace snapshot lagged decision state.
 Definition synchronize namespace snapshot lagged state:=
  let skills:=Authoring.synchronize_skills snapshot state in
  let state:=Authoring.result_state skills in
@@ -186,7 +195,7 @@ Definition synchronize namespace snapshot lagged state:=
    Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
- Authoring.append skills(Authoring.append initial(apply_language namespace snapshot lagged IT.EnvironmentChanged(Authoring.result_state initial))).
+ Authoring.append skills(Authoring.append initial(synchronize_language namespace snapshot lagged(Authoring.result_state initial))).
 Definition complete namespace snapshot lagged ticket outcome state:=
  match find(fun pending=>N.eqb ticket(SS.ticket pending))(SS.awaiting(SS.authoring_state state))with
  |None=>Authoring.keep state

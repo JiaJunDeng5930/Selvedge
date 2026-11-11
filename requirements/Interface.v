@@ -67,10 +67,15 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     stale help in each authored button would separate explanation from behavior. *)
 
 From Selvedge.Browser Require ApplicationProof.
+From Selvedge.Browser Require IncrementalSceneProof.
+Export IncrementalSceneProof(retained_live_preview_has_no_action,
+  projected_picker_overlays_are_the_scene_overlays,
+  scope_only_projection_retains_picker_and_focus).
 From Selvedge.Browser.Session Require ObjectActionsProof.
 From Selvedge.Browser.Session Require AuthoringProof NavigationProof.
 Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   stale_element_cannot_produce_a_product_input,
+  rebasing_a_canonical_prepared_state_agrees_with_prepare,
   a_pending_command_is_not_executed_twice).
 Export ObjectActionsProof(available_native_has_current_admission).
 Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
@@ -175,7 +180,9 @@ Export FocusProof(exact_focus_target_precedes_aliases,
   closing_child_restores_owner).
 Export ReadingProof(reader_occurrences_preserve_the_task_reading_position).
 Export FieldSessionProof(superseded_composition_cannot_restore_old_draft).
-Export PublicationProof(a_prepared_document_has_no_input_authority,
+Export PublicationProof(a_prepared_document_has_no_prefix_authority,
+  committed_dom_accepts_native_controls_before_prefix,
+  replacing_the_namespace_retires_both_receipts,
   stale_completion_cannot_advance_publication,
   renderer_receipt_establishes_the_displayed_identity).
 
@@ -191,8 +198,14 @@ Export PublicationProof(a_prepared_document_has_no_input_authority,
     algebra. It shares the ordinary Document projection for choices, labels,
     properties and event bindings. The adapter receives native child handles.
     Local publication retains element-generation admission, field sessions and
-    native modal focus. Unrelated layers and physical observations continue to
-    constrain whether a local publication is applicable.
+    native modal focus. The synchronous DOM receipt authorizes ordinary native
+    controls while Markdown and canonical fences catch up. Authored controls
+    require the receipt for their published prefix. Replacing the source
+    namespace retires both receipts.
+
+    Appending to a passive reply may publish the changed preview and retain the
+    existing action bindings. A picker projected separately must use the same
+    overlays and focus scope as the complete view.
 
     Motor targets, writing-line demand, reading width and clearance have different
     purposes. Their observed fonts and dimensions cannot substitute for one

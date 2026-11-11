@@ -37,13 +37,16 @@ export class PacedText {
     this.metrics = { characters: 0, batches: 0, largestBatch: 0, maxParseMs: 0 };
   }
   append(text) {
-    if (this.done || this.stopped) return;
+    if (this.done || this.stopped || text === '') return;
     // DEFENSE: Streamed model output can exceed the 4 MiB Markdown display budget.
     if (this.target.length + text.length > 4 * 1024 * 1024) throw new RangeError('Markdown text exceeds the display limit');
     this.target += text;
     this.schedule();
   }
   finish() { this.done = true; this.schedule(); }
+  isCaughtUp(length = this.target.length) {
+    return this.visible >= length && (!this.stopped || this.finished === true);
+  }
   whenCaughtUp(length = this.target.length) {
     if (this.visible >= length) return Promise.resolve(!this.stopped || this.finished === true);
     if (this.stopped) return Promise.resolve(false);
@@ -378,6 +381,7 @@ export class Markdown {
   get text() { return this.buffer.target; }
   append(text) { this.buffer.append(text); }
   finish() { this.buffer.finish(); }
+  isCaughtUp() { return !this.disposed && this.buffer.isCaughtUp() && this.decorations.size === 0; }
   async whenCaughtUp(length = this.buffer.target.length) {
     if (!await this.buffer.whenCaughtUp(length) || this.disposed) return false;
     // A measurement snapshot waits only for work already introduced by its prefix.
