@@ -1,16 +1,17 @@
-# Task board
+# Card board
 
-Open **任务看板** in the sidebar. The six stages are 待规划, 待办, 进行中, 待审核,
-已完成 and 阻塞, with a separate archive target. A card is saved work, not an
-automatically created conversation.
+Open **卡片看板** in the sidebar to plan and track cards across projects. The
+sidebar's **对话范围** selects the conversations shown in the sidebar. The six
+board stages are 待规划, 待办, 进行中, 待审核, 已完成 and 已阻塞, with a separate
+archive target. Each stage has a card count and wraps to fit the available width.
 
 ## Create and organize
 
-Use **新建任务** or a column's plus button. Enter a title/description, then choose
+Use **新建卡片** or a stage's plus button. Enter a title/description, then choose
 status, priority, assignee, project and labels in the property menus. Menus are
-searchable and keyboard-accessible. **继续创建** keeps the dialog open and retains
-selected parameters while clearing submitted content. The mode switch selects
-manual or assisted creation. Normal creation and successful edits close the dialog.
+searchable and keyboard-accessible. **创建后继续添加** keeps the dialog open and
+retains selected parameters while clearing submitted content. **用模型整理标题和描述**
+enables assisted creation. Normal creation and successful edits close the dialog.
 
 Assign **我**, a configured endpoint for ordinary execution, or leave the card
 unassigned.
@@ -19,14 +20,15 @@ Drag a card into another stage or before another card in its current stage.
 An active linked Task keeps its card in progress; same-column ordering remains available.
 Submission rechecks the source revision. Escape cancels a gesture. Context actions
 include pinning, metadata changes, execution, title regeneration, archive/restore
-and deletion. Choose **Move card** or **Link task** to search for a destination
-or an existing conversation. The selector explains choices unavailable for the
-current card.
+and deletion. Choose **移动卡片** in the card menu to search for a destination.
+Choose **关联对话** on a card to select an existing conversation, or assign the
+card to a model and choose **启动对话** in the card menu. The selector explains
+choices unavailable for the current card.
 
-Toolbar tabs, search and filters narrow the view without recording work commands.
-Enable **自动** for automatic execution. Open an executed card to follow its linked
-conversation, append input, handle approvals or interrupt execution through the
-existing task UI.
+Toolbar tabs, search and filters narrow the view. **执行中的卡片** counts the
+cards with an active linked conversation under the current search and filters.
+Enable **自动** for automatic execution. Choose **打开对话** on a linked card to
+append input, handle approvals or interrupt execution in that conversation.
 
 ## Assistance and files
 
@@ -35,8 +37,8 @@ request into a title and description. This request has no tools. Its profile is
 separate from the execution assignee; quality and availability depend on that
 endpoint. Explicit offline echo and adaptive task profiles are not drafting
 profiles.
-**Settings → 标题生成设置** edits **Task 看板标题提示词** independently of the
-**Agent 会话标题提示词** used by ordinary conversations. Both retain the shared
+**Settings → Conversation titles → Edit title prompts** edits **Task title prompt**
+for board cards independently of **Conversation title prompt**. Both retain the shared
 schema and normalization. Linked conversations generate their own names;
 renaming a card preserves its conversation's title. A linked card can regenerate
 its board title while its Task runs. Other metadata changes preserve that request;
@@ -50,8 +52,8 @@ leaves the saved settings in place. Saved settings survive service restart and
 apply to future requests. Existing titles and already-dispatched requests are
 preserved.
 
-**Agent 会话标题模型** selects a configured model connection for future
-conversation titles. **自动** prefers a configured `gpt-5.6-luna` profile from
+**Conversation title model** selects a configured model connection for future
+conversation titles. Automatic mode prefers a configured `gpt-5.6-luna` profile from
 the Task's ChatGPT account when available, then uses the Task's own model
 connection. In automatic mode, explicitly configured offline echo profiles
 retain request-derived names. A selected connection that is no longer

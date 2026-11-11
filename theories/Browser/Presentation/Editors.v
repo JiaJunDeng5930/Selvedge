@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Browser.Session Require Services.
@@ -7,7 +7,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context SkillMention.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Draft GraphAuthoring Initialize.
 From Selvedge.Browser.Session Require State Observation Authoring.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
@@ -21,16 +21,16 @@ Module Session := Selvedge.Browser.Session.State.
 Module Observe := Selvedge.Interaction.Experience.Observation.
 
 Definition editor_title e := match e with
-|NewTask _=>"New task"|Message _=>"Message"
-|Identity.Project None=>"New project"|Identity.Project(Some _)=>"Edit project"|Card None=>"New card"|Card(Some _)=>"Edit card"
-|Fork _=>"Fork task"|Compact _=>"Compact history"
+|NewTask _=>"New conversation"|Message _=>"Message"
+|Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
+|Fork _=>"Fork conversation"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
 |WorkName _=>"Rename Work"|TitlePrompts=>"Conversation titles"end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
-|NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"Create project"|Card None=>"Create card"
-|TaskGraph None _=>"Create task graph"|Fork _=>"Fork task"
+|NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Card None=>"创建卡片"
+|TaskGraph None _=>"Create task graph"|Fork _=>"Create fork"|Card(Some _)=>"保存"
 |Compact _=>"Compact history"|_=>"Save"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
@@ -100,12 +100,22 @@ Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.
  ([Node key "property-repair"(UX.obstruction_message cause)Roles.Alert(ReadOnly(UX.obstruction_message cause))[]]++
  if String.eqb(UX.obstruction_code cause)"workspace_observation_failed"then
  [declared key Roles.Button(secondary "retry" "Retry"(Input.RetryWorkspace e(part key "retry")))]else[])%list.
+Definition graph_handoff body :=
+ match body with
+ |Draft.TaskGraphBody _ _ parsed _=>bind parsed GraphAuthoring.observe_handoff
+ |_=>None end.
 Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstruction e) :=
  (* An empty project name is the initial input state. Keep the action
     unavailable through the assessment and show errors for entered names. *)
  match Draft.contents draft with
  |Draft.ProjectBody _ name _ _=>
    negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
+ |Draft.TaskGraphBody None _ _ _=>
+   (* A handoff with unselected endpoints is an ordinary first input state. *)
+   negb(String.eqb(UX.obstruction_code cause)"invalid_task_graph_declaration" &&
+     match graph_handoff (Draft.contents draft) with
+     |Some handoff=>GraphAuthoring.awaiting_endpoints handoff
+     |None=>false end)
  |_=>true end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  fold_right(fun field rest=>match field_node snapshot s e parent field with
@@ -204,8 +214,85 @@ Definition editor_sections e :=match e with
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
+Definition editor_options {A} parent key label (children:list(node A)) :=
+ Node(part parent key)key label Roles.Section EditorOptions children.
+Definition card_editor snapshot s e parent (id:option N) :=
+ let details:=field_nodes snapshot s e parent
+   [Fields.CardStage;Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels;Fields.CardAttachments] in
+ let capture:=match id with
+  |None=>[field_section snapshot s e parent "创建设置"
+    [Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile]]
+  |Some _=>[]end in
+ (field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
+ [editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
+Definition fork_editor snapshot s e parent task :=
+ let source:=value_or ("Conversation #"++show_natural task)(option_map task_title(find_task task snapshot)) in
+ [read_only parent "fork-source" "Source conversation" source;
+  information parent "fork-history" Information.Description "The new conversation starts with the source conversation’s current history.";
+  editor_options parent "fork-options" "Fork options"
+   [field_section snapshot s e parent "Branches" [Fields.ForkCount;Fields.ForkMessages];
+    field_section snapshot s e parent "Run settings" Parameters.context_fields]].
+Definition task_choice (task:task) :=
+ Fields.ChoiceValue (show_natural(task_id task))(task_title task++" · #"++show_natural(task_id task)).
+Definition graph_input parent key label text options (receive:json->option Input.input) :=
+ Node(part parent key)key label Roles.Field(ConfigurationField false text options true receive)[].
+Definition graph_endpoint parent key label (available:list task) selected other receive :=
+ let choices:=Fields.ChoiceValue "" "Choose a conversation"::
+   map task_choice (filter(fun task=>negb(same_id other(Some(task_id task))))available) in
+ graph_input parent key label (value_or ""(option_map show_natural selected))(Some choices)
+   (fun value=>text<-as_string value;;
+    if String.eqb text "" then receive None else
+    id<-parse_natural text;;
+    if existsb(fun choice=>String.eqb text(Fields.choice_value_of choice))choices
+    then receive(Some id)else None).
+Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff) :=
+ let name:=GraphAuthoring.handoff_name handoff in
+ let source:=GraphAuthoring.handoff_source handoff in
+ let target:=GraphAuthoring.handoff_target handoff in
+ match tasks snapshot with
+ |Some all=>let available:=work_tasks work all in
+  match available with
+  |_::_::_=>
+   match UX.admit_subject e (Parameters.name Fields.TaskGraphDeclaration) with
+   |None=>[]
+   |Some subject=>
+    let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
+      (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
+    [information parent "handoff-purpose" Information.Description "New replies in the source conversation are sent as messages to the receiving conversation.";
+     graph_input parent "handoff-name" "Graph name" name None
+      (fun value=>name<-as_string value;;assign name source target);
+     graph_endpoint parent "handoff-source" "Source conversation" available source target (fun id=>assign name id target);
+     graph_endpoint parent "handoff-target" "Receiving conversation" available target source (fun id=>assign name source id)]
+   end
+  |_=>[information parent "handoff-needs-conversations" Information.Description
+      "Create two conversations in this scope to choose a source and receiver.";
+     declared parent Roles.Button(secondary "handoff-new-conversation" "New conversation"(Input.BeginTask None))]
+  end
+ |None=>[information parent "handoff-conversations-unavailable" Information.Description "Loading conversations…"]
+ end.
+Definition graph_editor snapshot s e parent (graph:option N) work :=
+ let declaration:=field_nodes snapshot s e parent [Fields.TaskGraphDeclaration] in
+ (* Select the editor from the saved graph so changing JSON cannot replace the
+    active textarea. An existing graph always keeps its own Work scope. *)
+ let picker_scope:=match graph with
+  |None=>Some work
+  |Some id=>match bind (Initialize.materialize_body snapshot None e) graph_handoff with
+    |Some _=>option_map graph_work (find_graph id snapshot)
+    |None=>None end
+  end in
+ match picker_scope with
+ |None=>declaration
+ |Some scope=>
+   let quick:=match graph_handoff (Draft.contents(Session.current_draft s e)) with
+    |Some handoff=>handoff_fields snapshot e parent scope handoff
+    |None=>[]end in
+   (quick++[editor_options parent "graph-options" "Edit JSON definition" declaration])%list
+ end.
 Definition section_nodes snapshot s e parent :=
  match e with
+ |Card id=>card_editor snapshot s e parent id
+ |Fork task=>fork_editor snapshot s e parent task
+ |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts=>field_nodes snapshot s e parent
    [Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt]
@@ -234,6 +321,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      ([declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)] ++
+      ([declared parent Roles.Button(secondary "cancel"
+        (match e with Card _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]])%list])].

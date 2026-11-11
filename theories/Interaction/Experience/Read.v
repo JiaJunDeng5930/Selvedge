@@ -185,14 +185,16 @@ Definition card_project_label snapshot project := match project with
 Definition ordered_cards snapshot :=
  value<-board_value snapshot;;order<-list_field natural "order" value;;
  traverse(fun id=>World.find_world "cards" "card_id" id value)order.
-Definition visible_cards snapshot selection now :=
+Definition visible_card_values snapshot selection now :=
  values<-ordered_cards snapshot;;
- traverse observe_card(BoardFilter.apply_in_world selection now values snapshot).
+ Some(BoardFilter.apply_in_world selection now values snapshot).
+Definition visible_cards snapshot selection now :=
+ values<-visible_card_values snapshot selection now;;traverse observe_card values.
 Definition display_cards (cards:list card) := List.app (filter card_pinned cards) (filter(fun value=>negb(card_pinned value))cards).
 Definition archived_cards snapshot := option_map(filter card_archived)(board_cards snapshot).
-Definition count_working snapshot :=
- value<-board_value snapshot;;cards<-array_field "cards" value;;
- Some(N.of_nat(List.length(filter(fun card=>BoardFilter.task_working card snapshot)cards))).
+Definition count_working snapshot selection now :=
+ option_map(fun cards=>N.of_nat(List.length cards))
+  (visible_card_values snapshot (BoardFilter.set_tab "working" selection) now).
 Record board_settings := BoardSettings { board_automatic : bool; board_draft_profile : string }.
 Definition board_configuration snapshot :=
  value<-board_value snapshot;;automatic<-bool_field "automatic" value;;

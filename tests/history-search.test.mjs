@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { interactiveMarkdownFixture } from './fixtures/interactive-markdown.mjs';
+import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
 async function until(observe, description) {
@@ -143,4 +144,69 @@ test('HTTP and native agent search retain scoped original message locations acro
   fixture.finish(continuation.index, { text: 'Located the earlier conversation.' });
   await taskIdle(fixture.running.service, agent);
   assert.deepEqual(fixture.failures, []);
+});
+
+test('Search finds the displayed conversation title and lets the user retry a lost reply', async t => {
+  const title = '极光排班计划';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const prompt = 'Summarize last week’s availability.';
+  const { task_id } = await command({ op: 'create', profile: fixture.profile, message: prompt });
+  const modelRequest = await until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), 'the conversation model request');
+  fixture.finish(modelRequest.index, { text: 'The team is available Monday morning.' });
+  await taskIdle(fixture.running.service, task_id);
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await tree.getByRole('button', { name: title, exact: true }).waitFor();
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const submit = page.getByRole('button', { name: '搜索', exact: true });
+  assert.equal(await submit.isDisabled(), true, 'A blank query cannot be submitted');
+  const endpoint = '**/api/browser/command';
+  let requests = 0;
+  let finishReply;
+  const untilReply = new Promise(resolve => { finishReply = resolve; });
+  const dropReply = async route => {
+    if (route.request().postDataJSON()?.command?.op !== 'search_history') return route.continue();
+    requests++;
+    await route.fetch();
+    await untilReply;
+    return route.abort('failed');
+  };
+  await page.route(endpoint, dropReply);
+  try {
+    await query.fill(title);
+    await query.press('Enter');
+    await page.getByRole('status').filter({ hasText: /^正在搜索…$/u }).waitFor();
+    assert.equal(await submit.isDisabled(), true, 'A pending search disables repeated submission');
+    await query.press('Enter');
+    await until(() => requests, 'the search request');
+  } finally { finishReply(); }
+  await page.getByRole('status').filter({ hasText: '未能完成搜索，请重试。' }).waitFor();
+  await page.unroute(endpoint, dropReply);
+  assert.equal(requests, 1, 'Repeated Enter did not send another search');
+  await submit.click();
+  const match = page.getByRole('main').getByRole('button', { name: title, exact: true });
+  await match.click();
+  await page.getByRole('main').getByText('The team is available Monday morning.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '新建对话', exact: true }).click();
+  await page.getByRole('main').getByRole('combobox', { name: 'Task', exact: true }).waitFor();
+  assert.equal(await page.getByText('This command is already pending.', { exact: true }).count(), 0);
+});
+
+test('A stalled first connection is visible and the user can reconnect', async t => {
+  const { browser, running } = await browserFixture(t);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  t.after(() => page.close());
+  let first = true;
+  await page.route('**/api/browser/state', route => {
+    if (!first) return route.continue();
+    first = false;
+    // Leave the first state request unanswered so the browser's own deadline fires.
+  });
+  await page.goto(running.url);
+  await page.getByRole('status').filter({ hasText: /^正在连接 Selvedge…$/u }).waitFor();
+  const retry = page.getByRole('button', { name: '重新连接', exact: true });
+  await retry.click({ timeout: 25000 });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor({ timeout: 10000 });
 });

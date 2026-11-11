@@ -87,23 +87,26 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   assert.equal(ordinary.model, 'image-fixture');
 
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
   const draftModels = page.getByRole('combobox', { name: '草稿模型', exact: true });
   const draftNames = await draftModels.locator('option').allTextContents();
   assert.ok(draftNames.includes('image-fixture'));
   assert.ok(!draftNames.includes('codex-auto-review'));
   await page.keyboard.press('Escape');
-  await page.getByRole('main').getByRole('button', { name: '新建任务', exact: true }).first().click();
+  await page.getByRole('main').getByRole('button', { name: '新建卡片', exact: true }).first().click();
   const card = page.getByRole('dialog');
-  const assistance = card.getByRole('combobox', { name: 'Assistance model', exact: true });
+  await card.getByRole('textbox', { name: '标题', exact: true }).waitFor();
+  const assistance = card.getByRole('combobox', { name: '整理用的模型', exact: true });
+  assert.equal(await assistance.isVisible(), false);
+  await card.getByText('更多卡片选项', { exact: true }).click();
   const assistanceNames = await assistance.locator('option').allTextContents();
   assert.ok(assistanceNames.includes('image-fixture'));
   assert.ok(!assistanceNames.includes('codex-auto-review'));
-  await card.getByRole('textbox', { name: 'Description', exact: true }).fill('Plan the reviewed workflow.');
-  await card.getByRole('checkbox', { name: 'Assist with title and description', exact: true }).check();
+  await card.getByRole('textbox', { name: '描述', exact: true }).fill('Plan the reviewed workflow.');
+  await card.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
   await assistance.selectOption({ label: 'image-fixture' });
-  await card.getByRole('button', { name: 'Create card', exact: true }).click();
+  await card.getByRole('button', { name: '创建卡片', exact: true }).click();
   await page.getByText('A readable assisted card', { exact: true }).waitFor();
   const assisted = await observed(() => requests.find(request => request.text?.format?.schema?.properties?.description),
     'Card assistance must reach its ordinary provider');

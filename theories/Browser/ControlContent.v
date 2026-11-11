@@ -43,8 +43,7 @@ Definition form_name value := match value with
   FullSupporting => "full" | CompactSupporting => "compact" end.
 Definition board_group_attributes grouping :=
   let '(name,label):=match grouping with
-  |S.ViewChoices=>("view-choices","看板视图")|S.SearchArea=>("search","任务搜索")
-  |S.WorkStatus=>("work-status","当前工作状态")
+  |S.ViewChoices=>("view-choices","看板视图")|S.SearchArea=>("search","搜索卡片")
   |S.SecondaryActions=>("secondary-actions","看板筛选和设置")
   |S.PrimaryAction=>("primary-action","主要操作")end in
   [("data-board-group",name);("aria-label",label)].
@@ -290,23 +289,22 @@ Definition lane_content {A} describe env key label stage count
   let text_style strength := Typography.properties (Layout.root_font_size_milli env)
     Typography.Support strength in
   [box (private_key key "lane-heading") "header" [("data-board-lane-heading","true")]
-    [("display","flex");("align-items","center");("gap",pixels env 12);("flex","none")]
+    [("display","flex");("align-items","center");("gap",pixels env 4);("flex","none")]
     [box (private_key key "lane-heading-leading") "div" []
       [("display","flex");("align-items","center");("flex","1 1 0%");
-       ("min-inline-size","0");("gap",pixels env 12)]
+       ("min-inline-size","0");("gap",pixels env 6)]
       [box (private_key key "stage-mark") "span"
         [("data-board-stage-mark",stage);("aria-hidden","true")] [] [];
        span (private_key key "lane-title") [] (text_style Typography.Medium) label;
        span (private_key key "lane-count") [("data-board-count",show_natural count)]
          (text_style Typography.Regular) (show_natural count)];
      box (private_key key "lane-heading-trailing") "div" []
-      [("display","flex");("align-items","center");("flex","none")] header_actions];
-   box (private_key key "lane-cards") "div" [("data-board-cards","true")]
-    [("display","flex");("flex-direction","column");("gap",pixels env 12);
-     ("flex","1 1 0%");("min-block-size","0");("overflow-y","auto")]
-    ((if N.eqb count 0 then
-      [box (private_key key "lane-empty") "p" [("data-board-empty","true")]
-        (text_style Typography.Regular) [DOM.Text "暂无任务"]] else []) ++ cards)].
+      [("display","flex");("align-items","center");("flex","none")] header_actions]] ++
+  match cards with
+  | [] => []
+  | _ => [box (private_key key "lane-cards") "div" [("data-board-cards","true")]
+    [("display","flex");("flex-direction","column");("gap",pixels env 8);("min-inline-size","0")] cards]
+  end.
 
 Definition collection_children (env : Layout.environment) key (children : list DOM.node) :=
   match children with
@@ -337,9 +335,6 @@ Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning 
   | Roles.NavigationSection => [("display","flex");("flex-direction","column");("gap","0")]
   | _ => [] end) ++
   match meaning with
-  | S.BoardLane _ _ => let width := Typography.px (Layout.lane_minimum_width (Layout.parameters env)) in
-      [("inline-size",width);("min-inline-size",width);("max-inline-size",width);
-       ("block-size","100%");("min-block-size","0");("flex","none");("overflow","hidden")]
   | S.WorkChoice _ _ _ => [("min-inline-size","0");("white-space","nowrap")]
   | S.SettingEntry _ _ _ => [("inline-size","100%");("text-align","start")]
   | S.SupportingControl _ _ _ _ => [("flex","0 1 auto");("white-space","nowrap");

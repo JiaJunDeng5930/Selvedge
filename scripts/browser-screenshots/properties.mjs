@@ -57,6 +57,7 @@ async function captureViewport(browser, url, viewport) {
     }
 
     await snap('creation', main);
+    await main.getByText('Project and run settings', { exact: true }).click();
     const environment = main.locator(`select${key('task_environment')}`);
     if (await environment.isVisible()) {
       await environment.click();

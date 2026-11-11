@@ -74,10 +74,12 @@ Definition group {A} (action:actions A) context retained interactive task disclo
    let identity:=N.of_nat (fst first) in let attention:=Audit.attention entries in
    let expanded:=Audit.disclosed identity disclosures attention in
    let key:="task/"++show_natural task++"/activity/"++show_natural identity in
-   S.Node key ("activity/"++show_natural identity) (Audit.summary history entries) R.Activity
+   let summary:=Audit.summary history entries in
+   S.Node key ("activity/"++show_natural identity) summary R.Activity
     (S.ActivityContent expanded (Audit.faces history entries))
-    [control (key++"/disclosure") (if expanded then "Collapse activity" else "Expand activity")
-      (action.(reading_disclosure) task identity attention (negb expanded))]
+    [S.Node (key++"/disclosure") "activity-disclosure" summary R.Button
+      (S.Activate (M.Control "disclosure" summary M.Secondary
+        (action.(reading_disclosure) task identity attention (negb expanded)) M.Available)) []]
  end.
 Definition preview_source context output part :=
  let task:=Streams.output_task output in
@@ -108,7 +110,7 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
 Definition timeline {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in
  let messages:=match DocumentState.find_task task (context_world context) with Some value=>items "history" value|None=>[] end in
- let history:=map (group action context retained interactive task disclosures messages) (Audit.groups 0 messages) in
+ let history:=map (group action context retained interactive task disclosures messages) (Audit.reading_groups 0 messages) in
  let live:=flat_map (fun output=>if N.eqb task (Streams.output_task output)
    then map (preview action.(reading_interactive) context retained interactive output) (Streams.output_parts output) else []) (current_previews context) in
  let unfinished:=flat_map (retained_part action context retained interactive)

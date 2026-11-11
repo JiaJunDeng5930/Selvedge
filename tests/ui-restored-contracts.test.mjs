@@ -61,9 +61,9 @@ test('conversation navigation releases desktop space and preserves the draft thr
   const launcher = page.getByRole('button', { name: 'Open Task list', exact: true });
   await launcher.focus();
   await launcher.press('Space');
-  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await launcher.evaluate(node => document.activeElement === node), true);
   assert.equal(await message.inputValue(), 'Keep this draft while changing navigation capacity.');
 });
@@ -92,7 +92,7 @@ test('task and conversation composers keep controls usable as width and height c
       scope.getByLabel('Attach files', { exact: true }), scope.locator('summary[aria-label="Voice"]'),
       scope.getByRole('button', { name: creating ? 'Start task' : 'Send', exact: true }),
       scope.getByRole('button', { name: /^Permissions:/ }), scope.getByRole('button', { name: /^Model:/ }),
-      ...(creating ? [] : [scope.getByRole('button', { name: /^Send as:/ })]),
+      ...(creating ? [] : [scope.getByRole('button', { name: /^Delivery:/ })]),
     ];
     const bounds = await Promise.all(targets.map(target => target.boundingBox()));
     const size = `${width}×${height}`;
@@ -143,13 +143,13 @@ test('a rejected card edit keeps its diagnostic visible as an assertive alert', 
   const { page, command } = fixture;
   const card = await command({ op: 'create_card', title: 'Conflicting card edit', description: 'Original description' });
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
   const cardRegion = page.locator('[data-surface-role="card"][aria-label="Conflicting card edit"]');
   await cardRegion.waitFor();
-  await cardRegion.getByRole('button', { name: 'More actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit card', exact: true }).click();
+  await cardRegion.getByRole('button', { name: '卡片操作', exact: true }).click();
+  await page.getByRole('button', { name: '编辑卡片', exact: true }).click();
   const dialog = page.getByRole('dialog').last();
-  await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Keep my unsaved title');
+  await dialog.getByRole('textbox', { name: '标题', exact: true }).fill('Keep my unsaved title');
   let intercepted = false;
   await page.route('**/api/browser/command', async route => {
     if (intercepted || route.request().postDataJSON()?.command?.op !== 'update_card') return route.continue();
@@ -160,7 +160,7 @@ test('a rejected card edit keeps its diagnostic visible as an assertive alert', 
   });
   const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
     && response.request().postDataJSON()?.command?.op === 'update_card');
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
   const { reply } = await (await receipt).json();
   assert.ok(intercepted);
   assert.equal(reply.ok, false, JSON.stringify(reply));
@@ -168,16 +168,20 @@ test('a rejected card edit keeps its diagnostic visible as an assertive alert', 
   const alert = dialog.getByRole('alert');
   await alert.waitFor();
   assert.equal(await alert.innerText(), `${reply.error.code}: ${reply.error.message}`);
-  assert.equal(await dialog.getByRole('textbox', { name: 'Title', exact: true }).inputValue(), 'Keep my unsaved title');
+  assert.equal(await dialog.getByRole('textbox', { name: '标题', exact: true }).inputValue(), 'Keep my unsaved title');
 });
 
 // Chart accessibility is exercised through the model protocol and ordinary Markdown publication.
-test('model chart data remains a readable table with labelled columns in source order', { timeout: 60000 }, async t => {
+test('model charts and range controls keep their values readable', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
   const source = `<ui id="monthly-report">
+<state id="seats" type="integer" initial={8} min={1} max={50} />
+<stack id="report">
 <line-chart id="monthly" data={[{id:"a",month:"Jan",value:2},{id:"b",month:"Feb",value:3}]}
  row-key="id" x="month" y="value" x-label="Month" y-label="Value" />
+<slider id="seats-slider" bind="seats" label="Seats" />
+</stack>
 </ui>`;
   const index = fixture.requests.length;
   const { task_id } = await command({ op: 'create', profile: fixture.profile, message: 'Monthly chart accessibility' });
@@ -193,6 +197,11 @@ test('model chart data remains a readable table with labelled columns in source 
   assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['Month', 'Value']);
   assert.equal(await table.getByRole('row').count(), 3, 'The header and both source data rows remain readable');
   assert.deepEqual(await table.getByRole('cell').allTextContents(), ['Jan', '2', 'Feb', '3']);
+  const seats = page.getByRole('slider', { name: 'Seats', exact: true });
+  const shownValue = value => seats.locator('..').getByText(value, { exact: true });
+  await shownValue('8').waitFor();
+  await seats.press('ArrowRight');
+  await shownValue('9').waitFor();
 });
 
 async function accessibleDescription(control) {
@@ -222,10 +231,32 @@ test('keyboard users can read unavailable action reasons, choice context and col
   await taskIdle(fixture.running.service, task_id);
   await selectTask(fixture, task_id);
   const main = page.getByRole('main');
-  const summary = main.getByText('Conversation event · 0 operations', { exact: true }).first();
+  assert.equal(await main.getByRole('button', { name: /0 operations|Conversation event/ }).count(), 0,
+    'Bookkeeping alone does not create an activity disclosure');
+  await command({ op: 'compact', task_id, summary: 'This conversation tested the activity summary.' });
+  const summary = main.getByRole('button', { name: 'Context compacted', exact: true });
   await summary.waitFor();
-  assert.equal(await summary.isVisible(), true, 'Collapsed activity has visible summary text');
-  await main.getByRole('button', { name: 'Expand activity', exact: true }).first().click();
-  await main.getByRole('button', { name: 'Collapse activity', exact: true }).first().click();
-  assert.equal(await summary.isVisible(), true, 'Collapsing details keeps the readable summary');
+  assert.equal(await summary.getAttribute('aria-expanded'), 'false');
+  await summary.click();
+  await main.getByText('Context compacted; original conversation retained.', { exact: true }).waitFor();
+  await summary.click();
+  assert.equal(await summary.getAttribute('aria-expanded'), 'false');
+});
+
+test('execution controls appear beside active work and stay out of conversation details', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command } = fixture;
+  const { task_id } = await command({ op: 'create', profile: fixture.profile, message: 'Stop this running reply' });
+  await selectTask(fixture, task_id);
+  const main = page.getByRole('main');
+  const stop = main.getByRole('button', { name: 'Stop current execution', exact: true });
+  await stop.waitFor();
+  await main.getByRole('button', { name: 'Task details', exact: true }).click();
+  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
+  await details.waitFor();
+  assert.equal(await details.getByRole('button', { name: /Stop current execution|Fork conversation|Pause conversation/ }).count(), 0);
+  await main.getByRole('button', { name: 'Task details', exact: true }).click();
+  await stop.click();
+  await stop.waitFor({ state: 'hidden' });
+  assert.equal((await command({ op: 'read', task_id })).task.status, 'stopped');
 });

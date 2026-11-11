@@ -27,19 +27,24 @@ Definition missing {A} parent message:list(node A) :=[page_region parent Composi
  [read_only parent "unavailable-message" "Unavailable"message]].
 Definition creation_heading snapshot s e :=match SessionObserve.draft_preview snapshot(State.current_draft s e)with
 |Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
- |Some project=>"Work on "++project_name project|None=>"New task"end
-|_=>"New task"end.
+ |Some project=>"New conversation in "++project_name project|None=>"New conversation"end
+|_=>"New conversation"end.
 Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
- let properties:=filter(fun property=>match UX.property_kind_of property with
-  |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observe.observe_properties snapshot s e)in
- let context:=(Editors.property_controls snapshot s e parent properties ++
-   Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])%list in
+ let properties:=Observe.observe_properties snapshot s e in
+ let context:=flat_map(fun property=>match UX.property_kind_of property with
+  |UX.ProjectProperty=>
+   information parent "creation/project-label" Information.FieldLabel "Project"::
+   Editors.property_controls snapshot s e parent [property]
+  |UX.WorkspaceProperty=>
+   information parent "creation/directory-label" Information.FieldLabel "Working directory"::
+   Editors.property_controls snapshot s e parent [property]
+  |_=>[]end)properties in
  page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match context with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
-     "creation-context" "Task context" Roles.Toolbar
-     (PageRegion Composition.CreationContext Composition.BodyPosition) context]end)++
-    match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list.
+   ((match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)++
+    [page_region parent Composition.CreationContext Composition.BodyPosition
+      [Editors.editor_options parent "creation-options" "Project and run settings"
+        (context++Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])]])%list.
 Definition creation_page snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
@@ -54,6 +59,12 @@ Definition approval_arguments {A} parent operation:list(node A):=match Read.oper
 |Some(JObject arguments)=>map(fun '(name,value)=>read_only parent("argument/"++name)(approval_argument_label name)
  (match value with JString value=>value|_=>TextJson.render_json value end))arguments
 |Some value=>[read_only parent "arguments" "Arguments"(TextJson.render_json value)]|None=>[]end.
+Definition operation_cancel_control snapshot s task parent id :=
+ match ObjectActions.cancellation_action snapshot s task id with
+ |Some action=>match ObjectActions.command action with
+  |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary
+    (Input.Command command)(approval_availability action))]|None=>[]end
+ |None=>[]end.
 Definition approval_node snapshot s task parent operation :=
  let id:=Read.operation_id operation in
  let key:=part parent("approval/"++show_natural id)in
@@ -73,30 +84,30 @@ Definition approval_node snapshot s task parent operation :=
        |Some directory=>[read_only key "directory" "Default working directory" directory]|None=>[]end) ++
       if human then [] else [read_only key "reviewer" "Reviewer model"
        (value_or "Reviewer observation unavailable"(Read.operation_reviewer operation))])]
-   ++ match decisions with []=>[]|_=>[region key "approval-actions" "Approval decision" Roles.Toolbar decisions]end)%list.
+   ++ [region key "approval-actions" "Approval decision" Roles.Toolbar
+       (decisions++operation_cancel_control snapshot s task key id)])%list.
 Definition approvals snapshot s task parent operations :=
  match Read.pending_approvals operations with []=>[]|pending=>[page_region parent Composition.ApprovalDecisions Composition.DockPosition
   [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node snapshot s task parent)pending)]]end.
 Definition reader_disclosures task s :=State.disclosures(SessionNavigation.reader_for s task).
 Definition reading_actions := AuditReading.ReadingActions Input.SetDisclosure Input.Interactive Input.RetainedOutput.
-Definition operation_cancel_control snapshot s task parent id :=
- match ObjectActions.cancellation_action snapshot s task id with
- |Some action=>match ObjectActions.command action with
-  |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary
-    (Input.Command command)(approval_availability action))]|None=>[]end
- |None=>[]end.
+Definition operation_caption operation := match Read.operation_status operation with
+ |"running"=>"Running"
+ |"awaiting_approval"=>"Waiting for approval"
+ |"approved_waiting_to_run"=>"Approved, waiting to run"
+ |"result_pending"=>"Processing the result"
+ |other=>other end.
 Definition operation_node snapshot s task parent operation :=
  let id:=Read.operation_id operation in
  let key:=part parent("operation/"++show_natural id)in
- region key "operation"("Operation #"++show_natural id)Roles.Activity
-    ([read_only key "call" "Tool call"(Read.operation_tool operation++" · "++Read.operation_call_id operation);
-      read_only key "state" "State"(Read.operation_stage operation);
-      read_only key "status" "Status"(Read.operation_status operation)]++
-     (match Read.pending_approvals [operation] with []=>approval_arguments key operation|_=>[]end)++
+ region key "operation"(Read.operation_tool operation)Roles.Activity
+    ([information key "tool" Information.FieldLabel(Read.operation_tool operation);
+      information key "status" Information.Description(operation_caption operation)]++
      operation_cancel_control snapshot s task key id).
 Definition operation_controls snapshot s task parent operations :=
- match operations with []=>[]|_=>[region parent "active-operations" "Active operations"Roles.Activity
-  (map(operation_node snapshot s task parent)operations)]end.
+ let running:=filter (fun op=>negb(String.eqb "approval_pending"(Read.operation_stage op))) operations in
+ match running with []=>[]|_=>[region parent "active-operations" "Tool activity"Roles.Activity
+  (map(operation_node snapshot s task parent)running)]end.
 Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>match Read.worktree_status value with
  |"creating"|"creating_archived"|"archiving"=>[information parent "worktree/status" Information.Status(Read.worktree_caption value)]
@@ -139,6 +150,22 @@ Definition task_details_control s task parent :=
  Node(part parent "details")"details" "Task details"Roles.Button
   (PanelToggle expanded(secondary "details" "Task details"
     (Input.OpenInformation(State.TaskDetails task)(part parent "details"))))[].
+Definition run_control snapshot s (task:Read.task) parent key :=
+ match ObjectActions.resolve snapshot s (TaskActions(Read.task_id task)) key with
+ |Some action=>match ObjectActions.command action with
+  |Some command=>[declared parent Roles.Button(Control key (ObjectActions.action_label action) Secondary
+    (Input.Command command)(approval_availability action))]
+  |None=>[]end
+ |None=>[]end.
+Definition task_run_controls snapshot s (task:Read.task) parent :=
+ let status:=Read.task_status task in
+ let working:=Read.task_working task && negb(String.eqb status "archived") in
+ let paused:=String.eqb status "frozen" in
+ if working || negb(String.eqb status "active") then
+ ([information parent "run-status" Information.Status(Read.task_caption task)]++
+ (if paused then run_control snapshot s task parent "unfreeze" else [])++
+ (if working then run_control snapshot s task parent "interrupt" else []))%list
+ else [].
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
 Definition task_composer snapshot s view parent task :=
@@ -160,8 +187,9 @@ Definition task_contents snapshot s view parent task :=
  ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
-   (List.app [task_details_control s id parent;
-    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))]]
+   (task_run_controls snapshot s task parent++
+    [task_details_control s id parent;Collections.more parent(TaskActions id)]++
+    task_side_controls snapshot s id parent)]]
   |SideTask _=>[]end) ++
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
@@ -181,12 +209,19 @@ Definition conversation_page snapshot s view parent :=
  |Some task=>[Node(part parent "conversation")"conversation" ""Roles.Section(PageContext(Some view))
   (task_contents snapshot s view parent task)]end.
 Definition history_scope (project:bool) selected choices parent :=
- Node(part parent(if project then"history/project"else"history/work"))"history-scope"(if project then"项目"else"Work")Roles.Field
+ Node(part parent(if project then"history/project"else"history/work"))"history-scope"(if project then"项目"else"工作组")Roles.Field
   (HistorySearchScope project selected choices(fun value=>
    selected<-(match value with JString ""=>Some None|JString value=>option_map(@Some N)(parse_natural value)|_=>Identity.decode_id value end);;
    Some(Input.ChooseHistoryScope project selected))) [].
 Definition history_hit parent hit :=
- let task:=HistoryObservation.hit_task hit in
+ match hit with
+ |HistoryObservation.TitleMatch task=>
+ let id:=Read.task_id task in
+ let key:=part parent("hit/"++show_natural id++"/title")in
+ region key "result" "标题匹配" Roles.Card
+  [declared key Roles.Button(secondary "open"(Read.task_title task)(Input.Navigate(Conversation id)));
+   information key "match" Information.Description "标题匹配"]
+ |HistoryObservation.MessageMatch task hit=>
  let id:=Read.task_id task in
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
@@ -194,35 +229,41 @@ Definition history_hit parent hit :=
    ([declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))(Input.OpenHistoryMessage id index))]++
     (if String.eqb(HistoryObservation.hit_before hit)""then[]else[read_only key "before" "上一条"(HistoryObservation.hit_before hit)])++
     [read_only key "snippet" "命中消息"(HistoryObservation.hit_text hit)]++
-    (if String.eqb(HistoryObservation.hit_after hit)""then[]else[read_only key "after" "下一条"(HistoryObservation.hit_after hit)]))%list.
+    (if String.eqb(HistoryObservation.hit_after hit)""then[]else[read_only key "after" "下一条"(HistoryObservation.hit_after hit)]))%list
+ end.
 Definition history_page snapshot s parent :=
  let search:=State.history_search(State.authoring_state s)in
- let submit:=observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(primary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
+ let pending:=State.pending_search s in
+ let availability input:=if pending then Busy "正在搜索…" else
+   domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input)in
+ let submit:=observe_control availability(primary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
  let project_choices:=Fields.ChoiceValue "" "全部"::map(fun p=>Fields.ChoiceValue(show_natural(project_id p))(project_name p))(value_or[](projects snapshot))in
  let work_choices:=Fields.ChoiceValue "" "全部"::map(fun w=>Fields.ChoiceValue(show_natural(work_id w))(work_name w))(value_or[](works snapshot))in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "搜索对话"]) [];
   page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [Node(part parent "history/query")"history-query" "关键词"Roles.Field
+   [Node(part parent "history/query")"history-query" "标题或消息关键词"Roles.Field
      (HistorySearchQuery(State.keyword search)(fun value=>option_map Input.WriteHistoryQuery(as_string value))submit)[];
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
     declared parent Roles.PrimaryButton submit];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
-   (match State.search_result search with
-   |None=>[read_only parent "prompt" "搜索说明" "输入关键词，选择项目或 Work，然后搜索对话。"]
+   (if pending then[information parent "searching" Information.Status "正在搜索…"]else
+    match State.search_result search with
+   |None=>[information parent "prompt" Information.Description "搜索标题和消息正文，可按项目或工作组缩小范围。"]
    |Some reply=>match HistoryObservation.search_result reply with
     |inr result=>
      let after:=HistoryObservation.page_after result in
      ((match HistoryObservation.hits result with
-       |[]=>[read_only parent "history-empty" "搜索结果" "没有找到匹配的消息。"]
+       |[]=>[information parent "history-empty" Information.Status "没有找到匹配的标题或消息。试试其他关键词或扩大搜索范围。"]
        |hits=>map(history_hit parent)hits end)++
       (if N.eqb after 0 then[]else
-        [declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))
+        [declared parent Roles.Button(observe_control availability
           (secondary "history/previous" "上一页"(Input.SubmitHistorySearch(N.sub after 20))))])++
       match HistoryObservation.next_after result with
-      |Some next=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "history/more" "更多结果"(Input.SubmitHistorySearch next)))]|None=>[]end)%list
-    |inl reason=>[read_only parent "search-error" "Search failed" reason]end end)].
+      |Some next=>[declared parent Roles.Button(observe_control availability(secondary "history/more" "更多结果"(Input.SubmitHistorySearch next)))]|None=>[]end)%list
+    |inl reason=>[information parent "search-error" Information.Status
+       ("未能完成搜索，请重试。 "++reason)]end end)].
 Definition shared_page snapshot s work parent :=
  match find_work work snapshot with
  |None=>missing parent "This Work no longer exists"

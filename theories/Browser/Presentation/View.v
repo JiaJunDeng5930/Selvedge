@@ -62,6 +62,22 @@ Definition relocate_details_trigger state capacity base overlays:=
 
 Definition workspace_key := "/workspace".
 Definition main_key := "/main".
+Definition initial_connection (state : State.state) : Surface.surface Input.input :=
+ let services:=State.service_state state in
+ let connect label:=declared main_key Roles.PrimaryButton
+   (primary "connect" label(Input.ServiceInput Services.Connect))in
+ let content:=match Services.connection services with
+ |Services.ConnectionFailed _ reason|Services.ConnectionRevoked _ reason=>
+   [information main_key "connection-failed" Information.Status "无法连接 Selvedge。";
+    information main_key "connection-reason" Information.Description reason;connect "重新连接"]
+ |Services.ConnectionDormant=>
+   [information main_key "not-connected" Information.Description "连接 Selvedge 后即可打开对话。";connect "连接"]
+ |Services.ConnectionLoading _|Services.ConnectionReady _=>
+   [information main_key "connecting" Information.Status "正在连接 Selvedge…"]
+ end in
+ Surface.Surface workspace_key main_key
+  [region "/workspace" "main" "Selvedge" Roles.Main (title main_key "Selvedge"::content)]
+  [] (Services.theme services).
 Definition view_base snapshot state capacity :=
  List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state).
 Definition view_overlays_with render_layer snapshot state capacity :=

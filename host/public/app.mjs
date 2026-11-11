@@ -61,6 +61,7 @@ let suspendedFocus = null;
 let updateStorageProblem = '';
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
+const readDeadline = () => AbortSignal.timeout(20_000);
 
 function randomBrowserIdentifier() {
   // getRandomValues is available on private HTTP origins as well as HTTPS.
@@ -311,6 +312,14 @@ function render(local = null) {
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
   if (!environment) return;
+  try { present(local); }
+  catch (error) {
+    // DEFENSE: Native DOM updates can fail during a scene change. Keep the
+    // same recovery action available as for a failed physical observation.
+    fatal(error);
+  }
+}
+function present(local) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
   const measuringDocument = measuring && renderer.document;
   const deferRender = () => {
@@ -336,9 +345,6 @@ function render(local = null) {
     const plan = interaction('observe', { state, world, environment, generation,
       namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
     surface.dataset.displayPending = String(publicationEvent('pending'));
-    if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
-      refreshPhysical().catch(fatal); return;
-    }
     renderer.render(plan, generation);
   }
   surface.dataset.sourcesFresh = String(sourceFresh);
@@ -866,7 +872,7 @@ async function authenticate(effect) {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
-      request: (url, signal) => request(url, { signal }),
+      request: (url, signal) => request(url, { signal: AbortSignal.any([signal, readDeadline()]) }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
@@ -957,14 +963,17 @@ surface.addEventListener('dragend', () => { draggedCard = null; });
 async function completeCommand(effect) {
   const namespace = publication.namespace;
   try {
-    const value = await requestCommand(effect.command);
+    const value = await requestCommand(effect.command, effect.read_only ? readDeadline() : undefined);
     if (publication.namespace === namespace && value !== undefined)
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
-    // DEFENSE: The server may have committed a command whose HTTP reply was lost.
-    // Preserve its ticket and duplicate protection instead of reporting rejection.
-    if (publication.namespace === namespace)
-      dispatch({ type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+    // DEFENSE: A lost reply ends a read observation. The server may have
+    // committed a mutation, so preserve its ticket and duplicate protection.
+    if (publication.namespace === namespace) {
+      dispatch(effect.read_only
+        ? { type: 'completed', ticket: effect.ticket, ok: false, error: error.message }
+        : { type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+    }
   }
 }
 

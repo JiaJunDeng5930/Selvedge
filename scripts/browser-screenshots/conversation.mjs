@@ -95,19 +95,21 @@ async function captureConversation(page, fixture) {
   }
 
   const title = 'Read a long shell command safely';
-  await command({ op: 'create', profile, message: title, settings: approvalSettings });
+  const { task_id: sourceTask } = await command({ op: 'create', profile, message: title, settings: approvalSettings });
   fixture.finish(await requestFor(fixture, title), { text: sourceReply });
   await openTask(title);
   await main.getByText('Second reading check', { exact: true }).waitFor();
+  await command({ op: 'compact', task_id: sourceTask,
+    summary: 'The conversation reviewed a long shell command and recorded the result.' });
 
   await atEachSize(async viewport => {
     await scrollTo(main.locator('.code-block'), 'center');
     await capture(page, 'main', viewport);
 
-    await button(main, 'Expand activity').last().click();
+    await button(main, 'Context compacted').click();
     await scrollTo(main.locator(expandedActivity), 'center');
     await capture(page, 'audit-expanded', viewport);
-    await button(main, 'Collapse activity').last().click();
+    await button(main, 'Context compacted').click();
 
     const wrap = main.locator('.code-toolbar button[aria-pressed]');
     await wrap.click();

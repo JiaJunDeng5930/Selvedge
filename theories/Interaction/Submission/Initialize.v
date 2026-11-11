@@ -5,7 +5,7 @@ From Selvedge.Features Require Domain BoardParameters.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
 From Selvedge.Interaction Require World.
-From Selvedge.Interaction.Submission Require Draft DraftCodec.
+From Selvedge.Interaction.Submission Require Draft DraftCodec GraphAuthoring.
 From Selvedge.Interaction.Submission Require Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -22,7 +22,9 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
 |Identity.Card(Some id)=>card<-World.board_object "cards" id snapshot;;revision<-natural_field "revision" card;;project<-bind(string_field "project" card)Selvedge.Features.BoardParameters.optional_project;;value<-DraftCodec.decode_card(replace "project"(optional_id project)card);;Some(Draft.CardBody(Some id)revision value false "" false)
 |Identity.Fork task=>settings<-Observation.task_settings task snapshot;;Some(Draft.ForkBody task 1 [] (Context.Configuration(Context.ParentTask task)None None None))
 |Identity.Compact task=>match World.find_task task snapshot with Some _=>Some(Draft.CompactBody task None)|None=>None end
-|Identity.TaskGraph None work=>Some(Draft.TaskGraphBody None (TextJson.render_json(JObject[("name",JString "Task graph");("nodes",JArray []);("rules",JArray [])])) None work)
+|Identity.TaskGraph None work=>
+ let declaration := GraphAuthoring.handoff_declaration GraphAuthoring.empty_handoff in
+ Some(Draft.TaskGraphBody None (TextJson.render_json declaration) (Some declaration) work)
 |Identity.TaskGraph(Some id)work=>graph<-World.find_world "graphs" "graph_id" id snapshot;;name<-field "name" graph;;nodes<-field "nodes" graph;;rules<-field "rules" graph;;let declaration:=JObject[("name",name);("nodes",nodes);("rules",rules)]in Some(Draft.TaskGraphBody(Some id)(TextJson.render_json declaration)(Some declaration)work)
 |Identity.WorkName work=>value<-World.find_work work snapshot;;name<-string_field "name" value;;Some(Draft.WorkNameBody work name)
 |Identity.TitlePrompts=>settings<-field "title_settings" snapshot;;revision<-natural_field "revision" settings;;task<-string_field "task_prompt" settings;;agent<-string_field "agent_prompt" settings;;

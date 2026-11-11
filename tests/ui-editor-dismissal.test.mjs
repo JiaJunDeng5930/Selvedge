@@ -12,8 +12,8 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('region', { name: projectName, exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
+  await page.getByRole('button', { name: '编辑项目', exact: true }).click();
   let dialog = page.getByRole('dialog');
   const projectNameInput = dialog.getByRole('textbox', { name: 'Name', exact: true });
   await projectNameInput.fill('Unsaved project name');
@@ -23,8 +23,8 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await dialog.waitFor({ state: 'hidden' });
 
   await page.getByRole('main').getByRole('region', { name: projectName, exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
+  await page.getByRole('button', { name: '编辑项目', exact: true }).click();
   dialog = page.getByRole('dialog');
   assert.equal(await dialog.getByRole('textbox', { name: 'Name', exact: true }).inputValue(), projectName);
   await page.keyboard.press('Escape');

@@ -61,6 +61,7 @@ Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_gene
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
+| MenuSubmission (occurrence : N)
 | WorkCreation (navigation_generation layer_generation:N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
@@ -113,6 +114,8 @@ Definition pending_editor owner state:=existsb(fun pending=>match purpose pendin
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
+Definition pending_search state:=existsb(fun pending=>match purpose pending with
+ |SearchSubmission _ _ _ _=>true|_=>false end)(awaiting(authoring_state state)).
 Definition pending_placement card state:=existsb(fun pending=>
  let raw:=Schema.encode_command(accepted_command pending)in
  String.eqb (Codec.text "op" raw) "move_card" &&

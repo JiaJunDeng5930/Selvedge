@@ -31,7 +31,8 @@ Module CP:=Selvedge.Browser.Presentation.ActionPurpose.
 Module BM:=Selvedge.Browser.Scene.Model.
 Module UX:=Selvedge.Interaction.Experience.Model.
 Definition capacity environment:=match Layout.observe_capacity environment with
-|Some(navigation,details)=>Some(BM.Capacity navigation details)|None=>None end.
+|Some(navigation,details)=>Some(BM.Capacity navigation details)
+|None=>Some(BM.Capacity false false)end.
 Definition environment request:=bind(field "environment" request)Observation.decode_environment.
 Definition state request:=bind(field "state" request)SC.decode_state.
 Definition compact_picker environment :=
@@ -76,7 +77,9 @@ Record prepared := Prepared {
   prepared_stream_update : option (list LiveUpdate.part_update);
   prepared_operations : option retained_scene_operations
 }.
-Definition scene snapshot current env := bind env (surface snapshot current).
+Definition scene snapshot current env :=
+ if Json.equal snapshot JNull then option_map(fun _=>V.initial_connection current)env
+ else bind env (surface snapshot current).
 Definition prepared_scene context := prepared_scene_at context tt.
 Definition defer_scene (project : unit -> option (S.surface Input.input)) := project.
 Definition context_for_state snapshot current encoded env :=
@@ -175,7 +178,9 @@ Definition picker_underlay layer := match Session.layer_panel layer with
  |Session.SideConversationPanel _=>true|_=>false end.
 Definition modal_from_overlays nodes := hd_error(rev(filter (@S.is_modal_node Input.input) nodes)).
 Definition projected_overlays_with (project:json->Session.state->BM.capacity->bool->list(S.node Input.input)) context :=
- env<-prepared_environment context;; size<-capacity env;;
+ env<-prepared_environment context;;
+ if Json.equal (prepared_world context) JNull then Some [] else
+ size<-capacity env;;
  if forallb picker_underlay (underlying_layers context) then
    Some(project(prepared_world context)(prepared_state context)size(compact_picker env))
  else None.
@@ -522,9 +527,8 @@ Definition prepared_call operation request context : json * prepared :=
  let unchanged response:=(response,context) in
  if String.eqb operation "observe"then
   unchanged(match prepared_environment context,natural_field "generation" request with
-  |Some env,Some generation=>if Json.equal snapshot JNull then Json.success(Document.bootstrap env generation)
-   else match prepared_scene context with
-   |None=>Json.success(Document.bootstrap env generation)
+  |Some env,Some generation=>match prepared_scene context with
+   |None=>Json.failure "MissingScene" "The current workspace could not be presented."
    |Some actual=>Json.success(Document.compile(CP.describe snapshot(prepared_state context))env generation actual)end
   |_,_=>Json.failure "InvalidEnvironment" "A current physical environment and publication generation are required."end)
  else if String.eqb operation "accepts_element"then

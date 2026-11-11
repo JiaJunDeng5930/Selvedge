@@ -7,13 +7,19 @@ by a question. It starts from the parent's captured conversation while the
 parent continues. Closing the side keeps its Task; the explicit return action
 sends only its new content back to the parent.
 
-Conversation search finds user and assistant messages, with optional Project
-and Work filters. Selecting a result opens the original message. Running Tasks
-can use `search_history` with the same filters and history positions. Type `@`
+Conversation search finds current titles and user and assistant messages, with
+optional Project and Work filters. Selecting a title opens the conversation;
+selecting a message opens the original message. Running Tasks can use
+`search_history` with the same filters and history positions. Set
+`include_titles` to include title matches. Type `@`
 in a message to select an available skill and insert its exact `SKILL.md` reference.
 
-Works group Tasks and task graphs independently of Projects. A graph connects
-ordinary Task outputs to inputs; it does not introduce another scheduler.
+Use **对话范围** above the conversation list to show **全部对话** or a named Work
+(工作组). A Work has its own conversation list, task graphs and shared interface.
+Projects independently organize conversations and provide default directories and
+instructions. Click a project name to see its configuration and conversations, or
+use its plus button to start a conversation there. A graph connects ordinary Task
+outputs to inputs.
 Interactive interfaces in `selvedge-ui` Markdown fences and a Work's persistent
 **共享 UI** page use the same bounded declarative language. A Task can inspect
 that page with `read_work_ui` and change it with revision-checked

@@ -28,7 +28,8 @@ Definition candidate_control {e} pending occurrence (decision:UX.decision e)
   (Input.ActivityAssignment occurrence e(Act.Assignment(UX.decision_subject decision)(UX.alternative_value alternative)))
   (if pending && Parameters.live_configuration e(UX.subject_declaration(UX.decision_subject decision))
    then Busy "This action is pending"else domain_availability(UX.alternative_availability alternative)).
-Definition candidate_node {e} (pending show_explanations show_consequences:bool) occurrence parent (decision:UX.decision e)
+Definition candidate_node {e} (pending show_explanations show_consequences:bool)
+ (common_obstruction:option string) occurrence parent (decision:UX.decision e)
  (alternative:UX.alternative e(UX.decision_subject decision)) :=
  let label:=UX.alternative_label alternative in
  let key:=part parent("candidate/"++TextJson.render_json(Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))in
@@ -39,6 +40,9 @@ Definition candidate_node {e} (pending show_explanations show_consequences:bool)
   ([information key "label" Information.OptionLabel label]++
    (if show_explanations && negb(String.eqb label(UX.alternative_explanation alternative))then
     [information key "description" Information.Description(UX.alternative_explanation alternative)]else[])++
+   (match UX.alternative_availability alternative,common_obstruction with
+    |UX.Unavailable reason,None=>[information key "obstruction" Information.Description reason]
+    |_,_=>[]end)++
    (if show_consequences then match UX.alternative_consequences alternative with
     |[]=>[]
     |consequences=>[region key "choice-consequences" "" Roles.Content
@@ -58,6 +62,11 @@ Definition alternative_search_key {e}(subject:UX.subject e)(value:denote(UX.subj
  |Fields.ApprovalPolicy,JString "approval-for-me"=>"strategy/automatic-review"
  |Fields.WorkspacePrimary,JString path=>"directory/"++path
  |_,_=>TextJson.render_json encoded end.
+Definition common_choice_obstruction (choices:list UX.availability) :=
+ match choices with
+ |UX.Unavailable reason::rest=>if forallb(fun choice=>match choice with
+    |UX.Unavailable other=>String.eqb reason other|UX.Available=>false end)rest then Some reason else None
+ |_=>None end.
 Definition decision_node {e} pending show_consequences occurrence parent query (decision:UX.decision e) :=
  let identity:=part parent(UX.subject_name(UX.decision_subject decision))in
  let full:=UX.decision_alternatives decision in
@@ -69,16 +78,17 @@ Definition decision_node {e} pending show_consequences occurrence parent query (
  |Fields.ModelProfile,first::rest=>
    existsb(fun alternative=>negb(String.eqb(UX.alternative_explanation first)(UX.alternative_explanation alternative)))rest
  |_,_=>true end in
+ let obstruction:=common_choice_obstruction (map UX.alternative_availability visible) in
  let status:=match full,visible with
  |[],_=>[read_only identity "candidates/empty" "" (match UX.subject_declaration(UX.decision_subject decision)with
           |Fields.ModelProfile=>"No models available"|_=>"No choices have been configured"end)]
  |_,[]=>[read_only identity "candidates/no-match" "Search" "No choices match this search"]
- |_,_=>if existsb(fun alternative=>match UX.alternative_availability alternative with
-    UX.Available=>true|_=>false end)visible then[]else
-    [read_only identity "candidates/unavailable" "Choices" "No available choices"]end in
+ |_,_=>match obstruction with None=>[]
+   |Some reason=>[information identity "candidates/obstruction" Information.Description reason]end end in
  Node identity "decision"(UX.decision_question decision)Roles.Section(DecisionGroup e decision)
  ([Node(part identity "heading-row")"object-heading" ""Roles.Section(ActivityRow ObjectHeading)
-   [group_title identity(UX.decision_question decision)]]++status++map(candidate_node pending show_explanations show_consequences occurrence identity decision)visible).
+   [group_title identity(UX.decision_question decision)]]++status++
+  map(candidate_node pending show_explanations show_consequences obstruction occurrence identity decision)visible).
 Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in

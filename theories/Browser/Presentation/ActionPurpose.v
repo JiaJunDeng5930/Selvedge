@@ -101,6 +101,7 @@ Definition describe snapshot state input:P.purpose:=match input with
   (match Selvedge.Programming.Resource.resource_request(Services.directory(State.service_state state))with
    |Some request=>String.eqb trigger(Services.directory_trigger request)|None=>false end)|_=>P.NamedAction end
 |Input.SetDisclosure _ _ _ expanded=>P.ShowActivity(negb expanded)
-|Input.RetainedOutput _ toggle=>P.ShowActivity(negb toggle)
+|Input.RetainedOutput _ true=>P.NamedAction
+|Input.RetainedOutput _ false=>P.Dismiss
 |Input.Interactive _=>P.NamedAction
 |_=>P.NamedAction end.

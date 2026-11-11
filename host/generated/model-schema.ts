@@ -648,7 +648,7 @@ export type Command =
   | {"op": "return_side_conversation"; "task_id": DomainNatural}
   | {"op": "compact"; "task_id": DomainNatural; "summary"?: string}
   | {"op": "read"; "task_id": DomainNatural; "after"?: DomainNatural; "limit"?: DomainNatural}
-  | {"op": "search_history"; "query": string; "project_id"?: DomainNatural; "work_id"?: DomainNatural; "after"?: DomainNatural; "limit"?: DomainNatural}
+  | {"op": "search_history"; "query": string; "project_id"?: DomainNatural; "work_id"?: DomainNatural; "after"?: DomainNatural; "limit"?: DomainNatural; "include_titles"?: boolean}
   | {"op": "list"; }
   | {"op": "describe"; }
   | {"op": "create_project"; "name": string; "workspace": JsonValue; "guidance"?: JsonValue; "create_worktree"?: boolean; "workspace_binding"?: JsonValue}
@@ -724,7 +724,7 @@ export function decodeCommand(input: unknown): Command {
     case "return_side_conversation": exactFields(source, ["op","task_id"]); return {"op": "return_side_conversation", "task_id": decodeNatural(source["task_id"])};
     case "compact": exactFields(source, ["op","task_id","summary"]); return {"op": "compact", "task_id": decodeNatural(source["task_id"]), ...(source["summary"] === undefined ? {} : {"summary": decodeText(source["summary"])})};
     case "read": exactFields(source, ["op","task_id","after","limit"]); return {"op": "read", "task_id": decodeNatural(source["task_id"]), ...(source["after"] === undefined ? {} : {"after": decodeNatural(source["after"])}), ...(source["limit"] === undefined ? {} : {"limit": decodeNatural(source["limit"])})};
-    case "search_history": exactFields(source, ["op","query","project_id","work_id","after","limit"]); return {"op": "search_history", "query": decodeText(source["query"]), ...(source["project_id"] === undefined ? {} : {"project_id": decodeNatural(source["project_id"])}), ...(source["work_id"] === undefined ? {} : {"work_id": decodeNatural(source["work_id"])}), ...(source["after"] === undefined ? {} : {"after": decodeNatural(source["after"])}), ...(source["limit"] === undefined ? {} : {"limit": decodeNatural(source["limit"])})};
+    case "search_history": exactFields(source, ["op","query","project_id","work_id","after","limit","include_titles"]); return {"op": "search_history", "query": decodeText(source["query"]), ...(source["project_id"] === undefined ? {} : {"project_id": decodeNatural(source["project_id"])}), ...(source["work_id"] === undefined ? {} : {"work_id": decodeNatural(source["work_id"])}), ...(source["after"] === undefined ? {} : {"after": decodeNatural(source["after"])}), ...(source["limit"] === undefined ? {} : {"limit": decodeNatural(source["limit"])}), ...(source["include_titles"] === undefined ? {} : {"include_titles": decodeBoolean(source["include_titles"])})};
     case "list": exactFields(source, ["op"]); return {"op": "list"};
     case "describe": exactFields(source, ["op"]); return {"op": "describe"};
     case "create_project": exactFields(source, ["op","name","workspace","guidance","create_worktree","workspace_binding"]); return {"op": "create_project", "name": decodeText(source["name"]), "workspace": decodeJson(source["workspace"]), ...(source["guidance"] === undefined ? {} : {"guidance": decodeJson(source["guidance"])}), ...(source["create_worktree"] === undefined ? {} : {"create_worktree": decodeBoolean(source["create_worktree"])}), ...(source["workspace_binding"] === undefined ? {} : {"workspace_binding": decodeJson(source["workspace_binding"])})};

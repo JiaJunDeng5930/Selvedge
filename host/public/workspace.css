@@ -140,22 +140,21 @@ main:has(> [data-page-region="collection-actions"] > [data-semantic-key="history
 }
 
 [data-page-region="board-stages"] {
-  min-block-size: 12rem !important;
-  scrollbar-width: thin;
-}
-
-[data-page-region="board-stages"] > [data-board-stage] {
-  min-inline-size: min(16rem, 100%) !important;
-  max-inline-size: 100% !important;
-}
-
-[data-board-stage] [data-board-cards] {
   scrollbar-width: thin;
 }
 
 [data-board-stage] article[data-card-id] {
   overflow-wrap: anywhere;
 }
+
+[data-card-grip] {
+  display: inline-flex;
+  align-self: start;
+  color: var(--selvedge-muted);
+  cursor: grab;
+}
+
+[data-card-grip]:active { cursor: grabbing; }
 
 [data-board-stage] article[data-card-id] [data-semantic-key="open"] {
   inline-size: 100% !important;

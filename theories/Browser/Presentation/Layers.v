@@ -41,35 +41,38 @@ Definition action_nodes subject occurrence parent :=flat_map(fun action=>
    declared parent Roles.Button(secondary("retry/"++ObjectActions.action_key action)"Retry"(Input.RetryMenuAssessment subject(ObjectActions.action_key action)occurrence))]
  | _=>[command]end).
 Definition card_decision_title decision := match decision with
- |CardDecisions.MoveCard=>"Move card"|CardDecisions.LinkCard=>"Link task"end.
+ |CardDecisions.MoveCard=>"移动卡片"|CardDecisions.LinkCard=>"关联对话"end.
 Definition card_decision_controls snapshot subject parent :=
  match subject with
  |CardActions card=>if ObjectDecisions.subject_exists snapshot subject then
-  map(fun decision=>let key:=State.card_decision_key decision in
-   declared parent Roles.Button(secondary key(card_decision_title decision)
-     (Input.OpenCardDecision card decision(part parent key))))State.card_decision_kinds
+  let decision:=CardDecisions.MoveCard in
+  let key:=State.card_decision_key decision in
+  [declared parent Roles.Button(secondary key(card_decision_title decision)
+    (Input.OpenCardDecision card decision(part parent key)))]
   else []
  |_=>[]end.
 Definition menu_nodes snapshot s subject occurrence parent :=
  title parent "Actions" :: List.app (card_decision_controls snapshot subject parent)
-   (action_nodes subject occurrence parent (ObjectActions.items snapshot s subject)).
+   (action_nodes subject occurrence parent (ObjectActions.menu_items snapshot s subject)).
 Definition card_choice_nodes snapshot s card decision occurrence query parent :=
  let subject:=CardActions card in
  let search:=BoardFilter.lower_text(BoardFilter.trim query)in
  let matches selected:=BoardFilter.contains search(BoardFilter.lower_text
    (ObjectActions.choice_label selected++" "++ObjectActions.choice_key selected))in
- let search_control:=Node(part parent "search")"search" "Search choices"Roles.Field
+ let search_control:=Node(part parent "search")"search"
+    (match decision with CardDecisions.MoveCard=>"搜索状态或卡片"|CardDecisions.LinkCard=>"按名称或编号搜索对话"end) Roles.Field
     (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]in
- let empty:=information parent "empty-choices" Information.Description "No matching choices." in
+ let empty:=information parent "empty-choices" Information.Description
+  (match decision with CardDecisions.MoveCard=>"没有匹配的移动位置。"|CardDecisions.LinkCard=>"没有匹配的对话。"end) in
  search_control :: match CardDecisions.observe snapshot card,State.now s with
  |Some opportunity,Some now=>
   let matching:=filter matches(CardDecisions.choices decision opportunity)in
   let actions:=flat_map(fun selected=>ObjectActions.singleton(ObjectActions.choice_declaration opportunity now selected))(firstn 24 matching)in
   let summary:=if Nat.ltb 24 (List.length matching) then
-    [information parent "search-hint" Information.Description "Showing 24 choices. Search by name or ID to narrow the list."]
+    [information parent "search-hint" Information.Description "仅显示前 24 项。搜索可以缩小范围。"]
    else match matching with []=>[empty]|_=>[]end in
   List.app summary(action_nodes subject occurrence parent(map(ObjectActions.observe snapshot s subject)actions))
- |_,_=>[information parent "choices-unavailable" Information.Description "The choices are unavailable."]end.
+ |_,_=>[information parent "choices-unavailable" Information.Description "选项不可用。"]end.
 
 Definition detail_action_input parent(action:ObjectActions.action):Input.input:=
  let trigger:=part parent(ObjectActions.action_key action)in
@@ -126,19 +129,19 @@ Definition task_details snapshot s id parent :=match Projection.task_details_obs
   |None=>[]|Some work=>[read_only parent "work" "Work"
     (match Read.find_work work snapshot with Some entry=>Read.work_name entry|None=>"Work unavailable"end)]end)++
  [read_only parent "model" "Model"(Read.task_detail_model details++" · "++Read.task_detail_reasoning details);
-  read_only parent "status" "Status"(Read.task_caption task);
-  read_only parent "phase" "Phase"(Read.task_detail_phase details);
-  read_only parent "lineage" "Lineage"(String.concat ", "(map show_natural(Read.task_detail_lineage details)))] ++
- map(fun '(name,description)=>read_only parent(String.append "tool/" name)name description)(Read.task_detail_tools details)++
+  read_only parent "status" "Status"(Read.task_caption task)] ++
+ (match bind (Read.task_parent task) (fun source=>Read.find_task source snapshot) with
+  |Some source=>[declared parent Roles.Button(secondary "lineage" ("Open parent: "++Read.task_title source)
+    (Input.Navigate(Conversation(Read.task_id source))))]|None=>[]end)++
  map(fun '(ordinal,contents)=>read_only parent(String.append "queued/"(show_natural(N.of_nat ordinal)))"Queued message" contents)
   (combine(seq 0(List.length(Read.task_detail_queued details)))(Read.task_detail_queued details))++
- Pages.worktree_details snapshot s id parent++detail_action_nodes snapshot s(TaskActions id)parent)%list
+ Pages.worktree_details snapshot s id parent)%list
 |None=>[read_only parent "missing" "Task unavailable" "The task no longer exists"]end.
 Definition card_details snapshot s id parent :=match Read.find_card id snapshot with
-|None=>[read_only parent "missing" "Card unavailable" "This card no longer exists"]
+|None=>[information parent "missing" Information.Description "这张卡片已不存在。"]
 |Some card=>
  let face:=Collections.card_face snapshot s card in
- ([read_only parent "identifier" "任务"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face);
+ ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face);
   read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
   read_only parent "activity" "执行"(Model.card_status face);
   read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));read_only parent "owner" "负责人"(Model.card_owner face);
@@ -149,8 +152,10 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
  map(fun file=>declared parent Roles.Button(secondary("preview/"++asset_id file)("Preview "++asset_name file)
    (Input.ServiceInput(Services.OpenPreview file(part parent("preview/"++asset_id file))))))(Read.card_attachments card)++
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with
-  |Some entry=>[Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]|None=>[]end)++
- [region parent "card-detail-actions" "Card actions" Roles.Toolbar
+  |Some entry=>[group_title (part parent "conversation") "关联对话";
+    Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
+  |None=>Collections.card_conversation snapshot parent card end)++
+ [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
 Definition board_settings snapshot s parent :=match Read.board_configuration snapshot with
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
@@ -178,7 +183,7 @@ Definition filter_title category :=match category with
 |BoardFilter.Status=>"状态"|BoardFilter.Priority=>"优先级"|BoardFilter.Date=>"更新时间"
 |BoardFilter.Assignee=>"负责人"|BoardFilter.Creator=>"创建人"|BoardFilter.Project=>"项目"|BoardFilter.Label=>"标签"end.
 Definition board_filters snapshot s parent :=
- declared parent Roles.Button(secondary "filters/clear" "Clear filters" Input.BoardClear)::map(fun category=>let name:=BoardFilter.category_name category in
+ declared parent Roles.Button(secondary "filters/clear" "清除筛选" Input.BoardClear)::map(fun category=>let name:=BoardFilter.category_name category in
  region parent("filter/"++name)(filter_title category)Roles.Section
   (group_title(part parent("filter/"++name))(filter_title category)::map(fun '(value,label)=>
    Node(part parent("filter/"++name++"/"++value))"filter-option"label Roles.Button
@@ -239,21 +244,23 @@ Definition side_content snapshot s task parent :=
     [title parent heading;declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)]];
   dialog_body parent
    (source++[region parent "side/actions" "Side conversation actions" Roles.Toolbar
-     ([Pages.task_details_control s task parent;Collections.more parent(TaskActions task)]++return_control)]++
+     ((match Read.find_task task snapshot with
+       |Some entry=>Pages.task_run_controls snapshot s entry parent|None=>[]end)++
+      [Pages.task_details_control s task parent;Collections.more parent(TaskActions task)]++return_control)]++
     Pages.conversation_page snapshot s(SideTask task)parent)].
 Definition panel_title panel := match panel with
  |State.EditorPanel owner=>Editors.editor_title owner
  |State.SideConversationPanel _=>"Side conversation"
  |State.NavigationPanel GlobalMenu=>"Global navigation"
- |State.NavigationPanel WorkOverview=>"Work overview"|State.NavigationPanel TasksDrawer=>"Task tree"
+ |State.NavigationPanel WorkOverview=>Navigation.conversation_scope_label|State.NavigationPanel TasksDrawer=>"Task tree"
  |State.ObjectActionsPanel _=>"Actions"
  |State.CardDecisionPanel _ decision=>card_decision_title decision
  |State.InformationPanel(State.TaskDetails _)=>"Task details"
  |State.InformationPanel(State.TaskContext _)=>"Execution context"
- |State.InformationPanel(State.CardDetails _)=>"任务详情"
+ |State.InformationPanel(State.CardDetails _)=>"卡片详情"
  |State.InformationPanel(State.PropertySource _ _)=>"Configuration source"
- |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选任务"
- |State.ArchivedCardsPanel=>"Archived cards"|State.Confirmation _ caption _=>caption
+ |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选卡片"
+ |State.ArchivedCardsPanel=>"归档卡片"|State.Confirmation _ caption _=>caption
  |State.PropertyPanel _ _=>"Settings"end.
 Definition dismissible_heading parent caption : node Input.input :=
  dialog_header parent [title parent caption;
@@ -281,7 +288,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
   |State.ArchivedCardsPanel=>
    let candidates:=value_or[](Read.board_cards snapshot)in
    match filter Read.card_archived candidates with
-   |[]=>[information parent "empty" Information.Description "No archived cards."]
+   |[]=>[information parent "empty" Information.Description "没有归档的卡片。"]
    |archived=>map(Collections.card_node snapshot s parent candidates parent)archived end
   |State.Confirmation command caption destination=>
    ([dialog_header parent [title parent caption]] ++
@@ -297,11 +304,18 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
   let content:=match State.layer_panel layer with
   |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel _
   |State.Confirmation _ _ _=>content
+  |State.ObjectActionsPanel _|State.CardDecisionPanel _ _=>
+    let feedback:=match State.layer_feedback layer with
+      |None=>[]|Some reason=>[Node(part parent "feedback")"menu-feedback" "Action failed" Roles.Alert
+        (ReadOnly(Codec.diagnostic_message reason))[]]end in
+    match panel with
+    |State.CardDecisionPanel _ _=>[dismissible_heading parent (panel_title panel);dialog_body parent (List.app feedback content)]
+    |_=>List.app content feedback end
   |State.InformationPanel(State.TaskDetails _)=>
     [dismissible_heading parent (panel_title panel); dialog_body parent content]
   |State.InformationPanel(State.TaskContext _)
   |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
-  |State.ArchivedCardsPanel|State.CardDecisionPanel _ _=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
+  |State.ArchivedCardsPanel=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with
     |State.SideConversationPanel _=>"side-conversation"

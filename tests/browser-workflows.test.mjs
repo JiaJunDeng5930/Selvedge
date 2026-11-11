@@ -20,6 +20,7 @@ async function submitTask(page) {
 async function projectTask(page) {
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: 'Acceptance Project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   await page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
 }
 
@@ -93,12 +94,12 @@ test('Work navigation preserves Project grouping and opens the same conversation
     .and(projectGroup.locator(`[data-task-parent="${other.id}"]`));
   const branchEntry = branches.locator(`[data-task-id="${child.id}"]`)
     .getByRole('button', { name: child.title, exact: true });
-  const picker = page.getByRole('button', { name: /^Work overview:/ });
+  const picker = page.getByRole('button', { name: /^对话范围 · / });
   async function selectWork(name) {
     await picker.click();
-    const overview = page.getByRole('dialog', { name: 'Works', exact: true });
+    const overview = page.getByRole('dialog', { name: '对话范围', exact: true });
     await overview.getByRole('radio', { name, exact: true }).click();
-    await page.getByRole('button', { name: `Work overview: ${name}`, exact: true }).waitFor();
+    await page.getByRole('button', { name: `对话范围 · ${name}`, exact: true }).waitFor();
   }
 
   await taskEntry(destination).waitFor();
@@ -159,9 +160,9 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await center.getByText('Release Work', { exact: true }).waitFor();
   await global.getByRole('button', { name: '项目', exact: true }).click();
   await center.getByRole('region', { name: project, exact: true }).waitFor();
-  await global.getByRole('button', { name: '任务看板', exact: true }).click();
+  await global.getByRole('button', { name: '卡片看板', exact: true }).click();
   await center.getByRole('article', { name: cardTitle, exact: true })
-    .getByRole('button', { name: 'Open conversation', exact: true }).click();
+    .getByRole('button', { name: '打开对话', exact: true }).click();
   await seeDestination();
 });
 
@@ -170,16 +171,16 @@ test('Project task creation restores Project workspace inheritance through the b
   const { page, command } = fixture;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('region', { name: 'Acceptance Project', exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Project details', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).waitFor();
+  await page.getByRole('main').getByRole('button', { name: 'Acceptance Project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).waitFor();
   assert.ok((await page.getByRole('main').innerText()).includes(root));
   await page.getByText('Use the Project acceptance instructions.', { exact: true }).waitFor();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
+  assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), false);
+  await page.getByText('Project and run settings', { exact: true }).click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   let workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
@@ -198,6 +199,7 @@ test('Project task creation preserves explicitly empty workspaces through the br
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await projectTask(page);
+  await page.getByText('Project and run settings', { exact: true }).click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
@@ -263,20 +265,61 @@ test('ordered image content and the active composer survive responsive navigatio
     'The narrow workspace stays within the page width');
   await tasks.focus();
   await tasks.press('Space');
-  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
-  await page.getByRole('dialog', { name: 'Task tree', exact: true })
+  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: '对话', exact: true })
     .getByRole('button', { name: 'Task graphs', exact: true }).waitFor();
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,
     'Closing the Task tree restores its actual keyboard launcher');
   await tasks.press('Enter');
-  await page.getByRole('dialog', { name: 'Task tree', exact: true })
+  await page.getByRole('dialog', { name: '对话', exact: true })
     .getByRole('button', { name: 'Task graphs', exact: true }).click();
   await page.getByRole('main').getByRole('heading', { name: 'Task graphs', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '任务看板', exact: true }).click();
-  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
+  await page.getByRole('dialog').getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
+});
+
+test('a task graph can route replies between existing conversations through the creation form', async t => {
+  const { page, command } = await browserFixture(t);
+  const { task_id: source } = await command({ op: 'create_idle', profile: 'demo' });
+  const { task_id: receiver } = await command({ op: 'create_idle', profile: 'demo' });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Task graphs', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'New task graph', exact: true });
+  const create = dialog.getByRole('button', { name: 'Create task graph', exact: true });
+  await create.waitFor();
+  assert.equal(await dialog.getByRole('textbox', { name: 'Graph JSON', exact: true }).isVisible(), false);
+  assert.equal(await dialog.getByRole('alert').count(), 0);
+  assert.equal(await create.isDisabled(), true);
+  await dialog.getByRole('textbox', { name: 'Graph name', exact: true }).fill('Browser handoff');
+  await dialog.getByRole('combobox', { name: 'Source conversation', exact: true }).selectOption(String(source));
+  assert.equal(await create.isDisabled(), true);
+  await dialog.getByRole('combobox', { name: 'Receiving conversation', exact: true }).selectOption(String(receiver));
+  await create.click();
+  await dialog.waitFor({ state: 'hidden' });
+
+  await page.getByRole('region', { name: 'Browser handoff', exact: true })
+    .getByRole('button', { name: 'Edit task graph', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit task graph', exact: true });
+  const from = editor.getByRole('combobox', { name: 'Source conversation', exact: true });
+  const to = editor.getByRole('combobox', { name: 'Receiving conversation', exact: true });
+  assert.equal(await from.inputValue(), String(source));
+  assert.equal(await to.inputValue(), String(receiver));
+  await editor.getByRole('textbox', { name: 'Graph name', exact: true }).fill('Edited handoff');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await editor.waitFor({ state: 'hidden' });
+
+  const graph = page.getByRole('region', { name: 'Edited handoff', exact: true });
+  await graph.waitFor();
+  await command({ op: 'send', task_id: source, message: 'Forward this through the graph' });
+  await graph.getByRole('region', { name: 'Last delivery results', exact: true })
+    .getByText(new RegExp(`Task #${source} → Task #${receiver}`)).waitFor();
+  const delivered = await command({ op: 'read', task_id: receiver });
+  assert.match(JSON.stringify(delivered), /Forward this through the graph/);
 });
 
 async function graphTemplateFixture(t) {

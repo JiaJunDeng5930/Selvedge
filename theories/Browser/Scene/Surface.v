@@ -22,7 +22,7 @@ Module Components := Selvedge.Interaction.Interactive.Presentation.
 Inductive activity_row_role :=
 | ChoiceRow | DependencyRow | InspectionRow | SupportingRow
 | MemberRow | TerminalRow | ObjectHeading | NavigationRow.
-Inductive board_grouping := ViewChoices | SearchArea | WorkStatus | SecondaryActions | PrimaryAction.
+Inductive board_grouping := ViewChoices | SearchArea | SecondaryActions | PrimaryAction.
 Inductive choice_kind := SingleChoice | MultipleChoice | ToggleChoice.
 
 
@@ -67,6 +67,7 @@ Inductive meaning (Action : Type) :=
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
+| EditorOptions
 | SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
 | ChoiceGroup
@@ -136,6 +137,7 @@ Arguments ProjectChooser {Action}.
 Arguments WorkChoice {Action}.
 Arguments DirectoryRow {Action}.
 Arguments ContextSummary {Action}.
+Arguments EditorOptions {Action}.
 Arguments SkillSuggestions {Action}.
 Arguments SkillSuggestion {Action}.
 Arguments ChoiceGroup {Action}.
@@ -379,6 +381,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
+  | EditorOptions => EditorOptions
   | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)
   | ChoiceGroup => ChoiceGroup

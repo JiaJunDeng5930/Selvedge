@@ -1,14 +1,14 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Import Commands.
+From Selvedge.Kernel Require Import Commands Search.
 From Selvedge.Generated Require Commands.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Browser Require Import DocumentState.
-From Selvedge.Browser.Session Require State.
+From Selvedge.Browser.Session Require State Services.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
@@ -111,8 +111,8 @@ Definition panel_key panel:=match panel with
  |State.InformationPanel kind=>information_key kind
  |State.Confirmation _ _ _=>"confirm/cancel"end.
 Definition initial_attention panel:=match panel with
- |State.EditorPanel Identity.TitlePrompts=>
-   (* A tall form opens at its explanation, including in a short window. *)
+ |State.EditorPanel (Identity.TitlePrompts|Identity.Fork _|Identity.TaskGraph _ _)=>
+   (* Open at the visible introduction when the standard field is below it or collapsed. *)
    NavigationIdentity.key_part(panel_key panel)"heading"
  |State.EditorPanel owner=>NavigationIdentity.key_part(panel_key panel)(match Parameters.fields owner with []=>"heading"|field::_=>Parameters.name field end)
  |State.PropertyPanel _ _=>NavigationIdentity.key_part(panel_key panel)"heading"
@@ -250,12 +250,19 @@ Definition close_side state:=close_panel state.
 Definition set_search search state:=State.with_authoring(set State.history_search(fun _=>search)(State.authoring_state state))state.
 Definition edit_search query project work state:=match State.location(State.navigation_state state)with
  |HistorySearch=>keep(set_search(State.Search query project work None None)state)|_=>keep state end.
+Definition search_obstruction state : option string :=
+ if State.pending_search state then Some "正在搜索…" else
+ if negb(Services.connected(State.service_state state))then Some "连接 Selvedge 后即可搜索。" else
+ let query:=State.keyword(State.history_search(State.authoring_state state))in
+ if Search.valid_query query then None else
+ if String.eqb(Search.trim query)""then Some "输入标题或消息中的关键词。" else Some "请输入 1 到 240 个字符。".
 Definition submit_search after state:=match State.location(State.navigation_state state)with
  |HistorySearch=>let search:=State.history_search(State.authoring_state state)in
+ match search_obstruction state with Some _=>keep state|None=>
  let ticket:=State.next(State.authoring_state state)in
  let state:=set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state in
- generated(Commands.Cmd_search_history(Commands.Build_search_history(State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)))
- (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)state
+ generated(Commands.Cmd_search_history(Commands.Build_search_history(State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)(Some true)))
+ (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)state end
  |_=>keep state end.
 (** DEFENSE: a scroll observer can finish after its task viewport was closed
     or revisited; only its still-visible visit owns the reading choice. *)
@@ -368,5 +375,5 @@ Definition complete snapshot purpose outcome state:option result:=match purpose 
  |State.SearchSubmission query project work ticket=>let current:=State.history_search(State.authoring_state state)in
    Some(if String.eqb query(State.keyword current)&&same_work project(State.project_filter current)&&same_work work(State.work_filter current)&&match State.search_latest current with Some latest=>N.eqb ticket latest|None=>false end then
     let reply:=match outcome with inl reason=>JObject[("ok",JBool false);("error",JString reason)]|inr value=>value end in
-    keep(set_search(State.Search query project work(Some reply)(Some ticket))state)else keep state)
+    keep(set_search(State.Search query project work(Some reply)None)state)else keep state)
  |_=>None end.

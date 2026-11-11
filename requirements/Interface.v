@@ -66,6 +66,21 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     the current action and property at native construction. Keeping independent
     stale help in each authored button would separate explanation from behavior. *)
 
+(** ** Reading and acting in a conversation
+
+    The conversation shows messages and activity that helps the reader follow
+    the work. Provider bookkeeping and inherited context remain in the source
+    history. An execution record describes a real call, outcome or failure
+    before offering its detail. The task inspector shows effective settings,
+    while commands act at the level of their target. Interrupting current work
+    belongs beside its status, cancelling a tool call belongs beside that call,
+    and forking the current conversation belongs to the conversation menu.
+
+    A chooser explains why a choice is unavailable at the point of selection.
+    A delivery choice states what happens to the next message and uses a
+    separate control from submission. An adjustable range displays its current
+    value with the track so the reader can connect their change to its result. *)
+
 From Selvedge.Browser Require ApplicationProof.
 From Selvedge.Browser Require IncrementalSceneProof.
 Export IncrementalSceneProof(retained_live_preview_has_no_action,
@@ -226,9 +241,23 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     A Work scopes the conversation tree, graph views and shared interface.
     Project groups organize the conversations in that scope independently of
-    Work membership. The board and project management remain global. Curved
-    tree branches represent conversation lineage. Directed graph connections
+    Work membership. The conversation scope selector identifies the current
+    scope and gives the conversation count for each choice. A project name opens
+    its details, and a separate control starts a conversation with its defaults.
+    The board and project management are global. The board identifies its items
+    as cards and exposes the action to link or open a conversation on the card.
+    Its execution count uses the same filters and observations as the execution
+    view. Each stage retains a visible heading, count, and drop target when empty.
+    Stage lanes wrap within the board's available width, with compact empty lanes.
+    Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
+
+    Creation starts with the input needed for the common operation. A new
+    conversation starts with a message, and a board card can be captured with a
+    title. Optional settings remain available at the corresponding editor.
+    A graph can route new replies between existing conversations by selecting
+    its source and receiver in the current scope. The same graph editor can
+    also accept a structured declaration for other rules.
 
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy
@@ -256,7 +285,18 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     actions receive published-prefix authority. Recovery remains visible until
     explicit retry; a stale normal document must not masquerade as fresh success.
 
+    Before the first snapshot, show the connection attempt or its failure and
+    let the user reconnect. After the snapshot, a missing measurement selects
+    the compact layout until real dimensions are available. A page change can
+    continue to present the workspace while the browser measures it.
+
+    Search is a read operation. After a valid query it can start without a
+    separate permission preview. While the request is pending, the search
+    form shows progress and ignores repeat submission. A lost search reply
+    leaves the query available for retry and makes no claim about its results.
+
     Chromium layout, font shaping, native modality, focus, storage, selection
     coordinates, media devices and parser observations remain physical boundaries.
     Rendered-interface checks establish geometry, focus and readability under
     the observed browser and font conditions. *)
+Export NavigationProof(a_pending_history_search_does_not_submit_twice).

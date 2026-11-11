@@ -54,9 +54,9 @@ def seed(fixture, workspace):
 
 
 def search(page, enter=False):
-    page.get_by_label('关键词', exact=True).filter(visible=True).fill('星河 Needle')
+    page.get_by_label('标题或消息关键词', exact=True).filter(visible=True).fill('星河 Needle')
     if enter:
-        page.get_by_label('关键词', exact=True).filter(visible=True).press('Enter')
+        page.get_by_label('标题或消息关键词', exact=True).filter(visible=True).press('Enter')
     else:
         page.get_by_role('button', name='搜索', exact=True).filter(visible=True).click()
 
@@ -92,7 +92,7 @@ def main():
                     name = source['title'] + ' · 消息 #' + str(source['message_index'] + 1)
                     expect(page.get_by_role('button', name=name, exact=True).filter(visible=True)).to_be_visible()
                 page.get_by_role('combobox', name='项目', exact=True).filter(visible=True).select_option(label='Search Alpha Project')
-                page.get_by_role('combobox', name='Work', exact=True).filter(visible=True).select_option(label='Search First Work')
+                page.get_by_role('combobox', name='工作组', exact=True).filter(visible=True).select_option(label='Search First Work')
                 search(page)
                 name = target['title'] + ' · 消息 #' + str(target['message_index'] + 1)
                 result = page.get_by_role('button', name=name, exact=True).filter(visible=True)

@@ -60,6 +60,7 @@ async function openProjectTask(fixture, name, directory) {
   await fixture.page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await fixture.page.getByRole('main').getByRole('button', { name, exact: true }).click();
+  await fixture.page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   await fixture.page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
 }
 
@@ -80,9 +81,9 @@ async function home(page) {
 }
 
 async function requestWork(page) {
-  await page.getByRole('button', { name: /^Work overview:/ }).click();
-  await page.getByRole('dialog', { name: 'Works', exact: true })
-    .getByRole('button', { name: 'New Work', exact: true }).click();
+  await page.getByRole('button', { name: /^对话范围 · / }).click();
+  await page.getByRole('dialog', { name: '对话范围', exact: true })
+    .getByRole('button', { name: '新建工作组', exact: true }).click();
 }
 
 async function startWork(page) {
@@ -124,10 +125,10 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await requestWork(page);
   await pending.started;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
-  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByText('任务看板', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('main').getByText('卡片看板', { exact: true }).isVisible(), true);
 
   await home(page);
   await selectTask(fixture, task_id);
@@ -146,11 +147,11 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await pending.started;
   await page.setViewportSize({ width: 450, height: 900 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
   await pending.release();
   assert.equal(await page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true,
     'Opening the narrow Task list is newer navigation intent than a pending Work response');
-  assert.equal(await page.getByRole('dialog', { name: 'Task tree', exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('dialog', { name: '对话', exact: true }).isVisible(), true);
   await page.keyboard.press('Escape');
 
 });
@@ -164,10 +165,10 @@ test('late Side creation cannot reopen a side after newer navigation or Work cre
   await sendSide(page, 'Keep this first question in the captured side.');
   const older = await pending.started;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
-  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByText('任务看板', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('main').getByText('卡片看板', { exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('complementary', { name: 'Side conversation', exact: true }).count(), 0,
     'The old Side is created durably without being reopened over the new page');
   assert.ok(JSON.stringify(await command({ op: 'read', task_id: older.task_id })).includes('Keep this first question in the captured side.'));
@@ -244,10 +245,10 @@ async function replaceWorkspace(page, directory) {
   const dialog = page.getByRole('dialog', { name: 'Workspace', exact: true });
   const remove = dialog.getByRole('button', { name: 'Remove directory', exact: true });
   while (await remove.count()) await remove.first().click();
-  await dialog.getByRole('textbox', { name: 'Add directory', exact: true }).fill(directory);
+  await dialog.getByRole('textbox', { name: 'Directory path', exact: true }).fill(directory);
   await dialog.getByRole('button', { name: 'Add directory', exact: true }).click();
   await dialog.getByText(directory, { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 }
 
@@ -261,15 +262,16 @@ test('a real non-Git observation resets the local environment and an old Git rep
   const observed = gitResponse(page, source);
   await openProjectTask(fixture, 'Observed Git project', source);
   await (await observed).finished();
-  const environment = page.getByRole('combobox', { name: 'Task environment', exact: true });
-  await environment.selectOption({ label: 'Local worktree' });
+  await page.getByText('Project and run settings', { exact: true }).click();
+  const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
+  await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
   assert.equal(await environment.inputValue(), 'local');
 
   const plain = gitResponse(page, nonGit);
   await replaceWorkspace(page, nonGit);
   const response = await plain;
   assert.equal(response.status(), 200, await response.text());
-  await page.waitForFunction(() => document.querySelector('select[aria-label="Task environment"]')?.value === 'current');
+  await page.waitForFunction(() => document.querySelector('select[aria-label="Run environment"]')?.value === 'current');
   assert.equal(await environment.inputValue(), 'current', 'A real observation of the replacement primary removes the obsolete local choice');
 
   const started = deferred(), released = deferred(), completed = deferred();
@@ -289,6 +291,7 @@ test('a real non-Git observation resets the local environment and an old Git rep
   await started.promise;
   await startWork(page);
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Retain the newer default-workspace draft.');
+  if (!(await environment.isVisible())) await page.getByText('Project and run settings', { exact: true }).click();
   const primary = await page.locator('button[data-logical-key="composer/workspace"]').innerText();
   assert.ok(primary.includes(root), primary);
   assert.ok(!primary.includes(source), primary);
@@ -298,6 +301,6 @@ test('a real non-Git observation resets the local environment and an old Git rep
   assert.equal(await environment.inputValue(), 'current');
   assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Retain the newer default-workspace draft.');
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').innerText(), primary);
-  await environment.selectOption({ label: 'Local worktree' });
+  await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
   assert.equal(await environment.inputValue(), 'current', 'The stale Git success must not authorize Local worktree for a non-Git draft');
 });

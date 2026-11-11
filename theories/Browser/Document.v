@@ -327,7 +327,7 @@ Definition icon_only purpose area := let purpose:=C.action_purpose purpose in ma
  |C.Dismiss,DialogActionsArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
  |C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
- |C.ActivityBack,_|C.ShowActivity _,_
+ |C.ActivityBack,_
  |C.ProjectTaskCreation,NavigationArea|C.ProjectTaskCreation,TouchNavigationArea|C.CreateItem,BoardLaneArea
  |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.ApplicationSettings _,_|C.GlobalDestinations _,_|C.OpenPanel "filter-funnel" _ _,_
  |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
@@ -475,7 +475,7 @@ Definition face_children purpose area role label children :=
  |C.ChooseValue _|C.WorkspacePicker _=>icon++text++artwork "chevron-down"
  |C.ActivityDestination=>text++artwork "chevron-right"
  |C.Dismiss=>match area with DialogActionsArea=>text|_=>icon end
- |C.ShowActivity expanded=>artwork(if expanded then "chevron-down"else "chevron-right")
+ |C.ShowActivity expanded=>artwork(if expanded then "chevron-down"else "chevron-right")++text
  |C.SelectedOption checked=>text++if checked then artwork "check"else[]
  |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
  |_=>if icon_only purpose area then icon else icon++text end end.
@@ -516,9 +516,12 @@ Definition card_drag {A} generation (movement:option(string*list(S.placement A))
  ("action",DOM.input_json(DOM.ElementTarget key(Gesture.gesture_name Gesture.Place)generation))])placements end))].
 Definition card_part {A} (describe:A->C.purpose) (more:bool) (values:list(S.node A*DOM.node)) :=
  fold_right(fun pair rest=>let '(original,native):=pair in
- match S.node_meaning original with S.MovableCard _ _=>rest|meaning=>
- let selected:=match meaning with S.Activate control=>match describe(Model.control_input control)with C.MoreActions _=>true|_=>false end|_=>false end in
- if Bool.eqb selected more then native::rest else rest end)[]values.
+ match S.node_meaning original with
+ |S.Activate control=>match describe(Model.control_input control)with
+   |C.MoreActions _=>if more then native::rest else rest
+   |C.OpenCardDetails _=>if more then rest else native::rest
+   |_=>rest end
+ |_=>rest end)[]values.
 Definition task_status_symbol status (working:bool) :=
  if String.eqb status "active"then if working then "play-triangle"else"idle-circle"
  else if String.eqb status "frozen"then"pause-bars"
@@ -887,10 +890,22 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |Fields.MessageText,Fields.Multiline=>native
  |_,_=>label_field env activity key label
  (ControlPurpose.toggle_widget(UX.subject_declaration subject)(Model.editing_observation value)) native end
- |S.InteractiveEdit _ _ value=>DOM.Element (String.append key "/enclosure") "div" []
+ |S.InteractiveEdit _ _ value=>
+ let input:=interactive_editor env key label generation component value attrs styles in
+ let slider:=String.eqb (Vocabulary.component_tag(Expand.description(IP.component_properties
+   (IP.editing_component value)))) "slider" in
+ let field:=if slider then DOM.Element (String.append key "/slider") "div" [("data-interactive-slider","")] [] [] empty
+   [DOM.Element (String.append key "/slider-heading") "div" []
+    [("display","flex");("justify-content","space-between");("gap","8px");("align-items","baseline")] [] empty
+    [DOM.Element (String.append key "/field-label") "span" []
+      (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label];
+     DOM.Element (String.append key "/current-value") "output" [("aria-hidden","true")]
+      [("font-variant-numeric","tabular-nums")] [] empty [DOM.Text(native_string(IP.editing_value value))]];
+    input]
+   else label_field env activity key label (match IP.editing_shape value with Local.Boolean=>true|_=>false end) input in
+ DOM.Element (String.append key "/enclosure") "div" []
  [("display","flex");("flex-direction","column");("gap","6px")] [] empty
- (label_field env activity key label (match IP.editing_shape value with Local.Boolean=>true|_=>false end)
- (interactive_editor env key label generation component value attrs styles) ::
+ (field ::
  match IP.editing_validation value with None=>[]|Some message=>
  [DOM.Element (String.append key "/validation") "output" [("id",String.append key "/validation");("role","status")]
  [("color",NativeAppearance.token "--interactive-tone-danger")] [] empty [DOM.Text message]]end)
@@ -988,14 +1003,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
  |S.PageRegion region position=>element (role_tag role) [("data-page-region",Composition.region_name region)] [] empty children
  |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
- |S.MovableCard face destinations=>
- let offered:=available_placements destinations in
- DOM.Element key "select" (attrs++[("value","")]++disabled(match offered with []=>false|_=>true end))
- (styles++NativeAppearance.role_properties env Roles.Field++native_field_properties "")
- [event key generation "change" "value" Gesture.Place] empty
- (DOM.Element "" "option" [("value","");("selected","selected")] [] [] empty [DOM.Text "Move to…"]::
- map(fun destination=>DOM.Element "" "option" [("value",S.placement_target destination)] [] [] empty
- [DOM.Text(Model.control_label(S.placement_control destination))])offered)
+ |S.MovableCard _ _=>DOM.Text ""
  |S.InteractiveNode c=>
  let properties:=IP.component_properties c in
  let motion:=Expand.property_text "motion" properties in
@@ -1028,9 +1036,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      table_cell_properties [] empty [DOM.Text text])
     (combine(IP.table_columns table)(IP.row_values row))))(IP.table_rows table))]
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
- ((if expanded then [] else [DOM.Element (String.append key "/summary") "p"
- [("data-activity-summary","true")] [("margin","0")] [] empty [DOM.Text label]]) ++
- children ++ if expanded then map(fun face=>
+ (children ++ if expanded then map(fun face=>
  let face_key:=String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face))) in
  DOM.Element face_key "section" [] [] [] empty
  [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)];
@@ -1081,9 +1087,16 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.WorkspaceCollection _ _=>element "section"
    [("tabindex","-1");("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
    (grouped_content env activity key label false(S.node_children value)children)
- |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
+ |S.BoardLane stage count=>element (role_tag role)
+   [("data-board-stage",stage);("data-drop-target",key);
+    ("aria-label",(label++"，"++text_number count++" 张卡片")%string)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task);("data-task-branches","")][]empty children
+ |S.EditorOptions=>DOM.Element key "details" (attrs++[("data-editor-options","")])
+   [("min-inline-size","0")] [] empty
+   [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label];
+    DOM.Element (key++"/body")%string "div" [("data-editor-options-body","")]
+      [] [] empty children]
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true
@@ -1109,19 +1122,20 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (Layout.row_properties(if responsive then Layout.Vertical else Layout.Horizontal)++[("gap",Typography.px(Typography.scaled(Layout.root_font_size_milli env)12));("min-inline-size","0")]) [] empty content in
  let paired:=combine(S.node_children value)children in
  let opened:=card_part describe false paired in
- let conversation:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))"card/open-conversation")paired)in
- let movement_nodes:=map snd(filter(fun pair=>match S.node_meaning(fst pair)with S.MovableCard _ _=>true|_=>false end)paired)in
+ let conversation:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))"card/conversation")paired)in
+ let grip:=if movable then
+   [DOM.Element (key++"/grip")%string "span" [("data-card-grip","");("title","拖动卡片");("aria-hidden","true")]
+     [] [] empty (glyph "grip")] else [] in
  DOM.Element key "article" (attrs++[("data-card-id",text_number(Model.card_identity face));("data-card-title",Model.card_title face);
  ("draggable",flag movable);("data-drop-target",key)]) styles [] (card_drag generation movement)
- ((if movable then glyph "grip" else [])++[row "metadata" true
+ (grip++[row "metadata" true
  ([text "reference"(Model.card_reference face);text "priority"(Selvedge.Features.Domain.priority_label(Model.card_priority face))]++
  (if Model.card_pinned face then[text "pinned" "置顶"]else[])++optional "status"(Model.card_status face));
  row "actions" false [DOM.Element(key++"/open-group")%string "div" [][("flex","1");("min-inline-size","0")][]empty
  (match opened with []=>[DOM.Text(Model.card_title face)]|_=>opened end);
  row "more-group" false(card_part describe true paired)]]++optional "description"(Model.card_description face)++
- [row "context" true(optional "project"(Model.card_project face)++map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face));
- DOM.Element(key++"/movement-group")%string "div" [][("display","flex");("flex-direction","column")][]empty (conversation++movement_nodes);
- DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
+ [row "context" true(optional "project"(Model.card_project face)++map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face))]++
+ conversation++[DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
  (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
  (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face))])
  end.
@@ -1197,27 +1211,20 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  [] [] empty (map compile layers)])
  "Selvedge" generation false
  (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]::flat_map (target_updates None) all) (surface_scopes(S.modal_nodes surface))).
-Definition bootstrap env generation := DOM.encode (DOM.Document
- (DOM.Element "selvedge-measurement" "div" []
- (NativeAppearance.root_properties env) [] empty
- [DOM.Element "@browser/utility" "section"[("role","status");("aria-label","Preparing interface…");("title","Preparing interface…")]
- [] [] empty [DOM.Text "Preparing interface…"];
- DOM.Element "workspace-probe" "div" [("data-measure-region","workspace");("inert","");("aria-hidden","true")]
- [("inline-size","100%");("display","flex") ] [] empty
- [DOM.Element "main-probe" "main" [("data-measure-region","main")]
- [("flex","1");("min-inline-size","0")] [] empty []]])
- "Selvedge" generation true [] []).
 Definition recovery root generation reason := DOM.encode(DOM.Document
- (DOM.Element "@browser/utility" "section"[("role","status");("aria-label",reason);("title",reason)]
+ (DOM.Element "@browser/utility" "section"[("role","alert");("aria-label","无法显示界面")]
  (Typography.properties root Typography.Body Typography.Regular++
  [("display","flex");("flex-direction","column");("gap","12px");("padding","16px");
  ("block-size","100dvh");("overflow-y","auto");("min-inline-size","0");
  ("overflow-wrap","anywhere");
  ("color","var(--color-token-text-primary)");("background","var(--color-token-bg-primary)")]) [] empty
- [DOM.Element "@browser/utility/message" "p"[][][]empty[DOM.Text reason];
+ [DOM.Element "@browser/utility/message" "p"[][][]empty[DOM.Text "无法显示界面。请重试。"];
  DOM.Element "@browser/utility/retry" "button"
- [("type","button");("aria-label",("Retry rendering: "++reason)%string);("title",("Retry rendering: "++reason)%string)]
+ [("type","button");("aria-label","重试显示");("title","重试显示")]
  [("display","inline-flex");("align-items","center");("justify-content","center");
   ("min-inline-size","32px");("min-block-size","32px");("flex","none");("align-self","flex-start")]
- [DOM.Binding "click" "retry_render" DOM.RetryRendering] empty(glyph "refresh")])
+ [DOM.Binding "click" "retry_render" DOM.RetryRendering] empty[DOM.Text "重试显示"];
+ DOM.Element "@browser/utility/diagnostic" "details"[][][]empty
+  [DOM.Element "@browser/utility/summary" "summary"[][][]empty[DOM.Text "错误详情"];
+   DOM.Text reason]])
  "Selvedge" generation true [] []).

@@ -20,9 +20,8 @@ async function projectFixture(t) {
 async function editorFixture(t) {
   const fixture = await projectFixture(t);
   const { page } = fixture;
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Project details', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Disconnect admission project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   return fixture;
 }
 
@@ -57,8 +56,8 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
 test('an open confirmation stays unavailable after disconnect and fresh admission', { timeout: 60000 }, async t => {
   const fixture = await projectFixture(t);
   const { page, running } = fixture;
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
+  await page.getByRole('button', { name: '删除项目', exact: true }).click();
   const confirm = page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true });
   await confirm.waitFor();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true, disabled: false }).waitFor();

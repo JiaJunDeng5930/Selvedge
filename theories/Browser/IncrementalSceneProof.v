@@ -36,8 +36,10 @@ Theorem projected_picker_overlays_are_the_scene_overlays context overlays :
  S.overlays scene=overlays.
 Proof.
  unfold A.projected_picker_overlays, A.projected_overlays_with, A.scene.
- destruct (A.prepared_environment context) as [env|] eqn:Env; [|discriminate].
- cbn [bind]. unfold A.surface.
+ destruct (A.prepared_environment context) as [env|] eqn:Env; cbn [bind]; [|discriminate].
+ destruct (Json.equal (A.prepared_world context) JNull).
+ { intro E. injection E as E; subst overlays. eexists. split; reflexivity. }
+ unfold A.surface.
  destruct (A.capacity env) as [size|] eqn:Capacity; [|discriminate].
  cbn [bind option_map].
  unfold A.underlying_layers, A.top_picker.
@@ -137,6 +139,8 @@ Theorem scope_only_projection_retains_picker_and_focus context scopes :
 Proof.
  unfold A.projected_picker_scopes, A.projected_picker_overlays, A.projected_overlays_with.
  destruct (A.prepared_environment context) as [env|]; cbn [bind]; [|discriminate].
+ destruct (Json.equal (A.prepared_world context) JNull).
+ { intro E. injection E as E; subst scopes. exists []. repeat split. }
  destruct (A.capacity env) as [size|]; cbn [bind]; [|discriminate].
  destruct (forallb A.picker_underlay (A.underlying_layers context)); [|discriminate].
  intro E; injection E as E; subst scopes.

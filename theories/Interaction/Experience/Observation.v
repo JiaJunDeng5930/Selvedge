@@ -64,9 +64,9 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
    (selectable_profiles(retain_observed_choice snapshot subject(profiles tt)))in
  match subject_declaration subject with
  |Fields.ContextOrigin=>context_origin_choices snapshot state subject
- |Fields.CardProject=>project_choices snapshot "No project"
+ |Fields.CardProject=>project_choices snapshot "不关联项目"
  |Fields.ModelProfile=>models tt
- |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models tt
+ |Fields.AssistanceProfile=>Fields.ChoiceValue "" "看板默认模型"::models tt
  |Fields.AgentTitleProfile=>
    let available:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
      (filter FeatureRequestAdmission.ordinary_profile(profiles tt))in
@@ -82,14 +82,14 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
  |Fields.ReasoningEffort=>let value:=observe tt in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
- |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Current workspace";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"Local worktree";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Tencent Cloud CVM"]
+ |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Use working directory as is";
+   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"New Git worktree on the Selvedge host";
+   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Run on Tencent Cloud CVM"]
  |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "Workspace write";Fields.ChoiceValue "read-only" "Read only"]
  |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "Restricted";Fields.ChoiceValue "true" "Allowed"]
  |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "Ask for approval";
    Fields.ChoiceValue "approval-for-me" "Automatic review";Fields.ChoiceValue "full-access" "Unrestricted"]
- |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" "Send message";Fields.ChoiceValue "steer" "Steer current response"]
+ |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" "Send normally";Fields.ChoiceValue "steer" "Steer current response"]
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
@@ -220,7 +220,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.CommittedContextValue _ settings _=>context_information snapshot subject
    (Selvedge.Kernel.Domain.settings_project settings)(Selvedge.Kernel.Domain.settings_workspace settings)false
    (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
- |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send"|Fields.Steer=>"Steer"end)"")
+ |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send normally"|Fields.Steer=>"Steer response"end)"")
  |Fields.ProjectValue None=>OptionalAbsence
  |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
  |Fields.ToggleValue value=>present(Model.TextValue(if value then "Yes"else "No"))
@@ -303,6 +303,9 @@ Definition property_help_text snapshot state {e}(property:property e):string:=
        |Some key=>" · Automatic review unavailable: "++key|None=>""end
      |_=>""end end in
    "Permissions: "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
+ |DeliveryProperty=>match observe_subject snapshot state(property_subject property)with
+   |Fields.DeliveryValue Fields.Steer=>"Delivery: redirect the current response with your next message."
+   |_=>"Delivery: wait for the current response before sending your next message."end
  |_=>property_label property++": "++value++detail end.
 Definition recognition_information snapshot {e}(subject:Model.subject e)(value:Fields.observed):information e:=
  let missing_project id:=PresentInformation
@@ -418,7 +421,7 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
      |Some _=>match TaskGraph.parse_declaration false value with
        |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
      |None=>false end|None=>false end end)
-   (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
+   (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Check the graph name, conversation references and routing rules."
  |Draft.TitlePromptsBody _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
@@ -618,6 +621,10 @@ Definition alternative_explanation snapshot field (choice:Fields.choice_value) :
    |"read-only"=>"Read files without modifying them."|_=>""end
  |Fields.NetworkAccess=>match Fields.choice_value_of choice with
    |"true"=>"Allow network access."|"false"=>"Keep network access off."|_=>""end
+ |Fields.DeliveryIntent=>match Fields.choice_value_of choice with
+   |"send"=>"Queue the message if a response is in progress."
+   |"steer"=>"Use the message to redirect the current response."
+   |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
    |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
    |"approval-for-me"=>"Review approvals with a configured model"

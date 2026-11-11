@@ -17,11 +17,9 @@ test('a Project task keeps its readable context and its primary and supporting a
   const revision = savedProject.guidance.revision;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('region', { name: 'Harbour 海港', exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Project details', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
-  await page.getByText('Work on Harbour 海港', { exact: true }).waitFor();
+  await page.getByRole('main').getByRole('button', { name: 'Harbour 海港', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
+  await page.getByText('New conversation in Harbour 海港', { exact: true }).waitFor();
 
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });

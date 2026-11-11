@@ -54,17 +54,17 @@ Definition name field := match field with
 | TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" | AgentTitleProfile => "agent_profile" end.
 Definition label field := match field with
 | WorkName | ProjectName => "Name" | MessageText => "Message"
-| CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Task environment"
+| CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Run environment"
 | WorkspaceDirectories => "Working directories" | WorkspacePrimary => "Primary directory"
 | ContextOrigin => "Project" | SandboxMode => "Filesystem access" | NetworkAccess => "Network access"
 | ApprovalPolicy => "Execution policy" | ApprovalReviewer => "Reviewing model" | ModelProfile => "Model"
-| ReasoningEffort => "Reasoning effort" | DeliveryIntent => "Send as" | CardTitle => "Title"
-| CardDescription => "Description" | CardStage => "Stage" | CardPriority => "Priority"
-| CardOwner => "Assignee" | CardProject => "Project" | CardLabels => "Labels"
-| CardAttachments => "Attachments" | ContinueCapture => "Create another after saving"
-| AssistedCapture => "Assist with title and description" | AssistanceProfile => "Assistance model"
-| ForkCount => "Number of tasks" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
-| TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task title prompt"
+| ReasoningEffort => "Reasoning effort" | DeliveryIntent => "Delivery" | CardTitle => "标题"
+| CardDescription => "描述" | CardStage => "状态" | CardPriority => "优先级"
+| CardOwner => "负责人" | CardProject => "所属项目" | CardLabels => "标签"
+| CardAttachments => "附件" | ContinueCapture => "创建后继续添加"
+| AssistedCapture => "用模型整理标题和描述" | AssistanceProfile => "整理用的模型"
+| ForkCount => "Number of branches" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
+| TaskGraphDeclaration => "Graph JSON" | TaskTitlePrompt => "Task title prompt"
 | AgentTitlePrompt => "Conversation title prompt" | AgentTitleProfile => "Conversation title model" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary

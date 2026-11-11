@@ -293,14 +293,16 @@ Export ContextSelectionProofs(selecting_a_summary_preserves_each_original_image)
 
     Public queries observe the committed world without advancing execution or
     issuing effects. Search is scoped by Project and Work and matches visible
-    conversation text. Its positions address the original committed history:
+    conversation text. The browser also includes current conversation titles;
+    a title result opens the conversation directly, while a message result
+    opens the original message. Message positions address the committed history:
     hidden context records still occupy positions. Pagination continues after
     the delivered prefix, so a user can open the original message and resume a
     search without renumbering history after filtering. *)
 From Selvedge.Kernel Require Queries PacketProofs SearchProofs.
 Export Queries(read_task).
 Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
-Export SearchProofs(rejected_scope_contributes_no_history,
+Export SearchProofs(rejected_scope_contributes_no_history, rejected_scope_contributes_no_titles,
   a_matching_visible_record_has_its_original_position,
   a_delivered_prefix_leaves_exactly_the_next_page).
 

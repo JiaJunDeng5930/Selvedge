@@ -109,7 +109,7 @@ Definition property_owner {e} (p : property e) := subject_object (property_subje
 Definition property_subjects {e} (p : property e) := property_subject p :: property_members p.
 Definition property_label {e} (p : property e) := match property_kind_of p with
 | ProjectProperty => "Project" | WorkspaceProperty => "Workspace"
-| PermissionsProperty => "Permissions" | ModelProperty => "Model" | DeliveryProperty => "Send as" end.
+| PermissionsProperty => "Permissions" | ModelProperty => "Model" | DeliveryProperty => "Delivery" end.
 Definition property_status {e} (p : property e) := match property_information p with
 | PresentInformation _ _ => Selected | OptionalAbsence | RequiredAbsence _ => Absent
 | InvalidInformation _ => Invalid | _ => UnavailableObservation end.

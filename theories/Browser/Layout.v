@@ -63,7 +63,7 @@ Definition parameters env :=
     5 * Enclosure.separation Enclosure.ComposerControls + composer_edges in
   Parameters (scale 232) (page_edges + Nat.max authoring (advance * main_reading_characters))
     (scale 320) (advance * 84) (advance * 144) toolbar input_minimum
-    (Nat.max (scale 240) input_minimum) leading balanced (advance * 32 + 2 * scale 8)
+    (Nat.max (scale 240) input_minimum) leading balanced (scale 156)
     (scale 224) (metric_advance (primary_metric metrics)) (metric_advance (support_metric metrics)).
 
 Definition reading_minimum env :=
@@ -182,9 +182,11 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.CreationContext => [("display","flex");("flex-direction","column");
       ("align-items","center");("text-align","center");("padding-inline","0");
       ("padding-block","0");("gap",Typography.px (Enclosure.separation Enclosure.Sections));("min-block-size","0")]
-  | Composition.BoardStages => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
+  | Composition.BoardStages => [("display","grid");
+      ("grid-template-columns",("repeat(auto-fit, minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr))")%string);
+      ("align-content","start"); ("align-items","start");
       ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
-      ("overflow-x","auto"); ("overflow-y","hidden"); ("min-block-size","0"); ("flex","1 1 auto")]
+      ("overflow","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.
 
 Definition workspace_properties env (navigation_visible supporting_visible : bool) : list (string * string) :=

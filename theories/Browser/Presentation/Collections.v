@@ -22,34 +22,35 @@ Definition browse_heading {A} parent leading (trailing : list (node A)) :=
  region parent "workspace-browse-heading" "" Roles.Section (leading :: trailing).
 Definition projects_page snapshot s parent :=
  [browse_heading parent
-   (page_region parent Composition.CollectionTitle Composition.HeadingPosition [title parent "Projects"])
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition
+     [title parent "项目";
+      information parent "project-purpose" Information.Description "项目归类对话，并提供默认工作目录和指引。"])
    [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     [declared parent Roles.PrimaryButton(primary "project/new" "New project"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))]];
+     [declared parent Roles.PrimaryButton(primary "project/new" "新建项目"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))]];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
    (match projects snapshot,tasks snapshot with
-   |Some [],_=>[read_only parent "empty" "" "Create a project to group tasks and choose default working folders."]
+   |Some [],_=>[information parent "empty" Information.Description "还没有项目。"]
    |Some projects,Some tasks=>map(Navigation.project_entry snapshot s(State.location(State.navigation_state s))parent tasks)projects
-   |_,_=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]end)].
+   |_,_=>[information parent "unavailable" Information.Description "项目列表不可用。"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
  [browse_heading parent
    (page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)])
    [page_region parent Composition.ProjectActions Composition.HeadingPosition
-     [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
-      declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));
-      more parent(ProjectActions id)]];
+     [declared parent Roles.Button(secondary "new-task" "在项目中开始对话"(Input.BeginTask(Some id)));
+      declared parent Roles.Button(secondary "more" "项目操作"(Input.OpenObjectActions(ProjectActions id)(part parent "more")))]];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
-   [read_only parent "workspace-roots" "Default workspace"(String.concat "
+   [read_only parent "workspace-roots" "默认工作目录"(String.concat "
 "(Domain.workspace_roots(project_workspace project)));
-    read_only parent "workspace-primary" "Primary directory"(value_or ""(Domain.workspace_primary(project_workspace project)))];
+    read_only parent "workspace-primary" "主目录"(value_or ""(Domain.workspace_primary(project_workspace project)))];
   page_region parent Composition.ProjectGuidance Composition.BodyPosition
-   [read_only parent "guidance" "Project guidance"(value_or "No project guidance"(project_instructions project))];
+   [read_only parent "guidance" "项目指引"(value_or "尚未设置"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition
-   (information parent "project/conversations" Information.GroupTitle "Conversations" ::
+   (information parent "project/conversations" Information.GroupTitle "项目中的对话" ::
     match Projection.project_members snapshot id with
-    |Some []=>[read_only parent "tasks-empty" "" "No conversations in this project."]
+    |Some []=>[information parent "tasks-empty" Information.Description "这个项目还没有对话。"]
     |Some values=>map(task_entry_tree(State.location(State.navigation_state s))(State.collapsed_tasks s)parent)(forest values)
-    |None=>[read_only parent "tasks-unavailable" "" "Task observations unavailable"]end)].
+    |None=>[information parent "tasks-unavailable" Information.Description "对话列表不可用。"]end)].
 Definition elapsed_label seconds:=
  if N.ltb seconds 60 then "刚刚"else if N.ltb seconds 3600 then show_natural(N.div seconds 60)++"分钟前"
  else if N.ltb seconds 86400 then show_natural(N.div seconds 3600)++"小时前"else show_natural(N.div seconds 86400)++"天前".
@@ -79,63 +80,69 @@ Definition card_destinations snapshot s board_parent candidates value :=
     (if Read.card_archived value then[]else match ObjectActions.resolve snapshot s(CardActions id)"archive"with
      |None=>[]|Some descriptor=>match ObjectActions.command descriptor with
       |None=>[]|Some command=>[Placement(part board_parent "archive-destination")
-        (Control "archive" "归档任务"Secondary(Input.Command command)(domain_availability(Authoring.command_availability snapshot s command)))]end end)
+        (Control "archive" "归档卡片"Secondary(Input.Command command)(domain_availability(Authoring.command_availability snapshot s command)))]end end)
  |None=>[]end.
+Definition card_conversation snapshot parent value :=
+ let identity:="card/conversation" in
+ match Read.card_task value with
+ |None=>if Read.card_archived value then [] else
+   [declared parent Roles.Button(secondary identity "关联对话"
+     (Input.OpenCardDecision(Read.card_id value)CardDecisions.LinkCard(part parent identity)))]
+ |Some task=>
+   let availability:=match Read.find_task task snapshot with
+   |Some _=>Available
+   (* DEFENSE: A linked conversation can be absent from the current observation. *)
+   |None=>Unavailable "关联的对话不可用"
+   end in
+   [declared parent Roles.Button(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability)]
+ end.
 Definition card_node snapshot s board_parent candidates parent value :=
  let id:=Read.card_id value in
  let key:=part parent("card/"++show_natural id)in
  let face:=card_face snapshot s value in
  let title:=Read.card_title value in
- let conversation := match Read.card_task value with
-   | None => []
-   | Some task =>
-       let availability := match Read.find_task task snapshot with
-         | Some _ => Available
-         (* DEFENSE: A linked Task can be absent from the current observation. *)
-         | None => Unavailable "Linked conversation unavailable"
-         end in
-       [declared key Roles.Button (Control "card/open-conversation" "Open conversation"
-         Secondary (Input.Navigate (Conversation task)) availability)]
-   end in
  Node key "card" title Roles.Card(CardContent face)
    ([Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
      declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
-     more key(CardActions id)] ++ conversation)%list.
+     declared key Roles.Button(secondary "more" "卡片操作"(Input.OpenObjectActions(CardActions id)(part key "more")))] ++
+     card_conversation snapshot key value)%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
+ let tab key label:=Node(part parent("view/"++key))"board/view"label Roles.Button
+   (Choice SingleChoice(String.eqb key(BoardFilter.tab_name(BoardFilter.filter_tab selection)))""
+     (secondary("view/"++key)label(Input.BoardTab key)))[] in
+ let working:="执行中的卡片"++match bind(State.now s)(count_working snapshot selection)with
+   |Some count=>" "++show_natural count|None=>""end in
  [board_group parent "view-choices" ViewChoices
-   (map(fun '(key,label)=>Node(part parent("view/"++key))"board/view"label Roles.Button
-     (Choice SingleChoice(String.eqb key(BoardFilter.tab_name(BoardFilter.filter_tab selection)))""
-       (secondary("view/"++key)label(Input.BoardTab key)))[])
-      [("all","全部任务");("assigned","分配给我");("unassigned","未分配")]);
+   [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配";tab "working" working];
   board_group parent "search-area" SearchArea
-   [Node(part parent "search")"board-search" "搜索任务"Roles.Field
+   [Node(part parent "search")"board-search" "搜索卡片"Roles.Field
      (BoardSearch selection(fun value=>option_map Input.BoardQuery(as_string value)))[]];
-  board_group parent "work-status" WorkStatus
-   [declared parent Roles.Button(secondary "working"("正在运行的任务 "++show_natural(value_or 0%N(count_working snapshot)))(Input.BoardTab "working"))];
   board_group parent "secondary-actions" SecondaryActions
-   [declared parent Roles.Button(secondary "filters" "筛选任务"(Input.OpenBoard State.BoardFilters(part parent "filters")));
+   [declared parent Roles.Button(secondary "filters" "筛选卡片"(Input.OpenBoard State.BoardFilters(part parent "filters")));
     declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
-    Node(part parent "archive-destination")"board/archive" "归档任务"Roles.Section
+    Node(part parent "archive-destination")"board/archive" "归档卡片"Roles.Section
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))
-     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档任务"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
+     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档卡片"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
 Definition board_page snapshot s parent :=
  [browse_heading parent
-   (page_region parent Composition.BoardTitle Composition.HeadingPosition[title parent "任务看板"])
+   (page_region parent Composition.BoardTitle Composition.HeadingPosition
+     [title parent "卡片看板";
+      information parent "board-scope" Information.Description "卡片可以关联已有对话，也可以交给模型启动新对话。"])
    [board_group parent "primary-action" PrimaryAction
-     [declared parent Roles.PrimaryButton(primary "card/new" "新建任务"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
+     [declared parent Roles.PrimaryButton(primary "card/new" "新建卡片"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
   page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent);
   page_region parent Composition.BoardStages Composition.BodyPosition
    (match Projection.visible_cards snapshot s with
-    |None=>[read_only parent "pending" "Board" "Waiting for current board observations"]
+    |None=>[information parent "pending" Information.Description "正在加载看板。"]
     |Some cards=>let candidates:=value_or[](Read.board_cards snapshot)in
      map(fun stage=>let key:=part parent(BoardDomain.stage_name stage)in
       let entries:=filter(fun card=>String.eqb(BoardDomain.stage_name(Read.card_stage card))(BoardDomain.stage_name stage))cards in
       Node key "board-lane"(BoardDomain.stage_label stage)Roles.Section
         (BoardLane(BoardDomain.stage_name stage)(N.of_nat(List.length entries)))
         (group_title key(BoardDomain.stage_label stage)::
-         declared key Roles.Button(secondary "card/new" "新建任务"(Input.NewCard stage(part key "card/new")))::
+         declared key Roles.Button(secondary "card/new" ("新建卡片 · "++BoardDomain.stage_label stage)(Input.NewCard stage(part key "card/new")))::
          map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)].
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with

@@ -769,6 +769,19 @@ dialog[data-semantic-key="side-conversation"] {
   color: var(--selvedge-muted);
 }
 [data-voice-controls] { position: relative; flex: none !important; }
+[data-editor-options] > summary {
+  cursor: pointer;
+  padding-block: 8px;
+  min-block-size: 32px;
+  font-size: 0.875rem;
+}
+[data-editor-options-body] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-inline-size: 0;
+}
 [data-voice-controls] > summary { list-style: none; cursor: pointer; }
 [data-voice-controls] > summary::-webkit-details-marker { display: none; }
 [data-voice-controls] > summary:hover,
@@ -920,100 +933,15 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
     border-color: var(--selvedge-focus) !important;
   }
 }
-[data-page-region="creation-context"] {
-  flex-flow: row wrap !important;
-  justify-content: center !important;
-  align-items: center !important;
-  gap: .15rem .4rem !important;
-  & > button {
-    min-inline-size: 0 !important;
-    max-inline-size: 100% !important;
-  }
-  & > :has(> select[data-semantic-key="task_environment"]) {
-    position: relative;
-    inline-size: fit-content !important;
-    min-inline-size: 0 !important;
-  }
-  & > :has(> select[data-semantic-key="task_environment"])::after {
-    content: "";
-    position: absolute;
-    inset-inline-end: .5em;
-    inset-block-start: 50%;
-    inline-size: .45em;
-    block-size: .45em;
-    border: solid var(--selvedge-muted);
-    border-width: 0 .1em .1em 0;
-    transform: translateY(-70%) rotate(45deg);
-    pointer-events: none;
-  }
-  & select[data-semantic-key="task_environment"] {
-    appearance: none !important;
-    inline-size: auto !important;
-    min-inline-size: 0 !important;
-    max-inline-size: 100% !important;
-    padding-block: 0 !important;
-    padding-inline: .5em 2em !important;
-    border-color: transparent !important;
-    background: transparent !important;
-    field-sizing: content;
-    color: var(--selvedge-muted) !important;
-    font-weight: 500 !important;
-    cursor: pointer !important;
-  }
-  & select[data-semantic-key="task_environment"]:hover:not(:disabled) {
-    background: var(--selvedge-hover) !important;
-  }
-  @supports (appearance: base-select) and selector(::picker(select)) {
-    & select[data-semantic-key="task_environment"] {
-      appearance: base-select !important;
-      padding-inline-end: .5em !important;
-    }
-    & > :has(> select[data-semantic-key="task_environment"])::after {
-      display: none;
-    }
-  }
-  /* The select's accessible name identifies the field. The inline control
-     only needs to show its selected environment. */
-  & :has(> select[data-semantic-key="task_environment"]) > span { display: none !important; }
-  & > button[data-help]:not(:disabled, [aria-disabled="true"])::after { display: none; }
+[data-page-region="creation-context"] [data-editor-options] {
+  inline-size: 100%;
+  text-align: start;
+}
+[data-page-region="creation-context"] [data-editor-options-body] {
+  align-items: flex-start;
 }
 @media (max-width: 480px) {
   [data-composer-dock] { border-radius: 16px !important; }
-  [data-page-region="creation-context"] {
-    --creation-context-touch-size: 44px;
-    &:not(:has(> [role="alert"])) { flex-wrap: nowrap !important; }
-    gap: .2rem !important;
-    & > [role="alert"] { flex-basis: 100% !important; }
-    & > button,
-    & select[data-semantic-key="task_environment"] {
-      min-block-size: var(--creation-context-touch-size) !important;
-    }
-    & > [data-semantic-key="composer/project"] {
-      flex: none !important;
-      inline-size: var(--creation-context-touch-size) !important;
-      justify-content: center !important;
-      padding-inline: 0 !important;
-    }
-    & > [data-semantic-key="composer/project"] > :is([data-property-summary], svg:last-of-type) {
-      display: none !important;
-    }
-    & > [data-semantic-key="composer/workspace"] {
-      flex: 0 1 auto !important;
-      padding-inline: .3rem !important;
-    }
-    & > :has(> select[data-semantic-key="task_environment"]) {
-      flex: none !important;
-    }
-    & select[data-semantic-key="task_environment"] { white-space: nowrap !important; }
-    @supports not ((appearance: base-select) and selector(::picker(select))) {
-      & select[data-semantic-key="task_environment"] {
-        /* Leave one line between the padding and the two 1px borders.
-           A native select can place its text at the top of that space. */
-        block-size: var(--creation-context-touch-size) !important;
-        padding-block: max(0px, calc((var(--creation-context-touch-size) - 1lh - 2px) / 2)) !important;
-      }
-    }
-  }
 }
 @media (max-height: 450px) {
   main[data-semantic-key="main"] {
@@ -1127,7 +1055,7 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-board-stage-mark="in_progress"], [data-board-stage-mark="in_review"] { color: var(--selvedge-warning); }
 [data-board-stage-mark="done"] { color: var(--selvedge-success); }
 [data-board-stage-mark="blocked"] { color: var(--selvedge-danger); }
-[data-board-count], [data-board-empty] { color: var(--selvedge-muted); }
+[data-board-count] { color: var(--selvedge-muted); }
 [data-interactive-component="table"] { border: 1px solid var(--selvedge-border) !important; border-radius: 8px !important; }
 [data-interactive-component="table"] :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
 [data-interactive-component="table"] :where(caption, thead) { background: var(--selvedge-inset); }

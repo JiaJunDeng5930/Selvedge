@@ -6,7 +6,15 @@
 [data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
 [data-reading-root] { gap: .75rem !important; }
 [data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
-[data-reading-root] [data-activity-summary] { color: var(--selvedge-muted); }
+[data-reading-root] button[data-semantic-key="activity-disclosure"] {
+  align-self: flex-start;
+  justify-content: flex-start !important;
+  max-inline-size: 100%;
+  color: var(--selvedge-muted);
+}
+[data-reading-root] button[data-semantic-key="activity-disclosure"]:is(:hover, :focus-visible) {
+  color: var(--selvedge-text);
+}
 [data-reading-root] [data-surface-role="activity"][data-expanded="true"] > section {
   min-inline-size: 0;
   padding: .5rem .7rem;
@@ -47,12 +55,28 @@
   border: 1px solid var(--selvedge-border) !important;
   border-radius: 8px !important;
 }
-[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) {
+[data-reading-root] [data-semantic-key="operation"] {
   flex-flow: row wrap !important;
-  gap: .1rem .4rem !important;
+  align-items: center !important;
+  gap: .15rem .5rem !important;
 }
-[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) > * {
+[data-reading-root] [data-semantic-key="operation"] > * {
   inline-size: auto !important;
+}
+[data-interactive-slider] {
+  display: grid;
+  gap: .2rem;
+  max-inline-size: 22rem;
+}
+[data-interactive-slider] input[type="range"] {
+  margin-inline: 0;
+  accent-color: var(--selvedge-accent);
+}
+[data-interactive-slider] output { color: var(--selvedge-text); }
+:is([data-page-region="task-actions"], [data-semantic-key="side/actions"]) > [data-semantic-key="run-status"] {
+  align-self: center;
+  color: var(--selvedge-accent);
+  white-space: nowrap;
 }
 [data-reading-root] [data-semantic-key="unfinished-notice"] {
   display: flex !important;

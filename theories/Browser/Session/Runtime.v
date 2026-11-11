@@ -225,7 +225,9 @@ Definition menu_action snapshot subject key occurrence state:=
     |ObjectActions.NativeCommand command=>match ObjectActions.action_status action with
       |ObjectActions.Available=>match ObjectActions.action_confirmation action with
        |Some(caption,destination)=>Authoring.adopt_navigation snapshot(Navigation.open_panel(SS.Confirmation command caption destination)(SS.layer_trigger layer)state)
-       |None=>Authoring.issue command SS.DirectSubmission state end
+       |None=>let cleared:=Navigation.modify_top occurrence
+          (fun layer=>Some(set SS.layer_feedback(fun _=>None)layer))state in
+         Authoring.issue command (SS.MenuSubmission occurrence) (Navigation.result_state cleared) end
       |_=>Authoring.fail state "This action has not been admitted against the current state."end
     |ObjectActions.Destination route=>Authoring.adopt_navigation snapshot(Navigation.visit snapshot route state)
     |ObjectActions.Editor owner=>Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner(SS.layer_trigger layer)state)
@@ -318,6 +320,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.Command command=>match Authoring.command_availability snapshot state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end
+|Input.SubmitHistorySearch after=>Authoring.adopt_navigation snapshot(Navigation.submit_search after state)
 |Input.OpenEditor owner trigger=>let state:=match owner,Services.settings_return(SS.service_state state)with
  |Identity.TitlePrompts,_|_,None=>state
  |_,Some _=>SS.with_services(Services.with_settings_return None(SS.service_state state))

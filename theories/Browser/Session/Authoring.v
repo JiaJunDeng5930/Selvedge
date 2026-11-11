@@ -88,7 +88,8 @@ Definition issue command purpose state:=
  let authoring:=set SS.next(fun _=>N.succ ticket)
  (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
  changed(SS.with_authoring authoring state)
- [emit "command"[("ticket",number ticket);("command",Schema.encode_command command)]].
+ [emit "command"[("ticket",number ticket);("command",Schema.encode_command command);
+  ("read_only",JBool(match purpose with SS.SearchSubmission _ _ _ _=>true|_=>false end))]].
 Definition reserve command purpose state:=
  if SS.pending_command command state then fail state "This command is already pending."else
  let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
@@ -410,6 +411,15 @@ Definition complete snapshot (executed:SS.public_command) purpose outcome state:
     fail_diagnostic(SS.with_navigation(set SS.layers(fun layers=>match layers with []=>[]|_::rest=>top::rest end)navigation)state)diagnostic
    else keep state|[]=>keep state end end))
 |SS.DirectSubmission=>Some(if completion_success outcome then keep state else alert_diagnostic state(completion_error outcome))
+|SS.MenuSubmission occurrence=>
+ let owns_panel:=match SS.layers(SS.navigation_state state)with
+  |layer::_=>N.eqb occurrence(SS.layer_occurrence layer)|[]=>false end in
+ Some(if completion_success outcome then
+  if owns_panel then adopt_navigation snapshot(Navigation.close_panel state)else keep state
+  else let diagnostic:=completion_error outcome in
+   if owns_panel then adopt_navigation snapshot(Navigation.modify_top occurrence
+    (fun layer=>Some(set SS.layer_feedback(fun _=>Some diagnostic)layer))state)
+   else alert_diagnostic state diagnostic)
 |SS.ProjectPreference captured command generation layer trigger=>Some(if completion_success outcome then
   if SO.worktree_submission_allowed snapshot state captured then
     issue command(SS.DraftSubmission captured generation layer trigger)state
@@ -789,13 +799,16 @@ Definition confirmation_availability snapshot state command:EM.availability:=
 Definition placement_pending input state := match input with
  |Input.CardPlaced card _ _ _ _=>SS.pending_placement card state|_=>false end.
 Definition input_availability snapshot state input:EM.availability:=
+ match input with Input.SubmitHistorySearch _=>match Navigation.search_obstruction state with
+ |None=>EM.Available|Some reason=>EM.Unavailable reason end|_=>
  if placement_pending input state then EM.Unavailable "This task movement is pending." else
  match input_command snapshot state input with
  |Some command=>match input with
   |Input.Confirm=>confirmation_availability snapshot state command
   |_=>command_input_availability snapshot state command end
- |None=>EM.Available end.
+ |None=>EM.Available end end.
 Definition refresh_input snapshot input state:=match input with
+|Input.SubmitHistorySearch _=>keep state
 |Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
  match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
 |Input.Submit owner _=>let draft:=SS.current_draft state owner in

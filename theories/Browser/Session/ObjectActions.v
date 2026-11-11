@@ -9,6 +9,7 @@ From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services.
 From Selvedge.Interaction Require CommandAssessment CardDecisions ObjectDecisions.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Browser.Session Require State.
 Import ListNotations.
 Open Scope string_scope.
@@ -45,10 +46,9 @@ Definition declarations snapshot clock subject :=
  match subject with
  |TaskActions id=>commands++
   [local "side" "Side conversation"(SideConversation id);
-   local "fork" "Fork"(Editor(Fork id));local "compact" "Compact"(Editor(Compact id))]
- |ProjectActions id=>[local "details" "Project details"(Destination(ProjectHome id));
-   local "edit" "Edit project"(Editor(Project(Some id)))]++commands
- |CardActions id=>local "edit" "Edit card"(Editor(Card(Some id)))::commands
+   local "fork" "Fork conversation"(Editor(Fork id));local "compact" "Compact context"(Editor(Compact id))]
+ |ProjectActions id=>local "edit" "编辑项目"(Editor(Project(Some id)))::commands
+ |CardActions id=>local "edit" "编辑卡片"(Editor(Card(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
  end else [].
 Definition choice_key selected : string := match selected with
@@ -56,9 +56,9 @@ Definition choice_key selected : string := match selected with
 |CardDecisions.MoveTo(CardDecisions.BeforeCard _ target _)=>("before/"++show_natural target)%string
 |CardDecisions.LinkTo task=>("link/"++show_natural(CardDecisions.target_task task))%string end.
 Definition choice_label selected : string := match selected with
-|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("Move to "++Domain.stage_label stage)%string
-|CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("Move before "++title)%string
-|CardDecisions.LinkTo task=>("Link "++CardDecisions.target_title task)%string end.
+|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("移至"++Domain.stage_label stage)%string
+|CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("移到「"++title++"」之前")%string
+|CardDecisions.LinkTo task=>CardDecisions.target_title task end.
 Definition choice_declaration opportunity now selected :=
  native(choice_key selected)(choice_label selected)None(CardDecisions.proposal opportunity now selected).
 Definition find_choice snapshot clock card decision key :=
@@ -92,6 +92,19 @@ Definition availability snapshot s subject value :=match command value with
 Definition observe snapshot s subject value :=Action(action_key value)(action_label value)(action_operation value)
  (action_confirmation value)(availability snapshot s subject value).
 Definition items snapshot s subject :=map(observe snapshot s subject)(declarations snapshot(State.now s)subject).
+Definition task_menu_actions (task:Read.task) (actions:list action) :=
+ filter (fun value=>match action_key value with
+  |"interrupt"|"unfreeze"=>false
+  |"freeze"=>String.eqb(Read.task_status task)"active"
+  |"stop"=>String.eqb(Read.task_status task)"active" && Read.task_working task
+  |"archive"=>negb(String.eqb(Read.task_status task)"archived")
+  |_=>true end) actions.
+Definition menu_items snapshot s subject :=
+ let actions:=items snapshot s subject in
+ match subject with
+ |TaskActions id=>match Read.find_task id snapshot with
+  |Some task=>task_menu_actions task actions|None=>[]end
+ |_=>actions end.
 Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with
  |State.CardDecisionPanel source decision=>if N.eqb source card then Some decision else None

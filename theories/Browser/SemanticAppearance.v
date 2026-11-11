@@ -152,7 +152,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       (match row with Surface.SupportingRow => description_properties env ++ supporting_properties env | _ => [] end)
   | Surface.SettingEntry _ _ _ | Surface.SupportingControl _ _ _ _ => compact_control env
   | Surface.BoardLane _ _ => [("background",Appearance.token "--color-surface-secondary");
-      ("padding","8px"); ("min-inline-size",Typography.px (Layout.lane_minimum_width (Layout.parameters env)))]
+      ("padding",pixels env 8); ("min-inline-size","0")]
   | Surface.BoardGroup _ => [("display","flex");("flex-direction","row");
       ("flex-wrap","nowrap");("flex","1 1 0%");("min-inline-size","min-content")]
   | Surface.ActionFeedback _ _ _ | Surface.ActionExplanation _ _ =>

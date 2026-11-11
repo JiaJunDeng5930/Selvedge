@@ -15,7 +15,7 @@ Definition destination := (string * string * route)%type.
 Definition home_destination : destination := ("home","Home",Start).
 Definition graph_destination : destination := ("task-graphs","Task graphs",Graphs).
 Definition destinations : list destination := [
- ("board","任务看板",Board);("projects","项目",Projects);
+ ("board","卡片看板",Board);("projects","项目",Projects);
  ("history-search","搜索对话",HistorySearch)].
 Definition route_eq_dec : forall a b:route,{a=b}+{a<>b}.
 Proof. repeat decide equality. Defined.
@@ -30,16 +30,18 @@ Definition global_navigation s :=
   (List.app(map(destination_node current "/global-navigation")destinations)
     [declared "/global-navigation" (Roles.NavigationEntry false)
      (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]).
+Definition all_conversations_label := "全部对话".
+Definition conversation_scope_label := "对话范围".
 Definition work_label snapshot s :=
  match State.active_work(State.navigation_state s)with
- |None=>"All Tasks"
- |Some id=>match find_work id snapshot with Some work=>work_name work|None=>"Work unavailable"end
+ |None=>all_conversations_label
+ |Some id=>match find_work id snapshot with Some work=>work_name work|None=>"工作组不可用"end
  end.
 Definition work_count snapshot := N.of_nat(S(List.length(value_or[](works snapshot)))).
 Definition work_picker snapshot s parent identity :=
  let label:=work_label snapshot s in
  declared parent (Roles.CompactWorkScope label(work_count snapshot))
-  (secondary identity ("Work overview: "++label)(Input.OpenNavigation WorkOverview(part parent identity))).
+  (secondary identity (conversation_scope_label++" · "++label)(Input.OpenNavigation WorkOverview(part parent identity))).
 Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.input :=
  let 'TaskTree task children:=tree in
  let id:=task_id task in
@@ -64,10 +66,10 @@ Definition project_entry snapshot s current parent tasks (project:project) :=
  let expanded:=negb(existsb(N.eqb id)(State.collapsed_projects s))in
  Node key "project-group"(project_name project)Roles.Section(ProjectGroup id selected expanded)
   (region key "actions" "" Roles.Section
-    [declared key Roles.Button(secondary "toggle"(if expanded then "Collapse project" else "Expand project")(Input.ToggleProjectGroup id));
-     declared key(Roles.NavigationEntry selected)(secondary "open"(project_name project)(Input.BeginTask(Some id)));
-     declared key Roles.Button(secondary "create" "New task"(Input.BeginTask(Some id)));
-     declared key Roles.Button(secondary "more" "Project actions"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
+    [declared key Roles.Button(secondary "toggle"(if expanded then "收起项目" else "展开项目")(Input.ToggleProjectGroup id));
+     declared key(Roles.NavigationEntry selected)(secondary "open"(project_name project)(Input.Navigate(ProjectHome id)));
+     declared key Roles.Button(secondary "create" "在项目中开始对话"(Input.BeginTask(Some id)));
+     declared key Roles.Button(secondary "more" "项目操作"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
    if expanded then map(task_entry_tree current (State.collapsed_tasks s) key)(forest(project_tasks(Some id)tasks)) else []).
 Definition rename_work s :=
  match State.active_work(State.navigation_state s)with
@@ -96,7 +98,7 @@ Definition task_collection snapshot s :=
    let independent:=match forest(project_tasks None scoped)with
     |[]=>[]
     |trees=>[region "/navigation" "independent-tasks" "" Roles.NavigationSection
-       (information(part "/navigation" "independent-tasks")"title" Information.NavigationCaption "Tasks without a project"::
+        (information(part "/navigation" "independent-tasks")"title" Information.NavigationCaption "未归入项目的对话"::
         map(task_entry_tree current (State.collapsed_tasks s) "/navigation")trees)]end in
    List.app(map(project_entry snapshot s current "/navigation" scoped)visible)independent
  |_,_=>[read_only "/navigation" "unavailable" "Tasks" "Task navigation observations unavailable"]end in
@@ -107,7 +109,7 @@ Definition task_collection snapshot s :=
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   [region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   (title(part "/navigation" "header") "Task tree"::rename_work s);
+   (title(part "/navigation" "header") "对话"::rename_work s);
    work_destinations s [];
    task_collection snapshot s].
 Definition desktop_task_navigation snapshot s :=
@@ -124,14 +126,9 @@ Definition desktop_task_navigation snapshot s :=
    global_navigation s].
 Definition work_summary snapshot selected :=
  match tasks snapshot with
- |None=>"Task observations unavailable"
- |Some all=>match work_tasks selected all with
-  |[]=>"No tasks yet"
-  |first::rest=>
-    let count:=S(List.length rest)in
-    (if Nat.eqb count 1 then "1 task"else show_natural(N.of_nat count)++" tasks")++
-     " · "++task_title first++" · "++task_caption first
-  end end.
+ |None=>"对话列表不可用"
+ |Some all=>show_natural(N.of_nat(List.length(work_tasks selected all)))++" 个对话"
+ end.
 Definition work_overview snapshot s parent :=
  let active:=State.active_work(State.navigation_state s)in
  let choice work name :=
@@ -140,16 +137,18 @@ Definition work_overview snapshot s parent :=
     (WorkChoice work(same_id active work)(secondary(NavigationIdentity.work_key work)name(Input.SelectWork work)))
     [information key "name" Information.OptionLabel name;
      information key "description" Information.Description(work_summary snapshot work)]in
- let entries:=choice None "All Tasks"::
+ let entries:=choice None all_conversations_label::
    match works snapshot with
-   |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
+   |None=>[read_only parent "unavailable" "" "工作组不可用"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
  [dialog_header parent
-   [title parent "Works";
-    declared parent Roles.Button(secondary "done" "Close work overview" Input.ClosePanel)];
-  dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup entries];
+   [title parent conversation_scope_label;
+    declared parent Roles.Button(secondary "done" "关闭对话范围" Input.ClosePanel)];
+  dialog_body parent
+   [information parent "scope" Information.Description "选择侧栏显示的对话。每个工作组有自己的任务图和共享界面。";
+    Node(part parent "work-choices")"work-choices" conversation_scope_label Roles.Section ChoiceGroup entries];
   dialog_actions parent
-   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork))]].
+   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "新建工作组" Input.CreateWork))]].
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
  [region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu

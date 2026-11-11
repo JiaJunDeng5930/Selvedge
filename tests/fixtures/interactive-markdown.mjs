@@ -25,7 +25,7 @@ function json(response, value, status = 200) {
 }
 
 /** A real service whose only fake boundary is the explicitly controlled model HTTP peer. */
-export async function interactiveMarkdownFixture() {
+export async function interactiveMarkdownFixture({ taskTitle = prompt => prompt.split('\n')[0] } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-')));
   const requests = [];
   const failures = [];
@@ -40,7 +40,7 @@ export async function interactiveMarkdownFixture() {
       if (request.url.endsWith('/input_tokens')) return json(response, { input_tokens: 100 });
       if (input.text?.format?.name === 'task_title') {
         const prompt = input.input[0].content.split('\n\nUser prompt:\n').at(-1);
-        const title = prompt.split('\n')[0].slice(0, input.text.format.schema.properties.title.maxLength);
+        const title = taskTitle(prompt).slice(0, input.text.format.schema.properties.title.maxLength);
         const output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ title }) }] }];
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);

@@ -59,7 +59,8 @@ Definition handle_read (request : Selvedge.Generated.Commands.read_payload)
 Definition handle_search_history (request : Selvedge.Generated.Commands.search_history_payload)
  (_caller : option N) (value : world) : json :=
  Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
-   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (Pagination.selected (Selvedge.Generated.Commands.search_history_limit_admitted request) Pagination.default_search_size) value.
+   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (Pagination.selected (Selvedge.Generated.Commands.search_history_limit_admitted request) Pagination.default_search_size)
+   (match Selvedge.Generated.Commands.search_history_include_titles request with Some enabled => enabled | None => false end) value.
 
 Definition handle_list_projects (_payload : Selvedge.Generated.Commands.list_projects_payload)
  (_caller : option N) (value : world) : json :=
