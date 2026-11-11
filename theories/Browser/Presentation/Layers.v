@@ -233,12 +233,16 @@ Definition information_panel snapshot (s:State.state) kind parent :=match kind w
 |State.TaskDetails task=>task_details snapshot s task parent
 |State.TaskContext task=>context_facts snapshot task parent
 |State.CardDetails card=>card_details snapshot s card parent
-|State.PropertySource e request=>match Observation.property_for_request snapshot s e request with
- |None=>[read_only parent "unavailable" "Source" "The original settings observation is unavailable"]
+|State.PropertySource e request=>
+ let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
+ match Observation.property_for_request snapshot s e request with
+ |None=>[read_only parent "unavailable" (label "来源" "Source")
+   (label "未能读取当前项目设置。" "The original settings observation is unavailable")]
  |Some property=>
-  [Activities.navigation_header parent "Configuration source" Input.ClosePanel;
-   read_only parent "owner" "Settings"(UX.property_label property);
-   read_only parent "configuration-source" "Source"(Observation.property_source_description snapshot s property)]end end.
+  [Activities.navigation_header parent (Activities.configuration_source_label e) (label "返回" "Back") Input.ClosePanel;
+   read_only parent "owner" (label "设置" "Settings")(label "项目"(UX.property_label property));
+   read_only parent "configuration-source" (label "来源" "Source")
+    (Observation.property_source_description snapshot s property)]end end.
 Definition side_content snapshot s task parent :=
  let return_control:=match ObjectActions.return_action snapshot s task with
  |Some action=>match ObjectActions.command action with
@@ -268,7 +272,7 @@ Definition panel_title panel := match panel with
  |State.InformationPanel(State.TaskDetails _)=>"Task details"
  |State.InformationPanel(State.TaskContext _)=>"Execution context"
  |State.InformationPanel(State.CardDetails _)=>"卡片详情"
- |State.InformationPanel(State.PropertySource _ _)=>"Configuration source"
+ |State.InformationPanel(State.PropertySource e _)=>Activities.configuration_source_label e
  |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选卡片"
  |State.ArchivedCardsPanel=>"归档卡片"|State.Confirmation _ caption _=>caption
  |State.PropertyPanel _ _=>"Settings"end.

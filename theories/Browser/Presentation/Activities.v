@@ -93,36 +93,40 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
+ let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
+ let heading:=label "工作目录（可选）" "Working directories" in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
- Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e members)
- (map(fun path=>let key:=part parent path in
+ Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)
+ ((match e with Identity.Project _=>[group_title parent heading]|_=>[]end)++
+  map(fun path=>let key:=part parent path in
   let primary:=match Domain.workspace_primary workspace with Some root=>String.eqb path root|None=>false end in
   Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
    [region key "workspace-member-copy" "" Roles.Section
      (information key "path" Information.FieldValue path ::
-      if primary then [information key "primary-state" Information.Description "Primary directory"] else []);
+      if primary then [information key "primary-state" Information.Description (label "主目录" "Primary directory")] else []);
     region key "workspace-member-actions" "" Roles.Section
      (if editable then
-       ((if primary then [] else [declared key Roles.Button(secondary "primary" "Use as primary"
+       ((if primary then [] else [declared key Roles.Button(secondary "primary" (label "设为主目录" "Use as primary")
           (Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)))]) ++
-        [declared key Roles.Button(secondary "remove" "Remove directory"
+        [declared key Roles.Button(secondary "remove" (label "移除目录" "Remove directory")
           (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots ++
   if editable then
-   (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status "Add or clear the directory before saving"])++
-   [Node(part parent "directory")"directory" "Directory path"Roles.Field
+   (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status
+     (label Observation.unadded_project_directory "Add or clear the directory before saving")])++
+   [Node(part parent "directory")"directory" (label "目录路径" "Directory path") Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
     region parent "directory-entry-actions" ""Roles.Toolbar
-     ([declared parent Roles.Button(Control "add" "Add directory"Secondary
+     ([declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
-       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available))] ++
+       (if String.eqb buffer ""then Unavailable (label "请输入目录路径" "Enter a directory")else Available))] ++
       (if String.eqb buffer "" then [] else
-       [declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""))]) ++
-      [declared parent Roles.Button(Control "browse" "Browse…" Secondary
+       [declared parent Roles.Button(secondary "clear" (label "清空" "Clear")(Input.ActivityParameter occurrence ""))]) ++
+      [declared parent Roles.Button(Control "browse" (label "浏览…" "Browse…") Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))])%list] ++
+       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available))])%list] ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -164,13 +168,17 @@ Definition required_expression {e} parent(expression:Observation.subject_express
  |Observation.OriginalIdentity=>match Observation.expression_information expression with
    |UX.PresentInformation first _=>
     [Node(part parent "original-project")"original-project" ""Roles.Section(ActivityRow SupportingRow)
-      [read_only parent "original-project/value" "Original project"(UX.readable_text(UX.summary_observation first))]]
+      [read_only parent "original-project/value"
+        (match e with Identity.Project _=>"原项目名称"|_=>"Original project"end)
+        (UX.readable_text(UX.summary_observation first))]]
    |_=>[]end
  |_=>let subject:=Observation.expression_subject expression in
   let key:=part parent("fact/"++UX.subject_name subject)in
   [Node key "required-information" ""(match Observation.expression_information expression with UX.RequiredAbsence _=>Roles.Alert|_=>Roles.Section end)(ActivityRow SupportingRow)
     [read_only key "observation"(Parameters.label(UX.subject_declaration subject))
       (information_value(Observation.expression_information expression))]]end.
+Definition configuration_source_label e :=
+ match e with Identity.Project _=>"配置来源"|_=>"Configuration source"end.
 Definition inherited_permission_controls s e parent :=
  match Selvedge.Browser.Session.Observation.draft_context(State.current_draft s e)with
  |None=>[]|Some configuration=>
@@ -281,32 +289,36 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
      ((match e with Identity.Project _=>
         [read_only key "scope" "Scope" "Applies to future tasks; existing working directories and explicit overrides are unchanged"]
        |_=>[]end)++
-      [declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
+       [declared key Roles.Button(secondary "source/open" (configuration_source_label e++"…")(Input.InspectSource e request(part key "source/open")))]++
       match UX.property_kind_of property with
       |UX.PermissionsProperty=>inherited_permission_controls s e key|_=>[]end)]
    |Act.CompoundView=>match e with Identity.Project None=>[]|_=>
      [Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
-     (Composer.property_information key property++[declared key Roles.Button
-       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))])]end
+     ((match e with Identity.Project _=>[]|_=>Composer.property_information key property end)++[declared key Roles.Button
+       (secondary "source/open" (configuration_source_label e++"…")(Input.InspectSource e request(part key "source/open")))])]end
    |_=>[]end
- |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
+ |Observation.CompoundContent,Act.CollectionMembers members=>
+   workspace_nodes s occurrence(part parent "workspace")members::
+   (match e with Identity.Project _=>Editors.field_nodes snapshot s e parent [Fields.CreateWorktree]|_=>[]end)
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
+   let draft:=State.current_draft s e in
    [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
-     ([Editors.assessment_nodes parent assessment]++
-      Composer.action_feedback parent action(Editors.draft_feedback(State.current_draft s e))++
+     (Editors.commit_reason parent draft assessment++[Editors.assessment_nodes parent assessment]++
+      Composer.action_feedback parent action(Editors.draft_feedback draft)++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
-        [Node(part parent "submit")"submit"(Editors.submit_label(State.current_draft s e)e)Roles.PrimaryButton
-          (ActionCommit e assessment(Control "submit"(Editors.submit_label(State.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))
+        [Node(part parent "submit")"submit"(Editors.submit_label draft e)Roles.PrimaryButton
+          (ActionCommit e assessment(Control "submit"(Editors.submit_label draft e)Primary(Input.Submit e(part parent "submit"))
            (Editors.unit_availability action assessment)))[]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=
  match activity with
- |Act.EditingActivity _ _ _=>
-  fold_right(fun '(name,fields) rest=>
+ |Act.EditingActivity _ _ _=>match e with
+  |Identity.Project _=>Editors.field_nodes snapshot s e parent [Fields.ProjectName]
+  |_=>fold_right(fun '(name,fields) rest=>
    let fields:=filter(fun field=>match field with Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>false|_=>true end)fields in
    match fields with []=>rest|_=>Editors.field_section snapshot s e parent name fields::rest end)[]
-   (Editors.editor_sections e)
+   (Editors.editor_sections e)end
  |_=>[]end.
 Definition current_layer s occurrence:=find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s)).
 Definition inspection_label kind:=match kind with
@@ -365,18 +377,21 @@ Definition project_menu snapshot (s:State.state) e occurrence parent behavior:=
     (content++[declared parent Roles.Button(secondary "project/new" "New project"
       (Input.OpenEditor(Identity.Project None)(part parent "project/new")))])].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
-Definition navigation_header parent caption (action:Input.input):node Input.input:=
+Definition navigation_header parent caption back (action:Input.input):node Input.input:=
  Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
-  [declared parent Roles.Button(secondary "back" "Back"action);title parent caption].
+  [declared parent Roles.Button(secondary "back" back action);title parent caption].
 Definition activity_view snapshot (s:State.state) e request occurrence source_expanded parent behavior compact_model_picker :=
  if workspace_request request && match e with Identity.Project _=>false|_=>true end
  then workspace_menu snapshot s e occurrence parent behavior else
  if project_request request && match e with Identity.Project _=>false|_=>true end
  then project_menu snapshot s e occurrence parent behavior else
  match Observation.observe_activity snapshot s e request with
- |None=>Node parent "activity-unavailable" "Settings unavailable"Roles.Dialog(LayerRegion behavior)
-   [dialog_header parent [title parent "Settings unavailable"];
-    dialog_body parent [read_only parent "unavailable" "Settings unavailable" "The original settings observation is unavailable"]]
+ |None=>
+   let '(caption,reason):=match e with
+    |Identity.Project _=>("项目设置不可用","未能读取当前项目设置。")
+    |_=>("Settings unavailable","The original settings observation is unavailable")end in
+   Node parent "activity-unavailable" caption Roles.Dialog(LayerRegion behavior)
+   [dialog_header parent [title parent caption];dialog_body parent [read_only parent "unavailable" caption reason]]
  |Some activity=>
   let layer:=current_layer s occurrence in
   let focus:=match layer with Some layer=>EditorContext.layer_focus layer|None=>None end in
@@ -387,12 +402,13 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
   let completion:=Observation.completion_for activity view in
   let header:=match completion with
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
-      [navigation_header parent caption(Input.ActivityComplete occurrence)]
+      [navigation_header parent caption "Back"(Input.ActivityComplete occurrence)]
     |_=>[title parent caption]end in
   let relations:=Act.activity_relations activity in
   let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in
  let actions:=((match completion with
-    |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
+    |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard"
+       (match e with Identity.Project _=>"取消"|_=>"Cancel"end) Input.ClosePanel)]
     |_=>[]end) ++ flat_map(relation_nodes snapshot s occurrence parent query request activity view)
     (filter terminal relations))%list in
   let body:=((if Observation.search_required activity view then

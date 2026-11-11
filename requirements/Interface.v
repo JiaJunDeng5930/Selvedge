@@ -262,6 +262,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Creation starts with the input needed for the common operation. A new
     conversation starts with a message, and a board card can be captured with a
     title. Optional settings remain available at the corresponding editor.
+    A project can be created with its name alone. Its editor marks the default
+    working directory as optional and uses the language of the project page.
+    A directory chooser identifies the execution environment that owns its paths.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.

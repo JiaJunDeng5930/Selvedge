@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { browserFixture } from './fixtures/browser.mjs';
 
 test('a canceled card capture gives the next stage a fresh draft, while successful continuous capture retains its settings', async t => {
@@ -132,6 +134,76 @@ test('canceling Add to board restores the source conversation defaults on reopen
   assert.equal(await project.inputValue(), String(project_id));
 });
 
+test('a project can start with only a name and save an optional directory later', async t => {
+  const { page, command, root } = await browserFixture(t);
+  const workspace = path.join(root, '项目默认目录');
+  await mkdir(path.join(workspace, '子目录'), { recursive: true });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 620 });
+  const main = page.getByRole('main');
+  await main.getByRole('button', { name: '新建项目', exact: true }).click();
+  const create = page.getByRole('dialog', { name: '新建项目', exact: true });
+  const name = create.getByRole('textbox', { name: '项目名称', exact: true });
+  const submit = create.getByRole('button', { name: '创建项目', exact: true });
+  const optional = create.getByRole('heading', { name: '工作目录（可选）', exact: true });
+  const browse = create.getByRole('button', { name: '浏览…', exact: true });
+  await optional.waitFor();
+  const headingBounds = await optional.boundingBox();
+  const browseBounds = await browse.boundingBox();
+  assert.ok(headingBounds && browseBounds && headingBounds.x >= 0 && headingBounds.x + headingBounds.width <= 390
+    && headingBounds.y >= 0
+    && headingBounds.y + headingBounds.height <= browseBounds.y && headingBounds.y + headingBounds.height <= 620);
+  assert.equal(await name.getAttribute('placeholder'), '请输入项目名称');
+  assert.equal(await name.getAttribute('aria-required'), 'true');
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await submit.getAttribute('title'), '请输入项目名称');
+  assert.equal(await submit.evaluate(button => (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), '请输入项目名称');
+  await name.fill('\u3000 ');
+  assert.equal(await submit.getAttribute('title'), '请输入项目名称');
+  await name.fill(`${'项'.repeat(85)}ab`);
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await submit.getAttribute('title'), '项目名称不能超过 256 个 UTF-8 字节。');
+  await name.fill(`${'项'.repeat(85)}a`);
+  await create.getByRole('button', { name: '创建项目', exact: true, disabled: false }).waitFor();
+
+  const projectName = '先按名称创建的项目';
+  await name.fill(projectName);
+  await browse.click();
+  const chooser = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
+  await chooser.getByRole('button', { name: '取消', exact: true }).click();
+  await chooser.waitFor({ state: 'hidden' });
+  await page.waitForFunction(id => document.activeElement?.id === id, await browse.getAttribute('id'));
+  assert.equal(await name.inputValue(), projectName);
+  assert.equal(await create.getByRole('textbox', { name: '目录路径', exact: true }).inputValue(), '');
+  await submit.click();
+  await create.waitFor({ state: 'hidden' });
+  const [created] = await command({ op: 'list_projects' });
+  assert.equal(created.name, projectName);
+  assert.deepEqual(created.workspace, { roots: [], primary_root: null });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const row = main.getByRole('region', { name: projectName, exact: true });
+  await row.hover();
+  await row.getByRole('button', { name: '项目操作', exact: true }).click();
+  await page.getByRole('button', { name: '编辑项目', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: '编辑项目', exact: true });
+  assert.equal(await edit.getByRole('textbox', { name: '项目名称', exact: true }).inputValue(), projectName);
+  await edit.getByRole('button', { name: '浏览…', exact: true }).click();
+  await chooser.getByRole('textbox', { name: '目录路径', exact: true }).fill(workspace);
+  await chooser.getByRole('button', { name: '前往', exact: true }).click();
+  await chooser.getByRole('button', { name: '子目录', exact: true }).waitFor();
+  await chooser.getByRole('button', { name: '使用此目录', exact: true }).click();
+  await chooser.waitFor({ state: 'hidden' });
+  await edit.getByText(workspace, { exact: true }).waitFor();
+  await edit.getByRole('button', { name: '保存', exact: true }).click();
+  await edit.waitFor({ state: 'hidden' });
+  const saved = await command({ op: 'read_project', project_id: created.project_id });
+  assert.equal(saved.name, projectName);
+  assert.deepEqual(saved.workspace, { roots: [workspace], primary_root: workspace });
+});
+
 test('closing Project and title prompt editors discards their unsaved drafts through the browser', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
@@ -145,7 +217,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
   await page.getByRole('button', { name: '编辑项目', exact: true }).click();
   let dialog = page.getByRole('dialog');
-  const projectNameInput = dialog.getByRole('textbox', { name: 'Name', exact: true });
+  const projectNameInput = dialog.getByRole('textbox', { name: '项目名称', exact: true });
   await projectNameInput.fill('Unsaved project name');
   await page.keyboard.press('Escape');
   await projectNameInput.waitFor({ state: 'hidden' });
@@ -156,9 +228,9 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
   await page.getByRole('button', { name: '编辑项目', exact: true }).click();
   dialog = page.getByRole('dialog');
-  assert.equal(await dialog.getByRole('textbox', { name: 'Name', exact: true }).inputValue(), projectName);
+  assert.equal(await dialog.getByRole('textbox', { name: '项目名称', exact: true }).inputValue(), projectName);
   await page.keyboard.press('Escape');
-  await dialog.getByRole('textbox', { name: 'Name', exact: true }).waitFor({ state: 'hidden' });
+  await dialog.getByRole('textbox', { name: '项目名称', exact: true }).waitFor({ state: 'hidden' });
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 

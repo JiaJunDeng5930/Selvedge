@@ -2,8 +2,11 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Adapters Require Common.
 From Selvedge.Features Require Domain.
+From Selvedge.Kernel Require WorkspaceBackend.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Interaction Require World.
+From Selvedge.Interaction.Experience Require ContextObservation.
 From Selvedge.Browser.Session Require Import Appearance Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech.
@@ -164,44 +167,60 @@ Proof.
  eexists. split; reflexivity.
 Qed.
 
-Definition directory_view s :=
+Definition directory_backend snapshot owner := match Identity.editor_task owner with
+ |None=>Some WorkspaceBackend.Local
+ |Some task=>settings<-ContextObservation.task_settings task snapshot;;
+  match Selvedge.Kernel.Domain.settings_resource settings with
+  |None=>Some WorkspaceBackend.Local
+  |Some workspace=>value<-World.find_world "worktrees" "task_id" workspace snapshot;;
+   bind(string_field "backend" value)WorkspaceBackend.decode
+  end
+ end.
+Definition directory_view snapshot s :=
  let services:=State.service_state s in
  match Services.directory services with
  |Resource.Dormant=>[]
  |resource=>match resource_ticket resource,resource_request resource with
   |Some ticket,Some request=>let parent:="/directory-browser"in
+   let owner:=Services.directory_editor request in
+   let label (chinese english:string):=match owner with Identity.Project _=>chinese|_=>english end in
+   let caption:=label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
+    |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
+    |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
+    |None=>"Choose a directory" end) in
    let content:=match resource with
-    |Resource.Loading _ _=>[read_only parent "loading" "Working directories" "Loading directories…"]
-    |Resource.Failed _ _ reason=>[read_only parent "failure" "Directory listing failed"reason;
-      declared parent Roles.Button(secondary "retry" "Retry"(Input.ServiceInput Services.GoDirectory))]
+    |Resource.Loading _ _=>[information parent "loading" Information.Status (label "正在读取目录…" "Loading directories…")]
+    |Resource.Failed _ _ reason=>[read_only parent "failure" (label "无法读取目录" "Directory listing failed")reason;
+      declared parent Roles.Button(secondary "retry" (label "重试" "Retry")(Input.ServiceInput Services.GoDirectory))]
     |Resource.Loaded _ _ catalog=>(
       map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
        (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))(Selvedge.Interaction.Codec.items "entries" catalog)++
-      (if flag "truncated" catalog then[read_only parent "truncated" "Directories" "The directory listing is truncated"]else[]))%list
+      (if flag "truncated" catalog then[information parent "truncated" Information.Description
+        (label "目录列表仅显示部分结果。" "The directory listing is truncated.")]else[]))%list
     |_=>[]end in
-   [Node parent "directory-browser" "Choose directory"Roles.Dialog
+   [Node parent "directory-browser" caption Roles.Dialog
     (LayerRegion(LayerBehavior ModalDialog false ticket
      (match resource with Resource.Loaded _ _ _=>part parent "location"|_=>parent end)
      (Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
-    [dialog_header parent [title parent "Choose directory"];
+    [dialog_header parent [title parent caption];
      dialog_body parent(match resource with
       |Resource.Loaded _ _ catalog=>
-       [region parent "navigation" "Folder navigation" Roles.Section
+       [region parent "navigation" (label "目录导航" "Folder navigation") Roles.Section
         ([region parent "directory-location-actions" "" Roles.Toolbar
-         [Node(part parent "location")"directory-location" "Directory"Roles.Field
-          (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
+         [Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
+          (EnterDirectory owner (Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]]++
+         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))]]++
          match string_field "parent" catalog with None=>[]|Some path=>
-          [declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end);
-        region parent "folders" "Folders" Roles.Section content]
+          [declared parent Roles.Button(secondary "parent" (label "上一级目录" "Parent directory")(Input.ServiceInput(Services.VisitDirectory path)))]end);
+        region parent "folders" (label "子目录" "Folders") Roles.Section content]
       |_=>content end);
      dialog_actions parent
-      (declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))::
+      (declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory))::
        match resource with Resource.Loaded _ _ _=>
-       [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
+       [declared parent Roles.PrimaryButton(secondary "choose" (label "使用此目录" "Use this directory")(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
        ]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with

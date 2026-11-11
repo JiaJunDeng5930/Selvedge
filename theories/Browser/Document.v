@@ -171,6 +171,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
  |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
+ |Fields.ProjectName=>[("placeholder",Parameters.project_name_prompt);("aria-required","true")]
  |_=>[]end) ++ disabled enabled in
  if ControlPurpose.toggle_widget field(Model.editing_observation value) then
  let checked:=Parameters.native_checked field(Model.editing_observation value)in

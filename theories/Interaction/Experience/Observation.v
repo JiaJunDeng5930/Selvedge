@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
 From Selvedge.Features Require Domain BoardParameters BoardDrafting Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
@@ -297,7 +298,8 @@ Definition property_source_description snapshot state {e}(property:property e):s
       |_=>"Task context"end
    |Fields.ProjectValue None=>"Environment defaults"
    |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
-     Some name=>"Project configuration · "++name|None=>"The selected project is no longer available"end
+     |Some name=>(match e with Identity.Project _=>"项目配置 · "|_=>"Project configuration · "end)++name
+     |None=>match e with Identity.Project _=>"该项目已不可用。"|_=>"The selected project is no longer available"end end
    |Fields.WorkspaceValue _=>"Project workspace configuration"
    |_=>"The settings source is unavailable"end end.
 
@@ -388,20 +390,21 @@ Definition card_save_consequence snapshot state (draft:Draft.draft) :=
    |CommandAssessment.Refused _ _=>None end
   else None
  |_=>None end.
+Definition unadded_project_directory := "请先添加或清空目录路径。".
 Definition project_precondition snapshot state (draft:Draft.draft):option(option Fields.field*string*string):=
  match Draft.contents draft with
  |Draft.ProjectBody project name workspace worktree=>
    if negb(String.eqb(Draft.directory_entry draft)"") ||
       negb(String.eqb(EC.directory_entry(EC.observed state)(Draft.owner draft))"")
-   then Some(Some Fields.WorkspaceDirectories,"unadded_directory","Add or clear the directory before saving.")
+   then Some(Some Fields.WorkspaceDirectories,"unadded_directory",unadded_project_directory)
    else match project with
     |None=>None
     |Some id=>match FieldsObservation.project_by_id id snapshot with
      |Some original=>match string_field "name" original,bind(field "workspace" original)Selvedge.Kernel.Codec.parse_workspace,bool_field "create_worktree" original with
       |Some previous,Some previous_workspace,Some previous_worktree=>
        if String.eqb name previous&&Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json previous_workspace)&&Bool.eqb worktree previous_worktree
-       then Some(None,"unchanged_project","No project changes to save.")else None
-      |_,_,_=>Some(None,"unavailable_project","The current project configuration has not been observed.")end
+       then Some(None,"unchanged_project","没有要保存的更改。")else None
+      |_,_,_=>Some(None,"unavailable_project","当前项目设置不可用。")end
      |None=>None end end
  |_=>None end.
 Definition requirement_obstruction e(field:option Fields.field)(code reason:string):obstruction e:=
@@ -481,7 +484,8 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.WorkNameBody _ name=>failed_requirement e(Work.valid_name name)
    (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
-   (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
+   (Some Fields.ProjectName)"invalid_project_name"
+   (if Utf8.nonblank name then "项目名称不能超过 256 个 UTF-8 字节。" else Parameters.project_name_prompt)
  |Draft.CardBody _ _ _ true selected _=>
    if assistance_profile_available snapshot selected then [] else
    [requirement_obstruction e (Some Fields.AssistanceProfile) "draft_profile_unavailable"
@@ -504,7 +508,7 @@ Definition record_requirements snapshot e (body:Draft.body):list(obstruction e):
  match body with
  |Draft.ProjectBody(Some id)_ _ _=>failed_requirement e
    (match FieldsObservation.project_by_id id snapshot with Some _=>true|None=>false end)
-   None "project_not_found" "The project does not exist."
+   None "project_not_found" "该项目已不存在。"
  |_=>[]end.
 Definition draft_requirements snapshot state e:list(obstruction e):=
  let draft:=EC.current_draft state e in

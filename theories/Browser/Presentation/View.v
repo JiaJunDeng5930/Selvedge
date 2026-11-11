@@ -90,7 +90,7 @@ Definition view_overlays_with render_layer snapshot state capacity :=
     settings layer beneath it, and keep service-owned pickers above both. *)
  (Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
    ServiceControls.settings state ++ Settings.configuration_editor state ++ render settings_editors ++
-   ServiceControls.directory_view state ++ ServiceControls.preview_view state ++ ServiceControls.account_login_view state)%list.
+   ServiceControls.directory_view snapshot state ++ ServiceControls.preview_view state ++ ServiceControls.account_login_view state)%list.
 
 Definition view_overlays snapshot state capacity compact_model_picker :=
  view_overlays_with (Layers.layer_view snapshot state capacity compact_model_picker) snapshot state capacity.

@@ -54,9 +54,10 @@ Definition name field := match field with
 | ForkCount => "child_count" | ForkMessages => "messages"
 | CompactionSummary => "summary" | TaskGraphDeclaration => "declaration"
 | TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" | AgentTitleProfile => "agent_profile" end.
+Definition project_name_prompt := "请输入项目名称".
 Definition label field := match field with
-| WorkName | ProjectName => "Name" | MessageText => "Message"
-| CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Run environment"
+| WorkName => "Name" | ProjectName => "项目名称" | MessageText => "Message"
+| CreateWorktree => "新对话默认创建 Git 工作树" | TaskEnvironment => "Run environment"
 | WorkspaceDirectories => "Working directories" | WorkspacePrimary => "Primary directory"
 | ContextOrigin => "Project" | SandboxMode => "Filesystem access" | NetworkAccess => "Network access"
 | ApprovalPolicy => "Execution policy" | ApprovalReviewer => "Reviewing model" | ModelProfile => "Model"

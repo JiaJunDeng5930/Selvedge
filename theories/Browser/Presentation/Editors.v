@@ -31,7 +31,7 @@ Definition editor_title e := match e with
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
-|NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Card None=>"创建卡片"
+|NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
 |TaskGraph None _=>"Create task graph"|Fork _=>"Create fork"|Card(Some _)=>"保存"
 |Compact _=>"Compact history"|_=>"Save"end end.
@@ -119,6 +119,10 @@ Definition visible_field_obstruction {e} draft (outcome:UX.assessment_result e) 
  match UX.obstruction_target cause with
  |UX.RepairField subject=>if field_obstruction_visible draft cause then Some(subject,cause)else None
  |UX.RepairEditor=>None end.
+Definition commit_reason {e} parent draft (assessment:UX.assessment e) : list(node Input.input) :=
+ match visible_field_obstruction draft(UX.assessment_outcome assessment)with
+ |Some(_,cause)=>[information parent "editor-commit-reason" Information.Description (UX.obstruction_message cause)]
+ |None=>[]end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  let obstruction:=visible_field_obstruction(Session.current_draft s e)
    (UX.assessment_outcome(Observe.observe_assessment snapshot s e))in
@@ -203,7 +207,6 @@ Definition editor_sections e :=match e with
 |NewTask _=>[("Message",[Fields.MessageText]);model_section;execution_section;("Workspace",[Fields.TaskEnvironment])]
 |Message _=>[("Message",[Fields.MessageText;Fields.DeliveryIntent]);model_section;
  ("Permissions",[Fields.SandboxMode;Fields.NetworkAccess;Fields.ApprovalPolicy;Fields.ApprovalReviewer])]
-|Identity.Project _=>[("Project",[Fields.ProjectName;Fields.CreateWorktree]);("Default workspace",[Fields.WorkspaceDirectories])]
 |Card id=>([("Work",[Fields.CardTitle;Fields.CardDescription]);
  ("Organization",[Fields.CardStage;Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels]);
  ("Attachments",[Fields.CardAttachments])]++match id with
@@ -211,7 +214,7 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|CardForConversation _|WorkName _|TitlePrompts=>[]end.
+|Identity.Project _|CardForConversation _|WorkName _|TitlePrompts=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
@@ -326,9 +329,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let reason:=match visible_field_obstruction draft (UX.assessment_outcome assessment)with
- |Some(_,cause)=>[information parent "editor-commit-reason" Information.Description (UX.obstruction_message cause)]
- |None=>[]end in
+ let reason:=commit_reason parent draft assessment in
  let consequence:=match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some value=>[information parent "card-save-consequence" Information.Description
