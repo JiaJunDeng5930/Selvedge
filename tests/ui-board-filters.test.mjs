@@ -19,6 +19,59 @@ test('task board exposes ordinary model and unassigned filter choices', async t 
   }
 });
 
+test('enabling board automation includes existing eligible cards and disabling preserves active conversations', async t => {
+  const { page, command, running, requests, finish } = await browserFixture(t);
+  await command({ op: 'board_settings', automatic: false, draft_profile: '' });
+  const title = 'Run the existing priority card';
+  const assigned = { assignee: 'profile/interactive' };
+  const active = await command({ op: 'create_card', title, status: 'todo', priority: 'urgent', ...assigned });
+  const waiting = await command({ op: 'create_card', title: 'Wait for the assigned model', status: 'in_progress', ...assigned });
+  const planning = await command({ op: 'create_card', title: 'Keep the card in planning', status: 'backlog', ...assigned });
+  const unassigned = await command({ op: 'create_card', title: 'Leave the card unassigned', status: 'todo' });
+  const read = ({ card_id }) => command({ op: 'read_card', card_id });
+  assert.equal((await read(active)).task_id, null);
+  assert.equal(requests.length, 0);
+
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 620 });
+  await page.getByRole('button', { name: '看板设置', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: '看板设置', exact: true });
+  const guidance = settings.getByText(/启用后会立即检查已有卡片/);
+  await guidance.waitFor();
+  const enabledScope = await guidance.innerText();
+  for (const detail of ['待办', '进行中', '已指派模型', '未关联对话', '模型空闲']) {
+    assert.ok(enabledScope.includes(detail), detail);
+  }
+  const enable = settings.getByRole('button', { name: '启用自动执行', exact: true });
+  const noteBox = await guidance.boundingBox();
+  const buttonBox = await enable.boundingBox();
+  assert.ok(noteBox && buttonBox && noteBox.x >= 0 && noteBox.x + noteBox.width <= 390);
+  const gap = noteBox.y - (buttonBox.y + buttonBox.height);
+  assert.ok(noteBox.y + noteBox.height <= 620 && gap >= -1 && gap <= 24);
+  await enable.click();
+  const disable = settings.getByRole('button', { name: '关闭自动执行', exact: true });
+  await settings.getByText(/正在运行的对话会继续/).waitFor();
+  const deadline = Date.now() + 5000;
+  while (!requests.length && Date.now() < deadline) await delay(10);
+  assert.ok(JSON.stringify(requests[0]?.input)?.includes(title), 'The existing priority card must reach the model');
+  const started = await read(active);
+  assert.notEqual(started.task_id, null);
+  assert.equal((await read(waiting)).activity, 'queued');
+  assert.equal((await read(planning)).task_id, null);
+  assert.equal((await read(unassigned)).task_id, null);
+
+  await disable.click();
+  await guidance.waitFor();
+  assert.equal(requests[0].closed, false);
+  finish(0, { text: 'The existing card finished normally.' });
+  await taskIdle(running.service, started.task_id);
+  const after = await read(waiting);
+  assert.equal(after.task_id, null);
+  assert.equal(after.activity, 'not_started');
+  assert.equal(requests.length, 1);
+});
+
 test('assisted card creation keeps model selection truthful when the catalog changes', async t => {
   const fixture = await browserFixture(t, { images: true });
   const { page, command, upstream, running } = fixture;

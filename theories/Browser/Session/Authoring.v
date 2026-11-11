@@ -40,6 +40,9 @@ Definition alert_diagnostic state diagnostic:=Result state [](Some diagnostic)tr
 Definition emit kind fields:=JObject(("type",JString kind)::fields).
 Definition focus key:=emit "focus"[("key",JString key)].
 Definition changed state effects:=Result state effects None false.
+Definition adopt_service decision state:=
+ changed(SS.with_services(Services.service_state decision)state)
+ (map Services.encode_effect(Services.service_effects decision)).
 Definition ensure_draft snapshot owner state:=match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
 |Some _=>state|None=>match Initialize.materialize snapshot(Services.model_preference(SS.service_state state))owner with
  Some value=>SS.save_draft value state|None=>state end end.
@@ -54,17 +57,16 @@ Definition reopen_draft snapshot owner state:=
     |None=>state end end
   |_=>state end
  |None=>match Initialize.materialize snapshot(Services.model_preference(SS.service_state state))owner with
-   |Some fresh=>let fresh:=match owner with
-     |Identity.Project _|Identity.TitlePrompts=>Draft.Draft(SS.next_layer state)(Draft.contents fresh)Draft.Editing "" None
-     |_=>fresh end in SS.save_draft fresh state
+   |Some fresh=>let fresh:=if Navigation.discard_draft_on_dismiss owner
+     then Draft.Draft(SS.next_layer state)(Draft.contents fresh)Draft.Editing "" None
+     else fresh in SS.save_draft fresh state
    |None=>state end end.
 Definition pending_for_editor owner pending:=match SS.purpose pending with
 |SS.DraftSubmission draft _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
  same_editor owner(Draft.owner draft)
 |_=>false end.
-(** A cancelled settings editor invalidates captured session requests as well as
-    workspace observations. The monotone layer ticket reserves the next draft
-    revision, so a late reply cannot settle a reopened editor with the same owner. *)
+(** Dismissing an editor ends its draft and owned browser requests. The
+    layer ticket reserves a revision for the next draft of the same owner. *)
 Definition discard_editor owner state:=
  let authoring:=SS.authoring_state state in
  let previous:=Draft.find_draft owner(SS.drafts authoring)in
@@ -78,8 +80,8 @@ Definition discard_editor owner state:=
  let services:=fold_left(fun services resource=>match resource_ticket resource with
   |Some ticket=>Services.forget_preparation ticket services|None=>services end)
   (filter(Services.preparation_owned owner)(Services.preparations services))services in
- let services:=Services.cancel_editor owner services in
- SS.with_next_layer next_layer(SS.with_services services(SS.with_authoring authoring state)).
+ adopt_service(Services.cancel_editor owner services)
+  (SS.with_next_layer next_layer(SS.with_authoring authoring state)).
 Definition issue command purpose state:=
  (* DEFENSE: Two visible controls or interactive owners can submit the same
     command before its first IO receipt; only the first owns execution. *)
@@ -96,9 +98,6 @@ Definition reserve command purpose state:=
  let authoring:=set SS.next(fun _=>N.succ ticket)
   (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
  keep(SS.with_authoring authoring state).
-Definition adopt_service decision state:=
- changed(SS.with_services(Services.service_state decision)state)
- (map Services.encode_effect(Services.service_effects decision)).
 Definition current_preparation draft state:=find(SO.matching_directory draft)(Services.preparations(SS.service_state state)).
 Definition preparation_request snapshot draft intent trigger state:=
  Services.Preparation draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger intent
@@ -308,7 +307,7 @@ Definition adopt_navigation snapshot decision:=
  append result(match effect with
  |Navigation.Attend target=>changed state[focus target]
  |Navigation.EnsureDraft owner=>keep(reopen_draft snapshot owner state)
- |Navigation.CancelEditor owner=>keep(discard_editor owner state)
+ |Navigation.CancelEditor owner=>discard_editor owner state
  |Navigation.Issue command purpose=>issue command purpose state
  |Navigation.FollowTaskLatest task=>match find(fun view=>N.eqb task(NavigationIdentity.task_view_task view))(Navigation.visible_task_views state)with
    |Some view=>changed state[emit "follow_latest"[("key",JString(NavigationIdentity.task_view_key view "timeline"))]]|None=>keep state end

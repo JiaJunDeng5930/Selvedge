@@ -285,13 +285,11 @@ Definition voice_created snapshot ticket task state:=match Speech.current(SS.spe
  else Authoring.keep state|_=>Authoring.keep state end.
 Definition core namespace snapshot lagged input state:Authoring.result:=match input with
 |Input.NewCard stage trigger=>let owner:=Identity.Card None in
- let state:=Authoring.ensure_draft snapshot owner state in
- let draft:=SS.current_draft state owner in
- let state:=match Draft.contents draft with
- |Draft.CardBody (Identity.BoardCard None) revision value assist profile keep=>SS.save_draft
-   (Draft.with_body(Draft.CardBody (Identity.BoardCard None) 0(Selvedge.Features.Domain.CardDraft "" "" stage Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])assist profile keep)draft)state
- |_=>state end in
- Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner trigger state)
+ let discarded:=Authoring.discard_editor owner state in
+ let state:=Authoring.result_state discarded in
+ let draft:=Draft.Draft(SS.next_layer state)(Draft.new_card (Identity.BoardCard None) "" stage None)Draft.Editing "" None in
+ Authoring.append discarded(Authoring.adopt_navigation snapshot
+   (Navigation.edit_object snapshot owner trigger(SS.save_draft draft state)))
 |Input.BeginTask project=>begin_task snapshot project state
 |Input.BeginVoiceNew owner=>begin_new_voice snapshot owner state
 |Input.SpeechInput(Speech.TaskCreated ticket task)=>voice_created snapshot ticket task state

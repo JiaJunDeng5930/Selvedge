@@ -105,6 +105,9 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
   [data-semantic-key="board-settings"], [data-semantic-key="archived-cards"]:has([data-semantic-key="empty"])) {
   inline-size: fit-content !important;
 }
+[data-semantic-key="board-settings"] [data-semantic-key="automation-effect"] {
+  max-inline-size: 24rem;
+}
 [data-semantic-key="file-preview"] [data-semantic-key="preview-image"] {
   inline-size: auto !important;
   max-inline-size: 100% !important;

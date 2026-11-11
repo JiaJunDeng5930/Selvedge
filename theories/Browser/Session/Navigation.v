@@ -160,12 +160,16 @@ Definition open_card_decision card decision trigger state :=
     if N.eqb card current then handoff open_next layer state else open_next trigger state
   |_=>open_next trigger state end
  |[]=>open_next trigger state end.
+(** Conversation composers own their drafts outside the dialog as well. *)
+Definition discard_draft_on_dismiss owner :=
+ match owner with Identity.NewTask _|Identity.Message _=>false|_=>true end.
 Definition dismiss_panel state := match State.layers(State.navigation_state state)with
  |layer::_=>match State.layer_panel layer with
-  |State.EditorPanel owner=>match owner with
-    |Identity.Project _|Identity.TitlePrompts=>let closed:=close_panel state in
-      changed(result_state closed)(CancelEditor owner::result_effects closed)
-    |_=>close_panel state end
+  |State.EditorPanel owner=>
+    let closed:=close_panel state in
+    if discard_draft_on_dismiss owner
+    then changed(result_state closed)(CancelEditor owner::result_effects closed)
+    else closed
   |_=>close_panel state end
  |[]=>keep state end.
 Definition modify_top occurrence modify state :=match State.layers(State.navigation_state state)with

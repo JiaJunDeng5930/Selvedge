@@ -168,11 +168,6 @@ Definition forget_preparation ticket s :=
  |None=>true end)(command_assessments s))s in
  with_preparations(filter(fun resource=>
  match resource_ticket resource with Some actual=>negb(N.eqb ticket actual)|None=>true end)(preparations s))s.
-Definition cancel_editor e s :=
- let s:=forget_assessment e s in
- let s:=with_preparations(filter(fun resource=>negb(replaceable_preparation e resource))(preparations s))s in
- match directory s with Loading _ request|Loaded _ request _|Failed _ request _=>
-   if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end.
 Definition upload_owner (r:resource upload_request attachment) := match r with Dormant=>None|Loading _ a|Loaded _ a _|Failed _ a _=>Some(upload_editor a) end.
 Definition blocks e s := existsb(fun r=>match upload_owner r with Some owner=>same_editor e owner|None=>false end)(uploads s).
 Definition connection_ticket_matches (t:N) (observation:connection_observation) := connection_matches t observation.
@@ -223,8 +218,18 @@ Definition ensure_assessment owner revision sequence command s :=
       (Loading ticket request::filter(fun resource=>negb(owned_assessment owner resource))(command_assessments s))s))
       [AssessCommand ticket request].
 Definition release_preview s := match preview s with Loaded _ _ url=>[ReleasePreview url]|_=>[]end.
+Definition abort_uploads (resources:list(resource upload_request attachment)) :=
+ flat_map(fun resource=>match resource with Loading ticket _=>[AbortUpload ticket]|_=>[]end)resources.
+Definition cancel_editor e s :=
+ let s:=forget_assessment e s in
+ let s:=with_preparations(filter(fun resource=>negb(replaceable_preparation e resource))(preparations s))s in
+ let s:=match directory s with Loading _ request|Loaded _ request _|Failed _ request _=>
+   if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end in
+ let '(discarded,remaining):=partition(fun resource=>match upload_owner resource with
+   |Some owner=>same_editor e owner|None=>false end)(uploads s)in
+ effects(with_uploads remaining s)(abort_uploads discarded).
 Definition end_connection reason s :=
-  let aborts:=flat_map(fun r=>match r with Loading ticket _=>[AbortUpload ticket]|_=>[]end)(uploads s)in
+  let aborts:=abort_uploads(uploads s)in
   let failed:=map(fun r=>match r with Loading ticket request=>Failed ticket request reason|_=>r end)(uploads s)in
   (* A connection owns in-flight transfers and admission observations. Its
      replacement must not attach old receipts to the next authenticated world. *)

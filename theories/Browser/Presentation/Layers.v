@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Domain Commands Codec Images.
 From Selvedge.Generated Require Commands.
-From Selvedge.Features Require Domain BoardFilter BoardParameters.
+From Selvedge.Features Require Domain BoardFacts BoardFilter BoardParameters.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input.
@@ -156,6 +156,12 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
   |None=>Collections.card_conversation snapshot parent card end)++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
+Definition board_automation_description (automatic:bool) :=
+ if automatic then "关闭后，等待中的卡片不会自动启动。正在运行的对话会继续。"
+ else let stages:=String.concat "或" (map(fun stage=>"「"++Selvedge.Features.Domain.stage_label stage++"」")
+    (filter BoardFacts.automatic_stage Selvedge.Features.Domain.stages)) in
+ "启用后会立即检查已有卡片。"++stages++
+ "中已指派模型、未归档、未关联对话且内容就绪的卡片会排队，轮到卡片且模型空闲时尝试启动。".
 Definition board_settings snapshot s parent :=match Read.board_configuration snapshot with
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
 |Some board=>let automatic:=Read.board_automatic board in
@@ -167,7 +173,9 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
    (State.awaiting(State.authoring_state s)) in
  let toggle:=option_map Input.Command(decode_command Selvedge.Kernel.Commands.command_specs
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
- ((match toggle with None=>[]|Some input=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input))]end)++
+ ((match toggle with None=>[]|Some input=>
+ [declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input));
+  information parent "automation-effect" Information.Description (board_automation_description automatic)]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
   (BoardProfile automatic selected choices
     (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.

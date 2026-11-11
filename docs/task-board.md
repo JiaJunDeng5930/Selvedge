@@ -14,12 +14,9 @@ retains selected parameters while clearing submitted content. **用模型整理�
 enables assisted creation. Normal creation and successful edits close the dialog.
 
 Assign **我**, a configured endpoint for ordinary execution, or leave the card
-unassigned. The create and edit dialogs explain what saving a model-assigned
-card will do under current conditions. With automatic execution enabled, a
-card in **待办** or **进行中** can start when its model profile has a free slot
-and the card reaches the front of the eligible queue. A card in **待规划**
-stays saved there. Assisted creation generates its text before the card can
-enter that queue.
+unassigned. Before saving a model-assigned card, the create and edit dialogs
+explain whether it will stay saved for later, enter the queue, or attempt to
+start a conversation.
 
 Drag a card into another stage or before another card in its current stage.
 An active linked Task keeps its card in progress; same-column ordering remains available.
@@ -39,8 +36,13 @@ Return through **More actions → Open board card** to see the linked card.
 
 Toolbar tabs, search and filters narrow the view. **执行中的卡片** counts the
 cards with an active linked conversation under the current search and filters.
-Enable **自动** for automatic execution. Choose **打开对话** on a linked card to
-append input, handle approvals or interrupt execution in that conversation.
+In **看板设置**, **启用自动执行** checks existing cards as soon as the change is
+saved. An unarchived card in **待办** or **进行中** enters the queue when it has a
+model assignee, no linked conversation, and any assisted drafting has succeeded.
+A card can start when it reaches the front of the eligible queue and the model
+profile has a free slot. Turning automation off prevents waiting cards from
+starting automatically. Running conversations continue. Choose **打开对话** on a
+linked card to append input, handle approvals or interrupt its execution.
 
 ## Assistance and files
 
