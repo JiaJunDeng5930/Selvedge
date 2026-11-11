@@ -73,12 +73,21 @@ Definition unknown_outcome requested reason current :=
  if N.eqb requested (ticket current) then
   Pending (ticket current) (accepted_command current) (purpose current) (Some reason)
  else current.
+Record search_page := SearchPage {
+  search_page_ticket : N;
+  search_reply : json
+}.
+Record search_origin := SearchOrigin {
+  search_origin_work : option N;
+  search_origin_hit : string
+}.
 Record search := Search {
   keyword : string;
   project_filter : option N;
   work_filter : option N;
-  search_result : option json;
-  search_latest : option N
+  search_result : option search_page;
+  search_latest : option N;
+  search_return : option search_origin
 }.
 Record skill_request := SkillRequest { skill_editor : editor; skill_workspace : Selvedge.Kernel.Domain.workspace }.
 Record authoring := Authoring {
@@ -123,7 +132,7 @@ Definition pending_placement card state:=existsb(fun pending=>
  (awaiting(authoring_state state)).
 Definition initial := State
   (Navigation Start None [] AutomaticNavigation true 0 [])
-  (Authoring [] 0 [] (Search "" None None None None) [] [] false)
+  (Authoring [] 0 [] (Search "" None None None None None) [] [] false)
   Services.initial Speech.initial [] [] Selvedge.Interaction.Interactive.State.initial
   BoardFilter.empty DocumentState.initial_retention [] [] None 0.
 Definition with_navigation value := set navigation_state (fun _=>value).

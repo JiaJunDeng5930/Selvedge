@@ -79,15 +79,19 @@ Definition route_scope snapshot route navigation :=
    |Some observed=>let owner:=natural_field "work_id" observed in select_scope owner navigation
    |None=>navigation end
  |_,_=>navigation end.
+Definition search_state state:=State.history_search(State.authoring_state state).
+Definition set_search search state:=State.with_authoring
+ (set State.history_search(fun _=>search)(State.authoring_state state))state.
+Definition set_search_return origin state:=
+ set_search(set State.search_return(fun _=>origin)(search_state state))state.
 Definition visit snapshot destination state :=
  if route_allowed snapshot destination then
  let navigation:=route_scope snapshot destination(State.navigation_state state)in
  let navigation:=after_visit(set State.location(fun _=>destination)
    (set State.layers(fun _=>[])navigation))in
- let state:=State.with_navigation navigation state in
+ let state:=set_search_return None(State.with_navigation navigation state)in
  let state:=match destination with
  |Conversation task=>new_visit task state
- |HistorySearch=>State.with_authoring(set State.history_search(fun _=>State.Search "" None None None None)(State.authoring_state state))state
  |_=>state end in
  let draft_effects:=match destination with
  |Conversation task=>[EnsureDraft(Message task);EnsureDraft(NewTask(State.active_work navigation))]
@@ -95,6 +99,8 @@ Definition visit snapshot destination state :=
  let attention:=match destination with
   |Start=>NavigationIdentity.key_part "/main" "creation/title"
   |GraphConversation work _=>NavigationIdentity.key_part(editor_key(NewTask work))"message"
+  |HistorySearch=>match State.search_result(search_state state)with
+    |Some _=>"/main"|None=>NavigationIdentity.key_part "/main" "heading"end
   |_=>NavigationIdentity.key_part "/main" "heading"end in
  changed state(List.app draft_effects [Attend attention])
  else refuse "The requested destination is no longer available."state.
@@ -269,9 +275,8 @@ Definition show_side snapshot task trigger state:=
      set result_effects(fun effects=>List.app(result_effects prepared)effects)opened
     end end end.
 Definition close_side state:=close_panel state.
-Definition set_search search state:=State.with_authoring(set State.history_search(fun _=>search)(State.authoring_state state))state.
 Definition edit_search query project work state:=match State.location(State.navigation_state state)with
- |HistorySearch=>keep(set_search(State.Search query project work None None)state)|_=>keep state end.
+ |HistorySearch=>keep(set_search(State.Search query project work None None None)state)|_=>keep state end.
 Definition search_obstruction state : option string :=
  if State.pending_search state then Some "正在搜索…" else
  if negb(Services.connected(State.service_state state))then Some "连接 Selvedge 后即可搜索。" else
@@ -282,10 +287,38 @@ Definition submit_search after state:=match State.location(State.navigation_stat
  |HistorySearch=>let search:=State.history_search(State.authoring_state state)in
  match search_obstruction state with Some _=>keep state|None=>
  let ticket:=State.next(State.authoring_state state)in
- let state:=set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state in
+ let state:=set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket)None)state in
  generated(Commands.Cmd_search_history(Commands.Build_search_history(State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)(Some true)))
  (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)state end
  |_=>keep state end.
+Definition open_history_result snapshot task index trigger state:=
+ let navigation:=State.navigation_state state in
+ match State.location navigation with
+ |HistorySearch=>
+   let visited:=visit snapshot(Conversation task)state in
+   match result_error visited with Some _=>visited|None=>
+     let origin:=State.SearchOrigin(State.active_work navigation)trigger in
+     let state:=set_search_return(Some origin)(result_state visited)in
+     match index with
+     |None=>changed state(result_effects visited)
+     |Some message=>
+       changed(store_reader(set State.reader_position(fun _=>State.ReadingHistory)(reader_for state task))state)
+         (List.app(result_effects visited)[LocateHistoryMessage task message])
+     end
+   end
+ |_=>keep state end.
+Definition return_to_history_search snapshot state:=
+ let navigation:=State.navigation_state state in
+ match State.location navigation,State.search_return(search_state state)with
+ |Conversation _,Some origin=>
+   let work:=State.search_origin_work origin in
+   (* DEFENSE: The originating work group can be removed while the result is
+      open. The global search remains available in the current scope. *)
+   let state:=if work_available snapshot work then
+     State.with_navigation(select_scope work navigation)state else state in
+   let returned:=visit snapshot HistorySearch state in
+   set result_effects(fun _=>[Attend(State.search_origin_hit origin)])returned
+ |_,_=>keep state end.
 (** DEFENSE: a scroll observer can finish after its task viewport was closed
     or revisited; only its still-visible visit owns the reading choice. *)
 Definition read_current task generation intent state:=
@@ -363,10 +396,8 @@ Definition step snapshot input state:option result:=match input with
  |Input.WriteHistoryQuery query=>let old:=State.history_search(State.authoring_state state)in Some(edit_search query(State.project_filter old)(State.work_filter old)state)
  |Input.ChooseHistoryScope project scope=>let old:=State.history_search(State.authoring_state state)in Some(edit_search(State.keyword old)(if project then scope else State.project_filter old)(if project then State.work_filter old else scope)state)
  |Input.SubmitHistorySearch after=>Some(submit_search after state)
- |Input.OpenHistoryMessage task index=>let visited:=visit snapshot(Conversation task)state in
-   Some(match result_error visited with Some _=>visited|None=>let state:=result_state visited in
-     changed(store_reader(set State.reader_position(fun _=>State.ReadingHistory)(reader_for state task))state)
-       (List.app(result_effects visited)[LocateHistoryMessage task index])end)
+ |Input.OpenHistoryResult task index trigger=>Some(open_history_result snapshot task index trigger state)
+ |Input.ReturnToHistorySearch=>Some(return_to_history_search snapshot state)
  |Input.ReadTimeline task generation intent=>Some(read_current task generation intent state)
  |Input.FollowLatest task=>Some(follow_latest task state)
  |Input.SetDisclosure task group occurrence expanded=>Some(disclose task group occurrence expanded state)
@@ -399,5 +430,7 @@ Definition complete snapshot purpose outcome state:option result:=match purpose 
  |State.SearchSubmission query project work ticket=>let current:=State.history_search(State.authoring_state state)in
    Some(if String.eqb query(State.keyword current)&&same_work project(State.project_filter current)&&same_work work(State.work_filter current)&&match State.search_latest current with Some latest=>N.eqb ticket latest|None=>false end then
     let reply:=match outcome with inl reason=>JObject[("ok",JBool false);("error",JString reason)]|inr value=>value end in
-    keep(set_search(State.Search query project work(Some reply)None)state)else keep state)
+    let page:=State.SearchPage ticket reply in
+    keep(set_search(set State.search_result(fun _=>Some page)
+      (set State.search_latest(fun _=>None)current))state)else keep state)
  |_=>None end.

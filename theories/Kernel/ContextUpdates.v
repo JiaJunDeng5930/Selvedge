@@ -116,8 +116,9 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
  | Introduce value | Amend value _ _ => value :: remove_snapshot (snapshot_key value) values
  | Remove key _ => remove_snapshot key values
  end.
-Definition bindings (history : list message) := fold_left
- (fun values message => match message with ContextObservation change => apply_change change values | _ => values end) history [].
+Definition update_bindings (values:list snapshot) (event:message) :=
+ match event with ContextObservation change => apply_change change values | _ => values end.
+Definition bindings (history : list message) := fold_left update_bindings history [].
 Definition observation_changes (observation : context_observation) (values : list snapshot) : option (list context_change) :=
  match observation with
  | RejectedObservation => None

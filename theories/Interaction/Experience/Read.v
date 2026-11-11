@@ -30,6 +30,8 @@ Definition find_task id snapshot := bind(World.find_task id snapshot)observe_tas
 Definition same_id lhs rhs := match lhs,rhs with
 |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition project_tasks selected := filter(fun value=>same_id selected(task_project value)).
+Definition work_tasks selected :=
+ filter (fun value=>match selected with None=>true|Some work=>same_id(Some work)(task_work value)end).
 
 Record project := ObservedProject {
  project_id : N; project_name : string; project_workspace : KernelDomain.workspace;
@@ -136,6 +138,9 @@ Definition task_timeline id snapshot :=
  option_map(Audit.retained 0)(array_field "history" value).
 
 Definition board_value snapshot := field "board" snapshot.
+Definition card_link_stage task snapshot :=
+ value<-World.find_task task snapshot;;
+ bind(string_field "card_link_stage" value)BoardParameters.stage.
 
 Inductive generation := Idle | Generating | GenerationFailed(reason:string).
 Definition observe_generation value := match string_field "status" value with

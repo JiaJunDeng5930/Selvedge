@@ -67,7 +67,7 @@ Definition card_choice_nodes snapshot s card decision occurrence query parent :=
  search_control :: match CardDecisions.observe snapshot card,State.now s with
  |Some opportunity,Some now=>
   let matching:=filter matches(CardDecisions.choices decision opportunity)in
-  let actions:=flat_map(fun selected=>ObjectActions.singleton(ObjectActions.choice_declaration opportunity now selected))(firstn 24 matching)in
+  let actions:=flat_map(fun selected=>ObjectActions.singleton(ObjectActions.choice_declaration snapshot opportunity now selected))(firstn 24 matching)in
   let summary:=if Nat.ltb 24 (List.length matching) then
     [information parent "search-hint" Information.Description "仅显示前 24 项。搜索可以缩小范围。"]
    else match matching with []=>[empty]|_=>[]end in

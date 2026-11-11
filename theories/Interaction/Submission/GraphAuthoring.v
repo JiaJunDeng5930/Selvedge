@@ -49,9 +49,3 @@ Definition observe_handoff value : option handoff :=
    if distinct && Json.equal value (handoff_declaration draft) then Some draft else None
  | _ => None
  end.
-
-Definition awaiting_endpoints draft :=
- match handoff_source draft, handoff_target draft with
- | Some _, Some _ => false
- | _, _ => true
- end.

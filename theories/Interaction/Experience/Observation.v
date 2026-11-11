@@ -8,12 +8,12 @@ From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
 From Selvedge.Interaction Require World.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Draft GraphAuthoring.
 From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Interaction.Experience Require EditorContext.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Experience Require Import Model Activity.
-From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Experience Require ContextObservation Read.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -403,6 +403,39 @@ Definition fork_requirements snapshot e task count (messages:list string):list(o
       "resource_limit" "An ancestor descendant limit prevents this fork."
    |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end
   |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end end.
+Definition handoff_conversations snapshot work : option (string + list Read.task) :=
+ option_map (fun all=>match Read.work_tasks work all with
+  |[]=>inl "Create two conversations in this scope."
+  |[_]=>inl "Create one more conversation in this scope."
+  |available=>inr available end)(Read.tasks snapshot).
+Definition handoff_conversations_loading := "Loading conversations…".
+Definition invalid_graph_declaration :=
+ ("invalid_task_graph_declaration","Check the graph name, conversation references and routing rules.").
+Definition graph_declaration_diagnostic snapshot graph parsed work :=
+ match bind parsed GraphAuthoring.observe_handoff with
+ |None=>invalid_graph_declaration
+ |Some handoff=>match GraphAuthoring.handoff_source handoff,GraphAuthoring.handoff_target handoff with
+  |Some _,Some _=>if String.eqb(GraphAuthoring.handoff_name handoff)"" then
+    ("invalid_task_graph_declaration","Enter a graph name.") else invalid_graph_declaration
+  |source,target=>
+   let scope:=match graph with
+    |None=>work|Some id=>bind(Read.find_graph id snapshot)Read.graph_work end in
+   ("graph_handoff_incomplete",match handoff_conversations snapshot scope with
+    |None=>handoff_conversations_loading
+    |Some(inl shortage)=>shortage
+    |Some(inr _)=>match source,target with
+     |None,None=>"Choose a source and a receiving conversation."
+     |None,Some _=>"Choose a source conversation."
+     |Some _,_=>"Choose a receiving conversation."end end)
+  end
+ end.
+Definition graph_declaration_valid body :=
+ match Command.command_json None body with Some value=>
+  match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
+  |Some _=>match TaskGraph.parse_declaration false value with
+    |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
+  |None=>false end
+ |None=>false end.
 Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  match body with
  |Draft.NewTaskBody message profile effort _ _ _=>
@@ -415,13 +448,10 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
    (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
- |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
-   (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
-     match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
-     |Some _=>match TaskGraph.parse_declaration false value with
-       |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
-     |None=>false end|None=>false end end)
-   (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Check the graph name, conversation references and routing rules."
+ |Draft.TaskGraphBody graph _ parsed work=>
+   if graph_declaration_valid body then [] else
+   let '(code,reason):=graph_declaration_diagnostic snapshot graph parsed work in
+   [requirement_obstruction e (Some Fields.TaskGraphDeclaration) code reason]
  |Draft.TitlePromptsBody _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
@@ -448,7 +478,8 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
- String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending".
+ String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
+ String.eqb(obstruction_code cause)"graph_handoff_incomplete".
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
 Definition action_obstruction {e}(outcome:assessment_result e):option(obstruction e):=

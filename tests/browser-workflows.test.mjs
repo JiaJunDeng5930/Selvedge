@@ -301,8 +301,17 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const name = dialog.getByRole('textbox', { name: 'Graph name', exact: true });
   const newConversation = dialog.getByRole('button', { name: 'New conversation', exact: true });
   const returnToGraph = page.getByRole('button', { name: 'Back to task graph', exact: true });
+  const prerequisite = dialog.locator('[data-semantic-key="handoff-needs-conversations"]');
+  async function expectBlockedBy(message) {
+    await create.and(dialog.locator(`[data-help=${JSON.stringify(message)}]`)).waitFor();
+    assert.equal(await create.isDisabled(), true);
+    assert.equal(await create.evaluate(button =>
+      (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
+        .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), message);
+  }
   await name.fill('Browser handoff');
-  await dialog.getByText('Create two conversations', { exact: false }).waitFor();
+  await expectBlockedBy('Create two conversations in this scope.');
+  assert.equal(await prerequisite.innerText(), 'Create two conversations in this scope.');
   await newConversation.click();
   assert.equal(await returnToGraph.innerText(), 'Back to task graph');
   await returnToGraph.click();
@@ -331,15 +340,21 @@ test('task graph setup creates its conversations in scope and routes replies', {
   }
 
   const source = await createEndpoint('Collect evidence for the graph');
-  await dialog.getByText('Create one more conversation', { exact: false }).waitFor();
+  await expectBlockedBy('Create one more conversation in this scope.');
+  assert.equal(await prerequisite.innerText(), 'Create one more conversation in this scope.');
   const receiver = await createEndpoint('Review the routed evidence');
+  await expectBlockedBy('Choose a source and a receiving conversation.');
   assert.deepEqual((await command({ op: 'read_work', work_id: work })).task_ids, [source, receiver]);
   const availableSources = await dialog.getByRole('combobox', { name: 'Source conversation', exact: true })
     .locator('option').evaluateAll(options => options.map(option => option.value));
   assert.ok(!availableSources.includes(String(outsider)), 'The picker stays in the graph scope');
   await dialog.getByRole('combobox', { name: 'Source conversation', exact: true }).selectOption(String(source));
-  assert.equal(await create.isDisabled(), true);
+  await expectBlockedBy('Choose a receiving conversation.');
   await dialog.getByRole('combobox', { name: 'Receiving conversation', exact: true }).selectOption(String(receiver));
+  await dialog.getByRole('button', { name: 'Create task graph', exact: true, disabled: false }).waitFor();
+  await name.fill('');
+  await expectBlockedBy('Enter a graph name.');
+  await name.fill('Browser handoff');
   await create.click();
   await dialog.waitFor({ state: 'hidden' });
 
@@ -399,7 +414,8 @@ test('leaving a graph conversation before its receipt preserves the newer destin
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: 'Task graphs', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
-  await graph.getByText('Create one more conversation', { exact: false }).waitFor();
+  await graph.locator('[data-semantic-key="handoff-needs-conversations"]')
+    .filter({ hasText: 'Create one more conversation in this scope.' }).waitFor();
   assert.equal(await name.inputValue(), 'Keep this graph');
 });
 

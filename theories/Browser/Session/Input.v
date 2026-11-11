@@ -50,7 +50,8 @@ Inductive input :=
 | BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide
 | NavigationExpanded(value:bool) | TaskListVisible(value:bool)
 | WriteHistoryQuery(query:string) | ChooseHistoryScope(project:bool)(scope:option N)
-| SubmitHistorySearch(after:N) | OpenHistoryMessage(task index:N)
+| SubmitHistorySearch(after:N) | OpenHistoryResult(task:N)(index:option N)(trigger:string)
+| ReturnToHistorySearch
 | ReadTimeline(task generation:N)(intent:State.reading_intent)
 | FollowLatest(task:N) | SetDisclosure(task group occurrence:N)(expanded:bool)
 | CardPlaced(id revision observed_at:N)(status:string)(before:option N)

@@ -15,9 +15,6 @@ Definition domain_availability(value:Selvedge.Interaction.Experience.Model.avail
 |Selvedge.Interaction.Experience.Model.Available=>Available
 |Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
 
-Definition in_work selected value := match selected with
-|None=>true|Some work=>same_id (Some work) (task_work value)end.
-Definition work_tasks selected := filter (in_work selected).
 Inductive task_tree := TaskTree (entry:task)(children:list task_tree).
 Definition tree_entry(tree:task_tree):task:=match tree with TaskTree entry _=>entry end.
 (** Snapshots retain the kernel's parent-before-child registry order.  Folding

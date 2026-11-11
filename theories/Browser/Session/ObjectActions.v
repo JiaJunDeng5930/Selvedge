@@ -69,13 +69,19 @@ Definition choice_label selected : string := match selected with
 |CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("移至"++Domain.stage_label stage)%string
 |CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("移到「"++title++"」之前")%string
 |CardDecisions.LinkTo task=>CardDecisions.target_title task end.
-Definition choice_declaration opportunity now selected :=
- native(choice_key selected)(choice_label selected)None(CardDecisions.proposal opportunity now selected).
+Definition choice_caption snapshot selected :=
+ let label:=choice_label selected in
+ match selected with
+ |CardDecisions.LinkTo task=>match Read.card_link_stage (CardDecisions.target_task task) snapshot with
+  |Some stage=>(label++" · 预计进入 "++Domain.stage_label stage)%string|None=>label end
+ |_=>label end.
+Definition choice_declaration snapshot opportunity now selected :=
+ native(choice_key selected)(choice_caption snapshot selected)None(CardDecisions.proposal opportunity now selected).
 Definition find_choice snapshot clock card decision key :=
  opportunity<-CardDecisions.observe snapshot card;;
  now<-clock;;
  selected<-find(fun candidate=>String.eqb key(choice_key candidate))(CardDecisions.choices decision opportunity);;
- choice_declaration opportunity now selected.
+ choice_declaration snapshot opportunity now selected.
 Definition assessment_revision s := State.generation(State.navigation_state s).
 Definition action_revision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with

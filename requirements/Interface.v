@@ -263,10 +263,19 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.
+    When the current scope has too few conversations, the source and receiver
+    form and its unavailable commit identify how many more are needed.
     A conversation created from graph setup belongs to that scope. The
     conversation composer offers an explicit return to the graph draft and
     successful creation returns there while that navigation intent still owns
     the page.
+
+    Opening a search result leaves the query, filters and page of results
+    available for further comparison. The conversation offers a direct return
+    to that result list, at the reader's previous position.
+    Before adding a conversation to the board or linking it to an existing
+    card, the interface shows the destination stage for the currently observed
+    conversation.
 
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy

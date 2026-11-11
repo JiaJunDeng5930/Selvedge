@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
@@ -56,7 +57,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await completed.getByRole('article', { name: title, exact: true }).waitFor();
   await card.getByRole('button', { name: '关联对话', exact: true }).click();
   const link = page.getByRole('dialog', { name: '关联对话', exact: true });
-  const choice = link.getByRole('button', { name: task.title, exact: true });
+  const choice = link.getByRole('button', { name: `${task.title} · 预计进入 进行中`, exact: true });
   let competing = true;
   await page.route('**/api/browser/command', async route => {
     if (competing && route.request().postDataJSON()?.command?.op === 'link_card') {
@@ -81,7 +82,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
 
   const working = page.getByRole('radio', { name: '执行中的卡片 1', exact: true });
   await working.click();
-  await card.waitFor();
+  await board.locator('[data-board-stage="in_progress"]').getByRole('article', { name: title, exact: true }).waitFor();
   const search = page.getByPlaceholder('搜索卡片', { exact: true });
   await search.fill('different card title');
   await page.getByRole('radio', { name: '执行中的卡片 0', exact: true }).waitFor();
@@ -93,11 +94,10 @@ test('the board keeps empty stages visible and counts only matching cards linked
 });
 
 test('a conversation can be added to the board without starting another conversation', async t => {
-  const { page, command, running } = await browserFixture(t);
+  const { page, command, running, requests, finish } = await browserFixture(t);
   const { project_id } = await command({ op: 'create_project', name: 'Release planning', workspace: { roots: [] } });
-  const { task_id } = await command({ op: 'create', profile: 'demo', message: 'Verify the release checklist',
+  const { task_id } = await command({ op: 'create', profile: 'interactive', message: 'Verify the release checklist',
     settings: { project_id } });
-  await taskIdle(running.service, task_id);
   const { task } = await command({ op: 'read', task_id });
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
@@ -110,6 +110,16 @@ test('a conversation can be added to the board without starting another conversa
   const titleField = dialog.getByRole('textbox', { name: '标题', exact: true });
   assert.equal(await titleField.inputValue(), task.title);
   await dialog.getByText('关联对话', { exact: true }).waitFor();
+  const destination = dialog.getByText('预计进入', { exact: true }).locator('..');
+  await destination.getByText('进行中', { exact: true }).waitFor();
+  await dialog.getByText('更多卡片选项', { exact: true }).click();
+  await destination.getByText('进行中', { exact: true }).waitFor();
+  const deadline = Date.now() + 5000;
+  while (!requests.length && Date.now() < deadline) await delay(10);
+  assert.ok(requests[0], 'The source conversation must reach the fixture model');
+  finish(0, { text: 'The release checklist is ready for review.' });
+  await taskIdle(running.service, task_id);
+  await destination.getByText('待审核', { exact: true }).waitFor();
   const title = 'Release checklist review';
   await titleField.fill(title);
   await dialog.getByRole('button', { name: '添加卡片', exact: true }).click();

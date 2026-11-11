@@ -42,8 +42,25 @@ Definition decode_purpose value:=match string_field "kind" value with
 |_=>None end.
 Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));("purpose",encode_purpose(purpose value));("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
 Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;purpose<-bind(field "purpose" value)decode_purpose;;unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose unknown).
-Definition encode_search value:=JObject[("query",JString(keyword value));("project",optional_id(project_filter value));("work",optional_id(work_filter value));("result",DraftCodec.optional_value(fun x=>x)(search_result value));("latest",optional_id(search_latest value))].
-Definition decode_search value:=query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;result<-bind(field "result" value)(DraftCodec.parse_optional(fun x=>Some x));;latest<-bind(field "latest" value)decode_id;;Some(Search query project work result latest).
+Definition encode_search_page value:=JObject[
+ ("ticket",number(search_page_ticket value));("reply",search_reply value)].
+Definition decode_search_page value:=ticket<-natural_field "ticket" value;;
+ reply<-field "reply" value;;Some(SearchPage ticket reply).
+Definition encode_search_origin value:=JObject[
+ ("work",optional_id(search_origin_work value));("hit",JString(search_origin_hit value))].
+Definition decode_search_origin value:=work<-bind(field "work" value)decode_id;;
+ hit<-string_field "hit" value;;Some(SearchOrigin work hit).
+Definition encode_search value:=JObject[("query",JString(keyword value));
+ ("project",optional_id(project_filter value));("work",optional_id(work_filter value));
+ ("result",DraftCodec.optional_value encode_search_page(search_result value));
+ ("latest",optional_id(search_latest value));
+ ("return",DraftCodec.optional_value encode_search_origin(search_return value))].
+Definition decode_search value:=query<-string_field "query" value;;
+ project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;
+ result<-bind(field "result" value)(DraftCodec.parse_optional decode_search_page);;
+ latest<-bind(field "latest" value)decode_id;;
+ origin<-bind(field "return" value)(DraftCodec.parse_optional decode_search_origin);;
+ Some(Search query project work result latest origin).
 Definition encode_skill_request value:=JObject[("editor",encode_editor(skill_editor value));("workspace",Selvedge.Kernel.Codec.workspace_json(skill_workspace value))].
 Definition decode_skill_request value:=e<-bind(field "editor" value)decode_editor;;workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;Some(SkillRequest e workspace).
 Definition encode_mention_entry value:=JObject[("editor",encode_editor(fst value));("mention",SkillMention.encode_mention(snd value))].

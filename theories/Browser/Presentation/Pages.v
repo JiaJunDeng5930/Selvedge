@@ -209,13 +209,17 @@ Definition task_contents snapshot s view parent task :=
  approvals snapshot s id parent operations ++
  match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
 Definition conversation_page snapshot s view parent :=
+ let search_return:=match view,State.search_return(SessionNavigation.search_state s)with
+  |PrimaryTask _,Some _=>[declared parent Roles.Button
+      (secondary "return-to-search" "返回搜索结果" Input.ReturnToHistorySearch)]
+  |_,_=>[]end in
  match find_task(NavigationIdentity.task_view_task view)snapshot with
  |None=>[page_region parent Composition.UnavailableMessage Composition.BodyPosition
    [region parent "conversation-unavailable" "" Roles.Section
-     [title parent "Conversation unavailable";
-      information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]]]
+     ([title parent "Conversation unavailable";
+      information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]++search_return)]]
  |Some task=>[Node(part parent "conversation")"conversation" ""Roles.Section(PageContext(Some view))
-  (task_contents snapshot s view parent task)]end.
+  (search_return++task_contents snapshot s view parent task)]end.
 Definition history_scope (project:bool) selected choices parent :=
  Node(part parent(if project then"history/project"else"history/work"))"history-scope"(if project then"项目"else"工作组")Roles.Field
   (HistorySearchScope project selected choices(fun value=>
@@ -227,20 +231,25 @@ Definition history_hit parent hit :=
  let id:=Read.task_id task in
  let key:=part parent("hit/"++show_natural id++"/title")in
  region key "result" "标题匹配" Roles.Card
-  [declared key Roles.Button(secondary "open"(Read.task_title task)(Input.Navigate(Conversation id)));
+  [declared key Roles.Button(secondary "open"(Read.task_title task)
+    (Input.OpenHistoryResult id None(part key "open")));
    information key "match" Information.Description "标题匹配"]
  |HistoryObservation.MessageMatch task hit=>
  let id:=Read.task_id task in
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
  region key "result" "Search result"Roles.Card
-   ([declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))(Input.OpenHistoryMessage id index))]++
+   ([declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))
+      (Input.OpenHistoryResult id(Some index)(part key "open")))]++
     (if String.eqb(HistoryObservation.hit_before hit)""then[]else[read_only key "before" "上一条"(HistoryObservation.hit_before hit)])++
     [read_only key "snippet" "命中消息"(HistoryObservation.hit_text hit)]++
     (if String.eqb(HistoryObservation.hit_after hit)""then[]else[read_only key "after" "下一条"(HistoryObservation.hit_after hit)]))%list
  end.
 Definition history_page snapshot s parent :=
- let search:=State.history_search(State.authoring_state s)in
+ let search:=SessionNavigation.search_state s in
+ let page:=State.search_result search in
+ let results_parent:=match page with None=>parent|Some result=>
+   part parent("search-page/"++show_natural(State.search_page_ticket result))end in
  let pending:=State.pending_search s in
  let availability input:=if pending then Busy "正在搜索…" else
    domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input)in
@@ -255,16 +264,16 @@ Definition history_page snapshot s parent :=
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
     declared parent Roles.PrimaryButton submit];
-  page_region parent Composition.ProjectEntries Composition.BodyPosition
+  page_region results_parent Composition.HistoryResults Composition.BodyPosition
    (if pending then[information parent "searching" Information.Status "正在搜索…"]else
-    match State.search_result search with
+    match page with
    |None=>[information parent "prompt" Information.Description "搜索标题和消息正文，可按项目或工作组缩小范围。"]
-   |Some reply=>match HistoryObservation.search_result reply with
+   |Some result=>match HistoryObservation.search_result(State.search_reply result)with
     |inr result=>
      let after:=HistoryObservation.page_after result in
      ((match HistoryObservation.hits result with
        |[]=>[information parent "history-empty" Information.Status "没有找到匹配的标题或消息。试试其他关键词或扩大搜索范围。"]
-       |hits=>map(history_hit parent)hits end)++
+       |hits=>map(history_hit results_parent)hits end)++
       (if N.eqb after 0 then[]else
         [declared parent Roles.Button(observe_control availability
           (secondary "history/previous" "上一页"(Input.SubmitHistorySearch(N.sub after 20))))])++
@@ -299,6 +308,6 @@ Definition page_kind snapshot s :=match State.location(State.navigation_state s)
 |Projects=>Composition.ProjectCollection
 |ProjectHome id=>match find_project id snapshot with Some _=>Composition.ProjectOverview|None=>Composition.Unavailable end
 |Board=>Composition.TaskBoard|Graphs=>Composition.TaskGraphCollection
-|HistorySearch=>Composition.ProjectCollection
+|HistorySearch=>Composition.HistorySearchCollection
 |SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end.
 Definition main snapshot s :=Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind snapshot s))(page_contents snapshot s "/main").

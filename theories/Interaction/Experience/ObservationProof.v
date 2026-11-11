@@ -156,8 +156,9 @@ Theorem attention_is_an_actual_nonpassive_cause e(outcome:assessment_result e)ca
 Proof.
  unfold attention_obstruction,passive_obstruction. intros Found.
  apply find_some in Found as[Member Active]. split;[exact Member|].
- apply Bool.negb_true_iff in Active. apply Bool.orb_false_iff in Active as[Empty Pending].
- apply String.eqb_neq in Empty. apply String.eqb_neq in Pending. auto.
+ apply Bool.negb_true_iff in Active.
+ repeat rewrite Bool.orb_false_iff in Active.
+ repeat rewrite String.eqb_neq in Active. tauto.
 Qed.
 
 Theorem observed_property_retains_complete_help snapshot state e kind value:

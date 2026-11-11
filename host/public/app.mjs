@@ -56,6 +56,7 @@ let sourceFresh = false;
 let layoutFrame = null;
 let readingLayoutScheduled = false;
 let pendingHistoryLocation = null;
+let searchResultsPosition = null;
 let focusRequest = 0;
 let pendingFocus = null;
 let suspendedFocus = null;
@@ -209,6 +210,7 @@ function retireDocumentViews() {
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   pendingHistoryLocation = null; pendingFocus = null; suspendedFocus = null; focusRequest++;
+  searchResultsPosition = null;
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
@@ -320,6 +322,22 @@ function render(local = null) {
     fatal(error);
   }
 }
+function renderDocument(plan, generation) {
+  const selector = 'main > [data-page-region="history-results"]';
+  const previous = surface.querySelector(selector);
+  const scrollport = previous?.parentElement;
+  const offset = scrollport?.scrollTop;
+  renderer.render(plan, generation);
+  const current = surface.querySelector(selector);
+  if (previous === current) return;
+  if (previous) {
+    // The workspace keeps its main scrollport mounted across route changes.
+    searchResultsPosition = { key: previous.dataset.key, offset };
+    scrollport.scrollTop = 0;
+  }
+  if (current) current.parentElement.scrollTop =
+    current.dataset.key === searchResultsPosition?.key ? searchResultsPosition.offset : 0;
+}
 function present(local) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
   const measuringDocument = measuring && renderer.document;
@@ -346,7 +364,7 @@ function present(local) {
     const plan = interaction('observe', { state, world, environment, generation,
       namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
     surface.dataset.displayPending = String(publicationEvent('pending'));
-    renderer.render(plan, generation);
+    renderDocument(plan, generation);
   }
   surface.dataset.sourcesFresh = String(sourceFresh);
   if (!streamed) physical.refresh();

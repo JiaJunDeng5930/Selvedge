@@ -41,13 +41,13 @@ main:has(> [data-semantic-key="workspace-browse-heading"]) {
   text-align: end;
 }
 
-main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"])) >
+main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"], [data-page-region="history-results"])) >
   :is([data-semantic-key="workspace-browse-heading"], [data-page-region]),
 [data-semantic-key="task-graph/group"] > :is([data-semantic-key="task-graph/rules"], [data-semantic-key="task-graph/receipts"]) {
   inline-size: min(100%, var(--workspace-reading-measure)) !important;
 }
 
-main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"])) >
+main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"], [data-page-region="history-results"])) >
   :is([data-semantic-key="workspace-browse-heading"], [data-page-region]) {
   margin-inline: auto;
 }
@@ -112,17 +112,22 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   margin-inline-start: auto;
 }
 
-main:has(> [data-page-region="collection-actions"] > [data-semantic-key="history-query"])
+[data-page-region="history-results"]
   [data-semantic-key="result"] > button[data-semantic-key="open"] {
   align-items: start !important;
   justify-content: start !important;
   text-align: start;
 }
 
-main:has(> [data-page-region="collection-actions"] > [data-semantic-key="history-query"])
+[data-page-region="history-results"]
   [data-semantic-key="result"] > button[data-semantic-key="open"] > span {
   overflow-wrap: anywhere;
   white-space: normal !important;
+}
+
+[data-semantic-key="return-to-search"] {
+  align-self: start !important;
+  flex: none !important;
 }
 
 @container workspace-browse (max-width: 38rem) {

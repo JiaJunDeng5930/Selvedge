@@ -11,7 +11,7 @@ Theorem editing_history_search_discards_previous_result state query project work
  State.location(State.navigation_state state)=NavigationIdentity.HistorySearch ->
  State.history_search(State.authoring_state
   (Navigation.result_state(Navigation.edit_search query project work state)))=
- State.Search query project work None None.
+ State.Search query project work None None None.
 Proof.
  intro Location. unfold Navigation.edit_search. rewrite Location.
  reflexivity.
@@ -26,7 +26,7 @@ Theorem submitted_history_search_uses_shared_bounded_query state after:
  Navigation.generated(Commands.Cmd_search_history(Commands.Build_search_history
   (State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)(Some true)))
   (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)
-  (Navigation.set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state).
+  (Navigation.set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket)None)state).
 Proof. intros Location Ready. unfold Navigation.submit_search. now rewrite Location, Ready. Qed.
 
 Theorem a_pending_history_search_does_not_submit_twice state after:

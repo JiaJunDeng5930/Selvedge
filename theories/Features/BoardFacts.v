@@ -31,9 +31,16 @@ Definition runnable_profile (card:Selvedge.Features.Domain.card) (value:world) :
  | _=>None end else None.
 Definition runnable (card:Selvedge.Features.Domain.card) (value:world) :=
  match runnable_profile card value with Some _=>true | None=>false end.
-Fixpoint latest_failure_events (history:list message) := match history with
- | []=>false | FailureMessage _::_=>true | UserMessage _::_|AssistantMessage _ _::_|ModelContext _ _::_=>false | _::rest=>latest_failure_events rest end.
-Definition latest_failure (task:task) := latest_failure_events (rev (task_history task)).
+Definition observe_failure (failed:bool) (event:message) := match event with
+ |FailureMessage _=>true |UserMessage _|AssistantMessage _ _|ModelContext _ _=>false
+ |_=>failed end.
+Definition latest_failure (task:task) := fold_left observe_failure (task_history task) false.
+Definition initial_link_stage := InProgress.
+Definition stage_after_execution (previous:board_stage) (busy:bool) (failed:unit->bool) :=
+ if busy then InProgress else
+ match previous with InProgress=>if failed tt then Blocked else InReview|_=>previous end.
+Definition stage_after_task previous task :=
+ stage_after_execution previous (busy_task task) (fun _=>latest_failure task).
 (** A queued card may still be waiting for its model profile's concurrency slot. *)
 Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
  negb (Selvedge.Features.Domain.card_archived card) && unlinked card &&

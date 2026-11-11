@@ -189,9 +189,111 @@ test('Search finds the displayed conversation title and lets the user retry a lo
   const match = page.getByRole('main').getByRole('button', { name: title, exact: true });
   await match.click();
   await page.getByRole('main').getByText('The team is available Monday morning.', { exact: true }).waitFor();
+  const back = page.getByRole('button', { name: '返回搜索结果', exact: true });
+  await back.click();
+  await match.and(page.locator(':focus')).waitFor();
+  assert.equal(await query.inputValue(), title);
+  await tree.getByRole('button', { name: title, exact: true }).click();
+  await page.getByRole('main').getByText('The team is available Monday morning.', { exact: true }).waitFor();
+  assert.equal(await back.count(), 0, 'An ordinary sidebar visit has no return to search');
   await page.getByRole('button', { name: '新建对话', exact: true }).click();
   await page.getByRole('main').getByRole('combobox', { name: 'Task', exact: true }).waitFor();
   assert.equal(await page.getByText('This command is already pending.', { exact: true }).count(), 0);
+});
+
+test('Returning from a search hit restores its filtered results page and reading position', { timeout: 60000 }, async t => {
+  const title = 'Archive reading fixture';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const projectName = 'Archive project';
+  const resultWork = 'Archive group';
+  const sourceWork = 'Source group';
+  const marker = '档案检索';
+  const directory = path.join(fixture.root, 'archive');
+  await mkdir(directory);
+  const { project_id } = await command({ op: 'create_project', name: projectName, workspace: { roots: [directory] } });
+  await command({ op: 'create_work', name: sourceWork });
+  const { work_id } = await command({ op: 'create_work', name: resultWork });
+  const prompt = 'Gather notes in the archive.';
+  const { task_id } = await command({ op: 'create_work_task', work_id, profile: fixture.profile,
+    settings: { project_id }, message: prompt });
+  const request = await until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), 'the archive model request');
+  fixture.finish(request.index, { output: Array.from({ length: 31 }, (_, index) => ({
+    type: 'message', role: 'assistant', content: [{ type: 'output_text',
+      text: `${marker} ${index + 1}. ${'Searchable notes for the project archive. '.repeat(4)}` }],
+  })) });
+  await taskIdle(fixture.running.service, task_id);
+
+  const main = page.getByRole('main');
+  const query = main.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const project = main.getByRole('combobox', { name: '项目', exact: true });
+  const work = main.getByRole('combobox', { name: '工作组', exact: true });
+  const previous = main.getByRole('button', { name: '上一页', exact: true });
+  const back = main.getByRole('button', { name: '返回搜索结果', exact: true });
+  const hit = main.getByRole('button', { name: /^Archive reading fixture · 消息 #/ }).nth(4);
+  const picker = page.getByRole('button', { name: /^对话范围 · / });
+  const scope = page.getByRole('dialog', { name: '对话范围', exact: true });
+  await picker.click();
+  await scope.getByRole('radio', { name: sourceWork, exact: true }).click();
+  await page.getByRole('button', { name: `对话范围 · ${sourceWork}`, exact: true }).waitFor();
+  const search = page.getByRole('button', { name: '搜索对话', exact: true });
+  const enterSearch = async () => {
+    if (!(await search.isVisible()))
+      await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
+    await search.click();
+  };
+  await enterSearch();
+  await project.selectOption({ label: projectName });
+  await work.selectOption({ label: resultWork });
+  await query.fill(marker);
+  await query.press('Enter');
+  await main.getByRole('button', { name: '更多结果', exact: true }).click();
+  await previous.waitFor();
+  const hitName = await hit.textContent();
+  const checkSearch = async offset => {
+    await hit.waitFor();
+    await previous.waitFor();
+    assert.equal(await query.inputValue(), marker);
+    assert.equal(await project.inputValue(), String(project_id));
+    assert.equal(await work.inputValue(), String(work_id));
+    assert.equal(await hit.textContent(), hitName);
+    assert.ok(Math.abs((await main.evaluate(node => node.scrollTop)) - offset) <= 2,
+      'The search list returns to its previous scroll position');
+  };
+  const readPosition = async () => {
+    await hit.scrollIntoViewIfNeeded();
+    return hit.evaluate(node => {
+      node.scrollIntoView({ block: 'center', behavior: 'instant' });
+      return node.closest('main').scrollTop;
+    });
+  };
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    const offset = await readPosition();
+    assert.ok(offset > 100, 'The selected result is well below the first visible results');
+    await hit.click();
+    if (viewport.width === 1280)
+      await page.getByRole('button', { name: `对话范围 · ${resultWork}`, exact: true }).waitFor();
+    await back.click();
+    await hit.and(page.locator(':focus')).waitFor();
+    await checkSearch(offset);
+    if (viewport.width === 1280)
+      await page.getByRole('button', { name: `对话范围 · ${sourceWork}`, exact: true }).waitFor();
+  }
+
+  const offset = await readPosition();
+  await hit.click();
+  await back.waitFor();
+  await enterSearch();
+  await checkSearch(offset);
+
+  await query.fill('档案');
+  await query.press('Enter');
+  await main.getByRole('button', { name: '更多结果', exact: true }).waitFor();
+  assert.equal(await previous.count(), 0);
+  assert.equal(await main.evaluate(node => node.scrollTop), 0);
 });
 
 test('A message result opens its exact reading position while longer replies render', async t => {

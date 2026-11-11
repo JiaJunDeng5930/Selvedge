@@ -342,8 +342,9 @@ Definition retire_namespace namespace state:=
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
  let closed:=Speech.close_login(Speech.speech_state stopped)in
  let speech:=Speech.idle_with_notice ""(Speech.speech_state closed)in
- let authoring:=set SS.awaiting(fun _=>[])
-   (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state))in
+ let authoring:=set SS.history_search(fun search=>SS.Search(SS.keyword search)None None None None None)
+   (set SS.awaiting(fun _=>[])
+    (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state)))in
  let fresh:=SS.with_authoring authoring
   (SS.with_services services(SS.with_speech speech(SS.with_streams[]
   (SS.with_interactive_state IS.initial

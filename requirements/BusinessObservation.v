@@ -16,7 +16,8 @@ From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Numbers NumbersProofs Registry.
 From Selvedge.Generated Require Commands.
-From Selvedge.Kernel Require Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Kernel Require Context ContextUpdates Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Features Require BoardFacts.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Audit World.
 From Selvedge.Interaction.Experience Require Publication Read.
@@ -105,9 +106,10 @@ Proof.
    Publication.task_snapshot_in_world key selected value) _
    (State.world_tasks value) 0 id task Found).
  intros key selected.
- change (Selvedge.Foundation.Numbers.parse_natural
-   (Selvedge.Foundation.Numbers.show_natural key) = Some key).
- apply NumbersProofs.natural_print_parse.
+ unfold Publication.task_snapshot_in_world, Publication.task_snapshot, Publication.task_summary.
+ destruct (Domain.task_busy selected);
+   [|destruct (fold_left Publication.observe_history (Domain.task_history selected) ([],false))].
+ all: apply NumbersProofs.natural_print_parse.
 Qed.
 
 Lemma published_optional_id value :
@@ -116,6 +118,29 @@ Proof.
  destruct value as [value|]; [|reflexivity].
  change (option_map (@Some N) (Numbers.parse_natural (Numbers.show_natural value)) = Some (Some value)).
  now rewrite NumbersProofs.natural_print_parse.
+Qed.
+
+Lemma published_history_observes_context_and_failure history context failed :
+ fold_left Publication.observe_history history (context, failed) =
+ (fold_left ContextUpdates.update_bindings history context,
+  fold_left BoardFacts.observe_failure history failed).
+Proof.
+ revert context failed. induction history as [|event rest IH]; intros context failed.
+ - reflexivity.
+ - cbn [fold_left Publication.observe_history]. apply IH.
+Qed.
+
+Theorem task_snapshot_preserves_context_and_predicts_the_board_stage id task features :
+ let snapshot := Publication.task_snapshot id task features in
+ field "context" snapshot = Some (JArray (map Context.snapshot_json
+   (ContextUpdates.bindings (Domain.task_history task)))) /\
+ string_field "card_link_stage" snapshot = Some (Selvedge.Features.Domain.stage_name
+   (BoardFacts.stage_after_task BoardFacts.initial_link_stage task)).
+Proof.
+ unfold Publication.task_snapshot, Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
+ destruct (Domain.task_busy task).
+ - split; reflexivity.
+ - rewrite published_history_observes_context_and_failure. split; reflexivity.
 Qed.
 
 Lemma published_task_summary_is_observable id task features :
@@ -165,7 +190,10 @@ Theorem browser_and_cli_read_the_same_task_summary request value task :
 Proof.
  cbn zeta. intros Found Page. eexists. split.
  - unfold Read.find_task. rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
-   apply published_task_summary_is_observable.
+   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot.
+   destruct (Domain.task_busy task);
+     [|destruct (fold_left Publication.observe_history (Domain.task_history task) ([],false))];
+     apply published_task_summary_is_observable.
  - split; [apply published_task_summary_is_observable|].
    change (bind (field "result" (Queries.handle_read request None value)) (field "task") =
      Some (Publication.task_summary (Commands.read_task_id request) task (State.world_features value))).

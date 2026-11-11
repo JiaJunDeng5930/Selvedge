@@ -50,7 +50,6 @@ Definition unlinked := BoardFacts.unlinked.
 Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
 Definition runnable := BoardFacts.runnable.
-Definition latest_failure := BoardFacts.latest_failure.
 Definition card_json (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Observation.card_json_in_world value id card.
 Definition visible_cards (value:world) := fold_right (fun id rest=>match CardScope.lookup id value with Some card=>card_json id card value::rest | None=>rest end) [] (Selvedge.Features.Domain.board_order (registry value)).
 Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) (caller:option N) (value:world) :json :=
@@ -133,7 +132,7 @@ Definition link_result (id revision:N) (observed:BoardParameters.clock) (target:
  match Selvedge.Kernel.State.find_task target value with None=>CommandResult.refuse "task_not_found" "The conversation to link does not exist" | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
  if editable card && unlinked card && negb used then
- let updated:=revised (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) observed card in
+ let updated:=revised (with_stage BoardFacts.initial_link_stage (Selvedge.Features.Domain.card_contents card)) observed card in
  CommandResult.Accepted (save_change id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
    (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value)
  else CommandResult.refuse "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" end).
@@ -269,7 +268,7 @@ Definition completion_inputs := [InputRoute.callback ModelDeclarations.BoardText
 Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
  if Selvedge.Features.Domain.card_archived card then card else match linked_task card value with None=>card | Some task=>
  let previous:=Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) in
- let next:=if busy_task task then Selvedge.Features.Domain.InProgress else match previous with Selvedge.Features.Domain.InProgress=>if latest_failure task then Selvedge.Features.Domain.Blocked else Selvedge.Features.Domain.InReview | _=>previous end in
+ let next:=BoardFacts.stage_after_task previous task in
  if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then card else revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card end.
 Definition synchronize (value:world) := let b:=registry value in
  store ((set Selvedge.Features.Domain.board_cards (fun _=>(map (option_map (fun card=>synchronize_card card value)) (Selvedge.Features.Domain.board_cards b))) (b))) value.

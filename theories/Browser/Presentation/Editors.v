@@ -1,12 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Programming Require Import Schema.
+From Selvedge.Features Require Domain.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Browser.Session Require Services.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context SkillMention.
 From Selvedge.Browser.Session Require Import Input.
-From Selvedge.Interaction.Experience Require Model Activity Observation.
+From Selvedge.Interaction.Experience Require Model Activity Observation Read.
 From Selvedge.Interaction.Submission Require Draft GraphAuthoring Initialize.
 From Selvedge.Browser.Session Require State Observation Authoring.
 From Selvedge.Interaction.Submission Require Fields Parameters.
@@ -112,12 +113,6 @@ Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstructi
  match Draft.contents draft with
  |Draft.ProjectBody _ name _ _=>
    negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
- |Draft.TaskGraphBody None _ _ _=>
-   (* A handoff with unselected endpoints is an ordinary first input state. *)
-   negb(String.eqb(UX.obstruction_code cause)"invalid_task_graph_declaration" &&
-     match graph_handoff (Draft.contents draft) with
-     |Some handoff=>GraphAuthoring.awaiting_endpoints handoff
-     |None=>false end)
  |_=>true end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  fold_right(fun field rest=>match field_node snapshot s e parent field with
@@ -222,8 +217,11 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
  let source:=match target with
  |Identity.BoardCard _=>[]
  |Identity.ConversationCard task=>
-  [read_only parent "linked-conversation" "关联对话"
-    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)))] end in
+  List.app [read_only parent "linked-conversation" "关联对话"
+    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)))] (
+  match Read.card_link_stage task snapshot with
+  |Some stage=>[read_only parent "destination-stage" "预计进入"(Selvedge.Features.Domain.stage_label stage)]
+  |None=>[] end) end in
  let stage:=match target with Identity.BoardCard _=>[Fields.CardStage]|_=>[]end in
  let details:=field_nodes snapshot s e parent
    (List.app stage [Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels;Fields.CardAttachments]) in
@@ -264,22 +262,17 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
     (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
   graph_input parent "handoff-name" "Graph name" name None
     (fun value=>name<-as_string value;;assign name source target)::
-  match tasks snapshot with
-  |Some all=>let available:=work_tasks work all in
-   match available with
-   |_::_::_=>
+  match Observe.handoff_conversations snapshot work with
+  |Some(inr available)=>
     [information parent "handoff-purpose" Information.Description "New replies in the source conversation are sent as messages to the receiving conversation.";
      graph_endpoint parent "handoff-source" "Source conversation" available source target (fun id=>assign name id target);
      graph_endpoint parent "handoff-target" "Receiving conversation" available target source (fun id=>assign name source id)]
-   |_=>let prompt:=match available with
-     |[]=>"Create two conversations in this scope to choose a source and receiver."
-     |_=>"Create one more conversation in this scope to choose a source and receiver."end in
-    information parent "handoff-needs-conversations" Information.Description prompt::
+  |Some(inl shortage)=>
+    information parent "handoff-needs-conversations" Information.Description shortage::
     match e with
     |TaskGraph None _=>[declared parent Roles.Button(secondary "handoff-new-conversation" "New conversation" Input.BeginGraphConversation)]
     |_=>[]end
-   end
-  |None=>[information parent "handoff-conversations-unavailable" Information.Description "Loading conversations…"]
+  |None=>[information parent "handoff-conversations-unavailable" Information.Description Observe.handoff_conversations_loading]
   end
  end.
 Definition graph_editor snapshot s e parent (graph:option N) work :=
