@@ -43,7 +43,7 @@ Definition from_decision subject value :=
   (Decisions.decision_proposal value).
 Definition add_to_board_key := "board/add".
 Definition open_board_card_key := "board/card".
-Definition task_fork_action task := local "fork" "Fork conversation"(Editor(Fork task)).
+Definition task_fork_action task := local "fork" "Fork from current history"(Editor(Fork task)).
 Definition task_board_action snapshot task :=
  match Read.board_cards snapshot with
  |None=>[]

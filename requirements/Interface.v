@@ -79,8 +79,8 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     inspector shows effective settings, while commands act at the level of
     their target. Interrupting current work
     belongs beside its status, and cancelling a tool call belongs beside that
-    call. The conversation menu and the end of the conversation offer to fork
-    the current state. The latter identifies the point the fork will use.
+    call. The conversation menu and the end of the conversation use the same
+    action to fork the current history and name that starting point.
 
     A chooser explains why a choice is unavailable at the point of selection.
     Model choices with the same name show the configuration difference in
@@ -173,7 +173,9 @@ Export RenderProof(chart_accessible_values_keep_order,
     an incomplete parse final. [accepted_observation_uses_registered_visible_document]
     and [accepted_parser_prefix_never_regresses] constrain the production
     document reducer. Mounted occurrence and display policy additionally govern
-    authored external actions.
+    authored external actions. A refusal is visible beside the control that
+    produced it. Filling the composer preserves existing text and attachments
+    and explains when they prevented the fill.
 
     Interrupted text is retained within shared bounds and eventually becomes a
     literal archive instead of a remounted interactive source. Preview and

@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
+import { browserFixture } from './fixtures/browser.mjs';
+import { imageBase64 } from './fixtures/images.mjs';
+import { taskIdle } from './support.mjs';
+
+test('an interactive fill reports its own refusal, preserves the draft, and can be retried', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile } = fixture;
+  const prompt = 'Show two follow-up ideas';
+  const suggestion = '请说明第一个建议。';
+  const source = `<ui id="followups">
+  <stack id="buttons">
+    <button id="first" label="填入输入框（不发送）" action="draft" message="${suggestion}"/>
+    <button id="second" label="填写另一条追问" action="draft" message="请说明第二个建议。"/>
+  </stack>
+</ui>`;
+  const index = fixture.requests.length;
+  const { task_id } = await command({ op: 'create', profile, message: prompt });
+  const deadline = Date.now() + 10000;
+  while (fixture.requests.length === index && Date.now() < deadline) await delay(20);
+  assert.ok(fixture.requests[index], 'The provider must receive the opening prompt');
+  fixture.finish(index, { text: `可以从两个问题继续。\n\n\`\`\`selvedge-ui\n${source}\n\`\`\`` });
+  await taskIdle(fixture.running.service, task_id);
+  const before = await command({ op: 'read', task_id });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: before.task.title, exact: true }).click();
+  const main = page.getByRole('main');
+  const composer = main.getByRole('combobox', { name: 'Message', exact: true });
+  const fill = main.getByRole('button', { name: '填入输入框（不发送）', exact: true });
+  const sibling = main.getByRole('button', { name: '填写另一条追问', exact: true });
+  const copy = '输入框已有草稿，已保留。清空后可重试。';
+  const refusal = button => button.locator('..').getByRole('status').filter({ hasText: copy });
+
+  const existing = '我要保留自己的追问。';
+  await composer.fill(existing);
+  await fill.press('Enter');
+  await refusal(fill).waitFor();
+  assert.equal(await main.getByText(copy, { exact: true }).count(), 1, 'The refusal appears only at the triggering control');
+  assert.equal(await refusal(sibling).count(), 0);
+  assert.equal(await composer.inputValue(), existing);
+  assert.equal(await fill.evaluate(button => button === document.activeElement), true);
+
+  await composer.fill('');
+  const filename = 'unsent-follow-up.png';
+  await main.locator('input[type="file"]').setInputFiles({
+    name: filename, mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64'),
+  });
+  const image = main.getByRole('img', { name: filename, exact: true });
+  await image.waitFor();
+  await sibling.press('Enter');
+  await refusal(sibling).waitFor();
+  await refusal(fill).waitFor();
+  assert.equal(await composer.inputValue(), '', 'An attachment alone still occupies the draft');
+  assert.equal(await image.isVisible(), true, 'The attachment survives a blocked fill');
+  assert.equal(await sibling.evaluate(button => button === document.activeElement), true);
+  await main.getByRole('button', { name: 'Remove', exact: true }).click();
+  await image.waitFor({ state: 'hidden' });
+
+  await fill.press('Enter');
+  await refusal(fill).waitFor({ state: 'hidden' });
+  await refusal(sibling).waitFor();
+  assert.equal(await composer.inputValue(), suggestion);
+  assert.equal(await composer.evaluate(field => field === document.activeElement), true);
+  assert.equal(fixture.requests.length, index + 1, 'Filling the composer never calls the provider');
+  assert.deepEqual((await command({ op: 'read', task_id })).messages, before.messages,
+    'Filling the composer does not append a submitted message');
+  assert.deepEqual(fixture.failures, []);
+});

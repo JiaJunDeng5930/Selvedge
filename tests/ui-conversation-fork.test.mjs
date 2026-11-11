@@ -4,6 +4,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
+const forkActionLabel = 'Fork from current history';
+
 async function finishAnswer(fixture, index, text) {
   const deadline = Date.now() + 10_000;
   while (!fixture.requests[index] && Date.now() < deadline) await delay(10);
@@ -20,7 +22,7 @@ async function expectFocus(page, locator) {
   await page.waitForFunction(id => document.activeElement?.id === id, await locator.getAttribute('id'));
 }
 
-test('the end of a long conversation opens its fork and preserves the reading position on Cancel', { timeout: 60000 }, async t => {
+test('the conversation menu and end offer the same fork, with reading position restored on Cancel', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command, running, profile } = fixture;
   const { task_id } = await command({ op: 'create', profile, message: 'Fork this conversation at its end.' });
@@ -34,16 +36,28 @@ test('the end of a long conversation opens its fork and preserves the reading po
   await finishAnswer(fixture, 1, latest);
   const { task } = await taskIdle(running.service, task_id);
   await openTask(page, task.title);
+  const main = page.getByRole('main');
+  const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
+  const source = dialog.getByText(task.title, { exact: true });
+  const history = dialog.getByText('The new conversation starts with the source conversation’s current history.', { exact: true });
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+  const moreActions = main.getByRole('button', { name: 'More actions', exact: true });
+  await moreActions.press('Enter');
+  await page.getByRole('menu', { name: 'Actions', exact: true })
+    .getByRole('button', { name: forkActionLabel, exact: true }).press('Enter');
+  await source.waitFor();
+  await history.waitFor();
+  await cancel.click();
+  await dialog.waitFor({ state: 'hidden' });
+  await expectFocus(page, moreActions);
 
   await page.setViewportSize({ width: 390, height: 700 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
-  const main = page.getByRole('main');
   const timeline = main.getByRole('region', { name: 'Conversation', exact: true });
   const finalAnswer = timeline.getByText(latest, { exact: true });
-  const fork = timeline.getByRole('button', { name: 'Fork from here', exact: true });
+  const fork = timeline.getByRole('button', { name: forkActionLabel, exact: true });
   const message = main.getByRole('combobox', { name: 'Message', exact: true });
   const returnLatest = main.getByRole('button', { name: 'Return to latest', exact: true });
-  const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
   await finalAnswer.waitFor();
   assert.equal(await fork.count(), 1);
   const timelineId = await timeline.getAttribute('id');
@@ -67,9 +81,9 @@ test('the end of a long conversation opens its fork and preserves the reading po
 
   const offset = await timeline.evaluate(node => node.scrollTop);
   await fork.press('Enter');
-  await dialog.getByText(task.title, { exact: true }).waitFor();
-  await dialog.getByText('The new conversation starts with the source conversation’s current history.', { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await source.waitFor();
+  await history.waitFor();
+  await cancel.click();
   await dialog.waitFor({ state: 'hidden' });
   await expectFocus(page, fork);
   assert.ok(Math.abs(await timeline.evaluate(node => node.scrollTop) - offset) <= 1);
@@ -102,7 +116,7 @@ test('the side conversation end opens its own fork editor and restores the tail 
   await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
   await page.getByRole('main').getByRole('button', { name: 'Open side conversation', exact: true }).click();
   const side = page.getByRole('dialog', { name: sideTask.title, exact: true });
-  const fork = side.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: 'Fork from here', exact: true });
+  const fork = side.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: forkActionLabel, exact: true });
   await fork.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
   await dialog.getByText(sideTask.title, { exact: true }).waitFor();

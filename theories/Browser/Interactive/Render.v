@@ -68,6 +68,7 @@ Theorem unformatted_number_preserves_its_text source :
 Proof. reflexivity. Qed.
 Definition feedback_text path b := match State.feedback_at path b with
  |Some (FeedbackEntry _ (Waiting _ _ _))|Some (FeedbackEntry _ (CopyingDefinition _))=>"Pending"
+ |Some (FeedbackEntry _ (Answered _ _ message))=>message
  |_=>"" end.
 Definition field_scene identity event_id p binding local (active:bool) : scene :=
  let tag:=p.(description).(component_tag) in
@@ -255,14 +256,24 @@ Fixpoint expansion_cost (fuel : nat) (nodes : list expanded) : nat :=
       | Message _ _ => S cost
       | Mounted _ p _ children => presentation_cost p children + expansion_cost remaining children + cost end) 0 nodes
   end.
-Definition feedback_diagnostics b :list diagnostic:=
+Fixpoint action_feedback_paths (fuel:nat) b (nodes:list expanded) : list string :=
+ match fuel with
+ |O=>[]
+ |S remaining=>flat_map (fun node=>match node with
+   |Mounted event_id p binding children=>
+      (match p.(description).(component_role),binding with
+       |Action,ActionLink _ _=>if String.eqb (feedback_text event_id.(path) b) "" then [] else [event_id.(path)]
+       |_,_=>[] end)++action_feedback_paths remaining b children
+   |Message _ _=>[] end) nodes
+ end.
+Definition feedback_diagnostics b inline :list diagnostic:=
  flat_map(fun feedback=>match feedback.(feedback_transaction)with
-  |Answered _ _ message=>if String.eqb message ""then[]else
+  |Answered _ _ message=>if String.eqb message ""||existsb(String.eqb feedback.(feedback_path))inline then[]else
     [Diagnostic(if String.eqb feedback.(feedback_path) "@storage"then "@storage"
        else "@feedback/"+++feedback.(feedback_path))message false]
   |_=>[]end)b.(feedbacks).
-Definition content_diagnostics b prepared:=
- feedback_diagnostics b++
+Definition content_diagnostics b prepared inline:=
+ feedback_diagnostics b inline++
  (match b.(syntax).(syntax_error)with Some reason=>[Diagnostic "ui" reason true]|None=>[]end)++
  prepared.(diagnostics)++
  (match b.(storage_notice)with Some reason=>[Diagnostic "@storage" reason false]|None=>[]end).
@@ -271,9 +282,13 @@ Definition diagnostic_nodes identity issues:=
   diagnostic_node(CodeSource.key identity+++"/@diagnostic/"+++show_natural(N.of_nat index))
     issue.(diagnostic_path)issue.(diagnostic_message))
   (combine(seq 0(List.length issues))issues).
+Definition presentation_diagnostics b prepared nodes :=
+ let inline:=match b.(feedbacks) with []=>[]|_=>action_feedback_paths 64 b nodes end in
+ let remaining:=content_diagnostics b prepared inline in
+ (List.length inline + List.length remaining,remaining).
 Definition admitted_content identity b prepared nodes budget :=
-  let issues:=content_diagnostics b prepared in
-  if Nat.leb (expansion_cost 64 nodes + List.length issues) Bounds.expanded_components
+  let '(diagnostics,issues):=presentation_diagnostics b prepared nodes in
+  if Nat.leb (expansion_cost 64 nodes + diagnostics) Bounds.expanded_components
   then fst (render_nodes 64 identity b prepared nodes budget)++diagnostic_nodes identity issues
   else [diagnostic_node (CodeSource.key identity+++"/@presentation-limit") "ui" "交互界面展开超过 4096 个节点；局部输入已保留，请查看源码。"].
 Definition content identity b prepared nodes budget : list scene :=

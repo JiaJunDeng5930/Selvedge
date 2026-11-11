@@ -254,7 +254,7 @@ test('execution controls appear beside active work and stay out of conversation 
   await main.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.waitFor();
-  assert.equal(await details.getByRole('button', { name: /Stop current execution|Fork conversation|Pause conversation/ }).count(), 0);
+  assert.equal(await details.getByRole('button', { name: /Stop current execution|Fork from current history|Pause conversation/ }).count(), 0);
   await main.getByRole('button', { name: 'Task details', exact: true }).click();
   await stop.click();
   await stop.waitFor({ state: 'hidden' });

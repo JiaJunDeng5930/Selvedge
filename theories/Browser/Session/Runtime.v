@@ -55,10 +55,11 @@ Definition language_step namespace snapshot lagged input state:=
  |None=>true end in
  if admitted then Language.step_visible(visible namespace snapshot state)input(SS.interactive_state state)(Documents.environment ctx lagged)
  else IS.Decision(SS.interactive_state state)[].
-Definition language_failure namespace snapshot lagged owner path ticket message state:=
- let ctx:=context namespace snapshot state in
- let decision:=language_step namespace snapshot lagged(IT.Feedback owner path ticket false message)state in
+Definition language_feedback namespace snapshot lagged owner path ticket success message state:=
+ let decision:=language_step namespace snapshot lagged(IT.Feedback owner path ticket success message)state in
  Authoring.changed(SS.with_interactive_state(IS.next_state decision)state)(map IT.encode_effect(IS.effects decision)).
+Definition language_failure namespace snapshot lagged owner path ticket message state:=
+ language_feedback namespace snapshot lagged owner path ticket false message state.
 Definition language_admission_draft task revision text:=
  Draft.Draft revision(Draft.MessageBody task(Draft.Text text [])Fields.Send)Draft.Editing "" None.
 Definition language_send_command task text:=
@@ -130,19 +131,23 @@ Definition continue_language_admissions namespace snapshot lagged state:=
 Definition interpret_language namespace snapshot lagged effect state:Authoring.result:=
  let ctx:=context namespace snapshot state in
  match effect with
- |IT.FillDraft owner _ text=>match Documents.owning_task ctx owner(SS.document_retention state)with
-  |None=>Authoring.fail state "The interactive document has no current recipient."
+ |IT.FillDraft owner path ticket text=>
+  let refused:=language_failure namespace snapshot lagged owner path ticket in
+  match Documents.owning_task ctx owner(SS.document_retention state)with
+  |None=>refused "当前没有可填写的输入框。" state
   |Some task=>if Documents.externally_allowed ctx owner(SS.document_retention state)then
     let editor:=Identity.Message task in let state:=Authoring.ensure_draft snapshot editor state in
     let draft:=SS.current_draft state editor in
     match Authoring.draft_text draft with
     |Some previous=>match previous with
       |Draft.Text "" []=>match Authoring.with_text(Draft.Text text [])draft with
-        |Some draft=>Authoring.changed(SS.save_draft draft state)[Authoring.focus(Authoring.message_focus state editor)]
-        |None=>Authoring.fail state "The recipient does not have a message draft."end
-      |_=>Authoring.fail state "The current task composer is not empty." end
-    |None=>Authoring.fail state "The recipient does not have a message draft."end
-   else Authoring.fail state "This interactive document is read only."end
+        |Some draft=>let saved:=SS.save_draft draft state in
+          Authoring.append (Authoring.changed saved[Authoring.focus(Authoring.message_focus saved editor)])
+            (language_feedback namespace snapshot lagged owner path ticket true "" saved)
+        |None=>refused "当前没有可填写的输入框。" state end
+      |_=>refused "输入框已有草稿，已保留。清空后可重试。" state end
+    |None=>refused "当前没有可填写的输入框。" state end
+   else refused "此交互内容为只读。" state end
  |IT.SendMessage owner path ticket text=>match Documents.owning_task ctx owner(SS.document_retention state)with
   |None=>Authoring.fail state "The interactive document has no current recipient."
   |Some task=>if Documents.externally_allowed ctx owner(SS.document_retention state)then

@@ -222,7 +222,7 @@ Definition fork_history_control view :=
  match ObjectActions.action_operation action with
  |ObjectActions.Editor owner=>let key:="fork-current-history" in
   let parent:=NavigationIdentity.task_view_scope view in
-  [declared parent Roles.Button(Control key "Fork from here" Secondary
+  [declared parent Roles.Button(Control key (ObjectActions.action_label action) Secondary
     (Input.OpenEditor owner(part parent key))(approval_availability action))]
  |_=>[]end.
 Definition task_contents snapshot s view parent task :=
