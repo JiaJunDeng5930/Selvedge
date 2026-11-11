@@ -503,13 +503,15 @@ Definition change_workspace snapshot owner change state:=
   |None=>fail state "The committed workspace cannot be inherited again."end
  |change=>match SO.workspace_for_edit snapshot draft with
   |inl reason=>fail state reason
-  |inr workspace=>let roots:=Selvedge.Kernel.Domain.workspace_roots workspace in
-   let incoming:=match change with
-    |Input.AddDirectory path=>JArray(map JString(if existsb(String.eqb path)roots then roots else roots++[path]))
-    |Input.RemoveDirectory path=>JArray(map JString(filter(fun root=>negb(String.eqb path root))roots))
-    |Input.ChoosePrimaryDirectory path=>JString path|_=>JNull end in
-   let field:=match change with Input.ChoosePrimaryDirectory _=>Fields.WorkspacePrimary|_=>Fields.WorkspaceDirectories end in
-   match Values.update_body snapshot(Draft.contents draft)field incoming with
+  |inr workspace=>let body:=Draft.contents draft in
+   let updated:=match change with
+    |Input.AddDirectory path=>Values.add_workspace_directory snapshot body workspace path
+    |Input.RemoveDirectory path=>let roots:=Selvedge.Kernel.Domain.workspace_roots workspace in
+     Values.update_body snapshot body Fields.WorkspaceDirectories
+      (JArray(map JString(filter(fun root=>negb(String.eqb path root))roots)))
+    |Input.ChoosePrimaryDirectory path=>Values.update_body snapshot body Fields.WorkspacePrimary(JString path)
+    |Input.InheritWorkspace=>None end in
+   match updated with
    |Some body=>let updated:=SS.save_draft(Draft.with_body body draft)state in
     let updated:=match change with Input.AddDirectory _=>
       let updated:=SS.save_draft(set Draft.directory_entry(fun _=>"")(SS.current_draft updated owner))updated in
@@ -525,16 +527,20 @@ Definition directory_editor_ready owner state:=
  |Some _=>negb(SS.pending_editor owner state)&&Parameters.editable owner Fields.WorkspaceDirectories&&
    existsb(fun field=>if Parameters.field_eq_dec field Fields.WorkspaceDirectories then true else false)(Parameters.fields owner)
  |None=>false end.
-Definition directory_input_allowed input state:=match input with
+Definition directory_input_allowed snapshot input state:=match input with
  |Services.OpenDirectory owner _ _=>directory_editor_ready owner state
- |Services.VisitDirectory _|Services.GoDirectory|Services.DirectoryListed _ _|Services.ChooseDirectory|Services.WriteDirectoryLocation _=>
+ |Services.ChooseDirectory=>match Services.directory(SS.service_state state)with
+  |Resource.Loaded _ request _=>directory_editor_ready(Services.directory_editor request)state &&
+    SO.directory_selection_allowed(SO.directory_preview snapshot state)
+  |_=>false end
+ |Services.VisitDirectory _|Services.GoDirectory|Services.DirectoryListed _ _|Services.WriteDirectoryLocation _=>
   match Services.directory(SS.service_state state)with
   |Resource.Loading _ request|Resource.Loaded _ request _|Resource.Failed _ request _=>directory_editor_ready(Services.directory_editor request)state
   |Resource.Dormant=>false end
  |_=>true end.
 Definition service_step snapshot input state:=
  (* DEFENSE: A directory dialog can outlive a submission that makes its editor busy. *)
- if directory_input_allowed input state then
+ if directory_input_allowed snapshot input state then
  let state:=match input with
  |Services.OpenSettings=>let navigation:=SS.navigation_state state in
    let state:=match SS.layers navigation with
@@ -543,6 +549,10 @@ Definition service_step snapshot input state:=
      |_=>state end|[]=>state end in
    SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |Services.CloseSettings=>SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
+ |Services.GoDirectory=>match SO.directory_preview snapshot state with
+  |Some(SO.PreviewDirectory _ _ _)=>
+    SS.with_services(Services.with_workspace_git Resource.Dormant(SS.service_state state))state
+  |_=>state end
  |_=>state end in
  let previous_connection:=Services.connection(SS.service_state state)in
  let decision:=Services.service_step(admitted_upload input state)(SS.service_state state)in
@@ -688,7 +698,10 @@ Definition ensure_workspace_git snapshot state:=
   |Some project=>let edited:=SS.current_draft state project in
     if SO.worktree_required edited then edited else SS.current_draft state owner
   |None=>SS.current_draft state owner end in
- let selected:=SO.workspace_git_request snapshot draft in
+ match SO.directory_preview snapshot state with Some SO.AwaitingDirectory=>keep state|preview=>
+ let selected:=match preview with
+  |Some(SO.PreviewDirectory request _ _)=>Some request
+  |_=>SO.workspace_git_request snapshot draft end in
  match selected with
  |None=>keep(SS.with_services(Services.with_workspace_git Resource.Dormant services)state)
  |Some (owner,path)=>
@@ -696,7 +709,7 @@ Definition ensure_workspace_git snapshot state:=
   let ticket:=Services.next_ticket services in
   changed(SS.with_services(Services.with_next(N.succ ticket)
     (Services.with_workspace_git(Resource.Loading ticket(owner,path))services))state)
-    [Services.encode_effect(Services.ObserveWorkspaceGit ticket path owner)]end.
+    [Services.encode_effect(Services.ObserveWorkspaceGit ticket path owner)]end end.
 Definition ensure_request snapshot owner revision command state:=match natural_field "sequence" snapshot with
 |None=>keep state
 |Some sequence=>adopt_service(Services.ensure_assessment owner revision sequence command(SS.service_state state))state end.

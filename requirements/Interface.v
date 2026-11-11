@@ -102,7 +102,8 @@ Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
 Export ObjectActionsProof(available_native_has_current_admission).
 Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
   completion_of_an_older_revision_preserves_the_newer_editor,
-  git_observation_settles_only_the_workspace_check).
+  git_observation_settles_only_the_workspace_check,
+  a_blocked_directory_choice_does_not_change_the_draft).
 Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
   new_selection_intent_prevents_side_completion_selection).
 
@@ -271,7 +272,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     constrains the actual receipt. A local Git worktree requires verifying
     that the current primary directory belongs to a repository with a commit.
     A project requires the same verification when saving a local worktree as
-    the default.
+    the default. The directory chooser shows Git readiness before a candidate
+    becomes the primary directory. [a_blocked_directory_choice_does_not_change_the_draft]
+    constrains the confirmation action. Additional working directories may
+    be outside the Git repository.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.
@@ -291,12 +295,13 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     conversation. A card assigned to a model shows near the commit whether
     saving schedules execution or leaves the card for a later action.
     Assisted capture offers the board default when it names an eligible
-    drafting model. A missing selection leaves a prompt in the model field.
+    drafting model. A missing selection leaves a prompt and its reason beside
+    the model field.
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
     stage selected by its entry point.
-    When a field requires correction before a dialog can submit, the reason
-    is visible at that field and in the fixed action area.
+    When a field requires correction before a dialog can submit, the fixed
+    action area keeps the reason visible and identifies the field to correct.
     The automatic execution setting explains which cards can start and when,
     including eligible cards already on the board.
 

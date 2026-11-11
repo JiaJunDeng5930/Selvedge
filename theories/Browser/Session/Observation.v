@@ -1,7 +1,9 @@
 From Stdlib Require Import List Bool.
+From Stdlib Require Import String.
 From Selvedge.Foundation Require Json.
 From Selvedge.Kernel Require Codec.
-From Selvedge.Interaction.Submission Require Observation.
+From Selvedge.Interaction.Submission Require Observation Values.
+From Selvedge.Interaction Require Import Codec.
 From Selvedge.Interaction Require Import Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services.
@@ -18,6 +20,29 @@ Definition workspace_for_edit := Selvedge.Interaction.Submission.Observation.wor
 Definition workspace_git_request := Selvedge.Interaction.Submission.Observation.workspace_git_request.
 Definition workspace_git_request_matches := Selvedge.Interaction.Submission.Observation.workspace_git_request_matches.
 Definition worktree_required := Selvedge.Interaction.Submission.Observation.worktree_required.
+
+Inductive directory_git_preview := AwaitingDirectory
+ | PreviewDirectory (request:editor * string) (primary:bool) (problem:option Observation.git_problem).
+Definition directory_preview snapshot state : option directory_git_preview :=
+ let services:=State.service_state state in
+ request<-resource_request(Services.directory services);;
+ let owner:=Services.directory_editor request in
+ let draft:=State.current_draft state owner in
+ if worktree_required draft then
+  match Services.directory services with
+  |Loaded _ _ catalog=>match Json.string_field "path" catalog,workspace_for_edit snapshot draft with
+    |Some path,inr workspace=>if String.eqb path(Services.directory_location services)then
+     body<-Values.add_workspace_directory snapshot(Draft.contents draft)workspace path;;
+     let primary:=match workspace_git_request snapshot(Draft.with_body body draft)with
+      |Some(_,next)=>String.eqb next path|None=>false end in
+     Some(PreviewDirectory(owner,path)primary(Observation.git_request_problem(owner,path)(Services.workspace_git services)))
+     else Some AwaitingDirectory
+    |_,_=>Some AwaitingDirectory end
+  |_=>Some AwaitingDirectory end
+ else None.
+Definition directory_selection_allowed preview := match preview with
+ |Some AwaitingDirectory|Some(PreviewDirectory _ true (Some _))=>false
+ |_=>true end.
 
 (** Directory evidence belongs to the requested workspace and editor. Message
     edits may reuse that evidence; captured submissions have independent worker

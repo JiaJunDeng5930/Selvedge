@@ -57,6 +57,15 @@ Theorem git_observation_settles_only_the_workspace_check snapshot ticket outcome
   (SS.service_state state))state).
 Proof. reflexivity. Qed.
 
+Theorem a_blocked_directory_choice_does_not_change_the_draft snapshot state:
+ Observation.directory_selection_allowed(Observation.directory_preview snapshot state)=false ->
+ Authoring.service_step snapshot Services.ChooseDirectory state=Authoring.keep state.
+Proof.
+ intro Blocked. unfold Authoring.service_step, Authoring.directory_input_allowed.
+ destruct (Services.directory(SS.service_state state)); try reflexivity.
+ now rewrite Blocked, Bool.andb_false_r.
+Qed.
+
 Theorem a_captured_submission_waits_for_its_worker_verdict
  snapshot ticket request observation state command:
  Command.observed_command(SS.now state)(Services.preparation_draft request)

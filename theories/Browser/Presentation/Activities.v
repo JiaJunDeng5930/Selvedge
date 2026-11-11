@@ -301,7 +301,11 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>
    workspace_nodes s occurrence(part parent "workspace")members::
-   (match e with Identity.Project _=>Editors.field_nodes snapshot s e parent [Fields.CreateWorktree]|_=>[]end)
+   (match e with Identity.Project _=>
+     (* The project commit footer shows the Git check beside the disabled action. *)
+     match Editors.field_node snapshot s e parent Fields.CreateWorktree with
+     |Some checkbox=>[checkbox]|None=>[]end
+   |_=>[]end)
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in

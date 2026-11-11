@@ -394,7 +394,7 @@ test('a captured Git worktree submission survives another Project form taking ov
   await page.getByRole('main').getByRole('button', { name: '新建项目', exact: true }).click();
   const project = page.getByRole('dialog', { name: '新建项目', exact: true });
   await project.getByRole('checkbox', { name: '新对话默认创建 Git 工作树', exact: true }).check();
-  await project.getByRole('alert').filter({ hasText: '请先添加并选择主目录。' }).waitFor();
+  await project.getByRole('status').filter({ hasText: '请先添加并选择主目录。' }).waitFor();
 
   const creation = commandResponse(page, 'create_worktree_task');
   await preference.release();

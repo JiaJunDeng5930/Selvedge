@@ -151,16 +151,18 @@ Definition workspace_git_request_matches (request:editor * string)
  |Some(observed_owner,observed_path)=>same_editor owner observed_owner&&String.eqb path observed_path
  |None=>false end.
 Inductive git_problem := GitPrimaryRequired | GitCheckPending | GitRepositoryRequired | GitCheckFailed.
-Definition workspace_git_problem snapshot observation draft : option git_problem :=
- match workspace_git_request snapshot draft with
- |None=>Some GitPrimaryRequired
- |Some request=>if workspace_git_request_matches request observation then
+Definition git_request_problem request observation : option git_problem :=
+ if workspace_git_request_matches request observation then
   match observation with
   |Loaded _ _ true=>None
   |Loaded _ _ false=>Some GitRepositoryRequired
   |Failed _ _ _=>Some GitCheckFailed
   |_=>Some GitCheckPending end
-  else Some GitCheckPending end.
+ else Some GitCheckPending.
+Definition workspace_git_problem snapshot observation draft : option git_problem :=
+ match workspace_git_request snapshot draft with
+ |None=>Some GitPrimaryRequired
+ |Some request=>git_request_problem request observation end.
 Definition worktree_available snapshot observation draft:=match workspace_git_problem snapshot observation draft with
  |None=>true|Some _=>false end.
 Definition worktree_required draft:=match Draft.contents draft with

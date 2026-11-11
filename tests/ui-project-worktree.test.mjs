@@ -25,35 +25,76 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const project = page.getByRole('dialog', { name: '新建项目', exact: true });
   const submit = project.getByRole('button', { name: '创建项目', exact: true });
   const worktree = project.getByRole('checkbox', { name: '新对话默认创建 Git 工作树', exact: true });
-  const reason = message => project.getByRole('alert').filter({ hasText: message });
+  const reason = message => project.getByRole('status').filter({ hasText: message });
   const name = project.getByRole('textbox', { name: '项目名称', exact: true });
   const directory = project.getByRole('textbox', { name: '目录路径', exact: true });
   const add = project.getByRole('button', { name: '添加目录', exact: true });
-  const missing = reason('请先添加并选择主目录。');
-  const notGit = reason('主目录需要位于包含至少一次提交的 Git 仓库中。');
+  const missingMessage = '请先添加并选择主目录。';
+  const notGitMessage = '主目录需要位于包含至少一次提交的 Git 仓库中。';
+  const missing = reason(missingMessage);
+
+  async function assertBlockingReason(message) {
+    const status = reason(message);
+    await status.waitFor();
+    const copies = project.getByText(message, { exact: true }).and(project.locator(':not(.visually-hidden)'));
+    assert.equal(await copies.count(), 1, 'The form shows one copy of the Git check reason');
+    assert.ok(await status.evaluate(node => node.closest('footer') !== null));
+    assert.equal(await submit.isDisabled(), true);
+    assert.equal(await submit.evaluate(button => (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
+      .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), message);
+  }
 
   await create.click();
   await name.fill('默认使用工作树');
   await worktree.check();
   await project.getByRole('heading', { name: '工作目录', exact: true }).waitFor();
-  await missing.waitFor();
-  assert.equal(await submit.isDisabled(), true);
+  await assertBlockingReason(missingMessage);
 
-  await project.getByRole('button', { name: '浏览…', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 370 });
+  await assertBlockingReason(missingMessage);
+  const initialBounds = await missing.boundingBox();
+  assert.ok(initialBounds && initialBounds.x >= 0 && initialBounds.x + initialBounds.width <= 390
+    && initialBounds.y >= 0 && initialBounds.y + initialBounds.height <= 370);
+  const formBody = project.locator('[data-surface-role="dialog-body"]');
+  const scrolled = await formBody.evaluate(node => {
+    const before = node.scrollTop;
+    node.scrollTop = before > 0 ? 0 : node.scrollHeight;
+    return node.scrollTop !== before;
+  });
+  assert.equal(scrolled, true, 'The narrow form body can scroll');
+  assert.deepEqual(await missing.boundingBox(), initialBounds, 'The footer reason stays in place while the form scrolls');
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  const browse = project.getByRole('button', { name: '浏览…', exact: true });
+  await browse.click();
   const chooser = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
   const folder = chooser.getByRole('button', { name: 'Ordinary directory', exact: true });
+  const choose = chooser.getByRole('button', { name: '使用此目录', exact: true });
   await folder.click();
   await folder.waitFor({ state: 'hidden' });
-  await chooser.getByRole('button', { name: '使用此目录', exact: true }).click();
+  await chooser.getByRole('status').filter({ hasText: '主目录须位于包含提交的 Git 仓库中。' }).waitFor();
+  assert.equal(await choose.isDisabled(), true);
+  await chooser.getByRole('button', { name: '取消', exact: true }).click();
   await chooser.waitFor({ state: 'hidden' });
-  await notGit.waitFor();
-  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await project.getByText(ordinary, { exact: true }).count(), 0);
+  await directory.fill(ordinary);
+  await add.click();
+  await assertBlockingReason(notGitMessage);
   await directory.fill(repository);
   await add.click();
-  await notGit.waitFor();
-  assert.equal(await submit.isDisabled(), true);
+  await assertBlockingReason(notGitMessage);
   await project.getByRole('region', { name: repository, exact: true })
     .getByRole('button', { name: '设为主目录', exact: true }).click();
+  await project.getByRole('region', { name: ordinary, exact: true })
+    .getByRole('button', { name: '移除目录', exact: true }).click();
+
+  await browse.click();
+  await chooser.getByRole('button', { name: '上一级目录', exact: true }).click();
+  await folder.click();
+  await folder.waitFor({ state: 'hidden' });
+  await chooser.getByRole('status').filter({ hasText: '将作为辅助目录添加。此目录不能用作 Git 工作树的主目录。' }).waitFor();
+  await choose.click();
+  await chooser.waitFor({ state: 'hidden' });
   await submit.click();
   await project.waitFor({ state: 'hidden' });
 
@@ -69,7 +110,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const projects = await command({ op: 'list_projects' });
   const enabled = projects.find(project => project.name === '默认使用工作树');
   assert.equal(enabled.create_worktree, true);
-  assert.deepEqual(enabled.workspace, { roots: [ordinary, repository], primary_root: repository });
+  assert.deepEqual(enabled.workspace, { roots: [repository, ordinary], primary_root: repository });
   const disabled = projects.find(project => project.name === '不配置工作目录');
   assert.equal(disabled.create_worktree, false);
   assert.deepEqual(disabled.workspace, { roots: [], primary_root: null });

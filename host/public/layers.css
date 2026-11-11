@@ -125,6 +125,11 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
   gap: var(--panel-related-space) !important;
 }
 [data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
+[data-semantic-key="directory-browser"] [data-semantic-key="directory-git-status"] {
+  flex: 1 0 100%;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
 [data-semantic-key="directory-browser"] [data-semantic-key="folders"] {
   gap: 0 !important;
   border-block-start: 1px solid var(--selvedge-border) !important;

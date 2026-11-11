@@ -12,13 +12,17 @@ From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech.
 From Selvedge.Interaction Require Import Attachments.
 From Selvedge.Interaction.Submission Require Draft Fields.
+From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require State Authoring.
+From Selvedge.Browser.Session Require Observation.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
 From Selvedge.Browser.Presentation Require Roles Information Settings.
 Import ListNotations.
 Open Scope string_scope.
+Module SO := Selvedge.Browser.Session.Observation.
+Module Submission := Selvedge.Interaction.Submission.Observation.
 
 Definition speech_button parent id label (enabled:bool) event :=
  declared parent Roles.Button(Control("speech/"++id)label Secondary(Input.SpeechInput event)
@@ -176,6 +180,18 @@ Definition directory_backend snapshot owner := match Identity.editor_task owner 
    bind(string_field "backend" value)WorkspaceBackend.decode
   end
  end.
+Definition directory_git_status (label:string->string->string) preview := match preview with
+ |None=>None
+ |Some SO.AwaitingDirectory=>Some(label "请先前往要选择的目录。" "Open the entered directory before selecting it.")
+ |Some(SO.PreviewDirectory _ primary problem)=>Some(
+  (if primary then "" else label "将作为辅助目录添加。" "This will be added as an additional directory. ")++
+  match problem with
+  |None=>label "可作为 Git 工作树的主目录。" "This directory can be the primary for a Git worktree."
+  |Some Submission.GitCheckPending=>label "正在检查此目录是否支持 Git 工作树…" "Checking this directory for Git worktrees…"
+  |Some Submission.GitCheckFailed=>label "无法检查此目录是否支持 Git 工作树。" "Could not check this directory for Git worktrees."
+  |Some _=>if primary then label "主目录须位于包含提交的 Git 仓库中。" "The primary directory must be in a Git repository with a commit."
+    else label "此目录不能用作 Git 工作树的主目录。" "This directory cannot be the primary for a Git worktree." end)
+ end.
 Definition directory_view snapshot s :=
  let services:=State.service_state s in
  match Services.directory services with
@@ -184,6 +200,8 @@ Definition directory_view snapshot s :=
   |Some ticket,Some request=>let parent:="/directory-browser"in
    let owner:=Services.directory_editor request in
    let label (chinese english:string):=match owner with Identity.Project _=>chinese|_=>english end in
+   let git:=SO.directory_preview snapshot s in
+   let git_status:=directory_git_status label git in
    let caption:=label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
     |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
     |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
@@ -218,9 +236,15 @@ Definition directory_view snapshot s :=
         region parent "folders" (label "子目录" "Folders") Roles.Section content]
       |_=>content end);
      dialog_actions parent
-      (declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory))::
+      ((match resource,git_status with Resource.Loaded _ _ _,Some status=>
+        [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++
+       (match git with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
+        [declared parent Roles.Button(secondary "retry-git" (label "重试 Git 检查" "Retry Git check")(Input.ServiceInput Services.GoDirectory))]|_=>[]end)++
+       [declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory))]++
        match resource with Resource.Loaded _ _ _=>
-       [declared parent Roles.PrimaryButton(secondary "choose" (label "使用此目录" "Use this directory")(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
+       [declared parent Roles.PrimaryButton(Control "choose" (label "使用此目录" "Use this directory") Secondary
+        (Input.ServiceInput Services.ChooseDirectory)
+        (if SO.directory_selection_allowed git then Available else Unavailable(value_or "" git_status)))]|_=>[]end)%list
        ]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
