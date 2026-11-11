@@ -27,19 +27,20 @@ Definition missing {A} parent message:list(node A) :=[page_region parent Composi
  [read_only parent "unavailable-message" "Unavailable"message]].
 Definition creation_heading snapshot s e :=match SessionObserve.draft_preview snapshot(State.current_draft s e)with
 |Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
- |Some project=>"Work on "++project_name project|None=>"What would you like to build?"end
-|_=>"What would you like to build?"end.
+ |Some project=>"Work on "++project_name project|None=>"New task"end
+|_=>"New task"end.
 Definition creation_page snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let properties:=filter(fun property=>match UX.property_kind_of property with
   |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observe.observe_properties snapshot s e)in
+ let context:=(Editors.property_controls snapshot s e parent properties ++
+   Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])%list in
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
    [information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)];
   page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match properties with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
+   ((match context with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
      "creation-context" "Task context" Roles.Toolbar
-     (PageRegion Composition.CreationContext Composition.BodyPosition)
-     (Editors.property_controls snapshot s e parent properties)]end)++
+     (PageRegion Composition.CreationContext Composition.BodyPosition) context]end)++
     match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list].
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"

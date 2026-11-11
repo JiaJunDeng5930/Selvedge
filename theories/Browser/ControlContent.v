@@ -71,7 +71,7 @@ Definition property_icon {e} (property : UX.property e) :=
   | UX.WorkspaceProperty => Some "folder"
   | UX.PermissionsProperty => Some "shield"
   | UX.ModelProperty => None
-  | UX.DeliveryProperty => Some "arrow-up"
+  | UX.DeliveryProperty => Some "conversation"
   end.
 Definition stage_filter_glyph (stage : Domain.board_stage) :=
   match stage with

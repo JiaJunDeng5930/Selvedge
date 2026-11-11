@@ -178,10 +178,6 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let attachments:=match List.app failed files with
   |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
  let tools:=composer_tools snapshot s e parent in
- let tools:=match e with
-  |NewTask _=>(field_nodes snapshot s e parent [Fields.TaskEnvironment] ++
-    match tools with []=>[]|_=>[region parent "composer/property-tools" "Model and permissions" Roles.Toolbar tools]end)%list
-  |_=>tools end in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
   (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
   [ServiceControls.file_picker e parent s;

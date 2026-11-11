@@ -68,13 +68,10 @@ test('conversation navigation releases desktop space and preserves the draft thr
   assert.equal(await message.inputValue(), 'Keep this draft while changing navigation capacity.');
 });
 
-test('conversation and side composers keep controls usable as width and height change', { timeout: 60000 }, async t => {
+test('task and conversation composers keep controls usable as width and height change', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
-  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
-  const task = await selectTask(fixture, task_id);
   const main = page.getByRole('main');
-  await main.getByRole('heading', { name: task.title, exact: true }).waitFor();
   const sizes = [
     { width: 320, height: 568 },
     { width: 390, height: 420 },
@@ -83,20 +80,39 @@ test('conversation and side composers keep controls usable as width and height c
     { width: 1280, height: 900 },
   ];
 
-  async function checkComposer(scope, { width, height }) {
+  async function checkComposer(scope, { width, height }, creating = false) {
     await page.setViewportSize({ width, height });
-    const message = scope.getByRole('combobox', { name: 'Message', exact: true });
+    const message = scope.getByRole('combobox', { name: creating ? 'Task' : 'Message', exact: true });
     await message.waitFor();
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const form = await message.evaluate(node => node.form.getBoundingClientRect().toJSON());
+    const messageBox = await message.boundingBox();
+    const messageFontSize = await message.evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
     const targets = [
       scope.getByLabel('Attach files', { exact: true }), scope.locator('summary[aria-label="Voice"]'),
+      scope.getByRole('button', { name: creating ? 'Start task' : 'Send', exact: true }),
       scope.getByRole('button', { name: /^Permissions:/ }), scope.getByRole('button', { name: /^Model:/ }),
-      scope.getByRole('button', { name: /^Send as:/ }), scope.getByRole('button', { name: 'Send', exact: true }),
+      ...(creating ? [] : [scope.getByRole('button', { name: /^Send as:/ })]),
     ];
     const bounds = await Promise.all(targets.map(target => target.boundingBox()));
     const size = `${width}×${height}`;
     assert.ok(form.top >= 0 && form.bottom <= height + 1, size);
+    assert.ok(messageBox && messageBox.width > 0 && messageBox.height > 0 &&
+      messageBox.x >= form.left - 1 && messageBox.x + messageBox.width <= form.right + 1,
+      `${size}: message input remains visible within the composer`);
+    if (width <= 390) {
+      assert.ok(messageFontSize >= 16, `${size}: message text must remain readable without mobile input zoom`);
+      const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      assert.ok(documentWidth <= width + 1, `${size}: the page must not need horizontal scrolling`);
+      const commonActions = bounds.slice(0, 3);
+      for (const box of commonActions) {
+        assert.ok(box && box.width >= 44 && box.height >= 44,
+          `${size}: attachment, voice and send need 44×44 touch targets`);
+      }
+      const tops = commonActions.map(box => box.y);
+      assert.ok(Math.max(...tops) - Math.min(...tops) <= 2,
+        `${size}: attachment, voice and send stay in one control row`);
+    }
     for (const [index, box] of bounds.entries()) {
       assert.ok(box && box.width >= 32 && box.height >= 32, `${size}: control ${index} has an unusable target`);
       assert.ok(box.x >= form.left - 1 && box.x + box.width <= form.right + 1 &&
@@ -108,6 +124,11 @@ test('conversation and side composers keep controls usable as width and height c
     }
   }
 
+  for (const size of sizes.filter(size => size.width <= 390)) await checkComposer(main, size, true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
+  const task = await selectTask(fixture, task_id);
+  await main.getByRole('heading', { name: task.title, exact: true }).waitFor();
   for (const size of sizes) await checkComposer(main, size);
   await main.getByRole('combobox', { name: 'Message', exact: true }).fill('/side');
   await main.getByRole('button', { name: 'Send', exact: true }).click();
