@@ -11,6 +11,7 @@
     "update": "bun scripts/update.mjs",
     "check": "bun scripts/check.mjs",
     "test": "bun scripts/test.mjs",
+    "screenshots": "bun scripts/browser-screenshots/run.mjs",
     "bench": "bun scripts/benchmark.mjs",
     "verify": "bun scripts/verify.mjs"
   },
