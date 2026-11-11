@@ -21,7 +21,7 @@ export class AudioRuntime {
       const body = await this.request('/api/audio/capabilities');
       this.observe('Capabilities', { connections: body.connections });
       if (body.connections.length === 0) this.observe('CapabilitiesFailed', {
-        reason: 'Use Sign in for voice to authorize ChatGPT dictation and voice.',
+        reason: 'Sign in with ChatGPT to use dictation and voice.',
       });
     } catch (error) {
       // DEFENSE: The authenticated capabilities request may fail after account removal or a network disconnect.
@@ -51,7 +51,7 @@ export class AudioRuntime {
     if (this.loginWindow && !this.loginWindow.closed) { this.loginWindow.focus(); return; }
     const popup = this.openWindow('about:blank', '_blank');
     // DEFENSE: A browser's popup policy can reject the window opened by the explicit sign-in gesture.
-    if (!popup) { this.observe('CapabilitiesFailed', { reason: 'Allow the sign-in popup and choose Sign in for voice again.' }); return; }
+    if (!popup) { this.observe('CapabilitiesFailed', { reason: 'Allow the sign-in popup and choose Sign in with ChatGPT again.' }); return; }
     popup.opener = null;
     this.loginWindow = popup;
     const controller = this.loginController = new AbortController();

@@ -11,7 +11,8 @@ import { asyncToolResult, home, responsesServer } from './support.mjs';
 
 async function fixture(t, directory, config = {}) {
   const running = await startServer({ home: path.join(directory, 'state'), cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false, port: 0, ...config }) });
+    config: validateConfig({ ...defaultConfig, chatgpt: false, port: 0, ...config,
+      profiles: { demo: { provider: 'echo', model: 'echo' }, ...config.profiles } }) });
   t.after(() => running.close());
   const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
   const post = async command => {

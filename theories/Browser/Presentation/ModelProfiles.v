@@ -36,6 +36,10 @@ Definition provider_choices parent (enabled : bool) profile : node Input.input :
  let id := part parent "provider" in
  let group := part id "options" in
  let current := value_text (Common.get profile "provider") in
+ let providers := filter (fun provider => match provider with
+   | ProviderCatalog.Offline => String.eqb current (ProviderCatalog.provider_name ProviderCatalog.Offline)
+   | _ => true
+   end) (DeclarationRegistry.values ProviderCatalog.registered) in
  let choice provider :=
    let key := ProviderCatalog.provider_name provider in
    let label := provider_label provider in
@@ -53,4 +57,4 @@ Definition provider_choices parent (enabled : bool) profile : node Input.input :
  Node id "settings-provider" "" Roles.Section Region
    ([information id "provider-label" Information.FieldLabel "Provider"] ++ unregistered ++
     [Node group "settings-provider-options" "Provider" Roles.Section ChoiceGroup
-      (map choice (DeclarationRegistry.values ProviderCatalog.registered))])%list.
+      (map choice providers)])%list.

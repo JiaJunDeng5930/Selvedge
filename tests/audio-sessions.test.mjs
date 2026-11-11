@@ -55,7 +55,8 @@ function transport(upgradeStatus = () => undefined) {
 async function serviceFixture(t, wire = transport()) {
   const home = await mkdtemp(path.join(os.tmpdir(), 'selvedge-audio-'));
   const service = await Service.open({ home, cwd: home,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }), audioOptions: wire.options });
+    config: validateConfig({ ...defaultConfig, chatgpt: false,
+      profiles: { demo: { provider: 'echo', model: 'echo' } } }), audioOptions: wire.options });
   t.after(async () => { await service.close(); await rm(home, { recursive: true, force: true }); });
   const created = await service.command({ op: 'create_idle', profile: 'demo' });
   assert.equal(created.reply.ok, true);

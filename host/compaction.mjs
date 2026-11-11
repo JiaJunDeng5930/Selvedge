@@ -22,8 +22,8 @@ async function measured(session, prepared, limits, options) {
   return boundary('backend.compaction_meter_result', { response, scope: session.scope });
 }
 
-// Meter exactly the target-encoded request, including tools and opaque native
-// items. Ciphertext byte or tokenizer length is never treated as input tokens.
+// Measure the target-encoded request, including tools and opaque native items.
+// Codex has a local scheduling estimate; Responses uses its provider counter.
 export async function observeModelRequest(effect, config, home, limits, options = {}) {
   const session = await providerSession(effect, config, home, options);
   if (effect.kind === 'context_scope') return { scope: session.scope, now: Date.now() };
@@ -49,17 +49,20 @@ export async function requestCompaction(effect, config, home, limits, options = 
   const encoded = responseBody(call, session.profile);
   const request = effect.plan.method === 'native'
     ? boundary('backend.compaction_request', { request: encoded })
-    : boundary('backend.compaction_summary_request', { effect, request: encoded });
+    : boundary('backend.compaction_summary_request', { effect, request: encoded, profile: session.profile });
   const prepared = await prepareModelRequest(request, home, limits);
   const observation = await measured(session, prepared, limits, options);
   if (boundary('backend.compaction_budget', { input_tokens: observation.input_tokens, plan: effect.plan }) === 'resize') {
     return { action: 'resize' };
   }
   if (effect.plan.method === 'native') {
-    let response;
-    try { response = await requestProviderJSON(session, '/compact', prepared, limits, options); }
+    try {
+      return await requestProviderSSE(session, call, prepared, limits, {
+        ...options, compactionWindow: effect.plan.window_tokens,
+      });
+    }
     catch (error) {
-      // DEFENSE: A Responses endpoint may omit the native compact route; the feature can then submit a regular summary request.
+      // DEFENSE: Codex can reject the native compaction operation for a model; the feature can then submit a regular summary request.
       const observation = boundary('backend.compaction_native_failure', {
         status: error.status, code: error.provider_code,
       });
@@ -67,7 +70,6 @@ export async function requestCompaction(effect, config, home, limits, options = 
       if (observation.action !== 'native_unavailable') throw error;
       return observation;
     }
-    return boundary('backend.compaction_native_result', { response, scope: session.scope });
   }
   // Dispatch the measured bytes through the same session. The summary
   // request already fixes its output reserve and prohibits tools.

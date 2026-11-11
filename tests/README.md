@@ -56,8 +56,8 @@ The local `audioFactory` session tests establish ownership and reconnect behavio
 they do not exercise ChatGPT authorization, transcription, WebRTC or playback.
 
 Run `bun run start`, open the reported loopback address in a microphone-capable
-browser, and use **Sign in for voice**. The Responses account has a separate scope
-and does not substitute for voice authorization. Exercise these physical paths:
+browser, and use **Sign in with ChatGPT**. Verify the same sign-in loads model
+choices and authorizes voice. Exercise these physical paths:
 
 - Dictate into an existing draft, finish recording, and send the recognized text
   through the ordinary composer. Cancel a second recording and check that it is

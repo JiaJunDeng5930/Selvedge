@@ -52,7 +52,8 @@ fi
 exec ${shellQuote(realGit)} "$@"
 `);
   await chmod(wrapper, 0o700);
-  const options = { home: storage, cwd: repository, config: validateConfig({ ...defaultConfig, chatgpt: false, port: 0 }) };
+  const options = { home: storage, cwd: repository, config: validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } }) };
   const running = await filesystemChild(t, options, { ...process.env, PATH: `${binary}${path.delimiter}${process.env.PATH}` });
   const { work_id } = await running.command({ op: 'create_work', name: 'Reservation recovery' });
   const { task_id } = await running.command({ op: 'create_work_task', work_id, create_worktree: true,

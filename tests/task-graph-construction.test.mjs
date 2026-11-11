@@ -42,7 +42,7 @@ test('refused native Work and Graph requests create no tasks or graphs', async t
     if (previous === undefined) delete process.env[credential]; else process.env[credential] = previous;
   });
   const service = await Service.open({ home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false, profiles: { ...defaultConfig.profiles,
+    config: validateConfig({ ...defaultConfig, chatgpt: false, profiles: { demo: { provider: 'echo', model: 'echo' }, ...defaultConfig.profiles,
       fixture: { provider: 'responses', model: 'graph-authority-fixture', endpoint: upstream.endpoint,
         api_key_env: credential, timeout_ms: 5000 } } }) });
   t.after(() => service.close());

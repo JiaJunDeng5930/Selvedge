@@ -25,7 +25,7 @@ Definition can_begin_voice speech realtime:=Speech.free speech&&match Speech.eli
 Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :=
  let free:=Speech.free speech in
  let choices:=match Speech.connections speech with
- |[]=>[speech_button parent "sign-in" "Sign in for voice"free Speech.Authorize]
+ |[]=>[speech_button parent "sign-in" "Sign in with ChatGPT"free Speech.Authorize]
  |values=>map(fun connection=>let selected:=match Speech.selected speech with Some selected=>String.eqb selected(Speech.connection_id connection)|None=>false end in
    declared parent(if selected then Roles.SelectedButton else Roles.Button)
     (Control(String.append "speech/connection/"(Speech.connection_id connection))(Speech.connection_label connection)Secondary

@@ -33,13 +33,17 @@ Definition effort_fields := [F.required "effort" (D.Value KText)].
 Definition model_fields := [F.required "slug" (D.Value KText);F.required "visibility" visibility_declaration;
  F.optional "supported_reasoning_levels" (D.Array (D.OpenObject effort_fields));
  F.optional "default_reasoning_level" (D.nullable (D.Value KText));
- F.optional "context_window" window_declaration;
+ F.optional "context_window" (D.nullable window_declaration);
+ F.optional "max_context_window" (D.nullable window_declaration);
  F.optional "effective_context_window_percent" percent_declaration;
- F.optional "supports_reasoning_effort_updates" (D.Value KBool)].
+ F.optional "supports_reasoning_effort_updates" (D.Value KBool);
+ F.optional "use_responses_lite" (D.Value KBool);
+ F.optional "multi_agent_reasoning_effort" (D.nullable (D.Value KText))].
 Record model_descriptor := ModelDescriptor {
   model_slug : model_name; model_visibility : visibility; model_efforts : option effort_list;
   model_reasoning : option (option label); model_window : option (D.denote window_declaration);
-  model_percent : option (D.denote percent_declaration); model_reasoning_updates : bool
+  model_percent : option (D.denote percent_declaration); model_reasoning_updates : bool;
+  model_responses_lite : bool; model_multi_agent_effort : option label
 }.
 Definition model_id value := proj1_sig value.(model_slug).
 Definition optional_admission {A B : Set} (parse : A -> option B) (value : option A) :=
@@ -51,14 +55,20 @@ Definition admit_reasoning (value : D.denote (D.nullable (D.Value KText))) : opt
  match value with
  | inl value => option_map Some (D.admit bounded_name value)
  | inr (inl _) => Some None | inr (inr impossible) => match impossible with end end.
+Definition nullable_value {declaration} (value : option (D.denote (D.nullable declaration))) :=
+ match value with Some (inl value) => Some value | _ => None end.
+Definition optional_bool value := match value with Some flag => flag | None => false end.
 Definition admit_model (source : D.denote (D.OpenObject model_fields)) : option model_descriptor :=
- let '(id,(visible,(levels,(baseline,(context,(percent,(updates,_))))))) := proj1_sig source in
+ let '(id,(visible,(levels,(baseline,(context,(maximum,(percent,(updates,(lite,(multi_agent,_)))))))))) := proj1_sig source in
+ let window := match nullable_value (declaration:=window_declaration) context with
+   | Some window => Some window | None => nullable_value (declaration:=window_declaration) maximum end in
  match D.admit (fun value => bounded_name value && slug value) id,
-   optional_admission admit_efforts levels,optional_admission admit_reasoning baseline with
- | Some id,Some levels,Some baseline =>
-   Some (ModelDescriptor id (visibility_value visible) levels baseline context percent
-     (match updates with Some supported => supported | None => false end))
- | _,_,_ => None end.
+   optional_admission admit_efforts levels, optional_admission admit_reasoning baseline,
+   optional_admission (D.admit bounded_name) (nullable_value (declaration:=D.Value KText) multi_agent) with
+ | Some id,Some levels,Some baseline,Some multi_agent =>
+   Some (ModelDescriptor id (visibility_value visible) levels baseline window percent
+     (optional_bool updates) (optional_bool lite) multi_agent)
+ | _,_,_,_ => None end.
 Definition optional_member {A} (name : string) (encode : A -> json) (value : option A) :=
   match value with Some value => [(name,encode value)] | None => [] end.
 Definition label_json (value : label) := JString (proj1_sig value).
@@ -66,8 +76,10 @@ Definition effort_json (values : effort_list) := JArray (map (fun value => JObje
 Definition nullable_label value := match value with Some value => label_json value | None => JNull end.
 Definition model_json value := JObject ([("slug",JString (model_id value));
   ("visibility",JString (visibility_name value.(model_visibility)));
-  ("supports_reasoning_effort_updates",JBool value.(model_reasoning_updates))] ++
+  ("supports_reasoning_effort_updates",JBool value.(model_reasoning_updates));
+  ("use_responses_lite",JBool value.(model_responses_lite))] ++
   optional_member "default_reasoning_level" nullable_label value.(model_reasoning) ++
+  optional_member "multi_agent_reasoning_effort" label_json value.(model_multi_agent_effort) ++
   optional_member "supported_reasoning_levels" effort_json value.(model_efforts) ++
   optional_member "context_window" (D.encode window_declaration) value.(model_window) ++
   optional_member "effective_context_window_percent" (D.encode percent_declaration) value.(model_percent)).
@@ -120,7 +132,7 @@ Definition model_cache_path source := success (JString (str source "resolved" ++
 Definition hash_prefix source := success (JString (substring 0 AccountNamespace.hash_width (str source "digest"))).
 Definition account_namespace source := success (JString (AccountNamespace.make (str source "hash"))).
 
-Definition cache_format := "selvedge-siwc-models-1".
+Definition cache_format := "selvedge-codex-models-1".
 Definition cache source :=
   let value := get source "value" in let elapsed := get source "elapsed" in
   if is_object value && same (get value "format") (JString cache_format) &&

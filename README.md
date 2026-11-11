@@ -3,7 +3,8 @@
 Selvedge runs persistent agent tasks with a local web interface and CLI. Bun
 interprets IO effects; Rocq definitions own the pure task, interaction and browser
 semantics. Executable code is extracted from the definitions that proofs constrain.
-The default model profile is an offline echo demonstration.
+Fresh installations start without model profiles. Sign in to use ChatGPT account
+models or add a provider in Settings.
 
 ## Run
 

@@ -72,7 +72,8 @@ or omit it to prefer the same ChatGPT account connection's advertised
 `codex-auto-review` model, including its hidden catalog entry. Other profiles and
 connections that do not advertise this model use the task's profile; account
 discovery reports that fallback. Explicit reviewer choices and existing task
-settings are preserved. The offline echo profile cannot approve.
+settings are preserved. An explicitly configured offline echo profile cannot
+approve.
 
 An agent requests an exception with `sandbox_permissions: "require_escalated"`
 and a concrete `justification` before executing the command. The Web UI shows
@@ -284,19 +285,21 @@ configuration item** removes an optional override. Configuration read at startup
 takes effect on the next successful start. Context sources that already reread
 configuration continue to do so.
 
-To use an eligible ChatGPT Plus or Pro plan, sign in with the official
-[Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
-flow. No model configuration or API key is required:
+To use ChatGPT account models, sign in using the Codex browser flow. One sign-in
+authorizes account models, dictation, and live voice. You can select **Sign in
+with ChatGPT** from the composer's voice menu or use the CLI:
 
 ```bash
 bun host/cli.mjs login
 bun host/cli.mjs models
 ```
 
-Open the displayed authorization URL in your browser and complete **Continue with
-ChatGPT**. The browser returns to a temporary `127.0.0.1` callback on this host.
-Login loads account models into the native selector and refreshes an already-running
-server. Use `models --refresh` to fetch a fresh catalog. Use a reasoning level
+Open the displayed authorization URL in your browser. The browser returns to a
+temporary callback on the host running Selvedge. The callback uses `127.0.0.1:1455`
+or `127.0.0.1:1457` when the first port is busy. For a service on a remote host,
+forward the port in the login URL to the same port on that host with SSH before
+completing authorization. Login refreshes the running service's model catalog.
+Use `models --refresh` to fetch a fresh catalog and select a reasoning level
 advertised by the selected model.
 
 The separate [ChatGPT Web backend](chatgpt-web.md) uses
@@ -308,12 +311,12 @@ requires the API service's `full` mode for caller tools. It is not an OAuth/Code
 or OpenAI Responses endpoint; those profiles remain separate.
 
 Optional `chatgpt` connection settings are `endpoint`, `issuer`, `auth_file`, and
-`timeout_ms`; their defaults target OpenAI. `chatgpt: false` disables default
-account discovery. `login PROFILE` selects a configured ChatGPT connection.
-Profiles needing distinct registrations must use distinct `auth_file` paths.
-Credentials from the former Codex-derived login format are rejected: run `login`
-again and remove any configured `client_id` or ChatGPT `backend-api` endpoint from
-`config.json`.
+`timeout_ms`. Account models use the Codex Responses endpoint by default.
+`chatgpt: false` disables default account discovery. `login PROFILE` selects an
+explicitly configured ChatGPT account. Distinct accounts use distinct `auth_file`
+paths. After upgrading from separate model and voice authorizations, run `login`
+again to establish the shared credential. Remove explicit public Responses
+endpoint overrides on account profiles to select the current Codex endpoint.
 
 Manage app access and shared plan usage in
 [ChatGPT usage settings](https://chatgpt.com/settings/usage). Sign-in does not grant
@@ -353,10 +356,13 @@ when present. Other profiles need an explicit target budget, for example:
 Use an existing profile key and the window supported by that connection.
 `method: "auto"` prefers supported native compaction and uses the client summary
 method for reconstruction; `"summary"` selects the client method. Compaction
-targets use the `responses` or `chatgpt` provider. The offline `echo` profile and
-the separate `chatgpt-web` continuation protocol cannot be compaction targets.
+targets use the `responses` or `chatgpt` provider. An explicitly configured
+offline `echo` profile and the separate `chatgpt-web` continuation protocol
+cannot be compaction targets.
 Responses connections without a token-counting route use an explicitly recorded
-UTF-8 upper bound for readable inputs. Budgets must leave the summary method's
+UTF-8 upper bound for readable inputs. ChatGPT account connections estimate
+the request size locally for scheduling and use the Codex response stream for
+native compaction. Budgets must leave the summary method's
 minimum input and output room. An omitted output reserve is the smaller
 of 8192 tokens and one eighth of the target window. Thresholds must satisfy
 `1 <= background_percent < blocking_percent < 100`.
@@ -376,11 +382,8 @@ branch results and fresh task identities.
 
 ## Speech input and voice conversations
 
-Choose **Sign in for voice** to authorize the composer's dictation and live voice
-controls. Selvedge opens ChatGPT's authorization page and manages this login,
-credential storage and refresh itself. It follows Codex's ChatGPT OAuth flow and
-calls the audio services directly. The public Sign in with ChatGPT connection
-used for Responses has a separate permission scope and does not enable audio.
+Dictation and live voice use the installation's ChatGPT sign-in. If you have
+already signed in for account models, the voice menu can use that credential.
 
 Select the ChatGPT audio connection independently of the Task's model profile.
 The browser requests microphone access when recording starts; serve remote
@@ -396,8 +399,8 @@ conversation creates an ordinary idle Task with the selected execution settings;
 actual delegated work starts it. Spoken conversation appears in the same history
 as task work. Microphone mute, playback mute and stopping voice have separate
 controls. Stopping voice leaves accepted task work running, and its committed
-history remains available after restart. API-key and ChatGPT Web profiles do not
-provide the ChatGPT audio connection.
+history remains available after restart. Tasks using API-key or ChatGPT Web
+profiles can still use the installation's signed-in ChatGPT account for voice.
 
 
 ## Development updates

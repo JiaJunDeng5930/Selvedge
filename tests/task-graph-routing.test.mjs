@@ -34,7 +34,7 @@ test('task graphs route nonempty assistant replies in every output mode', { time
     return answer(responses[index]);
   }, { measure: () => 100 });
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
-    profiles: { ...defaultConfig.profiles, routing: {
+    profiles: { ...defaultConfig.profiles, demo: { provider: 'echo', model: 'echo' }, routing: {
       provider: 'responses', model: 'task-graph-routing-fixture', endpoint: upstream.endpoint,
       api_key_env: apiKey, timeout_ms: 5000,
     } },

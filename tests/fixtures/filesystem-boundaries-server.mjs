@@ -58,9 +58,10 @@ export async function filesystemServer(t, { directory, state, cwd, respond, conf
     process.env[key] = 'loopback-fixture';
     t.after(() => { delete process.env[key]; });
   }
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
-    ...(upstream ? { profiles: { ...defaultConfig.profiles, fixture: { provider: 'responses', model: 'filesystem-fixture',
-      endpoint: upstream.endpoint, api_key_env: key, timeout_ms: 5000 } } } : {}), ...overrides });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0, ...overrides,
+    profiles: { demo: { provider: 'echo', model: 'echo' }, ...(upstream ? { fixture: {
+      provider: 'responses', model: 'filesystem-fixture', endpoint: upstream.endpoint,
+      api_key_env: key, timeout_ms: 5000 } } : {}), ...overrides.profiles } });
   const running = await startServer({ home: state, cwd, config });
   t.after(() => running.close());
   const headers = { authorization: `Bearer ${running.token}` };

@@ -163,6 +163,23 @@ Proof.
    now rewrite response_stream_roundtrip.
 Qed.
 
+Theorem public_codex_stream_step_preserves_provider_order : forall source,
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get source "state"))) ->
+ StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream (get (get (Api.call "backend.codex_stream_step" source) "value") "state"))).
+Proof.
+ intros source Ordered.
+ pose proof (public_stream_step_preserves_provider_order
+   (JObject [("effect",get source "effect");
+     ("event",codex_event (get source "event") (decode_stream (get source "state")));
+     ("state",get source "state")]) Ordered) as Preserved.
+ change (StronglySorted (fun left right => completed_index left < completed_index right)
+   (completed_items (decode_stream
+   (get (get (codex_stream_step source) "value") "state")))).
+ exact Preserved.
+Qed.
+
 Theorem public_finalized_output_retains_every_item : forall source index,
  str (get source "event") "type" = "response.output_item.done" ->
  wire_natural (get (get source "event") "output_index") = Some index ->
@@ -369,6 +386,21 @@ Qed.
     index leaves no place for a helper request to carry tool authority. *)
 Theorem independent_requests_have_no_tool_authority : forall profile
   (request : BackendRequests.response_request true),
-  get (BackendRequests.encode_request profile request) "tools" = JArray [] /\
-  get (BackendRequests.encode_request profile request) "tool_choice" = JString "none".
-Proof. intros; split; reflexivity. Qed.
+  let body := BackendRequests.encode_request profile request in
+  get body "tools" = (if BackendRequests.responses_lite profile then JNull else JArray []) /\
+  (account profile = true -> forall item, In item (items (get body "input")) ->
+    BackendRequests.inline_tool_declaration item = false).
+Proof.
+ intros profile request; cbv zeta; split.
+ - unfold BackendRequests.encode_request, BackendRequests.encode_authority, BackendRequests.responses_lite.
+   destruct (account profile), (boolean_field (get profile "model_info") "use_responses_lite"),
+     (BackendRequests.response_format request);
+     reflexivity.
+ - intros Account item Member. unfold BackendRequests.encode_request in Member.
+   rewrite Account in Member.
+   change (In item (BackendRequests.codex_input profile (BackendRequests.response_input request)
+     (BackendRequests.response_instructions request) (BackendRequests.responses_lite profile) [])) in Member.
+   unfold BackendRequests.codex_input in Member; cbn [List.app] in Member.
+   apply filter_In in Member as [_ NoDeclaration].
+   now apply negb_true_iff in NoDeclaration.
+Qed.

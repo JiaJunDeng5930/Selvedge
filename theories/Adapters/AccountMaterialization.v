@@ -5,16 +5,19 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Definition default_login_profile config :=
+  let profile := match find (fun entry => same (get (snd entry) "provider") (JString "chatgpt"))
+      (object_fields (get config "profiles")) with Some (_,value) => value | None => JNull end in
+  if is_object profile then profile else
+  if same (get config "chatgpt") (JBool false) then JNull else
+  if is_object (get config "chatgpt") then get config "chatgpt" else AccountContracts.defaults.
+Definition default_login_account source := success (default_login_profile (get source "config")).
 Definition login_account source := let config := get source "config" in
   if has source "key" then let profile := get (get config "profiles") (str source "key") in
     if same (get profile "provider") (JString "chatgpt") then success profile
     else err "Select a ChatGPT profile or omit the profile to sign in"
-  else let profile := match find (fun entry => same (get (snd entry) "provider") (JString "chatgpt"))
-      (object_fields (get config "profiles")) with Some (_,value) => value | None => JNull end in
-    if is_null profile && same (get config "chatgpt") (JBool false)
-    then err "Automatic ChatGPT account discovery is disabled in this configuration"
-    else success (if is_object profile then profile else if is_object (get config "chatgpt")
-      then get config "chatgpt" else AccountContracts.defaults).
+  else let profile := default_login_profile config in
+    if is_null profile then err "ChatGPT account access is disabled in this configuration" else success profile.
 Definition candidate profile primary := JObject [("profile",profile);("primary",JBool primary)].
 Definition candidates source := let config := get source "config" in success (JArray
   (map (fun entry => candidate (snd entry) false) (filter
@@ -57,7 +60,7 @@ Definition review_info model :=
   match find (fun value => String.eqb (proj1_sig value) "low") (model_effort_values model) with
   | Some low => ModelDescriptor model.(model_slug) model.(model_visibility)
     model.(model_efforts) (Some (Some low)) model.(model_window) model.(model_percent)
-    model.(model_reasoning_updates)
+    model.(model_reasoning_updates) model.(model_responses_lite) model.(model_multi_agent_effort)
   | None => model end.
 Definition model_profile source model := JObject (object_fields (get source "connection") ++
   [("model",JString (model_id model));("bound_account_id",get (get source "result") "account_id");("model_info",model_json model)]).

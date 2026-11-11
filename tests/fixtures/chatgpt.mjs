@@ -8,8 +8,9 @@ import { writeAtomic } from '../../host/files.mjs';
 import { defaultChatGPTAccount } from '../../host/chatgpt-account.mjs';
 import { home } from '../support.mjs';
 
-const scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
-const clientId = 'fixture-issued-client', subject = 'fixture-account';
+const scope = 'openid profile email offline_access api.connectors.read api.connectors.invoke';
+const clientId = 'app_EMoamEEZ73f0CkXaXp7hrann', subject = 'fixture-account';
+const workspace = 'fixture-workspace';
 
 export async function chatgptFixture(t) {
   const directory = await home(t);
@@ -22,7 +23,8 @@ export async function chatgptFixture(t) {
   const tokens = async nonce => ({
     access_token: `opaque-access-${marker}`, refresh_token: `fixture-refresh-${marker}`,
     token_type: 'Bearer', scope, expires_in: 3600,
-    id_token: await new SignJWT({ nonce, name: 'Fixture User', email: 'fixture@example.invalid' })
+    id_token: await new SignJWT({ nonce, name: 'Fixture User', email: 'fixture@example.invalid',
+      'https://api.openai.com/auth': { chatgpt_account_id: workspace } })
       .setProtectedHeader({ alg: 'RS256', kid: 'fixture-key' })
       .setIssuer(address).setSubject(subject).setAudience(clientId)
       .setIssuedAt().setExpirationTime('1h').sign(options.privateKey ?? privateKey),
@@ -44,31 +46,33 @@ export async function chatgptFixture(t) {
         oauthRequests.push(entry);
         const query = url.searchParams;
         assert.equal(query.get('code_challenge_method'), 'S256');
-        assert.match(query.get('ext_agent_host_id'), /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-        const first = query.get('client_id') === 'dynamic_agent_client';
-        if (!first) assert.equal(query.get('client_id'), clientId);
+        assert.equal(query.get('scope'), scope);
+        assert.equal(query.get('client_id'), clientId);
         const callback = new URL(query.get('redirect_uri'));
         const code = `fixture-grant-${authorizations.size}`;
         authorizations.set(code, { nonce: query.get('nonce'), challenge: query.get('code_challenge'), redirect: callback.href });
         callback.searchParams.set('code', code);
         callback.searchParams.set('state', query.get('state'));
-        if (first) callback.searchParams.set('client_id', clientId);
         response.writeHead(302, { location: callback.href }); return response.end();
       }
       if (url.pathname === '/oauth/token') {
         oauthRequests.push(entry);
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
-        const body = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString('utf8')));
+        const text = Buffer.concat(chunks).toString('utf8');
+        const jsonGrant = request.headers['content-type'] === 'application/json';
+        const body = jsonGrant ? JSON.parse(text) : Object.fromEntries(new URLSearchParams(text));
         assert.equal(body.client_id, clientId);
         let nonce;
         if (body.grant_type === 'authorization_code') {
+          assert.equal(jsonGrant, false);
           const grant = authorizations.get(body.code);
           assert.ok(grant);
           assert.equal(body.redirect_uri, grant.redirect);
           assert.equal(createHash('sha256').update(body.code_verifier).digest('base64url'), grant.challenge);
           nonce = grant.nonce;
         } else {
+          assert.equal(jsonGrant, true);
           assert.equal(body.grant_type, 'refresh_token');
           assert.equal(body.refresh_token, `fixture-refresh-${marker}`);
           marker = `renewed-${++refreshes}`;
@@ -76,6 +80,7 @@ export async function chatgptFixture(t) {
         return jsonResponse(response, await tokens(nonce));
       }
       assert.equal(request.headers.authorization, `Bearer opaque-access-${marker}`);
+      assert.equal(request.headers['chatgpt-account-id'], workspace);
       requests.push(entry);
       if (options.respond) {
         const chunks = [];

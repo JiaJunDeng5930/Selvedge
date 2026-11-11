@@ -7,10 +7,9 @@ From Selvedge.Programming Require Import AdapterResult.
 (** * Requests retain their admitted account and durable response
 
     Credential rotation must not change the principal of an already selected
-    request. Account identity therefore includes the issuer, issued client and
-    verified subject; a matching display identity cannot authorize a different
-    registration. Registration survives separately from rotating credentials;
-    model and audio credentials retain their own grants. Invalid credentials
+    request. Account identity therefore includes the issuer, OAuth client,
+    verified subject and ChatGPT workspace. Models and audio use one installation
+    account grant for the Codex backend and ChatGPT audio services. Invalid credentials
     cannot authorize a request, while an invalid disposable cache can be dropped.
     The SDK verifies each received ID token before its claims become the stored
     principal. Refresh and request authorization use that principal and the
@@ -21,16 +20,16 @@ From Selvedge.Programming Require Import AdapterResult.
     (OpenID Connect Core 1.0, sections 12.1-12.2:
     https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokens).
     Configured account connections are admitted when configuration enters the
-    service; the built-in audio connection is constructed from its native
-    declaration. Authorization and model materialization reuse those connections.
+    service. The voice entry uses the same default connection as CLI sign-in.
+    Authorization and model materialization reuse those connections.
     Re-admitting their unchanged URL fields adds no evidence about the credential
     read from disk, whose identity and grant still require their own admission.
     [AccountsProofs] binds these refresh, callback and credential rules to the
     public account operations. Refusal contracts retain failure and the actual
     control decision without fixing diagnostic wording. Errors for malformed
     credential text must be independent of the rejected bytes so they cannot
-    disclose a credential. Publishing credential, registration and host-identity
-    files must leave them readable by their owner and deny group and other
+    disclose a credential. Publishing a credential file must leave it readable
+    by its owner and deny group and other
     access. Exact owner write and execute bits add no privacy property.
     Refresh eligibility uses one admitted, locked
     credential; its expiry margin and earliest refresh time are evaluated
@@ -40,7 +39,7 @@ From Selvedge.Programming Require Import AdapterResult.
     The login awaits one callback Promise before exchanging the accepted code.
     Single-settlement Promise semantics gives that continuation one outcome; each
     HTTP callback still undergoes its own method, target, origin, state and
-    issued-client admission. Signature, nonce and PKCE verification belong to
+    fixed-client admission. Signature, nonce and PKCE verification belong to
     the OpenID client. Displaying the SDK's authorization URL introduces no new
     account admission. Issuer admission checks the credential already held by
     the caller without returning another copy of it.
@@ -157,7 +156,7 @@ Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_refresh_keeps_the_same_request_identity,
  public_valid_callback_authorizes_its_client,
  public_credential_requires_unambiguous_identity,
- public_audio_credential_rejects_another_client,
+ public_credential_rejects_another_client,
  public_malformed_encoded_cache_is_disposable,
  public_unparseable_authentication_text_is_sanitized).
 Export BackendProofs(public_frozen_account_rejects_another_identity,
@@ -290,10 +289,12 @@ Export ApiProofs(public_issued_media_rpc_result_reserves_before_materialization,
     admission compares their values without rechecking numeric representation.
     The request encoder establishes the object's structure, which measurement
     consumes directly instead of admitting that private structure again.
-    Measurement therefore selects the account image estimate or provider meter;
-    an over-budget request cannot become admissible through a fabricated token
-    count. A readable request may use the existing byte bound after an explicit
-    unsupported meter-route response.
+    The Codex account route selects the local estimate for scheduling,
+    including the encoded size of opaque items and the allowance for images.
+    The provider can still reject a request that exceeds its context window.
+    Responses connections use their provider meter. A readable request can
+    use the existing byte bound after an explicit unsupported meter-route
+    response.
     Admission depends on the consumer scope and token bound; a label naming
     the measurement source adds no admission or scheduling evidence.
     Vault bytes, digest checks, image decoding, model capabilities and transport
@@ -306,7 +307,7 @@ Export CompactionPlanProofs(native_start_retains_history_and_rebuild_material).
 From Selvedge.Features Require Import CompactionProofs.
 Export CompactionProofs(captured_images_select_structured_summary).
 From Selvedge.Adapters Require Import ProviderCompactionProofs.
-Export ProviderCompactionProofs(public_account_image_requests_use_the_complete_request_estimate,
+Export ProviderCompactionProofs(public_account_requests_use_the_complete_request_estimate,
  public_other_requests_use_provider_measurement,
  public_image_requests_never_use_textual_fallback,
  public_encrypted_requests_never_use_textual_fallback).
@@ -410,7 +411,9 @@ Qed.
 Theorem accepted_independent_public_request_has_no_tool_authority : forall source body,
  independent_kind (str (get source "effect") "kind") = true ->
  Api.call "backend.request" source = success body ->
- get body "tools" = JArray [] /\ get body "tool_choice" = JString "none".
+ get body "tools" = (if BackendRequests.responses_lite (get source "profile") then JNull else JArray []) /\
+ (ProviderCatalog.account (get source "profile") = true -> forall item, In item (items (get body "input")) ->
+   BackendRequests.inline_tool_declaration item = false).
 Proof.
  intros source body Independent Accepted.
  change (BackendRequests.request ContextSelection.target_messages source = success body) in Accepted.

@@ -10,8 +10,11 @@ Definition discovery source :=
   let value := get source "value" in let issuer := get source "issuer_url" in let urls := get source "urls" in
   if same (get value "issuer") (get source "issuer") &&
     forallb (fun name => discovery_url (get urls name) issuer) ["authorization_endpoint";"token_endpoint";"jwks_uri"]
-  then success (if is_audio (kind_of source)
-    then set value "authorization_endpoint" (JString (str value "issuer" ++ "/oauth/authorize")) else value)
+  (* Public discovery advertises the third-party OAuth paths. The Codex client
+     uses the first-party paths on the same admitted issuer. *)
+  then success (if loopback issuer then value else
+    set (set value "authorization_endpoint" (JString (str value "issuer" ++ "/oauth/authorize")))
+      "token_endpoint" (JString (str value "issuer" ++ "/oauth/token")))
   else err "Invalid ChatGPT OpenID discovery".
 Definition insecure source := success (JBool
   (String.eqb (str (get source "url") "protocol") "http:" && loopback (get source "url"))).
@@ -32,56 +35,34 @@ Inductive callback_decision :=
   | AcceptCallback (client_id : json).
 Definition decide_callback source :=
   if negb (parsed (get source "url")) then IgnoreCallback 400
-  else if negb (same (get (get source "url") "pathname") (JString "/auth/callback")) then IgnoreCallback 404
+  else if negb (same (get (get source "url") "pathname") AccountContracts.callback_path) then IgnoreCallback 404
   else if negb (callback_bound source) then RejectCallback "Invalid ChatGPT authorization callback"
   else if negb (Nat.eqb (List.length (parameters source "error")) 0)
     then RejectCallback "ChatGPT authorization was declined or failed"
-  else let id := default (first (parameters source "client_id")) (get (get source "registered") "client_id") in
-    if nonempty (first (parameters source "code")) && client id &&
-      (negb (is_object (get source "registered")) || same id (get (get source "registered") "client_id"))
-    then AcceptCallback id else RejectCallback "Invalid ChatGPT issued client".
+  else let id := default (first (parameters source "client_id")) AccountContracts.client_id in
+    if nonempty (first (parameters source "code")) && same id AccountContracts.client_id
+    then AcceptCallback id else RejectCallback "Invalid ChatGPT authorization client".
 Definition encode_callback decision :=
   let '(action,status,message,id,body,headers) := match decision with
     | IgnoreCallback status => ("ignore",status,"",JNull,"",JObject [])
     | RejectCallback message => ("reject",400,message,JNull,
-        "ChatGPT authorization failed. Return to the terminal.",JObject [])
+        "ChatGPT authorization failed. Return to Selvedge.",JObject [])
     | AcceptCallback id => ("accept",200,"",id,
-        "ChatGPT authorization received. Return to the terminal.",
+        "ChatGPT authorization received. Return to Selvedge.",
         JObject [("content-type",JString "text/plain");("cache-control",JString "no-store")]) end in
   JObject [("action",JString action);("status",number status);
     ("message",JString message);("clientId",id);("body",JString body);("headers",headers)].
 Definition callback source := success (encode_callback (decide_callback source)).
 
-Definition hex character := let code := nat_of_ascii character in
-  (Nat.leb 48 code && Nat.leb code 57) || (Nat.leb 97 code && Nat.leb code 102).
-Fixpoint uuid_chars source (index : nat) := match source with
-  | EmptyString => Nat.eqb index 36
-  | String first rest =>
-    let separator := existsb (Nat.eqb index) [8;13;18;23]%nat in
-    (if separator then Ascii.eqb first "-"%char else hex first &&
-      (negb (Nat.eqb index 14) || Ascii.eqb first "4"%char) &&
-      (negb (Nat.eqb index 19) || existsb (Ascii.eqb first) ["8"%char;"9"%char;"a"%char;"b"%char])) &&
-    uuid_chars rest (S index) end.
-Definition host_format := "selvedge-chatgpt-host-1".
-Definition host_registration source :=
-  let value := get source "value" in let id := str value "ext_agent_host_id" in
-  if is_object value && same (get value "format") (JString host_format) &&
-    Nat.eqb (List.length (object_fields value)) 2 && starts id "urn:uuid:" &&
-    uuid_chars (lower_ascii (substring 9 (String.length id) id)) 0
-  then success (get value "ext_agent_host_id") else err "Invalid ChatGPT host registration".
-Definition host_registration_record source := success (JObject [
-  ("format",JString host_format);("ext_agent_host_id",get source "ext_agent_host_id")]).
+Definition callback_ports source := success
+  (if loopback (get source "issuer_url") then JArray [JNumber "0"]
+   else get AccountContracts.contract "callback_ports").
 Definition auth_parameters source :=
-  let common := [("response_type",JString "code");("redirect_uri",get source "redirectUri");
+  success (JObject [("response_type",JString "code");("redirect_uri",get source "redirectUri");
     ("state",get source "state");("nonce",get source "nonce");("code_challenge",get source "challenge");
-    ("code_challenge_method",JString "S256")] in
-  success (JObject (common ++ if is_audio (kind_of source) then
-    [("client_id",get AccountContracts.audio_contract "client_id");("scope",get AccountContracts.audio_contract "scopes");
-      ("id_token_add_organizations",JString "true");("codex_cli_simplified_flow",JString "true");("originator",JString "selvedge_audio")]
-  else [("resource",get AccountContracts.contract "resource");("scope",get AccountContracts.contract "scopes");
-    ("ext_agent_host_id",get source "ext_agent_host_id");
-    ("client_id",default (get (get source "registered") "client_id") (JString "dynamic_agent_client"))] ++
-    optional (negb (is_object (get source "registered"))) "agent_name_hint" (JString "Selvedge"))).
+    ("code_challenge_method",JString "S256");("client_id",AccountContracts.client_id);
+    ("scope",AccountContracts.scopes);("id_token_add_organizations",JString "true");
+    ("codex_cli_simplified_flow",JString "true");("originator",AccountContracts.originator)]).
 Definition code_grant_checks source := success (JObject [
   ("expectedNonce",get source "nonce");("expectedState",get source "state");
   ("idTokenExpected",JBool true);("pkceCodeVerifier",get source "verifier")]).
@@ -93,5 +74,3 @@ Definition candidate_read source :=
   let action := if boolean_field read "ok" then "accept"
     else if same (get (get read "error") "code") (JString "ENOENT") then "skip" else "fail" in
   success (JString action).
-Definition optional_registration source := if is_null (get source "value") then success JNull else registration source.
-Definition host_saved source := if is_null (get source "value") then success JNull else host_registration source.

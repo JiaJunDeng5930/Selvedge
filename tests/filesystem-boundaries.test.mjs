@@ -336,7 +336,8 @@ exit "$git_status"
     try { await Promise.all([writeFile(`${gate}.release`, 'release'), writeFile(`${gate}.add-release`, 'release')]); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   });
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } });
   const options = { home: state, cwd: primary, config };
   const running = await filesystemChild(t, options, { ...process.env, PATH: `${binary}${path.delimiter}${process.env.PATH}` });
   const { work_id } = await running.command({ op: 'create_work', name: 'Interrupted filesystem Work' });

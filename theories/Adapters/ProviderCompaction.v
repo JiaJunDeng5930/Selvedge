@@ -21,11 +21,14 @@ Definition encrypted_input_item (item : json) :=
    examples and defaults can use the same field names as ordinary text data. *)
 Definition opaque_request (request : json) :=
   existsb encrypted_input_item (items (get request "input")) || N.ltb 0 (request_image_count request).
-Definition selected_request (meter : bool) (source : json) : json :=
-  let names := List.app ["model"; "input"; "instructions"]
-    (if meter then ["tools"; "tool_choice"; "parallel_tool_calls"] else []) in
+Definition meter_request (source : json) : json :=
+  let names := ["model"; "input"; "instructions"; "tools"; "tool_choice"; "parallel_tool_calls"] in
   JObject (filter (fun field => existsb (String.eqb (fst field)) names)
     (object_fields (get source "request"))).
+Definition native_request (source : json) : json :=
+  let request := get source "request" in
+  set request "input" (JArray (List.app (items (get request "input"))
+    [JObject [("type",JString "compaction_trigger")]])).
 Definition effect (source : json) : json :=
   let original := get source "effect" in let plan := get original "plan" in
   let history := match str plan "method" with
@@ -45,8 +48,9 @@ Next quoted history fragment:
   JObject [("kind",JString "context_compaction"); ("context_selected",JBool true);
     ("model",get original "model"); ("instructions",JString ""); ("history",JArray history)].
 Definition summary_request (source : json) :=
-  set (get source "request") "max_output_tokens"
-    (get (get (get source "effect") "plan") "output_reserve_tokens").
+  let request := get source "request" in
+  if ProviderCatalog.account (get source "profile") then request
+  else set request "max_output_tokens" (get (get (get source "effect") "plan") "output_reserve_tokens").
 Definition meter_result (source : json) :=
   let count := get (get source "response") "input_tokens" in
   (* DEFENSE: External token counters can return fractional, negative or out-of-range counts. *)
@@ -54,13 +58,27 @@ Definition meter_result (source : json) :=
   | None => err "The provider returned an invalid input token count"
   | Some count => success (JObject [("scope",get source "scope");
       ("input_tokens",number count)]) end.
+Definition retained_message (item : json) :=
+  (* Selvedge rebuilds developer context from the current task sources. *)
+  String.eqb (str item "type") "message" && String.eqb (str item "role") "user".
+Definition retained_messages (input : list json) (budget : N) :=
+  let '(_,retained) := fold_left (fun state item =>
+    let '(remaining,retained) := state in
+    let cost := N.of_nat (String.length (TextJson.render_json item)) in
+    if cost <=? remaining then (remaining - cost,item :: retained) else state)
+    (rev (filter retained_message input)) (budget,[]) in retained.
 Definition native_result (source : json) :=
-  let response := get source "response" in
-  (* DEFENSE: A provider replacement window must be an array before it enters history. *)
-  if is_array (get response "output") then success (JObject [
-    ("format",JString "native"); ("scope",get source "scope");
-    ("items",JArray [JObject [("role",JString "model_context"); ("content",get response "output")]])])
-  else err "The native compactor returned an invalid replacement window".
+  let invalid := err "The Codex compactor must return exactly one encrypted compaction item" in
+  (* DEFENSE: Only one complete encrypted checkpoint can replace the captured history. *)
+  match filter (fun item => String.eqb (str item "type") "compaction") (items (get source "output")) with
+  | [checkpoint] => if encrypted_input_item checkpoint then
+      let history := retained_messages (items (get source "input")) (N.min 64000 (num source "window_tokens" / 4)) in
+      success (JObject [
+        ("format",JString "native"); ("scope",get source "scope");
+        ("items",JArray [JObject [("role",JString "model_context");
+          ("content",JArray (List.app history [checkpoint]))]])])
+    else invalid
+  | _ => invalid end.
 Definition summary_result (source : json) := success (JObject [
   ("summary_text", JString (String.concat "" (map (fun item =>
     String.concat "" (map (fun part => str part "text")
@@ -95,10 +113,10 @@ Definition scope_changed (source : json) :=
 Definition measurement_plan (source : json) :=
   let request := get source "request" in
   let images := request_image_count request in
-  if ProviderCatalog.account (get source "profile") && N.ltb 0 images then
-    (* The account transport does not promise the public token-count endpoint.
-       Keep image requests usable with an encrypted continuation as well: the
-       estimate includes the complete encoded request and each image. *)
+  if ProviderCatalog.account (get source "profile") then
+    (* The Codex backend uses an estimate for advance scheduling and reports
+       actual token usage on a completed model response. The size of an opaque
+       item contributes to this estimate; it does not measure the hidden content. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
         1844 * images))])
@@ -129,8 +147,8 @@ Definition budget (source : json) := success (JString
   (if N.leb (num source "input_tokens" + num (get source "plan") "output_reserve_tokens")
     (num (get source "plan") "window_tokens") then "dispatch" else "resize")).
 Definition call (operation : string) (source : json) : json :=
-  if String.eqb operation "backend.compaction_meter_request" then success (selected_request true source)
-  else if String.eqb operation "backend.compaction_request" then success (selected_request false source)
+  if String.eqb operation "backend.compaction_meter_request" then success (meter_request source)
+  else if String.eqb operation "backend.compaction_request" then success (native_request source)
   else if String.eqb operation "backend.compaction_effect" then success (effect source)
   else if String.eqb operation "backend.compaction_summary_request" then success (summary_request source)
   else if String.eqb operation "backend.compaction_meter_result" then meter_result source

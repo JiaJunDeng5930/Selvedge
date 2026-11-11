@@ -78,7 +78,8 @@ test('private identity publication and lost remote command receipts survive rest
     'Published credentials must be owner-readable and deny group/other permissions');
   const identity = JSON.parse(await readFile(filename, 'utf8'));
   assert.equal(identity.host_id, firstIdentity.host_id);
-  const config = { ...validateConfig({ ...defaultConfig, chatgpt: false }), remote: { relay_url: relayUrl } };
+  const config = { ...validateConfig({ ...defaultConfig, chatgpt: false,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } }), remote: { relay_url: relayUrl } };
   const options = { home: directory, cwd: workspace, config, remoteOptions: { allowLoopback: true } };
   service = await Service.open(options);
   await service.remote.enable();
