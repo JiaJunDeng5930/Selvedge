@@ -332,6 +332,69 @@ export class Renderer {
       }
     }
   }
+  recordFor(key, tag, metadata, generation) {
+    let record = key === '' ? null : this.records.get(key);
+    if (record && record.tag !== tag) {
+      record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); record = null;
+    }
+    if (!record) {
+      const node = svgTags.has(tag)
+        ? this.root.ownerDocument.createElementNS(svgNamespace, tag)
+        : this.root.ownerDocument.createElement(tag);
+      record = { key, tag, node, attributes: new Map(), styles: [], events: [], markdownTargets: new Map() };
+      if (key !== '') this.records.set(key, record);
+      if (!this.isolated && key !== '') this.listeners(record);
+    }
+    record.generation = generation;
+    record.metadata = metadata ?? {};
+    if (key !== '') this.targets.set(key, record.node);
+    return record;
+  }
+  elementChildren(record, children) {
+    // Retained native editors keep their selection and composition session.
+    reconcile(record.node, children);
+    if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)
+        && record.node.value !== record.attributes.get('value')) record.node.value = record.attributes.get('value');
+  }
+  renderPicker(materialize, generation) {
+    if (!this.document || this.hasPortals || this.document.measurement_pending) return false;
+    const active = this.root.ownerDocument.activeElement;
+    const focusedBefore = this.focusedKey(active);
+    const previousScope = this.focusScope;
+    const output = materialize({
+      text: value => this.root.ownerDocument.createTextNode(value),
+      element: (value, children) => {
+        const record = this.recordFor(value.key, value.tag, value.metadata, generation);
+        record.events = value.events;
+        this.properties(record, value.attributes, value.styles);
+        this.elementChildren(record, children);
+        return record.node;
+      },
+    });
+    if (!output) return false;
+    const { metadata, roots: [, picker] } = output;
+    if (metadata.before !== null && metadata.before !== metadata.after) {
+      const old = this.target(metadata.before);
+      if (old) unmount(old);
+    }
+    if (picker && !picker.isConnected) this.target(metadata.layer_stack).append(picker);
+    for (const [key, record] of this.records) {
+      if (!record.node.isConnected) {
+        record.markdown?.dispose(); record.fences?.dispose(); this.records.delete(key);
+        this.targets.delete(key);
+        continue;
+      }
+      record.generation = generation;
+      for (const binding of record.events) if (binding.action.op === 'element') binding.action.generation = generation;
+    }
+    this.generation = generation;
+    this.focusScope = metadata.focus_scope;
+    this.document = { ...this.document, generation, focus_scope: this.focusScope, target_updates: metadata.target_updates };
+    this.commitLayers(active);
+    this.applyTargetUpdates(this.document);
+    this.applyFocus(previousScope, focusedBefore);
+    return true;
+  }
   render(document, generation = 0) {
     this.refreshLinks();
     const active = this.root.ownerDocument.activeElement;
@@ -352,22 +415,8 @@ export class Renderer {
       if (value.kind === 'portal') { portals.push({ value, path }); return null; }
       const key = value.key || path;
       used.add(key);
-      let record = this.records.get(key);
       const tag = value.kind === 'markdown' ? 'div' : value.tag;
-      if (record && record.tag !== tag) {
-        record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); record = null;
-      }
-      if (!record) {
-        const node = svgTags.has(tag)
-          ? this.root.ownerDocument.createElementNS(svgNamespace, tag)
-          : this.root.ownerDocument.createElement(tag);
-        record = { key, tag, node, attributes: new Map(), styles: [], events: [], markdownTargets: new Map() };
-        this.records.set(key, record);
-        if (!this.isolated) this.listeners(record);
-      }
-      record.generation = generation;
-      record.metadata = value.metadata ?? {};
-      this.targets.set(key, record.node);
+      const record = this.recordFor(key, tag, value.metadata, generation);
       if (value.kind === 'markdown') {
         record.node.className = 'markdown';
         record.metadata = value.metadata ?? {};
@@ -404,10 +453,7 @@ export class Renderer {
         this.properties(record, value.attributes, value.styles);
         const previousChildren = value.children.some(child => child.kind === 'text') ? Array.from(record.node.childNodes) : [];
         const children = value.children.map((child, index) => create(child, `${key}/${index}`, previousChildren[index])).filter(Boolean);
-        // Retained native editors keep their selection and composition session.
-        reconcile(record.node, children);
-        if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)
-            && record.node.value !== record.attributes.get('value')) record.node.value = record.attributes.get('value');
+        this.elementChildren(record, children);
       }
       return record.node;
     };
@@ -422,33 +468,34 @@ export class Renderer {
       if (!used.has(key)) { record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); }
     }
     this.refreshLinks();
-    if (!this.isolated) {
-      // DOM order is the declared layer order; retained-record insertion order can differ after resizing.
-      const dialogs = Array.from(this.root.querySelectorAll('dialog[aria-modal="true"]'));
-      this.refreshAnchors();
-      const top = dialogs.at(-1) ?? null;
-      if (this.modal !== top && this.modal?.isConnected && this.modal.matches(':modal')) {
-        const previous = this.modal;
-        previous.close();
-        if (dialogs.includes(previous)) previous.open = true;
-      }
-      this.modal = top;
-      if (top && !top.matches(':modal')) {
-        top.open = false;
-        top.showModal();
-      }
-      this.confineMenus();
-      // Moving a retained header into its native drawer must not discard its focused control.
-      if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
-          (!top || top.contains(active)) && !active.closest('[inert]') && !active.disabled) {
-        active.focus({ preventScroll: true });
-      }
-    }
+    if (!this.isolated) this.commitLayers(active);
     this.applyTargetUpdates(document);
     for (const record of this.records.values()) if (record.metadata.code)
       this.callbacks.codePublication?.(record.metadata.code);
     this.applyFocus(previousScope, focusedBefore);
     if (document.title && this.root.ownerDocument.title !== document.title) this.root.ownerDocument.title = document.title;
+  }
+  commitLayers(active) {
+    // DOM order is the declared layer order; retained-record insertion order can differ after resizing.
+    const dialogs = Array.from(this.root.querySelectorAll('dialog[aria-modal="true"]'));
+    this.refreshAnchors();
+    const top = dialogs.at(-1) ?? null;
+    if (this.modal !== top && this.modal?.isConnected && this.modal.matches(':modal')) {
+      const previous = this.modal;
+      previous.close();
+      if (dialogs.includes(previous)) previous.open = true;
+    }
+    this.modal = top;
+    if (top && !top.matches(':modal')) {
+      top.open = false;
+      top.showModal();
+    }
+    this.confineMenus();
+    // Moving a retained header into its native drawer must not discard its focused control.
+    if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
+        (!top || top.contains(active)) && !active.closest('[inert]') && !active.disabled) {
+      active.focus({ preventScroll: true });
+    }
   }
   applyTargetUpdates(document) {
     const updatedTargets = new Set();

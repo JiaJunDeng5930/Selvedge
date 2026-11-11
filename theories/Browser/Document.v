@@ -1133,6 +1133,16 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
     (source_context source (S.node_meaning value))
     (match S.node_meaning value with S.PageContext current=>current|_=>view end)
     (component_context component (S.node_meaning value))) (S.node_children value)).
+Fixpoint compile_regions {A} (selected : S.node A -> bool) (describe:A->C.purpose)
+ env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : list DOM.node :=
+ if selected value then
+  [compile_node describe env generation inherited_area activity source view component value]
+ else flat_map (compile_regions selected describe env generation
+    (area_for inherited_area (S.node_role value) (S.node_meaning value))
+    (match S.node_meaning value with S.ActivityGroup _ _ _ _|S.ActivityRow _=>true|_=>activity end)
+    (source_context source (S.node_meaning value))
+    (match S.node_meaning value with S.PageContext current=>current|_=>view end)
+    (component_context component (S.node_meaning value))) (S.node_children value).
 Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  let current_view:=match S.node_meaning value with S.PageContext current=>current|_=>view end in
  let children:=flat_map (target_updates current_view) (S.node_children value) in

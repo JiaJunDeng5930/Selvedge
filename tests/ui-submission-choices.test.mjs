@@ -116,6 +116,8 @@ test('the Task model picker switches between its model list and effort control a
   assert.equal(await effort.getAttribute('aria-valuetext'), 'Default');
   await summary.click();
   await search.fill('model-fixture-12');
+  await model('model-fixture-1').waitFor({ state: 'hidden' });
+  assert.equal(await search.inputValue(), 'model-fixture-12');
   await model('model-fixture-12').click();
   await summary.getByText('model-fixture-12', { exact: true }).waitFor();
   await page.keyboard.press('Escape');

@@ -1,5 +1,5 @@
 import { browserCall } from './generated/browser-model.mjs';
-import { interactionCall, prepareInteraction, preparedInteractionCall } from './generated/interaction-model.mjs';
+import { interactionCall, prepareInteraction, preparedInteractionCall, publishNativePicker } from './generated/interaction-model.mjs';
 import { invoke, unwrapResult } from './model-boundary.mjs';
 import { numberFromJsonToken, stringifyJson } from './json-tokens.mjs';
 
@@ -7,6 +7,11 @@ export const browser = (operation, source) => invoke(browserCall, operation, sou
 
 const preparedOperations = new Set(['step', 'observe', 'accepts_element']);
 let prepared = null;
+
+export function presentNativePicker(state, world, environment, generation, ops) {
+  if (prepared?.state !== state || prepared.world !== world || prepared.environment !== environment) return null;
+  return publishNativePicker(stringifyJson({ generation }), prepared.token, numberFromJsonToken, ops);
+}
 
 export function interaction(operation, source = null) {
   if (!preparedOperations.has(operation)) return invoke(interactionCall, operation, source);

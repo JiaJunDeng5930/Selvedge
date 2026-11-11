@@ -10,10 +10,13 @@ From Selvedge.Browser Require Import Documents.
 From Selvedge.Browser.Session Require State Codec Runtime Authoring Navigation NavigationCodec.
 From Selvedge.Interaction.Submission Require DraftCodec.
 From Selvedge.Browser.Presentation Require Gesture.
+From Selvedge.Browser.Presentation Require Composition.
 From Selvedge.Browser.Scene Require Surface Model.
 From Selvedge.Browser.Presentation Require View.
 From Selvedge.Interaction.Interactive Require Language.
-From Selvedge.Browser Require Layout Observation Document.
+From Selvedge.Interaction.Experience Require Activity.
+From Selvedge.Interaction.Submission Require Fields.
+From Selvedge.Browser Require Layout Observation Document DOM DirectDOM.
 Import ListNotations.
 Open Scope string_scope.
 Module Session:=Selvedge.Browser.Session.State.
@@ -24,6 +27,7 @@ Module S:=Selvedge.Browser.Scene.Surface.
 Module V:=Selvedge.Browser.Presentation.View.
 Module CP:=Selvedge.Browser.Presentation.ActionPurpose.
 Module BM:=Selvedge.Browser.Scene.Model.
+Module UX:=Selvedge.Interaction.Experience.Model.
 Definition capacity environment:=match Layout.observe_capacity environment with
 |Some(navigation,details)=>Some(BM.Capacity navigation details)|None=>None end.
 Definition environment request:=bind(field "environment" request)Observation.decode_environment.
@@ -33,6 +37,11 @@ Definition surface snapshot state environment:=
  let portrait:=Nat.leb width 600 && Nat.ltb width (Layout.viewport_height environment) in
  option_map(fun capacity=>V.view snapshot state capacity portrait)(capacity environment).
 
+Record picker_update := PickerUpdate {
+  picker_before : option string;
+  picker_after : option (S.node Input.input);
+  picker_trigger : string
+}.
 (** One admitted world and physical environment own the scene used to resolve
     native events, collect action assessments, and compile the document. *)
 Record prepared := Prepared {
@@ -40,18 +49,102 @@ Record prepared := Prepared {
   prepared_state : Session.state;
   prepared_encoding : json;
   prepared_environment : option Layout.environment;
-  prepared_scene : option (S.surface Input.input)
+  prepared_scene : option (S.surface Input.input);
+  prepared_picker_update : option picker_update
 }.
 Definition scene snapshot current env := bind env (surface snapshot current).
 Definition prepare request :=
  snapshot<-field "world" request;; current<-state request;;
  let env:=environment request in
- Some(Prepared snapshot current (SC.encode_state current) env (scene snapshot current env)).
+ Some(Prepared snapshot current (SC.encode_state current) env (scene snapshot current env) None).
 Definition with_state context current :=
  let encoded:=SC.encode_state current in
  if Json.equal(prepared_encoding context)encoded then context else
  let snapshot:=prepared_world context in let env:=prepared_environment context in
- Prepared snapshot current encoded env (scene snapshot current env).
+ Prepared snapshot current encoded env (scene snapshot current env) None.
+
+Definition shown_picker context :=
+ actual<-prepared_scene context;;
+ node<-S.active_modal actual;;
+ if String.eqb (S.semantic_key node) "model-picker" then Some node else None.
+Definition top_picker context :=
+ layer<-hd_error(Session.layers(Session.navigation_state(prepared_state context)));;
+ if SA.model_picker_layer layer then Some layer else None.
+Definition without_fields excluded value := match value with
+ |JObject fields=>JObject(filter(fun field=>negb(existsb(String.eqb(fst field))excluded))fields)
+ |_=>value end.
+Definition underlying_layers context :=
+ let layers:=Session.layers(Session.navigation_state(prepared_state context))in
+ match top_picker context with Some _=>tl layers|None=>layers end.
+Definition retains_picker_underlay before after :=
+ let nav context:=NavigationCodec.encode_navigation(Session.navigation_state(prepared_state context))in
+ let stable context:=without_fields ["navigation";"authoring";"services";"next_layer"](prepared_encoding context)in
+ let services context:=without_fields ["next";"command_assessments";"model_preference"]
+   (value_or JNull(field "services"(prepared_encoding context)))in
+ let authoring context:=without_fields ["drafts";"pending";"next";"draft_model_manual"]
+   (value_or JNull(field "authoring"(prepared_encoding context)))in
+ (* Task details can relocate its trigger into its own dialog when exposed. *)
+ let layers:=underlying_layers before in
+ negb(existsb(fun layer=>match Session.layer_panel layer with
+  |Session.InformationPanel(Session.TaskDetails _)=>true|_=>false end)layers) &&
+ Json.equal (without_fields ["layers"](nav before)) (without_fields ["layers"](nav after)) &&
+ Json.equal (JArray(map NavigationCodec.encode_layer layers))
+   (JArray(map NavigationCodec.encode_layer(underlying_layers after))) &&
+ Json.equal (stable before) (stable after) &&
+ Json.equal (services before) (services after) &&
+ Json.equal (authoring before) (authoring after).
+Definition picker_update_for input before after :=
+ let old:=shown_picker before in let next:=shown_picker after in
+ let update layer:=if retains_picker_underlay before after then
+  Some(PickerUpdate(option_map (@S.node_key Input.input)old)next(Session.layer_trigger layer))else None in
+ match input,old,next with
+ |Input.OpenActivity _ (Activity.PropertyActivity UX.ModelProperty) _,None,Some _=>
+   bind(top_picker after)update
+ |Input.ClosePanel,Some _,None=>bind(top_picker before)update
+ |Input.ActivityFocus _ _ _,Some _,Some _
+ |Input.ActivitySearch _ _,Some _,Some _=>
+   bind(top_picker after)update
+ |Input.ActivityAssignment _ _ assignment,Some _,Some _=>
+   match UX.subject_declaration(Activity.assignment_subject assignment)with
+   |Fields.ModelProfile|Fields.ReasoningEffort=>bind(top_picker after)update
+   |_=>None end
+ |_,_,_=>None end.
+
+Definition materialize_native_roots := @DirectDOM.materialize_roots.
+Fixpoint native_controls (node:DOM.node) : bool :=
+ match node with
+ |DOM.Text _=>true
+ |DOM.Element _ _ _ _ _ _ children=>forallb native_controls children
+ |DOM.Markdown _ _ _ _|DOM.Mount _ _=>false
+ end.
+Definition native_picker (request:json) (context:prepared) : option (json * list DOM.node) :=
+ patch<-prepared_picker_update context;;
+ env<-prepared_environment context;;
+ actual<-prepared_scene context;;
+ generation<-natural_field "generation" request;;
+ let describe:=CP.describe(prepared_world context)(prepared_state context)in
+ let owns_picker (node:S.node Input.input):=match S.node_meaning node with
+  |S.PageRegion Composition.ComposerInput _=>
+    match V.find_presentation_node(picker_trigger patch)node with Some _=>true|None=>false end
+  |_=>false end in
+ let all:=(S.base actual++S.overlays actual)%list in
+ match flat_map(Document.compile_regions owns_picker describe env generation
+    Document.OutsideArea false S.Region None None)all with
+ |[composer]=>
+  let layer:=option_map(Document.compile_node describe env generation
+    Document.OutsideArea false S.Region None None)(picker_after patch)in
+  let theme:=Document.NativeAppearance.theme_name(S.surface_appearance actual)(Layout.system_dark env)in
+  let metadata:=JObject[
+   ("before",value_or JNull(option_map JString(picker_before patch)));
+   ("after",value_or JNull(option_map(fun node=>JString(S.node_key node))(picker_after patch)));
+   ("layer_stack",JString(S.workspace_key actual++"/overlays"));
+   ("focus_scope",JArray(map DOM.scope_json(Document.surface_scopes(S.modal_nodes actual))));
+   ("target_updates",JArray(map DOM.update_json
+    (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]
+       ::flat_map(Document.target_updates None)all)))]in
+  let roots:=composer::match layer with Some node=>[node]|None=>[]end in
+  if forallb native_controls roots then Some(metadata,roots)else None
+ |_=>None end.
 
 Definition element (actual:option(S.surface Input.input)) generation raw:=
  incoming<-natural_field "generation" raw;;
@@ -78,7 +171,8 @@ Definition feedback_update (error:option json) (visible acknowledge:bool) :=
 Definition decision_packet context effects error handled visible_error acknowledge (publication_event:string):=JObject[("state",prepared_encoding context);
  ("file_handles",JArray(map JString(Selvedge.Browser.Session.Services.retained_file_handles(Session.service_state(prepared_state context)))));
  ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
- ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled)].
+ ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled);
+ ("native_picker",JBool(match prepared_picker_update context with Some _=>true|None=>false end))].
 Definition refresh context decision:=match prepared_scene context with
 |Some actual=>SA.append decision(SA.refresh (prepared_world context)(S.current_actions actual)(SA.result_state decision))
 |None=>decision end.
@@ -104,7 +198,9 @@ Definition run_input request context namespace input raw:=
  let stepped:=native_step namespace(prepared_world context)(flag "semantic_lagged" request)input raw(prepared_state context)in
  let stepped_context:=with_state context(SA.result_state stepped)in
  let decision:=restore_rejected_field input raw(refresh stepped_context stepped)in
- let final:=with_state stepped_context(SA.result_state decision)in
+ let updated:=with_state stepped_context(SA.result_state decision)in
+ let final:=Prepared (prepared_world updated)(prepared_state updated)(prepared_encoding updated)
+   (prepared_environment updated)(prepared_scene updated)(picker_update_for input context updated)in
  (decision,input_publication input(prepared_encoding context)(prepared_encoding final),final).
 
 Definition input_decision request context namespace input raw:=

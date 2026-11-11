@@ -187,6 +187,13 @@ Export PublicationProof(a_prepared_document_has_no_input_authority,
     pixel engine would duplicate browser sizing and font shaping without proving
     the actual control's geometry or focus behavior.
 
+    The model picker can materialize its native roots through an extracted
+    algebra. It shares the ordinary Document projection for choices, labels,
+    properties and event bindings. The adapter receives native child handles.
+    Local publication retains element-generation admission, field sessions and
+    native modal focus. Unrelated layers and physical observations continue to
+    constrain whether a local publication is applicable.
+
     Motor targets, writing-line demand, reading width and clearance have different
     purposes. Their observed fonts and dimensions cannot substitute for one
     another. A comfortable prose width is not automatically the minimum space

@@ -1,5 +1,5 @@
 import { boundary } from './model-boundary.mjs';
-import { browser, interaction } from './browser-model-boundary.mjs';
+import { browser, interaction, presentNativePicker } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Renderer, filesFromEvent } from './renderer.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
@@ -250,7 +250,7 @@ function dispatch(input) {
     announcements.setAttribute('aria-live', visible ? 'assertive' : 'polite');
   }
   publication = publicationEvent(decision.publication_event);
-  if (decision.publication_event !== 'keep') render();
+  if (decision.publication_event !== 'keep') render(decision.native_picker);
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision.handled;
 }
@@ -270,7 +270,7 @@ function refreshClock() {
   if (document.visibilityState !== 'visible') return;
   dispatch({ type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) });
 }
-function render() {
+function render(picker = false) {
   if (disposed) return;
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
@@ -279,19 +279,23 @@ function render() {
   if (measuring && renderer.document) {
     renderAfterMeasurement = true; measureAgain = true; return;
   }
-  const plan = interaction('observe', { state, world, environment, generation: publication.generation,
-    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
-  surface.dataset.displayPending = String(publicationEvent('pending'));
-  if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
-    refreshPhysical().catch(fatal); return;
+  const generation = publication.generation;
+  const directlyPresented = picker && renderer.renderPicker(
+    ops => presentNativePicker(state, world, environment, generation, ops), generation);
+  if (!directlyPresented) {
+    const plan = interaction('observe', { state, world, environment, generation,
+      namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
+    surface.dataset.displayPending = String(publicationEvent('pending'));
+    if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
+      refreshPhysical().catch(fatal); return;
+    }
+    renderer.render(plan, generation);
   }
-  renderer.render(plan, publication.generation);
   surface.dataset.sourcesFresh = String(sourceFresh);
   physical.refresh();
-  if (!plan.measurement_pending) {
-    publication = publicationEvent('document', { receipt_generation: publication.generation });
+  if (!renderer.document.measurement_pending) {
+    publication = publicationEvent('document', { receipt_generation: generation });
     synchronizeNativeAuthority();
-    const generation = publication.generation;
     renderer.whenCaughtUp().then(caughtUp => {
       if (!caughtUp || disposed) return;
       publication = publicationEvent('publish', { receipt_generation: generation });
@@ -855,7 +859,10 @@ surface.addEventListener('drop', event => {
   const target = event.target.closest?.('[data-drop-target]');
   if (!source || !target || !admitted(source.generation)) return;
   const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
-  if (placement) { event.preventDefault(); dispatch({ ...placement.action, value: placement.target }); }
+  if (placement) {
+    event.preventDefault();
+    dispatch({ ...placement.action, generation: source.generation, value: placement.target });
+  }
 });
 surface.addEventListener('dragend', () => { draggedCard = null; });
 

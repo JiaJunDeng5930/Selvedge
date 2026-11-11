@@ -294,6 +294,7 @@ Definition step snapshot input state:option result:=match input with
  |Input.OpenCardDecision card decision trigger=>Some(open_panel(State.CardDecisionPanel card decision)trigger state)
  |Input.ActivitySearch occurrence query=>Some(modify_top occurrence(fun layer=>
    match State.layer_panel layer with
+   |State.PropertyPanel _ (Activity.PropertyActivity Model.ModelProperty)
    |State.CardDecisionPanel _ _=>Some(set State.layer_query(fun _=>query)layer)
    |_=>None end)state)
  |Input.OpenEditor owner trigger=>Some(edit_object snapshot owner trigger state)
