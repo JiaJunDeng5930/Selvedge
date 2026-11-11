@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { browserFixture } from './fixtures/browser.mjs';
 
-test('the Task model picker offers supported effort on desktop and portrait screens', async t => {
+test('the Task model picker switches between its model list and effort control at every viewport', async t => {
   const fixture = await browserFixture(t, { images: true });
   const { page, upstream } = fixture;
   const respond = upstream.options.respond;
@@ -11,6 +11,12 @@ test('the Task model picker offers supported effort on desktop and portrait scre
       context_window: 128000, effective_context_window_percent: 100,
       default_reasoning_level: 'medium',
       supported_reasoning_levels: ['minimal', 'low', 'medium', 'high', 'xhigh'].map(effort => ({ effort })) },
+    ...Array.from({ length: 12 }, (_, index) => ({
+      slug: `model-fixture-${index + 1}`, display_name: `Model ${index + 1}`, visibility: 'list',
+      context_window: 128000, effective_context_window_percent: 100,
+      default_reasoning_level: 'medium',
+      supported_reasoning_levels: ['minimal', 'low', 'medium', 'high', 'xhigh'].map(effort => ({ effort })),
+    })),
     { slug: 'codex-auto-review', display_name: 'Codex auto review', visibility: 'list',
       context_window: 128000, effective_context_window_percent: 100,
       default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium' }] },
@@ -42,45 +48,78 @@ test('the Task model picker offers supported effort on desktop and portrait scre
   const picker = page.getByRole('dialog', { name: 'Model', exact: true });
   const draft = page.getByRole('combobox', { name: 'Task', exact: true });
   await draft.fill('Keep this draft while choosing a model.');
+  const search = picker.getByRole('searchbox', { name: 'Search models' });
+  const model = name => picker.getByRole('menuitemradio', { name, exact: true });
+  const catalogBox = picker.locator('[data-semantic-key="model-picker-models"]');
+  const summary = picker.getByRole('button', { name: /^Choose model:/ });
+  const effort = picker.getByRole('slider', { name: 'Reasoning effort' });
+
   await trigger.click();
-  const profileNames = await picker.getByRole('menuitemradio').evaluateAll(options =>
+  await Promise.any([summary.waitFor(), catalogBox.waitFor()]);
+  if (await summary.isVisible()) await summary.click();
+  await catalogBox.waitFor();
+  await effort.waitFor({ state: 'hidden' });
+  const profileNames = await catalogBox.getByRole('menuitemradio').evaluateAll(options =>
     options.map(option => option.getAttribute('aria-label')));
   assert.ok(profileNames.includes('image-fixture'),
     'The ordinary Task picker should still offer a visible ChatGPT model');
   assert.ok(!profileNames.includes('codex-auto-review'),
     'The hidden ChatGPT auto-review model must not be offered as a Task model');
+  await model('image-fixture').click();
+  await summary.waitFor();
+  await effort.waitFor();
+  assert.equal(await effort.getAttribute('aria-valuetext'), 'Default');
+  assert.equal(await effort.getAttribute('max'), '5');
 
-  await picker.getByRole('menuitemradio', { name: 'image-fixture', exact: true }).click();
-  await picker.waitFor({ state: 'hidden' });
-  await trigger.click();
-  const effort = picker.getByRole('radiogroup', { name: 'Reasoning effort', exact: true });
-  const selected = effort.getByRole('menuitemradio', { checked: true });
-  const high = effort.getByRole('menuitemradio', { name: 'high', exact: true });
-  await selected.waitFor();
-  assert.equal(await effort.getByRole('menuitemradio').count(), 6);
-  assert.equal(await high.getAttribute('aria-checked'), 'false');
-  const desktop = await picker.boundingBox();
-  assert.ok(desktop && desktop.width < 420, 'The desktop picker remains a compact menu');
-
-  for (const width of [320, 390]) {
-    await page.setViewportSize({ width, height: 760 });
-    await page.waitForFunction(() => {
+  for (const [width, height] of [[1280, 900], [760, 390], [320, 760], [390, 760]]) {
+    await page.setViewportSize({ width, height });
+    await summary.waitFor();
+    await catalogBox.waitFor({ state: 'hidden' });
+    const portrait = height > width;
+    await page.waitForFunction(portrait => {
       const box = document.querySelector('dialog[aria-label="Model"][open]')?.getBoundingClientRect();
-      return box && box.width > innerWidth - 36 && box.left >= 0 &&
-        box.right <= innerWidth + 1 && innerHeight - box.bottom < 24;
-    });
-    const hitArea = await high.boundingBox();
-    assert.ok(hitArea && hitArea.width >= 44 && hitArea.height >= 44);
+      return box && box.left >= 0 && box.right <= innerWidth + 1 && box.top >= 0 &&
+        box.height < 190 && (portrait
+          ? box.width > innerWidth - 36 && innerHeight - box.bottom < 24
+          : box.width < 340 && box.bottom <= innerHeight);
+    }, portrait);
+    const track = await effort.boundingBox();
+    assert.ok(track && track.width > 200 && track.height >= (portrait ? 44 : 30));
   }
-  const colors = await Promise.all([selected, high].map(choice =>
-    choice.evaluate(node => getComputedStyle(node).backgroundColor)));
-  assert.notEqual(colors[0], colors[1], 'The selected effort has a visible color cue');
-  await high.click();
+
+  await effort.focus();
+  await page.keyboard.press('End');
+  await page.waitForFunction(() =>
+    document.querySelector('input[data-model-effort-range]')?.getAttribute('aria-valuetext') === 'xhigh');
+  assert.match(await summary.innerText(), /image-fixture\s*xhigh/i);
+  const bounds = await effort.boundingBox();
+  const y = bounds.y + bounds.height / 2;
+  await page.mouse.move(bounds.x + bounds.width - 15, y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 15, y, { steps: 5 });
+  await page.waitForFunction(() =>
+    document.querySelector('input[data-model-effort-range]')?.getAttribute('aria-valuetext') === 'Default');
+  await page.mouse.up();
+  await summary.getByText('Default', { exact: true }).waitFor();
+
+  await summary.click();
+  await catalogBox.waitFor();
+  await search.waitFor();
+  await effort.waitFor({ state: 'hidden' });
+  const searchBeforeScroll = await search.boundingBox();
+  assert.ok((await catalogBox.getByRole('menuitemradio').count()) > 10);
+  await catalogBox.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  assert.ok(await catalogBox.evaluate(node => node.scrollTop > 0), 'The long catalog has its own scroll area');
+  assert.deepEqual(await search.boundingBox(), searchBeforeScroll, 'The search stays above the scrolling list');
+  await picker.getByRole('button', { name: 'Back to reasoning effort' }).click();
+  await summary.waitFor();
+  assert.equal(await effort.getAttribute('aria-valuetext'), 'Default');
+  await summary.click();
+  await search.fill('model-fixture-12');
+  await model('model-fixture-12').click();
+  await summary.getByText('model-fixture-12', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'hidden' });
+  assert.match(await trigger.getAttribute('aria-label'), /model-fixture-12/);
   assert.equal(await draft.inputValue(), 'Keep this draft while choosing a model.');
-  await trigger.click();
-  await high.waitFor();
-  assert.equal(await high.getAttribute('aria-checked'), 'true');
-  await picker.getByRole('button', { name: 'Close model picker' }).click();
-  await picker.waitFor({ state: 'hidden' });
 });

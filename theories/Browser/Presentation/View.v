@@ -60,9 +60,9 @@ Definition relocate_details_trigger state capacity base overlays:=
   |_ =>(base,overlays)end
  |[] =>(base,overlays)end.
 
-Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) : Surface.surface Input.input :=
+Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) (compact_model_picker : bool) : Surface.surface Input.input :=
  let base:=List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state)in
- let render:=map (Layers.layer_view snapshot state capacity) in
+ let render:=map (Layers.layer_view snapshot state capacity compact_model_picker) in
  let '(settings_editors, workspace_layers):=partition
    (fun layer => match State.layer_panel layer with
      | State.EditorPanel Identity.TitlePrompts => true | _ => false end)

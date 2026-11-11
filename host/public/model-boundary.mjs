@@ -1,8 +1,7 @@
 import { call, callStructured } from './generated/host-model.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 
-function result(text) {
-  const envelope = parseJson(text);
+export function unwrapResult(envelope) {
   if (envelope.ok) return envelope.value;
   const constructors = { TypeError, RangeError, SyntaxError, Error };
   const ErrorType = constructors[envelope.code] ?? Error;
@@ -28,7 +27,7 @@ export function invoke(entry, operation, source) {
   const output = previous && previous.input === input ? previous.output
     : entry === call ? callStructured(operation, parseJson(input), numberText)
     : entry(operation, input);
-  const value = result(output);
+  const value = unwrapResult(parseJson(output));
   if (cacheable && (!previous || previous.input !== input)) lastResults.set(operation, { input, output });
   return value;
 }

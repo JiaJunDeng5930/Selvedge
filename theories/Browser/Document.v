@@ -903,6 +903,23 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [event key generation "change" "value" Gesture.Change] empty (choices key (match selected with None=>""|Some n=>text_number n end) values))
  |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
  |S.SearchChoices query _=>element "input" [("type","search");("value",query);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
+ |S.EffortRange options=>
+ let visible:=S.visible_efforts options in
+ let labels:=map(fun entry=>Model.control_label(snd entry))visible in
+ let last:=Nat.pred(List.length visible)in
+ let selected:=Nat.min last(fold_right(fun (entry:bool*Model.control A) index=>
+   if fst entry then 0%nat else Nat.succ index)0%nat visible)in
+ let show_index:=fun index=>text_number(N.of_nat index)in
+ DOM.Element (key++"/track")%string "div" [("data-model-effort-track","")]
+  [("--effort-index",show_index selected);("--effort-last",show_index(Nat.max 1 last))] [] empty
+  [DOM.Element (key++"/marks")%string "div" [("data-effort-marks","");("aria-hidden","true")] [] [] empty
+     (map(fun _=>DOM.Element "" "span" [] [] [] empty [])labels);
+   element "input"
+     ([("type","range");("min","0");("max",show_index last);("step","1");("value",show_index selected);
+       ("data-model-effort-range","");("aria-valuetext",nth selected labels "");
+       ("data-effort-labels",TextJson.render_json(JArray(map JString labels)))]++
+      disabled(Nat.ltb 0 last))
+     (if Nat.ltb 0 last then [event key generation "change" "value" Gesture.Change] else []) empty []]
  |S.ReceiveFile _ enabled _=>
  (* The native chooser remains the real input target. A label presents its
     paperclip face without exposing the browser's filename widget. *)

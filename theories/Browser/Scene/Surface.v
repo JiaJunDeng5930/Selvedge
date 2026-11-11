@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Identity.
@@ -96,6 +96,7 @@ Inductive meaning (Action : Type) :=
 | HistorySearchScope (project : bool) (selected : option N) (choices : list Fields.choice_value) (receive : json -> option Action)
 | BoardSearch (selection : BoardFilter.filter) (receive : json -> option Action)
 | SearchChoices (query : string) (receive : json -> option Action)
+| EffortRange (options : list (bool * control Action))
 | ReceiveFile (owner : editor) (enabled : bool) (receive : json -> option Action)
 | ConfigurationField (multiline : bool) (text : string)
     (options : option (list Fields.choice_value)) (enabled : bool) (receive : json -> option Action)
@@ -164,6 +165,7 @@ Arguments HistorySearchQuery {Action}.
 Arguments HistorySearchScope {Action}.
 Arguments BoardSearch {Action}.
 Arguments SearchChoices {Action}.
+Arguments EffortRange {Action}.
 Arguments ReceiveFile {Action}.
 Arguments ConfigurationField {Action}.
 Arguments EnterDirectory {Action}.
@@ -204,6 +206,23 @@ Definition layer_region {A} (content : meaning A) :=
 Definition press_control {A} (value : control A) :=
   if available (control_availability value) then Some (control_input value) else None.
 
+Definition visible_efforts {A} (options : list (bool * control A)) :=
+  filter (fun entry => fst entry || available (control_availability (snd entry))) options.
+
+Definition choose_effort {A} (options : list (bool * control A)) value : option A :=
+  match (match as_string value with Some source => parse_natural source | None => None end) with
+  | Some index =>
+    let visible := visible_efforts options in
+    (* DEFENSE: an edited native value can name an index outside the offered range. *)
+    if N.ltb index (N.of_nat (List.length visible)) then
+      match nth_error visible (N.to_nat index) with
+      | Some entry => press_control (snd entry)
+      | None => None
+      end
+    else None
+  | None => None
+  end.
+
 Definition edit_value {A} (value : edit_control A) input :=
   if available (editing_availability value) then
     match editing_entry value, editing_input value with
@@ -230,6 +249,7 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | Gesture.Press, Choice _ _ _ action
   | Gesture.Press, Activate action => press_control action
   | Gesture.Change, Edit _ _ control => edit_value control value
+  | Gesture.Change, EffortRange options => choose_effort options value
   | Gesture.Key, Edit _ _ control =>
       match editing_key_input control with Some receive => receive value | None => None end
   | Gesture.Selection, Edit _ _ control =>
@@ -388,6 +408,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | HistorySearchScope project selected choices receive => HistorySearchScope project selected choices (map_receiver f receive)
   | BoardSearch selection receive => BoardSearch selection (map_receiver f receive)
   | SearchChoices query receive => SearchChoices query (map_receiver f receive)
+  | EffortRange options => EffortRange (map (fun entry => (fst entry, map_control f (snd entry))) options)
   | ReceiveFile owner enabled receive => ReceiveFile owner enabled (map_receiver f receive)
   | ConfigurationField multiline text options enabled receive =>
       ConfigurationField multiline text options enabled (map_receiver f receive)
@@ -426,6 +447,7 @@ Definition edit_actions {A e}(subject:UX.subject e)(value:edit_control A):list A
 Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |SettingEntry _ _ action|ActionCommit _ _ action|SupportingControl _ _ _ action
 |PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
+|EffortRange options=>map(fun entry=>control_input(snd entry))options
 |ActivityGroup _ _ _ behavior|LayerRegion behavior|NavigationRegion _ behavior=>[layer_dismissal behavior]
 |MovableCard _ destinations=>map(fun placement=>control_input(placement_control placement))destinations
 |Graphic drawing=>fold_right(fun primitive rest=>match primitive with

@@ -12,9 +12,12 @@ From Selvedge.Interaction.Experience Require ContextObservation.
 Import ListNotations.
 Open Scope string_scope.
 
+Definition reuse_catalog_decoder (decode:list json -> list Selvedge.Kernel.Domain.profile) := decode.
+Definition decode_catalog :=
+  reuse_catalog_decoder (fold_right (fun item rest => match Codec.parse_profile item with
+    |Some profile=>profile::rest|None=>rest end) []).
 Definition catalog (snapshot:json) : list Selvedge.Kernel.Domain.profile :=
-  fold_right (fun item rest => match Codec.parse_profile item with
-    |Some profile=>profile::rest|None=>rest end) [] (items "profiles" snapshot).
+  decode_catalog (items "profiles" snapshot).
 Definition task_profile task snapshot :=
  value<-World.find_task task snapshot;;
  bind(field "execution_profile" value)Selvedge.Kernel.Codec.parse_profile.

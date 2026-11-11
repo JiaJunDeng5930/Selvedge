@@ -43,6 +43,13 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     Selection, focus, expansion, execution status and pointer interest answer
     different questions and remain distinct observations.
 
+    A prepared application scene lets a native click resolve its binding and
+    present its result without decoding the accepted world or deriving the
+    displayed scene again. State, world and environment changes retire the
+    corresponding preparation. The displayed generation still governs
+    element admission. The native browser measures the new layout after
+    giving the resulting document a paint opportunity.
+
     [assessment_presentation_retains_complete_observation],
     and [blocked_editing_explains_all_commit_obstructions] retain the assessed
     action and its complete obstruction list. Field lookup finds its own cause

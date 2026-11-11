@@ -9,12 +9,18 @@ export class JsonNumber {
   toJSON() { return JSON.rawJSON(this.source); }
 }
 
-export function parseJson(text, noncanonicalNumber = source => new JsonNumber(source)) {
+const asJsonNumber = source => new JsonNumber(source);
+function losslessNumber(value, source, noncanonicalNumber) {
+  return JSON.stringify(value) === source ? value : noncanonicalNumber(source);
+}
+
+export function numberFromJsonToken(source) {
+  return losslessNumber(Number(source), source, asJsonNumber);
+}
+
+export function parseJson(text, noncanonicalNumber = asJsonNumber) {
   return JSON.parse(text, (_key, value, context) => {
-    if (typeof value === 'number' && JSON.stringify(value) !== context.source) {
-      return noncanonicalNumber(context.source);
-    }
-    return value;
+    return typeof value === 'number' ? losslessNumber(value, context.source, noncanonicalNumber) : value;
   });
 }
 

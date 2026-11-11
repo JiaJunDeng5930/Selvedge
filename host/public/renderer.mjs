@@ -62,6 +62,8 @@ function focusVisible(node) {
     && bounds.right <= view.innerWidth && bounds.bottom <= view.innerHeight;
 }
 function reconcile(parent, children) {
+  const current = parent.childNodes;
+  if (children.length === current.length && children.every((child, index) => child === current[index])) return;
   const retained = new Set(children);
   // Remove replaced text before ordering so unchanged editor ancestors never move.
   for (const child of Array.from(parent.childNodes)) if (!retained.has(child)) unmount(child);
@@ -86,7 +88,12 @@ export class Renderer {
     this.disposed = false;
     this.anchorFocus = event => {
       if (event.type === 'focusin' && !this.applyingFocus) this.pendingFocus = null;
-      queueMicrotask(() => this.refreshAnchors());
+      if (this.anchorRefresh) return;
+      this.anchorRefresh = true;
+      queueMicrotask(() => {
+        this.anchorRefresh = false;
+        if (!this.disposed) this.refreshAnchors();
+      });
     };
     if (!isolated) {
       root.addEventListener('focusin', this.anchorFocus);
@@ -98,7 +105,14 @@ export class Renderer {
     this.targetRefresh = true;
     queueMicrotask(() => {
       this.targetRefresh = false;
-      if (!this.disposed && this.document) this.render(this.document, this.generation);
+      if (this.disposed || !this.document) return;
+      // A portal's new target may need its children mounted.
+      if (this.hasPortals) { this.render(this.document, this.generation); return; }
+      for (const [key, node] of this.targets) if (!node.isConnected) this.targets.delete(key);
+      this.refreshLinks();
+      if (!this.isolated) this.refreshAnchors();
+      this.applyTargetUpdates(this.document);
+      this.applyFocus(this.focusScope, this.focusedKey());
     });
   }
   target(key) {
@@ -108,8 +122,16 @@ export class Renderer {
   resolveTarget(key, { modal = true, fallback, recoverMissing = false } = {}) {
     const scope = modal && this.modalRecord()?.node || this.root;
     const preferredView = this.root.ownerDocument.activeElement?.closest('[data-view]')?.dataset.view ?? '';
-    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node =>
-      focusAvailable(node) && node.matches('button,input,select,textarea,a[href],[tabindex]'));
+    const control = 'button,input,select,textarea,a[href],[tabindex]';
+    const exact = this.target(key);
+    // Focus.resolve gives a live physical key precedence over all aliases.
+    if (exact?.dataset.key === key && scope.contains(exact) && exact.matches(control) && focusAvailable(exact)) return exact;
+    const requested = new Set(fallback === undefined ? [key] : [key, fallback]);
+    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node => {
+      const { key, logicalKey, focusAlias } = node.dataset;
+      return (recoverMissing || requested.has(key) || requested.has(logicalKey) || requested.has(focusAlias)) &&
+        node.matches(control) && focusAvailable(node);
+    });
     if (scope.dataset?.key && focusAvailable(scope) && scope.hasAttribute('tabindex')) nodes.unshift(scope);
     const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, recover_missing: recoverMissing, ...(fallback === undefined ? {} : { fallback }),
       candidates: nodes.map(node => ({ key: node.dataset.key,
@@ -121,32 +143,50 @@ export class Renderer {
     return this.modal?.matches(':modal') ? this.records.get(this.modal.dataset.key) : null;
   }
   confineMenus() {
+    const view = this.root.ownerDocument.defaultView;
+    const width = Math.min(view.innerWidth, view.visualViewport?.width ?? view.innerWidth);
+    const height = Math.min(view.innerHeight, view.visualViewport?.height ?? view.innerHeight);
     for (const menu of this.root.querySelectorAll('[data-native-layer="menu"]')) {
-      menu.style.removeProperty('translate');
-      if (!menu.getClientRects().length) continue;
+      if (menu.style.translate) menu.style.removeProperty('translate');
       const bounds = menu.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) continue;
+      const clearance = Number.parseFloat(menu.style.getPropertyValue('--layer-clearance'));
+      // An in-bounds box needs no corrective transform or second layout pass.
+      if (bounds.left >= clearance && bounds.top >= clearance &&
+          bounds.right <= width - clearance && bounds.bottom <= height - clearance) continue;
       menu.style.translate = this.callbacks.menuGeometry(bounds);
     }
   }
   refreshAnchors() {
-    for (const anchor of this.root.querySelectorAll('[data-native-anchor-owner]')) anchor.removeAttribute('data-native-anchor-owner');
+    const previous = new Set(this.root.querySelectorAll('[data-native-anchor-owner]'));
     for (const positioned of this.root.querySelectorAll('[data-anchor]')) {
-      const anchor = this.resolveTarget(positioned.dataset.anchor, { modal: false });
-      positioned.dataset.anchorAvailable = String(Boolean(anchor?.isConnected));
+      const key = positioned.dataset.anchor;
+      const physical = this.target(key);
+      // A mounted physical anchor can position a layer while its control is
+      // inert behind that layer. Alias recovery still uses observed targets.
+      const anchor = physical?.isConnected && physical.dataset.key === key && !physical.closest('[hidden]')
+        ? physical : this.resolveTarget(key, { modal: false });
+      const available = String(Boolean(anchor?.isConnected));
+      if (positioned.dataset.anchorAvailable !== available) positioned.dataset.anchorAvailable = available;
       // DEFENSE: resizing can remove a trigger's responsive branch while its activity remains open.
       if (!anchor?.isConnected) {
         positioned.style.removeProperty('position-anchor');
         continue;
       }
-      const name = '--selvedge-anchor-' + CSS.escape(positioned.dataset.key);
-      anchor.style.anchorName = name;
-      positioned.style.positionAnchor = name;
+      const name = '--selvedge-anchor-' + CSS.escape(anchor.dataset.key);
+      if (anchor.style.anchorName !== name) anchor.style.anchorName = name;
+      if (positioned.style.positionAnchor !== name) positioned.style.positionAnchor = name;
       if (positioned.dataset.anchorFocus === 'true') {
-        positioned.hidden = anchor !== this.root.ownerDocument.activeElement;
-        anchor.setAttribute('aria-expanded', String(!positioned.hidden));
+        const hidden = anchor !== this.root.ownerDocument.activeElement;
+        if (positioned.hidden !== hidden) positioned.hidden = hidden;
+        if (anchor.getAttribute('aria-expanded') !== String(!hidden)) anchor.setAttribute('aria-expanded', String(!hidden));
       }
-      if (!positioned.hidden) anchor.dataset.nativeAnchorOwner = 'true';
+      if (!positioned.hidden) {
+        previous.delete(anchor);
+        if (anchor.dataset.nativeAnchorOwner !== 'true') anchor.dataset.nativeAnchorOwner = 'true';
+      }
     }
+    for (const anchor of previous) anchor.removeAttribute('data-native-anchor-owner');
   }
   fieldSession(record, event, value) {
     if (!this.callbacks.fieldSession || !record.attributes.has('value') || !('value' in record.node)) return { deliver: true };
@@ -217,6 +257,7 @@ export class Renderer {
     };
     node.addEventListener('click', event => dispatch('click', event));
     node.addEventListener('input', event => {
+      if (!record.events.some(binding => binding.event === 'input')) return;
       if (!this.fieldSession(record, 'input_observed').deliver) return;
       dispatch('input', event);
     });
@@ -294,8 +335,7 @@ export class Renderer {
   render(document, generation = 0) {
     this.refreshLinks();
     const active = this.root.ownerDocument.activeElement;
-    const observedFocus = node => this.root.contains(node) ? node?.closest('[data-key]')?.dataset.key ?? null : null;
-    const focusedBefore = observedFocus(active);
+    const focusedBefore = this.focusedKey(active);
     this.document = document;
     const previousScope = this.focusScope;
     this.focusScope = document.focus_scope;
@@ -373,6 +413,7 @@ export class Renderer {
     };
     const root = create(document.root, '@root');
     reconcile(this.root, [root]);
+    this.hasPortals = portals.length !== 0;
     for (const { value, path } of portals) {
       const target = this.target(value.target);
       if (target) reconcile(target, value.children.map((child, index) => create(child, `${path}/${index}`)).filter(Boolean));
@@ -403,6 +444,13 @@ export class Renderer {
         active.focus({ preventScroll: true });
       }
     }
+    this.applyTargetUpdates(document);
+    for (const record of this.records.values()) if (record.metadata.code)
+      this.callbacks.codePublication?.(record.metadata.code);
+    this.applyFocus(previousScope, focusedBefore);
+    if (document.title && this.root.ownerDocument.title !== document.title) this.root.ownerDocument.title = document.title;
+  }
+  applyTargetUpdates(document) {
     const updatedTargets = new Set();
     for (const update of document.target_updates) {
       const target = this.target(update.target);
@@ -412,8 +460,8 @@ export class Renderer {
       const previous = retained.get(target) ?? { attributes: [], styles: [] };
       for (const name of previous.attributes) if (!update.attributes.some(value => value.name === name)) target.removeAttribute(name);
       for (const name of previous.styles) if (!update.styles.some(value => value.name === name)) target.style.removeProperty(name);
-      for (const { name, value } of update.attributes) target.setAttribute(name, value);
-      for (const { name, value } of update.styles) target.style.setProperty(name, value);
+      for (const { name, value } of update.attributes) if (target.getAttribute(name) !== value) target.setAttribute(name, value);
+      for (const { name, value } of update.styles) if (target.style.getPropertyValue(name) !== value) target.style.setProperty(name, value);
       retained.set(target, { attributes: update.attributes.map(value => value.name), styles: update.styles.map(value => value.name) });
     }
     for (const target of this.updatedTargets ?? []) if (!updatedTargets.has(target)) {
@@ -423,8 +471,11 @@ export class Renderer {
       this.targetProperties.delete(target);
     }
     this.updatedTargets = updatedTargets;
-    for (const record of this.records.values()) if (record.metadata.code)
-      this.callbacks.codePublication?.(record.metadata.code);
+  }
+  focusedKey(node = this.root.ownerDocument.activeElement) {
+    return this.root.contains(node) ? node?.closest('[data-key]')?.dataset.key ?? null : null;
+  }
+  applyFocus(previousScope, focusedBefore) {
     if (!this.isolated) {
       const observeFocus = previous => {
         const focusedAfter = this.root.ownerDocument.activeElement;
@@ -434,7 +485,7 @@ export class Renderer {
         const scopeRoot = scope?.type === 'temporary' ? this.resolveTarget(scope.identity) : null;
         const rootEligible = focusAvailable(scopeRoot) && scopeRoot.matches('dialog[tabindex],button,input,select,textarea,a[href],[tabindex]');
         return this.callbacks.focusPlan?.({ previous, current: this.focusScope, eligible,
-          focused_before: focusedBefore, focused_after: observedFocus(focusedAfter),
+          focused_before: focusedBefore, focused_after: this.focusedKey(focusedAfter),
           focused_visible: focusVisible(focusedAfter), root_visible: focusVisible(scopeRoot), root_eligible: rootEligible });
       };
       const focusTarget = focus => {
@@ -458,7 +509,6 @@ export class Renderer {
         }
       }
     }
-    if (document.title) this.root.ownerDocument.title = document.title;
   }
   restoreField(key, value) {
     const target = this.resolveTarget(key, { modal: false });
@@ -474,7 +524,13 @@ export class Renderer {
     return !this.disposed && results.every(Boolean);
   }
   async whenCaughtUp() {
-    const results = await Promise.all(Array.from(this.records.values()).flatMap(record => [record.markdown?.whenCaughtUp() ?? true, record.fences?.whenCaughtUp() ?? true]));
+    const pending = [];
+    for (const record of this.records.values()) {
+      if (record.markdown) pending.push(record.markdown.whenCaughtUp());
+      if (record.fences) pending.push(record.fences.whenCaughtUp());
+    }
+    if (!pending.length) return !this.disposed;
+    const results = await Promise.all(pending);
     return !this.disposed && results.every(Boolean);
   }
   reset() {

@@ -11,8 +11,10 @@ import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layo
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
+import { installModelPickerPreview } from './model-picker.mjs';
 
 const surface = document.getElementById('surface');
+installModelPickerPreview(surface);
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
@@ -41,6 +43,8 @@ let environment = null;
 let measuring = null;
 let measureAgain = false;
 let renderAfterMeasurement = false;
+let measurementFrame = null;
+let measurementTask = null;
 let connection = null;
 let disposed = false;
 let clockRefresh = null;
@@ -183,7 +187,7 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   world = body.program;
   publication = { ...publication, namespace: body.namespace, sequence: body.sequence };
   if (firstSnapshot && documentRelease) restoreUpdateSession();
-  dispatch({ type: 'snapshot', world });
+  dispatch({ type: 'snapshot' });
   return true;
 }
 function retireDocumentViews() {
@@ -206,10 +210,10 @@ function synchronizeNativeAuthority() {
     const node = document.activeElement;
     suspendedFocus = surface.contains(node) ? { node, attempt: focusRequest } : null;
   }
-  surface.inert = inert;
+  if (surface.inert !== inert) surface.inert = inert;
   // Native modal dialogs escape ancestor inertness; apply the same receipt to
   // those real DOM roots as well as to the ordinary document tree.
-  for (const dialog of surface.querySelectorAll('dialog')) dialog.inert = inert;
+  for (const dialog of surface.querySelectorAll('dialog')) if (dialog.inert !== inert) dialog.inert = inert;
   if (!inert && suspendedFocus) {
     const retained = suspendedFocus; suspendedFocus = null;
     // Toggling native inertness can blur an unchanged editor. Preserve that
@@ -304,7 +308,17 @@ function render() {
     }).catch(fatal);
   }
   reveal(); motion.refresh(); layoutReading(); retryHistoryLocation();
-  refreshPhysical().catch(fatal);
+}
+function schedulePhysicalRefresh() {
+  if (disposed || measurementFrame !== null || measurementTask !== null) return;
+  // Publish the current document before measuring its new physical layout.
+  measurementFrame = requestAnimationFrame(() => {
+    measurementFrame = null;
+    measurementTask = setTimeout(() => {
+      measurementTask = null;
+      refreshPhysical().catch(fatal);
+    }, 0);
+  });
 }
 async function refreshPhysical() {
   if (measuring) { measureAgain = true; return measuring; }
@@ -333,14 +347,17 @@ async function refreshPhysical() {
       if (receipt.stale) { measureAgain = true; continue; }
       const next = receipt.environment;
       const changed = stringifyJson(next) !== stringifyJson(environment);
-      environment = next;
       for (const update of browser('responsive_rows', { rows: observations.responsive_rows })) {
         const row = renderer.target(update.key);
-        row.style.setProperty('flex-direction', update.direction);
-        row.dataset.nativeRowDirection = update.direction;
-        if (update.supporting_form !== undefined) row.setAttribute('data-supporting-form', update.supporting_form);
+        if (row.style.getPropertyValue('flex-direction') !== update.direction) row.style.setProperty('flex-direction', update.direction);
+        if (row.dataset.nativeRowDirection !== update.direction) row.dataset.nativeRowDirection = update.direction;
+        if (update.supporting_form !== undefined && row.dataset.supportingForm !== update.supporting_form)
+          row.dataset.supportingForm = update.supporting_form;
       }
-      if (changed) dispatch({ type: 'environment_observed' });
+      if (changed) {
+        environment = next;
+        dispatch({ type: 'environment_observed' });
+      }
     } while (measureAgain && !disposed);
   })();
   try { await measuring; } finally {
@@ -518,7 +535,7 @@ const renderer = new Renderer(surface, {
   },
 });
 
-const physical = createPhysicalMeasurer({ surface, onChange: () => refreshPhysical().catch(fatal) });
+const physical = createPhysicalMeasurer({ surface, onChange: schedulePhysicalRefresh });
 
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
@@ -1081,9 +1098,12 @@ window.addEventListener('pagehide', () => {
   window.removeEventListener('pointercancel', endReadingPointer, true);
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+  if (measurementFrame !== null) cancelAnimationFrame(measurementFrame);
+  if (measurementTask !== null) clearTimeout(measurementTask);
 }, { once: true });
 window.addEventListener('focus', () => chatgptLogin.focus());
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
+for (const preference of ['(prefers-color-scheme: dark)', '(prefers-reduced-motion: reduce)'])
+  matchMedia(preference).addEventListener('change', schedulePhysicalRefresh);
 clockRefresh = setInterval(refreshClock, 60_000);
 document.addEventListener('visibilitychange', () => { refreshClock(); retryFocus(); });
 refreshClock();

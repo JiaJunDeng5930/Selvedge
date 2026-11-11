@@ -1,0 +1,39 @@
+
+(* The JS wrapper retains the token. Only this runtime can read the extracted context. *)
+let contexts : Js.Unsafe.any = Js.Unsafe.new_obj (Js.Unsafe.pure_js_expr "WeakMap") [||]
+
+let retain context : Js.Unsafe.any =
+  let token = Js.Unsafe.obj [||] in
+  ignore (Js.Unsafe.meth_call contexts "set" [| Js.Unsafe.inject token; Js.Unsafe.inject context |]);
+  token
+
+let prepare source =
+  Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (Json.parse (Js.to_string source))))
+
+let rec to_js number = function
+  | Model.JNull -> Js.Unsafe.inject Js.null
+  | Model.JBool value -> Js.Unsafe.inject (Js.bool value)
+  | Model.JNumber token -> Js.Unsafe.fun_call number [| Js.Unsafe.inject (Js.string token) |]
+  | Model.JString value -> Js.Unsafe.inject (Js.string value)
+  | Model.JArray values -> Js.Unsafe.inject (Js.array (Array.of_list (List.map (to_js number) values)))
+  | Model.JObject fields ->
+      (* fromEntries creates own data properties, including "__proto__". *)
+      let entries = List.map (fun (key, value) ->
+        Js.array [| Js.Unsafe.inject (Js.string key); to_js number value |]) fields in
+      Js.Unsafe.fun_call (Js.Unsafe.pure_js_expr "Object.fromEntries")
+        [| Js.Unsafe.inject (Js.array (Array.of_list entries)) |]
+
+let prepared_call operation source token number =
+  match Js.Optdef.to_option (Js.Unsafe.meth_call contexts "get" [| Js.Unsafe.inject token |]) with
+  (* DEFENSE: The exported entry can be called without an issued context token. *)
+  | None -> Json.raise_input_exn "TypeError" "Invalid prepared interaction context"
+  | Some context ->
+      let value, next = Model.selvedge_interaction_prepared_call
+        (Js.to_string operation) (Json.parse (Js.to_string source)) context in
+      let next_token = if context == next then token else retain next in
+      Js.array [| to_js number value; Js.Unsafe.inject next_token |]
+
+let () =
+  let runtime = Js.Unsafe.get Js.Unsafe.global "@GLOBAL@" in
+  Js.Unsafe.set runtime "prepare" (Js.wrap_callback prepare);
+  Js.Unsafe.set runtime "preparedCall" (Js.wrap_callback prepared_call)

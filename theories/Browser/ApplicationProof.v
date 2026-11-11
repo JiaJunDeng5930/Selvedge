@@ -17,13 +17,14 @@ Module SS:=Selvedge.Browser.Session.State.
 
 (** A parser callback without a current document owner cannot drive either
     product preparation or a new publication generation. *)
-Theorem irrelevant_document_observation_is_idle request snapshot namespace source raw state:
+Theorem irrelevant_document_observation_is_idle request context namespace source raw:
+ let state:=Application.prepared_state context in
  Documents.admit_observation
-   (Selvedge.Browser.Session.Runtime.context namespace snapshot state)
+   (Selvedge.Browser.Session.Runtime.context namespace (Application.prepared_world context) state)
    source(SS.document_retention state)=Documents.IrrelevantObservation ->
- Application.input_decision request snapshot namespace (Input.CodeObserved source)raw state=
- (Authoring.keep state,"keep").
-Proof. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
+ Application.input_decision request context namespace (Input.CodeObserved source)raw=
+ (Authoring.keep state,"keep",context).
+Proof. cbn zeta. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
 (** A world refresh can follow ordinary command admission while the stream is
     disconnected. Only the separately correlated authentication receipt owns
@@ -34,9 +35,9 @@ Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
  Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
 Proof. split;reflexivity. Qed.
 
-Theorem stale_element_cannot_produce_a_product_input snapshot current environment generation raw incoming:
+Theorem stale_element_cannot_produce_a_product_input actual generation raw incoming:
  natural_field "generation" raw=Some incoming -> incoming<>generation ->
- Application.element snapshot current environment generation raw=None.
+ Application.element actual generation raw=None.
 Proof.
  intros Incoming Different. unfold Application.element. rewrite Incoming.
  apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
@@ -78,14 +79,15 @@ Proof. intro Pending. unfold Authoring.issue. rewrite Pending. reflexivity. Qed.
 
 (** A rejected raw component event cannot trigger synchronization, IO or a new
     publication generation before its identity has been admitted. *)
-Theorem rejected_interactive_input_is_idle request snapshot namespace language raw state :
- Selvedge.Browser.Session.Runtime.native_language namespace snapshot state language=false ->
- Application.input_decision request snapshot namespace (Input.Interactive language)raw state=
- (Authoring.keep state,"keep").
-Proof. intro Rejected; unfold Application.input_decision; rewrite Rejected; reflexivity. Qed.
+Theorem rejected_interactive_input_is_idle request context namespace language raw :
+ let state:=Application.prepared_state context in
+ Selvedge.Browser.Session.Runtime.native_language namespace (Application.prepared_world context) state language=false ->
+ Application.input_decision request context namespace (Input.Interactive language)raw=
+ (Authoring.keep state,"keep",context).
+Proof. cbn zeta. intro Rejected; unfold Application.input_decision; rewrite Rejected; reflexivity. Qed.
 
 Theorem repeated_native_selection_keeps_its_publication input current updated :
- Json.equal(Selvedge.Browser.Session.Codec.encode_state current)(Selvedge.Browser.Session.Codec.encode_state updated)=true ->
+ Json.equal current updated=true ->
  input<>Input.Snapshot -> input<>Input.EnvironmentObserved ->
  Application.input_publication input current updated="keep".
 Proof. intros Equal NoSnapshot NoEnvironment; unfold Application.input_publication; destruct input; try contradiction; now rewrite Equal. Qed.

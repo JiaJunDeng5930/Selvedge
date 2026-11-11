@@ -58,19 +58,19 @@ Definition context_origin_choices snapshot state {e}(subject:Model.subject e):li
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(String.append "project/" (show_natural id))name::rest
  |_,_=>rest end)[](items "projects" snapshot).
-Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
- let profiles:=FieldsObservation.catalog snapshot in
- let models:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-   (selectable_profiles(retain_observed_choice snapshot subject profiles))in
+Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(observe:unit->Fields.observed):list Fields.choice_value:=
+ let profiles _:=FieldsObservation.catalog snapshot in
+ let models _:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
+   (selectable_profiles(retain_observed_choice snapshot subject(profiles tt)))in
  match subject_declaration subject with
  |Fields.ContextOrigin=>context_origin_choices snapshot state subject
  |Fields.CardProject=>project_choices snapshot "No project"
- |Fields.ModelProfile=>models
- |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models
+ |Fields.ModelProfile=>models tt
+ |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models tt
  |Fields.AgentTitleProfile=>
    let available:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-     (filter FeatureRequestAdmission.ordinary_profile profiles)in
-   let retained:=match observe_subject snapshot state subject with
+     (filter FeatureRequestAdmission.ordinary_profile(profiles tt))in
+   let retained:=match observe tt with
    |Fields.OptionalTextValue(Some key)=>
      (* DEFENSE: Editing the service configuration can remove the saved title connection. *)
      if existsb(fun choice=>String.eqb key(Fields.choice_value_of choice))available then []
@@ -79,7 +79,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
    Fields.ChoiceValue "" "Automatic"::retained++available
  |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
- |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in
+ |Fields.ReasoningEffort=>let value:=observe tt in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
  |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Current workspace";
@@ -93,23 +93,26 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
-    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles profiles)
- |Fields.WorkspacePrimary=>match observe_subject snapshot state subject with
+    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles(profiles tt))
+ |Fields.WorkspacePrimary=>match observe tt with
    |Fields.WorkspaceValue workspace=>map(fun path=>Fields.ChoiceValue path path)(Selvedge.Kernel.Domain.workspace_roots workspace)
    |Fields.ContextValue(Context.ProspectiveContext _ _ workspace _ _ _)_=>let value:=match workspace with
       Context.InheritedWorkspace value|Context.EnteredWorkspace value=>value end in
       map(fun path=>Fields.ChoiceValue path path)(Selvedge.Kernel.Domain.workspace_roots value)|_=>[]end
  |Fields.CreateWorktree|Fields.ContinueCapture|Fields.AssistedCapture=>[Fields.ChoiceValue "false" "No";Fields.ChoiceValue "true" "Yes"]
  |_=>[]end.
-Definition choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
- let explicit:=explicit_choices snapshot state subject in
+Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
+ explicit_choices_for snapshot state subject(fun _=>observe_subject snapshot state subject).
+Definition include_inherited_choice {e}(subject:Model.subject e)(explicit:list Fields.choice_value):list Fields.choice_value:=
  match subject_declaration subject with
   |Fields.SandboxMode|Fields.NetworkAccess|Fields.ApprovalPolicy|Fields.ApprovalReviewer=>
   if Parameters.inheritable e then Fields.ChoiceValue "" "Use inherited setting"::explicit else explicit
  |_=>explicit end.
-Definition entry snapshot state {e}(subject:Model.subject e):Fields.entry:=
+Definition choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
+ include_inherited_choice subject(explicit_choices snapshot state subject).
+Definition entry_for_observation snapshot {e}(subject:Model.subject e)(observe:unit->Fields.observed):Fields.entry:=
  match subject_declaration subject with
- |Fields.ReasoningEffort=>match observe_subject snapshot state subject with
+ |Fields.ReasoningEffort=>match observe tt with
   |Fields.ModelValue key _=>match profile_for_subject snapshot subject key with
    |Some profile=>match Selvedge.Kernel.Domain.profile_policy profile with
     |Selvedge.Kernel.Domain.AdaptivePolicy _=>Fields.DisplayOnly
@@ -118,6 +121,8 @@ Definition entry snapshot state {e}(subject:Model.subject e):Fields.entry:=
    |None=>Fields.DisplayOnly end
   |_=>Fields.DisplayOnly end
  |_=>Parameters.entry_for(subject_declaration subject)end.
+Definition entry snapshot state {e}(subject:Model.subject e):Fields.entry:=
+ entry_for_observation snapshot subject(fun _=>observe_subject snapshot state subject).
 Definition related_summary {e} field value:option(summary_value e):=
  subject<-Model.admit_subject e(Parameters.name field);;Some(SummaryValue subject value).
 Definition sandbox_label := ContextObservation.sandbox_label.
@@ -490,20 +495,31 @@ Definition observe_assessment snapshot state e:assessment e:=
  else outcome).
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
-Definition assignment_shape_available snapshot state {e}(assignment:assignment e):bool:=
- let subject:=assignment_subject assignment in
- let incoming:=Schema.encode_value(subject_kind subject)(assignment_value assignment)in
+Definition assignment_shape snapshot {e}(subject:Model.subject e) form
+ (observe:unit->Fields.observed)(listed:json->bool) incoming:bool:=
  Parameters.editable e(subject_declaration subject) &&
- match entry snapshot state subject with
+ match form with
  |Fields.DisplayOnly=>false
- |Fields.Choice=>existsb(fun choice=>Json.equal incoming(Parameters.choice_input e(subject_declaration subject)choice))(choices snapshot state subject)
+ |Fields.Choice=>listed incoming
  |Fields.PositiveInteger=>match Codec.natural incoming with Some count=>N.ltb 0 count|None=>false end
  |_=>match subject_declaration subject with
-   |Fields.ReasoningEffort=>match observe_subject snapshot state subject,as_string incoming with
+   |Fields.ReasoningEffort=>match observe tt,as_string incoming with
      |Fields.ModelValue key _,Some effort=>match profile_for_subject snapshot subject key with
        Some profile=>ModelSelection.permitted_profile profile effort|None=>false end
      |_,_=>false end
    |_=>true end end.
+Definition includes_choice {e}(subject:Model.subject e) options incoming:bool:=
+ existsb(fun choice=>Json.equal incoming(Parameters.choice_input e(subject_declaration subject)choice))options.
+(* [choice] comes from [options]. A noncanonical input still uses the ordinary
+   membership check after decoding and re-encoding the proposed assignment. *)
+Definition includes_listed_choice {e}(subject:Model.subject e) options choice incoming:bool:=
+ if Json.equal incoming(Parameters.choice_input e(subject_declaration subject)choice)
+ then true else includes_choice subject options incoming.
+Definition assignment_shape_available snapshot state {e}(assignment:assignment e):bool:=
+ let subject:=assignment_subject assignment in
+ assignment_shape snapshot subject(entry snapshot state subject)(fun _=>observe_subject snapshot state subject)
+  (fun incoming=>includes_choice subject(choices snapshot state subject)incoming)
+  (Schema.encode_value(subject_kind subject)(assignment_value assignment)).
 Definition workspace_choice_available snapshot state (draft:Draft.draft) incoming:availability:=
  if Json.equal incoming(JString(WorkspaceBackend.name WorkspaceBackend.Local))then
  match bind(FieldsObservation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
@@ -525,24 +541,31 @@ Definition reviewer_assignment_reason snapshot current {e}(assignment:assignment
     |Some _=>None|None=>Some "The automatic review model is not available"end
    else Some "No automatic review models are available"
  |_,_=>None end.
-Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
+Definition assignment_availability snapshot state {e}(assignment:assignment e) current
+ (shape:unit->bool) (command:unit->option(Schema.command_value Selvedge.Kernel.Commands.command_specs))
+ (apply:unit->option Draft.draft):availability:=
  let subject:=assignment_subject assignment in
- let current:=EC.current_draft state e in
  match reviewer_assignment_reason snapshot(Draft.contents current)assignment with
  |Some reason=>Unavailable reason|None=>
- if assignment_shape_available snapshot state assignment then
+ if shape tt then
  if Parameters.live_configuration e(subject_declaration subject)then
-  match Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment with
+  match command tt with
   |Some command=>admission snapshot state(candidate_owner subject
     (Schema.encode_value(subject_kind subject)(assignment_value assignment)))(Draft.revision current)command
   |None=>Unavailable "This configuration change is not available in the current task."end
  else match (match subject_declaration subject with Fields.TaskEnvironment=>workspace_choice_available snapshot state current
     (Schema.encode_value(subject_kind subject)(assignment_value assignment))|_=>Available end)with
   |Unavailable reason=>Unavailable reason
-  |Available=>match Values.apply_assignment snapshot current assignment with
+  |Available=>match apply tt with
    |Some _=>Available
    |None=>Unavailable "This field cannot be changed in the current context."end end
  else Unavailable "Select a value permitted by the current field specification." end.
+Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
+ let current:=EC.current_draft state e in
+ assignment_availability snapshot state assignment current
+  (fun _=>assignment_shape_available snapshot state assignment)
+  (fun _=>Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment)
+  (fun _=>Values.apply_assignment snapshot current assignment).
 Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
  if Parameters.live_configuration e(subject_declaration subject)then
   match e,command with
@@ -558,17 +581,17 @@ Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate
      "approval" encoded(Selvedge.Kernel.Domain.settings_approval settings);;Some(sandbox,approval)
   |_,_=>None end
  else permission_observation snapshot(observe_subject snapshot candidate subject).
-Definition candidate_consequences snapshot state {e}(subject:Model.subject e)(value:Schema.denote(subject_kind subject))
-    (label:string)(command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
- let current:=EC.current_draft state e in
- let candidate:=match Values.apply_assignment snapshot current(Activity.Assignment subject value)with
+Definition candidate_consequences snapshot state {e}(subject:Model.subject e)
+    (observed:Fields.observed)(applied:option Draft.draft)
+    (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
+ let candidate:=match applied with
   |Some updated=>EC.with_draft updated state|None=>state end in
  match subject_declaration subject with
  |Fields.ModelProfile=>
    let next:=if Parameters.live_configuration e Fields.ModelProfile then
      bind command(fun command=>string_field "reasoning"(Schema.encode_command command))
     else match observe_subject snapshot candidate subject with Fields.ModelValue _ effort=>Some effort|_=>None end in
-   match observe_subject snapshot state subject,next with
+   match observed,next with
    |Fields.ModelValue _ previous,Some effort=>if String.eqb previous effort then []else
      match related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue("Reasoning effort: "++effort))with
      |Some summary=>[summary]|None=>[]end
@@ -578,7 +601,7 @@ Definition candidate_consequences snapshot state {e}(subject:Model.subject e)(va
      |Some summary=>summary::rest|None=>rest end)[](permission_effects sandbox approval)
    |None=>[]end
  |Fields.ReasoningEffort|Fields.ApprovalReviewer=>[]
- |_=>match Values.apply_assignment snapshot current(Activity.Assignment subject value)with
+ |_=>match applied with
    |Some _=>let kinds:=match subject_declaration subject with
      |Fields.ContextOrigin=>[ProjectProperty;WorkspaceProperty;PermissionsProperty]
      |Fields.WorkspaceDirectories|Fields.WorkspacePrimary|Fields.TaskEnvironment=>[WorkspaceProperty]
@@ -604,31 +627,48 @@ Definition observed_approval snapshot value:=match value with
  |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval
  |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_approval settings)
  |_=>None end.
-Definition selected_value snapshot state {e}(subject:subject e)incoming:bool:=
+Definition selected_input snapshot {e}(subject:subject e)(observed:Fields.observed):option json:=
  match subject_declaration subject with
- |Fields.ApprovalPolicy=>match observed_approval snapshot(observe_subject snapshot state subject)with
-   |Some policy=>Json.equal incoming(JString(match policy with Selvedge.Kernel.Domain.FullAccess=>"full-access"
+ |Fields.ApprovalPolicy=>match observed_approval snapshot observed with
+   |Some policy=>Some(JString(match policy with Selvedge.Kernel.Domain.FullAccess=>"full-access"
       |Selvedge.Kernel.Domain.AskForApproval=>"ask-for-approval"|Selvedge.Kernel.Domain.ReviewWith _=>"approval-for-me"end))
-   |None=>false end
- |_=>Json.equal incoming(Parameters.native_value(subject_declaration subject)(observe_subject snapshot state subject))end.
-Definition alternative_from_choice snapshot state {e}(subject:Model.subject e)(choice:Fields.choice_value):option(alternative e subject):=
+   |None=>None end
+ |_=>Some(Parameters.native_value(subject_declaration subject)observed)end.
+Definition alternative_for_choice snapshot state {e}(subject:Model.subject e) current observed form
+ (selected:option json)(listed:json->bool)(choice:Fields.choice_value):option(alternative e subject):=
  if Parameters.editable e(subject_declaration subject)then
- let incoming:=Parameters.choice_input e(subject_declaration subject)choice in
- value<-Schema.decode_value(subject_kind subject)incoming;;
+ let offered:=Parameters.choice_input e(subject_declaration subject)choice in
+ value<-Schema.decode_value(subject_kind subject)offered;;
  let assignment:=Activity.Assignment subject value in
- let current:=EC.current_draft state e in
+ let incoming:=Schema.encode_value(subject_kind subject)value in
  let command:=if Parameters.live_configuration e(subject_declaration subject)
    then Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment else None in
+ let applied:=Values.apply_assignment snapshot current assignment in
+ let availability:=assignment_availability snapshot state assignment current
+   (fun _=>assignment_shape snapshot subject form(fun _=>observed)listed incoming)
+   (fun _=>command)(fun _=>applied)in
  Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot(subject_declaration subject)choice)value
-   (selected_value snapshot state subject incoming)
-   (assignment_available snapshot state assignment)
-   (candidate_consequences snapshot state subject value(Fields.choice_label choice)command))
+   (match selected with Some value=>Json.equal offered value|None=>false end)availability
+   (candidate_consequences snapshot state subject observed applied command))
  else None.
+Definition alternative_from_choice snapshot state {e}(subject:Model.subject e)(choice:Fields.choice_value):option(alternative e subject):=
+ let observed:=observe_subject snapshot state subject in
+ alternative_for_choice snapshot state subject(EC.current_draft state e)observed
+  (entry_for_observation snapshot subject(fun _=>observed))(selected_input snapshot subject observed)
+  (fun incoming=>includes_choice subject(choices snapshot state subject)incoming)choice.
 Definition decision_for snapshot state {e}(subject:Model.subject e):decision e:=
- let alternatives:=fold_right(fun choice rest=>match alternative_from_choice snapshot state subject choice with
+ let current:=EC.current_draft state e in
+ let observed:=observe_subject snapshot state subject in
+ let explicit:=explicit_choices_for snapshot state subject(fun _=>observed)in
+ let options:=include_inherited_choice subject explicit in
+ let form:=entry_for_observation snapshot subject(fun _=>observed)in
+ let selected:=selected_input snapshot subject observed in
+ let alternative_for choice:=alternative_for_choice snapshot state subject current observed form selected
+   (includes_listed_choice subject options choice)choice in
+ let alternatives:=fold_right(fun choice rest=>match alternative_for choice with
    Some alternative=>alternative::rest|None=>rest end)[]
-  (match subject_declaration subject with Fields.ApprovalPolicy=>explicit_choices snapshot state subject|_=>choices snapshot state subject end)in
- Decision subject(information_of snapshot subject(observe_subject snapshot state subject))(Parameters.label(subject_declaration subject))
+  (match subject_declaration subject with Fields.ApprovalPolicy=>explicit|_=>options end)in
+ Decision subject(information_of snapshot subject observed)(Parameters.label(subject_declaration subject))
  alternatives(if Parameters.editable e(subject_declaration subject)then
    match alternatives with []=>Unavailable "No alternatives are available"|_=>Available end
   else Unavailable "This is part of the task's committed context.").
@@ -662,24 +702,30 @@ Definition profile_specification snapshot state {e}(parent:decision e):list(rela
     |Fields.SingleLine|Fields.DisplayOnly=>[FieldSpecification parent subject profile]|_=>[]end
   |_,_=>[]end
  |_=>[]end.
+Definition permission_dependency_fields {e}(root:decision e)
+ (prerequisite:alternative e(decision_subject root)):list Fields.field:=
+ match as_string(Schema.encode_value(subject_kind(decision_subject root))(alternative_value prerequisite))with
+ |Some "ask-for-approval"=>[Fields.SandboxMode;Fields.NetworkAccess]
+ |Some "approval-for-me"=>[Fields.ApprovalReviewer;Fields.SandboxMode;Fields.NetworkAccess]
+ |_=>[]end.
+Definition permission_dependencies snapshot state {e}(root:decision e):list(relation e):=
+ let prerequisites:=map(fun alternative=>(alternative,permission_dependency_fields root alternative))(decision_alternatives root)in
+ let fields:=nodup Parameters.field_eq_dec(flat_map snd prerequisites)in
+ let decisions:=fold_right(fun field rest=>match Model.admit_subject e(Parameters.name field)with
+   |Some subject=>(field,decision_for snapshot state subject)::rest|None=>rest end)[]fields in
+ flat_map(fun '(prerequisite,fields)=>fold_right(fun field rest=>
+   match find(fun '(name,_)=>if Parameters.field_eq_dec field name then true else false)decisions with
+   |Some(_,child)=>DependentDecision root prerequisite child::rest|None=>rest end)[]fields)prerequisites.
 Definition relation_body snapshot state {e}(property:property e):list(relation e):=
- let root:=decision_for snapshot state(property_subject property)in
+ let root _:=decision_for snapshot state(property_subject property)in
  match property_kind_of property with
  |WorkspaceProperty=>workspace_relation snapshot state property++
    match Model.admit_subject e(Parameters.name Fields.TaskEnvironment)with
     |Some subject=>[RootDecision(decision_for snapshot state subject)[]]|None=>[]end
- |ModelProperty=>[RootDecision root(dependent_field snapshot state root Fields.ReasoningEffort++profile_specification snapshot state root)]
- |PermissionsProperty=>
-   let dependencies:=flat_map(fun prerequisite=>
-     let fields:=match as_string(Schema.encode_value(subject_kind(decision_subject root))(alternative_value prerequisite))with
-      |Some "ask-for-approval"=>[Fields.SandboxMode;Fields.NetworkAccess]
-      |Some "approval-for-me"=>[Fields.ApprovalReviewer;Fields.SandboxMode;Fields.NetworkAccess]
-      |_=>[]end in
-     fold_right(fun field rest=>match Model.admit_subject e(Parameters.name field)with
-       |Some subject=>DependentDecision root prerequisite(decision_for snapshot state subject)::rest|None=>rest end)[]fields)
-      (decision_alternatives root)in
-   [RootDecision root dependencies]
- |_=>[RootDecision root []]end.
+ |ModelProperty=>let decision:=root tt in
+   [RootDecision decision(dependent_field snapshot state decision Fields.ReasoningEffort++profile_specification snapshot state decision)]
+ |PermissionsProperty=>let decision:=root tt in [RootDecision decision(permission_dependencies snapshot state decision)]
+ |_=>[RootDecision(root tt)[]]end.
 Definition relations_for snapshot state {e}(property:property e):list(relation e):=
  RequiredValue property::relation_body snapshot state property++
  [SupportingValue property;AssessedAction(action_unit_for state e)(assessment_outcome(observe_assessment snapshot state e))].
