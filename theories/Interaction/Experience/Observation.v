@@ -60,14 +60,18 @@ Definition delivery_label intent:=match intent with
  |Fields.Send=>"Send normally"|Fields.Steer=>"Steer response"end.
 Definition delivery_explanation snapshot e intent:=
  let task:=match e with Identity.Message id=>World.find_task id snapshot|_=>None end in
- match intent,bind task(string_field "status"),bind task(string_field "phase"),bind task(bool_field "working")with
- |Fields.Send,Some "frozen",_,_=>"Queues this message until you resume the conversation."
- |Fields.Steer,Some "frozen",_,_=>"Uses this message for the next response after you resume."
- |Fields.Send,Some "active",_,Some false=>"Starts a new response."
- |Fields.Send,_,Some "model_pending",_=>"Queues behind the current response if it is still running."
- |Fields.Send,_,_,_=>"Starts a new response when ready, or queues behind work in progress."
- |Fields.Steer,_,Some "model_pending",_=>"Starts a new response, interrupting the current one if it is still running."
- |Fields.Steer,_,_,_=>"Starts a new response when idle, or interrupts a response in progress."end.
+ let status:=value_or "" (bind task(string_field "status")) in
+ let responding:=String.eqb (value_or "" (bind task(string_field "phase"))) "model_pending" in
+ let paused:=String.eqb status "frozen" in
+ match intent with
+ |Fields.Send=>if paused then "Queues this message until you resume the conversation."
+   else if String.eqb status "active" && (match bind task(bool_field "working") with Some false=>true|_=>false end)
+   then "Starts a new response."
+   else if responding then "Queues behind the current response if it is still running."
+   else "Starts a new response when ready, or queues behind work in progress."
+ |Fields.Steer=>if paused then "Uses this message for the next response after you resume."
+   else if responding then "Starts a new response, interrupting the current one if it is still running."
+   else "Starts a new response when idle, or interrupts a response in progress."end.
 Definition current_frozen_choice snapshot {e}(subject:Model.subject e):option Selvedge.Kernel.Domain.profile:=let declaration:=subject_declaration subject in match e,declaration with
 |Identity.Message task,Fields.ModelProfile=>FieldsObservation.task_profile task snapshot
 |Identity.Message task,Fields.ApprovalReviewer=>settings<-FieldsObservation.task_settings task snapshot;;
