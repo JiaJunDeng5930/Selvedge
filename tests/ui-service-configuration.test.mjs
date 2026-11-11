@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { defaultConfig } from '../host/config.mjs';
 import { browserFixture } from './fixtures/browser.mjs';
 
 test('Settings applies configuration edits and shows their saved values after reload', { timeout: 60000 }, async t => {
@@ -68,7 +71,7 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true, includeHidden: true });
   const launch = settings.getByRole('button', { name: 'Edit demo', exact: true });
   const editor = page.getByRole('dialog', { name: 'Edit demo', exact: true });
-  const provider = editor.getByRole('radiogroup').getByRole('radio');
+  const provider = editor.getByRole('combobox', { name: 'Provider', exact: true });
   const model = editor.getByRole('textbox', { name: 'Model', exact: true });
   await page.setViewportSize({ width: 629, height: 588 });
 
@@ -86,11 +89,11 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   await page.keyboard.press('Tab');
   assert.equal(await editor.evaluate(dialog => dialog.matches(':modal') && dialog.contains(document.activeElement)), true);
 
-  assert.equal(await provider.filter({ hasText: 'Offline echo' }).getAttribute('aria-checked'), 'true');
+  assert.equal(await provider.inputValue(), 'echo');
   assert.equal(await model.inputValue(), 'echo');
   await page.setViewportSize({ width: 320, height: 360 });
   await page.evaluate(() => { document.documentElement.style.fontSize = '150%'; });
-  await editor.getByRole('radio', { name: 'Responses API', exact: true }).click();
+  await provider.selectOption({ label: 'Responses API' });
   const timeout = editor.getByRole('textbox', { name: 'Timeout (ms)', exact: true });
   await timeout.fill('4000');
   assert.equal(await timeout.evaluate(input => {
@@ -108,7 +111,7 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   await page.setViewportSize({ width: 629, height: 588 });
   await page.evaluate(() => { document.documentElement.style.removeProperty('font-size'); });
   await launch.click();
-  assert.equal(await provider.filter({ hasText: 'Offline echo' }).getAttribute('aria-checked'), 'true');
+  assert.equal(await provider.inputValue(), 'echo');
   await page.keyboard.press('Escape');
   await editor.waitFor({ state: 'hidden' });
   assert.equal(await launch.evaluate(button => document.activeElement === button), true);
@@ -126,7 +129,11 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
 });
 
 test('new model profiles start blank, hide the offline demo, and require a provider and model', { timeout: 60000 }, async t => {
-  const { page } = await browserFixture(t);
+  const { page, running } = await browserFixture(t);
+  await writeFile(path.join(running.service.home, 'config.json'), JSON.stringify({
+    format: defaultConfig.format,
+    profiles: { demo: { provider: 'echo', model: 'echo' } },
+  }));
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true, includeHidden: true });
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: 'Settings', exact: true }).click();
@@ -158,6 +165,11 @@ test('new model profiles start blank, hide the offline demo, and require a provi
   await add.click();
   await editor.waitFor({ state: 'hidden' });
   await settings.getByRole('button', { name: 'Edit production', exact: true }).waitFor();
+
+  await settings.getByRole('button', { name: 'Edit demo', exact: true }).click();
+  const existing = page.getByRole('dialog', { name: 'Edit demo', exact: true });
+  assert.equal(await existing.getByRole('radio', { name: 'Offline echo', exact: true }).getAttribute('aria-checked'), 'true');
+  assert.equal(await existing.getByRole('textbox', { name: 'Model', exact: true }).inputValue(), 'echo');
 });
 
 
