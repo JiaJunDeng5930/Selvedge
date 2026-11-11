@@ -1,6 +1,6 @@
-From Stdlib Require Import String List.
+From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Codec.
+From Selvedge.Kernel Require Codec Domain.
 From Selvedge.Interaction Require Import Codec Identity World.
 Open Scope string_scope.
 
@@ -28,9 +28,29 @@ Definition task_settings task snapshot :=
  value<-World.find_task task snapshot;;
  bind(field "settings" value)(parse_observed_settings snapshot).
 
-Definition profile_label (value:Selvedge.Kernel.Domain.profile):string:=
- match string_field "name"(Selvedge.Kernel.Domain.profile_metadata value)with
- |Some name=>name|None=>Selvedge.Kernel.Domain.profile_provider value++" / "++Selvedge.Kernel.Domain.profile_model value end.
+Definition profile_name value :=
+ match string_field "name"(Domain.profile_metadata value)with
+ |Some name=>name|None=>Domain.profile_provider value++" / "++Domain.profile_model value end.
+Definition profile_effort_label value :=
+ match Domain.profile_policy value with
+ |Domain.FixedReasoning=>"Fixed effort"|Domain.AdaptivePolicy _=>"Adaptive effort" end.
+(** Disambiguate equal model names among the profiles available to the control.
+    The profile key identifies a configuration even when provider and effort policy agree. *)
+Definition profile_label profiles value :=
+ let name:=profile_name value in
+ let key:=Domain.profile_key value in
+ let provider:=Domain.profile_provider value in
+ let peers:=filter(fun other=>negb(String.eqb key(Domain.profile_key other)) &&
+   String.eqb name(profile_name other))profiles in
+ let same_provider other:=String.eqb provider(Domain.profile_provider other)in
+ let base:=if forallb same_provider peers then name else name++" · "++provider in
+ match filter same_provider peers with
+ |nil=>base
+ |same_provider_peers=>let effort:=profile_effort_label value in
+   let qualified:=base++" · "++effort in
+   if existsb(fun other=>String.eqb effort(profile_effort_label other))same_provider_peers
+   then qualified++" ("++key++")" else qualified
+ end.
 Definition sandbox_label sandbox:=match Selvedge.Kernel.Domain.sandbox_access sandbox with
 |Selvedge.Kernel.Domain.ReadOnly=>"Read only"|Selvedge.Kernel.Domain.WorkspaceWrite=>"Workspace write"end.
 Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "Network allowed"else "Network restricted".

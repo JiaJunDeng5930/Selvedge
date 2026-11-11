@@ -348,10 +348,27 @@ test('A message result opens its exact reading position while longer replies ren
   const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
   await query.fill(marker);
   await query.press('Enter');
-  await page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true }).press('Enter');
   const message = timeline.getByRole('article').filter({ hasText: marker });
   await message.waitFor();
   const highlight = message.and(timeline.locator('[data-history-match]'));
+  const checkFocusFrame = async () => {
+    await timeline.and(page.locator(':focus-visible')).waitFor();
+    const frame = await timeline.getByText('I am the assistant.', { exact: true }).evaluate(node => {
+      const root = node.closest('[data-reading-root]');
+      const bounds = root.getBoundingClientRect();
+      const style = getComputedStyle(root);
+      const text = document.createRange();
+      text.selectNodeContents(node);
+      const ringInside = Math.max(0, -parseFloat(style.outlineOffset));
+      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth),
+        leftClearance: text.getBoundingClientRect().left - bounds.left - ringInside };
+    });
+    assert.equal(frame.style, 'solid');
+    assert.ok(frame.width >= 2);
+    assert.ok(frame.leftClearance >= 4,
+      `The timeline focus ring clears the assistant text by ${frame.leftClearance}px`);
+  };
   const offset = () => message.evaluate(node => new Promise(resolve => {
     requestAnimationFrame(() => setTimeout(() => {
       const viewport = node.closest('[data-reading-root]').getBoundingClientRect();
@@ -367,6 +384,7 @@ test('A message result opens its exact reading position while longer replies ren
   }, { task: task_id, marker }, { timeout: 10000 });
   await highlight.waitFor();
   assert.equal(await highlight.evaluate(node => getComputedStyle(node).outlineStyle), 'solid');
+  await checkFocusFrame();
   const arrived = await offset();
   const previousWidth = await timeline.evaluate(root => root.clientWidth);
   await message.evaluate(node => {
@@ -379,12 +397,13 @@ test('A message result opens its exact reading position while longer replies ren
       }, 0), { once: true });
     });
   });
-  await page.setViewportSize({ width: 720, height: 900 });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(({ selector, previousWidth }) =>
     document.querySelector(selector)?.clientWidth < previousWidth, { selector: timelineSelector, previousWidth });
   const resized = await page.evaluate(() => window.firstResizedMessageOffset);
   assert.ok(resized !== null && Math.abs(resized - arrived) <= 2,
     `The first resized frame retains the selected message (before ${arrived}px, after ${resized}px)`);
+  await checkFocusFrame();
   const completion = longText('Finished follow-up', 30);
   fixture.emit(live.index, '\n\n' + completion);
   fixture.finish(live.index, {});
@@ -395,13 +414,17 @@ test('A message result opens its exact reading position while longer replies ren
     `The selected message stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
   await highlight.waitFor({ state: 'detached' });
 
-  await timeline.hover();
-  await page.mouse.wheel(0, 180);
-  await page.waitForFunction(({ selector, previous, marker }) => {
+  const scrolledPast = previous => page.waitForFunction(({ selector, previous, marker }) => {
     const root = document.querySelector(selector);
     const message = [...root.querySelectorAll('article')].find(article => article.textContent.trim() === marker);
     return message && previous > message.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
-  }, { selector: timelineSelector, previous: arrived, marker });
+  }, { selector: timelineSelector, previous, marker });
+  await page.keyboard.press('PageDown');
+  await scrolledPast(arrived);
+  const afterPaging = await offset();
+  await timeline.hover();
+  await page.mouse.wheel(0, 180);
+  await scrolledPast(afterPaging);
   await page.getByRole('button', { name: 'Return to latest', exact: true }).click();
   await atLatest();
 });

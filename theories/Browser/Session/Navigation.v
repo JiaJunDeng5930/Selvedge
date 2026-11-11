@@ -150,6 +150,16 @@ Definition open_panel panel trigger state :=
 Definition close_panel state := match State.layers(State.navigation_state state)with
  |[]=>keep state
  |layer::rest=>changed(State.with_navigation(set State.layers(fun _=>rest)(State.navigation_state state))state)[Attend(State.layer_trigger layer)]end.
+Definition handoff (open_next:string->State.state->result) layer state :=
+ open_next (State.layer_trigger layer) (result_state(close_panel state)).
+Definition open_card_decision card decision trigger state :=
+ let open_next:=open_panel(State.CardDecisionPanel card decision) in
+ match State.layers(State.navigation_state state)with
+ |layer::_=>match State.layer_panel layer with
+  |State.ObjectActionsPanel(CardActions current)=>
+    if N.eqb card current then handoff open_next layer state else open_next trigger state
+  |_=>open_next trigger state end
+ |[]=>open_next trigger state end.
 Definition dismiss_panel state := match State.layers(State.navigation_state state)with
  |layer::_=>match State.layer_panel layer with
   |State.EditorPanel owner=>match owner with
@@ -353,7 +363,7 @@ Definition step snapshot input state:option result:=match input with
  |Input.SelectSharedTask work task=>Some(visit snapshot(SharedUI work task)state)
  |Input.OpenNavigation kind trigger=>Some(open_panel(State.NavigationPanel kind)trigger state)
  |Input.OpenObjectActions subject trigger=>Some(open_panel(State.ObjectActionsPanel subject)trigger state)
- |Input.OpenCardDecision card decision trigger=>Some(open_panel(State.CardDecisionPanel card decision)trigger state)
+ |Input.OpenCardDecision card decision trigger=>Some(open_card_decision card decision trigger state)
  |Input.ActivitySearch occurrence query=>Some(modify_top occurrence(fun layer=>
    match State.layer_panel layer with
    |State.PropertyPanel _ (Activity.PropertyActivity Model.ModelProperty)

@@ -82,6 +82,8 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     and forking the current conversation belongs to the conversation menu.
 
     A chooser explains why a choice is unavailable at the point of selection.
+    Model choices with the same name show the configuration difference in
+    their captions, including the reasoning policy where it distinguishes them.
     A delivery choice states what happens to the next message and uses a
     separate control from submission. An adjustable range displays its current
     value with the track so the reader can connect their change to its result. *)
@@ -272,10 +274,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Opening a search result leaves the query, filters and page of results
     available for further comparison. The conversation offers a direct return
-    to that result list, at the reader's previous position.
+    to that result list, at the reader's previous position. The keyboard
+    focus indicator and the match outline leave space for readable text.
     Before adding a conversation to the board or linking it to an existing
     card, the interface shows the destination stage for the currently observed
-    conversation.
+    conversation. A card assigned to a model shows near the commit whether
+    saving schedules execution or leaves the card for a later action.
 
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy
@@ -284,8 +288,11 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     target, so visible alignment and hit extent remain different. A compound
     Project row retains its independent actions within that shared organization.
     Contextual actions must remain reachable by focus and non-hover input, and
-    revealing them must not move the title. Concealment, selection and command
-    availability are not interchangeable.
+    revealing them must not move the title. Opening an editor, details or a card
+    destination picker from an action menu closes that menu and transfers focus
+    to the dialog. A card's action trigger retains its identity when the card
+    changes stage.
+    Concealment, selection and command availability are not interchangeable.
     A Task with branches keeps its title as a conversation link while its
     adjacent disclosure controls the visibility of its descendants.
 

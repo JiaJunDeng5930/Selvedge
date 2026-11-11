@@ -273,12 +273,27 @@ Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :
 Definition synchronize (value:world) := let b:=registry value in
  store ((set Selvedge.Features.Domain.board_cards (fun _=>(map (option_map (fun card=>synchronize_card card value)) (Selvedge.Features.Domain.board_cards b))) (b))) value.
 Definition ready (card:Selvedge.Features.Domain.card) (value:world) := runnable card value &&
- (match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.NoEnrichment=>true | _=>false end) && match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true | _=>false end.
+ BoardFacts.enrichment_ready card && BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)).
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
  flat_map (fun pinned=>flat_map (fun priority=>filter (fun id=>match CardScope.lookup id value with Some card=>
  Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) && N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) && ready card value | None=>false end) order) [4%N;3%N;2%N;1%N;0%N]) [true;false].
 Definition next (value:world) := if Selvedge.Features.Domain.board_automatic (registry value) then hd_error (queued value) else None.
+Definition save_consequence (id:N) (value:world) : option BoardFacts.save_consequence :=
+ match CardScope.lookup id value with None=>None|Some card=>
+ let draft:=Selvedge.Features.Domain.card_contents card in
+ let automatic:=Selvedge.Features.Domain.board_automatic (registry value) in
+ let stage_ready:=BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage draft) in
+ if negb (unlinked card) then Some BoardFacts.SaveLinked else
+ let model_assigned:=match Selvedge.Features.Domain.draft_owner draft with ProfileOwner _=>true|_=>false end in
+ if pending card then Some (if automatic && model_assigned && stage_ready then BoardFacts.SaveDraftsThenQueues else BoardFacts.SaveDrafts) else
+ if model_assigned then Some (
+   if negb automatic then BoardFacts.SaveManual else
+   if negb stage_ready then BoardFacts.SaveNeedsStage else
+   if negb (BoardFacts.enrichment_ready card) then BoardFacts.SaveManual else
+   if negb (runnable card value) then BoardFacts.SaveWaitsForModel else
+   match next value with Some first=>if N.eqb first id then BoardFacts.SaveStarts else BoardFacts.SaveQueues
+   |None=>BoardFacts.SaveQueues end) else None end.
 Definition start_failed (id:N) (card:Selvedge.Features.Domain.card) (reason:string) (value:world) := put id
  ((set Selvedge.Features.Domain.card_start_error (fun _=>(failure_text reason)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.Blocked (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) value.
 Fixpoint pump (fuel:nat) : DecisionComposition.step := fun value effects => match fuel with

@@ -19,6 +19,93 @@ test('task board exposes ordinary model and unassigned filter choices', async t 
   }
 });
 
+test('card save shows whether a model will start, wait, or remain manual', async t => {
+  const { page, command, running, requests, finish } = await browserFixture(t);
+  const settings = automatic => command({ op: 'board_settings', automatic, draft_profile: 'interactive' });
+  await settings(true);
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  const newCard = async title => {
+    await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
+    await dialog.getByText('更多卡片选项', { exact: true }).click();
+    await dialog.getByRole('combobox', { name: '负责人', exact: true }).selectOption('profile/interactive');
+    return dialog;
+  };
+  const stage = dialog => dialog.getByRole('combobox', { name: '状态', exact: true });
+  const consequence = (dialog, text) => dialog.locator('[data-surface-role="dialog-actions"]')
+    .getByText(text, { exact: true }).waitFor();
+
+  const title = 'Review the rollout';
+  await page.setViewportSize({ width: 390, height: 844 });
+  const first = await newCard(title);
+  assert.equal(await stage(first).inputValue(), 'backlog');
+  await consequence(first, '只保存卡片。移到「待办」可自动排队。');
+  const prediction = await first.getByText('只保存卡片。移到「待办」可自动排队。', { exact: true }).boundingBox();
+  const submit = await first.getByRole('button', { name: '创建卡片', exact: true }).boundingBox();
+  for (const box of [prediction, submit]) {
+    assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 390 && box.y + box.height <= 844);
+  }
+  assert.ok(prediction.y + prediction.height <= submit.y);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const drafting = first.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
+  await drafting.check();
+  await consequence(first, '保存后先生成卡片内容，暂不启动对话。');
+  await stage(first).selectOption('todo');
+  await consequence(first, '保存后先生成卡片内容，成功后自动排队。');
+  assert.deepEqual((await command({ op: 'list_cards' })).cards, []);
+  await drafting.uncheck();
+  await stage(first).selectOption('backlog');
+  await consequence(first, '只保存卡片。移到「待办」可自动排队。');
+  await first.getByRole('button', { name: '创建卡片', exact: true }).click();
+  await first.waitFor({ state: 'hidden' });
+  const [saved] = (await command({ op: 'list_cards' })).cards;
+  assert.equal(saved.status, 'backlog');
+  assert.equal(saved.task_id, null);
+
+  const card = page.getByRole('article', { name: title, exact: true });
+  await card.getByRole('button', { name: '卡片操作', exact: true }).click();
+  await page.getByRole('button', { name: '编辑卡片', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: '编辑卡片', exact: true });
+  await edit.getByText('更多卡片选项', { exact: true }).click();
+  await stage(edit).selectOption('todo');
+  await consequence(edit, '保存后会尝试启动对话。');
+  await settings(false);
+  await consequence(edit, '只保存卡片。对话需要手动启动。');
+  await settings(true);
+  await consequence(edit, '保存后会尝试启动对话。');
+  await edit.getByRole('button', { name: '保存', exact: true }).click();
+  await edit.waitFor({ state: 'hidden' });
+  const active = await command({ op: 'read_card', card_id: saved.card_id });
+  assert.equal(active.status, 'in_progress');
+  assert.notEqual(active.task_id, null);
+  const movedTrigger = page.locator('[data-board-stage="in_progress"]')
+    .getByRole('article', { name: title, exact: true }).getByRole('button', { name: '卡片操作', exact: true });
+  await movedTrigger.waitFor();
+  await page.waitForFunction(key => document.activeElement?.id === key, await movedTrigger.getAttribute('id'));
+
+  const waitingTitle = 'Review the follow-up';
+  const second = await newCard(waitingTitle);
+  await stage(second).selectOption('todo');
+  await consequence(second, '保存后进入队列，等模型空闲再尝试启动对话。');
+  await second.getByRole('button', { name: '创建卡片', exact: true }).click();
+  await second.waitFor({ state: 'hidden' });
+  const waiting = (await command({ op: 'list_cards' })).cards.find(card => card.title === waitingTitle);
+  assert.equal(waiting.activity, 'queued');
+  assert.equal(waiting.task_id, null);
+
+  const deadline = Date.now() + 5000;
+  while (!requests.length && Date.now() < deadline) await delay(10);
+  assert.ok(requests[0], 'The first card must reach the fixture model');
+  finish(0, { text: 'The rollout is ready.' });
+  await taskIdle(running.service, active.task_id);
+  await page.locator('[data-board-stage="in_progress"]')
+    .getByRole('article', { name: waitingTitle, exact: true }).waitFor();
+  const started = await command({ op: 'read_card', card_id: waiting.card_id });
+  assert.notEqual(started.task_id, null);
+});
+
 test('the board keeps empty stages visible and counts only matching cards linked to executing conversations', async t => {
   const { page, command } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -55,6 +142,13 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const completed = board.locator('[data-board-stage="done"]');
   await card.locator('[data-card-grip]').dragTo(completed);
   await completed.getByRole('article', { name: title, exact: true }).waitFor();
+  await card.getByRole('button', { name: '卡片操作', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Actions', exact: true })
+    .getByRole('button', { name: '移动卡片', exact: true }).click();
+  const move = page.getByRole('dialog', { name: '移动卡片', exact: true });
+  await move.getByRole('button', { name: '移至待规划', exact: true }).click();
+  await move.waitFor({ state: 'hidden' });
+  await board.locator('[data-board-stage="backlog"]').getByRole('article', { name: title, exact: true }).waitFor();
   await card.getByRole('button', { name: '关联对话', exact: true }).click();
   const link = page.getByRole('dialog', { name: '关联对话', exact: true });
   const choice = link.getByRole('button', { name: `${task.title} · 预计进入 进行中`, exact: true });
@@ -120,6 +214,7 @@ test('a conversation can be added to the board without starting another conversa
   finish(0, { text: 'The release checklist is ready for review.' });
   await taskIdle(running.service, task_id);
   await destination.getByText('待审核', { exact: true }).waitFor();
+  await dialog.getByText('对话当前未运行。', { exact: true }).waitFor();
   const title = 'Release checklist review';
   await titleField.fill(title);
   await dialog.getByRole('button', { name: '添加卡片', exact: true }).click();

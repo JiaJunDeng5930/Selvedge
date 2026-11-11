@@ -5,6 +5,7 @@ From Selvedge.Features Require BoardFilter BoardParameters Domain.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Attachments Audit World ModelSelection.
 From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Submission Require Observation.
 Import ListNotations.
 Open Scope string_scope.
 Module KernelDomain := Selvedge.Kernel.Domain.
@@ -60,9 +61,9 @@ Record committed_context := CommittedContext {
  context_workspace : KernelDomain.workspace; context_guidance : Guidance.t;
  context_filesystem : string; context_network : string; context_approval : string
 }.
-Definition approval_description approval := match approval with
+Definition approval_description snapshot approval := match approval with
  |KernelDomain.FullAccess=>"Unrestricted"|KernelDomain.AskForApproval=>"Ask"
- |KernelDomain.ReviewWith reviewer=>"Automatic review: "++ContextObservation.profile_label reviewer end.
+ |KernelDomain.ReviewWith reviewer=>"Automatic review: "++ContextObservation.profile_label(Observation.catalog snapshot)reviewer end.
 Definition task_context id snapshot :=
  settings<-ContextObservation.task_settings id snapshot;;
  let project:=KernelDomain.settings_project settings in
@@ -71,7 +72,7 @@ Definition task_context id snapshot :=
  Some(CommittedContext project (bind project(fun id=>option_map project_name(find_project id snapshot)))
    (KernelDomain.settings_workspace settings)(KernelDomain.settings_guidance settings)
    (ContextObservation.filesystem_summary sandbox approval)
-   (ContextObservation.network_summary sandbox approval)(approval_description approval)).
+   (ContextObservation.network_summary sandbox approval)(approval_description snapshot approval)).
 Definition context_guidance_root context := string_field "workspace"(Guidance.json(context_guidance context)).
 Definition context_guidance_revision context := string_field "revision"(Guidance.json(context_guidance context)).
 Definition context_instructions context := guidance_instructions(context_guidance context).
@@ -81,7 +82,7 @@ Record task_operation := TaskOperation {
  operation_stage : string; operation_status : string; operation_arguments : option json;
  operation_human : bool; operation_directory : option string; operation_reviewer : option string
 }.
-Definition observe_operation value :=
+Definition observe_operation snapshot value :=
  id<-natural_field "operation_id" value;;tool<-string_field "tool" value;;
  call_id<-string_field "call_id" value;;stage<-string_field "stage" value;;
  status<-string_field "status" value;;human<-bool_field "awaitingHuman" value;;
@@ -89,9 +90,9 @@ Definition observe_operation value :=
    bind(field "workspace" settings)(string_field "primary_root")) in
  let reviewer:=bind(bind(field "reviewer" value)(field "profile"))KernelCodec.parse_profile in
  Some(TaskOperation id tool call_id stage status (bind(field "call" value)(field "arguments"))
-  human directory(option_map ContextObservation.profile_label reviewer)).
+  human directory(option_map(fun profile=>ContextObservation.profile_label(Observation.catalog snapshot)profile)reviewer)).
 Definition task_operations id snapshot :=
- bind(World.find_task id snapshot)(list_field observe_operation "operations").
+ bind(World.find_task id snapshot)(list_field(observe_operation snapshot)"operations").
 Definition pending_approvals operations :=
  filter(fun operation=>String.eqb "approval_pending"(operation_stage operation))operations.
 
@@ -183,7 +184,8 @@ Definition card_activity_label name:=value_or "未开始"
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with
- |Some profile=>ContextObservation.profile_label profile|None=>"模型 "++key++" 不可用"end end.
+ |Some profile=>ContextObservation.profile_label(ModelSelection.selectable_profiles(Observation.catalog snapshot))profile
+ |None=>"模型 "++key++" 不可用"end end.
 Definition card_project_label snapshot project := match project with
  |Some id=>match find_project id snapshot with
   |Some project=>project_name project|None=>"项目 #"++show_natural id++" 不可用"end|None=>""end.

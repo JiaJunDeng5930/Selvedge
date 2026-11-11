@@ -24,7 +24,9 @@ their Rocq proofs.
 
 `POST /api/assess` accepts `command`, opaque `editor`, `revision` and the observed
 `sequence`. It returns the editor/revision, the worker's actual sequence,
-`admitted` and an optional `refusal` with `code`/`message`. The worker evaluates
+`admitted`, an optional `refusal` with `code`/`message`, and a nullable
+`card_save_consequence` for admitted card changes. The consequence describes the
+current scheduler's response to the hypothetical save. The worker evaluates
 the same pure command interpreter used by submission against its current world,
 then discards the hypothetical decision. Assessment is serialized after pending
 journal work; it does not append a journal row, replace the world or dispatch

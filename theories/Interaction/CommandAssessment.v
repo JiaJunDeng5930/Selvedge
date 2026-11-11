@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema Resource.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Kernel Require Import Commands.
+From Selvedge.Features Require BoardFacts.
 From Selvedge.Interaction Require Import Codec Identity.
 Import ListNotations.
 Open Scope string_scope.
@@ -41,7 +42,8 @@ Record observation := Observation {
   observed_owner : action_owner;
   observed_revision : N;
   observed_sequence : N;
-  observed_admission : admission
+  observed_admission : admission;
+  observed_card_save_consequence : option BoardFacts.save_consequence
 }.
 Definition owned_assessment owner (r:resource CommandAssessment.request CommandAssessment.observation) :=
   match resource_request r with Some request=>CommandAssessment.same_owner owner(CommandAssessment.request_owner request)|None=>false end.
@@ -62,7 +64,9 @@ Definition encode_observation value := JObject [
   ("sequence", number (observed_sequence value));
   ("admitted", JBool (match observed_admission value with Admitted => true | _ => false end));
   ("refusal", match observed_admission value with Admitted => JNull
-    | Refused code message => JObject [("code", JString code); ("message", JString message)] end)].
+    | Refused code message => JObject [("code", JString code); ("message", JString message)] end);
+  ("card_save_consequence",match observed_card_save_consequence value with
+   |Some consequence=>JString(BoardFacts.save_consequence_name consequence)|None=>JNull end)].
 Definition decode_observation source :=
   e <- bind (field "editor" source) decode_owner ;;
   revision <- natural_field "revision" source ;;
@@ -72,7 +76,11 @@ Definition decode_observation source :=
   result <- (if admitted then match refusal with JNull => Some Admitted | _ => None end
     else code <- string_field "code" refusal ;; message <- string_field "message" refusal ;;
       Some (Refused code message)) ;;
-  Some (Observation e revision sequence result).
+  consequence <- field "card_save_consequence" source ;;
+  consequence <- (match consequence with JNull=>Some None
+    |JString name=>option_map (@Some BoardFacts.save_consequence)(BoardFacts.save_consequence_of_name name)
+    |_=>None end) ;;
+  Some (Observation e revision sequence result consequence).
 Definition correlated request observation :=
   same_owner (request_owner request) (observed_owner observation) &&
   N.eqb (request_revision request) (observed_revision observation).

@@ -1,12 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Programming Require Schema.
 From Selvedge.Kernel Require Commands.
 From Selvedge.Generated Require Commands.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require CardDecisions.
 From Selvedge.Browser.Session Require Input ObjectActions ObjectActionsProof.
-From Selvedge.Browser.Session Require Authoring Runtime State.
+From Selvedge.Browser.Session Require Authoring Navigation Runtime State.
 
 Module K := Selvedge.Kernel.Commands.
 Module G := Selvedge.Generated.Commands.
@@ -35,6 +36,8 @@ Theorem browser_card_choice_uses_published_opportunity snapshot state card decis
       (G.encode (CardDecisions.proposal opportunity now selected)) = Some accepted.
 Proof.
   intros Active. unfold ObjectActions.resolve. rewrite Active.
+  destruct (String.eqb key ObjectActions.add_to_board_key || String.eqb key ObjectActions.open_board_card_key);
+    [discriminate|].
   unfold ObjectActions.find_choice.
   destruct (CardDecisions.observe snapshot card) as [opportunity|] eqn:Observed;
     [|discriminate].
@@ -68,7 +71,11 @@ Theorem browser_selector_dispatch_uses_current_choice namespace snapshot lagged 
     let result := Runtime.core namespace snapshot lagged
       (Input.MenuAction (CardActions card) key (State.layer_occurrence layer)) state in
     match ObjectActions.action_status action with
-    | ObjectActions.Available => result = Authoring.issue accepted State.DirectSubmission state
+    | ObjectActions.Available =>
+      let occurrence := State.layer_occurrence layer in
+      result = Authoring.issue accepted (State.MenuSubmission occurrence)
+        (Navigation.result_state (Navigation.modify_top occurrence
+          (fun current => Some (set State.layer_feedback (fun _ => None) current)) state))
     | _ => Authoring.result_effects result = []
     end.
 Proof.

@@ -99,12 +99,13 @@ Definition card_conversation snapshot parent value :=
 Definition card_node snapshot s board_parent candidates parent value :=
  let id:=Read.card_id value in
  let key:=part parent("card/"++show_natural id)in
+ let action_parent:=part board_parent("card/"++show_natural id)in
  let face:=card_face snapshot s value in
  let title:=Read.card_title value in
  Node key "card" title Roles.Card(CardContent face)
    ([Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
      declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
-     declared key Roles.Button(secondary "more" "卡片操作"(Input.OpenObjectActions(CardActions id)(part key "more")))] ++
+     declared action_parent Roles.Button(secondary "more" "卡片操作"(Input.OpenObjectActions(CardActions id)(part action_parent "more")))] ++
      card_conversation snapshot key value)%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=

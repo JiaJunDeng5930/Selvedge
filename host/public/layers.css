@@ -64,6 +64,9 @@
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
   }
+  & [data-semantic-key="card-save-consequence"] {
+    flex: 1 0 100%;
+  }
   & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
     max-inline-size: 100% !important;
   }

@@ -569,7 +569,8 @@ Proof.
    rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
-   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
+   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage
+       BoardFacts.automatic_stage BoardFacts.enrichment_ready].
      now repeat rewrite Bool.andb_false_r.
 Qed.
 

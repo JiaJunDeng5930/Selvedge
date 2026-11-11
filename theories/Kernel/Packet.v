@@ -11,6 +11,7 @@ From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement.
 From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Kernel Require BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
+From Selvedge.Features Require Board BoardFacts.
 From Selvedge.Interaction Require UserCommand.
 From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
@@ -30,17 +31,28 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (conte
  | Some reply => Decision value reply []
  | None => CommandHandlers.execute command context value
  end.
+Definition card_save_consequence (command:Selvedge.Generated.Commands.command) (result:decision) := match command with
+ |Cmd_create_card _|Cmd_update_card _=>
+  match UserCommand.feedback_of (decision_reply result) with
+  |Some (UserCommand.Accepted reply)=>
+   match natural_field "card_id" reply with
+   |Some id=>Board.save_consequence id (decision_world result)|None=>None end
+  |_=>None end
+ |_=>None end.
 (* Assess against the worker's authoritative immutable world. The hypothetical
    decision is discarded: no world, scheduler work or IO effect is committed. *)
 Definition assess (source : json) (value : world) : json :=
- let candidate := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
- | Some admitted => decision_reply (execute_domain (Selvedge.Generated.Commands.admitted_value admitted) None value)
- | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
+ let '(candidate,consequence) := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
+ | Some admitted => let command:=Selvedge.Generated.Commands.admitted_value admitted in
+   let result:=execute_domain command None value in
+   (decision_reply result,card_save_consequence command result)
+ | None => (State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source)),None)
  end in
  let '(admitted, refusal) := UserCommand.assessment candidate in
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
    ("sequence",number (world_sequence value));("admitted",JBool admitted);
-   ("refusal",refusal)].
+   ("refusal",refusal);("card_save_consequence",match consequence with
+   |Some value=>JString(BoardFacts.save_consequence_name value)|None=>JNull end)].
 Definition schedule_command (command : Selvedge.Generated.Commands.command) (value : world) (result : decision) :=
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.
 Definition execute_command (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) :=

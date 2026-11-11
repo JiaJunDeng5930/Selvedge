@@ -221,7 +221,9 @@ Definition menu_action snapshot subject key occurrence state:=
  |layer::_=>if N.eqb occurrence(SS.layer_occurrence layer) && owns_action_panel subject(SS.layer_panel layer) then
    match ObjectActions.resolve snapshot state subject key with
    |None=>Authoring.fail state "The action is no longer available."
-   |Some action=>match ObjectActions.action_operation action with
+   |Some action=>let handoff open_next:=Authoring.adopt_navigation snapshot
+      (Navigation.handoff open_next layer state) in
+    match ObjectActions.action_operation action with
     |ObjectActions.NativeCommand command=>match ObjectActions.action_status action with
       |ObjectActions.Available=>match ObjectActions.action_confirmation action with
        |Some(caption,destination)=>Authoring.adopt_navigation snapshot(Navigation.open_panel(SS.Confirmation command caption destination)(SS.layer_trigger layer)state)
@@ -230,10 +232,9 @@ Definition menu_action snapshot subject key occurrence state:=
          Authoring.issue command (SS.MenuSubmission occurrence) (Navigation.result_state cleared) end
       |_=>Authoring.fail state "This action has not been admitted against the current state."end
     |ObjectActions.Destination route=>Authoring.adopt_navigation snapshot(Navigation.visit snapshot route state)
-    |ObjectActions.Editor owner=>Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner(SS.layer_trigger layer)state)
+    |ObjectActions.Editor owner=>handoff(Navigation.edit_object snapshot owner)
     |ObjectActions.SideConversation task=>Authoring.adopt_navigation snapshot(Navigation.begin_side snapshot task(SS.layer_trigger layer)state)
-    |ObjectActions.InspectCard card=>Authoring.adopt_navigation snapshot
-      (Navigation.open_panel(SS.InformationPanel(SS.CardDetails card))(SS.layer_trigger layer)state)
+    |ObjectActions.InspectCard card=>handoff(Navigation.open_panel(SS.InformationPanel(SS.CardDetails card)))
     end end
    else Authoring.keep state
  |[]=>Authoring.keep state end.

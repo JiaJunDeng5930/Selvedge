@@ -13,7 +13,7 @@ From Selvedge.Interaction Require Import Attachments.
 From Selvedge.Interaction Require CardDecisions ObjectDecisions.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Submission Require Draft.
-From Selvedge.Browser.Session Require State Observation Navigation.
+From Selvedge.Browser.Session Require State Navigation.
 Module SessionNavigation := Selvedge.Browser.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
@@ -25,7 +25,6 @@ Import ListNotations.
 Open Scope string_scope.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module G := Selvedge.Generated.Commands.
-Module SessionObserve := Selvedge.Browser.Session.Observation.
 Definition status_availability status :=match status with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
@@ -168,14 +167,15 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
  ((match toggle with None=>[]|Some input=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input))]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
-  (BoardProfile automatic profile(map(fun value=>Fields.ChoiceValue(Domain.profile_key value)(Observation.profile_label value))(Observation.selectable_profiles(SessionObserve.catalog snapshot)))
+  (BoardProfile automatic profile(Observation.selectable_profile_choices snapshot)
     (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities
 |BoardFilter.Date=>[("1","最近 24 小时");("7","最近 7 天");("30","最近 30 天")]
 |BoardFilter.Assignee=>("self","我")::(Selvedge.Features.Domain.owner_name Selvedge.Features.Domain.Unassigned,"未分配")::
- map(fun profile=>(Selvedge.Features.Domain.owner_name(Selvedge.Features.Domain.ProfileOwner(Selvedge.Kernel.Domain.profile_key profile)),Observation.profile_label profile))(Observation.selectable_profiles(SessionObserve.catalog snapshot))
+ map(fun choice=>(Selvedge.Features.Domain.owner_name(Selvedge.Features.Domain.ProfileOwner(Fields.choice_value_of choice)),
+   Fields.choice_label choice))(Observation.selectable_profile_choices snapshot)
 |BoardFilter.Creator=>[("self","我")]
 |BoardFilter.Project=>("","未分配项目")::map(fun project=>(show_natural(project_id project),project_name project))(value_or[](Read.projects snapshot))
 |BoardFilter.Label=>map(fun value=>(value,value))(nodup string_dec(flat_map Read.card_labels(value_or[](Read.board_cards snapshot))))end.

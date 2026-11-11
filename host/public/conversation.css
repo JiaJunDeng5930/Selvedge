@@ -6,8 +6,14 @@
 [data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
 [data-reading-root] {
   gap: .75rem !important;
+  /* The focus stroke stays in the border, with room inside for message outlines. */
+  border: var(--native-focus-width) solid transparent !important;
+  padding-inline: 6px !important;
   overflow-anchor: none;
   scroll-padding-block-start: .5rem;
+}
+[data-reading-root]:focus-visible {
+  outline-offset: calc(-1 * var(--native-focus-width));
 }
 [data-reading-root] [data-history-match] {
   outline: 2px solid var(--selvedge-focus);

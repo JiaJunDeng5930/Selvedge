@@ -41,12 +41,23 @@ Definition stage_after_execution (previous:board_stage) (busy:bool) (failed:unit
  match previous with InProgress=>if failed tt then Blocked else InReview|_=>previous end.
 Definition stage_after_task previous task :=
  stage_after_execution previous (busy_task task) (fun _=>latest_failure task).
+Definition automatic_stage stage := match stage with Todo|InProgress=>true|_=>false end.
+Definition enrichment_ready (card:Selvedge.Features.Domain.card) :=
+ match Selvedge.Features.Domain.card_enrichment card with NoEnrichment=>true|_=>false end.
 (** A queued card may still be waiting for its model profile's concurrency slot. *)
 Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
  negb (Selvedge.Features.Domain.card_archived card) && unlinked card &&
- (match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.NoEnrichment=>true|_=>false end) &&
- (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true|_=>false end) &&
+ enrichment_ready card && automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.ProfileOwner _=>true|_=>false end.
+Inductive save_consequence := SaveManual | SaveNeedsStage | SaveStarts | SaveQueues | SaveWaitsForModel
+ | SaveDrafts | SaveDraftsThenQueues | SaveLinked.
+Definition save_consequence_name consequence := match consequence with
+ |SaveManual=>"manual"|SaveNeedsStage=>"needs_stage"|SaveStarts=>"starts"|SaveQueues=>"queues"
+ |SaveWaitsForModel=>"waits_for_model"|SaveDrafts=>"drafts"|SaveDraftsThenQueues=>"drafts_then_queues"
+ |SaveLinked=>"linked" end.
+Definition save_consequence_of_name name :=
+ find(fun consequence=>String.eqb name(save_consequence_name consequence))
+ [SaveManual;SaveNeedsStage;SaveStarts;SaveQueues;SaveWaitsForModel;SaveDrafts;SaveDraftsThenQueues;SaveLinked].
 Definition activity (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_enrichment card with
  | Selvedge.Features.Domain.Enriching _=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
  | Some task=>match task_lifecycle task with Archived _=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"

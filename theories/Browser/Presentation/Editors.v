@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Features Require Domain.
+From Selvedge.Features Require Domain BoardFacts.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Browser.Session Require Services.
 From Selvedge.Browser Require Import NavigationIdentity.
@@ -220,7 +220,10 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
   List.app [read_only parent "linked-conversation" "关联对话"
     (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)))] (
   match Read.card_link_stage task snapshot with
-  |Some stage=>[read_only parent "destination-stage" "预计进入"(Selvedge.Features.Domain.stage_label stage)]
+  |Some stage=>List.app [read_only parent "destination-stage" "预计进入"(Selvedge.Features.Domain.stage_label stage)]
+   (match stage with
+   |Selvedge.Features.Domain.InReview=>[information parent "destination-reason" Information.Description "对话当前未运行。"]
+   |_=>[]end)
   |None=>[] end) end in
  let stage:=match target with Identity.BoardCard _=>[Fields.CardStage]|_=>[]end in
  let details:=field_nodes snapshot s e parent
@@ -315,19 +318,34 @@ Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) 
    (if pending then Unavailable "The current action is pending"else Available))]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
+ let draft:=Session.current_draft s e in
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
- let submit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let submit:=Control "submit"(submit_label draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let consequence:=match e with
+ |Card _=>match Observe.card_save_consequence snapshot s draft with
+  |Some value=>[information parent "card-save-consequence" Information.Description
+   (match value with
+    |BoardFacts.SaveManual=>"只保存卡片。对话需要手动启动。"
+    |BoardFacts.SaveNeedsStage=>"只保存卡片。移到「待办」可自动排队。"
+    |BoardFacts.SaveStarts=>"保存后会尝试启动对话。"
+    |BoardFacts.SaveQueues=>"保存后自动排队，轮到这张卡片时尝试启动对话。"
+    |BoardFacts.SaveWaitsForModel=>"保存后进入队列，等模型空闲再尝试启动对话。"
+    |BoardFacts.SaveDrafts=>"保存后先生成卡片内容，暂不启动对话。"
+    |BoardFacts.SaveDraftsThenQueues=>"保存后先生成卡片内容，成功后自动排队。"
+    |BoardFacts.SaveLinked=>"保存卡片，保留已关联的对话。"end)]
+  |None=>[]end
+ |_=>[]end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
    title_prompt_reset e parent (UX.action_pending unit) ++
    [assessment_nodes parent assessment] ++
-   Composer.action_feedback parent unit (draft_feedback (Session.current_draft s e)))%list in
+   Composer.action_feedback parent unit (draft_feedback draft))%list in
  [dialog_header parent [title parent(editor_title e)];
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      ([declared parent Roles.Button(secondary "cancel"
+      (consequence ++ [declared parent Roles.Button(secondary "cancel"
         (match e with Card _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
-         (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]])%list])].
+         (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].
