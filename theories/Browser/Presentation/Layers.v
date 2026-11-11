@@ -81,50 +81,50 @@ Definition detail_action_input parent(action:ObjectActions.action):Input.input:=
   |Some(caption,destination)=>Input.Confirmation command caption destination trigger|None=>Input.Command command end
  |ObjectActions.Destination target=>Input.Navigate target
  |ObjectActions.Editor owner=>Input.OpenEditor owner trigger
- |ObjectActions.SideConversation task=>Input.BeginSide task trigger end.
+ |ObjectActions.SideConversation task=>Input.BeginSide task trigger
+ |ObjectActions.InspectCard card=>Input.OpenInformation(State.CardDetails card)trigger end.
 Definition detail_action_nodes snapshot s subject parent:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
  declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
   (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
   (detail_action_input parent action)(status_availability(ObjectActions.action_status action))))
  (ObjectActions.items snapshot s subject)).
-Definition task_workspace_facts {A} parent workspace:list(node A) :=
- let roots:=Domain.workspace_roots workspace in
- [read_only parent "workspace" "Working directories"
-   (match roots with []=>"No working directory"|_=>String.concat "
-" roots end);
-  read_only parent "primary" "Primary directory"(value_or ""(Domain.workspace_primary workspace))].
 Definition committed_workspace_facts {A} parent workspace:list(node A) :=
  let primary:=Domain.workspace_primary workspace in
  let roots:=Domain.workspace_roots workspace in
  let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
- (if existsb selected roots then []else
-  [read_only parent "working-directory" "Working directory"(value_or "No working directory"primary)])++
- map(fun path=>let key:=part parent("directory/"++path)in
-  Node key("directory/"++path)path Roles.Content(DirectoryRow path(selected path))
-   [read_only key "path" "" path;
-    read_only key "primary" ""(if selected path then "Primary working directory"else "Additional directory")])roots.
-Definition context_facts {A} directories snapshot task parent:list(node A) :=match Read.task_context task snapshot with
+ match roots with
+ |[]=>[read_only parent "working-directory" "Working directory" "No working directory"]
+ |[path]=>[read_only parent "working-directory" "Working directory" path]
+ |_=>map(fun path=>let key:=part parent("directory/"++path)in
+   Node key("directory/"++path)path Roles.Content(DirectoryRow path(selected path))
+    [read_only key "path" "" path;
+     read_only key "primary" ""(if selected path then "Primary working directory" else "Additional directory")])roots
+ end.
+Definition context_facts {A} snapshot task parent:list(node A) :=match Read.task_context task snapshot with
 |None=>[read_only parent "unavailable" "Execution context" "The committed context is unavailable"]
 |Some context=>
+ let workspace:=Read.context_workspace context in
  let project_facts:=List.app (match Read.context_project context with
  |None=>[read_only parent "project" "Project" "Projectless task"]
  |Some id=>[read_only parent "project" "Project"
    (value_or ("Project unavailable (ID "++show_natural id++")")(Read.context_project_name context))]end)
  (match Read.context_project context,Read.context_guidance_root context,Read.context_guidance_revision context with
- |Some _,Some root,Some revision=>[read_only parent "project-directory" "Directory" root;
-   read_only parent "guidance-revision" "Guidance revision" revision]
+ |Some _,Some root,Some revision=>List.app
+   (if existsb (String.eqb root) (Domain.workspace_roots workspace) then []
+    else [read_only parent "project-directory" "Guidance directory" root])
+   [read_only parent "guidance-revision" "Guidance revision" revision]
  |_,_,_=>[]end) in
  let guidance:=match Read.context_instructions context with
   |None=>"No project guidance"|Some instructions=>
    if String.eqb instructions ""then "No project instructions"else instructions end in
- List.app project_facts (List.app (directories(Read.context_workspace context))
+ List.app project_facts (List.app (committed_workspace_facts parent workspace)
   [read_only parent "filesystem" "Filesystem access"(Read.context_filesystem context);
    read_only parent "network" "Network access"(Read.context_network context);
    read_only parent "approval" "Approval policy"(Read.context_approval context);
    read_only parent "guidance" "Project guidance" guidance])end.
 Definition task_details snapshot s id parent :=match Projection.task_details_observation snapshot id with
 |Some(task,details)=>
- (context_facts(task_workspace_facts parent)snapshot id parent++
+ (context_facts snapshot id parent++
   (match Read.task_work task with
   |None=>[]|Some work=>[read_only parent "work" "Work"
     (match Read.find_work work snapshot with Some entry=>Read.work_name entry|None=>"Work unavailable"end)]end)++
@@ -221,7 +221,7 @@ Definition behavior s capacity layer :=
   (State.layer_trigger layer)"/main"(anchor s layer) Input.ClosePanel dismissal dismissal.
 Definition information_panel snapshot (s:State.state) kind parent :=match kind with
 |State.TaskDetails task=>task_details snapshot s task parent
-|State.TaskContext task=>context_facts(committed_workspace_facts parent)snapshot task parent
+|State.TaskContext task=>context_facts snapshot task parent
 |State.CardDetails card=>card_details snapshot s card parent
 |State.PropertySource e request=>match Observation.property_for_request snapshot s e request with
  |None=>[read_only parent "unavailable" "Source" "The original settings observation is unavailable"]

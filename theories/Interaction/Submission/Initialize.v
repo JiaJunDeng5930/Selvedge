@@ -5,6 +5,7 @@ From Selvedge.Features Require Domain BoardParameters.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
 From Selvedge.Interaction Require World.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Interaction.Submission Require Draft DraftCodec GraphAuthoring.
 From Selvedge.Interaction.Submission Require Observation.
 Import ListNotations.
@@ -18,8 +19,11 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
 |Identity.Message task=>match World.find_task task snapshot with Some _=>Some(Draft.MessageBody task Draft.empty_text Fields.Send)|None=>None end
 |Identity.Project None=>Some(Draft.new_body e)
 |Identity.Project(Some id)=>project<-Observation.project_by_id id snapshot;;name<-string_field "name" project;;workspace<-bind(field "workspace" project)Codec.parse_workspace;;worktree<-bool_field "create_worktree" project;;Some(Draft.ProjectBody(Some id)name workspace worktree)
-|Identity.Card None=>Some(Draft.CardBody None 0 (Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Todo Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])false "" false)
-|Identity.Card(Some id)=>card<-World.board_object "cards" id snapshot;;revision<-natural_field "revision" card;;project<-bind(string_field "project" card)Selvedge.Features.BoardParameters.optional_project;;value<-DraftCodec.decode_card(replace "project"(optional_id project)card);;Some(Draft.CardBody(Some id)revision value false "" false)
+|Identity.Card None=>Some(Draft.new_card (Identity.BoardCard None) "" Selvedge.Features.Domain.Todo None)
+|Identity.Card(Some id)=>card<-World.board_object "cards" id snapshot;;revision<-natural_field "revision" card;;project<-bind(string_field "project" card)Selvedge.Features.BoardParameters.optional_project;;value<-DraftCodec.decode_card(replace "project"(optional_id project)card);;Some(Draft.CardBody(Identity.BoardCard(Some id))revision value false "" false)
+|Identity.CardForConversation task=>conversation<-Read.find_task task snapshot;;
+ Some(Draft.new_card (Identity.ConversationCard task) (Read.task_title conversation)
+   Selvedge.Features.Domain.InProgress (Read.task_project conversation))
 |Identity.Fork task=>settings<-Observation.task_settings task snapshot;;Some(Draft.ForkBody task 1 [] (Context.Configuration(Context.ParentTask task)None None None))
 |Identity.Compact task=>match World.find_task task snapshot with Some _=>Some(Draft.CompactBody task None)|None=>None end
 |Identity.TaskGraph None work=>

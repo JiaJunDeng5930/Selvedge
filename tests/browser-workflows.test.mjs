@@ -216,9 +216,8 @@ test('Project task creation preserves explicitly empty workspaces through the br
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('No working directory', { exact: true }).waitFor();
-  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 1,
-    'Task details retain the independent primary directory fact when it is absent');
-  assert.equal(await details.locator('[data-logical-key="primary"] [data-logical-key="value"]').innerText(), '—');
+  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 0,
+    'An empty workspace needs only one absence indicator');
 });
 
 test('ordered image content and the active composer survive responsive navigation', async t => {
@@ -281,10 +280,14 @@ test('ordered image content and the active composer survive responsive navigatio
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
 });
 
-test('a task graph can route replies between existing conversations through the creation form', async t => {
-  const { page, command } = await browserFixture(t);
-  const { task_id: source } = await command({ op: 'create_idle', profile: 'demo' });
-  const { task_id: receiver } = await command({ op: 'create_idle', profile: 'demo' });
+test('task graph setup creates its conversations in scope and routes replies', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command } = fixture;
+  const { work_id: work } = await command({ op: 'create_work', name: 'Graph setup' });
+  const { task_id: outsider } = await command({ op: 'create_idle', profile: 'demo' });
+  await page.getByRole('button', { name: /^对话范围 · / }).click();
+  await page.getByRole('dialog', { name: '对话范围', exact: true })
+    .getByRole('radio', { name: 'Graph setup', exact: true }).click();
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: 'Task graphs', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
@@ -295,7 +298,45 @@ test('a task graph can route replies between existing conversations through the 
   assert.equal(await dialog.getByRole('textbox', { name: 'Graph JSON', exact: true }).isVisible(), false);
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);
-  await dialog.getByRole('textbox', { name: 'Graph name', exact: true }).fill('Browser handoff');
+  const name = dialog.getByRole('textbox', { name: 'Graph name', exact: true });
+  const newConversation = dialog.getByRole('button', { name: 'New conversation', exact: true });
+  const returnToGraph = page.getByRole('button', { name: 'Back to task graph', exact: true });
+  await name.fill('Browser handoff');
+  await dialog.getByText('Create two conversations', { exact: false }).waitFor();
+  await newConversation.click();
+  assert.equal(await returnToGraph.innerText(), 'Back to task graph');
+  await returnToGraph.click();
+  assert.equal(await name.inputValue(), 'Browser handoff');
+
+  async function createEndpoint(message) {
+    await newConversation.click();
+    await returnToGraph.waitFor();
+    const model = page.getByRole('button', { name: /^Model:/ });
+    if (!(await model.getAttribute('aria-label')).includes('echo')) {
+      await model.click();
+      const picker = page.getByRole('dialog', { name: 'Model', exact: true });
+      const choose = picker.getByRole('button', { name: /^Choose model:/ });
+      const echo = picker.getByRole('menuitemradio', { name: 'echo', exact: true });
+      await Promise.any([choose.waitFor(), echo.waitFor()]);
+      if (await choose.isVisible()) await choose.click();
+      await echo.click();
+      if (await picker.isVisible()) await page.keyboard.press('Escape');
+    }
+    await page.getByRole('combobox', { name: 'Task', exact: true }).fill(message);
+    const task = await submitTask(page);
+    await dialog.waitFor();
+    assert.equal(await name.inputValue(), 'Browser handoff');
+    await taskIdle(fixture.running.service, task);
+    return task;
+  }
+
+  const source = await createEndpoint('Collect evidence for the graph');
+  await dialog.getByText('Create one more conversation', { exact: false }).waitFor();
+  const receiver = await createEndpoint('Review the routed evidence');
+  assert.deepEqual((await command({ op: 'read_work', work_id: work })).task_ids, [source, receiver]);
+  const availableSources = await dialog.getByRole('combobox', { name: 'Source conversation', exact: true })
+    .locator('option').evaluateAll(options => options.map(option => option.value));
+  assert.ok(!availableSources.includes(String(outsider)), 'The picker stays in the graph scope');
   await dialog.getByRole('combobox', { name: 'Source conversation', exact: true }).selectOption(String(source));
   assert.equal(await create.isDisabled(), true);
   await dialog.getByRole('combobox', { name: 'Receiving conversation', exact: true }).selectOption(String(receiver));
@@ -320,6 +361,46 @@ test('a task graph can route replies between existing conversations through the 
     .getByText(new RegExp(`Task #${source} → Task #${receiver}`)).waitFor();
   const delivered = await command({ op: 'read', task_id: receiver });
   assert.match(JSON.stringify(delivered), /Forward this through the graph/);
+});
+
+test('leaving a graph conversation before its receipt preserves the newer destination', { timeout: 60000 }, async t => {
+  const { page } = await browserFixture(t);
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Task graphs', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
+  const graph = page.getByRole('dialog', { name: 'New task graph', exact: true });
+  const name = graph.getByRole('textbox', { name: 'Graph name', exact: true });
+  await name.fill('Keep this graph');
+  await graph.getByRole('button', { name: 'New conversation', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Create while leaving the graph');
+
+  let started, release;
+  const pending = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  await page.route('**/api/browser/command', async route => {
+    if (route.request().postDataJSON()?.command?.op !== 'create') return route.continue();
+    const response = await route.fetch();
+    started();
+    await gate;
+    await route.fulfill({ response });
+  });
+  const submission = submitTask(page);
+  await pending;
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  const board = page.getByRole('main').getByRole('heading', { name: '卡片看板', exact: true });
+  await board.waitFor();
+  release();
+  await submission;
+  assert.equal(await board.isVisible(), true);
+  assert.equal(await graph.isVisible(), false);
+
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Task graphs', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
+  await graph.getByText('Create one more conversation', { exact: false }).waitFor();
+  assert.equal(await name.inputValue(), 'Keep this graph');
 });
 
 async function graphTemplateFixture(t) {

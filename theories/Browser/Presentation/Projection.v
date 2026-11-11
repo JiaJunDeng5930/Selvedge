@@ -44,7 +44,7 @@ Definition selected_project snapshot s :=
  match State.location navigation with
  |ProjectHome id=>Some id
  |Conversation task=>bind(find_task task snapshot)task_project
- |Start=>match SessionObservation.draft_preview snapshot
+ |Start|GraphConversation _ _=>match SessionObservation.draft_preview snapshot
    (State.current_draft s (NewTask(State.active_work navigation)))with
    |Context.ProspectiveContext _ project _ _ _ _=>project
    |_=>None end

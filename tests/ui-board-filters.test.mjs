@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { browserFixture } from './fixtures/browser.mjs';
+import { taskIdle } from './support.mjs';
 
 test('task board exposes ordinary model and unassigned filter choices', async t => {
   const { page } = await browserFixture(t);
@@ -89,4 +90,67 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await card.getByRole('button', { name: '打开对话', exact: true }).click();
   await page.getByRole('main').getByRole('article', { name: 'Message', exact: true })
     .getByText(message, { exact: true }).waitFor();
+});
+
+test('a conversation can be added to the board without starting another conversation', async t => {
+  const { page, command, running } = await browserFixture(t);
+  const { project_id } = await command({ op: 'create_project', name: 'Release planning', workspace: { roots: [] } });
+  const { task_id } = await command({ op: 'create', profile: 'demo', message: 'Verify the release checklist',
+    settings: { project_id } });
+  await taskIdle(running.service, task_id);
+  const { task } = await command({ op: 'read', task_id });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  const main = page.getByRole('main');
+  const actions = main.getByRole('button', { name: 'More actions', exact: true });
+  await actions.click();
+  await page.getByRole('button', { name: 'Add to board', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: '添加到看板', exact: true });
+  const titleField = dialog.getByRole('textbox', { name: '标题', exact: true });
+  assert.equal(await titleField.inputValue(), task.title);
+  await dialog.getByText('关联对话', { exact: true }).waitFor();
+  const title = 'Release checklist review';
+  await titleField.fill(title);
+  await dialog.getByRole('button', { name: '添加卡片', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+
+  const { cards } = await command({ op: 'list_cards' });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].task_id, task_id);
+  assert.equal(cards[0].title, title);
+  assert.equal(cards[0].project, String(project_id));
+  assert.equal(cards[0].status, 'in_review');
+  assert.deepEqual((await command({ op: 'list' })).tasks.map(value => value.id), [task_id]);
+
+  const duplicate = await fetch(`${running.address}/api/commands`, {
+    method: 'POST', headers: { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'create_card', title: 'Duplicate card', task_id }),
+  });
+  const refused = await duplicate.json();
+  assert.equal(refused.ok, false, JSON.stringify(refused));
+  assert.equal(refused.error.code, 'conversation_already_linked');
+  assert.deepEqual((await command({ op: 'list_cards' })).cards, cards);
+
+  await page.keyboard.press('Escape');
+  await actions.click();
+  await page.getByRole('button', { name: 'Open board card', exact: true }).click();
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
+  await details.getByText(title, { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Add to board', exact: true }).count(), 0);
+
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await main.getByRole('button', { name: '新建卡片', exact: true }).click();
+  const ordinary = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const ordinaryTitle = ordinary.getByRole('textbox', { name: '标题', exact: true });
+  assert.equal(await ordinaryTitle.inputValue(), '');
+  await ordinaryTitle.fill('Independent plan');
+  await ordinary.getByRole('button', { name: '创建卡片', exact: true }).click();
+  await ordinary.waitFor({ state: 'hidden' });
+  const listed = (await command({ op: 'list_cards' })).cards;
+  assert.equal(listed.length, 2);
+  assert.equal(listed.find(value => value.title === 'Independent plan').task_id, null);
 });

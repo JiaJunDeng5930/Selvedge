@@ -128,15 +128,25 @@ Definition pin (id revision:N) (observed:BoardParameters.clock) (pinned:bool) (v
  if editable card then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
  save id (set Selvedge.Features.Domain.card_pinned (fun _=>pinned) updated) value
  else Selvedge.Kernel.State.reject "card_locked" "Restore the archived card before pinning or unpinning it" value).
-Definition link (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
- let now:=observed in CardScope.with_card id revision value (fun card=>
- match Selvedge.Kernel.State.find_task target value with None=>Selvedge.Kernel.State.reject "task_not_found" "The conversation to link does not exist" value | Some _=>
+Definition link_result (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
+ CommandResult.bind (CardScope.select_card id revision value) (fun card=>
+ match Selvedge.Kernel.State.find_task target value with None=>CommandResult.refuse "task_not_found" "The conversation to link does not exist" | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
  if editable card && unlinked card && negb used then
- let updated:=revised (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) now card in
- save id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
-   (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value
- else Selvedge.Kernel.State.reject "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" value end).
+ let updated:=revised (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) observed card in
+ CommandResult.Accepted (save_change id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
+   (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value)
+ else CommandResult.refuse "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" end).
+Definition link id revision observed target value :=
+ CommandResult.decide value (link_result id revision observed target value).
+Definition create_card_with_task_result input observed assisted profile task value :=
+ let creation:=create_card_result input observed assisted profile value in
+ match task with
+ |None=>creation
+ |Some target=>CommandResult.bind creation (fun created=>
+   CommandResult.map (CommandResult.append_effects (CommandResult.change_effects created))
+    (link_result (BD.fresh_id value) 0 observed target (CommandResult.change_world created)))
+ end.
 Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Domain.card) (value:world) :=
  if archived then match Selvedge.Features.Domain.card_task card with
  | Some target=>match Selvedge.Kernel.State.find_task target value with
@@ -194,7 +204,7 @@ Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (p
 Definition regenerate (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.decide value (regenerate_result id revision observed profile value).
 Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change :=
- create_card_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") value.
+ create_card_with_task_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") (Selvedge.Generated.Commands.create_card_task_id p) value.
 Definition handle_create_card (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :decision :=
  CommandResult.decide value (handle_create_card_result p caller value).
 Definition handle_update_card (p:Selvedge.Generated.Commands.update_card_payload) (caller:option N) (value:world) :decision :=

@@ -25,6 +25,12 @@ Choose **关联对话** on a card to select an existing conversation, or assign 
 card to a model and choose **启动对话** in the card menu. The selector explains
 choices unavailable for the current card.
 
+To track work from a conversation, open **More actions → Add to board** in that
+conversation. The editor fills in its current title and project. Saving creates
+the card and links the existing conversation in one operation. The card follows
+the conversation's execution state. A successfully completed run enters **待审核**.
+Return through **More actions → Open board card** to see the linked card.
+
 Toolbar tabs, search and filters narrow the view. **执行中的卡片** counts the
 cards with an active linked conversation under the current search and filters.
 Enable **自动** for automatic execution. Choose **打开对话** on a linked card to

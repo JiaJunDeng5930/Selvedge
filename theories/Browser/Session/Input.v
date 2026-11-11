@@ -18,6 +18,7 @@ Inductive selection_change := SelectionChanged | SelectionFocused | SelectionBlu
 Inductive input :=
 | ResetTitlePrompts
 | ToggleProjectGroup(project:N) | ToggleTaskBranches(task:N) | BeginTask(project:option N)
+| BeginGraphConversation | ReturnToGraphSetup
 | BeginVoiceNew(origin:editor) | SelectSharedTask(work:N)(task:option N)
 | OpenNavigation(kind:navigation_panel)(trigger:string)
 | OpenObjectActions(subject:object_subject)(trigger:string)

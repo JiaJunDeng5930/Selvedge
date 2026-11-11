@@ -14,10 +14,10 @@ Open Scope string_scope.
 Module SS:=Selvedge.Browser.Session.State.
 Module P:=Selvedge.Browser.ControlPurpose.
 Definition route_symbol route:=match route with
-|Start=>"home"|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
+|Start=>"home"|GraphConversation _ _|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
 |Board=>"columns"|Graphs=>"branch"|HistorySearch=>"search"end.
 Definition editor_purpose owner:=match owner with
-|Identity.Project None|Identity.Card None|Identity.TaskGraph None _=>P.CreateItem
+|Identity.Project None|Identity.Card None|Identity.CardForConversation _|Identity.TaskGraph None _=>P.CreateItem
 |Identity.NewTask _|Identity.Message _=>P.MessageSubmission
 |Identity.Fork _=>P.ForkTask|Identity.Compact _=>P.CompactTask|_=>P.EditItem end.
 Definition command_purpose (command:SS.public_command):=let source:=Schema.encode_command command in
@@ -46,6 +46,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.NewCard _ trigger=>P.DialogTrigger P.CreateItem (panel_open trigger state)
 |Input.CreateWork=>P.WorkCreation
 |Input.BeginTask None=>P.CreateItem|Input.BeginTask(Some _)=>P.ProjectTaskCreation
+|Input.BeginGraphConversation=>P.CreateItem|Input.ReturnToGraphSetup=>P.NamedAction
 |Input.OpenEditor owner trigger=>P.DialogTrigger(editor_purpose owner)(panel_open trigger state)
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with

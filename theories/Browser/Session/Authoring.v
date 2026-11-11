@@ -324,7 +324,7 @@ Definition clear_accepted reply draft:=
  let body:=match Draft.contents draft with
  |Draft.NewTaskBody message profile reasoning configuration mode work=>Draft.NewTaskBody Draft.empty_text profile reasoning configuration mode work
  |Draft.MessageBody task message delivery=>Draft.MessageBody task Draft.empty_text delivery
- |Draft.CardBody None revision value assist profile true=>Draft.CardBody None 0
+ |Draft.CardBody (Identity.BoardCard None) revision value assist profile true=>Draft.CardBody (Identity.BoardCard None) 0
   (Selvedge.Features.Domain.CardDraft "" ""(Selvedge.Features.Domain.draft_stage value)(Selvedge.Features.Domain.draft_priority value)
    (Selvedge.Features.Domain.draft_owner value)(Selvedge.Features.Domain.draft_project value)(Selvedge.Features.Domain.draft_labels value)[])assist profile true
  |body=>body end in
@@ -353,14 +353,16 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
  let foreground:=N.eqb navigation(SS.generation(SS.navigation_state state))&&N.eqb layer(SS.next_layer state)in
  if foreground && current then match Draft.contents captured with
  |Draft.NewTaskBody _ _ _ _ _ _=>match natural_field "task_id" reply with
-   |Some task=>adopt_navigation snapshot(Navigation.visit snapshot(NavigationIdentity.Conversation task)state)
+   |Some task=>adopt_navigation snapshot(match SS.location(SS.navigation_state state)with
+     |NavigationIdentity.GraphConversation _ _=>Navigation.return_to_graph_setup snapshot state
+     |_=>Navigation.visit snapshot(NavigationIdentity.Conversation task)state end)
    |None=>fail state "Task creation did not return its task identity."end
  |Draft.MessageBody task message _=>match Command.side_question(Draft.text_value message)with
    |Some _=>if Navigation.task_visible state task then match natural_field "task_id" reply with
      |Some side=>adopt_navigation snapshot(Navigation.open_side_window side trigger state)
      |None=>fail state "Side conversation creation did not return its task identity."end else keep state
    |None=>adopt_navigation snapshot(Navigation.follow_latest task state)end
- |Draft.CardBody None _ _ _ _ true=>changed state[focus(NavigationIdentity.key_part(NavigationIdentity.editor_key(Identity.Card None))"title")]
+ |Draft.CardBody (Identity.BoardCard None) _ _ _ _ true=>changed state[focus(NavigationIdentity.key_part(NavigationIdentity.editor_key(Identity.Card None))"title")]
  |_=>match SS.layers(SS.navigation_state state)with
    |top::_=>match SS.layer_panel top with SS.EditorPanel owner|SS.PropertyPanel owner _=>if same_editor owner(Draft.owner captured)then adopt_navigation snapshot(Navigation.close_panel state)else keep state|_=>keep state end
    |[]=>keep state end end else keep state
@@ -681,7 +683,7 @@ Definition step snapshot input state:option result:=match input with
 Definition visible_editors state:=
  let navigation:=SS.navigation_state state in
  let main:=match SS.location navigation with
- |NavigationIdentity.Start=>[Identity.NewTask(SS.active_work navigation)]
+ |NavigationIdentity.Start|NavigationIdentity.GraphConversation _ _=>[Identity.NewTask(SS.active_work navigation)]
  |_=>[]end in
  let tasks:=map(fun view=>Identity.Message(NavigationIdentity.task_view_task view))(Navigation.visible_task_views state)in
  let layers:=fold_right(fun layer rest=>match SS.layer_panel layer with

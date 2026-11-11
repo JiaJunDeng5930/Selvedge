@@ -57,8 +57,8 @@ test('a Project task keeps its readable context and its primary and supporting a
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('Harbour 海港', { exact: true }).waitFor();
-  assert.ok(await details.getByText(workspace, { exact: true }).count() > 0,
-    'Task details must include the Project workspace');
+  assert.equal(await details.getByText(workspace, { exact: true }).count(), 1,
+    'Task details show a shared working and guidance directory once');
   await details.getByText('Guidance revision', { exact: true }).waitFor();
   await details.getByText(revision, { exact: true }).waitFor();
 });
@@ -67,8 +67,14 @@ test('a projectless task identifies its context without inventing a Project revi
   const { page, command } = await browserFixture(t);
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
   const { task } = await command({ op: 'read', task_id });
-  await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: task.title, exact: true }).click();
+  const entry = page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true });
+  const caption = entry.getByText(task.title, { exact: true });
+  await caption.hover();
+  assert.equal(await caption.getAttribute('title'), null, 'Hovering a fully visible title does not repeat the label');
+  assert.equal(await entry.getAttribute('title'), null);
+  assert.equal(await entry.getAttribute('data-help'), null);
+  await entry.click();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('Projectless task', { exact: true }).waitFor();

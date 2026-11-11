@@ -185,12 +185,12 @@ Proof.
    apply existsb_exists in Used as [[other|] [Member Matches]]; [|discriminate].
    destruct (F.card_task other) as [previous|] eqn:Previous; [|discriminate].
    apply N.eqb_eq in Matches. subst previous. exact (Unused other Member Previous). }
- unfold linked,Board.link,CardScope.with_card.
+ unfold linked,Board.link,Board.link_result.
  rewrite selecting_a_card_retains_the_observed_value,Found,N.eqb_refl.
- cbn [CommandResult.resolve]. rewrite Target.
+ cbn [CommandResult.bind]. rewrite Target.
  unfold Board.editable,BoardFacts.editable,Board.unlinked,BoardFacts.unlinked.
  rewrite Active,Unlinked,NotUsed.
- cbn [negb andb Board.save CommandResult.accept CommandResult.change_value
+ cbn [negb andb Board.save CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.change_value
    CommandResult.change_world CommandResult.change_effects Board.save_change
    accept decision_reply decision_world decision_effects].
  split; [reflexivity|].

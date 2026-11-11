@@ -23,6 +23,7 @@ Module Observe := Selvedge.Interaction.Experience.Observation.
 Definition editor_title e := match e with
 |NewTask _=>"New conversation"|Message _=>"Message"
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
+|CardForConversation _=>"添加到看板"
 |Fork _=>"Fork conversation"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
 |WorkName _=>"Rename Work"|TitlePrompts=>"Conversation titles"end.
@@ -30,6 +31,7 @@ Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Card None=>"创建卡片"
+|CardForConversation _=>"添加卡片"
 |TaskGraph None _=>"Create task graph"|Fork _=>"Create fork"|Card(Some _)=>"保存"
 |Compact _=>"Compact history"|_=>"Save"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
@@ -210,20 +212,26 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|WorkName _|TitlePrompts=>[]end.
+|CardForConversation _|WorkName _|TitlePrompts=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
 Definition editor_options {A} parent key label (children:list(node A)) :=
  Node(part parent key)key label Roles.Section EditorOptions children.
-Definition card_editor snapshot s e parent (id:option N) :=
+Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
+ let source:=match target with
+ |Identity.BoardCard _=>[]
+ |Identity.ConversationCard task=>
+  [read_only parent "linked-conversation" "关联对话"
+    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)))] end in
+ let stage:=match target with Identity.BoardCard _=>[Fields.CardStage]|_=>[]end in
  let details:=field_nodes snapshot s e parent
-   [Fields.CardStage;Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels;Fields.CardAttachments] in
- let capture:=match id with
-  |None=>[field_section snapshot s e parent "创建设置"
+   (List.app stage [Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels;Fields.CardAttachments]) in
+ let capture:=match target with
+  |Identity.BoardCard None=>[field_section snapshot s e parent "创建设置"
     [Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile]]
-  |Some _=>[]end in
- (field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
+  |_=>[]end in
+ (source++field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
  [editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
 Definition fork_editor snapshot s e parent task :=
  let source:=value_or ("Conversation #"++show_natural task)(option_map task_title(find_task task snapshot)) in
@@ -249,26 +257,30 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
  let name:=GraphAuthoring.handoff_name handoff in
  let source:=GraphAuthoring.handoff_source handoff in
  let target:=GraphAuthoring.handoff_target handoff in
- match tasks snapshot with
- |Some all=>let available:=work_tasks work all in
-  match available with
-  |_::_::_=>
-   match UX.admit_subject e (Parameters.name Fields.TaskGraphDeclaration) with
-   |None=>[]
-   |Some subject=>
-    let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
-      (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
+ match UX.admit_subject e (Parameters.name Fields.TaskGraphDeclaration) with
+ |None=>[]
+ |Some subject=>
+  let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
+    (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
+  graph_input parent "handoff-name" "Graph name" name None
+    (fun value=>name<-as_string value;;assign name source target)::
+  match tasks snapshot with
+  |Some all=>let available:=work_tasks work all in
+   match available with
+   |_::_::_=>
     [information parent "handoff-purpose" Information.Description "New replies in the source conversation are sent as messages to the receiving conversation.";
-     graph_input parent "handoff-name" "Graph name" name None
-      (fun value=>name<-as_string value;;assign name source target);
      graph_endpoint parent "handoff-source" "Source conversation" available source target (fun id=>assign name id target);
      graph_endpoint parent "handoff-target" "Receiving conversation" available target source (fun id=>assign name source id)]
+   |_=>let prompt:=match available with
+     |[]=>"Create two conversations in this scope to choose a source and receiver."
+     |_=>"Create one more conversation in this scope to choose a source and receiver."end in
+    information parent "handoff-needs-conversations" Information.Description prompt::
+    match e with
+    |TaskGraph None _=>[declared parent Roles.Button(secondary "handoff-new-conversation" "New conversation" Input.BeginGraphConversation)]
+    |_=>[]end
    end
-  |_=>[information parent "handoff-needs-conversations" Information.Description
-      "Create two conversations in this scope to choose a source and receiver.";
-     declared parent Roles.Button(secondary "handoff-new-conversation" "New conversation"(Input.BeginTask None))]
+  |None=>[information parent "handoff-conversations-unavailable" Information.Description "Loading conversations…"]
   end
- |None=>[information parent "handoff-conversations-unavailable" Information.Description "Loading conversations…"]
  end.
 Definition graph_editor snapshot s e parent (graph:option N) work :=
  let declaration:=field_nodes snapshot s e parent [Fields.TaskGraphDeclaration] in
@@ -290,7 +302,8 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
  end.
 Definition section_nodes snapshot s e parent :=
  match e with
- |Card id=>card_editor snapshot s e parent id
+ |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
+ |CardForConversation task=>card_editor snapshot s e parent (Identity.ConversationCard task)
  |Fork task=>fork_editor snapshot s e parent task
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]

@@ -57,7 +57,8 @@ Definition visited work navigation := match find(fun visit=>same_work work(fst v
  |Some visit=>snd visit|None=>Start end.
 Definition select_scope work navigation :=
  if same_work work(State.active_work navigation)then navigation else
- let previous:=(State.active_work navigation,State.location navigation)in
+ let location:=match State.location navigation with GraphConversation _ _=>Graphs|other=>other end in
+ let previous:=(State.active_work navigation,location)in
  set State.active_work(fun _=>work)
   (set State.visits(fun visits=>previous::filter(fun visit=>negb(same_work(fst previous)(fst visit)))visits)navigation).
 Definition after_visit navigation :=
@@ -65,6 +66,7 @@ Definition after_visit navigation :=
   (set State.navigation_intent(fun intent=>match intent with State.OpenNavigation=>State.AutomaticNavigation|intent=>intent end)navigation).
 Definition global_route route := match route with Projects|ProjectHome _|Board=>true|_=>false end.
 Definition route_allowed snapshot route := match route with
+ |GraphConversation (Some work) _=>match DocumentState.find_work work snapshot with Some _=>true|None=>false end
  |Conversation task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |ProjectHome project=>match DocumentState.find_world "projects" "id" project snapshot with Some _=>true|None=>false end
  |SharedUI work selected=>match DocumentState.find_work work snapshot with
@@ -72,6 +74,7 @@ Definition route_allowed snapshot route := match route with
  |_=>true end.
 Definition route_scope snapshot route navigation :=
  if global_route route then select_scope None navigation else match route,State.active_work navigation with
+ |GraphConversation work _,_=>select_scope work navigation
  |Conversation task,Some work=>match DocumentState.find_task task snapshot with
    |Some observed=>let owner:=natural_field "work_id" observed in select_scope owner navigation
    |None=>navigation end
@@ -88,8 +91,12 @@ Definition visit snapshot destination state :=
  |_=>state end in
  let draft_effects:=match destination with
  |Conversation task=>[EnsureDraft(Message task);EnsureDraft(NewTask(State.active_work navigation))]
- |Start=>[EnsureDraft(NewTask(State.active_work navigation))]|_=>[]end in
- changed state(List.app draft_effects [Attend(match destination with Start=>NavigationIdentity.key_part "/main" "creation/title"|_=>NavigationIdentity.key_part "/main" "heading"end)])
+ |Start|GraphConversation _ _=>[EnsureDraft(NewTask(State.active_work navigation))]|_=>[]end in
+ let attention:=match destination with
+  |Start=>NavigationIdentity.key_part "/main" "creation/title"
+  |GraphConversation work _=>NavigationIdentity.key_part(editor_key(NewTask work))"message"
+  |_=>NavigationIdentity.key_part "/main" "heading"end in
+ changed state(List.app draft_effects [Attend attention])
  else refuse "The requested destination is no longer available."state.
 
 Definition request_key request:=match request with
@@ -169,6 +176,7 @@ Definition editor_available snapshot owner:=match owner with
  |Message task|Fork task|Compact task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |Project(Some id)=>match DocumentState.find_world "projects" "id" id snapshot with Some _=>true|None=>false end
  |Card(Some id)=>match field "board" snapshot with Some board=>match DocumentState.find_world "cards" "id" id board with Some _=>true|None=>false end|None=>false end
+ |CardForConversation task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |TaskGraph(Some id)_=>match DocumentState.find_world "graphs" "graph_id" id snapshot with Some _=>true|None=>false end
  |WorkName id=>match DocumentState.find_work id snapshot with Some _=>true|None=>false end
  |NewTask(Some work)=>match DocumentState.find_work work snapshot with Some _=>true|None=>false end
@@ -177,6 +185,20 @@ Definition edit_object snapshot owner trigger state:=
  if editor_available snapshot owner then let result:=open_panel(State.EditorPanel owner)trigger state in
  set result_effects(fun effects=>EnsureDraft owner::effects)result
  else refuse "The object is no longer available."state.
+Definition begin_graph_conversation snapshot state :=
+ let navigation:=State.navigation_state state in
+ match State.location navigation,State.layers navigation with
+ |Graphs,layer::_=>match State.layer_panel layer with
+   |State.EditorPanel(Identity.TaskGraph None work)=>
+     visit snapshot (GraphConversation work(State.layer_trigger layer))state
+   |_=>keep state end
+ |_,_=>keep state end.
+Definition return_to_graph_setup snapshot state :=
+ match State.location(State.navigation_state state)with
+ |GraphConversation work trigger=>
+   let returned:=visit snapshot Graphs state in
+   edit_object snapshot(Identity.TaskGraph None work)trigger(result_state returned)
+ |_=>keep state end.
 Definition open_activity snapshot owner request trigger state:=
  if editor_available snapshot owner then
  let prepared:=open_panel(State.PropertyPanel owner request)trigger state in
@@ -194,7 +216,7 @@ Definition message_target state:=let navigation:=State.navigation_state state in
  |Conversation task=>NavigationIdentity.message_key(PrimaryTask task)
  |_=>NavigationIdentity.key_part(editor_key(NewTask(State.active_work navigation)))"message"end.
 Definition work_focus state:=match State.location(State.navigation_state state)with
- |Start|Conversation _=>message_target state|_=>NavigationIdentity.key_part "/main" "heading"end.
+ |Start|GraphConversation _ _|Conversation _=>message_target state|_=>NavigationIdentity.key_part "/main" "heading"end.
 Definition select_work snapshot work state :=
  if work_available snapshot work then
  let navigation:=State.navigation_state state in
@@ -305,6 +327,8 @@ Definition step snapshot input state:option result:=match input with
    |State.CardDecisionPanel _ _=>Some(set State.layer_query(fun _=>query)layer)
    |_=>None end)state)
  |Input.OpenEditor owner trigger=>Some(edit_object snapshot owner trigger state)
+ |Input.BeginGraphConversation=>Some(begin_graph_conversation snapshot state)
+ |Input.ReturnToGraphSetup=>Some(return_to_graph_setup snapshot state)
  |Input.OpenBoard kind trigger=>Some(open_panel(match kind with State.BoardSettings=>State.BoardSettingsPanel|State.BoardFilters=>State.BoardFiltersPanel|State.ArchivedCards=>State.ArchivedCardsPanel end)trigger state)
  |Input.OpenActivity owner request trigger=>Some(open_activity snapshot owner request trigger state)
  |Input.OpenInformation kind trigger=>Some(match kind,State.layers(State.navigation_state state)with

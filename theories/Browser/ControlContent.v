@@ -29,7 +29,7 @@ Definition inline_properties : list (string * string) :=
   [("display","inline-flex");("flex-direction","row");("align-items","baseline");
    ("font","inherit");("line-height","inherit");("white-space","nowrap")].
 Definition single_line_attributes text :=
-  [("title",text);("data-native-minimum-inline","1ch")].
+  [("data-overflow-label",text);("data-native-minimum-inline","1ch")].
 Definition single_line_properties : list (string * string) :=
   [("display","block");("min-inline-size","1ch");("overflow","hidden");
    ("text-overflow","ellipsis");("white-space","nowrap")].
@@ -254,7 +254,7 @@ Definition project_header {A} describe env key project selected expanded
     map (replace_content [("data-navigation-slot","title")]
       [("flex","1 1 auto");("min-inline-size","0");("padding-inline","0");
        ("text-align","start");("white-space","nowrap")]
-      [span (private_key (fst entry) "caption") [("title",snd entry)]
+      [span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
         [("flex","1 1 auto");("min-inline-size","0");("white-space","nowrap");
          ("overflow","hidden");("text-overflow","ellipsis")] (snd entry)]) (native_for (fst entry) native))
     (flat_map project_titles children) in

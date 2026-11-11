@@ -158,6 +158,12 @@ Export TitleProofs(admitted_title_issues_observed_request,
     conversation titles; linking must not recreate execution or lose a paid
     request that still owns its receiver.
 
+    A conversation can create a board card through one command that captures
+    its plan and applies the existing association. A missing or already linked
+    conversation refuses the command without leaving an unlinked card or
+    requesting drafting effects. An existing association opens its card from
+    the conversation's actions.
+
     Ordinary creation retains the requested draft. Automatic execution selects
     pinned cards first, then urgent through unprioritized cards, retaining manual
     board order within each group; only runnable cards enter this selection.

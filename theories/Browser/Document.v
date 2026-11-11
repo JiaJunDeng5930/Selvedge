@@ -455,14 +455,14 @@ Definition face_children purpose area role label children :=
    |_=>children end in
  let icon:=match purpose_icon purpose with Some name=>glyph name|None=>[]end in
  match role with
- |Roles.WorkTab _=>text
+ |Roles.WorkTab _=>[navigation_title "" label children]
  |Roles.WorkOverviewButton count=>artwork "columns"++[DOM.Text(text_number count)]
  |Roles.CompactWorkScope title _=>
    artwork "columns"++
    [DOM.Element "" "span" (ControlContent.single_line_attributes title)
      (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty [DOM.Text title]]++
    artwork "chevron-down"
- |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++text
+ |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++[navigation_title "" label children]
  |Roles.CompactNavigationEntry _=>
    [navigation_glyph "" "leading" [] icon;navigation_title "" label children]
  |Roles.NavigationEntry _=>match purpose,area with
@@ -778,18 +778,19 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  | _=>match purpose with C.Connect true _=>"Connecting"|C.Connect false(Some reason)=>reason
    |_=>match property_help with Some text=>text|None=>control_help action end end end in
  let help:=focusable || negb available || match purpose with C.Connect _ _=>true|_=>false end ||
-   match property_help with Some _=>true|None=>match role with Roles.NavigationEntry _=>true|_=>false end end in
+   match property_help with Some _=>true|None=>match role with Roles.GlobalNavigationEntry _ true=>true|_=>false end end in
  let type_:=(if andb submit available then "submit" else "button") in
  let events:=if available then [event key generation "click" "activate" Gesture.Press] else [] in
  let extra:=match source,C.action_purpose purpose with
   |S.TaskRow _ _ _ _ _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
   |_,_=>extra end in
  DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++
- (match property_help with Some name=>[("title",description);("aria-label",name)]|None=>[]end)++
- (match role with Roles.WorkTab _|Roles.GlobalNavigationEntry _ _|Roles.CompactNavigationEntry _|Roles.CompactWorkScope _ _=>[("title",Model.control_label action)]
- |Roles.WorkOverviewButton count=>[("title",(text_number count++" tab(s)")%string);("aria-label",("Work overview · "++text_number count++" tab(s)")%string)]
+ (match property_help with Some name=>[("aria-label",name)]|None=>[]end)++
+ (match role with Roles.WorkOverviewButton count=>[("title",(text_number count++" tab(s)")%string);("aria-label",("Work overview · "++text_number count++" tab(s)")%string)]
  |_=>[]end)++
- (if help then [("data-help",description);("title",description)]else[])++purpose_attributes purpose++navigation_attributes role++help_describedby key help extra)
+ (if help then ("data-help",description)::
+   (match role with Roles.GlobalNavigationEntry _ true=>[]|_=>[("title",description)]end)else[])++
+ purpose_attributes purpose++navigation_attributes role++help_describedby key help extra)
  (styles++control_styles purpose role++
  (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,C.action_purpose purpose with S.CardContent _,C.OpenCardDetails _=>
  [("background","transparent");("border","0");("text-align","left");("font-weight","600");("white-space","nowrap");("overflow","hidden");("text-overflow","ellipsis")]|_,_=>[]end)

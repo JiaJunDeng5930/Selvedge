@@ -18,7 +18,8 @@ Module G := Selvedge.Generated.Commands.
 Module Decisions := ObjectDecisions.
 
 Inductive operation := NativeCommand(command:State.public_command)
-| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N).
+| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N)
+| InspectCard(card:N).
 Inductive status := Available | Awaiting | InFlight | Unavailable(reason:string) | AssessmentFailed(reason:string).
 Record action := Action {
  action_key:string; action_label:string; action_operation:operation;
@@ -40,6 +41,15 @@ Definition from_decision subject value :=
  native (Decisions.decision_key value) (Decisions.decision_label value)
   (option_map (fun caption=>(caption,confirmation_destination subject))(Decisions.decision_confirmation value))
   (Decisions.decision_proposal value).
+Definition add_to_board_key := "board/add".
+Definition open_board_card_key := "board/card".
+Definition task_board_action snapshot task :=
+ match Read.board_cards snapshot with
+ |None=>[]
+ |Some cards=>match find(fun card=>Read.same_id (Read.card_task card) (Some task))cards with
+  |Some card=>[local open_board_card_key "Open board card" (InspectCard(Read.card_id card))]
+  |None=>[local add_to_board_key "Add to board" (Editor(CardForConversation task))] end
+ end.
 Definition declarations snapshot clock subject :=
  if Decisions.subject_exists snapshot subject then
  let commands := flat_map (fun value=>singleton(from_decision subject value))(Decisions.decisions snapshot clock subject) in
@@ -103,7 +113,8 @@ Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in
  match subject with
  |TaskActions id=>match Read.find_task id snapshot with
-  |Some task=>task_menu_actions task actions|None=>[]end
+  |Some task=>task_menu_actions task actions++map(observe snapshot s subject)(task_board_action snapshot id)
+  |None=>[]end
  |_=>actions end.
 Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with
@@ -111,9 +122,14 @@ Definition active_decision s subject := match State.layers(State.navigation_stat
  |_=>None end
 |_,_=>None end.
 Definition resolve snapshot s subject key :=
- let declared:=match subject,active_decision s subject with
+ let matching:=fun value=>String.eqb key(action_key value)in
+ let declared:=if String.eqb key add_to_board_key || String.eqb key open_board_card_key then
+  match subject with
+  |TaskActions task=>if Decisions.subject_exists snapshot subject then find matching (task_board_action snapshot task) else None
+  |_=>None end
+ else match subject,active_decision s subject with
  |CardActions card,Some decision=>find_choice snapshot(State.now s)card decision key
- |_,_=>find(fun value=>String.eqb key(action_key value))(declarations snapshot(State.now s)subject)end in
+ |_,_=>find matching (declarations snapshot(State.now s)subject)end in
  option_map(observe snapshot s subject)declared.
 
 Definition observed_decision snapshot state task value :=

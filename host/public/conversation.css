@@ -4,7 +4,15 @@
   scrollbar-width: thin;
 }
 [data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
-[data-reading-root] { gap: .75rem !important; }
+[data-reading-root] {
+  gap: .75rem !important;
+  overflow-anchor: none;
+  scroll-padding-block-start: .5rem;
+}
+[data-reading-root] [data-history-match] {
+  outline: 2px solid var(--selvedge-focus);
+  outline-offset: 2px;
+}
 [data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
 [data-reading-root] button[data-semantic-key="activity-disclosure"] {
   align-self: flex-start;

@@ -44,10 +44,11 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
  |Draft.CardBody card revision value assist profile _=>
    let metadata:=object_fields(DraftCodec.encode_card value)in
    let metadata:=set_field "project"(JString(match Selvedge.Features.Domain.draft_project value with None=>""|Some id=>show_natural id end))metadata in
-   Some(record(match card with None=>"create_card"|Some _=>"update_card"end)
-    (present "card_id"(optional_id card)((match card with Some _=>[("revision",number revision)]|None=>[]end)++
-     (match now with Some now=>[("observed_at",JString(show_natural now))]|None=>[]end)++
-     (match card with None=>[("assisted",JBool assist);("draft_profile",JString profile)]|Some _=>[]end)++metadata)))
+   let metadata:=present "observed_at" (DraftCodec.option_text (option_map show_natural now)) metadata in
+   Some(match card with
+   |Identity.BoardCard None=>record "create_card" (("assisted",JBool assist)::("draft_profile",JString profile)::metadata)
+   |Identity.BoardCard(Some id)=>record "update_card" (("card_id",number id)::("revision",number revision)::metadata)
+   |Identity.ConversationCard task=>record "create_card" (("task_id",number task)::metadata) end)
  |Draft.ForkBody task count messages configuration=>Some(record "fork"[("task_id",number task);("child_count",number count);("messages",JArray(map(fun text=>content text [])messages));("settings",settings configuration);
    ("settings_origin",JString(match Context.context_origin configuration with Context.EnvironmentDefaults|Context.ProjectDefaults _=>"environment"|_=>"parent"end))])
  |Draft.CompactBody task summary=>Some(record "compact"(present "summary"(DraftCodec.option_text summary)[("task_id",number task)]))

@@ -194,6 +194,116 @@ test('Search finds the displayed conversation title and lets the user retry a lo
   assert.equal(await page.getByText('This command is already pending.', { exact: true }).count(), 0);
 });
 
+test('A message result opens its exact reading position while longer replies render', async t => {
+  const title = 'Conversation reading fixture';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const marker = '你是谁？';
+  const firstPrompt = 'Start a conversation with a long introduction.';
+  const { task_id } = await command({ op: 'create', profile: fixture.profile, message: firstPrompt });
+  const requestFor = prompt => until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), `the model request for ${prompt}`);
+  const longText = (prefix, count) => Array.from({ length: count }, (_, index) =>
+    `${prefix} ${index + 1}. ${'Text with enough detail to wrap across multiple lines. '.repeat(8)}`).join('\n\n');
+  const calculator = [
+    '```selvedge-ui',
+    '<ui id="budget">',
+    '<state id="seats" type="integer" initial={5} min={1} max={20} />',
+    '<slider id="seat-slider" bind="seats" label="Budget seats" />',
+    '</ui>',
+    '```',
+  ].join('\n');
+  fixture.finish((await requestFor(firstPrompt)).index, { text: longText('Introduction', 36) });
+  await taskIdle(fixture.running.service, task_id);
+  await command({ op: 'send', task_id, message: marker });
+  fixture.finish((await requestFor(marker)).index, { text: 'I am the assistant.' });
+  const history = await taskIdle(fixture.running.service, task_id);
+  const index = history.messages.findIndex(message => message.role === 'user'
+    && JSON.stringify(message.content).includes(marker));
+  assert.ok(index >= 0, 'The real conversation contains the selected message');
+  const laterPrompt = 'Create the budget example.';
+  await command({ op: 'send', task_id, message: laterPrompt });
+  fixture.finish((await requestFor(laterPrompt)).index, { text: calculator + '\n\n' + longText('Budget example', 55) });
+  await taskIdle(fixture.running.service, task_id);
+  const livePrompt = 'Add a long follow-up to the budget.';
+  await command({ op: 'send', task_id, message: livePrompt });
+  const live = await requestFor(livePrompt);
+  fixture.emit(live.index, longText('Live follow-up', 25));
+
+  const timelineSelector = `[data-reading-root][data-task-id="${task_id}"]`;
+  const timeline = page.locator(timelineSelector);
+  const atLatest = () => page.waitForFunction(selector => {
+    const root = document.querySelector(selector);
+    return root && root.scrollHeight - root.clientHeight - root.scrollTop <= 2;
+  }, timelineSelector);
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await tree.getByRole('button', { name: title, exact: true }).click();
+  await timeline.getByRole('slider', { name: 'Budget seats', exact: true }).waitFor();
+  await timeline.getByText(/Live follow-up 25/).waitFor();
+  await atLatest();
+
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  await query.fill(marker);
+  await query.press('Enter');
+  await page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true }).click();
+  const message = timeline.getByRole('article').filter({ hasText: marker });
+  await message.waitFor();
+  const highlight = message.and(timeline.locator('[data-history-match]'));
+  const offset = () => message.evaluate(node => new Promise(resolve => {
+    requestAnimationFrame(() => setTimeout(() => {
+      const viewport = node.closest('[data-reading-root]').getBoundingClientRect();
+      resolve(node.getBoundingClientRect().top - viewport.top);
+    }, 0));
+  }));
+  await page.waitForFunction(({ task, marker }) => {
+    const timeline = document.querySelector(`[data-reading-root][data-task-id="${task}"]`);
+    const message = [...timeline.querySelectorAll('article')].find(article => article.textContent.trim() === marker);
+    if (!message) return false;
+    const viewport = timeline.getBoundingClientRect(), bounds = message.getBoundingClientRect();
+    return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
+  }, { task: task_id, marker }, { timeout: 10000 });
+  await highlight.waitFor();
+  assert.equal(await highlight.evaluate(node => getComputedStyle(node).outlineStyle), 'solid');
+  const arrived = await offset();
+  const previousWidth = await timeline.evaluate(root => root.clientWidth);
+  await message.evaluate(node => {
+    const id = node.id;
+    window.firstResizedMessageOffset = new Promise(resolve => {
+      window.addEventListener('resize', () => setTimeout(() => {
+        const message = document.getElementById(id);
+        const viewport = message?.closest('[data-reading-root]')?.getBoundingClientRect();
+        resolve(viewport ? message.getBoundingClientRect().top - viewport.top : null);
+      }, 0), { once: true });
+    });
+  });
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.waitForFunction(({ selector, previousWidth }) =>
+    document.querySelector(selector)?.clientWidth < previousWidth, { selector: timelineSelector, previousWidth });
+  const resized = await page.evaluate(() => window.firstResizedMessageOffset);
+  assert.ok(resized !== null && Math.abs(resized - arrived) <= 2,
+    `The first resized frame retains the selected message (before ${arrived}px, after ${resized}px)`);
+  const completion = longText('Finished follow-up', 30);
+  fixture.emit(live.index, '\n\n' + completion);
+  fixture.finish(live.index, {});
+  await taskIdle(fixture.running.service, task_id);
+  await timeline.getByText(/Finished follow-up 30/).waitFor();
+  const completed = await offset();
+  assert.ok(Math.abs(completed - arrived) <= 2,
+    `The selected message stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
+  await highlight.waitFor({ state: 'detached' });
+
+  await timeline.hover();
+  await page.mouse.wheel(0, 180);
+  await page.waitForFunction(({ selector, previous, marker }) => {
+    const root = document.querySelector(selector);
+    const message = [...root.querySelectorAll('article')].find(article => article.textContent.trim() === marker);
+    return message && previous > message.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
+  }, { selector: timelineSelector, previous: arrived, marker });
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).click();
+  await atLatest();
+});
+
 test('A stalled first connection is visible and the user can reconnect', async t => {
   const { browser, running } = await browserFixture(t);
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

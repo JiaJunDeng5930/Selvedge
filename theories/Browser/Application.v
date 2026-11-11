@@ -196,7 +196,7 @@ Definition picker_composer context trigger :=
  let matches composer:=match V.find_presentation_node trigger (composer_node composer) with
   |Some _=>true|None=>false end in
  let primary:=match Session.location nav with
- |Start=>Some(ComposerProjection Document.CreationArea (S.PageBody(Pages.page_kind snapshot current)) None
+ |Start|GraphConversation _ _=>Some(ComposerProjection Document.CreationArea (S.PageBody(Pages.page_kind snapshot current)) None
    (Pages.creation_composer snapshot current V.main_key))
  |Conversation task=>project_task_composer snapshot current (PrimaryTask task) V.main_key Document.PageArea
  |_=>None end in

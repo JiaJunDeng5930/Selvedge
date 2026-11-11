@@ -24,6 +24,8 @@ Definition fields e := match e with
 | Identity.Project _ => [ProjectName; WorkspaceDirectories; WorkspacePrimary; CreateWorktree]
 | Identity.Card _ => [CardTitle; CardDescription; CardStage; CardPriority; CardOwner;
     CardProject; CardLabels; CardAttachments; ContinueCapture; AssistedCapture; AssistanceProfile]
+| Identity.CardForConversation _ => [CardTitle; CardDescription; CardPriority; CardOwner;
+    CardProject; CardLabels; CardAttachments]
 | Identity.Fork _ => [ForkCount; ForkMessages] ++ context_fields
 | Identity.Compact _ => [CompactionSummary]
 | Identity.TaskGraph _ _ => [TaskGraphDeclaration]

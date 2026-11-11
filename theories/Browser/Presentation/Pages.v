@@ -47,8 +47,12 @@ Definition creation_composer snapshot (s:State.state) parent :=
         (context++Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])]])%list.
 Definition creation_page snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
+ let graph_return:=match State.location(State.navigation_state s)with
+  |GraphConversation _ _=>
+   [declared parent Roles.Button(secondary "return-to-graph" "Back to task graph" Input.ReturnToGraphSetup)]
+  |_=>[]end in
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
-   [information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)];
+   (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return);
   creation_composer snapshot s parent].
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
@@ -117,13 +121,17 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
  [read_only parent "worktree/status" "Workspace status"(Read.worktree_caption value);
-  read_only parent "worktree/source" "Source repository"(Read.worktree_source value);
-  read_only parent "worktree/root" "Managed workspace"(value_or ""(Read.worktree_root value))]
+  read_only parent "worktree/source" "Source repository"(Read.worktree_source value)]
+ (List.app
+  (match Read.worktree_root value with None=>[]|Some root=>
+   let roots:=value_or [] (option_map (fun context=>Domain.workspace_roots(Read.context_workspace context))
+     (Read.task_context task snapshot)) in
+   if existsb (String.eqb root) roots then [] else [read_only parent "worktree/root" "Managed workspace" root] end)
  (List.app(if String.eqb(Read.worktree_message value)""then[]else[read_only parent "worktree/error" "Workspace"(Read.worktree_message value)])
   (match ObjectActions.worktree_retry_action snapshot s task with
    |Some action=>match ObjectActions.command action with
     |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
-    |None=>[]end|None=>[]end))end.
+   |None=>[]end|None=>[]end)))end.
 Definition show_side_control parent task : node Input.input :=
  declared parent Roles.Button(secondary "side/show" "Open side conversation"
    (Input.ShowSide task(part parent "side/show"))).
@@ -274,7 +282,7 @@ Definition shared_page snapshot s work parent :=
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
 Definition page_contents snapshot s parent :=match State.location(State.navigation_state s)with
-|Start=>creation_page snapshot s parent
+|Start|GraphConversation _ _=>creation_page snapshot s parent
 |Conversation task=>conversation_page snapshot s(PrimaryTask task)parent
 |Projects=>Collections.projects_page snapshot s parent
 |ProjectHome id=>match find_project id snapshot with Some project=>Collections.project_page snapshot s parent project|None=>missing parent "This project no longer exists"end
@@ -282,7 +290,7 @@ Definition page_contents snapshot s parent :=match State.location(State.navigati
 |Graphs=>Collections.graphs_page snapshot s parent|HistorySearch=>history_page snapshot s parent
 |SharedUI work task=>shared_page snapshot s work parent end.
 Definition page_kind snapshot s :=match State.location(State.navigation_state s)with
-|Start=>Composition.Creation true
+|Start|GraphConversation _ _=>Composition.Creation true
 |Conversation task=>match find_task task snapshot with
  |None=>Composition.Unavailable
  |Some value=>Composition.Conversation(task_has_composer s value)

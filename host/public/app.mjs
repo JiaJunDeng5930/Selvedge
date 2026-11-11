@@ -54,6 +54,7 @@ let disposed = false;
 let clockRefresh = null;
 let sourceFresh = false;
 let layoutFrame = null;
+let readingLayoutScheduled = false;
 let pendingHistoryLocation = null;
 let focusRequest = 0;
 let pendingFocus = null;
@@ -377,7 +378,7 @@ function present(local) {
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
   }
-  if (!streamed) { reveal(); motion.refresh(); layoutReading(); retryHistoryLocation(); }
+  if (!streamed) { reveal(); motion.refresh(); retryHistoryLocation(); layoutReading(); }
 }
 function schedulePhysicalRefresh() {
   if (disposed || measurementFrame !== null || measurementTask !== null) return;
@@ -596,8 +597,9 @@ const renderer = new Renderer(surface, {
       ['left', 'top', 'width', 'height'].map(name => [name, new JsonNumber(String(bounds[name]))])));
   },
   layout() {
+    scheduleReadingLayout();
     if (layoutFrame === null) layoutFrame = requestAnimationFrame(() => {
-      layoutFrame = null; reveal(); renderer.confineMenus(); layoutReading();
+      layoutFrame = null; reveal(); renderer.confineMenus();
     });
   },
   codeSource(source, ordinal, text, view) {
@@ -615,7 +617,10 @@ const renderer = new Renderer(surface, {
   },
 });
 
-const physical = createPhysicalMeasurer({ surface, onChange: schedulePhysicalRefresh });
+const physical = createPhysicalMeasurer({ surface, onChange() {
+  scheduleReadingLayout();
+  schedulePhysicalRefresh();
+} });
 
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
@@ -665,6 +670,10 @@ function codeStep(entry, input) {
 }
 
 const readingKey = node => node.dataset.taskId;
+const readingTop = node => node.getBoundingClientRect().top + node.clientTop;
+function readingAnchor(node, identity) {
+  return node.querySelector(`[data-reading-identity="${CSS.escape(identity)}"]`);
+}
 function readingState(key, node) {
   const bound = browser('reading_bind', { generation: new JsonNumber(node.dataset.readerGeneration),
     state: readings.get(readingKey(node)) ?? null });
@@ -683,34 +692,35 @@ function acceptReading(key, node, decision, locationTarget) {
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
     else if (effect.type === 'locate_message' && locationTarget) {
-      node.scrollTo({ top: node.scrollTop + locationTarget.getBoundingClientRect().top - node.getBoundingClientRect().top,
+      const clearance = Number.parseFloat(getComputedStyle(node).scrollPaddingBlockStart);
+      node.scrollTo({ top: node.scrollTop + locationTarget.getBoundingClientRect().top - readingTop(node) - clearance,
         left: node.scrollLeft, behavior: 'instant' });
-      observeReadingAnchor(key, node, decision.state);
+      restoredReadingOffsets.set(node, node.scrollTop);
+      observeReadingAnchor(node, decision.state, locationTarget);
     }
     else if (effect.type === 'preserve_anchor' && !currentReadingMeasurement(node)) {
-      const target = Array.from(node.querySelectorAll('[data-reading-identity]')).find(
-        candidate => candidate.dataset.readingIdentity === effect.anchor.key);
+      const target = readingAnchor(node, effect.anchor.key);
       if (target) {
-        node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
+        node.scrollTop += target.getBoundingClientRect().top - readingTop(node) - Number(effect.anchor.offset);
         restoredReadingOffsets.set(node, node.scrollTop);
       }
     } else if (effect.type === 'measure_anchor') {
       if (currentReadingMeasurement(node)) requestReadingAnchor(key, node);
-      else observeReadingAnchor(key, node, decision.state);
+      else observeReadingAnchor(node, decision.state);
     }
   }
   if (previous !== decision.state.intent && node.dataset.readerGeneration !== undefined)
     dispatch({ type: 'read_timeline', task: new JsonNumber(node.dataset.taskId),
       generation: new JsonNumber(node.dataset.readerGeneration), intent: decision.state.intent });
 }
-function observeReadingAnchor(key, node, state) {
-  const viewport = node.getBoundingClientRect();
-  const anchor = Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => {
+function observeReadingAnchor(node, state, selected) {
+  const top = readingTop(node);
+  const anchor = selected ?? Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => {
     const bounds = target.getBoundingClientRect();
-    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+    return bounds.bottom > top && bounds.top < top + node.clientHeight;
   });
   if (anchor) readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
-    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - viewport.top) } }).state);
+    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - top) } }).state);
 }
 function retireReadingMeasurement(node) {
   const pending = readingMeasurements.get(node);
@@ -741,7 +751,7 @@ function requestReadingAnchor(key, node, pointer) {
     // DEFENSE: an anchor frame can outlive the task reader that requested it.
     if (currentReadingMeasurement(node) !== pending) return;
     const state = readingState(key, node);
-    if (state.intent === 'history') observeReadingAnchor(key, node, state);
+    if (state.intent === 'history') observeReadingAnchor(node, state);
     if (!pending.pointers.size) retireReadingMeasurement(node);
   });
 }
@@ -759,20 +769,30 @@ function retryHistoryLocation() {
   if (!pending) return;
   // DEFENSE: a selected history message can await physical publication while
   // navigation replaces its journal or reader occurrence.
-  if (pending.namespace !== publication.namespace) { pendingHistoryLocation = null; return; }
-  const root = [...renderer.records.values()].map(record => record.node).find(node =>
-    node.dataset.readingRoot === 'true' && node.dataset.taskId === integral(pending.task_id).toString());
-  if (root && root.dataset.readerGeneration !== integral(pending.reader_generation).toString()) {
+  if (pending.namespace !== publication.namespace || pending.navigationGeneration !== integral(state.navigation.generation)) {
     pendingHistoryLocation = null; return;
   }
-  if (!root || !publicationEvent('ready')) return;
-  const target = renderer.resolveTarget(pending.key, { modal: false });
-  if (!target || !root.contains(target)) return;
+  if (!admitted(renderer.generation)) return;
+  // The article itself is already mounted when its Markdown is still parsing.
+  // Its physical key names the occurrence in the main view.
+  const target = renderer.target(pending.key);
+  const root = target?.closest('[data-reading-root]');
+  const generation = integral(pending.reader_generation).toString();
+  if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
+      root.dataset.readerGeneration !== generation || root.dataset.taskId !== integral(pending.task_id).toString() ||
+      renderer.modal && !renderer.modal.contains(root)) return;
   pendingHistoryLocation = null;
   retireReadingMeasurement(root);
   const key = root.dataset.key;
   acceptReading(key, root, browser('reading', { state: readingState(key, root), event: 'locate',
     index: pending.message_index }), target);
+  root.focus({ preventScroll: true });
+  target.dataset.historyMatch = generation;
+  const timer = setTimeout(() => {
+    timers.delete(timer);
+    if (target.dataset.historyMatch === generation) target.removeAttribute('data-history-match');
+  }, 2400);
+  timers.add(timer);
 }
 function readingStep(key, node, event) {
   const state = readingState(key, node);
@@ -782,16 +802,27 @@ function readingStep(key, node, event) {
     viewport_height: String(node.clientHeight), reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches });
   acceptReading(key, node, decision);
 }
+function scheduleReadingLayout() {
+  if (readingLayoutScheduled || disposed) return;
+  readingLayoutScheduled = true;
+  // Restore after this batch of DOM writes, before an intermediate scroll
+  // position reaches the next paint. Physical layout may update again later.
+  queueMicrotask(() => {
+    readingLayoutScheduled = false;
+    if (!disposed) { retryHistoryLocation(); layoutReading(); }
+  });
+}
 function layoutReading() {
-  for (const [key, record] of renderer.records) {
-    const node = record.node;
-    if (node.dataset.readingRoot !== 'true') continue;
+  for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
     const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
+    const bookmark = readings.get(readingKey(node))?.anchor;
+    const anchor = bookmark ? readingAnchor(node, bookmark.key) : null;
     const signature = JSON.stringify([node.dataset.readerGeneration, node.clientWidth, node.clientHeight,
-      node.scrollHeight, dock?.getBoundingClientRect().height ?? 0]);
+      node.scrollHeight, dock?.getBoundingClientRect().height ?? 0,
+      anchor ? anchor.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null]);
     if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
     readingLayouts.set(node, signature);
-    readingStep(key, node, 'layout');
+    readingStep(node.dataset.key, node, 'layout');
   }
 }
 function dismiss(event) {
@@ -935,6 +966,14 @@ surface.addEventListener('keydown', event => {
 for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
   const node = event.target.closest?.('[data-help-dismissed]');
   if (node && !node.contains(event.relatedTarget)) node.removeAttribute('data-help-dismissed');
+});
+surface.addEventListener('pointerover', event => {
+  const label = event.target.closest?.('[data-overflow-label]');
+  if (label && label.scrollWidth > label.clientWidth) label.title = label.dataset.overflowLabel;
+});
+surface.addEventListener('pointerout', event => {
+  const label = event.target.closest?.('[data-overflow-label]');
+  if (label && !label.contains(event.relatedTarget)) label.removeAttribute('title');
 });
 surface.addEventListener('dragstart', event => {
   const node = event.target.closest?.('[data-card-id][draggable="true"]');
@@ -1134,7 +1173,8 @@ async function execute(effect) {
       return;
     }
     case 'scroll_to_message': {
-      pendingHistoryLocation = { ...effect, namespace: publication.namespace };
+      pendingHistoryLocation = { ...effect, namespace: publication.namespace,
+        navigationGeneration: integral(state.navigation.generation) };
       retryHistoryLocation();
       return;
     }

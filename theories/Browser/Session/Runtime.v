@@ -232,6 +232,8 @@ Definition menu_action snapshot subject key occurrence state:=
     |ObjectActions.Destination route=>Authoring.adopt_navigation snapshot(Navigation.visit snapshot route state)
     |ObjectActions.Editor owner=>Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner(SS.layer_trigger layer)state)
     |ObjectActions.SideConversation task=>Authoring.adopt_navigation snapshot(Navigation.begin_side snapshot task(SS.layer_trigger layer)state)
+    |ObjectActions.InspectCard card=>Authoring.adopt_navigation snapshot
+      (Navigation.open_panel(SS.InformationPanel(SS.CardDetails card))(SS.layer_trigger layer)state)
     end end
    else Authoring.keep state
  |[]=>Authoring.keep state end.
@@ -285,8 +287,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  let state:=Authoring.ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
  let state:=match Draft.contents draft with
- |Draft.CardBody None revision value assist profile keep=>SS.save_draft
-   (Draft.with_body(Draft.CardBody None 0(Selvedge.Features.Domain.CardDraft "" "" stage Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])assist profile keep)draft)state
+ |Draft.CardBody (Identity.BoardCard None) revision value assist profile keep=>SS.save_draft
+   (Draft.with_body(Draft.CardBody (Identity.BoardCard None) 0(Selvedge.Features.Domain.CardDraft "" "" stage Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])assist profile keep)draft)state
  |_=>state end in
  Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner trigger state)
 |Input.BeginTask project=>begin_task snapshot project state

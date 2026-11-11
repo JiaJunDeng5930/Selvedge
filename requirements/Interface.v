@@ -64,15 +64,20 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     different roles. The shared surface preserves them instead of reconstructing
     ownership from strings or HTML ancestry. Ordinary action help derives from
     the current action and property at native construction. Keeping independent
-    stale help in each authored button would separate explanation from behavior. *)
+    stale help in each authored button would separate explanation from behavior.
+    Navigation shows the full caption on hover when the available space clips
+    it. A visible caption already names the destination. *)
 
 (** ** Reading and acting in a conversation
 
     The conversation shows messages and activity that helps the reader follow
     the work. Provider bookkeeping and inherited context remain in the source
     history. An execution record describes a real call, outcome or failure
-    before offering its detail. The task inspector shows effective settings,
-    while commands act at the level of their target. Interrupting current work
+    before offering its detail. The task inspector shows each working directory
+    once and identifies the primary one when there are multiple roots. It shows
+    a separate guidance or managed directory when that path differs. The
+    inspector shows effective settings, while commands act at the level of
+    their target. Interrupting current work
     belongs beside its status, cancelling a tool call belongs beside that call,
     and forking the current conversation belongs to the conversation menu.
 
@@ -258,6 +263,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.
+    A conversation created from graph setup belongs to that scope. The
+    conversation composer offers an explicit return to the graph draft and
+    successful creation returns there while that navigation intent still owns
+    the page.
 
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy

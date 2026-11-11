@@ -82,7 +82,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "review_approval" (task_identity ++ [u32 (req "operation_id" KNatural); req "decision" (KEnum "allow" ["deny"]); typed ApprovalProtocol.reason_declaration (opt "reason" KText)]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "record_speech_transcript" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "item_id" KText); req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); typed D.nonblank_text (req "text" KText)]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "accept_speech_delegation" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "delegation_id" KText); typed D.nonblank_text (req "message" KText); req "mode" (KEnum "send" ["steer"])]));
-  DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText; u32 (opt "task_id" KNatural)]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "update_card" (card_identity ++ card_metadata));
   DeclareCommand BoardChange TaskExcluded (WireCommand "move_card" (card_identity ++ [required (typed board_status (opt "status" KText)); optional_identity_text (opt "before_card" KText)]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "archive_card" card_identity);
@@ -235,7 +235,7 @@ Definition command_descriptions : list (string * string) := [
   ("review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.");
   ("record_speech_transcript", "Record a final speech transcript without invoking or scheduling the task model.");
   ("accept_speech_delegation", "Accept a voice work delegation through ordinary task input, retaining its receipt in the same decision.");
-  ("create_card", "Capture planned work without starting a task; assisted creation requests a separate bounded title/description suggestion.");
+  ("create_card", "Capture planned work without starting a task. An optional task_id links the card to an existing conversation in the same command. Assisted creation requests a separate bounded title/description suggestion.");
   ("update_card", "Update named plan fields at the observed card revision without rewriting its Task. Linked assignees stay fixed; active Tasks keep cards in progress.");
   ("move_card", "Move a revision-bound card before another card, or to the end when before_card is empty. Preserve the relative order of other cards.");
   ("archive_card", "Archive a card and interrupt its active execution. Its stage and linked task history are retained.");
