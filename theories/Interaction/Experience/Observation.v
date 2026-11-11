@@ -391,6 +391,7 @@ Definition card_save_consequence snapshot state (draft:Draft.draft) :=
   else None
  |_=>None end.
 Definition unadded_project_directory := "请先添加或清空目录路径。".
+Definition unadded_project_directory_code := "unadded_directory".
 Definition project_git_problem_message problem := match problem with
  |FieldsObservation.GitPrimaryRequired=>"请先添加并选择主目录。"
  |FieldsObservation.GitCheckPending=>"正在检查主目录是否可用于创建 Git 工作树。"
@@ -402,7 +403,7 @@ Definition project_precondition snapshot state (draft:Draft.draft):option(option
  |Draft.ProjectBody project name workspace worktree=>
    if negb(String.eqb(Draft.directory_entry draft)"") ||
       negb(String.eqb(EC.directory_entry(EC.observed state)(Draft.owner draft))"")
-   then Some(Some Fields.WorkspaceDirectories,"unadded_directory",unadded_project_directory)
+   then Some(Some Fields.WorkspaceDirectories,unadded_project_directory_code,unadded_project_directory)
    else match FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft with
    |Some problem=>Some(Some Fields.CreateWorktree,"project_git_primary",project_git_problem_message problem)
    |None=>match project with

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { browserFixture } from './fixtures/browser.mjs';
@@ -138,8 +138,10 @@ test('a failed directory visit keeps the address editable and can return to the 
   const directory = path.join(root, 'Previous directory');
   const corrected = path.join(root, 'Corrected directory');
   const missing = path.join(directory, 'Missing directory');
+  const file = path.join(directory, 'Ordinary file.txt');
   await mkdir(path.join(directory, 'Visible child'), { recursive: true });
   await mkdir(corrected);
+  await writeFile(file, 'A file cannot be selected as a directory.');
 
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
@@ -156,16 +158,26 @@ test('a failed directory visit keeps the address editable and can return to the 
   const choose = picker.getByRole('button', { name: '使用此目录', exact: true });
   const previous = picker.getByRole('button', { name: '返回上一个可用目录', exact: true });
   const child = picker.getByRole('button', { name: 'Visible child', exact: true });
-  const failure = target => picker.getByRole('alert').filter({ hasText: 'ENOENT' }).filter({ hasText: target });
+  const missingMessage = '找不到这个目录，请检查路径。';
+  const failure = message => picker.getByRole('alert').filter({ hasText: message });
   const addressFocused = () => location.evaluate(input => document.activeElement === input);
+  const listingResponse = address => page.waitForResponse(response => response.url().endsWith('/api/browser/observation')
+    && response.request().postDataJSON()?.kind === 'browse-directories'
+    && response.request().postDataJSON().path === address);
   await choose.waitFor();
 
   const entered = `${directory}/.`;
   const observed = Promise.withResolvers(), release = Promise.withResolvers();
+  let interrupted = false;
   t.after(() => release.resolve());
   await page.route('**/api/browser/observation', async route => {
     const request = route.request().postDataJSON();
-    if (request?.kind !== 'browse-directories' || request.path !== entered) return route.continue();
+    if (request?.kind !== 'browse-directories') return route.continue();
+    if (!interrupted && request.path === corrected) {
+      interrupted = true;
+      return route.abort('failed');
+    }
+    if (request.path !== entered) return route.continue();
     const response = await route.fetch();
     observed.resolve(await response.json());
     await release.promise;
@@ -180,8 +192,13 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(await location.inputValue(), missing, 'A listing receipt cannot overwrite a newer address edit');
   assert.equal(await choose.isDisabled(), true, 'An edited address cannot confirm the earlier listing');
 
+  const missingResponse = listingResponse(missing);
   await go.click();
-  await failure(missing).waitFor();
+  const missingOutcome = await (await missingResponse).json();
+  assert.equal(missingOutcome.ok, false);
+  assert.equal(typeof missingOutcome.error, 'string');
+  assert.equal(missingOutcome.errno, 'ENOENT');
+  assert.equal(await failure(missingMessage).innerText(), missingMessage);
   assert.equal(await location.inputValue(), missing);
   assert.equal(await location.isEditable(), true);
   assert.equal(await addressFocused(), true);
@@ -189,9 +206,11 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(await picker.getByRole('button', { name: '重试', exact: true }).count(), 0);
 
   const anotherMissing = path.join(directory, 'Another missing directory');
+  const anotherResponse = listingResponse(anotherMissing);
   await location.fill(anotherMissing);
   await location.press('Enter');
-  await failure(anotherMissing).waitFor();
+  await anotherResponse;
+  await failure(missingMessage).waitFor();
   const returnRequest = page.waitForRequest(request => {
     if (!request.url().endsWith('/api/browser/observation')) return false;
     const body = request.postDataJSON();
@@ -203,10 +222,19 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(await location.inputValue(), directory);
   assert.equal(await addressFocused(), true);
 
-  await location.fill(missing);
+  const fileMessage = '这个路径不是目录。';
+  const fileResponse = listingResponse(file);
+  await location.fill(file);
   await location.press('Enter');
-  await failure(missing).waitFor();
+  assert.equal((await (await fileResponse).json()).errno, 'ENOTDIR');
+  assert.equal(await failure(fileMessage).innerText(), fileMessage);
+  assert.equal(await location.inputValue(), file);
+
+  const transportMessage = '无法读取目录，请检查路径或稍后再试。';
   await location.fill(corrected);
+  await location.press('Enter');
+  assert.equal(await failure(transportMessage).innerText(), transportMessage);
+  assert.equal(await location.inputValue(), corrected);
   await location.press('Enter');
   await choose.click();
   await picker.waitFor({ state: 'hidden' });

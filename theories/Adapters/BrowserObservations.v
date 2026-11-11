@@ -56,7 +56,8 @@ Definition completion (source : json) : json :=
     success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("available",get source "available")])
   else if String.eqb kind "browse-directories" then
     if boolean_field source "ok" then success value
-    else success (JObject [("ok",JBool false);("error",get source "error")])
+    else success (JObject ([("ok",JBool false);("error",get source "error")] ++
+      match string_field "errno" source with Some code => [("errno",JString code)] | None => [] end)%list)
   else if String.eqb kind "directories" then
     success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_directories;("workspace",get value "workspace");("guidance",get value "guidance")])
   else if String.eqb kind "skill-catalog" then

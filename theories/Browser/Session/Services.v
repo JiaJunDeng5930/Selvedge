@@ -42,12 +42,16 @@ Definition decode_directory_catalog value : option json :=
     |Some(JString path)=>Json.starts_with "/" path|_=>false end) &&
    forallb valid_directory_entry(items "entries" value)
    then Some value else None end.
+Definition directory_unavailable := "directory_unavailable".
+(** A failed directory resource retains the observed code for presentation. *)
 Definition directory_response value : sum string json :=
  match decode_directory_catalog value with
  |Some catalog=>inr catalog
- |None=>match Schema.decode [Schema.Field "ok" Schema.KBool;Schema.Field "error" Schema.KText] value with
-   |Some _=>if negb(flag "ok" value)then inl(text "error" value)else inl "Invalid folder listing"
-   |None=>inl "Invalid folder listing" end end.
+ |None=>match Schema.decode [Schema.Field "ok" Schema.KBool;Schema.Field "error" Schema.KText;
+    Schema.OmittableField "errno" Schema.KText] value with
+   |Some _=>if negb(flag "ok" value)then inl(value_or directory_unavailable(string_field "errno" value))
+    else inl directory_unavailable
+   |None=>inl directory_unavailable end end.
 Inductive preparation_intent := PreviewContext | CommitPrepared.
 Record preparation := Preparation { preparation_draft:Draft.draft; preparation_generation:N;
  preparation_layer:N; preparation_trigger:string; preparation_intent_of:preparation_intent;
@@ -451,7 +455,7 @@ Definition decode_outcome {A} (decode:json->option A) (j:json) : option(sum stri
   ok<-bool_field "ok" j;;if ok then v<-bind(field "value" j)decode;;Some(inr v)else e<-string_field "error" j;;Some(inl e).
 Definition decode_directory_outcome value :=
  outcome<-decode_outcome(fun value=>Some value)value;;
- Some(match outcome with inl reason=>inl reason|inr catalog=>directory_response catalog end).
+ Some(match outcome with inl _=>inl directory_unavailable|inr catalog=>directory_response catalog end).
 Definition decode_configuration_outcome value :=
  outcome <- decode_outcome (fun value => Some value) value ;;
  Some (match outcome with

@@ -4,6 +4,10 @@ import path from 'node:path';
 const maximumPathBytes = 4096;
 const maximumEntries = 512;
 
+export function directoryListingFailure(error) {
+  return { ok: false, error: error.message, ...(typeof error.code === 'string' ? { errno: error.code } : {}) };
+}
+
 /** Observe folder names only; selecting workspace roots remains a native command. */
 export async function browseDirectories(location, maximumBytes, { filesystem = { readdir, realpath, stat } } = {}) {
   const { readdir, realpath, stat } = filesystem;
@@ -16,8 +20,6 @@ export async function browseDirectories(location, maximumBytes, { filesystem = {
     const current = await realpath(location);
     // DEFENSE: Resolving a user-selected link can produce a canonical path beyond the wire path limit.
     if (Buffer.byteLength(current) > maximumPathBytes) throw new TypeError('Directory path exceeds the model boundary');
-    // DEFENSE: A browser path can name a file or be replaced by one before observation.
-    if (!(await stat(current)).isDirectory()) throw new TypeError('The selected path is not a directory');
     const children = await readdir(current, { withFileTypes: true });
     const entries = [];
     for (const child of children) {
@@ -43,6 +45,6 @@ export async function browseDirectories(location, maximumBytes, { filesystem = {
     return result;
   } catch (error) {
     // DEFENSE: Browser-selected paths may disappear or deny access; return the observation's explicit failure envelope.
-    return { ok: false, error: error.message };
+    return directoryListingFailure(error);
   }
 }

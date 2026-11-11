@@ -192,6 +192,12 @@ Definition directory_git_status (label:string->string->string) preview := match 
   |Some _=>if primary then label "主目录须位于包含提交的 Git 仓库中。" "The primary directory must be in a Git repository with a commit."
     else label "此目录不能用作 Git 工作树的主目录。" "This directory cannot be the primary for a Git worktree." end)
  end.
+Definition directory_error_message (label:string->string->string) code := match code with
+ |"ENOENT"=>label "找不到这个目录，请检查路径。" "Directory not found. Check the path."
+ |"ENOTDIR"=>label "这个路径不是目录。" "This path is not a directory."
+ |"EACCES"|"EPERM"=>label "无法访问此目录，请检查权限。" "Cannot access this directory. Check permissions."
+ |_=>label "无法读取目录，请检查路径或稍后再试。" "Cannot read this directory. Check the path or try again."
+ end.
 Definition directory_view snapshot s :=
  let services:=State.service_state s in
  match Services.directory services with
@@ -208,8 +214,8 @@ Definition directory_view snapshot s :=
     |None=>"Choose a directory" end) in
    let content:=match resource with
     |Resource.Loading _ _=>[information parent "loading" Information.Status (label "正在读取目录…" "Loading directories…")]
-    |Resource.Failed _ _ reason=>
-      region parent "failure" "" Roles.Alert [read_only parent "failure-detail" (label "无法读取目录" "Directory listing failed")reason]::
+    |Resource.Failed _ _ code=>
+      region parent "failure" "" Roles.Alert [information parent "failure-detail" Information.Description(directory_error_message label code)]::
       (match Services.directory_previous request with None=>[]|Some path=>
        [declared parent Roles.Button(secondary "previous" (label "返回上一个可用目录" "Back to previous directory")
         (Input.ServiceInput(Services.VisitDirectory path)))]end)

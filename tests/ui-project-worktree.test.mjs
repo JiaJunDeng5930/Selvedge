@@ -50,19 +50,33 @@ test('Project worktree defaults require a committed Git primary only while enabl
   await project.getByRole('heading', { name: '工作目录', exact: true }).waitFor();
   await assertBlockingReason(missingMessage);
 
-  await page.setViewportSize({ width: 390, height: 370 });
+  const narrow = { width: 390, height: 370 };
+  const bodySelector = '[data-surface-role="dialog-body"]';
+  const dialogId = await project.getAttribute('id');
+  await page.setViewportSize(narrow);
+  // The viewport changes before the measured dialog constraints are published.
+  await page.waitForFunction(({ dialogId, width, height, bodySelector }) => {
+    const dialog = document.getElementById(dialogId);
+    const body = dialog?.querySelector(bodySelector);
+    const bounds = dialog?.getBoundingClientRect();
+    return window.innerWidth === width && window.innerHeight === height && bounds
+      && bounds.left >= 0 && bounds.right <= width && bounds.top >= 0 && bounds.bottom <= height
+      && body && body.scrollHeight > body.clientHeight;
+  }, { dialogId, ...narrow, bodySelector });
   await assertBlockingReason(missingMessage);
-  const initialBounds = await missing.boundingBox();
-  assert.ok(initialBounds && initialBounds.x >= 0 && initialBounds.x + initialBounds.width <= 390
-    && initialBounds.y >= 0 && initialBounds.y + initialBounds.height <= 370);
-  const formBody = project.locator('[data-surface-role="dialog-body"]');
-  const scrolled = await formBody.evaluate(node => {
-    const before = node.scrollTop;
-    node.scrollTop = before > 0 ? 0 : node.scrollHeight;
-    return node.scrollTop !== before;
-  });
-  assert.equal(scrolled, true, 'The narrow form body can scroll');
-  assert.deepEqual(await missing.boundingBox(), initialBounds, 'The footer reason stays in place while the form scrolls');
+  const scroll = await missing.evaluate(async (reason, bodySelector) => {
+    const body = reason.closest('dialog').querySelector(bodySelector);
+    const before = reason.getBoundingClientRect().toJSON();
+    const start = body.scrollTop;
+    body.scrollTop = start > 0 ? 0 : body.scrollHeight;
+    await new Promise(requestAnimationFrame);
+    return { before, after: reason.getBoundingClientRect().toJSON(), start, end: body.scrollTop };
+  }, bodySelector);
+  assert.notEqual(scroll.end, scroll.start, 'The narrow form body scrolled');
+  assert.ok(scroll.before.width > 0 && scroll.before.height > 0
+    && scroll.before.left >= 0 && scroll.before.right <= narrow.width
+    && scroll.before.top >= 0 && scroll.before.bottom <= narrow.height);
+  assert.deepEqual(scroll.after, scroll.before, 'The visible footer reason stays in place while the form scrolls');
   await page.setViewportSize({ width: 1280, height: 900 });
 
   const browse = project.getByRole('button', { name: '浏览…', exact: true });

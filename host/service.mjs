@@ -22,7 +22,7 @@ import { requestTaskText } from './task-text.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
-import { browseDirectories } from './directories.mjs';
+import { browseDirectories, directoryListingFailure } from './directories.mjs';
 import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
@@ -1005,10 +1005,10 @@ export class Service extends EventEmitter {
             phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
           }), async location => (await canonicalWorkspace({ roots: [location] })).primary_root);
           const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
-          outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
+          outcome = result.ok ? { ok: true, value: result } : result;
         // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
         } catch (error) {
-          outcome = { ok: false, error: error.message };
+          outcome = directoryListingFailure(error);
         } finally { await environment?.filesystem.close(); }
         return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
       },

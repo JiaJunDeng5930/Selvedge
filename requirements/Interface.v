@@ -268,8 +268,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     working directory as optional and uses the language of the project page.
     A directory chooser identifies the execution environment that owns its paths.
     Confirmation applies to an opened directory that matches the address
-    field. A failed lookup keeps that field editable and offers a return to
-    the last successfully opened directory when available.
+    field. A failed lookup explains the problem in the chooser's language,
+    keeps that field editable, and offers a return to the last successfully
+    opened directory when available.
     A conversation keeps its selected run environment when verification is
     pending or fails. [git_observation_settles_only_the_workspace_check]
     constrains the actual receipt. A local Git worktree requires verifying
@@ -303,8 +304,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
     stage selected by its entry point.
-    When a field requires correction before a dialog can submit, the fixed
-    action area keeps the reason visible and identifies the field to correct.
+    The fixed action area keeps submission reasons visible when their fields
+    scroll out of view. An unadded directory path shows one reminder beside
+    its input.
     The automatic execution setting explains which cards can start and when,
     including eligible cards already on the board.
 

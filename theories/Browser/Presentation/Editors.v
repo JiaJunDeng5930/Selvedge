@@ -121,9 +121,12 @@ Definition visible_field_obstruction {e} draft (outcome:UX.assessment_result e) 
  |UX.RepairEditor=>None end.
 Definition commit_reason {e} parent draft (assessment:UX.assessment e) : list(node Input.input) :=
  match visible_field_obstruction draft(UX.assessment_outcome assessment)with
- |Some(subject,cause)=>let role:=match UX.subject_declaration subject with
-   |Fields.CreateWorktree=>Information.Status|_=>Information.Description end in
-   [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
+ |Some(subject,cause)=>
+   (* The directory entry already displays this instruction beside Add and Clear. *)
+   if String.eqb(UX.obstruction_code cause)Observe.unadded_project_directory_code then []
+   else let role:=match UX.subject_declaration subject with
+    |Fields.CreateWorktree=>Information.Status|_=>Information.Description end in
+    [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
  |None=>[]end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  let obstruction:=visible_field_obstruction(Session.current_draft s e)
