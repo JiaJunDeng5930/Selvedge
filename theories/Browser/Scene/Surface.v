@@ -77,6 +77,7 @@ Inductive meaning (Action : Type) :=
 | BoardGroup (grouping : board_grouping)
 | ReadOnly (text : string)
 | Fact (value : string)
+| ExternalLink (url : string)
 | EmbeddedMarkdown (value : string)
 | PublishedText (document : DocumentPublication.document)
 | RichText (source : CodeSource.source) (value : string)
@@ -143,6 +144,7 @@ Arguments BoardLane {Action}.
 Arguments CardArchive {Action}.
 Arguments BoardGroup {Action}.
 Arguments ReadOnly {Action}.
+Arguments ExternalLink {Action}.
 Arguments Fact {Action}.
 Arguments EmbeddedMarkdown {Action}.
 Arguments PublishedText {Action}.
@@ -367,6 +369,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | BoardGroup grouping => BoardGroup grouping
   | ReadOnly text => ReadOnly text
   | Fact value => Fact value
+  | ExternalLink url => ExternalLink url
   | EmbeddedMarkdown value => EmbeddedMarkdown value
   | PublishedText document => PublishedText document
   | RichText source value => RichText source value

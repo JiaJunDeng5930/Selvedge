@@ -132,6 +132,23 @@ dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-sou
   background: transparent;
 }
 dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !important; }
+[data-semantic-key="account-sign-in"] [data-semantic-key="device-verification"] {
+  color: var(--selvedge-accent);
+  align-self: start;
+}
+[data-semantic-key="account-sign-in"] [data-semantic-key="device-code-actions"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: end !important;
+}
+[data-semantic-key="account-sign-in"] [data-semantic-key="device-code"] {
+  inline-size: fit-content !important;
+}
+[data-semantic-key="account-sign-in"] [data-semantic-key="device-code"] [data-semantic-key="value"] {
+  font-family: ui-monospace, monospace;
+  font-size: 1.15em;
+  font-weight: 600;
+}
 [data-semantic-key="object-actions"] > [role="menu"] > h2 {
   /* The dialog has an accessible name. The first visible row is an action. */
   position: absolute;

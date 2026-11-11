@@ -25,7 +25,7 @@ Definition can_begin_voice speech realtime:=Speech.free speech&&match Speech.eli
 Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :=
  let free:=Speech.free speech in
  let choices:=match Speech.connections speech with
- |[]=>[speech_button parent "sign-in" "Sign in with ChatGPT"free Speech.Authorize]
+ |[]=>[Settings.sign_in_button (part parent "speech") speech]
  |values=>map(fun connection=>let selected:=match Speech.selected speech with Some selected=>String.eqb selected(Speech.connection_id connection)|None=>false end in
    declared parent(if selected then Roles.SelectedButton else Roles.Button)
     (Control(String.append "speech/connection/"(Speech.connection_id connection))(Speech.connection_label connection)Secondary
@@ -94,6 +94,65 @@ Definition files e parent s :=
  region parent "attachments" "Attachments" Roles.Section
   (file_picker e parent s :: file_items e parent s).
 Definition settings := Settings.view.
+
+Definition account_login_view s : list(node Input.input) :=
+ match Speech.sign_in(State.speech_state s)with
+ |None=>[]
+ |Some dialog=>
+  let parent:="/account-sign-in" in
+  let trigger:=Speech.login_trigger dialog in
+  let fallback:=match Services.settings_return(State.service_state s)with
+    |Some _=>part Settings.settings_root "close"|None=>"/main" end in
+  let close:=Input.SpeechInput Speech.CloseLogin in
+  let button key label emphasis action:=
+    declared parent Roles.Button(Control key label emphasis(Input.SpeechInput action)Available) in
+  let choose key label emphasis method:=button key label emphasis(Speech.ChooseLogin method)in
+  let description key text:=information parent key Information.Description text in
+  let status text:=information parent "status" Information.Status text in
+  let code_key:=part(part parent "device-code")"value" in
+  let methods:=button "methods" "Other sign-in methods" Secondary Speech.ReturnToMethods in
+  let '(body, actions):=match Speech.login_stage dialog with
+   |Speech.ChooseMethod=>(
+     [region parent "login-methods" "Sign-in methods" Roles.Section
+       [region parent "device-method" "" Roles.Section
+         [choose "device" "Use a device code" Primary Speech.DeviceCode;
+          description "device-help" "Recommended when Selvedge runs on a remote machine."];
+        region parent "browser-method" "" Roles.Section
+         [choose "browser" "Continue in a browser tab" Secondary Speech.BrowserTab;
+          description "browser-help" "Use this when Selvedge runs on this computer or its callback port is forwarded."]]],
+     [button "cancel" "Cancel" Secondary Speech.CloseLogin])
+   |Speech.StartingLogin _ _=>([status "Starting sign-in…"],[button "cancel" "Cancel" Secondary Speech.CloseLogin])
+   |Speech.BrowserOpened _=>(
+     [status "Complete sign-in in the ChatGPT tab, then return here."],
+     [button "close" "Close" Secondary Speech.CloseLogin;methods])
+   |Speech.DeviceCodeShown _ url code expires copied=>(
+     ([description "instructions" "Open ChatGPT verification and enter the code below. Only enter it on auth.openai.com.";
+       Node(part parent "verification")"device-verification" "Open ChatGPT verification" Roles.Content(ExternalLink url)[];
+       region parent "device-code-actions" "" Roles.Toolbar
+        [read_only parent "device-code" "Device code" code;
+         button "copy" "Copy code" Secondary (Speech.CopyLoginCode code_key)];
+       description "expiry" (String.append "Expires " expires);
+       description "security" "If prompted, enable device code authorization in your ChatGPT security settings.";
+       status "Waiting for authorization…"] ++
+       [information parent "copy-status" Information.Status
+         (match copied with
+          |Some true=>"Code copied."
+          |Some false=>"Copy the selected code, or enter it manually."
+          |None=>"" end)])%list,
+     [button "cancel" "Cancel" Secondary Speech.CloseLogin;methods])
+   |Speech.SignInFailed method reason=>(
+     [status reason],
+     [button "close" "Close" Secondary Speech.CloseLogin;
+      methods;
+      choose "retry" "Try again" Primary method])
+   |Speech.SignedIn=>(
+     [status "Signed in to ChatGPT."],[button "done" "Done" Primary Speech.CloseLogin])
+   end in
+  [Node parent "account-sign-in" "Sign in with ChatGPT" Roles.Dialog
+    (LayerRegion(LayerBehavior ModalDialog false(Speech.login_occurrence dialog)
+      (part parent "heading") trigger fallback trigger close false true))
+    [dialog_header parent[title parent "Sign in with ChatGPT"];dialog_body parent body;dialog_actions parent actions]]
+ end.
 
 Theorem settings_preserves_return_attention s trigger :
  Services.settings_return (State.service_state s) = Some trigger ->

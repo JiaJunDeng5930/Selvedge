@@ -285,17 +285,25 @@ configuration item** removes an optional override. Configuration read at startup
 takes effect on the next successful start. Context sources that already reread
 configuration continue to do so.
 
-To use ChatGPT account models, sign in using the Codex browser flow. One sign-in
-authorizes account models, dictation, and live voice. You can select **Sign in
-with ChatGPT** from the composer's voice menu or use the CLI:
+One ChatGPT sign-in authorizes account models, dictation, and live voice. In the
+web interface, choose **Sign in with ChatGPT** under **Settings → Models →
+ChatGPT model access** or in the composer's voice menu.
+
+- **Device code** works when Selvedge runs on a remote host. Enable device code
+  login in your ChatGPT security settings or workspace permissions. Open the
+  ChatGPT link, enter the one-time code shown in Selvedge, and return to the
+  page after approving. The code expires in 15 minutes.
+- **Browser callback** opens the ChatGPT authorization page and completes through
+  a temporary loopback listener on the host running Selvedge.
+
+The CLI uses the browser callback flow:
 
 ```bash
 bun host/cli.mjs login
 bun host/cli.mjs models
 ```
 
-Open the displayed authorization URL in your browser. The browser returns to a
-temporary callback on the host running Selvedge. The callback uses `127.0.0.1:1455`
+The browser callback uses `127.0.0.1:1455`
 or `127.0.0.1:1457` when the first port is busy. For a service on a remote host,
 forward the port in the login URL to the same port on that host with SSH before
 completing authorization. Login refreshes the running service's model catalog.

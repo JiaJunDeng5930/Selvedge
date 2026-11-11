@@ -1,8 +1,22 @@
 From Stdlib Require Import String List Bool NArith Sorting.Permutation.
-From Selvedge.Adapters Require Import AccountFields AccountIdentity AccountOAuth AccountCatalog AccountMaterialization Accounts Api.
+From Selvedge.Adapters Require Import AccountFields AccountIdentity AccountOAuth AccountDevice AccountCatalog AccountMaterialization Accounts Api.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+
+Theorem public_device_poll_pending_is_403_or_404 : forall source,
+  Api.call "account.device_status" source = success (JBool true) <->
+  boolean_field source "poll" = true /\ (num source "status" = 403 \/ num source "status" = 404).
+Proof.
+  intro source. change (AccountDevice.device_status source = success (JBool true) <->
+    boolean_field source "poll" = true /\ (num source "status" = 403 \/ num source "status" = 404)).
+  unfold AccountDevice.device_status, AccountDevice.device_pending_status.
+  rewrite <- !N.eqb_eq, <- orb_true_iff, <- andb_true_iff.
+  destruct (boolean_field source "poll" && ((num source "status" =? 403) || (num source "status" =? 404))).
+  - split; intros; reflexivity.
+  - destruct ((200 <=? num source "status") && (num source "status" <? 300)); [split; discriminate|].
+    destruct (num source "status" =? 404); split; discriminate.
+Qed.
 
 Theorem public_credential_rejects_another_client : forall source,
   same (get (get source "value") "client_id") AccountContracts.client_id = false ->

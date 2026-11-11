@@ -1,11 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readFile, mkdir } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import * as oidc from 'openid-client';
 import { decodeJwt } from 'jose';
 import { writeAtomic } from './files.mjs';
+import { requestDeviceCode, pollDeviceCode } from './chatgpt-device-auth.mjs';
 
 import { boundary } from './public/model-boundary.mjs';
 
@@ -213,8 +214,17 @@ async function listenForCallback(server, ports) {
   }
 }
 
+async function saveCodeGrant(config, url, checks, metadata, filename, signal, onPublish) {
+  const tokens = await grant(() => oidc.authorizationCodeGrant(config, url, checks), signal);
+  const saved = tokenCredential(tokens, metadata);
+  signal.throwIfAborted();
+  onPublish();
+  await writeAtomic(filename, saved);
+  return boundary('account.login_result', { saved, filename });
+}
+
 /** Both entry points authorize the same installation account. */
-export async function login(profile, home, { signal, onAuthorize = () => {} } = {}) {
+export async function login(profile, home, { signal, onAuthorize = () => {}, onPublish = () => {} } = {}) {
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(contract.login_timeout_ms)]) : AbortSignal.timeout(contract.login_timeout_ms);
   const metadata = await discovery(profile, lifetime);
   const filename = path.resolve(home, profile.auth_file);
@@ -260,11 +270,8 @@ export async function login(profile, home, { signal, onAuthorize = () => {} } = 
       await onAuthorize({ url: authorize.href });
       // The single await owns settlement; repeated HTTP callbacks cannot start another exchange.
       const url = await callback;
-      const tokens = await grant(() => oidc.authorizationCodeGrant(config, url,
-        boundary('account.code_grant_checks', { nonce, state, verifier })), lifetime);
-      const saved = tokenCredential(tokens, metadata);
-      await writeAtomic(filename, saved);
-      return boundary('account.login_result', { saved, filename });
+      return await saveCodeGrant(config, url, boundary('account.code_grant_checks', { nonce, state, verifier }),
+        metadata, filename, lifetime, onPublish);
     } finally {
       lifetime.removeEventListener('abort', abort);
       server.closeAllConnections();
@@ -273,11 +280,42 @@ export async function login(profile, home, { signal, onAuthorize = () => {} } = 
   });
 }
 
+async function deviceLogin(profile, filename, { signal, onAuthorize, onPublish }) {
+  const challenge = await requestDeviceCode(profile, { signal });
+  const expiresAt = Date.now() + contract.device_login_timeout_ms;
+  const lifetime = AbortSignal.any([signal, AbortSignal.timeout(contract.device_login_timeout_ms)]);
+  lifetime.throwIfAborted();
+  onAuthorize({ verification_url: challenge.verification_url, user_code: challenge.user_code,
+    expires_at: new Date(expiresAt).toISOString() });
+
+  const { code, verifier, redirectUri } = await pollDeviceCode(profile, challenge, { signal: lifetime, expiresAt });
+  const metadata = await discovery(profile, lifetime);
+  const tokenEndpoint = boundary('account.device_token_url', { issuer: new URL(profile.issuer).origin });
+  const config = configuration({ ...metadata, token_endpoint: tokenEndpoint }, profile, lifetime);
+  const url = new URL(redirectUri);
+  url.searchParams.set('code', code);
+  return locked(filename, () => {
+    lifetime.throwIfAborted();
+    return saveCodeGrant(config, url, { pkceCodeVerifier: verifier, idTokenExpected: true },
+      metadata, filename, lifetime, onPublish);
+  });
+}
+
+class ChatGPTLoginConflictError extends Error { name = 'ChatGPTLoginConflictError'; }
+class ChatGPTLoginNotFoundError extends Error { name = 'ChatGPTLoginNotFoundError'; }
+
 export function createAudioAccount({ home, config, onChange = () => {} }) {
   const profile = boundary('account.default_login_account', { config });
   const filename = profile === null ? null : path.resolve(home, profile.auth_file);
   let pending;
+  let lastAttempt;
   let closed = false;
+
+  function settle(entry, result) {
+    entry.result = result;
+    if (pending === entry) pending = undefined;
+  }
+
   return {
     async connections({ signal } = {}) {
       signal?.throwIfAborted();
@@ -295,23 +333,52 @@ export function createAudioAccount({ home, config, onChange = () => {} }) {
       if (profile === null) throw new Error('ChatGPT account access is disabled in this configuration');
       return authorize(profile, home, { signal });
     },
-    startLogin({ signal } = {}) {
+    startLogin({ signal, method = 'browser', action, attempt_id } = {}) {
       if (closed) throw new Error('ChatGPT audio account is closed');
+      if (action) {
+        const entry = lastAttempt;
+        // DEFENSE: A stale tab, another tab's identifier or a service restart can refer to an unavailable attempt.
+        if (!entry || entry.id !== attempt_id) throw new ChatGPTLoginNotFoundError('This ChatGPT sign-in attempt is no longer available');
+        if (action === 'cancel' && entry.result.status === 'pending' && !entry.publishing) {
+          entry.controller.abort();
+          settle(entry, { status: 'cancelled' });
+        }
+        return entry.result;
+      }
       // DEFENSE: The browser can request login while ChatGPT account access is disabled.
       if (profile === null) throw new Error('ChatGPT account access is disabled in this configuration');
-      if (pending) return pending.ready;
+      if (pending) {
+        if (pending.method === 'browser' && method === 'browser') return pending.ready;
+        throw new ChatGPTLoginConflictError('A ChatGPT sign-in is already in progress');
+      }
       const controller = new AbortController();
       const lifetime = AbortSignal.any([controller.signal, signal].filter(Boolean));
-      let resolveURL, rejectURL;
-      const ready = new Promise((resolve, reject) => { resolveURL = resolve; rejectURL = reject; });
-      const entry = { ready, controller, completion: null };
+      const { promise: ready, resolve, reject } = Promise.withResolvers();
+      const device = method === 'device_code';
+      const entry = { id: randomUUID(), method, controller, result: { status: 'pending' }, publishing: false,
+        ...(device ? {} : { ready }) };
       pending = entry;
-      entry.completion = login(profile, home, { signal: lifetime,
-        onAuthorize: ({ url }) => resolveURL({ url }),
-      }).then(() => onChange({ type: 'account_changed' }), error => {
-        rejectURL(error);
-        if (!lifetime.aborted) onChange({ type: 'account_changed', error: 'ChatGPT sign-in failed; try again' });
-      }).finally(() => { pending = undefined; });
+      lastAttempt = entry;
+      const options = { signal: lifetime,
+        onAuthorize: value => resolve({ attempt_id: entry.id, ...value }),
+        onPublish: () => { entry.publishing = true; },
+      };
+      const loginResult = device ? deviceLogin(profile, filename, options) : login(profile, home, options);
+      entry.completion = loginResult.then(() => {
+        settle(entry, { status: 'signed_in' });
+        return onChange({ type: 'account_changed' });
+      }, error => {
+        reject(error);
+        // DEFENSE: An explicit cancel can settle the attempt before the interrupted network request unwinds.
+        if (entry.result.status === 'cancelled') return;
+        if (lifetime.aborted) settle(entry, { status: 'cancelled' });
+        else if (device && error.name === 'TimeoutError') settle(entry, { status: 'expired' });
+        else {
+          const message = 'ChatGPT sign-in failed. Try again.';
+          settle(entry, { status: 'failed', error: message });
+          if (!device) return onChange({ type: 'account_changed', error: message });
+        }
+      });
       return ready;
     },
     async close() {

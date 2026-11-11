@@ -1,6 +1,6 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Adapters Require Import AccountMaterialization AccountOAuth AccountTransport.
+From Selvedge.Adapters Require Import AccountMaterialization AccountOAuth AccountDevice AccountTransport.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -50,6 +50,12 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.contract",contract);
   ("account.credential",AccountIdentity.credential);
   ("account.default_login_account",AccountMaterialization.default_login_account);
+  ("account.device_authorization",AccountDevice.device_authorization);
+  ("account.device_challenge",AccountDevice.device_challenge);
+  ("account.device_poll_request",AccountDevice.device_poll_request);
+  ("account.device_request",AccountDevice.device_request);
+  ("account.device_status",AccountDevice.device_status);
+  ("account.device_token_url",AccountDevice.device_token_url);
   ("account.discovery",AccountOAuth.discovery);
   ("account.discovery_failure",discovery_failure);
   ("account.grant_failure",grant_failure);

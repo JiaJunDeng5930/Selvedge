@@ -71,6 +71,6 @@ Definition view (snapshot : json) (state : State.state) (capacity : Model.capaci
     settings layer beneath it, and keep service-owned pickers above both. *)
  let overlays:=(Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
    ServiceControls.settings state ++ Settings.configuration_editor state ++ render settings_editors ++
-   ServiceControls.directory_view state ++ ServiceControls.preview_view state)%list in
+   ServiceControls.directory_view state ++ ServiceControls.preview_view state ++ ServiceControls.account_login_view state)%list in
  let '(base,overlays):=relocate_details_trigger state capacity base overlays in
  Surface.Surface "/workspace" "/main"base overlays(Services.theme(State.service_state state)).

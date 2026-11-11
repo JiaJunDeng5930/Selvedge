@@ -5,6 +5,7 @@ import { Renderer, filesFromEvent } from './renderer.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
+import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
@@ -740,11 +741,25 @@ const audio = new AudioRuntime({
     return Array.from(renderer.records.values()).find(record => record.metadata.editor && ticketKey(record.metadata.editor) === ticketKey(editor))?.node;
   },
   browserId: randomBrowserIdentifier(), limits: boundary('audio.contract', {}),
-  loginTarget(url) {
+});
+const chatgptLogin = new ChatGPTLogin({
+  request, emit: dispatch,
+  loginTarget(method, url) {
     const parsed = new URL(url);
-    return boundary('audio.login_target', { url: parsed.href, protocol: parsed.protocol,
+    const operation = method === 'device_code' ? 'audio.device_login_target' : 'audio.login_target';
+    return boundary(operation, { url: parsed.href, protocol: parsed.protocol,
       hostname: parsed.hostname, port: parsed.port, pathname: parsed.pathname,
-      username: parsed.username, password: parsed.password }).url;
+      username: parsed.username, password: parsed.password, search: parsed.search, hash: parsed.hash }).url;
+  },
+  selectCode(key) {
+    const node = renderer.resolveTarget(key);
+    const selection = document.getSelection();
+    // DEFENSE: The dialog can be dismissed or its document replaced while clipboard permission is pending.
+    if (!node || !selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
   },
 });
 
@@ -977,7 +992,9 @@ async function execute(effect) {
     }
     case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
     case 'clipboard': await navigator.clipboard.writeText(effect.text); return;
-    case 'audio_login': return audio.execute('BeginAudioLogin', effect);
+    case 'audio_login': return chatgptLogin.start(integral(effect.ticket), effect.method);
+    case 'release_audio_login': return chatgptLogin.release(integral(effect.ticket));
+    case 'copy_audio_login_code': return chatgptLogin.copy(integral(effect.ticket), effect.key, effect.code);
     case 'audio_capabilities': return audio.execute('LoadCapabilities', effect);
     case 'record_audio': return audio.execute('Record', { ...effect, ticket: integral(effect.ticket), owner: effect.editor });
     case 'transcribe_audio': return audio.execute('Transcribe', { ...effect, ticket: integral(effect.ticket) });
@@ -1052,7 +1069,7 @@ function selectionChanged() {
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
@@ -1065,7 +1082,7 @@ window.addEventListener('pagehide', () => {
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
 }, { once: true });
-window.addEventListener('focus', () => audio.focus());
+window.addEventListener('focus', () => chatgptLogin.focus());
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
 clockRefresh = setInterval(refreshClock, 60_000);
 document.addEventListener('visibilitychange', () => { refreshClock(); retryFocus(); });

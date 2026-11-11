@@ -367,9 +367,9 @@ export async function startServer(options) {
           finally { operation.close(); }
           return;
         },
-        audio_login: async () => {
+        audio_login: async body => {
           const operation = requestSignal(request, response);
-          try { json(response, 200, await service.audioLogin({ signal: operation.signal })); }
+          try { json(response, 200, await service.audioLogin({ ...body, signal: operation.signal })); }
           finally { operation.close(); }
           return;
         },

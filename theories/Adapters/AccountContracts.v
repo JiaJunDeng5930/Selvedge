@@ -1,4 +1,4 @@
-From Stdlib Require Import String List.
+From Stdlib Require Import String List NArith.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -10,8 +10,10 @@ Definition client_id := JString "app_EMoamEEZ73f0CkXaXp7hrann".
 Definition scopes := JString "openid profile email offline_access api.connectors.read api.connectors.invoke".
 Definition originator := JString "selvedge".
 Definition callback_path := JString "/auth/callback".
+Definition device_login_timeout_ms : N := 900000%N.
 Definition contract := JObject [
-  ("login_timeout_ms",JNumber "600000");("maximum",JNumber "1048576");
+  ("login_timeout_ms",JNumber "600000");("device_login_timeout_ms",number device_login_timeout_ms);
+  ("maximum",JNumber "1048576");
   ("client_id",client_id);("originator",originator);
   ("callback_path",callback_path);("callback_ports",JArray [JNumber "1455";JNumber "1457"]);
   ("refresh_interval_ms",JNumber "691200000");("default",defaults)].

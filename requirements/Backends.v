@@ -39,8 +39,20 @@ From Selvedge.Programming Require Import AdapterResult.
     The login awaits one callback Promise before exchanging the accepted code.
     Single-settlement Promise semantics gives that continuation one outcome; each
     HTTP callback still undergoes its own method, target, origin, state and
-    fixed-client admission. Signature, nonce and PKCE verification belong to
-    the OpenID client. Displaying the SDK's authorization URL introduces no new
+    fixed-client admission. Device code sign-in uses the same Codex client and
+    publishes the same verified account record. The host retains the device
+    authorization identifier and grant material. The browser receives only its
+    one-time code, verification URL, expiry and local attempt identifier.
+    [public_device_poll_pending_is_403_or_404] binds the pending response
+    statuses to the operation the host calls. An omitted or zero poll interval
+    waits one second to bound the request rate. The routes and response fields
+    follow the Codex device flow at
+    https://github.com/openai/codex/blob/5228d94a27b7f84cae4854acbb5ea3b3e90dfeaf/codex-rs/login/src/device_code_auth.rs.
+    The host stops an expired or cancelled attempt before credential publication.
+    Once atomic publication has begun, its result determines the outcome.
+    The OpenID client verifies the ID token signature for both grants and the
+    nonce for browser callbacks. The issuer checks the PKCE verifier at exchange.
+    Displaying the SDK's authorization URL introduces no new
     account admission. Issuer admission checks the credential already held by
     the caller without returning another copy of it.
     Environment authentication admits a captured nonempty key before I/O; that
@@ -154,6 +166,7 @@ Export HistoryProjectionProofs(requests_without_update_transport_omit_configurat
 Export AccountsProofs(public_refresh_identity_binds_each_principal_field,
  public_refresh_cannot_replace_the_request_identity,
  public_refresh_keeps_the_same_request_identity,
+ public_device_poll_pending_is_403_or_404,
  public_valid_callback_authorizes_its_client,
  public_credential_requires_unambiguous_identity,
  public_credential_rejects_another_client,

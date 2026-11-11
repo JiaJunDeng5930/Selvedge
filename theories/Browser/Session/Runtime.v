@@ -326,8 +326,8 @@ Definition retire_namespace namespace state:=
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
    [] Resource.Dormant [] Configuration.initial in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
- let speech:=Speech.Speech(Speech.connections(Speech.speech_state stopped))(Speech.selected(Speech.speech_state stopped))
-   (Speech.next(Speech.speech_state stopped))Speech.Idle "" ""in
+ let closed:=Speech.close_login(Speech.speech_state stopped)in
+ let speech:=Speech.idle_with_notice ""(Speech.speech_state closed)in
  let authoring:=set SS.awaiting(fun _=>[])
    (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state))in
  let fresh:=SS.with_authoring authoring
@@ -335,7 +335,8 @@ Definition retire_namespace namespace state:=
   (SS.with_interactive_state IS.initial
   (SS.with_retention(DocumentState.Retention namespace(DocumentState.retention_next_epoch(SS.document_retention state))[][])state)))))in
  let aborts:=fold_right(fun resource effects=>match resource with Resource.Loading ticket _=>Services.AbortUpload ticket::effects|_=>effects end)[](Services.uploads previous)in
- Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++map Speech.encode_effect(Speech.speech_effects stopped)).
+ Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++
+   map Speech.encode_effect(Speech.speech_effects stopped++Speech.speech_effects closed)).
 Definition step namespace snapshot lagged input state:=
  let retired:=retire_namespace namespace state in
  let current:=Authoring.append retired(synchronize namespace snapshot lagged(Authoring.result_state retired))in

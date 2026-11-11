@@ -829,6 +829,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.Fact text=>element "span"
  [] [] empty
  [DOM.Text(if String.eqb text ""then "—"else text)]
+ |S.ExternalLink url=>element "a"
+ [("href",url);("target","_blank");("rel","noopener noreferrer")] [] empty [DOM.Text label]
  |S.ActionFeedback _ _ message=>element "p"
  (match role with Roles.Alert=>[("aria-live","assertive")]|_=>[("role","status")]end)
  [] empty [DOM.Text message]
