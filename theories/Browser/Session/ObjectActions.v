@@ -43,6 +43,7 @@ Definition from_decision subject value :=
   (Decisions.decision_proposal value).
 Definition add_to_board_key := "board/add".
 Definition open_board_card_key := "board/card".
+Definition task_fork_action task := local "fork" "Fork conversation"(Editor(Fork task)).
 Definition task_board_action snapshot task :=
  match Read.board_cards snapshot with
  |None=>[]
@@ -56,7 +57,7 @@ Definition declarations snapshot clock subject :=
  match subject with
  |TaskActions id=>commands++
   [local "side" "Side conversation"(SideConversation id);
-   local "fork" "Fork conversation"(Editor(Fork id));local "compact" "Compact context"(Editor(Compact id))]
+   task_fork_action id;local "compact" "Compact context"(Editor(Compact id))]
  |ProjectActions id=>local "edit" "编辑项目"(Editor(Project(Some id)))::commands
  |CardActions id=>local "edit" "编辑卡片"(Editor(Card(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands

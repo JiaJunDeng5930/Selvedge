@@ -56,6 +56,18 @@ Definition profile_for_subject snapshot {e}(subject:Model.subject e) key:=match 
 Definition project_choices snapshot caption:=Fields.ChoiceValue "" caption::
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(show_natural id)name::rest|_,_=>rest end)[](items "projects" snapshot).
+Definition delivery_label intent:=match intent with
+ |Fields.Send=>"Send normally"|Fields.Steer=>"Steer response"end.
+Definition delivery_explanation snapshot e intent:=
+ let task:=match e with Identity.Message id=>World.find_task id snapshot|_=>None end in
+ match intent,bind task(string_field "status"),bind task(string_field "phase"),bind task(bool_field "working")with
+ |Fields.Send,Some "frozen",_,_=>"Queues this message until you resume the conversation."
+ |Fields.Steer,Some "frozen",_,_=>"Uses this message for the next response after you resume."
+ |Fields.Send,Some "active",_,Some false=>"Starts a new response."
+ |Fields.Send,_,Some "model_pending",_=>"Queues behind the current response if it is still running."
+ |Fields.Send,_,_,_=>"Starts a new response when ready, or queues behind work in progress."
+ |Fields.Steer,_,Some "model_pending",_=>"Starts a new response, interrupting the current one if it is still running."
+ |Fields.Steer,_,_,_=>"Starts a new response when idle, or interrupts a response in progress."end.
 Definition current_frozen_choice snapshot {e}(subject:Model.subject e):option Selvedge.Kernel.Domain.profile:=let declaration:=subject_declaration subject in match e,declaration with
 |Identity.Message task,Fields.ModelProfile=>FieldsObservation.task_profile task snapshot
 |Identity.Message task,Fields.ApprovalReviewer=>settings<-FieldsObservation.task_settings task snapshot;;
@@ -112,7 +124,8 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
  |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "Restricted";Fields.ChoiceValue "true" "Allowed"]
  |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "Ask for approval";
    Fields.ChoiceValue "approval-for-me" "Automatic review";Fields.ChoiceValue "full-access" "Unrestricted"]
- |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" "Send normally";Fields.ChoiceValue "steer" "Steer current response"]
+ |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" (delivery_label Fields.Send);
+   Fields.ChoiceValue "steer" (delivery_label Fields.Steer)]
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
@@ -247,7 +260,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.CommittedContextValue _ settings _=>context_information snapshot subject
    (Selvedge.Kernel.Domain.settings_project settings)(Selvedge.Kernel.Domain.settings_workspace settings)false
    (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
- |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send normally"|Fields.Steer=>"Steer response"end)"")
+ |Fields.DeliveryValue intent=>present(NamedChoice(delivery_label intent)"")
  |Fields.ProjectValue None=>OptionalAbsence
  |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
  |Fields.ToggleValue value=>present(Model.TextValue(if value then "Yes"else "No"))
@@ -330,8 +343,8 @@ Definition property_help_text snapshot state {e}(property:property e):string:=
      |_=>""end end in
    "Permissions: "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
  |DeliveryProperty=>match observe_subject snapshot state(property_subject property)with
-   |Fields.DeliveryValue Fields.Steer=>"Delivery: redirect the current response with your next message."
-   |_=>"Delivery: wait for the current response before sending your next message."end
+   |Fields.DeliveryValue intent=>"Delivery: "++delivery_explanation snapshot e intent
+   |_=>property_label property end
  |_=>property_label property++": "++value++detail end.
 Definition recognition_information snapshot {e}(subject:Model.subject e)(value:Fields.observed):information e:=
  let missing_project id:=PresentInformation
@@ -729,16 +742,16 @@ Definition candidate_consequences snapshot state {e}(subject:Model.subject e)
    |Some(sandbox,approval)=>fold_right(fun '(field,text) rest=>match related_summary(e:=e)field(Model.TextValue text)with
      |Some summary=>summary::rest|None=>rest end)[](permission_effects snapshot sandbox approval)
    |None=>[]end
- |Fields.ReasoningEffort|Fields.ApprovalReviewer=>[]
+ |Fields.ReasoningEffort|Fields.ApprovalReviewer|Fields.DeliveryIntent=>[]
  |_=>match applied with
    |Some _=>let kinds:=match subject_declaration subject with
      |Fields.ContextOrigin=>[ProjectProperty;WorkspaceProperty;PermissionsProperty]
      |Fields.WorkspaceDirectories|Fields.WorkspacePrimary|Fields.TaskEnvironment=>[WorkspaceProperty]
-     |Fields.DeliveryIntent=>[DeliveryProperty]|_=>[PermissionsProperty]end in
+     |_=>[PermissionsProperty]end in
     flat_map(fun kind=>match observe_property snapshot candidate e kind with
      |Some property=>information_summaries(property_information property)|None=>[]end)kinds
    |None=>[]end end.
-Definition alternative_explanation snapshot field (choice:Fields.choice_value) :=
+Definition alternative_explanation snapshot e field (choice:Fields.choice_value) :=
  match field with
  |Fields.ModelProfile|Fields.ApprovalReviewer=>match ModelSelection.observed_profile snapshot(Fields.choice_value_of choice)with
    |Some profile=>Selvedge.Kernel.Domain.profile_provider profile|None=>""end
@@ -748,8 +761,8 @@ Definition alternative_explanation snapshot field (choice:Fields.choice_value) :
  |Fields.NetworkAccess=>match Fields.choice_value_of choice with
    |"true"=>"Allow network access."|"false"=>"Keep network access off."|_=>""end
  |Fields.DeliveryIntent=>match Fields.choice_value_of choice with
-   |"send"=>"Queue the message if a response is in progress."
-   |"steer"=>"Use the message to redirect the current response."
+   |"send"=>delivery_explanation snapshot e Fields.Send
+   |"steer"=>delivery_explanation snapshot e Fields.Steer
    |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
    |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
@@ -780,7 +793,7 @@ Definition alternative_for_choice snapshot state {e}(subject:Model.subject e) cu
  let availability:=assignment_availability snapshot state assignment current
    (fun _=>assignment_shape snapshot subject form(fun _=>observed)listed incoming)
    (fun _=>command)(fun _=>applied)in
- Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot(subject_declaration subject)choice)value
+ Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot e(subject_declaration subject)choice)value
    (match selected with Some value=>Json.equal offered value|None=>false end)availability
    (candidate_consequences snapshot state subject observed applied command))
  else None.

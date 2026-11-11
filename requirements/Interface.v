@@ -78,15 +78,17 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     a separate guidance or managed directory when that path differs. The
     inspector shows effective settings, while commands act at the level of
     their target. Interrupting current work
-    belongs beside its status, cancelling a tool call belongs beside that call,
-    and forking the current conversation belongs to the conversation menu.
+    belongs beside its status, and cancelling a tool call belongs beside that
+    call. The conversation menu and the end of the conversation offer to fork
+    the current state. The latter identifies the point the fork will use.
 
     A chooser explains why a choice is unavailable at the point of selection.
     Model choices with the same name show the configuration difference in
     their captions, including the reasoning policy where it distinguishes them.
-    A delivery choice states what happens to the next message and uses a
-    separate control from submission. An adjustable range displays its current
-    value with the track so the reader can connect their change to its result. *)
+    Each delivery choice has one name and explains what happens to the next
+    message in the conversation's current state. Delivery uses a separate
+    control from submission. An adjustable range displays its current value
+    with the track so the reader can connect their change to its result. *)
 
 From Selvedge.Browser Require ApplicationProof.
 From Selvedge.Browser Require IncrementalSceneProof.

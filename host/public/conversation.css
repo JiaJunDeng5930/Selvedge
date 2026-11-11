@@ -15,6 +15,9 @@
 [data-reading-root]:focus-visible {
   outline-offset: calc(-1 * var(--native-focus-width));
 }
+[data-reading-root] > button[data-semantic-key="fork-current-history"] {
+  align-self: flex-start;
+}
 [data-reading-root] [data-history-match] {
   outline: 2px solid var(--selvedge-focus);
   outline-offset: 2px;

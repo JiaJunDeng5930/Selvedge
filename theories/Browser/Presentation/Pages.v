@@ -217,12 +217,21 @@ Definition task_composer snapshot s view parent task :=
  |None=>None end else None.
 Definition conversation_composer snapshot s view parent :=
  bind(find_task(NavigationIdentity.task_view_task view)snapshot)(task_composer snapshot s view parent).
+Definition fork_history_control view :=
+ let action:=ObjectActions.task_fork_action(NavigationIdentity.task_view_task view)in
+ match ObjectActions.action_operation action with
+ |ObjectActions.Editor owner=>let key:="fork-current-history" in
+  let parent:=NavigationIdentity.task_view_scope view in
+  [declared parent Roles.Button(Control key "Fork from here" Secondary
+    (Input.OpenEditor owner(part parent key))(approval_availability action))]
+ |_=>[]end.
 Definition task_contents snapshot s view parent task :=
  let id:=task_id task in
  let operations:=value_or[](Read.task_operations id snapshot)in
- let timeline:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
+ let history:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
- let timeline:=List.app timeline(operation_controls snapshot s id parent operations)in
+ let tail:=match history with []=>[]|_=>fork_history_control view end in
+ let timeline:=List.app history(List.app(operation_controls snapshot s id parent operations)tail)in
  let timeline:=match timeline with []=>
    [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
   |_=>timeline end in
