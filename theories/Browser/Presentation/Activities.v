@@ -62,7 +62,8 @@ Definition decision_node {e} pending occurrence parent query (decision:UX.decisi
     (BoardFilter.lower_text(UX.alternative_label alternative++" "++
       alternative_search_key(UX.decision_subject decision)(UX.alternative_value alternative))))full in
  let status:=match full,visible with
- |[],_=>[read_only identity "candidates/empty" "Choices" "No choices have been configured"]
+ |[],_=>[read_only identity "candidates/empty" "" (match UX.subject_declaration(UX.decision_subject decision)with
+          |Fields.ModelProfile=>"No models available"|_=>"No choices have been configured"end)]
  |_,[]=>[read_only identity "candidates/no-match" "Search" "No choices match this search"]
  |_,_=>if existsb(fun alternative=>match UX.alternative_availability alternative with
     UX.Available=>true|_=>false end)visible then[]else
@@ -163,6 +164,10 @@ Definition inherited_permission_controls s e parent :=
    |None=>[]end else[])
    [(Fields.SandboxMode,"filesystem and network access",match Context.sandbox_override configuration with Some _=>true|None=>false end);
     (Fields.ApprovalPolicy,"approval policy",match Context.approval_override configuration with Some _=>true|None=>false end)]end.
+Definition model_picker {e} (activity:Act.activity e)(view:Act.view e) :=
+ match UX.property_kind_of(Act.activity_property activity),view with
+ |UX.ModelProperty,Act.PrincipalView=>true
+ |_,_=>false end.
 Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query request
  (activity:Act.activity e)(view:Act.view e)(relation:Act.relation e):list(node Input.input):=
  let children:=match relation with Act.RootDecision _ children=>
@@ -171,9 +176,16 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
  |Observation.CandidateChoices,Act.RootDecision root _=>decision_node(UX.action_pending(Observation.action_unit_for s e))occurrence parent query root::children
  |Observation.CandidateChoices,Act.DependentDecision _ _ child=>[decision_node(UX.action_pending(Observation.action_unit_for s e))occurrence parent "" child]
  |Observation.DependencySummary,Act.RootDecision root _=>dependency_summary snapshot s occurrence parent(UX.decision_subject root)::children
- |Observation.DependencySummary,Act.DependentDecision _ _ child=>[dependency_summary snapshot s occurrence parent(UX.decision_subject child)]
+ |Observation.DependencySummary,Act.DependentDecision _ _ child=>
+   if model_picker activity view then
+     match UX.decision_alternatives child with
+     |_::_::_=>[decision_node(UX.action_pending(Observation.action_unit_for s e))occurrence parent "" child]
+     |_=>[]end
+   else [dependency_summary snapshot s occurrence parent(UX.decision_subject child)]
  |Observation.DependencySummary,Act.FieldSpecification _ subject _=>
-   [match Observation.entry snapshot s subject with
+   if model_picker activity view &&
+      (match UX.subject_declaration subject with Fields.ReasoningEffort=>true|_=>false end)
+   then [] else [match Observation.entry snapshot s subject with
     |Fields.DisplayOnly=>read_only parent("fact/"++UX.subject_name subject)(Parameters.label(UX.subject_declaration subject))
       (information_value(Observation.information_of snapshot subject(Observation.observe_subject snapshot s subject)))
     |_=>dependency_summary snapshot s occurrence parent subject end]
@@ -181,6 +193,7 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    [Node(part parent("inspection/"++UX.subject_name subject))"field-specification" ""Roles.Section(ActivityRow InspectionRow)
     (field_specification snapshot s occurrence parent subject)]
  |Observation.RequiredExpression,Act.RequiredValue property=>
+   if model_picker activity view then [] else
    let key:=part parent("required/"++UX.subject_name(UX.property_subject property))in
    match flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property)with
    |[]=>[]
@@ -292,19 +305,27 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
   let layer:=current_layer s occurrence in
   let view:=Observation.view_for activity(match layer with Some layer=>EditorContext.layer_focus layer|None=>None end)source_expanded in
   let query:=match layer with Some layer=>State.layer_query layer|None=>""end in
+  let picker:=model_picker activity view in
   let caption:=view_title activity view in
   let completion:=Observation.completion_for activity view in
   let header:=match completion with
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
       [navigation_header parent caption(Input.ActivityComplete occurrence)]
-    |_=>[title parent caption]end in
+    |_=>if picker then
+        [region parent "model-picker-header" "" Roles.Toolbar
+           [title parent caption;declared parent Roles.Button(secondary "close" "Close model picker" Input.ClosePanel)]]
+        else [title parent caption]end in
   let relations:=Act.activity_relations activity in
   let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in
  let actions:=((match completion with
     |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
     |_=>[]end) ++ flat_map(relation_nodes snapshot s occurrence parent query request activity view)
     (filter terminal relations))%list in
-  let body:=((if Observation.search_required activity view then
+  let search:=Observation.search_required activity view &&
+    (negb picker || negb(String.eqb query "") ||
+      existsb(fun relation=>match relation with Act.RootDecision root _=>Nat.leb 6 (List.length(UX.decision_alternatives root))
+                             |_=>false end)relations) in
+  let body:=((if search then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++
     activity_fields snapshot s occurrence parent activity++
@@ -313,7 +334,7 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
       [Node(part parent "inspection")"inspection" ""Roles.Section(ActivityRow InspectionRow)
        [declared parent Roles.Button(secondary "source"(inspection_label(UX.property_kind_of(Act.activity_property activity)))
          (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list in
-  Node parent "activity"caption Roles.Dialog(ActivityGroup e activity view behavior)
+  Node parent (if picker then "model-picker"else"activity") caption Roles.Dialog(ActivityGroup e activity view behavior)
    (if Model.modal_layer behavior then
       ([dialog_header parent header;dialog_body parent body] ++
       (match actions with []=>[]|_=>[dialog_actions parent actions]end))%list

@@ -81,7 +81,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
-      (if String.eqb effort "default"then "Configured default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
+      (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
  |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Current workspace";
    Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"Local worktree";
    Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Tencent Cloud CVM"]

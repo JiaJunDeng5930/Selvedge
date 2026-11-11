@@ -131,6 +131,121 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
 dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-source"], [data-semantic-key="workspace-settings"])::backdrop {
   background: transparent;
 }
+dialog[data-semantic-key="model-picker"] {
+  inline-size: min(21rem, calc(100dvi - 1.5rem)) !important;
+  padding: .55rem !important;
+
+  & [data-semantic-key="model-picker-header"] {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding-inline-start: .45rem !important;
+  }
+  & [data-semantic-key="model-picker-header"] h2 { font-weight: 600 !important; }
+  & [data-semantic-key="model-picker-header"] h2[tabindex="-1"] { outline: none !important; }
+  & > [role="menu"] > :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"]) {
+    padding: 0 !important;
+    gap: .4rem !important;
+  }
+  & [data-decision-field="profile"] > [data-semantic-key="object-heading"] {
+    position: absolute;
+    inline-size: 1px !important;
+    block-size: 1px !important;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  & [data-decision-field] > [data-key$="/@members"] { padding-inline: 0 !important; }
+  & [data-semantic-key="choice-row"] { min-block-size: 0 !important; padding: 0 !important; }
+  & [role="menuitemradio"] {
+    inline-size: 100% !important;
+    text-align: start;
+    touch-action: manipulation;
+  }
+  & [role="menuitemradio"][aria-checked="true"] {
+    --control-rest-color: var(--selvedge-accent) !important;
+    --control-rest-background: var(--selvedge-accent-wash) !important;
+    --control-hover-background: var(--selvedge-accent-wash) !important;
+  }
+  & button:active:not(:disabled, [aria-disabled="true"]) {
+    background: var(--selvedge-accent-wash) !important;
+  }
+  & [data-decision-field="reasoning"] {
+    border-block-start: 1px solid var(--selvedge-border);
+    padding-block-start: .45rem !important;
+  }
+  & [data-decision-field="reasoning"] > [data-key$="/@members"] {
+    display: flex !important;
+    flex-flow: row wrap !important;
+    gap: .2rem !important;
+  }
+  & [data-decision-field="reasoning"] [data-semantic-key="choice-row"] {
+    flex: 1 1 4rem !important;
+    inline-size: auto !important;
+  }
+  & [data-decision-field="reasoning"] button {
+    justify-content: center !important;
+    text-align: center;
+  }
+  & [data-decision-field="reasoning"] [data-key$="/choice-text"] {
+    &, & * { text-align: center !important; }
+  }
+  & [data-decision-field="reasoning"] [data-key$="/choice-mark"] { display: none !important; }
+}
+dialog[data-semantic-key="model-picker"]::backdrop { background: transparent; }
+button[data-semantic-key="composer/model"] { touch-action: manipulation; }
+button[data-semantic-key="composer/model"][data-native-anchor-owner] {
+  --control-rest-color: var(--selvedge-accent) !important;
+  --control-rest-background: var(--selvedge-accent-wash) !important;
+}
+
+@media (orientation: portrait) and (max-width: 600px) {
+  dialog[data-semantic-key="model-picker"][data-native-layer="menu"] {
+    position-area: none !important;
+    position-try-fallbacks: none !important;
+    inset-block: auto max(.65rem, env(safe-area-inset-bottom)) !important;
+    inset-inline: .65rem auto !important;
+    margin: 0 !important;
+    inline-size: calc(100dvi - 1.3rem) !important;
+    min-inline-size: 0 !important;
+    max-inline-size: none !important;
+    translate: none !important;
+    min-block-size: 0 !important;
+    max-block-size: min(58dvh, 28rem) !important;
+    padding: .75rem !important;
+    border-radius: 16px !important;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+
+    & input[type="search"] { font-size: 16px !important; }
+    & button { min-block-size: 44px !important; }
+    & [data-semantic-key="model-picker-header"] > button {
+      min-inline-size: 44px !important;
+    }
+    & [data-decision-field="reasoning"] > [data-key$="/@members"] {
+      flex-wrap: nowrap !important;
+      overflow-x: auto;
+      padding: .2rem !important;
+      border-radius: 999px;
+      background: var(--selvedge-inset);
+    }
+    & [data-decision-field="reasoning"] [data-semantic-key="choice-row"] {
+      flex: 1 0 3.25rem !important;
+    }
+    & [data-decision-field="reasoning"] button {
+      padding-inline: .25rem !important;
+      border-radius: 999px !important;
+    }
+    & [data-decision-field="reasoning"] [data-key$="/choice-text"] {
+      &, & * { font-size: .8125rem !important; }
+    }
+    & [data-decision-field="reasoning"] [aria-checked="true"] {
+      --control-rest-color: var(--selvedge-on-accent) !important;
+      --control-rest-background: var(--selvedge-accent) !important;
+      --control-hover-background: var(--selvedge-accent-hover) !important;
+    }
+  }
+}
 dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !important; }
 [data-semantic-key="account-sign-in"] [data-semantic-key="device-verification"] {
   color: var(--selvedge-accent);

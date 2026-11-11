@@ -150,9 +150,11 @@ export class Renderer {
   }
   fieldSession(record, event, value) {
     if (!this.callbacks.fieldSession || !record.attributes.has('value') || !('value' in record.node)) return { deliver: true };
-    const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
     let decision;
-    if (!record.fieldSession) decision = this.callbacks.fieldSession({ identity, value: record.attributes.get('value') });
+    if (!record.fieldSession) {
+      const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
+      decision = this.callbacks.fieldSession({ identity, value: record.attributes.get('value') });
+    }
     else decision = this.callbacks.fieldSession({ state: record.fieldSession, event, ...(value === undefined ? {} : { value }) });
     record.fieldSession = decision.state;
     if (decision.replace && record.node.value !== decision.state.canonical) replaceNativeValue(record.node, decision.state.canonical);
@@ -164,7 +166,8 @@ export class Renderer {
     // The document projection has already resolved appearance. Upstream token
     // aliases use :root, including content physically mounted through portals.
     if (!this.isolated && next.get('data-layout') === 'workspace' && next.has('data-theme')) {
-      this.root.ownerDocument.documentElement.setAttribute('data-theme', next.get('data-theme'));
+      const root = this.root.ownerDocument.documentElement;
+      if (root.getAttribute('data-theme') !== next.get('data-theme')) root.setAttribute('data-theme', next.get('data-theme'));
     }
     for (const name of record.attributes.keys()) {
       if (!next.has(name)) {
@@ -174,27 +177,32 @@ export class Renderer {
     }
     for (const [name, value] of next) {
       if (name === 'value' && 'value' in node) {
-        if (node.localName === 'option') node.setAttribute(name, value);
+        if (node.localName === 'option' && node.getAttribute(name) !== value) node.setAttribute(name, value);
         else if (this.isolated && node.value !== value) node.value = value;
       } else if (booleanProperties.has(name)) {
         const enabled = value !== 'false';
-        node[name] = enabled;
-        if (enabled) node.setAttribute(name, ''); else node.removeAttribute(name);
+        if (node[name] !== enabled) node[name] = enabled;
+        if (node.hasAttribute(name) !== enabled) {
+          if (enabled) node.setAttribute(name, ''); else node.removeAttribute(name);
+        }
       } else if (record.attributes.get(name) !== value && node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
-    const styleSource = stringifyJson(styles);
+    const previousStyles = record.styles;
     // Rebuild from an empty declaration list so CSS shorthand and logical properties keep source order.
-    if (record.styleSource !== styleSource) {
+    if (styles.length !== previousStyles.length ||
+        styles.some(({ name, value }, index) => name !== previousStyles[index].name || value !== previousStyles[index].value)) {
       node.style.cssText = '';
       for (const { name, value } of styles) node.style.setProperty(name, value);
-      record.styleSource = styleSource;
+      record.styles = styles;
     }
     record.attributes = next;
     if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
       const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
       const initialize = !record.fieldSession || record.fieldSession.identity !== identity;
-      if (record.fieldSession) this.fieldSession(record, 'rebind', identity);
-      this.fieldSession(record, 'synchronize', next.get('value'));
+      // Equal bindings and values are identity transitions in FieldSession.
+      if (initialize && record.fieldSession) this.fieldSession(record, 'rebind', identity);
+      if (!record.fieldSession || record.fieldSession.canonical !== next.get('value'))
+        this.fieldSession(record, 'synchronize', next.get('value'));
       if (initialize && record.metadata.selection) {
         const { start, end, direction } = record.metadata.selection;
         applyByteSelection(node, start, end, direction, false);
@@ -295,8 +303,12 @@ export class Renderer {
     this.targets.clear();
     const used = new Set();
     const portals = [];
-    const create = (value, path) => {
-      if (value.kind === 'text') return this.root.ownerDocument.createTextNode(value.value);
+    const create = (value, path, previous) => {
+      if (value.kind === 'text') {
+        if (previous?.nodeType !== 3) return this.root.ownerDocument.createTextNode(value.value);
+        if (previous.data !== value.value) previous.data = value.value;
+        return previous;
+      }
       if (value.kind === 'portal') { portals.push({ value, path }); return null; }
       const key = value.key || path;
       used.add(key);
@@ -309,7 +321,7 @@ export class Renderer {
         const node = svgTags.has(tag)
           ? this.root.ownerDocument.createElementNS(svgNamespace, tag)
           : this.root.ownerDocument.createElement(tag);
-        record = { key, tag, node, attributes: new Map(), styleSource: '', events: [], markdownTargets: new Map() };
+        record = { key, tag, node, attributes: new Map(), styles: [], events: [], markdownTargets: new Map() };
         this.records.set(key, record);
         if (!this.isolated) this.listeners(record);
       }
@@ -350,7 +362,8 @@ export class Renderer {
       } else {
         record.events = value.events;
         this.properties(record, value.attributes, value.styles);
-        const children = value.children.map((child, index) => create(child, `${key}/${index}`)).filter(Boolean);
+        const previousChildren = value.children.some(child => child.kind === 'text') ? Array.from(record.node.childNodes) : [];
+        const children = value.children.map((child, index) => create(child, `${key}/${index}`, previousChildren[index])).filter(Boolean);
         // Retained native editors keep their selection and composition session.
         reconcile(record.node, children);
         if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)

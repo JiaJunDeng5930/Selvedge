@@ -799,7 +799,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.TaskRow _ status caption working _,C.NavigateTo _=>
  let status_key:=(key++"/status-slot")%string in
  [navigation_title (key++"/title-slot")%string (Model.control_label action) children;
-  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption)]
+  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption);("data-task-working",flag working)]
     (glyph(task_status_symbol status working))]
  |_,_=>match meaning with
    |S.Choice _ selected _ _=>match current_area with
@@ -1038,7 +1038,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ("padding","8px 12px");("text-align","left");("border","0");("border-radius","6px");
  ("background",if selected then "var(--color-token-main-surface-tertiary)"else"transparent");("cursor","pointer")])
  [event key generation "click" "activate" Gesture.Press] empty children
- |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");
+ |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");("data-decision-field",UX.subject_name(UX.decision_subject decision));
    ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
  |S.ChoiceGroup=>element "section" ([("role","radiogroup")] ++

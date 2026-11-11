@@ -199,3 +199,9 @@ dialog[data-semantic-key="work-overview"] [data-semantic-key="work-choice"] [dat
 dialog[data-semantic-key="work-name-editor"] {
   inline-size: 24rem !important;
 }
+[data-workspace-sidebar] [data-navigation-slot="status"][data-task-working="true"] {
+  color: var(--selvedge-accent) !important;
+}
+[data-task-status="frozen"] [data-navigation-slot="status"] {
+  color: var(--selvedge-warning) !important;
+}

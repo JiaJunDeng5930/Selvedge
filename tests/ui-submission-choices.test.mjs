@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { browserFixture } from './fixtures/browser.mjs';
 
-test('the ordinary Task model picker omits the hidden ChatGPT auto-review model', async t => {
+test('the Task model picker offers supported effort on desktop and portrait screens', async t => {
   const fixture = await browserFixture(t, { images: true });
   const { page, upstream } = fixture;
   const respond = upstream.options.respond;
   const models = [
     { slug: 'image-fixture', display_name: 'Image fixture', visibility: 'list',
       context_window: 128000, effective_context_window_percent: 100,
-      default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium' }] },
+      default_reasoning_level: 'medium',
+      supported_reasoning_levels: ['minimal', 'low', 'medium', 'high', 'xhigh'].map(effort => ({ effort })) },
     { slug: 'codex-auto-review', display_name: 'Codex auto review', visibility: 'list',
       context_window: 128000, effective_context_window_percent: 100,
       default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium' }] },
@@ -37,11 +38,49 @@ test('the ordinary Task model picker omits the hidden ChatGPT auto-review model'
 
   await page.reload();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
-  await page.getByRole('button', { name: /^Model:/ }).click();
-  const profileNames = await page.getByRole('menuitemradio').evaluateAll(options =>
+  const trigger = page.getByRole('button', { name: /^Model:/ });
+  const picker = page.getByRole('dialog', { name: 'Model', exact: true });
+  const draft = page.getByRole('combobox', { name: 'Task', exact: true });
+  await draft.fill('Keep this draft while choosing a model.');
+  await trigger.click();
+  const profileNames = await picker.getByRole('menuitemradio').evaluateAll(options =>
     options.map(option => option.getAttribute('aria-label')));
   assert.ok(profileNames.includes('image-fixture'),
     'The ordinary Task picker should still offer a visible ChatGPT model');
   assert.ok(!profileNames.includes('codex-auto-review'),
     'The hidden ChatGPT auto-review model must not be offered as a Task model');
+
+  await picker.getByRole('menuitemradio', { name: 'image-fixture', exact: true }).click();
+  await picker.waitFor({ state: 'hidden' });
+  await trigger.click();
+  const effort = picker.getByRole('radiogroup', { name: 'Reasoning effort', exact: true });
+  const selected = effort.getByRole('menuitemradio', { checked: true });
+  const high = effort.getByRole('menuitemradio', { name: 'high', exact: true });
+  await selected.waitFor();
+  assert.equal(await effort.getByRole('menuitemradio').count(), 6);
+  assert.equal(await high.getAttribute('aria-checked'), 'false');
+  const desktop = await picker.boundingBox();
+  assert.ok(desktop && desktop.width < 420, 'The desktop picker remains a compact menu');
+
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 760 });
+    await page.waitForFunction(() => {
+      const box = document.querySelector('dialog[aria-label="Model"][open]')?.getBoundingClientRect();
+      return box && box.width > innerWidth - 36 && box.left >= 0 &&
+        box.right <= innerWidth + 1 && innerHeight - box.bottom < 24;
+    });
+    const hitArea = await high.boundingBox();
+    assert.ok(hitArea && hitArea.width >= 44 && hitArea.height >= 44);
+  }
+  const colors = await Promise.all([selected, high].map(choice =>
+    choice.evaluate(node => getComputedStyle(node).backgroundColor)));
+  assert.notEqual(colors[0], colors[1], 'The selected effort has a visible color cue');
+  await high.click();
+  await picker.waitFor({ state: 'hidden' });
+  assert.equal(await draft.inputValue(), 'Keep this draft while choosing a model.');
+  await trigger.click();
+  await high.waitFor();
+  assert.equal(await high.getAttribute('aria-checked'), 'true');
+  await picker.getByRole('button', { name: 'Close model picker' }).click();
+  await picker.waitFor({ state: 'hidden' });
 });
