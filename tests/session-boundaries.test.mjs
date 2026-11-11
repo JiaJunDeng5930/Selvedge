@@ -37,7 +37,8 @@ async function eventually(observe, message) {
 test('a relay reconnect cannot receive an old in-flight reply or replay its command', async t => {
   const directory = await home(t), hostId = randomUUID(), token = randomBytes(32).toString('base64url');
   const service = await Service.open({ home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }) });
+    config: validateConfig({ ...defaultConfig, chatgpt: false,
+      profiles: { demo: { provider: 'echo', model: 'echo' } } }) });
   t.after(() => service.close());
   assert.equal((await service.command({ op: 'remote_enable' })).reply.ok, true);
   const controller_id = 'a'.repeat(64);
@@ -292,7 +293,8 @@ test('explicit Web Interrupt cancels its durable remote request without repostin
 test('one browser owns one live voice session and can reconnect after disconnect', async t => {
   const directory = await home(t), requests = [], stopped = [];
   const service = await Service.open({ home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }),
+    config: validateConfig({ ...defaultConfig, chatgpt: false,
+      profiles: { demo: { provider: 'echo', model: 'echo' } } }),
     audioFactory: () => ({
       async createSession(request) { requests.push(request); return { session_id: request.id, answer_sdp: 'fixture answer' }; },
       async appendContext() {},
@@ -387,9 +389,7 @@ test('CLI login preserves private credentials on bad signatures and service refr
   assert.equal(login.code, 0, login.stderr);
   const filename = path.join(upstream.directory, upstream.profile.auth_file);
   const saved = await readFile(filename, 'utf8');
-  for (const name of [filename, `${filename}.registration.json`, path.join(upstream.directory, 'auth/chatgpt-host.json')]) {
-    assert.equal((await stat(name)).mode & 0o477, 0o400);
-  }
+  assert.equal((await stat(filename)).mode & 0o477, 0o400);
   upstream.options.privateKey = (await generateKeyPair('RS256')).privateKey;
   const refused = await loginThroughCli(upstream.directory, upstream.address);
   assert.equal(refused.opened, true);
@@ -398,9 +398,7 @@ test('CLI login preserves private credentials on bad signatures and service refr
   assert.equal(await readFile(filename, 'utf8'), saved);
   const attempts = upstream.oauthRequests.filter(entry => entry.url.startsWith('/authorize?'));
   assert.deepEqual(attempts.map(entry => new URL(entry.url, upstream.address).searchParams.get('client_id')),
-    ['dynamic_agent_client', 'fixture-issued-client']);
-  const hostIds = attempts.map(entry => new URL(entry.url, upstream.address).searchParams.get('ext_agent_host_id'));
-  assert.equal(hostIds[0], hostIds[1]);
+    ['app_EMoamEEZ73f0CkXaXp7hrann', 'app_EMoamEEZ73f0CkXaXp7hrann']);
   delete upstream.options.privateKey;
   const running = await startServer({ home: upstream.directory, cwd: upstream.directory, config });
   t.after(() => running.close());
@@ -421,7 +419,7 @@ test('CLI login preserves private credentials on bad signatures and service refr
   const firstAuthorization = `Bearer ${JSON.parse(await readFile(filename, 'utf8')).access_token}`;
   const rejectedRequests = [];
   upstream.options.respond = (entry, response) => {
-    if (entry.url.endsWith('/models')) return reply(response, catalog);
+    if (new URL(entry.url, upstream.address).pathname === '/v1/models') return reply(response, catalog);
     if (entry.body?.text?.format?.name === 'task_title') {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       return response.end(`data: ${JSON.stringify({ type: 'response.completed', response: {

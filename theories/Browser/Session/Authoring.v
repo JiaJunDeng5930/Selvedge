@@ -372,6 +372,13 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
    else Draft.Rejected(Draft.revision captured)diagnostic in
  let state:=if current then SS.save_draft(Draft.with_feedback feedback captured)state else state in
  fail_diagnostic state diagnostic.
+Definition model_picker_layer (layer:SS.layer) :=
+ match SS.layer_panel layer with
+ |SS.PropertyPanel owner request=>match EO.request_kind owner request,SS.layer_decision_field layer with
+   |Some EM.ModelProperty,None|Some EM.ModelProperty,Some Fields.ModelProfile=>
+      negb(SS.layer_source_expanded layer)
+   |_,_=>false end
+ |_=>false end.
 Definition complete snapshot (executed:SS.public_command) purpose outcome state:=match purpose with
 |SS.DraftSubmission captured navigation layer trigger=>Some(complete_draft snapshot captured navigation layer trigger outcome state)
 |SS.LiveConfiguration captured occurrence remember=>
@@ -389,7 +396,13 @@ Definition complete snapshot (executed:SS.public_command) purpose outcome state:
  |None=>if completion_success outcome then keep state else fail_diagnostic state(completion_error outcome)
  |Some occurrence=>match SS.layers(SS.navigation_state state)with
  |top::_=>if N.eqb occurrence(SS.layer_occurrence top)then
-   if completion_success outcome then adopt_navigation snapshot(match SS.layer_decision_field top with
+   if completion_success outcome then adopt_navigation snapshot(
+    if model_picker_layer top then
+      let navigation:=SS.navigation_state state in
+      let ready:=set SS.layer_pending(fun _=>false)top in
+      Navigation.leave_request occurrence(Draft.owner captured)
+        (SS.with_navigation(set SS.layers(fun layers=>ready::tl layers)navigation)state)
+    else match SS.layer_decision_field top with
     |Some _=>Navigation.leave_request occurrence(Draft.owner captured)state|None=>Navigation.close_panel state end)
    else let navigation:=SS.navigation_state state in
     let diagnostic:=completion_error outcome in
@@ -451,9 +464,13 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
     let navigation:=set SS.layers(fun layers=>match layers with []=>[]|layer::rest=>set SS.layer_pending(fun _=>true)(set SS.layer_feedback(fun _=>None)layer)::rest end)navigation in
     issue command(SS.LiveConfiguration current(Some occurrence)(match EM.subject_declaration(Activity.assignment_subject assignment)with Fields.ModelProfile|Fields.ReasoningEffort=>true|_=>false end))(SS.with_navigation navigation state)
   else fail state "This configuration choice has not been admitted against the current state."end
- else match EO.assignment_available snapshot state assignment with
- |EM.Unavailable reason=>fail state reason
- |EM.Available=>let updated:=apply_field snapshot owner assignment state in
+ else let updated:=apply_field snapshot owner assignment state in
+ match result_error updated with
+ |Some _=>updated
+ |None=>
+  if match SS.layers(SS.navigation_state state)with top::_=>model_picker_layer top|[]=>false end
+  then append updated(adopt_navigation snapshot(Navigation.leave_request occurrence owner(result_state updated)))
+  else
   match EditorContext.activity_completion snapshot state owner request with
   |EO.ApplyAndDismiss=>let closed:=Navigation.close_panel(result_state updated)in
     let closed:=match owner,request with

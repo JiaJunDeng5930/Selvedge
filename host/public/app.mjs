@@ -1,17 +1,20 @@
 import { boundary } from './model-boundary.mjs';
-import { browser, interaction } from './browser-model-boundary.mjs';
+import { browser, interaction, presentNative } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Renderer, filesFromEvent } from './renderer.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
+import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
+import { installModelPickerPreview } from './model-picker.mjs';
 
 const surface = document.getElementById('surface');
+installModelPickerPreview(surface);
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
@@ -19,6 +22,8 @@ const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
 const assessments = new Map();
+const candidateAssessments = new Map();
+let drainingCandidates = false;
 const resources = new Set();
 const timers = new Set();
 const readings = new Map();
@@ -31,15 +36,19 @@ const storagePolicy = interaction('interactive_storage_policy');
 const storage = new InteractiveSnapshotStorage({ ...storagePolicy,
   maximumDocuments: Number(storagePolicy.maximumDocuments instanceof JsonNumber ? storagePolicy.maximumDocuments.source : storagePolicy.maximumDocuments),
   maximumBytes: Number(storagePolicy.maximumBytes instanceof JsonNumber ? storagePolicy.maximumBytes.source : storagePolicy.maximumBytes) });
-const reveal = createLayoutRevealer(surface);
-const motion = new PresentationMotion(surface);
+const activeModal = () => renderer.modal;
+const reveal = createLayoutRevealer(surface, activeModal);
+const motion = new PresentationMotion(surface, activeModal);
 let state = interaction('initial');
 let world = null;
-let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0, displayed_generation: null };
+let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0,
+  displayed_generation: null, native_displayed_generation: null };
 let environment = null;
 let measuring = null;
 let measureAgain = false;
-let renderAfterMeasurement = false;
+let renderAfterMeasurement = null;
+let measurementFrame = null;
+let measurementTask = null;
 let connection = null;
 let disposed = false;
 let clockRefresh = null;
@@ -52,6 +61,12 @@ let suspendedFocus = null;
 let updateStorageProblem = '';
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
+
+function randomBrowserIdentifier() {
+  // getRandomValues is available on private HTTP origins as well as HTTPS.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function showUpdateStatus({ status, operations, message }) {
   let text = '';
@@ -161,7 +176,15 @@ function publicationEvent(event, values = {}) {
   return browser('publication', { ...publication, event, ...values });
 }
 function admitted(generation) {
-  return publicationEvent('admit', { receipt_generation: generation });
+  return generation !== null && generation !== undefined &&
+    publicationEvent('native_admit', { receipt_generation: generation });
+}
+function prefixAdmitted(generation) {
+  return generation !== null && generation !== undefined &&
+    publicationEvent('admit', { receipt_generation: generation });
+}
+function sameGeneration(left, right) {
+  return left === right || left instanceof JsonNumber && right instanceof JsonNumber && left.source === right.source;
 }
 function snapshot(body, expected = publication.namespace, authenticating = false, authenticationTicket) {
   const receipt = browser('snapshot', { ...publication, expected_namespace: expected, incoming_namespace: body.namespace,
@@ -174,9 +197,9 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   const firstSnapshot = world === null;
   if (body.namespace !== publication.namespace) retireDocumentViews();
   world = body.program;
-  publication = { ...publication, namespace: body.namespace, sequence: body.sequence };
+  publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot && documentRelease) restoreUpdateSession();
-  dispatch({ type: 'snapshot', world });
+  dispatch({ type: 'snapshot' });
   return true;
 }
 function retireDocumentViews() {
@@ -184,8 +207,10 @@ function retireDocumentViews() {
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   pendingHistoryLocation = null; pendingFocus = null; suspendedFocus = null; focusRequest++;
+  suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
+  candidateAssessments.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
 }
@@ -194,15 +219,17 @@ function fatal(error) {
   render();
 }
 function synchronizeNativeAuthority() {
-  const inert = !publicationEvent('ready');
+  const inert = !publicationEvent('native_ready');
+  const wasInert = surface.inert;
   if (inert && !surface.inert) {
     const node = document.activeElement;
     suspendedFocus = surface.contains(node) ? { node, attempt: focusRequest } : null;
   }
-  surface.inert = inert;
+  if (surface.inert !== inert) surface.inert = inert;
   // Native modal dialogs escape ancestor inertness; apply the same receipt to
   // those real DOM roots as well as to the ordinary document tree.
-  for (const dialog of surface.querySelectorAll('dialog')) dialog.inert = inert;
+  if (inert || wasInert)
+    for (const dialog of surface.querySelectorAll('dialog')) if (dialog.inert !== inert) dialog.inert = inert;
   if (!inert && suspendedFocus) {
     const retained = suspendedFocus; suspendedFocus = null;
     // Toggling native inertness can blur an unchanged editor. Preserve that
@@ -215,6 +242,22 @@ function synchronizeNativeAuthority() {
     }
   }
 }
+let suspendedPrefixFocus = null;
+function synchronizePrefixAuthority() {
+  if (!renderer.prefixFields.size && !suspendedPrefixFocus) return;
+  const inert = !prefixAdmitted(renderer.generation);
+  const node = document.activeElement;
+  if (inert && renderer.prefixFields.has(node) && !node.inert)
+    suspendedPrefixFocus = { node, attempt: focusRequest };
+  renderer.synchronizePrefixFields(inert);
+  if (!inert && suspendedPrefixFocus) {
+    const retained = suspendedPrefixFocus;
+    suspendedPrefixFocus = null;
+    if (retained.attempt === focusRequest && renderer.prefixFields.has(retained.node) &&
+        !retained.node.disabled && document.activeElement === document.body)
+      retained.node.focus({ preventScroll: true });
+  }
+}
 function renderRecovery(reason) {
   surface.inert = false;
   renderer.render(browser('recovery', { root_font_size_milli: physical.viewport().root_font_size_milli,
@@ -222,7 +265,10 @@ function renderRecovery(reason) {
 }
 function dispatch(input) {
   if (disposed) return;
-  const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
+  const decision = interaction('step', { state, input, world, environment, generation: publication.generation,
+    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)),
+    displayed_generation: publication.displayed_generation, native_displayed_generation: publication.native_displayed_generation,
+    semantic_lagged: publicationEvent('semantic_pending') });
   state = decision.state;
   const retainedFiles = new Set(decision.file_handles);
   for (const handle of files.keys()) if (!retainedFiles.has(handle)) files.delete(handle);
@@ -239,7 +285,8 @@ function dispatch(input) {
     announcements.setAttribute('aria-live', visible ? 'assertive' : 'polite');
   }
   publication = publicationEvent(decision.publication_event);
-  if (decision.publication_event !== 'keep') render();
+  if (decision.publication_event !== 'keep')
+    render(decision.native_stream ? 'stream' : decision.native_picker ? 'picker' : null);
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision.handled;
 }
@@ -248,7 +295,7 @@ function retryFocus() {
   if (!pending) return;
   // DEFENSE: a native focus request can outlive another focus or its journal.
   if (pending.attempt !== focusRequest || pending.namespace !== publication.namespace) { pendingFocus = null; return; }
-  if (document.visibilityState !== 'visible' || publicationEvent('pending') || !admitted(renderer.generation)) return;
+  if (document.visibilityState !== 'visible' || !admitted(renderer.generation)) return;
   const target = renderer.resolveTarget(pending.effect.key, { fallback: pending.effect.fallback, recoverMissing: true });
   if (!target) return;
   pendingFocus = null;
@@ -259,45 +306,83 @@ function refreshClock() {
   if (document.visibilityState !== 'visible') return;
   dispatch({ type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) });
 }
-function render() {
+function render(local = null) {
   if (disposed) return;
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
   if (!environment) return;
   surface.dataset.displayPending = String(publicationEvent('pending'));
-  if (measuring && renderer.document) {
-    renderAfterMeasurement = true; measureAgain = true; return;
+  const measuringDocument = measuring && renderer.document;
+  const deferRender = () => {
+    if (publication.native_displayed_generation === null) synchronizeNativeAuthority();
+    // A single transaction can still publish its local update after the
+    // measurement. Multiple transactions require the complete current view.
+    renderAfterMeasurement = { local: renderAfterMeasurement ? null : local };
+    measureAgain = true;
+  };
+  // A local update can use the last measured environment if its base is still
+  // mounted. Any older in-flight layout observation then fails its generation check.
+  if (measuringDocument && (!local || renderAfterMeasurement ||
+      !sameGeneration(renderer.generation, publication.native_displayed_generation))) {
+    deferRender(); return;
   }
-  const plan = interaction('observe', { state, world, environment, generation: publication.generation,
-    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
-  surface.dataset.displayPending = String(publicationEvent('pending'));
-  if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
-    refreshPhysical().catch(fatal); return;
+  const generation = publication.generation;
+  const materialize = ops => presentNative(local, state, world, environment, generation, ops);
+  const directlyPresented = local === 'picker' ? renderer.renderPicker(materialize, generation)
+    : local === 'stream' && renderer.renderStream(materialize, generation);
+  const streamed = local === 'stream' && directlyPresented;
+  if (!directlyPresented) {
+    if (measuringDocument) { deferRender(); return; }
+    const plan = interaction('observe', { state, world, environment, generation,
+      namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
+    surface.dataset.displayPending = String(publicationEvent('pending'));
+    if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
+      refreshPhysical().catch(fatal); return;
+    }
+    renderer.render(plan, generation);
   }
-  renderer.render(plan, publication.generation);
   surface.dataset.sourcesFresh = String(sourceFresh);
-  physical.refresh();
-  if (!plan.measurement_pending) {
-    publication = publicationEvent('document', { receipt_generation: publication.generation });
-    synchronizeNativeAuthority();
-    const generation = publication.generation;
-    renderer.whenCaughtUp().then(caughtUp => {
+  if (!streamed) physical.refresh();
+  if (!renderer.document.measurement_pending) {
+    publication = publicationEvent('document', { receipt_generation: generation });
+    if (!streamed) {
+      synchronizeNativeAuthority();
+      retryFocus();
+    }
+    const publishPrefix = caughtUp => {
+      // A newer DOM publication also waits for its own parser receipt.
       if (!caughtUp || disposed) return;
+      if (!sameGeneration(generation, publication.generation)) return;
       publication = publicationEvent('publish', { receipt_generation: generation });
+      synchronizePrefixAuthority();
       // The receipt changes input authority, not the compiled state/world/environment.
       // Keep the same DOM and finish the native work that was waiting for publication.
       surface.dataset.displayPending = String(publicationEvent('pending'));
-      synchronizeNativeAuthority();
-      if (publicationEvent('ready')) {
+      if (!streamed && publicationEvent('ready')) {
         renderer.refreshNativeTargets();
-        // The published dialog is no longer inert, so its selected row can be revealed.
+        // Document-derived targets are available after their parsers catch up.
         reveal();
       }
       retryHistoryLocation(); retryFocus();
-    }).catch(fatal);
+    };
+    if (renderer.isCaughtUp()) publishPrefix(true);
+    else {
+      synchronizePrefixAuthority();
+      renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
+    }
   }
-  reveal(); motion.refresh(); layoutReading(); retryHistoryLocation();
-  refreshPhysical().catch(fatal);
+  if (!streamed) { reveal(); motion.refresh(); layoutReading(); retryHistoryLocation(); }
+}
+function schedulePhysicalRefresh() {
+  if (disposed || measurementFrame !== null || measurementTask !== null) return;
+  // Publish the current document before measuring its new physical layout.
+  measurementFrame = requestAnimationFrame(() => {
+    measurementFrame = null;
+    measurementTask = setTimeout(() => {
+      measurementTask = null;
+      refreshPhysical().catch(fatal);
+    }, 0);
+  });
 }
 async function refreshPhysical() {
   if (measuring) { measureAgain = true; return measuring; }
@@ -326,19 +411,26 @@ async function refreshPhysical() {
       if (receipt.stale) { measureAgain = true; continue; }
       const next = receipt.environment;
       const changed = stringifyJson(next) !== stringifyJson(environment);
-      environment = next;
       for (const update of browser('responsive_rows', { rows: observations.responsive_rows })) {
         const row = renderer.target(update.key);
-        row.style.setProperty('flex-direction', update.direction);
-        row.dataset.nativeRowDirection = update.direction;
-        if (update.supporting_form !== undefined) row.setAttribute('data-supporting-form', update.supporting_form);
+        if (row.style.getPropertyValue('flex-direction') !== update.direction) row.style.setProperty('flex-direction', update.direction);
+        if (row.dataset.nativeRowDirection !== update.direction) row.dataset.nativeRowDirection = update.direction;
+        if (update.supporting_form !== undefined && row.dataset.supportingForm !== update.supporting_form)
+          row.dataset.supportingForm = update.supporting_form;
       }
-      if (changed) dispatch({ type: 'environment_observed' });
+      if (changed) {
+        environment = next;
+        dispatch({ type: 'environment_observed' });
+      }
     } while (measureAgain && !disposed);
   })();
   try { await measuring; } finally {
     measuring = null;
-    if (renderAfterMeasurement && !disposed) { renderAfterMeasurement = false; render(); }
+    if (renderAfterMeasurement && !disposed) {
+      const pending = renderAfterMeasurement;
+      renderAfterMeasurement = null;
+      render(pending.local);
+    }
   }
 }
 function observedSelection(node, composing = false) {
@@ -348,7 +440,7 @@ function observedSelection(node, composing = false) {
 }
 function registerFiles(action, selected) {
   for (const file of selected) {
-    const handle = crypto.randomUUID(); files.set(handle, file);
+    const handle = randomBrowserIdentifier(); files.set(handle, file);
     dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
@@ -369,21 +461,21 @@ const renderer = new Renderer(surface, {
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
-    dispatch({ ...binding.action, gesture: 'selection',
+    dispatch({ ...renderer.input(record, binding.action), gesture: 'selection',
       value: { ...observedSelection(node, renderer.composing.has(node)), refocus: true } });
   },
   composition(event, key, node) {
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (binding && record.metadata.selection_enabled && admitted(record.generation))
-      dispatch({ ...binding.action, gesture: 'selection', value: observedSelection(node, true) });
+      dispatch({ ...renderer.input(record, binding.action), gesture: 'selection', value: observedSelection(node, true) });
   },
   blur(event, key, node) {
     if (event.target !== node || typeof node.selectionStart !== 'number') return;
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
-    dispatch({ ...binding.action, gesture: 'selection',
+    dispatch({ ...renderer.input(record, binding.action), gesture: 'selection',
       value: { ...observedSelection(node, renderer.composing.has(node)), blur: true } });
   },
   event(binding, event, key, node, generation) {
@@ -403,9 +495,14 @@ const renderer = new Renderer(surface, {
               record.fieldSession.canonical !== session.canonical || node.value !== value ||
               !admitted(record.generation)) return;
           const current = record.events.find(candidate => candidate.kind === 'value' && candidate.event === binding.event);
-          if (current) renderer.callbacks.event(current, event, key, node, record.generation);
+          if (current) renderer.callbacks.event({ ...current, action: renderer.input(record, current.action) },
+            event, key, node, record.generation);
         };
       }
+      return;
+    }
+    if (node.dataset.prefixField === 'true' && !prefixAdmitted(generation)) {
+      renderer.restorePrefixField(key);
       return;
     }
     if (binding.kind === 'files') {
@@ -429,7 +526,8 @@ const renderer = new Renderer(surface, {
     if (record.metadata.key_input && keyboard.unmodified) {
       const input = { op: 'element', key, gesture: 'key', generation: record.generation, value: { key: event.key } };
       if (interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
-          namespace: publication.namespace, displayed_generation: publication.displayed_generation, now: BigInt(Math.floor(Date.now() / 1000)) })) {
+          namespace: publication.namespace, displayed_generation: publication.displayed_generation,
+          native_displayed_generation: publication.native_displayed_generation, now: BigInt(Math.floor(Date.now() / 1000)) })) {
         event.preventDefault(); dispatch(input); return;
       }
     }
@@ -511,7 +609,7 @@ const renderer = new Renderer(surface, {
   },
 });
 
-const physical = createPhysicalMeasurer({ surface, onChange: () => refreshPhysical().catch(fatal) });
+const physical = createPhysicalMeasurer({ surface, onChange: schedulePhysicalRefresh });
 
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
@@ -533,6 +631,7 @@ function renderCode(entry, decision) {
       if (!physical.renderer || physical.renderer.root !== target) {
         physical.renderer?.dispose();
         physical.renderer = new Renderer(target, { event(binding, event) {
+          if (!prefixAdmitted(renderer.generation)) return;
           event.preventDefault(); codeStep(entry, binding.action.input);
         } });
       }
@@ -703,7 +802,8 @@ function dismiss(event) {
     const box = modal.node.getBoundingClientRect();
     return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
   })())) {
-    event.preventDefault(); dispatch({ ...dismissal.action, value: event.type === 'keydown' ? 'escape' : 'outside' });
+    event.preventDefault();
+    dispatch({ ...renderer.input(modal, dismissal.action), value: event.type === 'keydown' ? 'escape' : 'outside' });
   }
 }
 document.addEventListener('keydown', dismiss);
@@ -733,12 +833,26 @@ const audio = new AudioRuntime({
   field(editor) {
     return Array.from(renderer.records.values()).find(record => record.metadata.editor && ticketKey(record.metadata.editor) === ticketKey(editor))?.node;
   },
-  browserId: crypto.randomUUID(), limits: boundary('audio.contract', {}),
-  loginTarget(url) {
+  browserId: randomBrowserIdentifier(), limits: boundary('audio.contract', {}),
+});
+const chatgptLogin = new ChatGPTLogin({
+  request, emit: dispatch,
+  loginTarget(method, url) {
     const parsed = new URL(url);
-    return boundary('audio.login_target', { url: parsed.href, protocol: parsed.protocol,
+    const operation = method === 'device_code' ? 'audio.device_login_target' : 'audio.login_target';
+    return boundary(operation, { url: parsed.href, protocol: parsed.protocol,
       hostname: parsed.hostname, port: parsed.port, pathname: parsed.pathname,
-      username: parsed.username, password: parsed.password }).url;
+      username: parsed.username, password: parsed.password, search: parsed.search, hash: parsed.hash }).url;
+  },
+  selectCode(key) {
+    const node = renderer.resolveTarget(key);
+    const selection = document.getSelection();
+    // DEFENSE: The dialog can be dismissed or its document replaced while clipboard permission is pending.
+    if (!node || !selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
   },
 });
 
@@ -747,6 +861,7 @@ async function authenticate(effect) {
   const controller = new AbortController();
   connection = controller;
   let ready = false;
+  let streamNotices = [];
   try {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
@@ -768,8 +883,23 @@ async function authenticate(effect) {
           showUpdateStatus(value);
           return false;
         }
-        dispatch({ type: 'stream', value });
+        streamNotices.push(value);
         return true;
+      },
+      async publish() {
+        const notices = streamNotices;
+        streamNotices = [];
+        const namespace = publication.namespace;
+        let started = performance.now();
+        for (const value of notices) {
+          if (performance.now() - started >= 8) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+            started = performance.now();
+          }
+          if (disposed || connection !== controller || controller.signal.aborted ||
+              publication.namespace !== namespace) return;
+          dispatch({ type: 'stream', value });
+        }
       },
       current: () => !disposed && connection === controller && !controller.signal.aborted,
       namespace: () => publication.namespace,
@@ -817,7 +947,10 @@ surface.addEventListener('drop', event => {
   const target = event.target.closest?.('[data-drop-target]');
   if (!source || !target || !admitted(source.generation)) return;
   const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
-  if (placement) { event.preventDefault(); dispatch({ ...placement.action, value: placement.target }); }
+  if (placement) {
+    event.preventDefault();
+    dispatch({ ...placement.action, generation: source.generation, value: placement.target });
+  }
 });
 surface.addEventListener('dragend', () => { draggedCard = null; });
 
@@ -846,12 +979,39 @@ async function settled(type, ticket, work) {
     if (publication.namespace === namespace) dispatch({ type, ticket, ok: false, error: error.message });
   }
 }
-async function assessCommand(effect) {
+function assessCommand(effect) {
   const namespace = publication.namespace;
   const key = ticketKey(effect.request.editor);
   assessments.get(key)?.abort();
   const controller = new AbortController();
   assessments.set(key, controller);
+  const job = { effect, namespace, key, controller };
+  if (effect.request.editor.kind !== 'candidate') return performAssessment(job);
+  candidateAssessments.set(key, job);
+  if (!drainingCandidates) return assessCandidates();
+}
+async function assessCandidates() {
+  drainingCandidates = true;
+  try {
+    // The service already serializes these checks. Keep only one candidate
+    // request in flight so the browser can fetch a state snapshot for its SSE
+    // subscription while the chooser evaluates the rest of the catalog.
+    while (!disposed && candidateAssessments.size) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const next = candidateAssessments.entries().next();
+      if (disposed || next.done) return;
+      const [key, job] = next.value;
+      candidateAssessments.delete(key);
+      // A queued check belongs to the snapshot against which it was issued.
+      if (!sameGeneration(job.effect.request.sequence, publication.sequence)) {
+        if (assessments.get(key) === job.controller) assessments.delete(key);
+        continue;
+      }
+      await performAssessment(job);
+    }
+  } finally { drainingCandidates = false; }
+}
+async function performAssessment({ effect, namespace, key, controller }) {
   try {
     const value = await post('/api/assess', effect.request, controller.signal);
     if (publication.namespace === namespace) dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
@@ -971,7 +1131,9 @@ async function execute(effect) {
     }
     case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
     case 'clipboard': await navigator.clipboard.writeText(effect.text); return;
-    case 'audio_login': return audio.execute('BeginAudioLogin', effect);
+    case 'audio_login': return chatgptLogin.start(integral(effect.ticket), effect.method);
+    case 'release_audio_login': return chatgptLogin.release(integral(effect.ticket));
+    case 'copy_audio_login_code': return chatgptLogin.copy(integral(effect.ticket), effect.key, effect.code);
     case 'audio_capabilities': return audio.execute('LoadCapabilities', effect);
     case 'record_audio': return audio.execute('Record', { ...effect, ticket: integral(effect.ticket), owner: effect.editor });
     case 'transcribe_audio': return audio.execute('Transcribe', { ...effect, ticket: integral(effect.ticket) });
@@ -1034,33 +1196,38 @@ const selections = new WeakMap();
 function selectionChanged() {
   const node = document.activeElement;
   if (!node || typeof node.selectionStart !== 'number') return;
-  const record = Array.from(renderer.records.values()).find(record => record.node === node);
+  const record = renderer.records.get(node.dataset.key);
+  if (record?.node !== node) return;
   const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
   if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
   const selection = observedSelection(node, renderer.composing.has(node));
   const observed = stringifyJson(selection);
   if (selections.get(node) === observed) return;
   selections.set(node, observed);
-  dispatch({ ...binding.action, gesture: 'selection', value: selection });
+  dispatch({ ...renderer.input(record, binding.action), gesture: 'selection', value: selection });
 }
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
+  candidateAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   pendingHistoryLocation = null;
   window.removeEventListener('pointerup', endReadingPointer, true);
   window.removeEventListener('pointercancel', endReadingPointer, true);
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+  if (measurementFrame !== null) cancelAnimationFrame(measurementFrame);
+  if (measurementTask !== null) clearTimeout(measurementTask);
 }, { once: true });
-window.addEventListener('focus', () => audio.focus());
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
+window.addEventListener('focus', () => chatgptLogin.focus());
+for (const preference of ['(prefers-color-scheme: dark)', '(prefers-reduced-motion: reduce)'])
+  matchMedia(preference).addEventListener('change', schedulePhysicalRefresh);
 clockRefresh = setInterval(refreshClock, 60_000);
 document.addEventListener('visibilitychange', () => { refreshClock(); retryFocus(); });
 refreshClock();

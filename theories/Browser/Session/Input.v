@@ -84,6 +84,7 @@ Definition acknowledges_feedback (incoming:input) := match incoming with
  |Services.ConfigurationLoaded _ _|Services.ConfigurationWritten _ _=>false
  |_=>true end
 |SpeechInput speech=>match speech with
+ |Speech.LoginBrowserOpened _|Speech.LoginCodeReceived _ _ _ _|Speech.LoginFinished _ _|Speech.LoginCopyFinished _ _
  |Speech.Refresh|Speech.Capabilities _|Speech.CapabilitiesFailed _
  |Speech.Captured _ _ _|Speech.Transcribed _ _|Speech.TaskCreated _ _
  |Speech.VoiceReady _|Speech.LiveText _ _|Speech.Failed _ _|Speech.Ended _ _

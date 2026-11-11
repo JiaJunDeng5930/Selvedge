@@ -214,7 +214,7 @@ Definition interactive_editor {A} env key label generation (component:option IP.
    then native_string (IP.editing_value value)
    else match IP.editing_raw value with Some raw=>raw|None=>native_string (IP.editing_value value) end in
  let enabled:=IP.editing_enabled value in
- let attrs:=attrs ++ [("aria-label",label)] ++ disabled enabled ++
+ let attrs:=attrs ++ [("aria-label",label);("data-prefix-field","true")] ++ disabled enabled ++
  (match IP.editing_validation value with Some _=>[("aria-invalid","true");("aria-describedby",String.append key "/validation")]|None=>[] end) in
  let events name kind:=match IP.editing_receive value with None=>[]|Some _=>[event key generation name kind Gesture.Change] end in
  let schema:=Local.shape_json(IP.editing_shape value) in
@@ -799,7 +799,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.TaskRow _ status caption working _,C.NavigateTo _=>
  let status_key:=(key++"/status-slot")%string in
  [navigation_title (key++"/title-slot")%string (Model.control_label action) children;
-  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption)]
+  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption);("data-task-working",flag working)]
     (glyph(task_status_symbol status working))]
  |_,_=>match meaning with
    |S.Choice _ selected _ _=>match current_area with
@@ -829,6 +829,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.Fact text=>element "span"
  [] [] empty
  [DOM.Text(if String.eqb text ""then "—"else text)]
+ |S.ExternalLink url=>element "a"
+ [("href",url);("target","_blank");("rel","noopener noreferrer")] [] empty [DOM.Text label]
  |S.ActionFeedback _ _ message=>element "p"
  (match role with Roles.Alert=>[("aria-live","assertive")]|_=>[("role","status")]end)
  [] empty [DOM.Text message]
@@ -901,6 +903,23 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [event key generation "change" "value" Gesture.Change] empty (choices key (match selected with None=>""|Some n=>text_number n end) values))
  |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
  |S.SearchChoices query _=>element "input" [("type","search");("value",query);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
+ |S.EffortRange options=>
+ let visible:=S.visible_efforts options in
+ let labels:=map(fun entry=>Model.control_label(snd entry))visible in
+ let last:=Nat.pred(List.length visible)in
+ let selected:=Nat.min last(fold_right(fun (entry:bool*Model.control A) index=>
+   if fst entry then 0%nat else Nat.succ index)0%nat visible)in
+ let show_index:=fun index=>text_number(N.of_nat index)in
+ DOM.Element (key++"/track")%string "div" [("data-model-effort-track","")]
+  [("--effort-index",show_index selected);("--effort-last",show_index(Nat.max 1 last))] [] empty
+  [DOM.Element (key++"/marks")%string "div" [("data-effort-marks","");("aria-hidden","true")] [] [] empty
+     (map(fun _=>DOM.Element "" "span" [] [] [] empty [])labels);
+   element "input"
+     ([("type","range");("min","0");("max",show_index last);("step","1");("value",show_index selected);
+       ("data-model-effort-range","");("aria-valuetext",nth selected labels "");
+       ("data-effort-labels",TextJson.render_json(JArray(map JString labels)))]++
+      disabled(Nat.ltb 0 last))
+     (if Nat.ltb 0 last then [event key generation "change" "value" Gesture.Change] else []) empty []]
  |S.ReceiveFile _ enabled _=>
  (* The native chooser remains the real input target. A label presents its
     paperclip face without exposing the browser's filename widget. *)
@@ -1036,7 +1055,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ("padding","8px 12px");("text-align","left");("border","0");("border-radius","6px");
  ("background",if selected then "var(--color-token-main-surface-tertiary)"else"transparent");("cursor","pointer")])
  [event key generation "click" "activate" Gesture.Press] empty children
- |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");
+ |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");("data-decision-field",UX.subject_name(UX.decision_subject decision));
    ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
  |S.ChoiceGroup=>element "section" ([("role","radiogroup")] ++
@@ -1114,6 +1133,16 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
     (source_context source (S.node_meaning value))
     (match S.node_meaning value with S.PageContext current=>current|_=>view end)
     (component_context component (S.node_meaning value))) (S.node_children value)).
+Fixpoint compile_regions {A} (selected : S.node A -> bool) (describe:A->C.purpose)
+ env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : list DOM.node :=
+ if selected value then
+  [compile_node describe env generation inherited_area activity source view component value]
+ else flat_map (compile_regions selected describe env generation
+    (area_for inherited_area (S.node_role value) (S.node_meaning value))
+    (match S.node_meaning value with S.ActivityGroup _ _ _ _|S.ActivityRow _=>true|_=>activity end)
+    (source_context source (S.node_meaning value))
+    (match S.node_meaning value with S.PageContext current=>current|_=>view end)
+    (component_context component (S.node_meaning value))) (S.node_children value).
 Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  let current_view:=match S.node_meaning value with S.PageContext current=>current|_=>view end in
  let children:=flat_map (target_updates current_view) (S.node_children value) in

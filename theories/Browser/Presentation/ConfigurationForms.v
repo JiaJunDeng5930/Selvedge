@@ -182,8 +182,7 @@ Definition account_form parent saved source view (enabled : bool) : list (node I
           (if enabled then Available else Unavailable "Finish saving first"))) []] in
  let edit fields key label parse := optional_field fields key label source enabled parse (assign path) in
  ([mode] ++ if active then
-   [description parent "account-sign-in" "To connect your account, run the login command on the machine running Selvedge."]
-   ++ optional_details parent "connection-overrides" "Connection overrides" view source
+   optional_details parent "connection-overrides" "Connection overrides" view source
       ["endpoint"; "issuer"; "auth_file"; "timeout_ms"] enabled (fun fields =>
       [description fields "override-hint" "Blank fields use the default connection settings.";
        edit fields "endpoint" "Responses endpoint" empty_text;

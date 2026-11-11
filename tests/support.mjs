@@ -20,11 +20,15 @@ export async function home(t) {
 }
 
 export function asyncToolResult(item) {
-  if (item.role !== 'user' || typeof item.content !== 'string') return;
+  if (item.role !== 'user') return;
+  const content = Array.isArray(item.content)
+    ? item.content.filter(part => part.type === 'input_text').map(part => part.text).join('')
+    : item.content;
+  if (typeof content !== 'string') return;
   // The JSON result is observable data; the explanatory text before it is not a protocol marker.
-  for (const match of item.content.matchAll(/\{/g)) {
+  for (const match of content.matchAll(/\{/g)) {
     let result;
-    try { result = JSON.parse(item.content.slice(match.index)); }
+    try { result = JSON.parse(content.slice(match.index)); }
     catch (error) {
       // DEFENSE: Ordinary user text and the explanatory prefix can contain braces without beginning the result JSON.
       if (error instanceof SyntaxError) continue;

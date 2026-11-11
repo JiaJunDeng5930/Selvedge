@@ -70,8 +70,16 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
     'The connected catalog must contain the dedicated profile before testing its exclusion');
   await page.reload();
   await page.getByRole('button', { name: /^Model:/ }).click();
-  assert.equal(await page.getByRole('menuitemradio', { name: 'codex-auto-review', exact: true }).count(), 0);
-  await page.getByRole('menuitemradio', { name: 'image-fixture', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Model', exact: true });
+  const summary = picker.getByRole('button', { name: /^Choose model:/ });
+  const ordinaryModel = picker.getByRole('menuitemradio', { name: 'image-fixture', exact: true });
+  await Promise.any([summary.waitFor(), ordinaryModel.waitFor()]);
+  if (await summary.isVisible()) await summary.click();
+  await ordinaryModel.waitFor();
+  assert.equal(await picker.getByRole('menuitemradio', { name: 'codex-auto-review', exact: true }).count(), 0);
+  await ordinaryModel.click();
+  await page.keyboard.press('Escape');
+  await picker.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Run the ordinary reviewed task.');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
   const ordinary = await observed(() => requests.find(request => JSON.stringify(request.input).includes('Run the ordinary reviewed task.')),

@@ -8,11 +8,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Inductive account_kind := ModelAccount | AudioAccount.
-Definition kind_of source := if boolean_field source "audio" then AudioAccount else ModelAccount.
-Definition is_audio kind := match kind with AudioAccount => true | _ => false end.
-Definition credential_format kind := match kind with
-  | ModelAccount => "selvedge-chatgpt-2" | AudioAccount => "selvedge-chatgpt-audio-1" end.
+Definition credential_format := "selvedge-chatgpt-codex-1".
 Definition same := JsonObjects.equivalent.
 Definition supplied source key fallback := if has source key then get source key else fallback.
 Definition nullable value := is_null value || nonempty value.
@@ -22,7 +18,6 @@ Definition bounded_name value := negb (String.eqb value "") && utf16_within 256 
 (* DEFENSE: Account hashes separate issuer, client and subject with NUL; admitting
    that delimiter inside a component would alias distinct identity tuples. *)
 Definition identity_text value := nonempty value && Utf8.no_nul (text value).
-Definition client value := identity_text value && negb (same value (JString "dynamic_agent_client")).
 Definition between value minimum maximum := match natural value with
   | Some n => (minimum <=? n) && (n <=? maximum) | None => false end.
 Definition at_least value minimum := match natural value with Some n => minimum <=? n | None => false end.
@@ -34,20 +29,11 @@ Definition credential_schema := field_description
   ["format";"issuer";"client_id";"subject";"account_id";"access_token";"refresh_token";
    "scope";"expires_at";"earliest_refresh_at";"name";"email"]
   ["scope";"earliest_refresh_at";"name";"email"].
-Definition registration_schema := field_description ["format";"issuer";"client_id";"subject"] ["subject"].
 Definition decode_complete description source :=
   if Nat.eqb (List.length (object_fields source)) (List.length description)
   then Schema.decode description source else None.
 Definition encoded {description} (values : Schema.fields description) := Schema.encode description values.
 
-Fixpoint split_scope (parts : list (N * string)) current acc := match parts with
-  | [] => rev (String.concat "" (rev current) :: acc)
-  | (code,bytes)::rest => if Utf8.whitespace code then
-      split_scope rest [] (String.concat "" (rev current)::acc)
-    else split_scope rest (bytes::current) acc end.
-Definition scope value := nonempty value && match Utf8.chunks (text value) with
-  | Some chunks => existsb (String.eqb "chatgpt.tokens.use.direct") (split_scope chunks [] [])
-  | None => false end.
 Definition date_valid value observation := is_text value && is_object observation && is_text (get observation "iso").
 Definition ordered_epoch observation := match parse_natural (str observation "ordered_epoch") with
   | Some value => value | None => 0 end.
@@ -61,7 +47,7 @@ Definition url_shape url := parsed url &&
 Definition secure url := String.eqb (str url "protocol") "https:" || loopback url.
 Definition responses_path url := ends (str url "pathname") "/responses" || ends (str url "pathname") "/responses/".
 Definition endpoint_binding url := loopback url ||
-  (String.eqb (str url "origin") "https://api.openai.com" && String.eqb (str url "pathname") "/v1/responses").
+  (String.eqb (str url "origin") "https://chatgpt.com" && String.eqb (str url "pathname") "/backend-api/codex/responses").
 Definition issuer_binding url := loopback url || String.eqb (str url "origin") "https://auth.openai.com".
 Definition trim_slashes value :=
   let reversed := rev (list_ascii_of_string value) in
@@ -94,7 +80,7 @@ Definition admit_connection value urls : outcome connection :=
   bind (require (url_shape endpoint_url) (invalid_url endpoint_url "endpoint")) (fun _ =>
   bind (require (secure endpoint_url) "ChatGPT endpoint requires HTTPS except on loopback") (fun _ =>
   bind (require (responses_path endpoint_url) "ChatGPT endpoint must end in /responses") (fun _ =>
-  bind (require (endpoint_binding endpoint_url) "ChatGPT requires the official public Responses endpoint") (fun _ =>
+  bind (require (endpoint_binding endpoint_url) "ChatGPT account models require the Codex Responses endpoint") (fun _ =>
   bind (require (identity_text issuer) "ChatGPT issuer must be a nonempty string without NUL") (fun _ =>
   bind (require (url_shape issuer_url) (invalid_url issuer_url "issuer")) (fun _ =>
   bind (require (secure issuer_url) "ChatGPT issuer requires HTTPS except on loopback") (fun _ =>

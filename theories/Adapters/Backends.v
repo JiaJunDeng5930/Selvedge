@@ -85,7 +85,8 @@ Definition support source :=
   else match backend profile with
   | None => err "The frozen model provider is no longer configured"
   | Some backend =>
-    if connection_live backend then success (descriptor backend)
+    if connection_live backend then success
+      (set (descriptor backend) "responses_lite" (JBool (BackendRequests.responses_lite profile)))
     else let kind := str effect "kind" in
       if String.eqb kind "board_text" then err "The offline echo profile cannot generate board descriptions; configure a model provider"
       else if String.eqb kind "approval" then err "The offline echo profile cannot review an approval; configure a model provider"
@@ -121,6 +122,7 @@ Definition call (select_history : list json -> string -> list json) operation so
   else if String.eqb operation "backend.http_headers" then http_headers source
   else if String.eqb operation "backend.http_failure" then http_failure source
   else if String.eqb operation "backend.stream_step" then BackendResponses.stream_step source
+  else if String.eqb operation "backend.codex_stream_step" then BackendResponses.codex_stream_step source
   else if String.eqb operation "backend.retry" then BackendRetry.retry source
   else if String.eqb operation "backend.support" then support source
   else if String.eqb operation "backend.echo" then echo source

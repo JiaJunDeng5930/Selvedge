@@ -6,7 +6,7 @@ import { requestJson } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { readBoundedRegularSnapshot } from './file-io.mjs';
 import { boundary } from './public/model-boundary.mjs';
-import { modelsURL } from './chatgpt-contract.mjs';
+import { modelsURL, modelCatalogURL } from './chatgpt-contract.mjs';
 
 const maximum = boundary('account.contract', {}).maximum;
 const hash = text => boundary('account.hash_prefix', { digest: createHash('sha256').update(text).digest('hex') });
@@ -48,7 +48,7 @@ export async function discoverAccount(profile, home, { signal, force = false } =
   let authorization = await authorize(profile, home, { signal: lifetime });
   const cached = await readCache(profile, home, authorization.account_id, now);
   if (boundary('account.cache_fresh', { force, cached })) return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, cached, cached_result: true, stale: false });
-  const fetchCatalog = () => requestJson(modelsURL(profile.endpoint), {
+  const fetchCatalog = () => requestJson(modelCatalogURL(profile.endpoint), {
     method: 'GET', headers: authorization.headers, signal: lifetime, maximum,
   });
   let response;
@@ -132,6 +132,5 @@ export async function withAccountModels(config, home, { signal, force = false, o
     accounts.push(summary);
     if (diagnostic !== null) onDiagnostic(diagnostic);
   }
-  // Advertised models precede the offline demo, so login changes the default picker.
   return { config: boundary('account.config_materialized', { config, generated, discoveries, configured_auth_paths: configuredAuthPaths }), accounts };
 }

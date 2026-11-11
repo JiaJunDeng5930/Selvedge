@@ -298,12 +298,13 @@ Export AudioConnection(step).
     child's new request. An empty voice conversation uses the existing idle Task
     state, while ordinary creation keeps its initial-message requirement.
 
-    Account audio capability is distinct from the Task's model profile and from
-    public inference authorization. [audio_capability_matches_account_authority]
+    Account audio capability is independent of the Task's selected model profile.
+    The installation uses the same ChatGPT account grant for its model catalog
+    and audio authority. [audio_capability_matches_account_authority]
     constrains the selected connection's actual admission. The host then awaits
     account authorization before sending media; copying a constant authorization
     flag into a later body builder would add no authority. Discovery and sign-in
-    belong to the installation's audio account. Stateless transcription authorizes
+    belong to the installation's ChatGPT account. Stateless transcription authorizes
     its selected connection for one request and has no host browser owner. These
     operations need no browser identity; local HTTP authentication still guards
     them. Browser ownership begins when a voice session is created.

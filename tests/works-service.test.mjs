@@ -28,7 +28,8 @@ test('HTTP Work creation observes its selected Project workspace before dispatch
   await mkdir(workspace);
   const guidance = path.join(workspace, 'AGENTS.override.md');
   await writeFile(guidance, 'Original Project guidance.');
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } });
   const running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => running.close());
   const post = command => postCommand(running, command);
@@ -62,7 +63,8 @@ test('HTTP Work worktree creation observes the default cwd before dispatch', asy
   await writeFile(filename, 'Committed source data.');
   await git('add', 'tracked.txt');
   await git('commit', '-m', 'Initial Work checkout');
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } });
   const options = { home: path.join(directory, 'state'), cwd: repository, config };
   const running = await startServer(options);
   t.after(() => running.close());

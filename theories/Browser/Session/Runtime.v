@@ -170,11 +170,20 @@ Definition interpret_language namespace snapshot lagged effect state:Authoring.r
         end end end end
    else Authoring.fail state "This interactive document is read only."end
  |_=>Authoring.changed state[IT.encode_effect effect]end.
-Definition apply_language namespace snapshot lagged input state:=
- let ctx:=context namespace snapshot state in
- let decision:=language_step namespace snapshot lagged input state in
+Definition apply_language_decision namespace snapshot lagged decision state:=
  fold_left(fun result effect=>Authoring.append result(interpret_language namespace snapshot lagged effect(Authoring.result_state result)))
  (IS.effects decision)(Authoring.keep(SS.with_interactive_state(IS.next_state decision)state)).
+Definition apply_language namespace snapshot lagged input state:=
+ apply_language_decision namespace snapshot lagged(language_step namespace snapshot lagged input state)state.
+Definition synchronize_language namespace snapshot lagged state:=
+ let ctx:=context namespace snapshot state in
+ let retained:=SS.document_retention state in
+ let language:=SS.interactive_state state in
+ (* A refresh can ask for the same document visibility for every authored block. *)
+ let documents:=match IS.blocks language with []=>[]|_=>Documents.visible_documents ctx retained end in
+ let visible owner:=Documents.visible_owner_in ctx owner retained documents in
+ let decision:=Language.step_visible visible IT.EnvironmentChanged language (Documents.environment ctx lagged) in
+ apply_language_decision namespace snapshot lagged decision state.
 Definition synchronize namespace snapshot lagged state:=
  let skills:=Authoring.synchronize_skills snapshot state in
  let state:=Authoring.result_state skills in
@@ -186,7 +195,7 @@ Definition synchronize namespace snapshot lagged state:=
    Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
- Authoring.append skills(Authoring.append initial(apply_language namespace snapshot lagged IT.EnvironmentChanged(Authoring.result_state initial))).
+ Authoring.append skills(Authoring.append initial(synchronize_language namespace snapshot lagged(Authoring.result_state initial))).
 Definition complete namespace snapshot lagged ticket outcome state:=
  match find(fun pending=>N.eqb ticket(SS.ticket pending))(SS.awaiting(SS.authoring_state state))with
  |None=>Authoring.keep state
@@ -326,8 +335,8 @@ Definition retire_namespace namespace state:=
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
    [] Resource.Dormant [] Configuration.initial in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
- let speech:=Speech.Speech(Speech.connections(Speech.speech_state stopped))(Speech.selected(Speech.speech_state stopped))
-   (Speech.next(Speech.speech_state stopped))Speech.Idle "" ""in
+ let closed:=Speech.close_login(Speech.speech_state stopped)in
+ let speech:=Speech.idle_with_notice ""(Speech.speech_state closed)in
  let authoring:=set SS.awaiting(fun _=>[])
    (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state))in
  let fresh:=SS.with_authoring authoring
@@ -335,7 +344,8 @@ Definition retire_namespace namespace state:=
   (SS.with_interactive_state IS.initial
   (SS.with_retention(DocumentState.Retention namespace(DocumentState.retention_next_epoch(SS.document_retention state))[][])state)))))in
  let aborts:=fold_right(fun resource effects=>match resource with Resource.Loading ticket _=>Services.AbortUpload ticket::effects|_=>effects end)[](Services.uploads previous)in
- Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++map Speech.encode_effect(Speech.speech_effects stopped)).
+ Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++
+   map Speech.encode_effect(Speech.speech_effects stopped++Speech.speech_effects closed)).
 Definition step namespace snapshot lagged input state:=
  let retired:=retire_namespace namespace state in
  let current:=Authoring.append retired(synchronize namespace snapshot lagged(Authoring.result_state retired))in

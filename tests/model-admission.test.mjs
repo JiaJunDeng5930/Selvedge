@@ -6,7 +6,8 @@ import { home } from './support.mjs';
 
 test('public command preparation enforces the task ID wire bound and rejects client workspace observations', async t => {
   const directory = await home(t);
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { demo: { provider: 'echo', model: 'echo' } } });
   const running = await startServer({ home: directory, cwd: directory, config });
   t.after(() => running.close());
   const post = async body => {

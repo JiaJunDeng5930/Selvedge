@@ -23,12 +23,12 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
     flushTimer = null;
     flushTick = null;
   };
-  const flushStreams = () => {
+  const flushStreams = async () => {
     const changed = dirty && subscribed();
     clearFlush();
     dirty = false;
     dirtyNoticeCount = 0;
-    if (changed) publish();
+    if (changed) await publish();
   };
   const queueStreams = () => {
     if (dirty) return;
@@ -69,7 +69,7 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
         const lifecycle = event.type === 'stream_start' || event.type === 'stream_end' || event.type === 'stream_cancel';
         if (lifecycle || event.type === 'stream-state' || event.type === 'commit' || event.type === 'fatal' ||
             (typeof subscribedNamespace === 'string' && typeof event.namespace === 'string' && event.namespace !== subscribedNamespace)) {
-          flushStreams();
+          if (dirty) await flushStreams();
           if (!subscribed()) return;
         }
         if (event.type === 'commit') {
@@ -82,24 +82,24 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
         else {
           if (notice(event)) queueStreams();
           if (dirty) dirtyNoticeCount++;
-          if (lifecycle || dirtyNoticeCount >= 64) flushStreams();
+          if (dirty && (lifecycle || dirtyNoticeCount >= 64)) await flushStreams();
         }
         continue;
       }
       reading ??= reader.read();
       const received = await (flushTick ? Promise.race([reading, flushTick]) : reading);
       if (!subscribed()) return;
-      if (received === flushSignal) { flushStreams(); continue; }
+      if (received === flushSignal) { await flushStreams(); continue; }
       reading = null;
       // DEFENSE: The service can stop or close its SSE response; report disconnection so the extracted model owns recovery.
-      if (received.done) { flushStreams(); throw new Error('Event connection ended'); }
+      if (received.done) { if (dirty) await flushStreams(); throw new Error('Event connection ended'); }
       frames.write(decoder.decode(received.value, { stream: true }));
     }
   } catch (error) {
     // DEFENSE: a read can reject after an accepted snapshot has replaced this
     // subscription's namespace; its failure does not describe the new source.
     if (!subscribed()) return;
-    flushStreams();
+    if (dirty) await flushStreams();
     throw error;
   } finally {
     clearFlush();

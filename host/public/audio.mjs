@@ -2,11 +2,10 @@ import { stringifyJson } from './json-tokens.mjs';
 // Physical audio resources are keyed by the extracted operation ticket. No task or
 // draft policy, account credentials, or final-history writes live in this adapter.
 export class AudioRuntime {
-  constructor({ emit, request, createTask, field, browserId, limits, loginTarget,
-    openWindow = (...args) => globalThis.open(...args), mediaDevices = globalThis.navigator?.mediaDevices,
+  constructor({ emit, request, createTask, field, browserId, limits, mediaDevices = globalThis.navigator?.mediaDevices,
     MediaRecorder = globalThis.MediaRecorder, RTCPeerConnection = globalThis.RTCPeerConnection,
     Audio = globalThis.Audio, EventSource = globalThis.EventSource, fetch = globalThis.fetch.bind(globalThis) }) {
-    Object.assign(this, { emit, request, createTask, field, browserId, limits, loginTarget, openWindow, mediaDevices, MediaRecorder,
+    Object.assign(this, { emit, request, createTask, field, browserId, limits, mediaDevices, MediaRecorder,
       RTCPeerConnection, Audio, EventSource, fetch });
     this.resources = new Map();
     this.disposed = false;
@@ -21,54 +20,17 @@ export class AudioRuntime {
       const body = await this.request('/api/audio/capabilities');
       this.observe('Capabilities', { connections: body.connections });
       if (body.connections.length === 0) this.observe('CapabilitiesFailed', {
-        reason: 'Use Sign in for voice to authorize ChatGPT dictation and voice.',
+        reason: 'Sign in with ChatGPT to use dictation and voice.',
       });
     } catch (error) {
       // DEFENSE: The authenticated capabilities request may fail after account removal or a network disconnect.
       this.observe('CapabilitiesFailed', { reason: error.message });
     }
   }
-  closeLogin() {
-    const pending = this.loginController;
-    pending?.abort();
-    this.loginController = null;
-    // DEFENSE: Detaching opener prevents closing the cross-origin authorization page; only our pending blank window remains closeable.
-    if (pending) this.loginWindow?.close();
-    this.loginWindow = null;
-  }
   accountChanged(error) {
-    this.closeLogin();
     // DEFENSE: A rejected OAuth callback reports its error here; a capabilities refresh would clear that failure notice.
     if (error) this.observe('CapabilitiesFailed', { reason: error });
     else this.observe('Refresh');
-  }
-  focus() {
-    if (!this.loginWindow) return;
-    if (this.loginWindow.closed) this.loginWindow = null;
-    this.observe('Refresh');
-  }
-  async login() {
-    if (this.loginWindow && !this.loginWindow.closed) { this.loginWindow.focus(); return; }
-    const popup = this.openWindow('about:blank', '_blank');
-    // DEFENSE: A browser's popup policy can reject the window opened by the explicit sign-in gesture.
-    if (!popup) { this.observe('CapabilitiesFailed', { reason: 'Allow the sign-in popup and choose Sign in for voice again.' }); return; }
-    popup.opener = null;
-    this.loginWindow = popup;
-    const controller = this.loginController = new AbortController();
-    try {
-      const body = await this.request('/api/audio/login', { method: 'POST',
-        headers: { 'content-type': 'application/json' }, signal: controller.signal,
-        body: JSON.stringify({}) });
-      // DEFENSE: The user can close the popup, or a trusted completion can release it, before the login URL arrives.
-      if (controller.signal.aborted || popup.closed) return;
-      popup.location.replace(this.loginTarget(body.url));
-      this.loginController = null;
-    } catch (error) {
-      // DEFENSE: Starting official authorization or validating its returned URL can fail; retain the draft and expose that error.
-      if (controller.signal.aborted) return;
-      this.closeLogin();
-      this.observe('CapabilitiesFailed', { reason: error.message });
-    }
   }
   entry(ticket) {
     const entry = { ticket, controller: new AbortController(), chunks: [], bytes: 0, inputMuted: false, outputMuted: false };
@@ -305,12 +267,10 @@ export class AudioRuntime {
   }
   dispose() {
     this.disposed = true;
-    this.closeLogin();
     for (const ticket of [...this.resources.keys()]) this.release(ticket, true);
   }
   async execute(tag, effect) {
     switch (tag) {
-      case 'BeginAudioLogin': return this.login();
       case 'LoadCapabilities': return this.capabilities();
       case 'Record': return this.record(effect);
       case 'Transcribe': return this.transcribe(effect);

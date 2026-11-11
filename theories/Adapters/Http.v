@@ -155,6 +155,12 @@ Definition nonempty_text (value : json) := is_text value && negb (String.eqb (te
 Definition permissions (body : json) :=
  match Schema.decode ModelResultDeclarations.http_permissions_fields body with
  | Some _ => true | None => false end.
+Definition chatgpt_login_body (body : json) :=
+  exact_fields [] body ||
+  (exact_fields ["method"] body && String.eqb (str body "method") "device_code") ||
+  (exact_fields ["action";"attempt_id"] body &&
+    existsb (String.eqb (str body "action")) ["status";"cancel"] &&
+    nonempty_text (get body "attempt_id") && Nat.eqb (String.length (str body "attempt_id")) 36).
 Definition body_shape (target : string) (body : json) :=
   if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_approve) then
     match Schema.decode ModelResultDeclarations.http_remote_approval_fields body with
@@ -162,8 +168,8 @@ Definition body_shape (target : string) (body : json) :=
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_revoke) then
     match Schema.decode ModelResultDeclarations.http_remote_revoke_fields body with
     | Some values => negb (String.eqb (Schema.head values) "") | None => false end
-  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) ||
-    String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then exact_fields [] body
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then chatgpt_login_body body
+  else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then exact_fields [] body
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
@@ -175,7 +181,7 @@ Definition body_payload (target : string) (body : json) : option json :=
   then option_map Schema.head (Schema.decode ModelResultDeclarations.http_browser_command_fields body)
   else if body_shape target body then Some body else None.
 Definition body_error (target : string) := exception ModelResultDeclarations.TypeErrorKind
-  (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Voice sign-in takes an empty object"
+  (if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_login) then "Invalid ChatGPT sign-in request"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_audio_create) then "Voice session requires connection, Task, SDP and browser identity"
    else if starts target "remote_" then "Invalid remote management request body"
    else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then "Account refresh takes an empty object"
@@ -241,6 +247,8 @@ Definition request_error_response (source : json) :=
   let message := str source "message" in
   if String.eqb name "CommandNotSubmitted" then rejection 400 "command_not_submitted" message
   else if String.eqb name "ConfigurationConflictError" then rejection 409 "configuration_conflict" message
+  else if String.eqb name "ChatGPTLoginConflictError" then rejection 409 "chatgpt_login_in_progress" message
+  else if String.eqb name "ChatGPTLoginNotFoundError" then rejection 404 "chatgpt_login_not_found" message
   else rejection (if existsb (String.eqb name) ["RangeError";"SyntaxError";"TypeError"] then 400 else 503)
     "request_failed" message.
 Definition call (operation : string) (source : json) :=

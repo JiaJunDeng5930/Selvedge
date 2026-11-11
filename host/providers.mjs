@@ -100,6 +100,7 @@ async function createProviderSession(effect, configured, backend, home, { signal
     authorization = await authorize(configured, home, { signal: lifetime });
     boundary('backend.authorization', { profile: configured, authorization: { account_id: authorization.account_id } });
     Object.assign(headers, authorization.headers);
+    if (backend.responses_lite) headers['x-openai-internal-codex-responses-lite'] = 'true';
   } else if (backend.auth === 'environment') {
     const key = process.env[configured.api_key_env];
     boundary('backend.credentials', { profile: configured, key });
@@ -178,13 +179,14 @@ export async function requestModel(effect, config, home, limits, { signal, realt
 // Model inference and compaction share the same physical SSE transport. A
 // compaction caller passes the very session and request used for its meter.
 export async function requestProviderSSE(session, effect, prepared, limits,
-  { onDelta = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
+  { onDelta = () => {}, onRetry = () => {}, onObservation = () => {}, compactionWindow } = {}) {
   const { profile, scope, lifetime } = session;
   lifetime.throwIfAborted();
   const { body } = prepared;
   const headers = { ...session.headers, accept: 'text/event-stream' };
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
+  let providerCode;
   let admission = boundary('backend.http_headers', {
     status: response.status, ok: response.ok, content_type: response.headers.get('content-type'),
     authorization: session.account, refreshed: false,
@@ -204,8 +206,9 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     const errorBody = await readText(response.body, limits.frame_bytes);
     // DEFENSE: Proxies can return HTML/empty HTTP error bodies; absent JSON must not invent a context-limit recovery code.
     const upstream = parseErrorBody(errorBody);
+    providerCode = upstream?.error?.code;
     admission = boundary('backend.http_failure', {
-      status: response.status, code: upstream?.error?.code, output_started: false,
+      status: response.status, code: providerCode, output_started: false,
     });
   }
   // DEFENSE: An HTTP failure or unsupported response content type cannot enter the model SSE parser.
@@ -213,18 +216,25 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     if (admission.cancel) await response.body?.cancel();
     // DEFENSE: An explicit context_length_exceeded rejection before output is the only HTTP failure eligible for compaction.
     if (admission.recoverable) throw new ContextLimitError();
-    throw new Error(admission.message);
+    const error = new Error(admission.message);
+    error.status = response.status;
+    error.provider_code = providerCode;
+    throw error;
   }
   let state = { output_started: false, completed_items: [] };
+  const operation = session.account ? 'backend.codex_stream_step' : 'backend.stream_step';
   for await (const data of events(response.body, limits.frame_bytes)) {
     if (data === '[DONE]') break;
     const event = parseJson(data);
-    const step = boundary('backend.stream_step', { effect: { kind: effect.kind }, event, state });
+    const step = boundary(operation, { effect: { kind: effect.kind }, event, state });
     state = step.state;
     switch (step.action) {
       case 'delta': onDelta(step.text, step.index); break;
       case 'terminal': {
         onObservation({ now: Date.now() });
+        if (compactionWindow !== undefined) return boundary('backend.compaction_native_result', {
+          scope, input: prepared.request.input, output: step.output, window_tokens: compactionWindow,
+        });
         const items = providerOutput(step.output, profile, step.output_indices);
         return effect.kind === 'model' ? boundary('backend.compaction_bind_output', { items, scope }) : items;
       }

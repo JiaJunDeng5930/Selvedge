@@ -5,7 +5,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Browser.Session Require Import Appearance Input Services State.
-From Selvedge.Browser.Session Require Configuration.
+From Selvedge.Browser.Session Require Configuration Speech.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
@@ -295,7 +295,13 @@ Definition editor_button path key caption label (enabled : bool) input : node In
      (if enabled then Available else Unavailable "Finish the current edit first")))
    [information id "label" Information.OptionLabel caption].
 
-Definition form_setting parent services entry (measuring : bool) :=
+Definition sign_in_button parent (speech : Speech.speech) : node Input.input :=
+ let key := "sign-in" in
+ declared parent Roles.Button (Control key "Sign in with ChatGPT" Secondary
+   (Input.SpeechInput (Speech.Authorize (part parent key)))
+   (if Speech.can_authorize speech then Available else Unavailable "Sign-in is unavailable in the current state")).
+
+Definition form_setting parent services speech entry (measuring : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
@@ -306,8 +312,12 @@ Definition form_setting parent services entry (measuring : bool) :=
    | _, _ => description end in
  let lines := if measuring then [] else summary_lines (part id "settings-values") path saved in
  row parent key label description
-   [editor_button path "open" (open_label path) (open_label path)
-      (can_edit path services) (Services.SelectConfiguration path)]
+   ((match path, Speech.connections speech with
+    | ["chatgpt"], [] => match saved with
+      | JBool false => [] | _ => [sign_in_button (part id "settings-controls") speech] end
+    | _, _ => [] end) ++
+    [editor_button path "open" (open_label path) (open_label path)
+      (can_edit path services) (Services.SelectConfiguration path)])
    (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
 
 (* The overview enumerates saved objects. Draft edits and removals become
@@ -357,13 +367,13 @@ Definition collection_setting parent services entry item (page_collection measur
     | controls => [named_region id "settings-collection-actions" "" controls]
     end)%list.
 
-Definition normal_entry parent services primary measuring entry :=
+Definition normal_entry parent services speech primary measuring entry :=
  let path := Config.setting_path entry in
  match ConfigurationForms.collection_item path with
  | Some item => collection_setting parent services entry item
      (match primary with Some main => String.eqb (Config.setting_key main) (Config.setting_key path)
        | None => false end) measuring
- | None => if Configuration.focused_editor entry then form_setting parent services entry measuring
+ | None => if Configuration.focused_editor entry then form_setting parent services speech entry measuring
            else compact_setting parent services entry
  end.
 
@@ -440,15 +450,15 @@ Definition local_connection parent services :=
         [button id "connect" "Reconnect" true Services.Connect]
         [information (part parent "local") "service-error" Information.Status reason]
  end.
-Definition overview root parent section services measuring groups :=
+Definition overview root parent section services speech measuring groups :=
  let render_group '(key, label, content) :=
    let id := part parent key in
-   let render_entries := map (normal_entry id services (primary_collection section) measuring) in
+   let render_entries := map (normal_entry id services speech (primary_collection section) measuring) in
    let body :=
      match content with
      | AppearanceSettings => if measuring then [] else [appearance id (Services.theme services)]
      | ConversationSettings instructions =>
-       (map (fun entry => form_setting id services entry measuring) (entries_for_paths services [instructions])
+       (map (fun entry => form_setting id services speech entry measuring) (entries_for_paths services [instructions])
        ++ [row id "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
            [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
               (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
@@ -508,7 +518,7 @@ Definition compact_navigation parent current :=
          (bind (as_string value) decode_settings_section))) []].
 (* Changing the category changes the scroll document. Editing a setting
    within it preserves the document and its scroll position. *)
-Definition content root parent section services (measuring : bool) :=
+Definition content root parent section services speech (measuring : bool) :=
  let view := service_configuration services in
  let id := part parent ("settings-content/" ++ settings_section_name section) in
  let design := section_design section in
@@ -517,18 +527,18 @@ Definition content root parent section services (measuring : bool) :=
  (* The primary collection shares the page heading and its Add control. *)
  let primary := match primary_group design with
    | Some group => [named_region id "settings-primary" ""
-       (header ++ overview root id section services measuring [group])%list]
+       (header ++ overview root id section services speech measuring [group])%list]
    | None => header
    end in
  Node id (if measuring then "settings-measure" else "settings-content") "" Roles.Section Region
-   (primary ++ overview root id section services measuring (section_groups design))%list.
+   (primary ++ overview root id section services speech measuring (section_groups design))%list.
 
 (* All categories contribute to the same desktop reading track. Keep only
    the selected document operable. Saved record details have no influence on
    the track, so the other documents need only their headings and controls. *)
-Definition documents root parent section services :=
+Definition documents root parent section services speech :=
  named_region parent "settings-documents" ""
-   (map (fun candidate => content root parent candidate services (negb (same_section candidate section)))
+   (map (fun candidate => content root parent candidate services speech (negb (same_section candidate section)))
       settings_sections).
 
 Definition view s :=
@@ -548,7 +558,7 @@ Definition view s :=
            [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
             title root "Settings"];
           compact_navigation root section];
-       dialog_body root (navigation body section ++ [documents root body section services])]]
+       dialog_body root (navigation body section ++ [documents root body section services (State.speech_state s)])]]
  end.
 
 Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=

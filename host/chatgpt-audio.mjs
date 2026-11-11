@@ -22,17 +22,13 @@ function callIdentity(location) {
   catch { return null; }
 }
 
-function authHeaders(authorization) {
-  return { ...authorization.headers, 'ChatGPT-Account-Id': authorization.account_id };
-}
-
 /** Audio credentials stay in this host interpreter; callers receive only connection identities and SDP. */
-export function createChatGPTAudio({ home, fetchImpl = fetch,
+export function createChatGPTAudio({ home, config, fetchImpl = fetch, transcriptionFetchImpl = transcriptionFetch,
   WebSocketImpl = WebSocket, authorityFactory = createAudioAccount, onEvent = async () => {} }) {
   const sessions = new Map();
   const operations = new Map();
   let closed = false, closing;
-  const authority = authorityFactory({ home, onChange: onEvent });
+  const authority = authorityFactory({ home, config: config?.(), onChange: onEvent });
 
   function track(id, signal, action) {
     if (closed) return Promise.reject(new Error('Audio host is closed'));
@@ -66,14 +62,14 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
   async function authenticatedFetch(url, options, selected, signal, send = fetchImpl) {
     let authorization = selected.authorization;
     let response = await send(url, { ...options, signal,
-      headers: { ...authHeaders(authorization), ...options.headers } });
+      headers: { ...authorization.headers, ...options.headers } });
     // DEFENSE: An access token can expire after authorization and before the audio request; the existing account refresh serializes rotation and permits exactly one retry after a 401.
     if (boundary('audio.transport', { status: response.status, ok: response.ok }) === 'refresh') {
       await response.body?.cancel();
       authorization = await authorization.refreshAfterRejection({ signal });
       selected.authorization = authorization;
       response = await send(url, { ...options, signal,
-        headers: { ...authHeaders(authorization), ...options.headers } });
+        headers: { ...authorization.headers, ...options.headers } });
     }
     return response;
   }
@@ -87,7 +83,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const body = new FormData();
     body.append('file', new Blob([audio], { type: plan.mime }), plan.filename);
     if (plan.language !== null) body.append('language', plan.language);
-    const response = await authenticatedFetch(limits.transcribe_url, { method: 'POST', body }, selected, lifetime, transcriptionFetch);
+    const response = await authenticatedFetch(limits.transcribe_url, { method: 'POST', body }, selected, lifetime, transcriptionFetchImpl);
     const value = parsedJson(await readText(response.body, limits.response_max_bytes));
     return boundary('audio.asr_response', { status: response.status, value });
   }
@@ -150,7 +146,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     record.stop = terminate;
     function connectSideband(attempt) {
       const socket = new WebSocketImpl(`${limits.sideband_base}${encodeURIComponent(answer.call_id)}`, {
-        headers: { ...authHeaders(selected.authorization), ...sessionHeaders, 'x-session-id': id }, maxPayload: limits.event_max_bytes,
+        headers: { ...selected.authorization.headers, ...sessionHeaders, 'x-session-id': id }, maxPayload: limits.event_max_bytes,
       });
       record.socket = socket;
       socket.on('unexpected-response', (_request, response) => {

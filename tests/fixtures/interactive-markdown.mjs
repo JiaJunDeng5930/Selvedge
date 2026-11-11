@@ -60,7 +60,7 @@ export async function interactiveMarkdownFixture() {
   });
   const endpoint = `${await listening(upstream)}/responses`;
   const config = validateConfig({ ...defaultConfig, port: 0, chatgpt: false,
-    profiles: { ...defaultConfig.profiles, interactive: {
+    profiles: { ...defaultConfig.profiles, demo: { provider: 'echo', model: 'echo' }, interactive: {
       provider: 'responses', model: 'interactive-fixture', endpoint, api_key_env: apiKey,
     } },
   });

@@ -149,7 +149,7 @@ export class Service extends EventEmitter {
       // DEFENSE: Saved connection grants can refer to projects removed from the current journal; startup must report native configuration rejection.
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
       service.remote = await RemoteControl.open(service, { ...remoteOptions, deferConnect: holdEffects });
-      service.audio = audioFactory({ config: () => service.config, home, ...audioOptions,
+      service.audio = audioFactory({ config: () => service.declaredConfig, home, ...audioOptions,
         onEvent: event => service.#audioEvent(event) });
       // DEFENSE: Asynchronous catalog failure can retire a service while startup is awaiting external configuration.
       if (service.#failure) throw service.#failure;
@@ -942,6 +942,11 @@ export class Service extends EventEmitter {
     if (event.type === 'account_changed') {
       this.notify(event);
       this.emit('audio', event);
+      if (!event.error) {
+        try { await this.refreshAccounts(); }
+        // DEFENSE: A completed sign-in can outlive the service or succeed while the model catalog is unavailable.
+        catch (error) { this.notify({ type: 'diagnostic', message: error.message }); }
+      }
       return;
     }
     const session = this.#audioSessions.get(event.session_id);

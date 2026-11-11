@@ -10,7 +10,7 @@ export const targets = {
   kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'packet', 'world_json', 'assess'], global: '__selvedgeKernel' },
   host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },
   browser: { module: 'Browser.Runtime', model: 'BrowserModel', entry: ['call'], global: '__selvedgeBrowser', exported: 'browserCall' },
-  interaction: { module: 'Browser.Application', model: 'InteractionModel', entry: ['call'], global: '__selvedgeInteraction', exported: 'interactionCall' }
+  interaction: { module: 'Browser.Application', model: 'InteractionModel', entry: ['call', 'prepare', 'rebase', 'prepared_call', 'native_picker', 'native_stream', 'materialize_native_roots'], global: '__selvedgeInteraction', exported: 'interactionCall' }
 };
 export const jsonEntries = {
   selvedge_parse_json: 'Foundation.TextJson.parse_json',

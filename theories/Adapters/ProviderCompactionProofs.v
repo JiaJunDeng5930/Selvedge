@@ -66,24 +66,19 @@ Proof.
  unfold meter_fallback;rewrite H,R;apply equivalent_is_reflexive.
 Qed.
 
-Theorem public_account_image_requests_use_the_complete_request_estimate : forall source,
+Theorem public_account_requests_use_the_complete_request_estimate : forall source,
   ProviderCatalog.account (get source "profile") = true ->
-  0 < request_image_count (get source "request") ->
   JsonObjects.equivalent (Api.call "backend.compaction_measurement_plan" source)
     (success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json (get source "request"))) +
         1844 * request_image_count (get source "request")))])) = true.
 Proof.
- intros source account images.
+ intros source account.
  change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).
- unfold measurement_plan; rewrite account.
- assert (has_images : N.ltb 0 (request_image_count (get source "request")) = true)
-   by (apply N.ltb_lt; exact images).
- rewrite has_images; apply equivalent_is_reflexive.
+ unfold measurement_plan; rewrite account; apply equivalent_is_reflexive.
 Qed.
 Theorem public_other_requests_use_provider_measurement : forall source,
-  (ProviderCatalog.account (get source "profile") &&
-    N.ltb 0 (request_image_count (get source "request"))) = false ->
+  ProviderCatalog.account (get source "profile") = false ->
   Api.call "backend.compaction_measurement_plan" source = success (JObject [("action",JString "remote")]).
 Proof.
  intros source Remote.

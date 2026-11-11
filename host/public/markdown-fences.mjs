@@ -51,6 +51,10 @@ export class MarkdownFenceObserver {
     if (suffix) this.buffer.append(suffix);
     if (terminal) this.buffer.finish();
   }
+  isCaughtUp() {
+    return !this.disposed && this.buffer?.isCaughtUp(this.text.length) &&
+      (this.ending === 'open' || this.buffer.finished === true);
+  }
   async whenCaughtUp(length = this.text.length) {
     if (this.disposed || !this.buffer) return false;
     const buffer = this.buffer;

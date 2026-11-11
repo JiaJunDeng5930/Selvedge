@@ -36,15 +36,19 @@ Coercion editor_context : State.state >-> EC.context.
 
 Definition layer_focus {e}(layer:State.layer):option(subject e):=
  field<-State.layer_decision_field layer;;Model.admit_subject e(Parameters.name field).
-Definition current_view snapshot (state:State.state) e request:option(Activity.view e):=
- activity<-EO.observe_activity snapshot state e request;;
- match State.layers(State.navigation_state state)with
- |layer::_=>Some(EO.view_for activity(layer_focus layer)(State.layer_source_expanded layer))
- |[]=>Some(EO.view_for activity None false)end.
 Definition activity_completion snapshot (state:State.state) e request:EO.completion:=
- match EO.observe_activity snapshot state e request,current_view snapshot state e request with
- |Some activity,Some view=>EO.completion_for activity view
- |_,_=>EO.ApplyAndDismiss end.
+ let '(focus,inspection):=match State.layers(State.navigation_state state)with
+ |layer::_=>(layer_focus layer,State.layer_source_expanded layer)
+ |[]=>(None,false)end in
+ (* Only a compound editor or a requested subview needs its alternatives to
+    determine how a completed choice returns to its owner. *)
+ let inspect:=match e,focus,inspection with
+ |Identity.Project _,_,_=>true
+ |_,None,false=>false
+ |_,_,_=>true end in
+ if inspect then match EO.observe_activity snapshot state e request with
+ |Some activity=>EO.completion_for activity(EO.view_for activity focus inspection)
+ |None=>EO.ApplyAndDismiss end else EO.ApplyAndDismiss.
 Definition activity_complete snapshot (state:State.state) e request:bool:=
  match activity_completion snapshot state e request with
  |EO.CommitOrDiscard=>match assessment_outcome(EO.observe_assessment snapshot state e)with PreparationReady=>true|_=>false end

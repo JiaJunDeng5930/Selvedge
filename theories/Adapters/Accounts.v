@@ -1,6 +1,6 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Adapters Require Import AccountMaterialization AccountOAuth AccountTransport.
+From Selvedge.Adapters Require Import AccountMaterialization AccountOAuth AccountDevice AccountTransport.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -25,7 +25,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.cache_decode",cache_decode);
   ("account.account_namespace",AccountCatalog.account_namespace);
   ("account.audio_connection",AccountIdentity.audio_connection);
-  ("account.audio_identity",AccountIdentity.audio_identity);
   ("account.auth_parameters",AccountOAuth.auth_parameters);
   ("account.authorization_view",AccountIdentity.authorization_view);
   ("account.cache",AccountCatalog.cache);
@@ -34,6 +33,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.cache_fresh",AccountCatalog.cache_fresh);
   ("account.cache_record",AccountCatalog.cache_record);
   ("account.callback",AccountOAuth.callback);
+  ("account.callback_ports",AccountOAuth.callback_ports);
   ("account.candidate_identity",AccountCatalog.candidate_identity);
   ("account.candidate_paths",AccountMaterialization.candidate_paths);
   ("account.candidate_read",AccountOAuth.candidate_read);
@@ -49,12 +49,17 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.connection_identity",AccountCatalog.connection_identity);
   ("account.contract",contract);
   ("account.credential",AccountIdentity.credential);
+  ("account.default_login_account",AccountMaterialization.default_login_account);
+  ("account.device_authorization",AccountDevice.device_authorization);
+  ("account.device_challenge",AccountDevice.device_challenge);
+  ("account.device_poll_request",AccountDevice.device_poll_request);
+  ("account.device_request",AccountDevice.device_request);
+  ("account.device_status",AccountDevice.device_status);
+  ("account.device_token_url",AccountDevice.device_token_url);
   ("account.discovery",AccountOAuth.discovery);
   ("account.discovery_failure",discovery_failure);
   ("account.grant_failure",grant_failure);
   ("account.hash_prefix",AccountCatalog.hash_prefix);
-  ("account.host_registration_record",AccountOAuth.host_registration_record);
-  ("account.host_saved",AccountOAuth.host_saved);
   ("account.http",AccountOAuth.http);
   ("account.insecure",AccountOAuth.insecure);
   ("account.issuer_admission",AccountIdentity.issuer_admission);
@@ -63,16 +68,11 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.materialize",AccountMaterialization.materialize);
   ("account.model_cache_path",AccountCatalog.model_cache_path);
   ("account.models_url",AccountCatalog.models_url);
-  ("account.optional_registration",AccountOAuth.optional_registration);
   ("account.profile_connection",AccountFields.profile_connection);
   ("account.record_read_failure",AccountOAuth.record_read_failure);
   ("account.refresh",AccountIdentity.refresh);
-  ("account.registration",AccountIdentity.registration);
-  ("account.registration_record",AccountIdentity.registration_record);
-  ("account.registration_subject",AccountIdentity.registration_subject);
   ("account.sdk_timeout",AccountOAuth.sdk_timeout);
-  ("account.token",AccountIdentity.token);
-  ("account.token_subject",AccountIdentity.token_subject)
+  ("account.token",AccountIdentity.token)
 ].
 Definition call operation source := match find (fun handler => String.eqb operation (fst handler)) handlers with
   | Some (_,handler) => handler source

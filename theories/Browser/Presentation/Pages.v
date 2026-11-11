@@ -27,20 +27,24 @@ Definition missing {A} parent message:list(node A) :=[page_region parent Composi
  [read_only parent "unavailable-message" "Unavailable"message]].
 Definition creation_heading snapshot s e :=match SessionObserve.draft_preview snapshot(State.current_draft s e)with
 |Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
- |Some project=>"Work on "++project_name project|None=>"What would you like to build?"end
-|_=>"What would you like to build?"end.
-Definition creation_page snapshot (s:State.state) parent :=
+ |Some project=>"Work on "++project_name project|None=>"New task"end
+|_=>"New task"end.
+Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let properties:=filter(fun property=>match UX.property_kind_of property with
   |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observe.observe_properties snapshot s e)in
+ let context:=(Editors.property_controls snapshot s e parent properties ++
+   Editors.field_nodes snapshot s e (editor_key e) [Fields.TaskEnvironment])%list in
+ page_region parent Composition.ComposerInput Composition.BodyPosition
+   ((match context with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
+     "creation-context" "Task context" Roles.Toolbar
+     (PageRegion Composition.CreationContext Composition.BodyPosition) context]end)++
+    match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list.
+Definition creation_page snapshot s parent :=
+ let e:=NewTask(State.active_work(State.navigation_state s))in
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
    [information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)];
-  page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match properties with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
-     "creation-context" "Task context" Roles.Toolbar
-     (PageRegion Composition.CreationContext Composition.BodyPosition)
-     (Editors.property_controls snapshot s e parent properties)]end)++
-    match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list].
+  creation_composer snapshot s parent].
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
@@ -137,6 +141,13 @@ Definition task_details_control s task parent :=
     (Input.OpenInformation(State.TaskDetails task)(part parent "details"))))[].
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
+Definition task_composer snapshot s view parent task :=
+ let owner:=Message(task_id task)in
+ if task_has_composer s task then match Editors.composer_view snapshot s owner(NavigationIdentity.task_view_key view(editor_key owner))with
+ |Some composer=>Some(page_region parent Composition.ComposerInput Composition.DockPosition[composer])
+ |None=>None end else None.
+Definition conversation_composer snapshot s view parent :=
+ bind(find_task(NavigationIdentity.task_view_task view)snapshot)(task_composer snapshot s view parent).
 Definition task_contents snapshot s view parent task :=
  let id:=task_id task in
  let operations:=value_or[](Read.task_operations id snapshot)in
@@ -160,8 +171,7 @@ Definition task_contents snapshot s view parent task :=
  [page_region parent Composition.LatestAction Composition.DockPosition
   [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]) ++
  approvals snapshot s id parent operations ++
- if task_has_composer s task then match Editors.composer_view snapshot s(Message id)(NavigationIdentity.task_view_key view(editor_key(Message id)))with
-   |None=>[]|Some composer=>[page_region parent Composition.ComposerInput Composition.DockPosition[composer]]end else[])%list.
+ match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
 Definition conversation_page snapshot s view parent :=
  match find_task(NavigationIdentity.task_view_task view)snapshot with
  |None=>[page_region parent Composition.UnavailableMessage Composition.BodyPosition

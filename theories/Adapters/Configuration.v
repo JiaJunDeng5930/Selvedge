@@ -102,7 +102,7 @@ Definition transport_settings := [
   (setting "port" (D.Natural 0 65535) (number 7421), "port must be in 0..65535");
   (setting "max_fork" (D.Natural 1 D.maximum_natural) (number 4), "max_fork must be in 1..4294967295");
   (setting "max_descendants" (D.Natural 1 D.maximum_natural) (number 64), "max_descendants must be in 1..4294967295");
-  (setting "profiles" D.RawObject (JObject [("demo",JObject [("provider",JString "echo");("model",JString "echo")])]),
+  (setting "profiles" D.RawObject (JObject []),
     "profiles must be an object")].
 Definition context_entry instructions definition :=
   let name := context_setting definition in

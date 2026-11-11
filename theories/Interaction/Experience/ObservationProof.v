@@ -84,10 +84,10 @@ Theorem available_assignment_is_editable snapshot state e(assignment:assignment 
  assignment_available snapshot state assignment=Available ->
  Parameters.editable e(subject_declaration(assignment_subject assignment))=true.
 Proof.
- unfold assignment_available.
+ unfold assignment_available,assignment_availability.
  destruct(reviewer_assignment_reason snapshot(Draft.contents(EditorContext.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment)eqn:Shape;try discriminate.
- unfold assignment_shape_available in Shape. apply Bool.andb_true_iff in Shape.
+ unfold assignment_shape_available,assignment_shape in Shape. apply Bool.andb_true_iff in Shape.
  exact(fun _=>proj1 Shape).
 Qed.
 
@@ -100,12 +100,21 @@ Theorem available_live_assignment_has_current_authority snapshot state e(assignm
     (Schema.encode_value(subject_kind(assignment_subject assignment))(assignment_value assignment)))
     (Draft.revision(EditorContext.current_draft state e))command=Available.
 Proof.
- intros Live. unfold assignment_available.
+ intros Live. unfold assignment_available,assignment_availability.
  destruct(reviewer_assignment_reason snapshot(Draft.contents(EditorContext.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment);try discriminate.
  rewrite Live. destruct(Values.candidate_command snapshot(EditorContext.current_time(EditorContext.observed state))(EditorContext.current_draft state e)assignment)
   as[command|]eqn:Command;try discriminate.
  intros Accepted. exists command. split;[reflexivity|exact Accepted].
+Qed.
+
+Theorem included_choice_shortcut_preserves_membership e(subject:subject e) options choice incoming:
+ In choice options ->
+ includes_listed_choice subject options choice incoming=includes_choice subject options incoming.
+Proof.
+ intro Member. unfold includes_listed_choice.
+ destruct(Json.equal incoming(Parameters.choice_input e(subject_declaration subject)choice))eqn:Equal;[|reflexivity].
+ symmetry. unfold includes_choice. apply existsb_exists. exists choice. auto.
 Qed.
 
 Theorem nonretained_focus_cannot_open_dependency e(activity:activity e)(subject:subject e)inspection:

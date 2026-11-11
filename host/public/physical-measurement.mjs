@@ -3,12 +3,37 @@ export function createPhysicalMeasurer({ surface, onChange }) {
   const document = surface.ownerDocument;
   const observed = new Set([surface]);
   const boxes = new WeakMap();
+  const rowSelector = '[data-native-responsive-row]';
+  let observedRows = new Set();
+  let fontMetrics;
+  let rowMetrics = new WeakMap();
+  let rowBasis;
+  function invalidateRow(node) {
+    for (let row = node?.closest(rowSelector); row; row = row.parentElement?.closest(rowSelector))
+      rowMetrics.delete(row);
+  }
+  const rowChanges = new MutationObserver(records => {
+    // The anchor marker changes only control colors.
+    let changed = false;
+    for (const record of records) {
+      if (record.attributeName === 'data-native-anchor-owner') continue;
+      invalidateRow(record.target.nodeType === 1 ? record.target : record.target.parentElement);
+      changed = true;
+    }
+    if (changed) onChange();
+  });
   const resize = new ResizeObserver(entries => {
     let changed = false;
     for (const { target, contentRect } of entries) {
       const signature = `${contentRect.width}/${contentRect.height}`;
       if (boxes.get(target) !== signature) {
         boxes.set(target, signature);
+        if (target === surface || target === rootFontProbe) rowMetrics = new WeakMap();
+        else {
+          invalidateRow(target);
+          if (!target.matches(rowSelector))
+            for (const row of target.querySelectorAll(rowSelector)) rowMetrics.delete(row);
+        }
         changed = true;
       }
     }
@@ -23,7 +48,7 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     pointerEvents: 'none', inlineSize: '1rem', blockSize: '1rem' });
   document.body.append(rootFontProbe);
   resize.observe(rootFontProbe);
-  const fontChange = () => onChange();
+  const fontChange = () => { fontMetrics = undefined; onChange(); };
   document.fonts.addEventListener('loadingdone', fontChange);
   function viewport() {
     const box = surface.getBoundingClientRect();
@@ -33,9 +58,16 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     };
   }
   function refresh() {
-    const current = new Set([surface, ...surface.querySelectorAll('[data-measure-region], [data-native-responsive-row]')]);
+    const current = new Set([surface, ...surface.querySelectorAll(`[data-measure-region], ${rowSelector}`)]);
     for (const node of observed) if (!current.has(node)) { resize.unobserve(node); observed.delete(node); }
     for (const node of current) if (!observed.has(node)) { resize.observe(node); observed.add(node); }
+    const rows = new Set([...current].filter(node => node.matches(rowSelector)));
+    if (rows.size !== observedRows.size || [...rows].some(row => !observedRows.has(row))) {
+      observedRows = rows;
+      rowChanges.disconnect();
+      for (const row of rows) rowChanges.observe(row, { attributes: true, childList: true, characterData: true, subtree: true });
+      onChange();
+    }
   }
   function regions() {
     refresh();
@@ -48,7 +80,9 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     });
   }
   function responsiveRows() {
-    return [...surface.querySelectorAll('[data-native-responsive-row]')].map(row => {
+    return [...surface.querySelectorAll(rowSelector)].map(row => {
+      const cached = rowMetrics.get(row);
+      if (cached?.parent === row.parentElement) return cached.observation;
       const rowStyle = getComputedStyle(row);
       const available = row.clientWidth - Number.parseFloat(rowStyle.paddingLeft) - Number.parseFloat(rowStyle.paddingRight);
       const children = [...row.children].filter(child => getComputedStyle(child).display !== 'none');
@@ -62,6 +96,7 @@ export function createPhysicalMeasurer({ surface, onChange }) {
             .filter(node => node.hasAttribute('data-native-minimum-inline') ||
               node.closest('[data-supporting-form]')?.dataset.supportingForm === 'compact') : [];
         const previous = minima.map(node => node.style.cssText);
+        const childStyles = children.map(node => node.style.cssText);
         const equalColumns = row.hasAttribute('data-native-equal-columns');
         const direction = row.getAttribute('data-native-row-direction');
         let width = 0;
@@ -75,20 +110,22 @@ export function createPhysicalMeasurer({ surface, onChange }) {
           minima.forEach(node => Object.assign(node.style, { flex: 'none',
             inlineSize: node.dataset.nativeMinimumInline ?? node.dataset.nativeCompactMinimumInline,
             maxInlineSize: node.dataset.nativeMinimumInline ?? node.dataset.nativeCompactMinimumInline }));
+          // These probes have intrinsic widths and do not flex. Install the
+          // requested form on every sibling before the first layout read.
           for (const child of children) {
-            const original = child.style.cssText;
-            try {
-              Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
-              if (equalColumns) {
-                child.style.setProperty('inline-size', size, 'important');
-                child.style.setProperty('max-inline-size', 'none', 'important');
-              }
-              const measured = child.getBoundingClientRect().width;
-              width += measured;
-              widest = Math.max(widest, measured);
-            } finally { child.style.cssText = original; }
+            Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
+            if (equalColumns) {
+              child.style.setProperty('inline-size', size, 'important');
+              child.style.setProperty('max-inline-size', 'none', 'important');
+            }
+          }
+          for (const child of children) {
+            const measured = child.getBoundingClientRect().width;
+            width += measured;
+            widest = Math.max(widest, measured);
           }
         } finally {
+          children.forEach((child, index) => { child.style.cssText = childStyles[index]; });
           if (equalColumns) row.setAttribute('data-native-row-direction', direction);
           minima.forEach((node, index) => { node.style.cssText = previous[index]; });
           if (nestedForm) nestedSupporting.forEach((node, index) => node.setAttribute('data-supporting-form', forms[index]));
@@ -113,25 +150,53 @@ export function createPhysicalMeasurer({ surface, onChange }) {
           observation.compact_minimum = preferred('min-content');
         } finally { row.setAttribute('data-supporting-form', original); }
       }
+      rowMetrics.set(row, { parent: row.parentElement, observation });
       return observation;
     });
   }
+  function measureFonts(specifications, rootFontSize) {
+    const signature = JSON.stringify([rootFontSize, document.defaultView.devicePixelRatio, specifications]);
+    if (fontMetrics?.signature === signature) return fontMetrics.metrics;
+    const fragment = document.createDocumentFragment();
+    const probes = specifications.map(specification => {
+      const probe = document.createElement('span');
+      Object.assign(probe.style, { position: 'fixed', left: '-100000px', top: '0', visibility: 'hidden',
+        pointerEvents: 'none', display: 'inline-block', whiteSpace: 'pre' });
+      for (const { name, value } of specification.properties) probe.style.setProperty(name, value);
+      probe.textContent = specification.sample;
+      fragment.append(probe);
+      return probe;
+    });
+    document.body.append(fragment);
+    try {
+      const metrics = probes.map((probe, index) => {
+        const box = probe.getBoundingClientRect();
+        return { key: specifications[index].key, height: Math.ceil(box.height), advance: Math.ceil(box.width) };
+      });
+      fontMetrics = { signature, metrics };
+      return metrics;
+    } finally { for (const probe of probes) probe.remove(); }
+  }
   async function measure(specifications) {
     await document.fonts.ready;
-    const probe = document.createElement('span');
-    Object.assign(probe.style, { position: 'fixed', left: '-100000px', top: '0', visibility: 'hidden',
-      pointerEvents: 'none', display: 'inline-block', whiteSpace: 'pre' });
-    document.body.append(probe);
+    const box = viewport();
+    const metrics = measureFonts(specifications, box.root_font_size_milli);
+    const basis = JSON.stringify(box);
+    if (rowBasis?.box !== basis || rowBasis?.metrics !== metrics) {
+      rowMetrics = new WeakMap();
+      rowBasis = { box: basis, metrics };
+    }
     try {
-      const metrics = specifications.map(specification => {
-        for (const { name, value } of specification.properties) probe.style.setProperty(name, value);
-        probe.textContent = specification.sample;
-        const box = probe.getBoundingClientRect();
-        return { key: specification.key, height: Math.ceil(box.height), advance: Math.ceil(box.width) };
-      });
-      return { ...viewport(), metrics, regions: regions(), responsive_rows: responsiveRows() };
-    } finally { probe.remove(); }
+      return { ...box, metrics, regions: regions(), responsive_rows: responsiveRows() };
+    } finally {
+      // The read above already includes the current DOM. Temporary intrinsic
+      // size probes must not schedule another read of the same layout.
+      rowChanges.takeRecords();
+    }
   }
   return { viewport, measure, refresh, regions, responsiveRows,
-    dispose() { resize.disconnect(); rootFontProbe.remove(); document.fonts.removeEventListener('loadingdone', fontChange); observed.clear(); } };
+    dispose() {
+      resize.disconnect(); rowChanges.disconnect(); rootFontProbe.remove();
+      document.fonts.removeEventListener('loadingdone', fontChange); observed.clear(); observedRows.clear();
+    } };
 }

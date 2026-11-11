@@ -68,12 +68,12 @@ Arguments response_format {independent} _.
 Arguments response_limit {independent} _.
 Definition encode_authority (independent : bool) (account : bool) : request_authority independent -> list json * json :=
  match independent as independent return request_authority independent -> list json * json with
- | true => fun _ => ([],JString "none")
+ | true => fun _ => ([],JString (if account then "auto" else "none"))
  | false => fun authority =>
    let tools := map tool (authority_tools authority) in
    if account then
      match map tool (callable_tools authority) with
-     | [] => ([],JString "none")
+     | [] => ([],JString "auto")
      | selected => ([JObject [("type",JString "namespace");("name",JString local_tool_namespace);
          ("description",JString "Local Selvedge tools");("tools",JArray selected)]],JString "auto") end
    else (tools,match authority_names authority with [] => JString "none" | names => JObject [
@@ -81,14 +81,61 @@ Definition encode_authority (independent : bool) (account : bool) : request_auth
  end.
 Definition optional_field (name : string) (value : option json) :=
  match value with Some value => [(name,value)] | None => [] end.
+Definition responses_lite profile := account profile && boolean_field (get profile "model_info") "use_responses_lite".
+Definition codex_message item :=
+ if negb (has item "type") && is_text (get item "role") then
+   let content := get item "content" in
+   set (set item "type" (JString "message")) "content"
+     (if is_text content then
+        JArray [JObject [("type",JString (if String.eqb (str item "role") "assistant" then "output_text" else "input_text"));
+          ("text",content)]]
+      else content)
+ else item.
+Definition codex_reasoning_effort profile value :=
+ let info := get profile "model_info" in
+ let levels := map (fun level => get level "effort") (items (get info "supported_reasoning_levels")) in
+ if String.eqb (text value) "ultra" then
+   let hint := get info "multi_agent_reasoning_effort" in
+   if is_text hint && negb (String.eqb (text hint) "ultra") && contains levels hint then hint
+   else if contains levels (JString "max") then JString "max"
+   else match find (fun level => negb (String.eqb (text level) "ultra")) (rev levels) with
+     | Some effort => effort | None => JString "medium" end
+ else if String.eqb (text value) "persistent" then JString "disabled"
+ else value.
+Definition codex_reasoning_fields profile value :=
+ set value "effort" (codex_reasoning_effort profile (get value "effort")).
+Definition codex_input_item profile item :=
+ if String.eqb (str item "type") "configuration_update" then
+   set item "reasoning" (codex_reasoning_fields profile (get item "reasoning"))
+ else codex_message item.
+Definition inline_tool_declaration item := String.eqb (str item "type") "additional_tools".
+Definition codex_input profile input instructions (lite : bool) tools :=
+ let prefix := match tools with [] => [] | _ => if lite then
+   [JObject [("type",JString "additional_tools");("role",JString "developer");("tools",JArray tools)]] else [] end in
+ let input := match instructions with
+   | Some (JString (String head tail)) => message "developer" (JString (String head tail)) :: input
+   | _ => input end in
+ List.app prefix (filter (fun item => negb (inline_tool_declaration item)) (map (codex_input_item profile) input)).
+Definition codex_reasoning profile (lite : bool) reasoning :=
+ let fields := match reasoning with
+   | Some value => codex_reasoning_fields profile value
+   | None => JObject [] end in
+ if lite then set fields "context" (JString "all_turns") else fields.
 Definition encode_request {independent} (profile : json) (request : response_request independent) :=
- let '(tools,choice) := encode_authority independent (account profile) (response_authority request) in
+ let account := account profile in
+ let lite := responses_lite profile in
+ let '(tools,choice) := encode_authority independent account (response_authority request) in
+ let input := if account then codex_input profile (response_input request) (response_instructions request) lite tools
+   else response_input request in
  JObject ([("model",response_model request);("stream",JBool true);("store",JBool false);
-   ("input",JArray (response_input request));("tools",JArray tools);("tool_choice",choice);
-   ("parallel_tool_calls",JBool true);("include",JArray [JString "reasoning.encrypted_content"])] ++
-   optional_field "instructions" (response_instructions request) ++
-   optional_field "reasoning" (response_reasoning request) ++
-   optional_field "text" (response_format request) ++ optional_field "max_output_tokens" (response_limit request)).
+   ("input",JArray input);("tool_choice",choice);
+   ("parallel_tool_calls",JBool (negb lite));("include",JArray [JString "reasoning.encrypted_content"])] ++
+   optional (negb lite) "tools" (JArray tools) ++
+   (if account then [("reasoning",codex_reasoning profile lite (response_reasoning request))]
+    else optional_field "instructions" (response_instructions request) ++
+      optional_field "reasoning" (response_reasoning request) ++
+      optional_field "max_output_tokens" (response_limit request)) ++
+   optional_field "text" (response_format request)).
 Definition task_text_format_fields (kind : string) (retitle : bool) := JObject [
   ("type",JString "json_schema");("name",JString kind);("strict",JBool true);
   ("schema",Titles.output_schema (String.eqb kind "board_text" && negb retitle))].

@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { defaultConfig } from '../host/config.mjs';
 import { browserFixture } from './fixtures/browser.mjs';
 
 test('Settings applies configuration edits and shows their saved values after reload', { timeout: 60000 }, async t => {
@@ -123,6 +126,50 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   await page.reload();
   await openProfile();
   assert.equal(await model.inputValue(), 'demo-custom');
+});
+
+test('new model profiles start blank, hide the offline demo, and require a provider and model', { timeout: 60000 }, async t => {
+  const { page, running } = await browserFixture(t);
+  await writeFile(path.join(running.service.home, 'config.json'), JSON.stringify({
+    format: defaultConfig.format,
+    profiles: { demo: { provider: 'echo', model: 'echo' } },
+  }));
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true, includeHidden: true });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: 'Settings', exact: true }).click();
+  await settings.getByRole('radio', { name: 'Models', exact: true }).click();
+  await settings.getByRole('button', { name: 'Add profile', exact: true }).click();
+
+  const editor = page.getByRole('dialog', { name: 'New profile', exact: true });
+  const name = editor.getByRole('textbox', { name: 'Name', exact: true });
+  const model = editor.getByRole('textbox', { name: 'Model', exact: true });
+  const provider = editor.getByRole('radiogroup');
+  const add = editor.getByRole('button', { name: 'Add profile', exact: true });
+
+  assert.equal(await model.inputValue(), '');
+  assert.equal(await editor.getByRole('radio', { name: 'Offline echo', exact: true }).count(), 0);
+  assert.ok(await provider.getByRole('radio').count() > 0);
+  assert.equal(await provider.getByRole('radio', { checked: true }).count(), 0);
+  assert.equal(await add.isEnabled(), false);
+
+  await name.fill('production');
+  await model.fill('provider-model');
+  assert.equal(await add.isEnabled(), false);
+  await model.fill('');
+  await editor.getByRole('radio', { name: 'Responses API', exact: true }).click();
+  assert.equal(await add.isEnabled(), false);
+  await model.fill('   ');
+  assert.equal(await add.isEnabled(), false);
+  await model.fill('provider-model');
+  assert.equal(await add.isEnabled(), true);
+  await add.click();
+  await editor.waitFor({ state: 'hidden' });
+  await settings.getByRole('button', { name: 'Edit production', exact: true }).waitFor();
+
+  await settings.getByRole('button', { name: 'Edit demo', exact: true }).click();
+  const existing = page.getByRole('dialog', { name: 'Edit demo', exact: true });
+  assert.equal(await existing.getByRole('radio', { name: 'Offline echo', exact: true }).getAttribute('aria-checked'), 'true');
+  assert.equal(await existing.getByRole('textbox', { name: 'Model', exact: true }).inputValue(), 'echo');
 });
 
 

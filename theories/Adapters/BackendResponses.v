@@ -108,3 +108,26 @@ Definition stream_step source :=
   let '(state,action) := step (get source "event") (decode_stream (get source "state")) in
   encode_action state (if String.eqb (str (get source "effect") "kind") "context_compaction" then
     match action with TextDelta _ _ => Continue | _ => action end else action).
+
+Definition next_completed_index state := fold_left
+  (fun next item => N.max next (N.succ (completed_index item))) (completed_items state) 0.
+Definition codex_event (event : json) (state : response_stream) : json :=
+  let kind := str event "type" in
+  (* Codex SSE permits item events without a coordinate. These events are
+     delivered in sequence. Explicit coordinates still go through admission. *)
+  if (String.eqb kind "response.output_item.done" || String.eqb kind "response.output_text.delta") &&
+     negb (has event "output_index") then set event "output_index" (number (next_completed_index state))
+  else if String.eqb kind "response.completed" then
+    let response := get event "response" in
+    if is_text (get response "id") && negb (String.eqb (str response "id") "") then
+      let response := if has response "status" then response else set response "status" (JString "completed") in
+      let response := if has response "output" then response else set response "output" (JArray []) in
+      set event "response" response
+    else event
+  else if String.eqb kind "error" && negb (has event "code") then
+    set event "code" (get (get event "error") "code")
+  else event.
+Definition codex_stream_step source :=
+  let state := get source "state" in
+  stream_step (JObject [("effect",get source "effect");
+    ("event",codex_event (get source "event") (decode_stream state));("state",state)]).

@@ -11,6 +11,7 @@ Definition service_receipts := ["connect";"command_assessed";"workspace_git_comp
  "retry_connection";"uploaded";"previewed";"directory_listed";
  "service_configuration_loaded";"service_configuration_written"].
 Definition speech_receipts := ["audio_capabilities";"audio_capabilities_failed";
+ "audio_login_browser_opened";"audio_login_code_received";"audio_login_finished";"audio_login_copy_finished";
  "audio_captured";"audio_transcribed";"voice_task_created";"voice_ready";"voice_text";
  "audio_failed";"audio_ended";"audio_released"].
 (** Runtime receipts settle retained, typed requests. User actions are resolved

@@ -48,8 +48,6 @@ Definition new_item s :=
   end.
 Definition collection_seed path :=
   match path with
-  | ["profiles"] => JObject
-      [("provider", JString (ProviderCatalog.provider_name ProviderCatalog.Offline)); ("model", JString "echo")]
   | ["mcp"] | ["plugins"] => JObject [("command", JString "")]
   | ["chatgpt_plugin"] => JObject [("token_env", JString ""); ("project_ids", JArray [])]
   | _ => JObject []
@@ -196,10 +194,25 @@ Definition write_collection entries s :=
   | Some value => write_input (TextJson.render_json value) s
   | None => s
   end.
+Definition valid_collection_item path value :=
+  match path with
+  | ["profiles"] =>
+      let model :=
+        fields <- as_object value ;;
+        selected <- lookup "model" fields ;;
+        as_string selected in
+      match ProviderCatalog.backend value, model with
+      | Some _, Some model => Utf8.nonblank model
+      | _, _ => false
+      end
+  | _ => true
+  end.
 Definition new_collection_entries s :=
   item <- new_item s ;;
+  draft <- current_draft s ;;
   entries <- editable_collection s ;;
-  if valid_item_name (fst item) entries then Some (entries ++ [item])%list else None.
+  if valid_item_name (fst item) entries && valid_collection_item (draft_path draft) (snd item)
+  then Some (entries ++ [item])%list else None.
 Definition can_add_item s :=
   match new_collection_entries s with Some _ => true | None => false end.
 Definition assignment entry draft s :=

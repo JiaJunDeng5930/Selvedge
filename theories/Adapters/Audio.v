@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Adapters Require Import Common Observation AccountDevice.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -127,12 +127,18 @@ Definition task_progress (assistant : json -> bool) (content : json -> json) (so
 Definition transcript_tail (pending completed : string) :=
   if starts pending completed then String.substring (String.length completed) (String.length pending) pending
   else if starts completed pending then "" else pending.
-Definition login_target (source : json) :=
-  admit (nonempty_text (get source "url") && String.eqb (str source "protocol") "https:" &&
-    String.eqb (str source "hostname") "auth.openai.com" && String.eqb (str source "pathname") "/oauth/authorize" &&
+Definition login_origin (source : json) :=
+  nonempty_text (get source "url") && String.eqb (str source "protocol") "https:" &&
+    String.eqb (str source "hostname") "auth.openai.com" &&
     String.eqb (str source "username") "" && String.eqb (str source "password") "" &&
-    existsb (String.eqb (str source "port")) ["";"443"])
+    existsb (String.eqb (str source "port")) ["";"443"].
+Definition login_target (source : json) :=
+  admit (login_origin source && String.eqb (str source "pathname") "/oauth/authorize")
     (JObject [("url",get source "url")]) "Invalid ChatGPT authorization URL".
+Definition device_login_target (source : json) :=
+  admit (login_origin source && String.eqb (str source "pathname") AccountDevice.verification_path &&
+    String.eqb (str source "search") "" && String.eqb (str source "hash") "")
+    (JObject [("url",get source "url")]) "Invalid ChatGPT device verification URL".
 Definition call (transport : json -> json) (assistant : json -> bool) (content : json -> json)
   (operation : string) (source : json) :=
   if String.eqb operation "audio.contract" then success contract
@@ -147,5 +153,6 @@ Definition call (transport : json -> json) (assistant : json -> bool) (content :
   else if String.eqb operation "audio.initial_context_plan" then initial_context_plan source
   else if String.eqb operation "audio.initial_context" then initial_context assistant content source
   else if String.eqb operation "audio.login_target" then login_target source
+  else if String.eqb operation "audio.device_login_target" then device_login_target source
   else if String.eqb operation "audio.transport" then transport source
   else err "Unknown audio operation".

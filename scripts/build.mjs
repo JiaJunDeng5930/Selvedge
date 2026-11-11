@@ -295,10 +295,16 @@ export async function build(options = {}) {
     await settleIndependent(selected.map(name => withTargetSlot(async () => {
       const target = targets[name];
       const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
-      const runtime = name === 'kernel' ? (await readInput('runtime/kernel_runtime.ml')).toString('utf8')
-        : (await readInput('runtime/call_runtime.ml.in')).toString('utf8').replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
+      const runtimeFile = name === 'kernel' ? 'runtime/kernel_runtime.ml' : 'runtime/call_runtime.ml.in';
+      const runtimeSource = (await readInput(runtimeFile)).toString('utf8');
+      const preparedRuntime = name === 'interaction'
+        ? (await readInput('runtime/prepared_interaction.ml.in')).toString('utf8') : '';
+      const preparedExtraction = name === 'interaction'
+        ? (await readInput('runtime/InteractionExtraction.v')).toString('utf8') : '';
+      const runtime = (runtimeSource + preparedRuntime)
+        .replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
       const jsonIo = (await readInput('runtime/json_io.ml')).toString('utf8');
-      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo]));
+      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo, preparedExtraction]));
       const output = `.build/${name}-model.mjs`;
       const actual = [await fingerprint(output)];
       const expected = state[`target:${name}:artifacts`];
@@ -320,7 +326,7 @@ export async function build(options = {}) {
       const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
       // Separate extraction preserves module aliases used by typed domain surfaces.
       // Each target owns its OCaml units; ocamldep supplies their compilation order.
-      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
+      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${preparedExtraction}\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
       const extractionFile = path.relative(root, path.join(publicationDirectory, `Extract${target.model}.v`));
       await writeChanged(extractionFile, extraction);
       await run('rocq', ['c', ...flags, extractionFile]);
@@ -341,9 +347,11 @@ export async function build(options = {}) {
       await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo'))]);
       const stagedRuntime = path.join(publicationDirectory, `${name}-runtime.js`);
       await run('js_of_ocaml', ['--target-env', 'browser', '-o', stagedRuntime, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
+      const extraExports = name === 'host' ? 'export const callStructured = runtime.callStructured;\n'
+        : name === 'interaction' ? 'export const prepareInteraction = runtime.prepare;\nexport const rebaseInteraction = runtime.rebase;\nexport const preparedInteractionCall = runtime.preparedCall;\nexport const publishNativePicker = runtime.publishNativePicker;\nexport const publishNativeStream = runtime.publishNativeStream;\n' : '';
       const exports = name === 'kernel'
         ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
-        : `export const ${target.exported} = runtime.call;\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
+        : `export const ${target.exported} = runtime.call;\n${extraExports}`;
       // Keep each runtime and its exports in one atomically replaceable module.
       const bundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;
       publications.set(output, bundle);

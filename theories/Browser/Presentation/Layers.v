@@ -258,16 +258,16 @@ Definition panel_title panel := match panel with
 Definition dismissible_heading parent caption : node Input.input :=
  dialog_header parent [title parent caption;
   declared parent Roles.Button(secondary "close" "Close panel" Input.ClosePanel)].
-Definition layer_view snapshot s capacity layer :=
+Definition layer_view_with_side render_side snapshot s capacity compact_model_picker layer :=
  let parent:=SessionNavigation.panel_key(State.layer_panel layer)in
  let behavior:=behavior s capacity layer in
  match State.layer_panel layer with
  |State.EditorPanel(Identity.Project project)=>Activities.activity_view snapshot s(Identity.Project project)
-   (Activity.PropertyActivity UX.ProjectProperty)(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior
- |State.PropertyPanel e request=>Activities.activity_view snapshot s e request(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior
+   (Activity.PropertyActivity UX.ProjectProperty)(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior compact_model_picker
+ |State.PropertyPanel e request=>Activities.activity_view snapshot s e request(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior compact_model_picker
  |panel=>let content:=match panel with
   |State.EditorPanel e=>Editors.editor_view snapshot s e parent
-  |State.SideConversationPanel task=>side_content snapshot s task parent
+  |State.SideConversationPanel task=>render_side snapshot s task parent
   |State.NavigationPanel GlobalMenu=>Navigation.global_menu s parent
   |State.NavigationPanel WorkOverview=>Navigation.work_overview snapshot s parent
   |State.NavigationPanel TasksDrawer=>
@@ -323,3 +323,7 @@ Definition layer_view snapshot s capacity layer :=
     |_=>"layer"end in
   Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.
+
+Definition layer_view := layer_view_with_side side_content.
+(* A covered side conversation keeps its focus scope without deriving its history. *)
+Definition layer_scope_view := layer_view_with_side(fun _ _ _ _=>[]).

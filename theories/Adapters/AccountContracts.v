@@ -1,18 +1,19 @@
-From Stdlib Require Import String List.
+From Stdlib Require Import String List NArith.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
 Open Scope string_scope.
 Definition defaults := JObject [
-  ("provider",JString "chatgpt");("endpoint",JString "https://api.openai.com/v1/responses");
+  ("provider",JString "chatgpt");("endpoint",JString "https://chatgpt.com/backend-api/codex/responses");
   ("auth_file",JString "auth/chatgpt.json");("issuer",JString "https://auth.openai.com");
   ("timeout_ms",JNumber "300000")].
-Definition audio_contract := JObject [
-  ("client_id",JString "app_EMoamEEZ73f0CkXaXp7hrann");
-  ("scopes",JString "openid profile email offline_access api.connectors.read api.connectors.invoke");
-  ("auth_file",JString "auth/chatgpt-audio.json");("callback_port",JNumber "1455");
-  ("refresh_interval_ms",JNumber "691200000")].
+Definition client_id := JString "app_EMoamEEZ73f0CkXaXp7hrann".
+Definition scopes := JString "openid profile email offline_access api.connectors.read api.connectors.invoke".
+Definition originator := JString "selvedge".
+Definition callback_path := JString "/auth/callback".
+Definition device_login_timeout_ms : N := 900000%N.
 Definition contract := JObject [
-  ("login_timeout_ms",JNumber "600000");("maximum",JNumber "1048576");
-  ("resource",JString "https://api.openai.com/v1");
-  ("scopes",JString "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct");
-  ("default",defaults);("audio",audio_contract)].
+  ("login_timeout_ms",JNumber "600000");("device_login_timeout_ms",number device_login_timeout_ms);
+  ("maximum",JNumber "1048576");
+  ("client_id",client_id);("originator",originator);
+  ("callback_path",callback_path);("callback_ports",JArray [JNumber "1455";JNumber "1457"]);
+  ("refresh_interval_ms",JNumber "691200000");("default",defaults)].
