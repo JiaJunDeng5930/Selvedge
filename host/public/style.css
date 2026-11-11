@@ -980,16 +980,17 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
 @media (max-width: 480px) {
   [data-composer-dock] { border-radius: 16px !important; }
   [data-page-region="creation-context"] {
+    --creation-context-touch-size: 44px;
     &:not(:has(> [role="alert"])) { flex-wrap: nowrap !important; }
     gap: .2rem !important;
     & > [role="alert"] { flex-basis: 100% !important; }
     & > button,
     & select[data-semantic-key="task_environment"] {
-      min-block-size: 44px !important;
+      min-block-size: var(--creation-context-touch-size) !important;
     }
     & > [data-semantic-key="composer/project"] {
       flex: none !important;
-      inline-size: 44px !important;
+      inline-size: var(--creation-context-touch-size) !important;
       justify-content: center !important;
       padding-inline: 0 !important;
     }
@@ -1004,6 +1005,14 @@ main:has(> [data-page-region="creation-introduction"]) { overflow-y: auto !impor
       flex: none !important;
     }
     & select[data-semantic-key="task_environment"] { white-space: nowrap !important; }
+    @supports not ((appearance: base-select) and selector(::picker(select))) {
+      & select[data-semantic-key="task_environment"] {
+        /* Leave one line between the padding and the two 1px borders.
+           A native select can place its text at the top of that space. */
+        block-size: var(--creation-context-touch-size) !important;
+        padding-block: max(0px, calc((var(--creation-context-touch-size) - 1lh - 2px) / 2)) !important;
+      }
+    }
   }
 }
 @media (max-height: 450px) {
