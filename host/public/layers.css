@@ -226,24 +226,39 @@ dialog[data-semantic-key="model-picker"] {
 [data-model-effort-track] {
   --effort-thumb: 1.55rem;
   --effort-radius: calc(var(--effort-thumb) / 2);
-  --effort-stop: calc(var(--effort-radius) +
+  --effort-rail: calc(var(--effort-thumb) - 4px);
+  --effort-fill-length: calc(var(--effort-thumb) +
     (100% - var(--effort-thumb)) * var(--effort-preview, var(--effort-index)) / var(--effort-last));
-  --effort-fill: var(--selvedge-accent);
   position: relative;
   margin: .2rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--effort-fill) var(--effort-stop),
-    var(--selvedge-inset) var(--effort-stop));
 }
-[data-model-effort-track]:dir(rtl) { background: linear-gradient(270deg,
-  var(--effort-fill) var(--effort-stop), var(--selvedge-inset) var(--effort-stop)); }
-[data-model-effort-track]:has(input:disabled) { --effort-fill: var(--selvedge-inset); }
+[data-model-effort-track]::before,
+[data-model-effort-track]::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 50%;
+  block-size: var(--effort-rail);
+  translate: 0 -50%;
+  border-radius: 999px;
+  pointer-events: none;
+}
+[data-model-effort-track]::before {
+  inset-inline-end: 0;
+  background: var(--selvedge-inset);
+}
+[data-model-effort-track]::after {
+  inline-size: var(--effort-fill-length);
+  background: var(--selvedge-accent);
+}
+[data-model-effort-track]:has(input:disabled)::after { content: none; }
 [data-effort-marks] {
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: absolute;
   inset: 0 calc(var(--effort-radius) - .17rem);
+  z-index: 1;
   pointer-events: none;
 }
 [data-effort-marks] > span {
@@ -266,6 +281,7 @@ input[data-model-effort-range] {
   border-radius: 999px !important;
   background: transparent !important;
   position: relative;
+  z-index: 2;
   cursor: ew-resize;
 }
 input[data-model-effort-range]::-webkit-slider-runnable-track {
