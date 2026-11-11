@@ -151,7 +151,7 @@ Definition page_properties env page : list (string * string) :=
       | Composition.OverviewMeasure => Typography.px (overview_maximum_width p + edges)
       | Composition.AvailableMeasure => "none" end)] ++
   match Composition.body_kind recipe with
-  | Composition.CenteredCreation => [("justify-content","safe center")]
+  | Composition.CenteredCreation => [("justify-content","flex-start")]
   | _ => [] end.
 
 Definition region_properties env (region : Composition.region) (position : Composition.position)

@@ -20,6 +20,7 @@ From Selvedge.Interaction.Submission Require DraftCodec.
 From Selvedge.Browser.Session Require Observation Navigation.
 From Selvedge.Interaction.Submission Require Initialize.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
+From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Browser.Session Require Import EditorContext.
@@ -31,6 +32,7 @@ Module EM := Selvedge.Interaction.Experience.Model.
 Module SS := Selvedge.Browser.Session.State.
 Module EO := Selvedge.Interaction.Experience.Observation.
 Module SO := Selvedge.Browser.Session.Observation.
+Module FO := Selvedge.Interaction.Submission.Observation.
 Record result:=Result{result_state:SS.state;result_effects:list json;
  result_error:option json;result_visible_error:bool}.
 Definition keep state:=Result state [] None false.
@@ -701,7 +703,7 @@ Definition ensure_workspace_git snapshot state:=
  match SO.directory_preview snapshot state with Some SO.AwaitingDirectory=>keep state|preview=>
  let selected:=match preview with
   |Some(SO.PreviewDirectory request _ _)=>Some request
-  |_=>SO.workspace_git_request snapshot draft end in
+  |_=>if SO.cloud_workspace_requested draft then None else SO.workspace_git_request snapshot draft end in
  match selected with
  |None=>keep(SS.with_services(Services.with_workspace_git Resource.Dormant services)state)
  |Some (owner,path)=>
@@ -710,6 +712,22 @@ Definition ensure_workspace_git snapshot state:=
   changed(SS.with_services(Services.with_next(N.succ ticket)
     (Services.with_workspace_git(Resource.Loading ticket(owner,path))services))state)
     [Services.encode_effect(Services.ObserveWorkspaceGit ticket path owner)]end end.
+Definition ensure_cloud_repository snapshot state:=
+ let services:=SS.service_state state in
+ let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
+ let selected:=if existsb(same_editor owner)(visible_editors state)then
+  let draft:=SS.current_draft state owner in
+  match FO.cloud_source_selection snapshot(EditorContext.directory_result state draft)draft with
+  |Some(inr source)=>Some(owner,FO.cloud_primary source)|_=>None end
+ else None in
+ match selected with
+ |None=>match Services.cloud_repository services with Resource.Dormant=>keep state
+   |_=>keep(SS.with_services(Services.with_cloud_repository Resource.Dormant services)state)end
+ |Some(checked_owner,path)=>if SO.workspace_git_request_matches (checked_owner,path)(Services.cloud_repository services)then keep state else
+  let ticket:=Services.next_ticket services in
+  changed(SS.with_services(Services.with_next(N.succ ticket)
+    (Services.with_cloud_repository(Resource.Loading ticket(checked_owner,path))services))state)
+    [Services.encode_effect(Services.ObserveCloudRepository ticket path)]end.
 Definition ensure_request snapshot owner revision command state:=match natural_field "sequence" snapshot with
 |None=>keep state
 |Some sequence=>adopt_service(Services.ensure_assessment owner revision sequence command(SS.service_state state))state end.
@@ -772,6 +790,7 @@ Definition prepare snapshot state:=
  append result(ensure_workspace snapshot(SS.current_draft state owner)Services.PreviewContext "" state))
  (visible_editors state)(keep state)in
  let prepared:=append prepared(ensure_workspace_git snapshot(result_state prepared))in
+ let prepared:=append prepared(ensure_cloud_repository snapshot(result_state prepared))in
  append prepared(continue_preparations snapshot(result_state prepared)).
 Definition input_command snapshot state input:option SS.public_command:=
  let raw:=match input with

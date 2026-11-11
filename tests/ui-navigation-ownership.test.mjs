@@ -267,7 +267,7 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   assert.equal(response.status(), 200);
   assert.equal((await response.json()).available, false);
 
-  const options = page.getByText('Project and run settings', { exact: true });
+  const options = page.getByRole('group', { name: /^Project and run settings · / }).locator('summary');
   const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const start = page.getByRole('button', { name: 'Start task', exact: true });
@@ -347,7 +347,7 @@ test('a verified Local choice creates a real managed Git worktree', { timeout: 6
   const git = gitResponse(page, source);
   await openProjectTask(fixture, 'Verified Git project', source);
   assert.equal((await (await git).json()).available, true);
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   const environment = page.getByRole('combobox', { name: 'Run environment', exact: true });
   await environment.selectOption({ label: 'New Git worktree on the Selvedge host' });
   assert.equal(await environment.inputValue(), 'local');
@@ -381,7 +381,7 @@ test('a captured Git worktree submission survives another Project form taking ov
   const git = gitResponse(page, source);
   await openProjectTask(fixture, 'Project with a valid Git primary', source);
   assert.equal((await (await git).json()).available, true);
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.getByRole('combobox', { name: 'Run environment', exact: true })
     .selectOption({ label: 'New Git worktree on the Selvedge host' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Start the captured Git worktree.');

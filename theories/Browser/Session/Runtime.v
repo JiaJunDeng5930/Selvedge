@@ -338,7 +338,7 @@ Definition retire_namespace namespace state:=
  let services:=Services.Services(Services.connection previous)(Services.settings_return previous)(Services.settings_section previous)
    (Services.theme previous)(Services.next_ticket previous)
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
-   [] Resource.Dormant [] Configuration.initial in
+   [] Resource.Dormant Resource.Dormant [] Configuration.initial in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
  let closed:=Speech.close_login(Speech.speech_state stopped)in
  let speech:=Speech.idle_with_notice ""(Speech.speech_state closed)in

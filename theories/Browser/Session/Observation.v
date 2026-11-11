@@ -20,6 +20,8 @@ Definition workspace_for_edit := Selvedge.Interaction.Submission.Observation.wor
 Definition workspace_git_request := Selvedge.Interaction.Submission.Observation.workspace_git_request.
 Definition workspace_git_request_matches := Selvedge.Interaction.Submission.Observation.workspace_git_request_matches.
 Definition worktree_required := Selvedge.Interaction.Submission.Observation.worktree_required.
+Definition cloud_workspace_requested := Selvedge.Interaction.Submission.Observation.cloud_workspace_requested.
+Definition cloud_workspace_configured := Selvedge.Interaction.Submission.Observation.cloud_workspace_configured.
 
 Inductive directory_selection_preview := AwaitingDirectory
  | PreviewDirectory (request:editor * string) (primary:bool) (problem:option Observation.git_problem).

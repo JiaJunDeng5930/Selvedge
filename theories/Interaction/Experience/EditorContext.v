@@ -14,6 +14,7 @@ Record resources := Resources {
   directory_entry : editor -> string;
   directory_result : Draft.draft -> option (sum string (Domain.workspace * json));
   git_observation : resource (editor * string) bool;
+  cloud_repository_observation : resource (editor * string) bool;
   connected : bool;
   admission_revision : N;
   command_assessments : list (resource request observation);

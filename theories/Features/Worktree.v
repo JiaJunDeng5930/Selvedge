@@ -23,7 +23,7 @@ Definition completion_path owner := Receiver.field world_features
    (Receiver.inject (Selvedge.Features.Domain.WorktreeEntry owner)
      (Receiver.keyed Selvedge.Features.Domain.worktree_task))).
 Definition ignored := Selvedge.Kernel.State.ignored.
-Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
+Definition primary := Workspace.primary_path.
 Definition archived := WorkspaceBinding.archived.
 Definition inside := WorkspaceBinding.inside.
 Definition root_unused := WorkspaceBinding.root_unused.
@@ -52,7 +52,7 @@ Definition project_primary_matches (settings : task_settings) (value : world) :=
  match settings_project settings with
  | None=>true
  | Some id=>match registry_at id (world_projects value) with
-   | Some project=>String.eqb (primary (settings_workspace settings)) (primary (project_workspace project))
+   | Some project=>Workspace.same_primary (settings_workspace settings) (project_workspace project)
    | None=>false end
  end.
 Definition effective := WorkspaceBinding.for_task.

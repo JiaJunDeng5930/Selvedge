@@ -2,15 +2,15 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Kernel Require Commands Domain.
+From Selvedge.Kernel Require Commands Domain WorkspaceBackend.
 From Selvedge.Generated Require Commands.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Browser.Session Require Import Input ObjectActions.
 From Selvedge.Browser Require Import AuditReading Documents.
-From Selvedge.Interaction.Experience Require Model Observation Read HistoryObservation.
+From Selvedge.Interaction.Experience Require Model Observation Read HistoryObservation Activity.
 From Selvedge.Interaction.Submission Require Draft.
-From Selvedge.Browser.Session Require State Observation Navigation.
+From Selvedge.Browser.Session Require State Observation Navigation Services.
 Module SessionNavigation := Selvedge.Browser.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
@@ -29,16 +29,41 @@ Definition creation_heading snapshot s e :=match SessionObserve.draft_preview sn
 |Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
  |Some project=>"New conversation in "++project_name project|None=>"New conversation"end
 |_=>"New conversation"end.
+Definition creation_settings_caption (draft:Draft.draft) :=
+ "Project and run settings"++match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ mode _=>" · "++match mode with
+   |Draft.CurrentWorkspace=>"Current directory"
+   |Draft.ManagedWorkspace WorkspaceBackend.Local=>"Host Git worktree"
+   |Draft.ManagedWorkspace WorkspaceBackend.TencentCvm=>"Tencent Cloud CVM" end
+ |_=>""end.
 Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let owner:=editor_key e in
  let draft:=State.current_draft s e in
- let issue:=Observe.run_environment_obstruction snapshot s e draft in
+ let issue:=Observe.run_environment_problem_for snapshot s draft in
+ let environment_key:=part parent "creation-options" in
  let environment_status key:=match issue with
-  |Some cause=>[information key "run-environment-status" Information.Status(UX.obstruction_message cause)]
+  |Some problem=>[information key "run-environment-status" Information.Status(Observe.environment_problem_message problem)]
   |None=>[]end in
+ let cloud_help:=if SessionObserve.cloud_workspace_configured snapshot && SessionObserve.cloud_workspace_requested draft then
+  [information environment_key "cloud-workspace-help" Information.Description
+    (Observe.cloud_source_caption snapshot draft++" Push the current commit with .selvedge/env.sh. Use directories inside that repository.")]
+  else[]in
+ let workspace label:=declared environment_key Roles.Button(secondary "cloud-workspace" label
+  (Input.OpenActivity e (Activity.PropertyActivity UX.WorkspaceProperty)(part environment_key "cloud-workspace")))in
+ let repair:=match issue with
+  |None=>[]
+  |Some problem=>((match Observe.environment_problem_repair problem with
+    |Some Observe.ChooseCloudDirectory=>[workspace "Choose working directory…"]
+    |Some Observe.UseCloudProjectDirectory=>[workspace "Use project directory…"]
+    |Some(Observe.EditCloudProject project)=>[declared environment_key Roles.Button(secondary "cloud-project" "Edit project…"
+       (Input.OpenEditor(Identity.Project(Some project))(part environment_key "cloud-project")))]
+    |None=>[]end)++
+    (if Observe.environment_problem_recheck problem then
+      [declared environment_key Roles.Button(secondary "cloud-check" "Check again"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
+     else[]))%list end in
  let environment:=match Editors.field_node snapshot s e owner Fields.TaskEnvironment with
-  |Some node=>node::environment_status (part parent "creation-options")
+  |Some node=>node::(cloud_help++environment_status environment_key++repair)%list
   |None=>[]end in
  let properties:=Observe.observe_properties snapshot s e in
  let context:=flat_map(fun property=>match UX.property_kind_of property with
@@ -52,7 +77,7 @@ Definition creation_composer snapshot (s:State.state) parent :=
  page_region parent Composition.ComposerInput Composition.BodyPosition
    ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++
     [page_region parent Composition.CreationContext Composition.BodyPosition
-      (Editors.editor_options parent "creation-options" "Project and run settings"
+      (Editors.editor_options parent "creation-options" (creation_settings_caption draft)
         (context++environment)::environment_status parent)])%list.
 Definition creation_page snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in

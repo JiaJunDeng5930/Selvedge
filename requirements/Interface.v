@@ -280,6 +280,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     becomes the primary directory. [a_blocked_directory_choice_does_not_change_the_draft]
     constrains the confirmation action. Additional working directories may
     be outside the Git repository.
+    New choices of run environment reflect the host configuration. Cloud run
+    settings identify the primary directory for the GitHub source and offer a
+    way to correct it. The pushed revision must contain the setup script, and
+    the task directories must lie within that repository.
+    Collapsed run settings identify the selected environment. Expanding those
+    settings keeps the composer anchored above them.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.

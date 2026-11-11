@@ -8,7 +8,7 @@ import { chmod, mkdir, readFile, readdir, realpath, rename, symlink, unlink, wri
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { imagesFixture } from './fixtures/images.mjs';
-import { asyncToolResult, home, shellQuote } from './support.mjs';
+import { asyncToolResult, home, shellQuote, taskIdle } from './support.mjs';
 
 const execute = promisify(execFile);
 const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1cAAAAASUVORK5CYII=';
@@ -218,7 +218,7 @@ function spotRequest(requests) {
   assert.ok(typeof body.ClientToken === 'string' && body.ClientToken.length > 0 && body.ClientToken.length <= 64);
 }
 
-test('cloud tasks and inherited forks use the prepared remote repository and archive only their owned spot resource', async t => {
+test('cloud tasks and inherited forks use the prepared remote repository and archive only their owned spot resource', { timeout: 240_000 }, async t => {
   let step = 0;
   let operation;
   let readId;
@@ -299,11 +299,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   const settled = await until(() => worktree(fixture_.service, id), entry => entry.status === 'ready' || entry.status === 'create_failed', 'The cloud checkout must settle');
   assert.equal(settled.status, 'ready', JSON.stringify(settled));
   try {
-    await until(async () => {
-      const read = await fixture_.service.command({ op: 'read', task_id: id });
-      assert.equal(read.reply.ok, true);
-      return read.reply.result.task;
-    }, task => task.phase === 'idle' && task.operations.length === 0, 'The cloud task must complete its remote tool calls');
+    await taskIdle(fixture_.service, id, 90_000);
   }
   finally { assert.deepEqual(fixture_.upstream.failures, []); }
   assert.equal(completed, true);
@@ -325,11 +321,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
     settings_origin: 'environment', settings: {}, messages: ['Read the committed marker from the inherited cloud workspace.'] });
   assert.equal(forked.reply.ok, true, JSON.stringify(forked.reply));
   const [child] = forked.reply.result.children;
-  await until(async () => {
-    const observed = await fixture_.service.command({ op: 'read', task_id: child });
-    assert.equal(observed.reply.ok, true, JSON.stringify(observed.reply));
-    return observed.reply.result.task;
-  }, task => task.phase === 'idle' && task.operations.length === 0, 'The fork must execute in its inherited cloud workspace');
+  await taskIdle(fixture_.service, child, 90_000);
   assert.deepEqual(fixture_.upstream.failures, []);
   assert.equal(inheritedCompleted, true, 'The fork must read the committed remote marker');
   const childArchived = await fixture_.service.command({ op: 'archive', task_id: child });

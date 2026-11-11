@@ -7,6 +7,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require World.
 From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Experience Require Observation.
 From Selvedge.Browser.Session Require Import Appearance Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech.
@@ -23,6 +24,7 @@ Import ListNotations.
 Open Scope string_scope.
 Module SO := Selvedge.Browser.Session.Observation.
 Module Submission := Selvedge.Interaction.Submission.Observation.
+Module Experience := Selvedge.Interaction.Experience.Observation.
 
 Definition speech_button parent id label (enabled:bool) event :=
  declared parent Roles.Button(Control("speech/"++id)label Secondary(Input.SpeechInput event)
@@ -208,6 +210,10 @@ Definition directory_view snapshot s :=
    let label (chinese english:string):=match owner with Identity.Project _=>chinese|_=>english end in
    let git:=SO.directory_preview snapshot s in
    let git_status:=directory_git_status label git in
+   let draft:=State.current_draft s owner in
+   let source:=if SO.cloud_workspace_configured snapshot && SO.cloud_workspace_requested draft then
+    [information parent "cloud-workspace-source" Information.Description(Experience.cloud_source_caption snapshot draft)]
+    else[]in
    let caption:=label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
     |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
     |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
@@ -241,9 +247,9 @@ Definition directory_view snapshot s :=
      (Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
     [dialog_header parent [title parent caption];
-     dialog_body parent(navigation::match resource with
+     dialog_body parent((source++navigation::match resource with
       |Resource.Loaded _ _ _=>[region parent "folders" (label "子目录" "Folders") Roles.Section content]
-      |_=>content end);
+      |_=>content end)%list);
      dialog_actions parent
       ((match resource,git_status with Resource.Loaded _ _ _,Some status=>
         [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++

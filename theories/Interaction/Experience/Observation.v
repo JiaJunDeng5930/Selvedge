@@ -102,8 +102,12 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
  |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Use working directory as is";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"New Git worktree on the Selvedge host";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Run on Tencent Cloud CVM"]
+   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"New Git worktree on the Selvedge host"]++
+   if FieldsObservation.cloud_workspace_configured snapshot then
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Run on Tencent Cloud CVM"]
+   else if FieldsObservation.cloud_workspace_requested(EC.current_draft state e) then
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Tencent Cloud CVM unavailable"]
+   else []
  |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "Workspace write";Fields.ChoiceValue "read-only" "Read only"]
  |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "Restricted";Fields.ChoiceValue "true" "Allowed"]
  |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "Ask for approval";
@@ -428,11 +432,46 @@ Definition run_environment_git_message (problem:FieldsObservation.git_problem) :
  |FieldsObservation.GitRepositoryRequired=>"Choose a Git repository with a commit, or use the working directory as is."
  |FieldsObservation.GitCheckFailed=>"Git check failed. Choose another directory or use the working directory as is."
  end.
+Inductive cloud_repair := ChooseCloudDirectory | UseCloudProjectDirectory | EditCloudProject (project:N).
+Record run_environment_problem := RunEnvironmentProblem {
+ environment_problem_code:string; environment_problem_message:string;
+ environment_problem_repair:option cloud_repair; environment_problem_recheck:bool }.
+Definition cloud_source_caption snapshot draft := match FieldsObservation.draft_preview snapshot draft with
+ |Context.ProspectiveContext _ (Some _) _ _ _ _=>"Tencent Cloud clones the GitHub repository from the project's primary directory."
+ |_=>"Tencent Cloud clones the GitHub repository from the primary directory on the Selvedge host." end.
+Definition cloud_run_problem snapshot state draft : option run_environment_problem :=
+ let issue message repair recheck:=Some(RunEnvironmentProblem "cloud_workspace_unavailable" message repair recheck)in
+ match FieldsObservation.cloud_source_selection snapshot(EC.directory_result(EC.observed state)draft)draft with
+ |None=>None
+ |Some(inl problem)=>match problem with
+  |FieldsObservation.CloudDirectoryRequired=>issue "Choose a primary directory for this conversation." (Some ChooseCloudDirectory) false
+  |FieldsObservation.CloudDirectoryChecking=>issue "Checking the working directory…" None false
+  |FieldsObservation.CloudDirectoryUnavailable=>issue "Could not read the working directory." (Some ChooseCloudDirectory) false
+  |FieldsObservation.CloudProjectDirectoryRequired project=>issue "Set a primary directory for this project." (Some(EditCloudProject project)) false
+  |FieldsObservation.CloudProjectPrimaryMismatch _=>issue "Cloud runs use the project's primary directory." (Some UseCloudProjectDirectory) false end
+ |Some(inr source)=>
+  let repair:=Some(match FieldsObservation.cloud_project source with Some project=>EditCloudProject project|None=>ChooseCloudDirectory end)in
+  match FieldsObservation.git_request_problem (Draft.owner draft,FieldsObservation.cloud_primary source)
+    (EC.cloud_repository_observation(EC.observed state))with
+  |None=>None
+  |Some FieldsObservation.GitCheckPending=>issue "Checking the GitHub source…" None false
+  |Some FieldsObservation.GitCheckFailed=>issue "Could not check the GitHub source." repair true
+  |Some _=>issue (match FieldsObservation.cloud_project source with
+    |Some _=>"The project's primary directory needs a Git repository with a commit and a GitHub remote."
+    |None=>"Choose a primary directory in a Git repository with a commit and a GitHub remote." end) repair true end
+ end.
+Definition run_environment_problem_for snapshot state draft : option run_environment_problem :=
+ if FieldsObservation.cloud_workspace_requested draft then
+  if FieldsObservation.cloud_workspace_configured snapshot then cloud_run_problem snapshot state draft
+  else Some(RunEnvironmentProblem "cloud_backend_unavailable" "Tencent Cloud CVM is not configured on this Selvedge host." None false)
+ else
+ problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
+ Some(RunEnvironmentProblem "workspace_git_unavailable" (run_environment_git_message problem) None false).
 Definition run_environment_obstruction snapshot state e (draft:Draft.draft):option(obstruction e):=
  match e with
  |Identity.NewTask _=>
-   problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
-   Some(requirement_obstruction e (Some Fields.TaskEnvironment) "workspace_git_unavailable" (run_environment_git_message problem))
+   problem<-run_environment_problem_for snapshot state draft;;
+   Some(requirement_obstruction e (Some Fields.TaskEnvironment) (environment_problem_code problem) (environment_problem_message problem))
  |_=>None end.
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
  match ModelSelection.observed_profile snapshot profile with

@@ -180,7 +180,7 @@ test('Project task creation restores Project workspace inheritance through the b
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), false);
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   let workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
@@ -199,7 +199,7 @@ test('Project task creation preserves explicitly empty workspaces through the br
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await projectTask(page);
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();

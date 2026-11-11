@@ -80,7 +80,7 @@ Definition acknowledges_feedback (incoming:input) := match incoming with
 |LoadSkills _ explicit=>explicit
 |ServiceInput service=>match service with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
- |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.Connect
+ |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.CloudRepositoryCompleted _ _|Services.Connect
  |Services.Authenticated _ _|Services.Disconnected _ _ _|Services.RetryConnection _
  |Services.Uploaded _ _|Services.Previewed _ _|Services.DirectoryListed _ _
  |Services.ConfigurationLoaded _ _|Services.ConfigurationWritten _ _=>false

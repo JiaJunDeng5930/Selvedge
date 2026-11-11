@@ -12,7 +12,7 @@ test('the English workspace picker identifies host directories and supports keyb
   const directory = path.join(root, folder);
   await mkdir(path.join(directory, 'Nested folder'), { recursive: true });
 
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   const browse = workspace.getByRole('button', { name: 'Browse…', exact: true });
@@ -64,7 +64,7 @@ test('a local worktree picker checks the visited directory before selecting a pr
   await git('commit', '--allow-empty', '-m', 'Initial commit');
 
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Open this conversation in a Git worktree.');
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.getByRole('combobox', { name: 'Run environment', exact: true })
     .selectOption({ label: 'New Git worktree on the Selvedge host' });
   await page.locator('button[data-logical-key="composer/workspace"]').click();

@@ -125,9 +125,10 @@ Record services := Services {
   directory:resource directory_request json; directory_location:string;
   model_preference:option (string * string); storage_problem:option string;
   preparations:list(resource preparation directory_observation); workspace_git:resource (editor*string) bool;
+  cloud_repository:resource (editor*string) bool;
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation);
   service_configuration:Configuration.state }.
-Definition initial := Services ConnectionDormant None SettingsGeneral SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [] Configuration.initial.
+Definition initial := Services ConnectionDormant None SettingsGeneral SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant Dormant [] Configuration.initial.
 Definition connected s := match connection s with ConnectionReady _ => true | _ => false end.
 Definition retained_file_handles s := flat_map(fun resource=>match resource with
  |Loading _ request|Failed _ request _=>[file_handle(upload_file request)]
@@ -151,6 +152,7 @@ Definition with_model_preference value s := set model_preference (fun _ => value
 Definition with_storage_problem value s := set storage_problem (fun _ => value) s.
 Definition with_preparations ps s := set preparations (fun _ => ps) s.
 Definition with_workspace_git value s := set workspace_git (fun _ => value) s.
+Definition with_cloud_repository value s := set cloud_repository (fun _ => value) s.
 Definition with_command_assessments values s := set command_assessments (fun _ => values) s.
 Definition owned_assessment := CommandAssessment.owned_assessment.
 Definition assessment_owned e := owned_assessment(CommandAssessment.DraftOwner e).
@@ -184,6 +186,7 @@ Inductive service_input :=
 | CommandAssessed(ticket:N)(outcome:sum string CommandAssessment.observation) | RetryAssessment(owner:editor)
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
+| CloudRepositoryCompleted(ticket:N)(outcome:sum string bool) | RefreshCloudRepository(owner:editor)
 | OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
@@ -211,6 +214,7 @@ Inductive service_effect :=
 | SaveAppearance(value:appearance) | Upload(ticket:N)(request:upload_request) | AbortUpload(ticket:N)
 | FetchPreview(ticket:N)(file:attachment) | ReleasePreview(url:string) | DownloadFile(file:attachment)
 | ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(primary:string)(owner:editor)
+| ObserveCloudRepository(ticket:N)(primary:string)
 | ListDirectory(ticket:N)(path:string)(owner:editor) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
 Record service_result := ServiceResult { service_state:services; service_effects:list service_effect; attached:option(editor*attachment) }.
 Definition keep s := ServiceResult s [] None.
@@ -338,6 +342,10 @@ Definition service_step input s :=
       keep(with_command_assessments(map settle_assessment(command_assessments s))s)
   | RetryAssessment e=>keep(forget_assessment e s)
   | WorkspaceGitCompleted t outcome => keep(with_workspace_git(settle t outcome(workspace_git s))s)
+  | CloudRepositoryCompleted t outcome => keep(with_cloud_repository(settle t outcome(cloud_repository s))s)
+  | RefreshCloudRepository owner => match resource_request(cloud_repository s)with
+    |Some(current,_)=>if same_editor current owner then keep(with_cloud_repository Dormant s)else keep s
+    |None=>keep s end
   | RestoreModelPreference raw =>
       match bind (TextJson.parse_json raw) ModelSelection.decode_preference with
       |Some preference => keep (with_model_preference (Some preference) s)
@@ -422,7 +430,9 @@ Definition service_step input s :=
   end.
 Definition encode_unit (_:unit):json:=JNull.
 Definition decode_unit(j:json):option unit:=match j with JNull=>Some tt|_=>None end.
-Definition encode_services s := JObject[("connection",encode_connection(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("settings_section", JString (settings_section_name (settings_section s)));("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end);("service_configuration", Configuration.encode (service_configuration s))].
+Definition encode_services s := JObject[("connection",encode_connection(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("settings_section", JString (settings_section_name (settings_section s)));("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));
+  ("cloud_repository",encode_resource encode_git_request JBool(cloud_repository s));
+  ("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end);("service_configuration", Configuration.encode (service_configuration s))].
 Definition decode_services j :=
   c<-bind(field "connection" j)decode_connection;;o<-bind(field "settings_return" j)(fun value=>match value with JNull=>Some None|JString trigger=>Some(Some trigger)|_=>None end);;
   section<-bind(string_field "settings_section" j)decode_settings_section;;
@@ -430,7 +440,9 @@ Definition decode_services j :=
   u<-list_field(decode_resource decode_upload decode_attachment)"uploads" j;;
   p<-bind(field "preview" j)(decode_resource decode_preview as_string);;
   d<-bind(field "directory" j)(decode_resource decode_directory decode_directory_catalog);;
-  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;configuration<-bind(field "service_configuration" j)Configuration.decode;;Some(Services c o section a n u p d l pref problem ps git assessments configuration).
+  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;
+  cloud<-bind(field "cloud_repository" j)(decode_resource decode_git_request as_bool);;
+  assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;configuration<-bind(field "service_configuration" j)Configuration.decode;;Some(Services c o section a n u p d l pref problem ps git cloud assessments configuration).
 Definition encode_effect e :=
   let effect kind fields:=JObject(("type",JString kind)::fields)in
   match e with
@@ -448,6 +460,7 @@ Definition encode_effect e :=
   | DownloadFile a=>effect "download"[("file",encode_attachment a)]
   | ObserveDirectories t workspace e=>effect "observe_directories"(task_observation_fields e[("ticket",number t);("workspace",workspace)])
   | ObserveWorkspaceGit t primary e=>effect "workspace_git"(task_observation_fields e[("ticket",number t);("primary",JString primary)])
+  | ObserveCloudRepository t primary=>effect "cloud_repository"[("ticket",number t);("primary",JString primary)]
   | ListDirectory t p e=>effect "list_directory"(task_observation_fields e[("ticket",number t);("path",JString p)])
   | DirectoryChosen e p=>effect "directory_chosen"[("editor",encode_editor e);("path",JString p)]
   | Focus t=>effect "focus"[("key",JString t)]end.
@@ -472,6 +485,8 @@ Definition service_input_decoders : list (string * (json -> option service_input
   ("command_assessed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome CommandAssessment.decode_observation j;;Some(CommandAssessed t outcome));
   ("retry_assessment", fun j => option_map RetryAssessment(bind(field "editor" j)decode_editor));
   ("workspace_git_completed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome as_bool j;;Some(WorkspaceGitCompleted t outcome));
+  ("cloud_repository_completed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome as_bool j;;Some(CloudRepositoryCompleted t outcome));
+  ("refresh_cloud_repository", fun j => owner<-bind(field "editor" j)decode_editor;;Some(RefreshCloudRepository owner));
   ("model_preference_restored", fun j => option_map RestoreModelPreference (string_field "value" j));
   ("storage_problem", fun j => option_map StorageProblem (string_field "message" j));
   ("dismiss_storage_problem", fun _ => Some DismissStorageProblem);

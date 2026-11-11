@@ -51,7 +51,7 @@ test('a submitted Task survives directory preparation while newer writing and na
     await route.fulfill({ response });
   });
   await openProjectTask(fixture, 'Captured submission Project', workspace);
-  await page.getByText('Project and run settings', { exact: true }).click();
+  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   const directories = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await directories.getByRole('button', { name: 'Remove directory', exact: true }).click();

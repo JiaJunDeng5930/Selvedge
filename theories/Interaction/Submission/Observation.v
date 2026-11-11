@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Commands.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities Workspace WorkspaceBackend Commands.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
@@ -169,6 +169,40 @@ Definition worktree_required draft:=match Draft.contents draft with
  |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>true
  |Draft.ProjectBody _ _ _ requested=>requested
  |_=>false end.
+Definition cloud_workspace_requested draft:=match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.TencentCvm) _=>true
+ |_=>false end.
+Definition cloud_workspace_configured snapshot :=
+ match string_field "configured_cloud_backend" snapshot with
+ |Some backend=>String.eqb backend (WorkspaceBackend.name WorkspaceBackend.TencentCvm)
+ |None=>false end.
+Inductive cloud_directory_problem := CloudDirectoryRequired | CloudDirectoryChecking | CloudDirectoryUnavailable
+ | CloudProjectDirectoryRequired (project:N) | CloudProjectPrimaryMismatch (project:N).
+Record cloud_source := CloudSource { cloud_project:option N; cloud_primary:string }.
+Definition cloud_source_selection snapshot
+    (observed:option (string + (Selvedge.Kernel.Domain.workspace * json))) draft
+    : option (cloud_directory_problem + cloud_source) :=
+ if cloud_workspace_requested draft && cloud_workspace_configured snapshot then
+  match draft_preview snapshot draft with
+  |Context.ProspectiveContext _ project directory _ _ _=>
+   let project_space:=id<-project;;value<-project_by_id id snapshot;;bind(field "workspace" value)Codec.parse_workspace in
+   let selected effective := match Selvedge.Kernel.Domain.workspace_primary effective with
+    |Some primary=>match project,project_space with
+      |Some id,Some source=>if Workspace.same_primary effective source then inr(CloudSource project primary)
+       else inl(CloudProjectPrimaryMismatch id)
+      |_,_=>inr(CloudSource project primary)end
+    |None=>match project with Some id=>inl(CloudProjectPrimaryMismatch id)|None=>inl CloudDirectoryRequired end end in
+   match project,bind project_space Selvedge.Kernel.Domain.workspace_primary with
+   |Some id,None=>Some(inl(CloudProjectDirectoryRequired id))
+   |_,_=>Some(match directory with
+    |Context.InheritedWorkspace effective=>selected effective
+    |Context.EnteredWorkspace proposed=>match Selvedge.Kernel.Domain.workspace_primary proposed,observed with
+      |None,_=>selected proposed
+      |Some _,Some(inr(effective,_))=>selected effective
+      |Some _,Some(inl _)=>inl CloudDirectoryUnavailable
+      |Some _,None=>inl CloudDirectoryChecking end end)end
+  |Context.ContextUnavailable _=>None end
+ else None.
 Definition worktree_submission_problem snapshot observation draft :=
  if worktree_required draft then workspace_git_problem snapshot observation draft else None.
 Definition worktree_preference snapshot observation (draft:Draft.draft):option(Schema.command_value Selvedge.Kernel.Commands.command_specs):=

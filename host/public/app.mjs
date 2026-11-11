@@ -1157,6 +1157,10 @@ async function execute(effect) {
       if (body.ok === false) throw new Error(body.error);
       return body.available;
     });
+    case 'cloud_repository': return settled('cloud_repository_completed', effect.ticket, async () => {
+      const body = await post('/api/browser/observation', { kind: 'cloud-repository', primary: effect.primary });
+      return body.available;
+    });
     case 'list_directory': return settled('directory_listed', effect.ticket, async () => {
       return post('/api/browser/observation', taskObservation(effect, { kind: 'browse-directories', path: effect.path }));
     });
