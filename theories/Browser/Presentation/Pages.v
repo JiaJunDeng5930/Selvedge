@@ -54,18 +54,22 @@ Definition approval_node snapshot s task parent operation :=
  let id:=Read.operation_id operation in
  let key:=part parent("approval/"++show_natural id)in
  let human:=Read.operation_human operation in
- Node key "approval"(if human then"Approval required"else"Automatic review")Roles.Approval Region
-  ([group_title key(Read.operation_tool operation)]++
-   (match Read.operation_directory operation with
-    |Some directory=>[read_only key "directory" "Default working directory" directory]|None=>[]end)++
-   approval_arguments key operation++
-   if human then flat_map(fun allow=>match ObjectActions.approval_action snapshot s task id allow with
+ let status:=if human then"Approval required"else"Automatic review"in
+ let decisions:=if human then flat_map(fun allow=>match ObjectActions.approval_action snapshot s task id allow with
     |Some action=>match ObjectActions.command action with
      |Some command=>[declared key(if allow then Roles.PrimaryButton else Roles.Button)
        (Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
-     |None=>[]end|None=>[]end)[true;false]
-   else[read_only key "reviewer" "Reviewer model"
-    (value_or "Reviewer observation unavailable"(Read.operation_reviewer operation))])%list.
+     |None=>[]end|None=>[]end)[false;true] else [] in
+ Node key "approval" status Roles.Approval Region
+  ([region key "approval-heading" "" Roles.Section
+     [group_title key(Read.operation_tool operation);information key "approval-status" Information.Description status];
+    region key "approval-details" "" Roles.Section
+     (approval_arguments key operation ++
+      (match Read.operation_directory operation with
+       |Some directory=>[read_only key "directory" "Default working directory" directory]|None=>[]end) ++
+      if human then [] else [read_only key "reviewer" "Reviewer model"
+       (value_or "Reviewer observation unavailable"(Read.operation_reviewer operation))])]
+   ++ match decisions with []=>[]|_=>[region key "approval-actions" "Approval decision" Roles.Toolbar decisions]end)%list.
 Definition approvals snapshot s task parent operations :=
  match Read.pending_approvals operations with []=>[]|pending=>[page_region parent Composition.ApprovalDecisions Composition.DockPosition
   [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node snapshot s task parent)pending)]]end.
@@ -84,7 +88,8 @@ Definition operation_node snapshot s task parent operation :=
     ([read_only key "call" "Tool call"(Read.operation_tool operation++" · "++Read.operation_call_id operation);
       read_only key "state" "State"(Read.operation_stage operation);
       read_only key "status" "Status"(Read.operation_status operation)]++
-     approval_arguments key operation++operation_cancel_control snapshot s task key id).
+     (match Read.pending_approvals [operation] with []=>approval_arguments key operation|_=>[]end)++
+     operation_cancel_control snapshot s task key id).
 Definition operation_controls snapshot s task parent operations :=
  match operations with []=>[]|_=>[region parent "active-operations" "Active operations"Roles.Activity
   (map(operation_node snapshot s task parent)operations)]end.
@@ -104,11 +109,17 @@ Definition worktree_details snapshot s task parent:=match Read.task_workspace ta
    |Some action=>match ObjectActions.command action with
     |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
     |None=>[]end|None=>[]end))end.
+Definition show_side_control parent task : node Input.input :=
+ declared parent Roles.Button(secondary "side/show" "Open side conversation"
+   (Input.ShowSide task(part parent "side/show"))).
 Definition task_side_controls snapshot s task parent:=match ObjectActions.return_action snapshot s task with
-|None=>[]|Some action=>List.app
+|None=>match filter (fun entry=>match Read.task_side_parent snapshot (task_id entry) with
+         |Some source=>N.eqb source task|None=>false end) (value_or[](Read.tasks snapshot)) with
+       |[child]=>[show_side_control parent (task_id child)]|_=>[]end
+|Some action=>List.app
  (match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]|None=>[]end)
- [declared parent Roles.Button(secondary "side/show" "打开侧窗口"(Input.ShowSide task(part parent "side/show")))]end.
+ [show_side_control parent task]end.
 Definition discarded_unfinished_notice s task parent:=
  let count:=Documents.discarded_count task(State.document_retention s)in
  if N.eqb count 0 then [] else
@@ -132,12 +143,16 @@ Definition task_contents snapshot s view parent task :=
  let timeline:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
  let timeline:=List.app timeline(operation_controls snapshot s id parent operations)in
- ([page_region parent Composition.ConversationHeader Composition.HeadingPosition
+ let timeline:=match timeline with []=>
+   [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
+  |_=>timeline end in
+ ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
    (List.app [task_details_control s id parent;
-    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))];
-  page_region parent Composition.TimelineContent Composition.BodyPosition
+    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))]]
+  |SideTask _=>[]end) ++
+ [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
       (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline])] ++
@@ -149,7 +164,10 @@ Definition task_contents snapshot s view parent task :=
    |None=>[]|Some composer=>[page_region parent Composition.ComposerInput Composition.DockPosition[composer]]end else[])%list.
 Definition conversation_page snapshot s view parent :=
  match find_task(NavigationIdentity.task_view_task view)snapshot with
- |None=>missing parent "This task no longer exists"
+ |None=>[page_region parent Composition.UnavailableMessage Composition.BodyPosition
+   [region parent "conversation-unavailable" "" Roles.Section
+     [title parent "Conversation unavailable";
+      information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]]]
  |Some task=>[Node(part parent "conversation")"conversation" ""Roles.Section(PageContext(Some view))
   (task_contents snapshot s view parent task)]end.
 Definition history_scope (project:bool) selected choices parent :=
@@ -169,16 +187,17 @@ Definition history_hit parent hit :=
     (if String.eqb(HistoryObservation.hit_after hit)""then[]else[read_only key "after" "下一条"(HistoryObservation.hit_after hit)]))%list.
 Definition history_page snapshot s parent :=
  let search:=State.history_search(State.authoring_state s)in
- let submit:=observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
+ let submit:=observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(primary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
  let project_choices:=Fields.ChoiceValue "" "全部"::map(fun p=>Fields.ChoiceValue(show_natural(project_id p))(project_name p))(value_or[](projects snapshot))in
  let work_choices:=Fields.ChoiceValue "" "全部"::map(fun w=>Fields.ChoiceValue(show_natural(work_id w))(work_name w))(value_or[](works snapshot))in
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "搜索对话"];
+ [browse_heading parent
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "搜索对话"]) [];
   page_region parent Composition.CollectionActions Composition.HeadingPosition
    [Node(part parent "history/query")"history-query" "关键词"Roles.Field
      (HistorySearchQuery(State.keyword search)(fun value=>option_map Input.WriteHistoryQuery(as_string value))submit)[];
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
-    declared parent Roles.Button submit];
+    declared parent Roles.PrimaryButton submit];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
    (match State.search_result search with
    |None=>[read_only parent "prompt" "搜索说明" "输入关键词，选择项目或 Work，然后搜索对话。"]
@@ -197,8 +216,9 @@ Definition history_page snapshot s parent :=
 Definition shared_page snapshot s work parent :=
  match find_work work snapshot with
  |None=>missing parent "This Work no longer exists"
- |Some work=>[page_region parent Composition.SharedTitle Composition.HeadingPosition
-    [title parent "共享 UI";read_only parent "work-name" "Work"(work_name work)];
+ |Some work=>[browse_heading parent
+   (page_region parent Composition.SharedTitle Composition.HeadingPosition [title parent "共享 UI"])
+   [information parent "work-name" Information.Description (work_name work)];
    page_region parent Composition.SharedContent Composition.BodyPosition
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.

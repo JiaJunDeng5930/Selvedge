@@ -57,7 +57,7 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.deepEqual(task.settings.workspace, { roots: [workspace], primary_root: workspace });
   await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('dialog');
+  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('Harbour 海港', { exact: true }).waitFor();
   assert.ok(await details.getByText(workspace, { exact: true }).count() > 0,
     'Task details must include the Project workspace');
@@ -72,7 +72,7 @@ test('a projectless task identifies its context without inventing a Project revi
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('dialog');
+  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('Projectless task', { exact: true }).waitFor();
   assert.equal(await details.getByText('Guidance revision', { exact: true }).count(), 0,
     'A projectless task has no Project guidance revision');

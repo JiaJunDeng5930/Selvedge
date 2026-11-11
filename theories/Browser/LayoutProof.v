@@ -21,7 +21,9 @@ Theorem work_overview_preserves_its_reading_span_and_viewport_edges env :
   work_overview_height env <= viewport_height env * 94 / 100 /\
   work_overview_height env <= viewport_height env - 2 * work_overview_clearance.
 Proof. unfold work_overview_width, work_overview_height.
-  repeat split; try apply Nat.le_min_l; try apply Nat.le_min_r.
+  repeat split.
+  - eapply Nat.le_trans; [apply Nat.le_min_r|apply Nat.le_min_l].
+  - eapply Nat.le_trans; [apply Nat.le_min_r|apply Nat.le_min_r].
   - apply Nat.Div0.div_le_mono. apply Nat.mul_le_mono_r. lia.
   - apply Nat.Div0.div_le_upper_bound. rewrite Nat.mul_comm.
     apply Nat.mul_le_mono_r. vm_compute. lia.
@@ -83,18 +85,18 @@ Theorem admitted_metric_is_positive height advance value :
   0 < height /\ 0 < advance.
 Proof. destruct height, advance; cbn; discriminate || lia. Qed.
 
-(** A candidate sidebar reserves the original global rail and main minimum
-    against the fixed native viewport, independently of its current placement. *)
+(** The desktop sidebar and main content fit against the fixed native viewport,
+    independently of the sidebar's current visibility. *)
 Theorem navigation_capacity_keeps_content env workspace main details :
   workspace_inner_width env = Some workspace -> main_inner_width env = Some main ->
   observe_capacity env = Some (true, details) ->
-  global_navigation_width env + navigation_width (parameters env) + main_minimum_width (parameters env) <= viewport_width env.
+  navigation_width (parameters env) + main_minimum_width (parameters env) <= viewport_width env.
 Proof.
   intros Workspace Main Capacity. unfold observe_capacity in Capacity.
   rewrite Workspace, Main in Capacity.
   pose proof (f_equal (fun packet : option (bool * bool) =>
     match packet with Some (navigation, _) => navigation | None => false end) Capacity) as Navigation.
-  change (Nat.leb (global_navigation_width env + navigation_requirement env) (viewport_width env) = true) in Navigation.
+  change (Nat.leb (navigation_requirement env) (viewport_width env) = true) in Navigation.
   apply Nat.leb_le in Navigation. unfold navigation_requirement in Navigation. lia.
 Qed.
 Theorem supporting_capacity_keeps_reading_measure env workspace main navigation :

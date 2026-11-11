@@ -1,25 +1,30 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Programming Require Graphics.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction Require CardDecisions.
 From Selvedge.Interaction.Experience Require Read.
+From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input ObjectActions.
 From Selvedge.Browser.Session Require State Authoring.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
-From Selvedge.Browser.Presentation Require Roles Information Composition.
+From Selvedge.Browser.Presentation Require Roles Information Composition TaskGraphCanvas.
 Import ListNotations.
 Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
 Definition more parent subject :=declared parent Roles.Button
  (secondary "more" "More actions"(Input.OpenObjectActions subject(part parent "more"))).
+Definition browse_heading {A} parent leading (trailing : list (node A)) :=
+ region parent "workspace-browse-heading" "" Roles.Section (leading :: trailing).
 Definition projects_page snapshot s parent :=
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition [title parent "Projects"];
-  page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "project/new" "New project"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))];
+ [browse_heading parent
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition [title parent "Projects"])
+   [page_region parent Composition.CollectionActions Composition.HeadingPosition
+     [declared parent Roles.PrimaryButton(primary "project/new" "New project"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))]];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
    (match projects snapshot,tasks snapshot with
    |Some [],_=>[read_only parent "empty" "" "Create a project to group tasks and choose default working folders."]
@@ -27,10 +32,12 @@ Definition projects_page snapshot s parent :=
    |_,_=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
- [page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)];
-  page_region parent Composition.ProjectActions Composition.HeadingPosition
-   [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
-    declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));more parent(ProjectActions id)];
+ [browse_heading parent
+   (page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)])
+   [page_region parent Composition.ProjectActions Composition.HeadingPosition
+     [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
+      declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));
+      more parent(ProjectActions id)]];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
    [read_only parent "workspace-roots" "Default workspace"(String.concat "
 "(Domain.workspace_roots(project_workspace project)));
@@ -38,9 +45,11 @@ Definition project_page snapshot s parent project :=
   page_region parent Composition.ProjectGuidance Composition.BodyPosition
    [read_only parent "guidance" "Project guidance"(value_or "No project guidance"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition
-   (match Projection.project_members snapshot id with
-    |Some values=>map(task_entry_tree(State.location(State.navigation_state s))parent)(forest values)
-    |None=>[read_only parent "tasks-unavailable" "Tasks" "Task observations unavailable"]end)].
+   (information parent "project/conversations" Information.GroupTitle "Conversations" ::
+    match Projection.project_members snapshot id with
+    |Some []=>[read_only parent "tasks-empty" "" "No conversations in this project."]
+    |Some values=>map(task_entry_tree(State.location(State.navigation_state s))(State.collapsed_tasks s)parent)(forest values)
+    |None=>[read_only parent "tasks-unavailable" "" "Task observations unavailable"]end)].
 Definition elapsed_label seconds:=
  if N.ltb seconds 60 then "刚刚"else if N.ltb seconds 3600 then show_natural(N.div seconds 60)++"分钟前"
  else if N.ltb seconds 86400 then show_natural(N.div seconds 3600)++"小时前"else show_natural(N.div seconds 86400)++"天前".
@@ -77,10 +86,21 @@ Definition card_node snapshot s board_parent candidates parent value :=
  let key:=part parent("card/"++show_natural id)in
  let face:=card_face snapshot s value in
  let title:=Read.card_title value in
+ let conversation := match Read.card_task value with
+   | None => []
+   | Some task =>
+       let availability := match Read.find_task task snapshot with
+         | Some _ => Available
+         (* DEFENSE: A linked Task can be absent from the current observation. *)
+         | None => Unavailable "Linked conversation unavailable"
+         end in
+       [declared key Roles.Button (Control "card/open-conversation" "Open conversation"
+         Secondary (Input.Navigate (Conversation task)) availability)]
+   end in
  Node key "card" title Roles.Card(CardContent face)
-   [Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
-    declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
-    more key(CardActions id)].
+   ([Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
+     declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
+     more key(CardActions id)] ++ conversation)%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
@@ -99,12 +119,12 @@ Definition board_toolbar snapshot s parent :=
     declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
     Node(part parent "archive-destination")"board/archive" "归档任务"Roles.Section
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))
-     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档任务"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]];
-  board_group parent "primary-action" PrimaryAction
-   [declared parent Roles.PrimaryButton(primary "card/new" "新建任务"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]]
- .
+     [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档任务"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
 Definition board_page snapshot s parent :=
- [page_region parent Composition.BoardTitle Composition.HeadingPosition[title parent "任务看板"];
+ [browse_heading parent
+   (page_region parent Composition.BoardTitle Composition.HeadingPosition[title parent "任务看板"])
+   [board_group parent "primary-action" PrimaryAction
+     [declared parent Roles.PrimaryButton(primary "card/new" "新建任务"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
   page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent);
   page_region parent Composition.BoardStages Composition.BodyPosition
    (match Projection.visible_cards snapshot s with
@@ -123,7 +143,7 @@ Definition graph_endpoint_label graph name :=
  |None=>String.append name " (unavailable)"end.
 Definition graph_rule_nodes {A} parent graph:list(node A):=map(fun rule=>let key:=part parent(String.append "rule/"(Read.rule_key rule))in
  region parent(String.append "rule/"(Read.rule_key rule))(Read.rule_key rule)Roles.Section
-  (group_title key(Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"Output delivery"
+  (information key "rule-name" Information.FieldLabel (Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"Output delivery"
     (String.concat ""[graph_endpoint_label graph(rule_source rule);" → ";graph_endpoint_label graph(Read.action_target action);": ";
      TextJson.render_json(Read.action_message action)]))
    (combine(seq 0(List.length(Read.rule_actions rule)))(Read.rule_actions rule))))
@@ -133,29 +153,73 @@ Definition graph_receipt_nodes {A} parent graph:list(node A):=map(fun '(ordinal,
   (String.concat ""["Task #";show_natural(receipt_source receipt);" → Task #";show_natural(receipt_target receipt);
    " (";receipt_rule receipt;"): ";match receipt_reply receipt with JString value=>value|reply=>TextJson.render_json reply end]))
  (combine(seq 0(List.length(graph_receipts graph)))(graph_receipts graph)).
+Definition graph_placement parent name label role place children : node Input.input :=
+  Node (part parent name) name label role (InteractivePlacement place) children.
+
+Definition graph_task_card snapshot parent placed :=
+  let entry := TaskGraphCanvas.entry placed in
+  let task := Read.node_task entry in
+  let key := part parent (String.append "node/" (Read.node_key entry)) in
+  let label := String.concat "" [Read.node_key entry; " · Task #"; show_natural task] in
+  let placement := Presentation.GraphNode Presentation.RootFontScale
+    (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
+    (Z.to_N TaskGraphCanvas.node_width) (Z.to_N TaskGraphCanvas.node_height) false in
+  Node key "task-graph/node" label Roles.Section (InteractivePlacement placement)
+    (match find_task task snapshot with
+     | Some entry =>
+         let title := task_title entry in
+         let project := match task_project entry with
+           | Some id => value_or ("Project #" ++ show_natural id)
+               (option_map project_name (find_project id snapshot))
+           | None => "No project"
+           end in
+         let open_key := part key "open" in
+         [Node open_key "task-graph/open" title Roles.Button
+           (Activate (secondary "open" title (Input.Navigate (Conversation task))))
+           [information open_key "task-graph/title" Information.OptionLabel title;
+            information open_key "task-graph/project" Information.Description project]]
+     | None => [read_only key "status" label "Task unavailable"]
+     end).
+
+Definition graph_canvas snapshot parent graph :=
+  let layout := TaskGraphCanvas.arrange (A:=Input.input) graph in
+  let drawing := TaskGraphCanvas.edges layout in
+  let viewport := part parent "task-graph/viewport" in
+  let canvas := part viewport "task-graph/canvas" in
+  let edges := part canvas "edges" in
+  graph_placement parent "task-graph/viewport" "Task graph canvas" Roles.Section
+    Presentation.GraphViewport
+    [graph_placement viewport "task-graph/canvas" "" Roles.Content
+      (Presentation.GraphCanvas Presentation.RootFontScale (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
+      (graph_placement canvas "edges" "" Roles.Content Presentation.GraphEdges
+        [Node (part edges "drawing") "task-graph/edges" "" Roles.Content (Graphic drawing) []] ::
+        map (graph_task_card snapshot canvas) (TaskGraphCanvas.nodes layout))].
+
 Definition graph_node snapshot s parent value :=
  let id:=graph_id value in
  let key:=part parent("graph/"++show_natural id)in
- region parent("graph/"++show_natural id)(graph_name value)Roles.Card
-  ([group_title key(graph_name value);
-    declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
-    more key(GraphActions id)]++
-   [region key "nodes" "Tasks"Roles.Section
-    (group_title(part key "nodes")"Tasks"::map(fun entry=>
-      let task:=node_task entry in
-      let node_key:=part key(String.append "node/"(Read.node_key entry))in
-      Node node_key "task-graph/node" ""Roles.Section(ObjectGroup(Selvedge.Interaction.Experience.Model.TaskObject task))
-       (group_title node_key(String.concat ""[Read.node_key entry;" · Task #";show_natural task])::
-        match find_task task snapshot with
-        |Some task=>[Navigation.task_entry_tree(State.location(State.navigation_state s))node_key(TaskTree task [])]
-        |None=>[read_only node_key "status" "Task status" "Unavailable"]end))(graph_nodes value));
-    region key "rules" "Output rules"Roles.Section(graph_rule_nodes key value);
-    region key "receipts" "Last delivery results"Roles.Section(graph_receipt_nodes key value)])%list.
+ Node key "task-graph/group" (graph_name value) Roles.Section Region
+  ([region key "task-graph/actions" "Task graph actions" Roles.Toolbar
+    [group_title key (graph_name value);
+     declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
+     more key(GraphActions id)]] ++
+   (match graph_nodes value with
+    | [] => [read_only key "nodes" "" "No tasks in this graph."]
+    | _ => [information key "task-graph/direction" Information.Description
+              "Arrows show how output from a source conversation is delivered to a target conversation.";
+            graph_canvas snapshot key value]
+    end) ++
+   [region key "task-graph/rules" "Output rules" Roles.Section
+      (group_title (part key "task-graph/rules") "Output rules" :: graph_rule_nodes key value);
+    region key "task-graph/receipts" "Last delivery results" Roles.Section
+      (group_title (part key "task-graph/receipts") "Last delivery results" :: graph_receipt_nodes key value)])%list.
 Definition graphs_page snapshot s parent :=
- [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"];
-  page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))];
+ [browse_heading parent
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"])
+   [page_region parent Composition.CollectionActions Composition.HeadingPosition
+     [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))]];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
    (match scoped_graphs(State.active_work(State.navigation_state s))snapshot with
+    |Some []=>[read_only parent "empty" "" "Create a task graph to route output between conversations."]
     |Some entries=>map(graph_node snapshot s parent)entries
     |None=>[read_only parent "unavailable" "Task graphs" "Task graph observations unavailable"]end)].

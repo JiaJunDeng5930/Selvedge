@@ -1,7 +1,10 @@
 // The extracted model marks the native targets whose layout should keep them exposed.
 // Scrolling alone does not change this signature or move keyboard focus.
-export function revealAndFocus(node) {
+export function revealInScrollport(node) {
   node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+}
+export function revealAndFocus(node) {
+  revealInScrollport(node);
   node.focus({ preventScroll: true });
 }
 export function createLayoutRevealer(root) {
@@ -39,7 +42,7 @@ export function createLayoutRevealer(root) {
       const before = previous.get(node);
       if (!before || before.signature !== signature || before.ports.length !== ports.length
         || ports.some((port, index) => port !== before.ports[index])) {
-        node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        revealInScrollport(node);
       }
       current.set(node, { signature, ports });
     }

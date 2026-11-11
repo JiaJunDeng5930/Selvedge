@@ -24,7 +24,7 @@ Definition command_purpose (command:SS.public_command):=let source:=Schema.encod
  match string_field "op" source with
  |Some "stop"=>P.StopExecution|Some "freeze"=>P.PauseExecution|Some "unfreeze"=>P.ResumeExecution
  |Some "interrupt"=>P.InterruptExecution|Some "cancel_operation"=>P.AbortOperation
- |Some "review_approval"=>P.ApprovalDecision(flag "allow" source)
+ |Some "review_approval"=>P.ApprovalDecision(String.eqb (text "decision" source) "allow")
  |Some "archive"|Some "archive_card"|Some "delete_work"=>P.ArchiveItem false
  |Some "restore_card"=>P.ArchiveItem true
  |Some "delete_project"|Some "delete_card"|Some "delete_task_graph"=>P.DeleteItem
@@ -76,7 +76,8 @@ Definition describe snapshot state input:P.purpose:=match input with
    match Schema.encode_value (Model.subject_kind(Activity.assignment_subject assignment))
      (Activity.assignment_value assignment)with JNull=>P.ResetDefaults|_=>P.NamedAction end
  |_=>P.NamedAction end
-|Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
+|Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ActivityDestination
+|Input.ActivityComplete _=>P.ActivityBack
 |Input.BeginSide _ trigger|Input.ShowSide _ trigger=>P.DialogTrigger(P.OpenPanel "conversation"false false)(panel_open trigger state)
 |Input.ClosePanel=>P.Dismiss|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)

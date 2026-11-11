@@ -17,7 +17,7 @@ Inductive workspace_change := AddDirectory (path:string) | RemoveDirectory (path
 Inductive selection_change := SelectionChanged | SelectionFocused | SelectionBlurred.
 Inductive input :=
 | ResetTitlePrompts
-| ToggleProjectGroup(project:N) | BeginTask(project:option N)
+| ToggleProjectGroup(project:N) | ToggleTaskBranches(task:N) | BeginTask(project:option N)
 | BeginVoiceNew(origin:editor) | SelectSharedTask(work:N)(task:option N)
 | OpenNavigation(kind:navigation_panel)(trigger:string)
 | OpenObjectActions(subject:object_subject)(trigger:string)

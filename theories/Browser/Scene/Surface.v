@@ -23,7 +23,7 @@ Inductive activity_row_role :=
 | ChoiceRow | DependencyRow | InspectionRow | SupportingRow
 | MemberRow | TerminalRow | ObjectHeading | NavigationRow.
 Inductive board_grouping := ViewChoices | SearchArea | WorkStatus | SecondaryActions | PrimaryAction.
-Inductive choice_kind := SingleChoice | MultipleChoice.
+Inductive choice_kind := SingleChoice | MultipleChoice | ToggleChoice.
 
 
 Record placement (Action : Type) := Placement {

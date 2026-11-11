@@ -141,7 +141,7 @@ Definition render_chart event_id p : list scene :=
    (S.InformationText Information.Status) []]
  |Good drawing=>
  [placement (key+++"/@viewport") IP.ChartViewport
-   [placement (key+++"/@canvas") (IP.GraphCanvas (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
+   [placement (key+++"/@canvas") (IP.GraphCanvas IP.FixedPixels (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
     [S.Node (key+++"/@plot") "interactive-markdown/chart"
      ("图表；显示 "+++show_nat (List.length (Plot.chart_rows p))+++" / "+++
       show_nat (List.length (property_array "data" p))+++" 行；数值见下方数据")
@@ -162,7 +162,7 @@ Definition graph_item event_id p b expanded rendered active index node : scene :
  let '(x,y):=Plot.position index zoom fit x y in
  let prefix:=event_id.(path)+++"/@item/s:"+++TextJson.quote id+++"/" in
  let children:=map snd (filter (fun pair=>String.prefix prefix (expanded_path (fst pair))) (combine expanded rendered)) in
- placement key (IP.GraphNode x y (Z.to_N (Plot.graph_width zoom)) (Z.to_N (Plot.graph_height zoom)) (String.eqb (Plot.selected p event_id.(path) b) id))
+ placement key (IP.GraphNode IP.FixedPixels x y (Z.to_N (Plot.graph_width zoom)) (Z.to_N (Plot.graph_height zoom)) (String.eqb (Plot.selected p event_id.(path) b) id))
   (button (key+++"/@select") "选择节点" (ViewChanged event_id (SelectNode id)) active::children).
 Definition graph_control event_id part label command active :=
  button (Types.event_key event_id+++"/@"+++part) label (ViewChanged event_id command) active.
@@ -180,7 +180,7 @@ Definition render_graph event_id p b expanded rendered active : list scene :=
    graph_control event_id "up" "上移" (Pan "0" "-40") active;
    graph_control event_id "down" "下移" (Pan "0" "40") active];
   placement (key+++"/@viewport") IP.GraphViewport
-   [placement (key+++"/@canvas") (IP.GraphCanvas (Z.to_N width) (Z.to_N height))
+   [placement (key+++"/@canvas") (IP.GraphCanvas IP.FixedPixels (Z.to_N width) (Z.to_N height))
     (placement (key+++"/@edges") IP.GraphEdges
       [S.Node (key+++"/@plot") "interactive-markdown/connections" "Graph connections" R.Content (S.Graphic (Plot.graph event_id p b)) []]::
      map (fun indexed=>graph_item event_id p b expanded rendered active (fst indexed) (snd indexed)) (combine (seq 0 (List.length nodes)) nodes))]]++

@@ -65,7 +65,8 @@ Definition surface_maximum_width env := Nat.max (scaled env 200)
   (Layout.activity_primary_advance (Layout.parameters env) * 56 + scaled env 16).
 Definition surface_properties env : list (string * string) :=
   let width := surface_maximum_width env in
-  [("min-inline-size",pixels env 200);
+  let available := Nat.sub (Layout.viewport_width env) (2 * Layout.layer_clearance env) in
+  [("min-inline-size",Typography.px (Nat.min (scaled env 200) available));
    ("inline-size","fit-content");
    ("max-inline-size",String.append "min(100%," (String.append (Typography.px width) ")"))].
 Definition description_properties env : list (string * string) :=
@@ -120,8 +121,8 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto");("overflow-x","hidden")]
   | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
-  | Surface.TaskRow _ _ _ _ selected =>
-      Appearance.style_properties env (Appearance.navigation_style selected 6 0)
+  | Surface.TaskRow _ _ _ _ _ =>
+      [("display","flex");("flex-direction","column");("min-inline-size","0")]
   | Surface.TaskChildren _ => Layout.member_properties env false true
   | Surface.ProjectChooser _ => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("gap","0"); ("padding","0")]
   | Surface.ActivityGroup _ _ _ _ => surface_properties env ++

@@ -34,6 +34,137 @@ async function projectWorkspaceFixture(t) {
   return { fixture, root, project_id };
 }
 
+async function finishModelReply(fixture, prompt, reply) {
+  const deadline = Date.now() + 5000;
+  let request;
+  do {
+    request = fixture.requests.find(entry => !entry.closed && entry.input.input.some(item =>
+      item.role === 'user' && JSON.stringify(item.content).includes(prompt)));
+    if (request) break;
+    await delay(10);
+  } while (Date.now() < deadline);
+  assert.ok(request, `The model did not receive the expected input: ${prompt}`);
+  fixture.finish(request.index, { text: reply });
+}
+
+test('Work navigation preserves Project grouping and opens the same conversation from the tree, graph and Board', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile } = fixture;
+  const project = 'Shared research project';
+  const { project_id } = await command({ op: 'create_project', name: project, workspace: { roots: [] } });
+  const { work_id: research } = await command({ op: 'create_work', name: 'Research Work' });
+  const { work_id: release } = await command({ op: 'create_work', name: 'Release Work' });
+
+  async function conversation(work_id, message) {
+    const { task_id } = await command({ op: 'create_work_task', work_id, profile, message, settings: { project_id } });
+    await finishModelReply(fixture, message, `Initial reply for ${message}.`);
+    const { task } = await taskIdle(fixture.running.service, task_id);
+    return task;
+  }
+
+  const source = await conversation(research, 'Collect evidence for the audit');
+  const destination = await conversation(research, 'Review the collected evidence');
+  const { task_id: releaseTask } = await command({ op: 'create_work_task', work_id: release, profile: 'demo',
+    message: 'Prepare the release brief', settings: { project_id } });
+  const { task: other } = await taskIdle(fixture.running.service, releaseTask);
+  const { children: [branch] } = await command({ op: 'fork', task_id: other.id, child_count: 1,
+    messages: ['Check the draft release brief.'] });
+  const { task: child } = await taskIdle(fixture.running.service, branch);
+  await command({ op: 'create_task_graph', work_id: research, name: 'Evidence handoff', nodes: [
+    { key: 'collect', task_id: source.id }, { key: 'review', task_id: destination.id },
+  ], rules: [
+    { key: 'forward-output', source: 'collect', actions: [{ target: 'review', message: { kind: 'output' } }] },
+  ] });
+  await command({ op: 'create_task_graph', work_id: release, name: 'Release checklist', nodes: [
+    { key: 'release', task_id: other.id },
+  ], rules: [] });
+  const cardTitle = 'Review evidence from the board';
+  const { card_id } = await command({ op: 'create_card', title: cardTitle });
+  const { revision } = await command({ op: 'read_card', card_id });
+  await command({ op: 'link_card', card_id, revision, task_id: destination.id });
+
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  const global = page.getByRole('navigation', { name: 'Global navigation', exact: true });
+  const center = page.getByRole('main');
+  const projectGroup = tree.getByRole('region', { name: project, exact: true });
+  const taskEntry = task => projectGroup.locator(`[data-task-id="${task.id}"]`)
+    .getByRole('button', { name: task.title, exact: true }).first();
+  const branches = projectGroup.getByRole('group', { name: 'Subtasks', exact: true })
+    .and(projectGroup.locator(`[data-task-parent="${other.id}"]`));
+  const branchEntry = branches.locator(`[data-task-id="${child.id}"]`)
+    .getByRole('button', { name: child.title, exact: true });
+  const picker = page.getByRole('button', { name: /^Work overview:/ });
+  async function selectWork(name) {
+    await picker.click();
+    const overview = page.getByRole('dialog', { name: 'Works', exact: true });
+    await overview.getByRole('radio', { name, exact: true }).click();
+    await page.getByRole('button', { name: `Work overview: ${name}`, exact: true }).waitFor();
+  }
+
+  await taskEntry(destination).waitFor();
+  await taskEntry(other).waitFor();
+  await branchEntry.waitFor();
+  const collapse = projectGroup.getByRole('button', { name: `Collapse branches of ${other.title}`, exact: true });
+  assert.equal(await collapse.getAttribute('aria-expanded'), 'true');
+  await collapse.click();
+  await branches.waitFor({ state: 'hidden' });
+  await taskEntry(other).waitFor();
+  const expand = projectGroup.getByRole('button', { name: `Expand branches of ${other.title}`, exact: true });
+  assert.equal(await expand.getAttribute('aria-expanded'), 'false');
+  await expand.click();
+  await branchEntry.waitFor();
+  await selectWork('Research Work');
+  await taskEntry(destination).waitFor();
+  await taskEntry(other).waitFor({ state: 'hidden' });
+  await branches.waitFor({ state: 'hidden' });
+  await taskEntry(source).click();
+  const composer = center.getByRole('combobox', { name: 'Message', exact: true });
+  const prompt = 'Send the signed audit finding downstream.';
+  const delivered = 'Signed audit finding for the destination.';
+  async function seeDestination() {
+    await center.getByText(destination.title, { exact: true }).first().waitFor();
+    await center.getByText(delivered, { exact: true }).waitFor();
+  }
+  await composer.fill(prompt);
+  await composer.press('Enter');
+  await finishModelReply(fixture, prompt, delivered);
+  await finishModelReply(fixture, delivered, 'The destination reviewed the signed finding.');
+
+  const graphs = page.getByRole('button', { name: 'Task graphs', exact: true });
+  await graphs.click();
+  const graph = center.getByRole('region', { name: 'Evidence handoff', exact: true });
+  await graph.waitFor();
+  await center.getByRole('region', { name: 'Release checklist', exact: true }).waitFor({ state: 'hidden' });
+  await graph.getByText(project, { exact: true }).first().waitFor();
+  await graph.locator('svg[data-semantic-key="task-graph/edges"] path').first().waitFor();
+  const rules = graph.getByRole('region', { name: 'Output rules', exact: true });
+  assert.match(await rules.innerText(), /collect[^\n]*→[^\n]*review/u);
+  await graph.getByRole('region', { name: 'Last delivery results', exact: true })
+    .getByText(/forward-output/).waitFor();
+  await graph.getByRole('button', { name: destination.title, exact: true }).click();
+  await seeDestination();
+
+  await taskEntry(source).click();
+  await center.getByText(source.title, { exact: true }).first().waitFor();
+  await taskEntry(destination).click();
+  await seeDestination();
+  await selectWork('Release Work');
+  await taskEntry(other).waitFor();
+  await taskEntry(destination).waitFor({ state: 'hidden' });
+  await branchEntry.waitFor();
+  await graphs.click();
+  await center.getByRole('region', { name: 'Release checklist', exact: true }).waitFor();
+  await graph.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '共享 UI', exact: true }).click();
+  await center.getByText('Release Work', { exact: true }).waitFor();
+  await global.getByRole('button', { name: '项目', exact: true }).click();
+  await center.getByRole('region', { name: project, exact: true }).waitFor();
+  await global.getByRole('button', { name: '任务看板', exact: true }).click();
+  await center.getByRole('article', { name: cardTitle, exact: true })
+    .getByRole('button', { name: 'Open conversation', exact: true }).click();
+  await seeDestination();
+});
+
 test('Project task creation restores Project workspace inheritance through the browser', async t => {
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
@@ -81,7 +212,7 @@ test('Project task creation preserves explicitly empty workspaces through the br
     'Explicitly removing roots must not silently return to Project inheritance');
   await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('dialog');
+  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
   await details.getByText('No working directory', { exact: true }).waitFor();
   assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 1,
     'Task details retain the independent primary directory fact when it is absent');
@@ -121,22 +252,31 @@ test('ordered image content and the active composer survive responsive navigatio
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
   await message.fill('Keep this unsent draft while narrowing.');
   await message.focus();
-  await page.setViewportSize({ width: 450, height: 900 });
+  const narrowWidth = 390;
+  await page.setViewportSize({ width: narrowWidth, height: 900 });
   const tasks = page.getByRole('button', { name: 'Open Task list', exact: true });
   await tasks.waitFor();
   assert.equal(await message.evaluate(node => node === document.activeElement), true,
     'A layout change must preserve the user activity instead of opening the Task tree');
   assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');
-  assert.equal(await page.getByRole('navigation', { name: 'Workspace navigation', exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), narrowWidth,
+    'The narrow workspace stays within the page width');
   await tasks.focus();
   await tasks.press('Space');
   await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
-  assert.equal(await page.getByRole('dialog', { name: 'Task tree', exact: true })
-    .getByRole('navigation', { name: 'Workspace navigation', exact: true }).count(), 1);
+  await page.getByRole('dialog', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Task graphs', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,
     'Closing the Task tree restores its actual keyboard launcher');
+  await tasks.press('Enter');
+  await page.getByRole('dialog', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Task graphs', exact: true }).click();
+  await page.getByRole('main').getByRole('heading', { name: 'Task graphs', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '任务看板', exact: true }).click();
+  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
 });
 
 async function graphTemplateFixture(t) {

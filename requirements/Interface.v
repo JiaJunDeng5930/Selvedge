@@ -197,6 +197,12 @@ Export PublicationProof(a_prepared_document_has_no_input_authority,
     separate allocations from the viewport, so a temporary dialog cannot itself
     force an otherwise viable desktop navigation mode.
 
+    A Work scopes the conversation tree, graph views and shared interface.
+    Project groups organize the conversations in that scope independently of
+    Work membership. The board and project management remain global. Curved
+    tree branches represent conversation lineage. Directed graph connections
+    represent output routing, with the same rules and receipts available as text.
+
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy
     follows actual membership; independent Tasks have a named separate group.
@@ -206,6 +212,8 @@ Export PublicationProof(a_prepared_document_has_no_input_authority,
     Contextual actions must remain reachable by focus and non-hover input, and
     revealing them must not move the title. Concealment, selection and command
     availability are not interchangeable.
+    A Task with branches keeps its title as a conversation link while its
+    adjacent disclosure controls the visibility of its descendants.
 
     Narrow navigation renders the same Task tree through a native drawer, with
     explicit return focus and retained reading position. Modal native behavior

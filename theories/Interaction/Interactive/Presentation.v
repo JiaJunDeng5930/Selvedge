@@ -34,12 +34,13 @@ Definition map_editor {A B} (f : A -> B) (value : editor A) : editor B :=
   (option_map (fun receive input=>option_map f (receive input)) (editing_receive value)).
 
 (** Graph geometry positions node templates without scaling their controls. *)
+Inductive graph_scale := FixedPixels | RootFontScale.
 Inductive placement :=
 | GraphViewport
 | ChartViewport
-| GraphCanvas (width height : N)
+| GraphCanvas (scale : graph_scale) (width height : N)
 | GraphEdges
-| GraphNode (x y : Z) (width height : N) (selected : bool).
+| GraphNode (scale : graph_scale) (x y : Z) (width height : N) (selected : bool).
 
 (** Header actions stay in their real table cells, with one identity used by
     semantic event resolution and native compilation. *)

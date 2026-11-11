@@ -82,8 +82,13 @@ test('pasted PNG is previewed, submitted alone and remains readable after servic
     'The browser must decode the pasted image before submission');
   assert.equal(await composer.inputValue(), '', 'The image-only submission must contain no text');
 
+  const desktop = page.viewportSize();
+  await page.setViewportSize({ width: 320, height: 568 });
   const send = page.getByRole('button', { name: 'Send', exact: true });
   assert.equal(await send.isEnabled(), true, 'An image alone must be a sendable task input');
+  const sendBounds = await send.boundingBox();
+  assert.ok(sendBounds && sendBounds.y + sendBounds.height <= 568,
+    'The draft attachment must leave Send within the narrow viewport');
   const commandResponse = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
     && response.request().method() === 'POST');
   await send.click();
@@ -96,6 +101,7 @@ test('pasted PNG is previewed, submitted alone and remains readable after servic
   assertImageBytes(fixture.requests[1], pasted.base64);
 
   await fixture.restart();
+  await page.setViewportSize(desktop);
   await page.reload();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
   await page.getByRole('navigation', { name: 'Task tree', exact: true })

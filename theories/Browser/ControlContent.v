@@ -321,8 +321,6 @@ Definition role_content env key (role : Roles.role) (native : list DOM.node)
     : option (list DOM.node) :=
   match role with
   | Roles.NavigationSection => Some (collection_children env key native)
-  | Roles.WorkChoiceRow => Some (map (add_properties
-      [("flex","1 1 0%");("min-inline-size","0")]) native)
   | _ => None
   end.
 Definition board_filter_choice_content artwork label category value native :=
@@ -334,8 +332,6 @@ Definition board_filter_choice_content artwork label category value native :=
 Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning : S.meaning A)
     : list (string * string) :=
   (match role with
-  | Roles.WorkChoiceRow => [("display","flex");("flex-direction","row");
-      ("flex-wrap","nowrap");("gap",pixels env 12);("inline-size","100%")]
   | Roles.NavigationCollection => [("display","flex");("flex-direction","column");
       ("gap",match meaning with S.TaskChildren _=>"0"|_=>Typography.px (Layout.heading_gap (Layout.hierarchy_for env true))end)]
   | Roles.NavigationSection => [("display","flex");("flex-direction","column");("gap","0")]
@@ -344,8 +340,7 @@ Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning 
   | S.BoardLane _ _ => let width := Typography.px (Layout.lane_minimum_width (Layout.parameters env)) in
       [("inline-size",width);("min-inline-size",width);("max-inline-size",width);
        ("block-size","100%");("min-block-size","0");("flex","none");("overflow","hidden")]
-  | S.WorkChoice _ _ _ => [("flex","1 1 0%");("min-inline-size","0");
-      ("min-block-size",pixels env 120);("white-space","nowrap")]
+  | S.WorkChoice _ _ _ => [("min-inline-size","0");("white-space","nowrap")]
   | S.SettingEntry _ _ _ => [("inline-size","100%");("text-align","start")]
   | S.SupportingControl _ _ _ _ => [("flex","0 1 auto");("white-space","nowrap");
       ("justify-content","flex-start");("gap",pixels env (if activity then 8 else 6))]

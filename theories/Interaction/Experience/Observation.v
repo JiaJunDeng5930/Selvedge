@@ -76,7 +76,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
      if existsb(fun choice=>String.eqb key(Fields.choice_value_of choice))available then []
      else [Fields.ChoiceValue key (key++"（连接不可用）")]
    |_=>[]end in
-   Fields.ChoiceValue "" "自动"::retained++available
+   Fields.ChoiceValue "" "Automatic"::retained++available
  |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in

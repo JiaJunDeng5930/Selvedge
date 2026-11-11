@@ -7,14 +7,14 @@ Inductive role :=
 | CompactHeader | CompactWorkScope (title : string) (count : N)
 | CompactNavigationMenu | CompactNavigationEntry (selected : bool)
 | WorkTabs | WorkTab (selected : bool) | WorkTabGroup
-| WorkOverviewButton (count : N) | WorkChoiceRow
+| WorkOverviewButton (count : N)
 | Navigation | NavigationHeader | NavigationEntry (selected : bool)
 | NavigationCollection | NavigationSection
 | Main | Heading | PrimaryButton | DestructiveButton | SelectedButton
 | ComposerActions | DialogActions | DialogHeader | DialogBody | Timeline | Activity
 | UserMessage | AssistantMessage | Composer | Approval | Toolbar | CodeBlock
 | ApprovalQueue | Section | Dialog | Menu | Details | Card | Button | Field
-| Content | Alert.
+| Content | Decorative | Alert.
 
 Definition role_name value :=
   match value with
@@ -24,7 +24,7 @@ Definition role_name value :=
   | CompactNavigationMenu => "compact-navigation-menu"
   | CompactNavigationEntry _ => "compact-navigation-entry"
   | WorkTabs => "work-tabs" | WorkTab _ => "work-tab" | WorkTabGroup => "work-tab-group"
-  | WorkOverviewButton _ => "work-overview-button" | WorkChoiceRow => "work-choice-row"
+  | WorkOverviewButton _ => "work-overview-button"
   | Navigation => "navigation" | NavigationHeader => "navigation-header"
   | NavigationEntry _ => "navigation-entry" | NavigationCollection => "navigation-collection"
   | NavigationSection => "navigation-section" | Main => "main" | Heading => "heading"
@@ -36,5 +36,6 @@ Definition role_name value :=
   | Composer => "composer" | Approval => "approval" | Toolbar => "toolbar"
   | CodeBlock => "code-block" | ApprovalQueue => "approval-queue" | Section => "section"
   | Dialog => "dialog" | Menu => "menu" | Details => "details" | Card => "card"
-  | Button => "button" | Field => "field" | Content => "content" | Alert => "alert"
+  | Button => "button" | Field => "field" | Content => "content"
+  | Decorative => "decorative" | Alert => "alert"
   end.

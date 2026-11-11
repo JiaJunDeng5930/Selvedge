@@ -2,11 +2,11 @@ import { boundary } from './model-boundary.mjs';
 import { browser, interaction } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Renderer, filesFromEvent } from './renderer.mjs';
-import { editorKeyboard, applyByteSelection } from './keyboard.mjs';
+import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
-import { createLayoutRevealer, revealAndFocus } from './layout-reveal.mjs';
+import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -209,7 +209,10 @@ function synchronizeNativeAuthority() {
     // physical focus unless another focus request or replacement superseded it.
     if (retained.attempt === focusRequest && retained.node.isConnected &&
         !retained.node.matches(':disabled,[aria-disabled="true"]') &&
-        document.activeElement === document.body) retained.node.focus({ preventScroll: true });
+        document.activeElement === document.body) {
+      retained.node.focus({ preventScroll: true });
+      if (retained.finishComposition) queueMicrotask(retained.finishComposition);
+    }
   }
 }
 function renderRecovery(reason) {
@@ -285,7 +288,11 @@ function render() {
       // Keep the same DOM and finish the native work that was waiting for publication.
       surface.dataset.displayPending = String(publicationEvent('pending'));
       synchronizeNativeAuthority();
-      if (publicationEvent('ready')) renderer.refreshNativeTargets();
+      if (publicationEvent('ready')) {
+        renderer.refreshNativeTargets();
+        // The published dialog is no longer inert, so its selected row can be revealed.
+        reveal();
+      }
       retryHistoryLocation(); retryFocus();
     }).catch(fatal);
   }
@@ -352,7 +359,13 @@ const renderer = new Renderer(surface, {
   keyboard(source) { return browser('key', source); },
   focus(event, key, node) {
     focusRequest++;
-    if (event.target !== node || typeof node.selectionStart !== 'number') return;
+    if (event.target !== node) return;
+    if (node.matches('input,textarea,select') &&
+        node.closest('dialog[data-semantic-key="settings-configuration-editor"] [data-surface-role="dialog-body"]')) {
+      // Native focus can leave the lower edge of an already exposed field clipped.
+      revealInScrollport(node);
+    }
+    if (typeof node.selectionStart !== 'number') return;
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
@@ -378,7 +391,23 @@ const renderer = new Renderer(surface, {
       event.preventDefault(); publication = publicationEvent('retry');
       refreshPhysical().then(render).catch(fatal); return;
     }
-    if (!admitted(generation)) return;
+    if (!admitted(generation)) {
+      // DEFENSE: Making the surface inert for measurement can commit the focused
+      // IME input. Deliver that observation when the same field owns input again.
+      if (event.type === 'compositionend' && binding.kind === 'value' && suspendedFocus?.node === node) {
+        const session = renderer.records.get(key)?.fieldSession;
+        const value = node.value;
+        suspendedFocus.finishComposition = () => {
+          const record = renderer.records.get(key);
+          if (!session || record?.node !== node || record.fieldSession?.identity !== session.identity ||
+              record.fieldSession.canonical !== session.canonical || node.value !== value ||
+              !admitted(record.generation)) return;
+          const current = record.events.find(candidate => candidate.kind === 'value' && candidate.event === binding.event);
+          if (current) renderer.callbacks.event(current, event, key, node, record.generation);
+        };
+      }
+      return;
+    }
     if (binding.kind === 'files') {
       registerFiles(binding.action, filesFromEvent(event, node));
       if (node.type === 'file') node.value = '';
@@ -411,13 +440,24 @@ const renderer = new Renderer(surface, {
         scope: renderer.focusScope, within_scope: !!renderer.modal?.contains(form), composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled && submitter?.getAttribute('aria-disabled') !== 'true', pending: submitter?.getAttribute('aria-busy') === 'true' }), () => form.requestSubmit(), composing);
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
-    if (dialog && event.key === 'Tab') {
-      const targets = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
+    const radioArrow = node === event.target && keyboard.unmodified && !composing &&
+      ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) ? selectingRadioGroup(node) : null;
+    if (dialog && (event.key === 'Tab' || radioArrow)) {
+      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
         target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') && !target.closest('[inert],[hidden]') &&
         target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
+      const { targets, current } = radioArrow
+        ? { targets: candidates.filter(target => selectingRadioGroup(target) === radioArrow), current: node }
+        : radioTabTargets(candidates, event.target);
       const keys = targets.map((_, index) => String(index));
-      const next = browser('focus_cycle', { current: String(targets.indexOf(event.target)), targets: keys, backward: event.shiftKey });
-      if (next !== null) { event.preventDefault(); targets[Number(next)].focus(); }
+      const backward = radioArrow ? event.key === 'ArrowLeft' || event.key === 'ArrowUp' : event.shiftKey;
+      const next = browser('focus_cycle', { current: String(targets.indexOf(current)), targets: keys, backward });
+      if (next !== null) {
+        event.preventDefault();
+        const target = targets[Number(next)];
+        target.focus();
+        if (radioArrow && target !== current) target.click();
+      }
     }
     if (node.dataset.readingRoot === 'true' && event.target.closest('[data-reading-root="true"]') === node) {
       const state = readingState(key, node);
@@ -652,6 +692,9 @@ function layoutReading() {
 function dismiss(event) {
   // DEFENSE: An inner menu can consume Escape before it reaches the enclosing dialog.
   if (event.defaultPrevented) return;
+  // DEFENSE: Escape from an open select picker bubbles before the browser closes it.
+  if (event.type === 'keydown' && event.key === 'Escape' && CSS.supports('selector(select:open)') &&
+      event.target.closest?.('select:open')) return;
   const modal = renderer.modalRecord();
   const dismissal = modal?.events.find(binding => binding.kind === 'dismiss');
   const behavior = modal?.metadata.layer;

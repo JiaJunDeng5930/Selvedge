@@ -44,6 +44,30 @@ Do not retain tests that merely reproduce a function's branches. Temporary
 experiments and complete command logs belong in ignored
 .workpad/. Tests use fresh temporary service homes where a service is needed.
 
+## Browser screenshots
+
+After `bun run build`, run `bun run screenshots` to capture the browser UI with
+isolated local data. Each run writes an `index.html` gallery, the original
+images, a JSON manifest, and capture logs to a new directory under
+`.workpad/browser-screenshots/`. Pass `--out DIRECTORY` to choose another parent
+directory. Chrome or Chromium can be selected with
+`SELVEDGE_CHROMIUM_EXECUTABLE_PATH`.
+
+```sh
+bun run screenshots --groups properties,settings --viewports marked,short,large
+bun run screenshots --help
+```
+
+The default matrix covers navigation, conversations, task creation and its
+property menus, projects and search, the board, graphs, shared UI, and settings.
+It includes desktop and compact navigation, a short landscape window, and
+200% text. Each row shows an opened UI state across the selected sizes.
+Cells may link to the bottom or right edge of a scroll area. Navigation also
+includes views on either side of the sidebar breakpoint. A cell marked
+not applicable has no equivalent state at that size. Missing captures and
+failed capture processes produce a nonzero exit code. Open the gallery to
+find the affected states and the corresponding capture log.
+
 ## Persistent data
 
 There is one current SQLite schema and one current journal replay format. A

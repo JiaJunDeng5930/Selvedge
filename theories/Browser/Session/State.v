@@ -103,6 +103,7 @@ Record state := State {
   board_selection : BoardFilter.filter;
   document_retention : DocumentState.retention;
   collapsed_projects : list N;
+  collapsed_tasks : list N;
   now : option N;
   next_layer : N
 }.
@@ -121,7 +122,7 @@ Definition initial := State
   (Navigation Start None [] AutomaticNavigation true 0 [])
   (Authoring [] 0 [] (Search "" None None None None) [] [] false)
   Services.initial Speech.initial [] [] Selvedge.Interaction.Interactive.State.initial
-  BoardFilter.empty DocumentState.initial_retention [] None 0.
+  BoardFilter.empty DocumentState.initial_retention [] [] None 0.
 Definition with_navigation value := set navigation_state (fun _=>value).
 Definition with_authoring value := set authoring_state (fun _=>value).
 Definition with_services value := set service_state (fun _=>value).
@@ -132,6 +133,7 @@ Definition with_retention value := set document_retention (fun _=>value).
 Definition with_interactive_state value := set interactive_state (fun _=>value).
 Definition with_board value := set board_selection (fun _=>value).
 Definition with_collapsed value := set collapsed_projects (fun _=>value).
+Definition with_collapsed_tasks value := set collapsed_tasks (fun _=>value).
 Definition with_now value := set now (fun _=>value).
 Definition with_next_layer value := set next_layer (fun _=>value).
 Definition save_draft value state := with_authoring

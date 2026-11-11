@@ -25,7 +25,7 @@ Definition editor_title e := match e with
 |Identity.Project None=>"New project"|Identity.Project(Some _)=>"Edit project"|Card None=>"New card"|Card(Some _)=>"Edit card"
 |Fork _=>"Fork task"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
-|WorkName _=>"Rename Work"|TitlePrompts=>"标题生成设置"end.
+|WorkName _=>"Rename Work"|TitlePrompts=>"Conversation titles"end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
@@ -100,12 +100,21 @@ Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.
  ([Node key "property-repair"(UX.obstruction_message cause)Roles.Alert(ReadOnly(UX.obstruction_message cause))[]]++
  if String.eqb(UX.obstruction_code cause)"workspace_observation_failed"then
  [declared key Roles.Button(secondary "retry" "Retry"(Input.RetryWorkspace e(part key "retry")))]else[])%list.
+Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstruction e) :=
+ (* An empty project name is the initial input state. Keep the action
+    unavailable through the assessment and show errors for entered names. *)
+ match Draft.contents draft with
+ |Draft.ProjectBody _ name _ _=>
+   negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
+ |_=>true end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  fold_right(fun field rest=>match field_node snapshot s e parent field with
  |Some node=>node::((match Observe.attention_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
   |Some cause=>match UX.obstruction_target cause with
    |UX.RepairField subject=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
-     then obstruction_nodes parent cause else[]|UX.RepairEditor=>[]end
+     then if field_obstruction_visible (Session.current_draft s e) cause
+          then obstruction_nodes parent cause else[] else[]
+   |UX.RepairEditor=>[]end
   |None=>[]end)++rest)%list
  |None=>rest end)[]fields.
 Definition property_button (snapshot:json) (s:Session.state) e parent (property:UX.property e) :=
@@ -162,19 +171,26 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
+   (ServiceControls.file_items e parent s) in
+ let attachments:=match List.app failed files with
+  |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
+ let tools:=composer_tools snapshot s e parent in
+ let tools:=match e with
+  |NewTask _=>(field_nodes snapshot s e parent [Fields.TaskEnvironment] ++
+    match tools with []=>[]|_=>[region parent "composer/property-tools" "Model and permissions" Roles.Toolbar tools]end)%list
+  |_=>tools end in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
-  (List.app (List.app (match e with NewTask _=>field_nodes snapshot s e parent [Fields.TaskEnvironment]|_=>[]end)
-     [ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s);
-      ServiceControls.files e parent s;assessment_nodes parent assessment])
-     (skill_nodes snapshot s e parent))
-  (composer_tools snapshot s e parent)assessment commit feedback)end.
+  (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
+  [ServiceControls.file_picker e parent s;
+   ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
+  tools assessment commit feedback)end.
 
 (** Product sections reference the shared parameter declaration; they do not
     repeat field types, codecs, validation or assignments. *)
 Definition execution_section :=("Execution context",Parameters.context_fields).
 Definition model_section :=("Model",Parameters.model_fields).
 Definition editor_sections e :=match e with
-|WorkName _=>[("Work",[Fields.WorkName])]
 |NewTask _=>[("Message",[Fields.MessageText]);model_section;execution_section;("Workspace",[Fields.TaskEnvironment])]
 |Message _=>[("Message",[Fields.MessageText;Fields.DeliveryIntent]);model_section;
  ("Permissions",[Fields.SandboxMode;Fields.NetworkAccess;Fields.ApprovalPolicy;Fields.ApprovalReviewer])]
@@ -186,30 +202,40 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|TitlePrompts=>[("标题生成",[Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt])]end.
+|WorkName _|TitlePrompts=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
-Definition section_nodes snapshot s e parent :=map(fun '(name,fields)=>
- field_section snapshot s e parent name fields)(editor_sections e).
-Definition title_prompt_controls e parent (pending:bool):list(node Input.input):=match e with
+Definition section_nodes snapshot s e parent :=
+ match e with
+ |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
+ |TitlePrompts=>field_nodes snapshot s e parent
+   [Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt]
+ |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
+ end.
+Definition title_prompt_help e parent : list (node Input.input) := match e with
 |TitlePrompts=>
- [read_only parent "title-prompts/help" "说明"
-   "Task 用于看板任务，Agent 用于执行会话，分别生成标题。修改只影响后续生成；标题最多 36 个字符。";
-  declared parent Roles.Button(Control "title-prompts/reset" "恢复 Codex 默认提示词" Secondary Input.ResetTitlePrompts
+ [information parent "title-prompts/help" Information.Description
+   "Titles can be up to 36 characters. Changes apply to future titles."]
+|_=>[]end.
+Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) := match e with
+|TitlePrompts=>
+ [declared parent Roles.Button(Control "title-prompts/reset" "Restore default prompts" Secondary Input.ResetTitlePrompts
    (if pending then Unavailable "The current action is pending"else Available))]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let body := (title_prompt_controls e parent (UX.action_pending unit) ++
+ let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
+   title_prompt_reset e parent (UX.action_pending unit) ++
    [assessment_nodes parent assessment] ++
    Composer.action_feedback parent unit (draft_feedback (Session.current_draft s e)))%list in
  [dialog_header parent [title parent(editor_title e)];
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      [Node(part parent "submit")"submit"(control_label submit)
-        (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]]])].
+      ([declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)] ++
+       [Node(part parent "submit")"submit"(control_label submit)
+         (commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]])%list])].

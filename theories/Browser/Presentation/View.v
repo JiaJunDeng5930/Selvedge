@@ -3,7 +3,8 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser.Session Require Input Services.
 From Selvedge.Browser.Session Require State.
 From Selvedge.Browser.Scene Require Import Surface Model.
-From Selvedge.Browser.Presentation Require Import Navigation Pages Layers ServiceControls.
+From Selvedge.Browser.Presentation Require Import Navigation Pages Layers ServiceControls Settings.
+From Selvedge.Browser.Presentation Require Roles.
 From Selvedge.Browser.Scene Require Import Construction.
 Import ListNotations.
 Open Scope string_scope.
@@ -27,9 +28,16 @@ Fixpoint without_presentation_node target (value:node Input.input):list(node Inp
  [Node key semantic label role meaning(flat_map(without_presentation_node target)children)].
 Definition occurrence_matches occurrence (value:node Input.input):=match layer_region(node_meaning value)with
  |Some behavior=>N.eqb occurrence(layer_occurrence behavior)|None=>false end.
-Definition prepend_trigger occurrence trigger (value:node Input.input):=
+Definition details_header_trigger trigger (value:node Input.input):=
  let 'Node key semantic label role meaning children:=value in
- if occurrence_matches occurrence value then Node key semantic label role meaning(trigger::children)else value.
+ match role with
+ |Roles.DialogHeader=>Node key semantic label role meaning
+   (List.app (filter (fun child=>negb(String.eqb (semantic_key child) "close")) children) [trigger])
+ |_=>value end.
+Definition place_details_trigger occurrence trigger (value:node Input.input):=
+ let 'Node key semantic label role meaning children:=value in
+ if occurrence_matches occurrence value then Node key semantic label role meaning
+   (map (details_header_trigger trigger) children) else value.
 (* A modal makes the page and its parent overlays inert. Move the existing
    toggle from either location into the active scope, preserving its authority. *)
 Definition relocate_details_trigger state capacity base overlays:=
@@ -43,7 +51,7 @@ Definition relocate_details_trigger state capacity base overlays:=
        if N.eqb task actual&&modal_layer(Layers.behavior state capacity layer)&&
          existsb(occurrence_matches(State.layer_occurrence layer))overlays then
         (flat_map(without_presentation_node(node_key trigger))base,
-         map(prepend_trigger(State.layer_occurrence layer)trigger)
+         map(place_details_trigger(State.layer_occurrence layer)trigger)
           (flat_map(without_presentation_node(node_key trigger))overlays))
        else(base,overlays)
       |_ =>(base,overlays)end
@@ -54,8 +62,15 @@ Definition relocate_details_trigger state capacity base overlays:=
 
 Definition view (snapshot : json) (state : State.state) (capacity : Model.capacity) : Surface.surface Input.input :=
  let base:=List.app(Navigation.navigation_base snapshot state capacity)(Pages.main snapshot state::pending_notices state)in
- let overlays:=List.app(Navigation.navigation_layers snapshot state capacity)
-   (List.app(map(Layers.layer_view snapshot state capacity)(rev(Layers.visible_layers(State.layers(State.navigation_state state)))))
-     (ServiceControls.dialogs state))in
+ let render:=map (Layers.layer_view snapshot state capacity) in
+ let '(settings_editors, workspace_layers):=partition
+   (fun layer => match State.layer_panel layer with
+     | State.EditorPanel Identity.TitlePrompts => true | _ => false end)
+   (rev (Layers.visible_layers (State.layers (State.navigation_state state)))) in
+ (* An editor launched from Settings returns to its settings row. Keep the
+    settings layer beneath it, and keep service-owned pickers above both. *)
+ let overlays:=(Navigation.navigation_layers snapshot state capacity ++ render workspace_layers ++
+   ServiceControls.settings state ++ Settings.configuration_editor state ++ render settings_editors ++
+   ServiceControls.directory_view state ++ ServiceControls.preview_view state)%list in
  let '(base,overlays):=relocate_details_trigger state capacity base overlays in
  Surface.Surface "/workspace" "/main"base overlays(Services.theme(State.service_state state)).

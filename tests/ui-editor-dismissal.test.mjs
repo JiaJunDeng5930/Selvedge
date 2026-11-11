@@ -32,30 +32,33 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const editTitlePrompts = settings.getByRole('button', { name: 'Edit title prompts', exact: true });
+  const titlePrompts = page.getByRole('dialog', { name: 'Conversation titles', exact: true });
   async function openTitlePrompts() {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByRole('button', { name: '标题生成设置', exact: true }).click();
-    return page.getByRole('dialog');
+    await editTitlePrompts.click();
+    return titlePrompts;
   }
 
   dialog = await openTitlePrompts();
-  const prompt = dialog.getByRole('textbox', { name: 'Task 看板标题提示词', exact: true });
+  const prompt = dialog.getByRole('textbox', { name: 'Task title prompt', exact: true });
   const savedPrompt = await prompt.inputValue();
   await prompt.fill('Unsaved title prompt');
   await page.keyboard.press('Escape');
-  await prompt.waitFor({ state: 'hidden' });
-  await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
+  await editTitlePrompts.waitFor();
+  assert.equal(await editTitlePrompts.evaluate(button => document.activeElement === button), true);
 
-  dialog = await openTitlePrompts();
-  assert.equal(await dialog.getByRole('textbox', { name: 'Task 看板标题提示词', exact: true }).inputValue(), savedPrompt);
+  await editTitlePrompts.click();
+  assert.equal(await prompt.inputValue(), savedPrompt);
 
-  const titleModel = dialog.getByLabel('Agent 会话标题模型', { exact: true });
+  const titleModel = dialog.getByLabel('Conversation title model', { exact: true });
   const options = await titleModel.locator('option').evaluateAll(nodes => nodes.map(node => ({
     label: node.label, value: node.value,
   })));
-  const automatic = options.find(option => option.label === '自动');
+  const automatic = options.find(option => option.label === 'Automatic');
   const configured = options.find(option => option.label.includes('interactive') || option.value.includes('interactive'));
   assert.ok(automatic, 'The title model selector exposes automatic selection');
   assert.ok(configured, 'The selector exposes the configured interactive model connection');
@@ -63,10 +66,11 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await titleModel.selectOption(configured.value);
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
+  await editTitlePrompts.waitFor();
 
   await page.reload();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
   dialog = await openTitlePrompts();
-  assert.equal(await dialog.getByLabel('Agent 会话标题模型', { exact: true }).inputValue(), configured.value,
+  assert.equal(await dialog.getByLabel('Conversation title model', { exact: true }).inputValue(), configured.value,
     'The selected title model remains saved after the page reloads');
 });

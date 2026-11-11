@@ -222,5 +222,5 @@ Theorem browser_task_detail_shows_observed_status snapshot state id task details
     (Layers.task_details snapshot state id parent).
 Proof.
  intros Observed. unfold Layers.task_details. rewrite Observed.
- apply in_or_app. right. apply in_or_app. left. simpl. auto.
+ apply in_or_app. right. apply in_or_app. right. apply in_or_app. left. simpl. auto.
 Qed.

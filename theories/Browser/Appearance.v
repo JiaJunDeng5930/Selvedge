@@ -22,6 +22,7 @@ Definition symbols : list symbol := [
   Symbol "globe" "M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667" Outline;
   Symbol "globe-off" "M18.3333 10a8.3333 8.3333 0 1 0-16.6666 0a8.3333 8.3333 0 1 0 16.6666 0 M 10 1.66667 a 12.0833 12.0833 0 0 0 0 16.6667 12.0833 12.0833 0 0 0 0 -16.6667 M 1.66667 10 h 16.6667 M3 3L17 17" Outline;
   Symbol "chevron-right" "M7.5 4.5 L13 10 L7.5 15.5" Outline;
+  Symbol "chevron-left" "M12.5 4.5 L7 10 L12.5 15.5" Outline;
   Symbol "chevron-down" "M4.5 7.5 L10 13 L15.5 7.5" Outline;
   Symbol "stop-square" "M6 5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" Outline;
   Symbol "pause-bars" "M7 5v10M13 5v10" Outline;
@@ -56,6 +57,7 @@ Definition symbols : list symbol := [
   Symbol "download" "M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4" Outline;
   Symbol "preview" "M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Zm10.5 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z" Outline;
   Symbol "paperclip" "m7 10 5-5a3 3 0 0 1 4 4l-8 8a4 4 0 0 1-6-6l8-8m-3 7 5-5" Outline;
+  Symbol "microphone" "M8 5a2 2 0 0 1 4 0v5a2 2 0 0 1-4 0zM5 9v1a5 5 0 0 0 10 0V9m-5 6v3m-3 0h6" Outline;
   Symbol "grip" "M7 4h.01M13 4h.01M7 10h.01M13 10h.01M7 16h.01M13 16h.01" Outline;
   Symbol "arrow-up" "M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z" Filled;
   Symbol "arrow-down" "M9.33467 3.3337V15.06022L4.6374 10.36296L4.1667 10.83366L3.69599 11.30339L9.52998 17.13737L9.63447 17.22233C9.8925 17.39247 10.2433 17.36436 10.4704 17.13737L16.3034 11.30339L16.3884 11.19889C16.5588 10.94078 16.5306 10.59018 16.3034 10.36296C16.0762 10.13586 15.7255 10.10758 15.4675 10.278L15.363 10.36296L10.6647 15.0612V3.3337C10.6647 2.9664 10.367 2.6686 9.99971 2.6686C9.63259 2.6688 9.33467 2.9665 9.33467 3.3337ZM4.6374 10.36296C4.3777 10.10326 3.95569 10.10326 3.69599 10.36296C3.43657 10.62256 3.43668 11.04372 3.69599 11.30339L4.6374 10.36296Z" Filled;
@@ -80,14 +82,16 @@ Inductive flow := BlockFlow | ColumnFlow | RowFlow | SplitRowFlow.
 Inductive alignment := Leading | Centered | Trailing | Stretch.
 Inductive overflow := ContentFlow | ScrollFlow | CodeOverflow | SingleLineOverflow.
 Inductive surface_paint :=
-| CanvasPaint | NavigationPaint | ContentPaint | FloatingPaint | InsetPaint
+| CanvasPaint | NavigationPaint | ContentPaint | FloatingPaint | InsetPaint | MessagePaint
 | FieldPaint | EmbeddedPaint | QuietActionPaint | PrimaryActionPaint
 | DestructiveActionPaint | ChoicePaint (selected : bool).
 Inductive phase := Rest | Hovered | Pressed.
 
 Definition token name := String.append "var(" (String.append name ")").
-Definition primary_text := token "--color-token-text-primary".
-Definition secondary_text := token "--color-token-text-secondary".
+Definition primary_text := token "--selvedge-text".
+Definition secondary_text := token "--selvedge-muted".
+Definition border_color := token "--selvedge-border".
+Definition focus_color := token "--selvedge-focus".
 Definition theme (configured : Selvedge.Browser.Session.Appearance.appearance) (system_dark : bool) :=
   match configured with
   | Selvedge.Browser.Session.Appearance.SystemAppearance => system_dark
@@ -96,40 +100,38 @@ Definition theme (configured : Selvedge.Browser.Session.Appearance.appearance) (
 Definition theme_name configured system_dark := if theme configured system_dark then "dark" else "light".
 Inductive wash_strength := SubtleWash | EmphasizedWash.
 Definition selected_wash strength :=
-  let opacity := match strength with SubtleWash => "0.05" | EmphasizedWash => "0.10" end in
-  String.append "var(--lightningcss-light, rgba(0, 0, 0, "
-    (String.append opacity (String.append "))var(--lightningcss-dark, rgba(255, 255, 255, "
-      (String.append opacity "))"))).
+  token (match strength with SubtleWash => "--selvedge-selection" | EmphasizedWash => "--selvedge-pressed" end).
 Definition foreground value :=
   match value with
-  | PrimaryActionPaint => token "--color-text-primary-solid"
-  | DestructiveActionPaint => token "--color-text-danger-ghost"
+  | QuietActionPaint => secondary_text
+  | PrimaryActionPaint => token "--selvedge-on-accent"
+  | DestructiveActionPaint => token "--selvedge-danger"
   | _ => primary_text
   end.
 Definition background value state :=
   match value with
-  | CanvasPaint => token "--app-color-background-surface"
-  | NavigationPaint => token "--color-token-side-bar-background"
-  | ContentPaint | FieldPaint => token "--color-token-main-surface-primary"
-  | FloatingPaint => token "--color-token-dropdown-background"
-  | InsetPaint => token "--color-surface-secondary"
+  | CanvasPaint => token "--selvedge-canvas"
+  | NavigationPaint => token "--selvedge-navigation"
+  | ContentPaint | FloatingPaint => token "--selvedge-surface"
+  | InsetPaint | FieldPaint => token "--selvedge-inset"
+  | MessagePaint => token "--selvedge-hover"
   | EmbeddedPaint => "transparent"
-  | QuietActionPaint => token (match state with
-      | Rest => "--app-color-background-button-tertiary"
-      | Hovered => "--app-color-background-button-tertiary-hover"
-      | Pressed => "--app-color-background-button-tertiary-active" end)
+  | QuietActionPaint => match state with
+      | Rest => "transparent"
+      | Hovered => token "--selvedge-hover"
+      | Pressed => token "--selvedge-pressed" end
   | PrimaryActionPaint => token (match state with
-      | Rest => "--color-background-primary-solid"
-      | Hovered => "--color-background-primary-solid-hover"
-      | Pressed => "--color-background-primary-solid-active" end)
+      | Rest => "--selvedge-accent"
+      | Hovered => "--selvedge-accent-hover"
+      | Pressed => "--selvedge-accent-pressed" end)
   | DestructiveActionPaint => match state with
       | Rest => "transparent"
-      | Hovered => token "--color-background-danger-ghost-hover"
-      | Pressed => token "--color-background-danger-ghost-active" end
+      | Hovered => token "--selvedge-danger-wash"
+      | Pressed => token "--selvedge-danger-pressed" end
   | ChoicePaint selected => match state with
-      | Pressed => token "--app-color-background-button-tertiary-active"
+      | Pressed => token "--selvedge-pressed"
       | Rest => if selected then selected_wash SubtleWash else "transparent"
-      | Hovered => if selected then selected_wash EmphasizedWash else token "--color-token-list-hover-background"
+      | Hovered => if selected then selected_wash EmphasizedWash else token "--selvedge-hover"
       end
   end.
 
@@ -163,7 +165,7 @@ Definition partition_fields part organization spilling gap :=
   fields EmbeddedPaint "transparent" 0 0 false Stretch organization spilling
     (Enclosure.inline_inset area) (Enclosure.block_inset area) gap 0 100 false false.
 Definition base_style := fields EmbeddedPaint "transparent" 0 0 false Stretch BlockFlow ContentFlow 0 0 0 0 100 false false.
-Definition button_style paint := enclosure_fields paint "transparent" 0 8 false Stretch RowFlow ContentFlow Enclosure.TextControl (Enclosure.separation Enclosure.InlineControls) 32 100 true false.
+Definition button_style paint := enclosure_fields paint "transparent" 0 6 false Stretch RowFlow ContentFlow Enclosure.TextControl (Enclosure.separation Enclosure.InlineControls) 32 100 true false.
 Definition navigation_style selected gap radius := enclosure_fields (ChoicePaint selected) "transparent" 0 radius false
   Stretch RowFlow ContentFlow Enclosure.NavigationRow gap 32 100 true true.
 Definition role_style (role : Roles.role) :=
@@ -172,39 +174,39 @@ Definition role_style (role : Roles.role) :=
   | Roles.GlobalNavigationEntry selected _ => navigation_style selected 4 6
   | Roles.CompactHeader => fields CanvasPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 0 40 100 false false
   | Roles.CompactWorkScope _ _ | Roles.WorkOverviewButton _ => button_style QuietActionPaint
-  | Roles.CompactNavigationEntry selected => navigation_style selected 6 5
+  | Roles.CompactNavigationEntry selected => navigation_style selected 6 6
   | Roles.WorkTabs => fields NavigationPaint "transparent" 0 0 false Stretch BlockFlow ContentFlow 8 0 0 0 100 false false
   | Roles.WorkTab selected => fields (if selected then CanvasPaint else EmbeddedPaint) "transparent" 0 8 false Leading BlockFlow SingleLineOverflow 12 8 0 40 100 true false
   | Roles.Navigation => fields NavigationPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 8 8 4 0 100 false false
-  | Roles.NavigationEntry selected => navigation_style selected 6 5
+  | Roles.NavigationEntry selected => navigation_style selected 6 6
   | Roles.NavigationHeader => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 4 8 36 100 false false
   | Roles.Main => fields CanvasPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 0 0 0 0 100 false false
   | Roles.Heading => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 0 0 8 46 100 false false
   | Roles.Timeline => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 16 0 100 false false
   | Roles.Activity => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 4 0 100 false true
-  | Roles.UserMessage => enclosure_fields InsetPaint "transparent" 0 16 false Trailing BlockFlow ContentFlow Enclosure.UserMessage 0 0 70 false false
+  | Roles.UserMessage => enclosure_fields MessagePaint "transparent" 0 12 false Trailing BlockFlow ContentFlow Enclosure.UserMessage 0 0 70 false false
   | Roles.AssistantMessage => fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
-  | Roles.Composer => enclosure_fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow Enclosure.Composer 4 0 100 false false
+  | Roles.Composer => enclosure_fields CanvasPaint border_color 1 10 false Stretch ColumnFlow ContentFlow Enclosure.Composer 4 0 100 false false
   | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Trailing SplitRowFlow ContentFlow 0 0 Layout.composer_clearance 32 100 false false
   | Roles.DialogActions => partition_fields Enclosure.Footer RowFlow ContentFlow (Enclosure.separation Enclosure.DialogActions)
   | Roles.DialogHeader => partition_fields Enclosure.Header ColumnFlow ContentFlow 0
   | Roles.DialogBody => partition_fields Enclosure.Body ColumnFlow ScrollFlow (Enclosure.separation Enclosure.DialogSections)
-  | Roles.Approval => enclosure_fields ContentPaint (token "--color-token-editor-warning-foreground") 1 12 false Stretch ColumnFlow ContentFlow Enclosure.Approval 8 0 100 false false
+  | Roles.Approval => enclosure_fields ContentPaint (token "--selvedge-warning-border") 1 9 false Stretch ColumnFlow ContentFlow Enclosure.Approval 8 0 100 false false
   | Roles.Toolbar => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 4 32 100 false false
-  | Roles.CodeBlock => enclosure_fields InsetPaint (token "--color-token-border-default") 1 8 false Stretch ColumnFlow CodeOverflow Enclosure.CodeBlock 4 0 100 false false
+  | Roles.CodeBlock => enclosure_fields InsetPaint border_color 1 8 false Stretch ColumnFlow CodeOverflow Enclosure.CodeBlock 4 0 100 false false
   | Roles.ApprovalQueue => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 0 0 8 0 100 false false
   | Roles.Section => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 12 0 100 false false
-  | Roles.Dialog => fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow 0 0 0 0 100 false false
-  | Roles.Menu => enclosure_fields FloatingPaint (token "--color-token-border-default") 1 12 true Stretch ColumnFlow ScrollFlow Enclosure.Menu (Enclosure.separation Enclosure.MenuItems) 0 100 false false
-  | Roles.Details => enclosure_fields ContentPaint (token "--color-token-border-default") 1 0 false Stretch ColumnFlow ScrollFlow Enclosure.Details (Enclosure.separation Enclosure.Sections) 0 100 false false
-  | Roles.Card => enclosure_fields ContentPaint (token "--color-token-border-default") 1 9 true Stretch ColumnFlow ContentFlow Enclosure.Card (Enclosure.separation Enclosure.CardSections) 0 100 false false
+  | Roles.Dialog => fields ContentPaint border_color 1 12 true Stretch ColumnFlow ContentFlow 0 0 0 0 100 false false
+  | Roles.Menu => enclosure_fields FloatingPaint border_color 1 9 true Stretch ColumnFlow ScrollFlow Enclosure.Menu (Enclosure.separation Enclosure.MenuItems) 0 100 false false
+  | Roles.Details => enclosure_fields ContentPaint border_color 1 0 false Stretch ColumnFlow ScrollFlow Enclosure.Details (Enclosure.separation Enclosure.Sections) 0 100 false false
+  | Roles.Card => enclosure_fields ContentPaint border_color 1 8 false Stretch ColumnFlow ContentFlow Enclosure.Card (Enclosure.separation Enclosure.CardSections) 0 100 false false
   | Roles.PrimaryButton => button_style PrimaryActionPaint
   | Roles.DestructiveButton => button_style DestructiveActionPaint
   | Roles.SelectedButton => button_style (ChoicePaint true)
   | Roles.Button => button_style QuietActionPaint
-  | Roles.Field => enclosure_fields FieldPaint (token "--color-token-input-border") 1 8 false Stretch BlockFlow ContentFlow Enclosure.Field 0 32 100 true false
-  | Roles.CompactNavigationMenu | Roles.WorkTabGroup | Roles.WorkChoiceRow
-  | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Alert => base_style
+  | Roles.Field => enclosure_fields FieldPaint border_color 1 7 false Stretch BlockFlow ContentFlow Enclosure.Field 0 32 100 true false
+  | Roles.CompactNavigationMenu | Roles.WorkTabGroup
+  | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Decorative | Roles.Alert => base_style
   end.
 
 Definition flow_properties value : list (string * string) :=
@@ -255,12 +257,14 @@ Definition style_properties env value : list (string * string) :=
    ("max-inline-size",adaptive_width_limit (style_maximum_percent value))] ++
   (if Nat.eqb (style_minimum_height value) 0 then [] else
     [("min-block-size",Typography.px (Nat.max (style_minimum_height value) (scale (style_minimum_height value))))]) ++
-  (if chrome_shadow chrome then [("box-shadow","var(--shadow-sm)")] else []) ++
+  (if chrome_shadow chrome then [("box-shadow",token "--selvedge-shadow")] else []) ++
   (if style_interactive value then
+    let hover_text := match paint with QuietActionPaint => primary_text | _ => foreground paint end in
+    let focus := match paint with PrimaryActionPaint => foreground paint | _ => focus_color end in
     [("--control-rest-color",foreground paint); ("--control-rest-background",background paint Rest);
-     ("--control-hover-color",foreground paint); ("--control-hover-background",background paint Hovered);
+     ("--control-hover-color",hover_text); ("--control-hover-background",background paint Hovered);
      ("--control-pressed-color",foreground paint); ("--control-pressed-background",background paint Pressed);
-     ("--control-disabled-opacity","0.4"); ("--control-focus-ring",token "--color-token-focus-border");
+     ("--control-disabled-opacity","0.48"); ("--control-focus-ring",focus);
      ("--control-focus-width","2px"); ("--control-focus-offset","-4px");
      ("font-weight","500"); ("cursor","pointer")]
    else []) ++
@@ -276,8 +280,8 @@ Definition role_typography env role : list (string * string) :=
   | Roles.WorkTabGroup | Roles.WorkTabs => set Typography.ActivityPrimary Typography.Regular
   | Roles.WorkOverviewButton _ | Roles.WorkTab _ => set Typography.ActivityPrimary Typography.Medium
   | Roles.NavigationHeader => set Typography.Body Typography.Medium
-  | Roles.Heading => set Typography.Title Typography.Medium
-  | Roles.WorkChoiceRow | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
+  | Roles.Heading => set Typography.Section Typography.Medium
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
   | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
   | Roles.DialogActions | Roles.DialogHeader | Roles.DialogBody | Roles.ComposerActions => set Typography.Body Typography.Regular
   | Roles.Activity => set Typography.Support Typography.Regular
@@ -286,12 +290,14 @@ Definition role_typography env role : list (string * string) :=
   | Roles.Alert => set Typography.Body Typography.Regular
   | _ => [] end.
 Definition alert_color_properties :=
-  [("color",token "--color-text-danger");("overflow-wrap","anywhere")].
+  [("color",token "--selvedge-danger");("overflow-wrap","anywhere")].
 Definition alert_properties env := role_typography env Roles.Alert ++ alert_color_properties.
 Definition role_properties env role := style_properties env (role_style role) ++
   (match role with Roles.Alert=>alert_properties env|_=>role_typography env role end) ++
   match role with
   | Roles.Activity => [("color",secondary_text)]
+  | Roles.UserMessage => [("border-end-end-radius","4px")]
+  | Roles.Field => [("cursor","auto")]
   | Roles.Toolbar => [("justify-content","flex-start")]
   | Roles.GlobalNavigation _ =>
       [("padding-inline",Typography.px (Typography.scaled (Layout.root_font_size_milli env) 4));
@@ -326,9 +332,9 @@ Definition information_properties env activity role :=
     (Typography.information_tier activity role) (Typography.information_emphasis role) ++
   [("color",information_foreground role); ("min-inline-size","0")].
 
-Definition aggregate_focus_properties role : list (string * string) :=
-  [("--control-focus-width","1px"); ("--control-focus-offset","0px");
-   ("--control-focus-ring",chrome_border (style_chrome (role_style role)))].
+Definition aggregate_focus_properties (_ : Roles.role) : list (string * string) :=
+  [("--control-focus-width","2px"); ("--control-focus-offset","2px");
+   ("--control-focus-ring",focus_color)].
 
 Definition rich_properties env parent strength : list (string * string) :=
   let root := Layout.root_font_size_milli env in
@@ -352,7 +358,7 @@ Definition markdown_policy env parent kind :=
   | PublishedMarkdown =>
       let body := Typography.size (Layout.root_font_size_milli env) parent in
       RichPolicy (Frame 12 12 4)
-        (chrome_for InsetPaint (token "--color-token-border-default") 1 8 false) body (2 * body)
+        (chrome_for InsetPaint border_color 1 8 false) body (2 * body)
   | EmbeddedMarkdown => RichPolicy (Frame 8 8 8) clear_chrome 12 24 end.
 Definition markdown_properties env parent kind : list (string * string) :=
   let policy := markdown_policy env parent kind in
@@ -367,7 +373,7 @@ Definition markdown_properties env parent kind : list (string * string) :=
    ("--physical-code-border-width",Typography.px (chrome_border_width chrome));
    ("--physical-code-border-color",chrome_border chrome);
    ("--physical-code-border-radius",Typography.px (chrome_radius chrome));
-   ("--physical-code-box-shadow",if chrome_shadow chrome then "var(--shadow-sm)" else "none");
+   ("--physical-code-box-shadow",if chrome_shadow chrome then token "--selvedge-shadow" else "none");
    ("--physical-toolbar-height",match kind with PublishedMarkdown => "auto" | EmbeddedMarkdown => "0px" end);
    ("--physical-block-gap",Typography.px (rich_block_gap policy));
    ("--physical-list-indent",Typography.px (rich_list_indent policy));
@@ -378,6 +384,6 @@ Definition root_properties env : list (string * string) :=
   [("color",primary_text); ("background",background CanvasPaint Rest);
    ("--layout-clearance",Typography.px (Layout.clearance env));
    ("--control-help-delay","300ms");
-   ("--native-focus-ring",token "--color-token-focus-border");
+   ("--native-focus-ring",focus_color);
    ("--native-focus-width","2px"); ("--native-focus-offset","-4px")] ++
   rich_properties env Typography.Body Typography.Regular.

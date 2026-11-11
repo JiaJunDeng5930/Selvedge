@@ -36,12 +36,13 @@ Definition action_feedback {A e} parent (unit:Experience.action_unit e)
 Definition composer {A e} parent (message_label : string) (submit_role : Roles.role)
     (unit : Experience.action_unit e)
     (subject : Experience.subject e) (editing : edit_control A)
-    (body_controls tools : list (node A)) (assessment : Experience.assessment e)
+    (body_controls accessories tools : list (node A)) (assessment : Experience.assessment e)
     (submit : control A) (feedback : option string) : node A :=
   Node parent "composer" "Message" Roles.Composer (ActionUnit e unit)
     ([Node (part parent "message") "message" message_label Roles.Field (Edit e subject editing) []] ++ body_controls ++
      [Node (part parent "actions") "composer/actions" "Actions" Roles.ComposerActions Region
-        [Node (part parent "tools") "composer/tools" "Supporting controls" Roles.Toolbar Region tools;
+        [Node (part parent "accessories") "composer/accessories" "Input tools" Roles.Section Region accessories;
+         Node (part parent "tools") "composer/tools" "Supporting controls" Roles.Toolbar Region tools;
          Node (part parent "submit") "composer/submit" (control_label submit) submit_role
            (ActionCommit e assessment submit) []]] ++
      action_feedback parent unit feedback)%list.

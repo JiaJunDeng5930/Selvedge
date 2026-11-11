@@ -35,8 +35,12 @@ Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.deci
   ([information key "label" Information.OptionLabel label]++
    (if String.eqb label(UX.alternative_explanation alternative)then[]else
     [information key "description" Information.Description(UX.alternative_explanation alternative)])++
-   map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
-    (UX.readable_text(UX.summary_observation consequence)))(UX.alternative_consequences alternative))].
+   (match UX.alternative_consequences alternative with
+    |[]=>[]
+    |consequences=>[region key "choice-consequences" "" Roles.Content
+      (map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
+        (UX.readable_text(UX.summary_observation consequence)))consequences)]
+    end))].
 Definition alternative_search_key {e}(subject:UX.subject e)(value:denote(UX.subject_kind subject)) :=
  let encoded:=Schema.encode_value(UX.subject_kind subject)value in
  match UX.subject_declaration subject,encoded with
@@ -74,26 +78,32 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
  Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e members)
  (map(fun path=>let key:=part parent path in
+  let primary:=match Domain.workspace_primary workspace with Some root=>String.eqb path root|None=>false end in
   Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
-   (read_only key "path" "Directory"path::
-    information key "primary-state" Information.Status(if match Domain.workspace_primary workspace with Some primary=>String.eqb path primary|None=>false end then "Primary directory"else"")::
-    if editable then
-     [declared key Roles.Button(secondary "primary" "Use as primary"(Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)));
-      declared key Roles.Button(secondary "remove" "Remove directory"(Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))]else[]))roots ++
+   [region key "workspace-member-copy" "" Roles.Section
+     (information key "path" Information.FieldValue path ::
+      if primary then [information key "primary-state" Information.Description "Primary directory"] else []);
+    region key "workspace-member-actions" "" Roles.Section
+     (if editable then
+       ((if primary then [] else [declared key Roles.Button(secondary "primary" "Use as primary"
+          (Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)))]) ++
+        [declared key Roles.Button(secondary "remove" "Remove directory"
+          (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots ++
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status "Add or clear the directory before saving"])++
-   [Node(part parent "directory")"directory" "Add directory"Roles.Field
+   [Node(part parent "directory")"directory" "Directory path"Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
     region parent "directory-entry-actions" ""Roles.Toolbar
-     [declared parent Roles.Button(Control "add" "Add directory"Secondary
+     ([declared parent Roles.Button(Control "add" "Add directory"Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
-       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available));
-      declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""));
-      declared parent Roles.Button(Control "browse" "Browse…" Secondary
+       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available))] ++
+      (if String.eqb buffer "" then [] else
+       [declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""))]) ++
+      [declared parent Roles.Button(Control "browse" "Browse…" Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))]] ++
+       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))])%list] ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -172,19 +182,23 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
     (field_specification snapshot s occurrence parent subject)]
  |Observation.RequiredExpression,Act.RequiredValue property=>
    let key:=part parent("required/"++UX.subject_name(UX.property_subject property))in
-   [Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)
-    (flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property))]
+   match flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property)with
+   |[]=>[]
+   |facts=>[Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)facts]end
  |Observation.RequestedInformation,Act.SupportingValue property=>
    let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
    match view with
    |Act.InspectionView None=>[Node key "supporting-value" ""Roles.Section(ActivityRow SupportingRow)
-     ([read_only key "scope" "Scope"(match e with Identity.Project _=>"Applies to future tasks; existing working directories and explicit overrides are unchanged"|_=>editor_key e end);
-      declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
+     ((match e with Identity.Project _=>
+        [read_only key "scope" "Scope" "Applies to future tasks; existing working directories and explicit overrides are unchanged"]
+       |_=>[]end)++
+      [declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
       match UX.property_kind_of property with
       |UX.PermissionsProperty=>inherited_permission_controls s e key|_=>[]end)]
-   |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
+   |Act.CompoundView=>match e with Identity.Project None=>[]|_=>
+     [Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
      (Composer.property_information key property++[declared key Roles.Button
-       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]) ]
+       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))])]end
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
@@ -218,7 +232,7 @@ Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:
    (match Observation.observe_collection snapshot s e with
     |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
     |None=>[read_only parent "unavailable" "Workspace" "The working directory observation is unavailable"]end)++
-   [declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)])%list.
+   [])%list.
 Definition workspace_request request:=match request with
 |Act.WorkspaceActivity|Act.PropertyActivity UX.WorkspaceProperty=>true|_=>false end.
 Definition project_choice_details snapshot s {e}(subject:UX.subject e)(choice:Fields.choice_value):string*string:=
@@ -286,10 +300,10 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
     |_=>[title parent caption]end in
   let relations:=Act.activity_relations activity in
   let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in
-  let actions:=(flat_map(relation_nodes snapshot s occurrence parent query request activity view)
-    (filter terminal relations) ++ match completion with
+ let actions:=((match completion with
     |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
-    |_=>[]end)%list in
+    |_=>[]end) ++ flat_map(relation_nodes snapshot s occurrence parent query request activity view)
+    (filter terminal relations))%list in
   let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++

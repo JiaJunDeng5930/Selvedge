@@ -39,6 +39,10 @@ Record layout_parameters := Parameters {
   creation_balanced_minimum_height : nat; lane_minimum_width : nat;
   navigation_minimum_width : nat; activity_primary_advance : nat; activity_support_advance : nat
 }.
+Definition base_motor_minimum := 32%nat.
+Definition motor_minimum env := Nat.max base_motor_minimum
+  (Typography.scaled (root_font_size_milli env) base_motor_minimum).
+Definition main_reading_characters := 56%nat.
 Definition parameters env :=
   let root := root_font_size_milli env in
   let scale := Typography.scaled root in
@@ -50,29 +54,32 @@ Definition parameters env :=
   let input_minimum := Nat.max (scale 44) (leading + 2 * scale 12) in
   let balanced := toolbar + 2 * (Typography.line_height root Typography.Display +
     input_minimum + scale 32 + 3 * scale 16) in
-  Parameters (scale 240) (Nat.max (scale 360) (advance * 40 + 2 * scale 16))
-    (scale 360) (advance * 96) (advance * 144) toolbar input_minimum
+  let page_edges := 2 * Enclosure.inline_inset (Enclosure.spacing Enclosure.PageContent) in
+  let composer_edges := 2 * (1 + Enclosure.inline_inset (Enclosure.spacing Enclosure.Composer)) in
+  let target := motor_minimum env in
+  (* Leave room for attachments, voice and submit, plus the three labeled
+     creation controls. Each labeled control needs room beyond its target. *)
+  let authoring := 3 * target + 3 * (2 * target) +
+    5 * Enclosure.separation Enclosure.ComposerControls + composer_edges in
+  Parameters (scale 232) (page_edges + Nat.max authoring (advance * main_reading_characters))
+    (scale 320) (advance * 84) (advance * 144) toolbar input_minimum
     (Nat.max (scale 240) input_minimum) leading balanced (advance * 32 + 2 * scale 8)
     (scale 224) (metric_advance (primary_metric metrics)) (metric_advance (support_metric metrics)).
 
 Definition reading_minimum env :=
-  metric_advance (body_metric (font_metrics env)) * 64 +
+  metric_advance (body_metric (font_metrics env)) * main_reading_characters +
     2 * Typography.scaled (root_font_size_milli env) 16.
-Definition global_navigation_width env := Typography.scaled (root_font_size_milli env) 84.
 Definition navigation_requirement env :=
   let p := parameters env in navigation_width p + main_minimum_width p.
 Definition details_requirement env := reading_minimum env + details_width (parameters env).
 Definition observe_capacity env : option (bool * bool) :=
   match workspace_inner_width env, main_inner_width env with
   | Some workspace, Some main =>
-      Some (Nat.leb (global_navigation_width env + navigation_requirement env) (viewport_width env),
+      Some (Nat.leb (navigation_requirement env) (viewport_width env),
         Nat.leb (details_requirement env) main)
   | _, _ => None
   end.
 
-Definition base_motor_minimum := 32%nat.
-Definition motor_minimum env := Nat.max base_motor_minimum
-  (Typography.scaled (root_font_size_milli env) base_motor_minimum).
 Definition touch_minimum env := Nat.max 44 (Typography.scaled (root_font_size_milli env) 44).
 Definition writing_lines := 2%nat.
 Definition clearance env := Typography.scaled (root_font_size_milli env) 12.
@@ -82,8 +89,10 @@ Definition layer_clearance env := 2 * layer_unit env.
 Definition dialog_reading_width env :=
   Nat.min (reading_maximum_width (parameters env)) (24 * input_line_height (parameters env)).
 Definition work_overview_clearance := 8%nat.
-Definition work_overview_width env := Nat.min (2 * reading_maximum_width (parameters env))
-  (viewport_width env - 2 * work_overview_clearance).
+Definition work_overview_width env :=
+  Nat.min (Typography.scaled (root_font_size_milli env) 640)
+    (Nat.min (2 * reading_maximum_width (parameters env))
+      (viewport_width env - 2 * work_overview_clearance)).
 Definition work_overview_height env :=
   (viewport_height env - 2 * work_overview_clearance) * 94 / 100.
 Definition modal_navigation_width env :=
@@ -138,7 +147,7 @@ Definition page_properties env page : list (string * string) :=
    ("gap",Typography.px (Enclosure.separation Enclosure.Sections));
    ("inline-size","100%"); ("margin-inline","auto");
    ("max-inline-size",match Composition.reading_measure recipe with
-      | Composition.ReadingMeasure => Typography.px (reading_maximum_width p + edges)
+      | Composition.ReadingMeasure => "none"
       | Composition.OverviewMeasure => Typography.px (overview_maximum_width p + edges)
       | Composition.AvailableMeasure => "none" end)] ++
   match Composition.body_kind recipe with
@@ -164,8 +173,10 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.BoardControls => [("display","flex"); ("flex-direction","row");
       ("gap",Typography.px (Enclosure.separation Enclosure.ComposerControls))]
   | Composition.TimelineContent => [("display","flex"); ("flex-direction","column");
-      ("flex","1 1 auto"); ("min-block-size","0"); ("overflow","hidden")]
-  | Composition.ComposerInput => [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
+      ("flex","1 1 auto"); ("min-block-size","0"); ("overflow","hidden");
+      ("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p)); ("align-self","center")]
+  | Composition.ComposerInput | Composition.ApprovalDecisions | Composition.LatestAction =>
+      [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]
   | Composition.CreationContext => [("display","flex");("flex-direction","column");

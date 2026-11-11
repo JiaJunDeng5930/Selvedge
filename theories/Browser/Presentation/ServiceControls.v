@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Adapters Require Common.
 From Selvedge.Features Require Domain.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
@@ -12,7 +13,7 @@ From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require State Authoring.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
-From Selvedge.Browser.Presentation Require Roles Information.
+From Selvedge.Browser.Presentation Require Roles Information Settings.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -80,103 +81,19 @@ Definition upload_node (connected:bool) parent (upload:resource Services.upload_
     (Input.ServiceInput(Services.RetryUpload ticket))(if connected then Available else Unavailable "Reconnect to retry the upload"));
   declared parent Roles.Button(secondary("remove-upload/"++show_natural ticket)"Remove failed upload"(Input.ServiceInput(Services.CancelUpload ticket)))])
 |_=>None end.
-Definition files e parent s :=
+Definition file_picker e parent s :=
+ Node(part parent "attach")"attach" "Attach files"Roles.Field
+  (ReceiveFile e (Services.connected(State.service_state s)) (Input.attach_files e))[].
+Definition file_items e parent s :=
  let services:=State.service_state s in
  let connected:=Services.connected services in
- let receive := Input.attach_files e in
- region parent "attachments" "Attachments" Roles.Section
- (Node(part parent "attach")"attach" "Attach files"Roles.Field(ReceiveFile e connected receive)[]::
-  (map(attachment_node e parent)(draft_files(State.current_draft s e))++
+ (map(attachment_node e parent)(draft_files(State.current_draft s e))++
    fold_right(fun upload rest=>match Services.upload_owner upload,upload_node connected parent upload with
-    |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services)))%list.
-Module Config := Configuration.Config.
-Definition configuration_button parent key label (enabled : bool) input :=
- declared parent Roles.Button
-   (Control key label Secondary (Input.ServiceInput input)
-     (if enabled then Available else Unavailable "Unavailable in the current state")).
-Definition configuration_field parent key label multiline raw choices enabled receive :=
- Node (part parent key) key label Roles.Field
-   (ConfigurationField multiline raw choices enabled (fun value => option_map
-     (fun input => Input.ServiceInput input) (bind (as_string value) receive))) [].
-Definition configuration_status parent status : node Input.input := information parent "result" Information.Status status.
-Definition configuration_path raw :=
- bind (TextJson.parse_json raw) (fun value => bind (as_array value) (traverse as_string)).
-Definition configuration_picker parent (snapshot : Config.snapshot) selected enabled :=
- let choices := map (fun entry =>
-    let path := Config.setting_path entry in
-    Fields.ChoiceValue (Config.setting_key path) (String.concat " / " path)) (Config.entries snapshot) in
- configuration_field parent "setting" "Configuration item" false selected
-   (Some (Fields.ChoiceValue "" "Choose a configuration item" :: choices)) enabled
-   (fun raw => option_map Services.SelectConfiguration (configuration_path raw)).
-Definition configuration_choices (options : list json) raw :=
- let options := map (fun value => Fields.ChoiceValue (TextJson.render_json value)
-   (Config.display_value value)) options in
- if existsb (fun option => String.eqb (Fields.choice_value_of option) raw) options then options
- else Fields.ChoiceValue raw "Choose a value" :: options.
-Definition configuration_editor parent view enabled :=
- match Configuration.editing view with
- | None => []
- | Some (_, draft, entry) =>
-   let raw := Configuration.draft_input draft in
-   let '(multiline, choices) := match Config.setting_input entry with
-     | Config.Text | Config.Structured => (true, None)
-     | Config.Number => (false, None)
-     | Config.Boolean => (false, Some (configuration_choices [JBool false; JBool true] raw))
-     | Config.Choice options => (false, Some (configuration_choices options raw))
-     end in
-   let accepted := match Config.interpret_input (Config.setting_input entry) raw with
-     | Some _ => true | None => false end in
-   ([configuration_field parent "value" "Configuration value" multiline raw choices enabled
-     (fun value => Some (Services.EditConfiguration value));
-    configuration_button parent "apply" "Apply configuration change" (enabled && accepted) Services.SetConfiguration]
-   ++ (if Config.setting_resettable entry && Config.setting_explicit entry then
-     [configuration_button parent "reset" "Reset configuration item" enabled Services.ResetConfiguration] else []))%list
- end.
-Definition configuration_section parent services :=
- let view := Services.service_configuration services in
- let section := part parent "service-configuration" in
- let enabled := Services.connected services && negb (Configuration.pending view) in
- let load key label := configuration_button section key label enabled Services.LoadConfiguration in
- region parent "service-configuration" "Service configuration" Roles.Section
-  (match Configuration.catalog view with
-  | Resource.Dormant => [load "load" "Edit service configuration"]
-  | Resource.Loading _ _ => [configuration_status section "Loading configuration…"]
-  | Resource.Failed _ _ reason => [configuration_status section reason; load "reload" "Reload configuration"]
-  | Resource.Loaded _ _ snapshot =>
-      let selected := match Configuration.current_draft view with
-        | Some draft => Config.setting_key (Configuration.draft_path draft) | None => "" end in
-      [configuration_picker section snapshot selected enabled]
-      ++ configuration_editor section view enabled
-      ++ (match Configuration.writing view with
-          | Resource.Loading _ _ => [configuration_status section "Applying configuration change…"]
-          | Resource.Loaded _ _ _ => [configuration_status section "Configuration updated"]
-          | Resource.Failed _ _ reason => [configuration_status section reason]
-          | Resource.Dormant => []
-          end)
-      ++ [load "reload" "Reload configuration"]
-  end)%list.
-
-Definition settings s :=
- match Services.settings_return(State.service_state s)with
- |None=>[]
- |Some trigger=>let parent:="/settings"in
-  [Node parent "settings" "Settings"Roles.Dialog
-   (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
-     (part parent "connect")
-     (Services.settings_focus_target trigger) "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
-   [dialog_header parent [title parent "Settings";
-     declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))];
-    dialog_body parent
-     [region parent "appearance" "Appearance"Roles.Section
-       (map(fun theme=>let label:=match theme with Appearance.SystemAppearance=>"System"|Appearance.LightAppearance=>"Light"|Appearance.DarkAppearance=>"Dark"end in
-         Node(part parent("appearance/"++Appearance.appearance_name theme))"appearance"label Roles.Button
-          (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
-           (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
-         [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
-      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")));
-      configuration_section parent (State.service_state s)];
-    dialog_actions parent[declared parent Roles.Button(secondary "connect" "Connect"(Input.ServiceInput Services.Connect))]]]
-  end.
+    |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services))%list.
+Definition files e parent s :=
+ region parent "attachments" "Attachments" Roles.Section
+  (file_picker e parent s :: file_items e parent s).
+Definition settings := Settings.view.
 
 Theorem settings_preserves_return_attention s trigger :
  Services.settings_return (State.service_state s) = Some trigger ->
@@ -184,7 +101,7 @@ Theorem settings_preserves_return_attention s trigger :
  option_map layer_return_attention (layer_region (node_meaning tree)) =
    Some (Services.settings_focus_target trigger).
 Proof.
- intros Open. unfold settings. rewrite Open.
+ intros Open. unfold settings, Settings.view. rewrite Open.
  eexists. split; reflexivity.
 Qed.
 
@@ -212,19 +129,21 @@ Definition directory_view s :=
      dialog_body parent(match resource with
       |Resource.Loaded _ _ catalog=>
        [region parent "navigation" "Folder navigation" Roles.Section
-        ([Node(part parent "location")"directory-location" "Directory"Roles.Field
+        ([region parent "directory-location-actions" "" Roles.Toolbar
+         [Node(part parent "location")"directory-location" "Directory"Roles.Field
           (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]++
+         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]]++
          match string_field "parent" catalog with None=>[]|Some path=>
           [declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end);
         region parent "folders" "Folders" Roles.Section content]
       |_=>content end);
      dialog_actions parent
-      (List.app(match resource with Resource.Loaded _ _ _=>
+      (declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))::
+       match resource with Resource.Loaded _ _ _=>
        [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
-       [declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))])]]
+       ]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]
@@ -246,4 +165,3 @@ Definition preview_view s :=match Services.preview(State.service_state s)with
       (Control "download" "Download" Secondary(Input.ServiceInput(Services.Download(Services.preview_file request)))
        (match resource with Resource.Loaded _ _ _=>Available|_=>Unavailable "The preview is not ready"end))]])%list]
  |_,_=>[]end end.
-Definition dialogs s :=(settings s++directory_view s++preview_view s)%list.

@@ -1,0 +1,222 @@
+/* Browse pages share a heading. Copy uses a reading measure, while a board
+   and a graph can use the full width of their own viewport. */
+main:has(> [data-semantic-key="workspace-browse-heading"]) {
+  container: workspace-browse / inline-size;
+  --workspace-reading-measure: 50rem;
+}
+
+[data-semantic-key="workspace-browse-heading"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .375rem .75rem !important;
+  flex: none !important;
+  padding-block-end: .5rem !important;
+  border-block-end: 1px solid var(--selvedge-border) !important;
+}
+
+[data-semantic-key="workspace-browse-heading"] > [data-page-region]:first-child {
+  flex: 1 1 min(8rem, 100%) !important;
+  overflow-wrap: anywhere;
+}
+
+[data-semantic-key="workspace-browse-heading"] > :is([data-page-region="project-actions"], [data-page-region="collection-actions"], [data-board-group]) {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  justify-content: end !important;
+  align-items: center !important;
+  gap: .25rem !important;
+  flex: 0 1 auto !important;
+  inline-size: auto !important;
+  max-inline-size: 100% !important;
+  margin-inline-start: auto;
+}
+
+[data-semantic-key="workspace-browse-heading"] > [data-semantic-key="work-name"] {
+  flex: 0 1 auto !important;
+  inline-size: fit-content !important;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"])) >
+  :is([data-semantic-key="workspace-browse-heading"], [data-page-region]),
+[data-semantic-key="task-graph/group"] > :is([data-semantic-key="task-graph/rules"], [data-semantic-key="task-graph/receipts"]) {
+  inline-size: min(100%, var(--workspace-reading-measure)) !important;
+}
+
+main:has(> :is([data-page-region="project-entries"], [data-page-region="project-tasks"])) >
+  :is([data-semantic-key="workspace-browse-heading"], [data-page-region]) {
+  margin-inline: auto;
+}
+
+[data-page-region="project-entries"] [data-navigation-owner] > [data-navigation-slot="auxiliary"] {
+  visibility: visible;
+}
+
+[data-page-region="project-entries"] [data-navigation-slot="auxiliary"] > [data-semantic-key="create"] > span:not(.visually-hidden) {
+  display: none;
+}
+
+:is([data-page-region="project-entries"], [data-page-region="project-tasks"])
+  [data-task-tree-row] > button[data-semantic-key="open"] {
+  flex: 1 1 0% !important;
+  inline-size: auto !important;
+}
+
+:is([data-page-region="project-entries"], [data-page-region="project-tasks"])
+  [data-navigation-slot="status"] {
+  inline-size: max(16px, 1rem) !important;
+  block-size: max(16px, 1rem) !important;
+}
+
+:is([data-page-region="project-entries"], [data-page-region="project-tasks"])
+  [data-navigation-slot="status"] > svg {
+  inline-size: .75rem !important;
+  block-size: .75rem !important;
+}
+
+[data-page-region="default-workspace"] [data-semantic-key="value"],
+[data-page-region="project-guidance"] [data-semantic-key="value"],
+[data-semantic-key="task-graph/group"] [data-semantic-key="value"] {
+  overflow-wrap: anywhere;
+}
+
+main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history-query"]) {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: end !important;
+  gap: .5rem !important;
+}
+
+[data-page-region="collection-actions"] > [data-semantic-key="history-query"] {
+  flex: 2 1 14rem !important;
+  align-self: end !important;
+  min-inline-size: min(14rem, 100%) !important;
+  max-inline-size: 100% !important;
+}
+
+[data-page-region="collection-actions"] > :has(> [data-semantic-key="history-scope"]) {
+  flex: 1 1 6.5rem !important;
+  inline-size: auto !important;
+  min-inline-size: min(6.5rem, 100%) !important;
+}
+
+[data-page-region="collection-actions"] [data-semantic-key="history-scope"] {
+  inline-size: 100% !important;
+}
+
+[data-page-region="collection-actions"] > [data-semantic-key="history/submit"] {
+  margin-inline-start: auto;
+}
+
+main:has(> [data-page-region="collection-actions"] > [data-semantic-key="history-query"])
+  [data-semantic-key="result"] > button[data-semantic-key="open"] {
+  align-items: start !important;
+  justify-content: start !important;
+  text-align: start;
+}
+
+main:has(> [data-page-region="collection-actions"] > [data-semantic-key="history-query"])
+  [data-semantic-key="result"] > button[data-semantic-key="open"] > span {
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+
+@container workspace-browse (max-width: 38rem) {
+  [data-page-region="collection-actions"] > [data-semantic-key="history-query"] {
+    flex-basis: 100% !important;
+  }
+}
+
+[data-page-region="board-controls"] > [data-board-group="view-choices"] {
+  flex-wrap: wrap !important;
+}
+
+[data-page-region="board-controls"] > [data-board-group="secondary-actions"] {
+  margin-inline-start: auto;
+}
+
+[data-page-region="board-stages"] {
+  min-block-size: 12rem !important;
+  scrollbar-width: thin;
+}
+
+[data-page-region="board-stages"] > [data-board-stage] {
+  min-inline-size: min(16rem, 100%) !important;
+  max-inline-size: 100% !important;
+}
+
+[data-board-stage] [data-board-cards] {
+  scrollbar-width: thin;
+}
+
+[data-board-stage] article[data-card-id] {
+  overflow-wrap: anywhere;
+}
+
+[data-board-stage] article[data-card-id] [data-semantic-key="open"] {
+  inline-size: 100% !important;
+  align-items: start !important;
+  justify-content: start !important;
+  white-space: normal !important;
+  text-align: start !important;
+  overflow-wrap: anywhere;
+}
+
+[data-board-stage] [data-card-footer] {
+  flex-wrap: wrap !important;
+  gap: .25rem .5rem !important;
+}
+
+dialog[data-semantic-key="card-details"] {
+  container: board-card-details / inline-size;
+}
+
+@container board-card-details (min-width: 20rem) {
+  [data-semantic-key="card-details"] > [data-surface-role="dialog-body"]
+    > :has(> [data-semantic-key="label"] + [data-semantic-key="value"]) {
+    display: grid !important;
+    grid-template-columns: minmax(6rem, .27fr) minmax(0, 1fr);
+    gap: .5rem !important;
+    align-items: baseline !important;
+  }
+}
+
+[data-semantic-key="card-details"] [data-semantic-key="value"] {
+  overflow-wrap: anywhere;
+}
+
+[data-semantic-key="card-detail-actions"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  gap: .25rem !important;
+  padding-block-start: .5rem !important;
+  border-block-start: 1px solid var(--selvedge-border) !important;
+}
+
+[data-page-region="task-graph-entries"] {
+  gap: 1.5rem !important;
+}
+
+[data-semantic-key="task-graph/group"] + [data-semantic-key="task-graph/group"] {
+  padding-block-start: 1rem !important;
+  border-block-start: 1px solid var(--selvedge-border) !important;
+}
+
+/* The SVG and positioned HTML cards share the same physical coordinates. */
+[data-semantic-key="task-graph/canvas"] {
+  max-inline-size: none !important;
+}
+
+[data-semantic-key="task-graph/edges"] {
+  display: block !important;
+  inline-size: 100% !important;
+  block-size: 100% !important;
+}
+
+[data-semantic-key="task-graph/edges"] line {
+  stroke: var(--selvedge-connector);
+}

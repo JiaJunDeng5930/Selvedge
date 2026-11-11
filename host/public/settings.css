@@ -1,0 +1,1213 @@
+/* Settings.v declares what belongs to a category, setting or collection.
+   Space groups related rows; a rule separates topics. Editors have their own
+   reading measure and use a quieter surface than the controls they contain. */
+dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+  --settings-related-gap: .1875rem;
+  --settings-row-space: .625rem;
+  --settings-column-gap: 1.25rem;
+  --settings-group-space: 1.5rem;
+  --settings-editor-measure: 34rem;
+  --settings-copy-measure: 16rem;
+  --settings-entry-measure: 9rem;
+  --settings-inset: min(.875rem, 4cqi);
+  --settings-control-width: 9rem;
+  --settings-number-width: calc(9ch + 1.5rem);
+  --settings-control-limit: 12rem;
+  --settings-control-height: 2.125rem;
+  --settings-control-font: .8125rem;
+  --settings-surface: light-dark(#faf9f7, #252422);
+  --settings-scrim: light-dark(#1f1f1ab8, #080706a6);
+  --settings-field: light-dark(#fffefd, #2f2d2a);
+  --settings-selection: light-dark(#edeae4, #1b1917);
+  --settings-disabled-control: light-dark(#edeae4, #34302c);
+  --settings-rule: light-dark(#e6e2dc, #413d37);
+  --settings-control-border: light-dark(#ded9d1, #413d36);
+  --settings-control-hover: light-dark(#f1eee8, #39352f);
+  --settings-muted: light-dark(#69645e, #aaa298);
+  --picker-surface: var(--settings-field);
+  --picker-border: var(--settings-control-border);
+  --picker-muted: var(--settings-muted);
+  --picker-hover: var(--settings-control-hover);
+  --settings-action: light-dark(#302a26, #e9dfd2);
+  --settings-on-action: light-dark(#fffaf3, #28231d);
+  --settings-focus: light-dark(#8c523a, #d39b7e);
+  --settings-toggle-on: light-dark(#86573f, #9c6248);
+}
+dialog[data-semantic-key="settings"] {
+  --settings-edge: clamp(1rem, 2vi, 1.75rem);
+  container: settings-shell / inline-size;
+  position: fixed !important;
+  inset: 0 !important;
+  inline-size: 100% !important;
+  block-size: 100dvh !important;
+  min-inline-size: 0 !important;
+  max-inline-size: none !important;
+  max-block-size: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--settings-surface) !important;
+  overflow: hidden !important;
+}
+dialog[data-semantic-key="settings"][open] {
+  display: grid !important;
+  grid-template-columns: minmax(0, max-content) !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  align-content: stretch !important;
+  /* Center one frame shared by the rail and all documents. The active
+     document lays out its own groups inside the common reading track. */
+  justify-content: center !important;
+  padding-inline: min(var(--settings-edge), 5vi) !important;
+}
+dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
+[data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
+  flex: none !important;
+  flex-flow: row nowrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: .375rem .75rem !important;
+  min-block-size: 0 !important;
+  padding: clamp(.75rem, 3.5dvh, 1.75rem) 0 clamp(.5rem, 2.5dvh, 1.25rem) !important;
+}
+[data-semantic-key="settings-identity"] {
+  position: relative;
+  flex: 0 0 auto !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: .375rem !important;
+  inline-size: fit-content !important;
+  max-inline-size: 100% !important;
+  margin-inline-start: 1.875rem;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-identity"] > [data-semantic-key="heading"] {
+  margin: 0 !important;
+  font: 400 1.8125rem/1.2 Georgia, serif !important;
+  letter-spacing: -.025em !important;
+}
+[data-semantic-key="settings-identity"] > button[data-semantic-key="close"] {
+  position: absolute;
+  inset-inline-end: calc(100% + .25rem);
+}
+[data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
+  display: grid !important;
+  /* Keep surplus outside the rail and the shared reading track. */
+  grid-template-columns: max-content minmax(0, max-content) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  align-self: stretch !important;
+  block-size: 100% !important;
+  flex: 1 1 0 !important;
+  align-items: stretch !important;
+  gap: 0 var(--settings-group-space) !important;
+  min-block-size: 0 !important;
+  padding: 0 !important;
+  overflow: clip !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button {
+  --control-rest-background: var(--settings-field) !important;
+  --control-hover-background: var(--settings-control-hover) !important;
+  --control-pressed-background: var(--selvedge-pressed) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .375rem !important;
+  flex: none !important;
+  inline-size: fit-content !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  min-block-size: var(--settings-control-height) !important;
+  padding: 6px 11px !important;
+  border: 1px solid var(--settings-control-border) !important;
+  border-radius: 7px !important;
+  background: var(--control-current-background, var(--control-rest-background)) !important;
+  color: var(--selvedge-text) !important;
+  font-family: inherit !important;
+  font-size: var(--settings-control-font) !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  text-align: center;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button > span {
+  color: inherit !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  text-overflow: clip !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:focus-visible,
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is(input, textarea, select):focus-visible {
+  outline: 2px solid var(--settings-focus) !important;
+  outline-offset: 2px;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):not(:disabled, [aria-disabled="true"]) {
+  --control-rest-background: var(--settings-action) !important;
+  --control-hover-background: var(--settings-action) !important;
+  border-color: var(--settings-action) !important;
+  color: var(--settings-on-action) !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is(:disabled, [aria-disabled="true"]) { opacity: .46 !important; }
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):is(:disabled, [aria-disabled="true"]) {
+  background: var(--settings-disabled-control) !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+  opacity: 1 !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] {
+  --control-rest-background: transparent !important;
+  inline-size: 2rem !important;
+  padding: 0 !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="close"] > svg { display: none !important; }
+[data-semantic-key="settings"] button[data-semantic-key="close"]::before {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  inline-size: .9375rem;
+  block-size: .9375rem;
+  background: currentColor;
+  clip-path: polygon(41% 14%, 49% 22%, 26% 44%, 94% 44%, 94% 56%, 26% 56%, 49% 78%, 41% 86%, 5% 50%);
+}
+[data-semantic-key="settings"] :is([data-semantic-key="settings-nav"], [data-semantic-key="settings-content"]) {
+  block-size: 100% !important;
+  max-block-size: 100% !important;
+  align-self: stretch !important;
+  min-inline-size: 0 !important;
+  min-block-size: 0 !important;
+  max-inline-size: none !important;
+  overflow: hidden auto !important;
+  overscroll-behavior: contain;
+}
+[data-semantic-key="settings-nav"] {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+  padding: .125rem .1875rem 1.125rem !important;
+}
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"] {
+  --control-rest-background: transparent !important;
+  inline-size: 100% !important;
+  justify-content: flex-start !important;
+  padding-inline: 11px !important;
+  border-color: transparent !important;
+  text-align: start;
+}
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
+  --control-rest-background: var(--settings-selection) !important;
+  --control-hover-background: var(--settings-selection) !important;
+  --control-pressed-background: var(--settings-selection) !important;
+}
+[data-semantic-key="settings"] :is([data-semantic-key="settings-category"], [data-semantic-key="theme-options"] > button) > [aria-hidden="true"] {
+  display: none !important;
+}
+[data-semantic-key="settings-mobile-nav"] { display: none !important; }
+[data-semantic-key="settings-documents"] {
+  display: grid !important;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  min-inline-size: 0 !important;
+  min-block-size: 0 !important;
+  block-size: 100% !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+/* Inert documents contribute their preferred inline size to the same
+   track. Only the selected document occupies vertical reading space. */
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) {
+  grid-area: 1 / 1;
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: .3125rem .2rem 2.25rem !important;
+  scrollbar-gutter: stable;
+  scroll-padding-block: .5rem;
+}
+[data-semantic-key="settings-measure"] {
+  visibility: hidden;
+  block-size: 0 !important;
+  min-block-size: 0 !important;
+  padding-block: 0 !important;
+  overflow: hidden !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) :is(section, footer) { min-inline-size: 0 !important; }
+[data-semantic-key="settings-primary"] {
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-title"] {
+  margin-block-end: 1.25rem !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+[data-semantic-key="settings-title"] [data-semantic-key="heading"] {
+  margin: 0 !important;
+  font-size: 1.0625rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -.025em;
+}
+/* In a compact header the category picker supplies the title. Its
+   introduction still needs a full reading line before sharing with Add. */
+[data-semantic-key="settings-title"] [data-semantic-key="settings-copy"]:has(> [data-semantic-key="description"]) {
+  flex-basis: max-content !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="description"],
+[data-semantic-key="settings-configuration-editor"] [data-semantic-key="description"],
+[data-semantic-key="settings-values"] > [data-semantic-key] {
+  color: var(--settings-muted) !important;
+  font-size: .8125rem !important;
+  line-height: 1.45 !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-group"] {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+:is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) + [data-semantic-key="settings-group"] {
+  margin-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
+  padding-block-start: calc(var(--settings-group-space) - var(--settings-row-space)) !important;
+}
+/* A heading marks the new scope on its own. An untitled group needs a rule. */
+:is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) + [data-semantic-key="settings-group"]:not(:has(> h3[data-semantic-key="heading"])) {
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
+  margin: 0 0 var(--settings-related-gap) !important;
+  color: var(--selvedge-text) !important;
+  font-size: .9375rem !important;
+  font-weight: 650 !important;
+  line-height: 1.4 !important;
+}
+/* Groups stretch to the same reading edge. A control stays at that edge
+   even when the available width moves it onto the next line. */
+[data-semantic-key="settings-item"] {
+  min-inline-size: 0 !important;
+  padding: var(--settings-row-space) 0 !important;
+  gap: .625rem !important;
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-row"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .5rem var(--settings-column-gap) !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-copy"] {
+  /* Keep the name together beside its control when both fit. The help
+     can wrap at words. If the pair no longer fits, wrap the control. */
+  flex: 1 1 min-content !important;
+}
+[data-semantic-key="settings-copy"],
+[data-semantic-key="settings-controls"],
+[data-semantic-key="settings-values"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-controls"],
+[data-semantic-key="settings-values"] { gap: var(--settings-related-gap) !important; }
+/* The name and its help are consecutive lines of one reading unit. Their
+   line boxes supply the spacing. The outer item keeps its separation after
+   all of the copy, controls and details, even when any of them wraps. */
+[data-semantic-key="settings-copy"] { gap: 0 !important; }
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="description"]) {
+  margin: 0 !important;
+}
+[data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="setting-name"]) {
+  inline-size: max-content !important;
+  max-inline-size: 100% !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
+  overflow-wrap: break-word;
+}
+[data-semantic-key="settings-copy"] > [data-semantic-key="setting-name"],
+[data-semantic-key="settings-summary-item"] > [data-semantic-key="setting-name"] {
+  margin: 0 !important;
+  font-size: .875rem !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="settings-controls"] {
+  flex: 0 1 auto !important;
+  inline-size: fit-content !important;
+  max-inline-size: min(100%, var(--settings-control-limit)) !important;
+  margin-inline-start: auto !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+}
+[data-semantic-key="settings-controls"]:empty { display: none !important; }
+[data-semantic-key="settings-values"] {
+  align-items: stretch !important;
+  /* A saved URL or profile name wraps under the setting that describes it. */
+  contain: inline-size;
+}
+[data-semantic-key="settings-summary-item"] {
+  flex-flow: row wrap !important;
+  align-items: baseline !important;
+  gap: var(--settings-related-gap) var(--settings-column-gap) !important;
+  padding: .375rem 0 !important;
+}
+[data-semantic-key="settings-summary-item"] > [data-semantic-key="description"] {
+  margin-inline-start: auto !important;
+  text-align: end !important;
+}
+[data-semantic-key="settings-entries"] {
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  /* The collection heading and actions provide the measure. User-supplied
+     names and details wrap inside it, so an unusually long record cannot
+     displace the Edit column or resize the document. */
+  contain: inline-size;
+}
+[data-semantic-key="settings-entries"] > [data-semantic-key="settings-item"] {
+  padding: calc(var(--settings-group-space) / 2) 0 !important;
+}
+/* An object name can wrap, but its Edit action still belongs to the same row. */
+[data-semantic-key="settings-entries"] [data-semantic-key="settings-row"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+[data-semantic-key="settings-entries"] [data-semantic-key="settings-controls"] {
+  justify-self: end;
+}
+/* A saved object's name identifies its row. Keep the rest of the collection
+   visible even when that name is long; the editor exposes the full name. */
+[data-semantic-key="settings-entries"] [data-semantic-key="setting-name"] {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+[data-semantic-key="settings-collection"] {
+  align-items: stretch !important;
+  gap: .625rem !important;
+  padding: var(--settings-row-space) 0 !important;
+}
+[data-semantic-key="settings-collection"]:not(:has(> [data-semantic-key="settings-row"])) {
+  padding: 0 !important;
+}
+[data-semantic-key="settings-collection"]:has(> [data-semantic-key="settings-row"]) > [data-semantic-key="settings-entries"] {
+  padding-inline-start: var(--settings-inset) !important;
+}
+[data-semantic-key="settings-collection"] h3[data-semantic-key="heading"] {
+  margin-block-end: 0 !important;
+}
+[data-semantic-key="settings-collection-actions"] {
+  flex-flow: row wrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: .5rem !important;
+  padding: 0 !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is(input[type="text"], select, textarea) {
+  inline-size: 100% !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  min-block-size: var(--settings-control-height) !important;
+  padding: 6px 11px !important;
+  border: 1px solid var(--settings-control-border) !important;
+  border-radius: 7px !important;
+  background: var(--settings-field) !important;
+  color: var(--selvedge-text) !important;
+  font-family: inherit !important;
+  font-size: var(--settings-control-font) !important;
+  line-height: 1.45 !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) textarea {
+  min-block-size: 112px !important;
+  resize: vertical;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :has(> :is(input[type="text"], select, textarea)) {
+  min-inline-size: 0 !important;
+  gap: 5px !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :has(> :is(input[type="text"], select, textarea)) > span {
+  color: var(--selvedge-text) !important;
+  font-size: .8125rem !important;
+  font-weight: 550 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-controls"] > :has(> input) {
+  inline-size: var(--settings-control-width) !important;
+  max-inline-size: 100% !important;
+}
+[data-semantic-key="settings-controls"] > :has(> input[data-semantic-key="setting-number"]) {
+  inline-size: var(--settings-number-width) !important;
+}
+[data-semantic-key="settings-controls"] > :has(> :is(input, select)) > span { display: none !important; }
+:is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"] {
+  --control-rest-background: light-dark(#d9d4cb, #514a42) !important;
+  --control-hover-background: var(--control-rest-background) !important;
+  inline-size: 2.1875rem !important;
+  min-block-size: 1.25rem !important;
+  block-size: 1.25rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  position: relative;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"] > * { display: none !important; }
+:is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"]::after {
+  position: absolute;
+  inset-block-start: .1875rem;
+  inset-inline-start: .1875rem;
+  inline-size: .875rem;
+  block-size: .875rem;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"][aria-checked="true"] {
+  --control-rest-background: var(--settings-toggle-on) !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="setting-switch"][aria-checked="true"]::after {
+  inset-inline-start: 1.125rem;
+}
+[data-semantic-key="settings-account-access"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: .5rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-account-access"] > [data-semantic-key="label"] {
+  font-size: .875rem !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme"] {
+  align-items: stretch !important;
+  gap: var(--settings-row-space) !important;
+  padding: var(--settings-row-space) 0 !important;
+}
+/* Appearance can fill the reading track for comparison, but its chosen
+   arrangement cannot move that track's boundaries. */
+[data-semantic-key="settings"] [data-semantic-key="settings-group"]:has(> [data-semantic-key="theme"]) {
+  inline-size: 100% !important;
+  contain: inline-size;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] {
+  /* Read all palettes at the same scale. The measured row is used only if
+     every equal track can fit the widest actual sample and caption. */
+  display: grid !important;
+  grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr);
+  inline-size: 100% !important;
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+  gap: var(--settings-row-space) !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"][data-native-row-direction="row"] {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
+  --control-rest-background: transparent !important;
+  display: block !important;
+  min-inline-size: 0 !important;
+  justify-self: stretch;
+  inline-size: auto !important;
+  padding: 0 !important;
+  border-color: transparent !important;
+  text-align: center !important;
+  white-space: normal !important;
+  overflow-wrap: normal;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="theme-options"] > button > span:not([aria-hidden="true"]) {
+  display: grid !important;
+  grid-template: "sample" auto "label" auto / minmax(min-content, 1fr);
+  gap: .375rem !important;
+  overflow: visible !important;
+  text-align: center !important;
+  white-space: normal !important;
+}
+[data-semantic-key="theme-choice-label"] {
+  grid-area: label;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
+/* In a list, each option is still one control. Share the preview and label
+   columns across the whole list so the reader can compare down the page. */
+[data-semantic-key="settings"] [data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button {
+  grid-column: 1 / -1;
+  display: grid !important;
+  grid-template-columns: subgrid;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) {
+  grid-column: 1 / -1;
+  grid-template: none;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: inherit !important;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-choice-label"] {
+  grid-area: 1 / 2;
+  text-align: start !important;
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) > :is([data-semantic-key="theme-sample-light"], [data-semantic-key="theme-sample-dark"]),
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
+  grid-area: 1 / 1;
+}
+[data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
+  color: var(--selvedge-text) !important;
+  font-weight: 600 !important;
+}
+/* The same workspace sample uses both palettes. The selection belongs to
+   the settings control, so its outline uses the current window palette. */
+:is([data-semantic-key="theme-sample-light"], [data-semantic-key="theme-sample-dark"]) {
+  --theme-sample-type: calc(var(--settings-control-font) * .625);
+  --theme-sample-space: .5em;
+  --theme-sample-mark: 1.3em;
+  grid-area: sample;
+  color-scheme: light;
+  display: grid !important;
+  /* Both palettes depict this same composition. The rail and composer each
+     contribute their smallest useful width before the tracks share surplus. */
+  grid-template-columns: minmax(min-content, 28%) minmax(min-content, 1fr);
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .625rem !important;
+  background: var(--selvedge-canvas) !important;
+}
+[data-semantic-key="theme-sample-dark"] { color-scheme: dark; }
+[data-semantic-key="theme-SystemAppearance"] [data-semantic-key="theme-sample-dark"] {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+[data-semantic-key="theme-SystemAppearance"] [data-semantic-key="theme-sample-dark"] [data-semantic-key="theme-sample-rail"] {
+  visibility: hidden;
+}
+/* Split the canvas through the composer. Splitting the whole thumbnail
+   could leave the light half showing only the rail at small sizes. */
+[data-semantic-key="theme-SystemAppearance"] [data-semantic-key="theme-sample-dark"] [data-semantic-key="theme-sample-main"] {
+  background: var(--selvedge-canvas) !important;
+  clip-path: inset(0 0 0 50%);
+}
+[data-semantic-key="theme-options"] > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
+  content: "";
+  grid-area: sample;
+  place-self: stretch;
+  z-index: 1;
+  border: 1px solid var(--settings-focus);
+  border-radius: .625rem;
+  pointer-events: none;
+}
+:is([data-semantic-key="theme-sample-rail"], [data-semantic-key="theme-sample-main"]) {
+  min-inline-size: 0 !important;
+  block-size: auto !important;
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: var(--theme-sample-space) !important;
+  padding: var(--theme-sample-space) !important;
+  color: var(--selvedge-text) !important;
+  font-size: var(--theme-sample-type) !important;
+  font-weight: 400 !important;
+}
+[data-semantic-key="theme-sample-rail"] {
+  justify-content: flex-start !important;
+  background: var(--selvedge-navigation) !important;
+  border-inline-end: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="theme-sample-main"] { justify-content: center !important; }
+:is([data-semantic-key="theme-sample-rail"], [data-semantic-key="theme-sample-main"]) span {
+  font-size: inherit !important;
+  line-height: 1.25 !important;
+  color: inherit !important;
+}
+[data-semantic-key="theme-sample-rail"] [data-semantic-key="theme-sample-brand"] {
+  /* The badge and selected task identify the rail at thumbnail scale. */
+  font-size: 0 !important;
+  font-weight: 600 !important;
+}
+[data-semantic-key="theme-sample-brand"]::before {
+  content: "S" / "";
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--theme-sample-mark);
+  block-size: var(--theme-sample-mark);
+  font-size: var(--theme-sample-type);
+  color: var(--selvedge-accent);
+  background: var(--selvedge-accent-wash);
+  border-radius: .25em;
+}
+[data-semantic-key="theme-sample-task"] {
+  padding: .28em .4em !important;
+  border-radius: .32em !important;
+  background: var(--selvedge-selection) !important;
+  white-space: nowrap;
+  text-align: start;
+}
+[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-sample-task"] {
+  white-space: normal;
+  overflow-wrap: normal !important;
+}
+[data-semantic-key="theme-sample-title"] {
+  font-weight: 650 !important;
+  white-space: nowrap;
+}
+[data-semantic-key="theme-sample-composer"] {
+  display: grid !important;
+  grid-template: "prompt prompt" auto "mode send" auto / minmax(min-content, 1fr) auto;
+  align-items: center !important;
+  gap: .7em .35em !important;
+  padding: .65em !important;
+  background: var(--selvedge-surface) !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .55em !important;
+  text-align: start;
+}
+[data-semantic-key="theme-sample-prompt"] { grid-area: prompt; }
+[data-semantic-key="theme-sample-mode"] { grid-area: mode; }
+[data-semantic-key="theme-sample-composer"] :is([data-semantic-key="theme-sample-prompt"], [data-semantic-key="theme-sample-mode"]) {
+  color: var(--selvedge-muted) !important;
+  white-space: nowrap;
+}
+[data-semantic-key="theme-sample-composer"] [data-semantic-key="theme-sample-prompt"] {
+  /* Draw the prompt as a text stroke. The mode and send mark provide the
+     composer's intrinsic width, so the sample never needs a clipped label. */
+  font-size: 0 !important;
+}
+[data-semantic-key="theme-sample-prompt"]::before {
+  content: "";
+  display: block;
+  border-block-start: 1px solid currentColor;
+}
+[data-semantic-key="theme-sample-composer"] [data-semantic-key="theme-sample-send"] {
+  grid-area: send;
+  display: grid !important;
+  place-items: center;
+  inline-size: 1.4em !important;
+  block-size: 1.4em !important;
+  border-radius: .4em !important;
+  color: var(--selvedge-on-accent) !important;
+  background: var(--selvedge-accent) !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="service-connected"] {
+  font-size: .8125rem !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="service-connected"]::before {
+  content: "";
+  display: inline-block;
+  margin-inline-end: 6px;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: light-dark(#53764d, #91b486);
+  vertical-align: 1px;
+}
+[data-semantic-key="draft-notice"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 11px !important;
+  margin-block-end: 18px;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: 7px !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="remove-value"],
+  [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"], [data-semantic-key="restore-default"]) {
+  --control-rest-background: transparent !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+  align-self: flex-start !important;
+}
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="remove-value"],
+  [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"]):is(:hover, :focus-visible) {
+  color: var(--selvedge-danger) !important;
+}
+[data-semantic-key="settings-content"] [data-semantic-key="setting-feedback"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  padding: 0 !important;
+  gap: 7px !important;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) [role="status"] {
+  margin-inline-end: auto !important;
+  font-size: .8125rem !important;
+  line-height: 1.45 !important;
+}
+/* Temporary feedback uses the width set by the section's stable content. */
+[data-semantic-key="settings-documents"] :is([data-semantic-key="load-error"], [data-semantic-key="service-error"], [data-semantic-key="draft-notice"], [data-semantic-key="setting-feedback"]) {
+  contain: inline-size;
+  align-self: stretch !important;
+  inline-size: auto !important;
+  margin-inline-end: 0 !important;
+  overflow-wrap: anywhere;
+}
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) [data-semantic-key="save-error"] {
+  flex-basis: 100% !important;
+  color: var(--selvedge-danger) !important;
+}
+[data-semantic-key="settings-configuration-editor"] [data-semantic-key="form-fields"] {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: .75rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-wide-field"] {
+  min-inline-size: 0 !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-provider"],
+[data-semantic-key="settings-provider-options"] {
+  gap: .375rem !important;
+  padding: 0 !important;
+}
+/* Offer the connection types together. A second column is useful only
+   when it leaves enough room for a provider name at the reader's size. */
+[data-semantic-key="settings-provider-options"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(45%, 8rem)), 1fr));
+  grid-auto-rows: 1fr;
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-provider-options"] > button {
+  inline-size: 100% !important;
+  block-size: auto !important;
+  align-self: stretch !important;
+  justify-content: flex-start !important;
+  padding-inline: .5rem !important;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-provider-options"] > button > span:not([aria-hidden="true"]) {
+  text-align: start !important;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-provider-options"] > button > span[aria-hidden="true"] {
+  display: none !important;
+}
+[data-semantic-key="settings-provider-options"] > button::before {
+  content: "";
+  flex: none;
+  box-sizing: border-box;
+  inline-size: .75rem;
+  block-size: .75rem;
+  border: 1px solid var(--settings-muted);
+  border-radius: 50%;
+}
+[data-semantic-key="settings-provider-options"] > button[aria-checked="true"] {
+  --control-rest-background: var(--settings-selection) !important;
+  border-color: var(--settings-focus) !important;
+}
+[data-semantic-key="settings-provider-options"] > button[aria-checked="true"]::before {
+  border-color: var(--settings-focus);
+  background: var(--settings-focus);
+  box-shadow: inset 0 0 0 .125rem var(--settings-selection);
+}
+[data-semantic-key="settings-documents"] button[data-semantic-key="begin-add"]::before,
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="add-value"]::before {
+  content: "+";
+  margin-inline-end: .125rem;
+}
+:is([data-semantic-key="settings-form-group"], [data-semantic-key="settings-form-record"]) {
+  padding: 0 !important;
+  gap: .625rem !important;
+}
+[data-semantic-key="settings-form-group"] + [data-semantic-key="settings-form-group"],
+[data-semantic-key="settings-form-record"] + [data-semantic-key="settings-form-record"] {
+  margin-block-start: .375rem !important;
+  padding-block-start: .875rem !important;
+}
+/* Repeated records keep their boundary when the same field labels recur. */
+[data-semantic-key="settings-form-record"] + [data-semantic-key="settings-form-record"] {
+  border-block-start: 1px solid var(--settings-rule) !important;
+}
+[data-semantic-key="settings-value-list"] {
+  padding: .5rem 0 0 !important;
+  gap: .4375rem !important;
+}
+[data-semantic-key="settings-command-fields"] {
+  align-items: stretch !important;
+  gap: .375rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-command-fields"] > [data-semantic-key="settings-value-list"] {
+  padding-block-start: 0 !important;
+}
+[data-semantic-key="settings-command-fields"] button[data-semantic-key="add-value"] {
+  --control-rest-background: transparent !important;
+  min-block-size: var(--settings-text-action-height) !important;
+  padding-inline: 0 !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+/* A path needs reading width. The duration shares its line only when both
+   fields can keep their usable width. */
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: end !important;
+  gap: .75rem !important;
+  padding: 0 !important;
+}
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) > * {
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+}
+[data-semantic-key="settings-field-row"] > * {
+  flex: 1 1 var(--settings-entry-measure) !important;
+}
+:is([data-semantic-key="settings-execution-fields"], [data-semantic-key="settings-field-row"]) > [data-semantic-key="settings-wide-field"] {
+  flex: 1 1 var(--settings-copy-measure) !important;
+}
+[data-semantic-key="settings-execution-fields"] > :not([data-semantic-key="settings-wide-field"]) {
+  flex: 0 1 var(--settings-number-width) !important;
+}
+[data-semantic-key="settings-value-row"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end !important;
+  padding: 0 !important;
+  gap: .375rem !important;
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"] {
+  position: relative;
+  align-self: end !important;
+  inline-size: var(--settings-control-height) !important;
+  padding: 0 !important;
+  font-size: 0 !important;
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"] > * {
+  display: none !important;
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::before,
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  inline-size: .625rem;
+  block-size: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+[data-semantic-key="settings-value-row"] > button[data-semantic-key="remove-value"]::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"] {
+  --control-rest-background: transparent !important;
+  min-block-size: var(--settings-text-action-height) !important;
+  padding-inline: 0 !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"][aria-expanded="true"] {
+  color: var(--selvedge-text) !important;
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"]::before {
+  content: "";
+  inline-size: .42em;
+  block-size: .42em;
+  margin-inline-end: .25em;
+  border: solid currentColor;
+  border-width: 0 .1em .1em 0;
+  transform: rotate(-45deg);
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="settings-form-disclosure"][aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+[data-semantic-key="settings"] button:is([data-semantic-key="begin-add"], [data-semantic-key="add-value"]) span {
+  white-space: normal !important;
+  text-overflow: clip !important;
+}
+/* This switches the navigation control for the whole settings shell. Local
+   row and theme wrapping are independent of the navigation mode. */
+@container settings-shell (inline-size < calc(8rem + 16rem + 9rem + 2.5rem)) {
+  [data-semantic-key="settings-measure"] { display: none !important; }
+  [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 0 !important;
+  }
+  [data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
+    min-inline-size: 100cqi !important;
+    flex-wrap: wrap !important;
+    row-gap: min(.375rem, 1.5dvh) !important;
+    padding-block: min(.5rem, 2dvh) !important;
+  }
+  [data-semantic-key="settings-identity"] {
+    margin-inline-start: 0;
+  }
+  [data-semantic-key="settings-identity"] > [data-semantic-key="heading"] {
+    font-size: 1.25rem !important;
+  }
+  [data-semantic-key="settings-identity"] > button[data-semantic-key="close"] {
+    position: relative;
+    inset: auto;
+    inline-size: 44px !important;
+    min-block-size: 44px !important;
+  }
+  [data-semantic-key="settings"] [data-semantic-key="settings-nav"] { display: none !important; }
+  [data-semantic-key="settings"] [data-semantic-key="settings-mobile-nav"] {
+    display: block !important;
+    flex: 0 1 9rem !important;
+    min-inline-size: 0 !important;
+    margin-inline-start: auto;
+    padding: 0 !important;
+  }
+  [data-semantic-key="settings-mobile-nav"] :has(> select) {
+    display: block !important;
+    padding: 0 !important;
+  }
+  [data-semantic-key="settings-mobile-nav"] :has(> select) > span { display: none !important; }
+  [data-semantic-key="settings"] select[data-semantic-key="settings-section-picker"] {
+    border-color: transparent !important;
+    background-color: transparent !important;
+    font-weight: 600 !important;
+    min-block-size: 44px !important;
+    padding-block: .25rem !important;
+  }
+  /* The header picker has a short, fixed list. Use the space below its
+     anchor so categories stay visible when the reader enlarges the text. */
+  [data-semantic-key="settings"] select[data-semantic-key="settings-section-picker"]::picker(select) {
+    box-sizing: border-box;
+    max-block-size: calc(100% - .6em);
+  }
+  [data-semantic-key="settings-content"] { padding: min(1rem, 3dvh) 0 1.75rem !important; }
+  /* The compact picker replaces the category name. Any introduction or
+     action that belongs to the page still belongs in the reading order. */
+  [data-semantic-key="settings-title"] [data-semantic-key="heading"],
+  [data-semantic-key="settings-title"]:not(:has([data-semantic-key="description"], button)) {
+    position: absolute !important;
+    inline-size: 1px !important;
+    block-size: 1px !important;
+    overflow: hidden !important;
+    clip-path: inset(50%);
+  }
+}
+
+
+/* This separate task has its own scrollable form and persistent footer.
+   The settings page beneath it retains the category and the invoking row. */
+dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+  --settings-control-font: .875rem;
+  --settings-control-height: 2.25rem;
+  --settings-dialog-clearance: min(.75rem, 3vi, 3dvh);
+  inline-size: min(var(--settings-editor-measure), calc(100vi - 2 * var(--settings-dialog-clearance))) !important;
+  max-inline-size: none !important;
+  max-block-size: calc(100dvh - 2 * var(--settings-dialog-clearance)) !important;
+  min-inline-size: 0 !important;
+  gap: 0 !important;
+  padding: min(1.25rem, 4vi, 6dvh) min(1.25rem, 4vi) !important;
+  border: 1px solid var(--settings-rule) !important;
+  border-radius: .875rem !important;
+  background: var(--settings-surface) !important;
+  overflow: hidden !important;
+  box-shadow: 0 .625rem 2.5rem #1c18142e !important;
+}
+/* Keep the covered page's landmarks in place while the foreground task is
+   the only layer with crisp text. Both editors share this layer treatment. */
+dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"])::backdrop {
+  background: var(--settings-scrim);
+  backdrop-filter: blur(.125rem);
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] {
+  flex: none !important;
+  padding: 0 .1875rem .375rem !important;
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] > h2 {
+  margin: 0 !important;
+  overflow-wrap: anywhere;
+  font-size: 1.25rem !important;
+  line-height: 1.3 !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-header"] > h2 {
+  /* An object name can be longer than the whole form. Let the heading wrap
+     to two lines before it scrolls, leaving room for the fields and actions. */
+  max-block-size: 2lh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+[data-semantic-key="settings-title-editor"] > [data-semantic-key="editor"] {
+  flex: 1 1 auto !important;
+  min-block-size: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
+  flex: 1 1 auto !important;
+  min-block-size: 0 !important;
+  padding: .25rem .1875rem .5rem !important;
+  gap: .625rem !important;
+  overflow: hidden auto !important;
+  overscroll-behavior: contain;
+  scroll-padding-block: .375rem;
+}
+[data-semantic-key="settings-title-editor"] [data-semantic-key="title-prompts/help"] {
+  color: var(--settings-muted) !important;
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] {
+  flex: none !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-end !important;
+  gap: .5rem !important;
+  padding: .625rem .1875rem 0 !important;
+}
+/* A fitted form is continuous. Mark a fixed edge only when fields continue
+   behind it, using the form scrollport as the source of that state. */
+@supports (timeline-scope: --settings-form-scroll) and (animation-range: 0px 1px) {
+  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+    timeline-scope: --settings-form-scroll;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
+    scroll-timeline: --settings-form-scroll block;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
+    position: relative;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"])::after {
+    position: absolute;
+    inset-inline: .1875rem;
+    block-size: 1px;
+    background: var(--settings-rule);
+    pointer-events: none;
+    content: "";
+    opacity: 0;
+    animation: settings-form-edge auto linear both;
+    animation-timeline: --settings-form-scroll;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-header"]::after {
+    inset-block-end: 0;
+    animation-range: 0px .375rem;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"]::after {
+    inset-block-start: 0;
+    animation-direction: reverse;
+    animation-range: calc(100% - .375rem) 100%;
+  }
+  @keyframes settings-form-edge {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] button > svg {
+  display: none !important;
+}
+:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button[data-semantic-key="cancel"] > .visually-hidden {
+  position: static;
+  inline-size: auto;
+  block-size: auto;
+  margin: 0;
+  overflow: visible;
+  clip-path: none;
+}
+[data-semantic-key="settings-title-editor"] button[data-semantic-key="title-prompts/reset"] {
+  --control-rest-background: transparent !important;
+  border-color: transparent !important;
+  color: var(--settings-muted) !important;
+}
+
+dialog[data-semantic-key="settings-configuration-editor"] {
+  --settings-editor-measure: 33rem;
+  --settings-text-action-height: 1.75rem;
+}
+dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="settings-instructions-field"]) {
+  --settings-editor-measure: 38rem;
+  block-size: min(23rem, calc(100dvh - 2 * var(--settings-dialog-clearance))) !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-body"] {
+  gap: .875rem !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
+  flex-flow: column nowrap !important;
+  align-items: stretch !important;
+}
+[data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] > [role="status"] {
+  flex: none !important;
+  max-block-size: min(6lh, 22dvh);
+  overflow: hidden auto !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+/* Object operations and the decision share a footer. If they cannot share
+   a line, move the decision pair together to the next line. Let the captions
+   wrap inside their buttons when the pair itself needs to fit a narrow form. */
+[data-semantic-key="settings-editor-actions"] {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .375rem .75rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-editor-actions"] > button {
+  padding-inline: 0 !important;
+}
+[data-semantic-key="settings-editor-decisions"] {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  flex: 0 0 auto !important;
+  margin-inline-start: auto !important;
+  inline-size: fit-content !important;
+  max-inline-size: 100% !important;
+  gap: .5rem !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-editor-decisions"] > button {
+  min-inline-size: min(5em, 100%) !important;
+  max-inline-size: 100% !important;
+  white-space: normal !important;
+}
+[data-semantic-key="settings-editor-decisions"] > button > [data-semantic-key="label"] {
+  text-align: center !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+/* In a short, narrow window, let the foreground editor use the window. */
+@media (max-width: 28rem) and (max-height: 32rem) {
+  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+    --settings-dialog-clearance: 0px;
+    block-size: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] > h2 {
+    font-size: 1rem !important;
+    line-height: 1.2 !important;
+  }
+  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] {
+    gap: .25rem !important;
+    padding-block-start: .375rem !important;
+  }
+}
+[data-semantic-key="settings-instructions-field"],
+[data-semantic-key="settings-instructions-field"] :has(> textarea) {
+  flex: 1 1 0 !important;
+  min-block-size: 3.5rem !important;
+  align-items: stretch !important;
+  padding: 0 !important;
+}
+[data-semantic-key="settings-instructions-field"] textarea {
+  flex: 1 1 0 !important;
+  min-block-size: 3.5rem !important;
+  resize: none !important;
+}
+[data-semantic-key="settings-instructions-field"] :has(> textarea) > span {
+  display: none !important;
+}
+[data-semantic-key="settings-configuration-editor"] button[data-semantic-key="confirm-remove"]:not(:disabled, [aria-disabled="true"]) {
+  --settings-remove-fill: light-dark(#9e4037, #a3483e);
+  --control-rest-background: var(--settings-remove-fill) !important;
+  --control-hover-background: light-dark(#84372f, #a95046) !important;
+  border-color: var(--settings-remove-fill) !important;
+  color: #fff !important;
+}

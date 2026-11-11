@@ -277,12 +277,12 @@ records. The
 The default home is `~/.selvedge`. `bun host/cli.mjs init` creates its
 `config.json` without overwriting an existing file. `--home PATH` and `--config
 FILE` select explicit locations; both options also work with `bun run start ...`.
-In the local web interface, open **Settings** and choose **Edit service
-configuration** to modify the selected file. The editor shows the available
-values for settings with declared choices and accepts JSON for structured
-values. **Reset configuration item** removes an optional override. Configuration read
-at startup takes effect on the next successful start. Context sources that
-already reread configuration continue to do so.
+In the local web interface, open **Settings** and select a category to see the
+current settings. Edit the value in its row, then choose **Apply configuration
+change**. Structured settings open a JSON editor in the same row. **Reset
+configuration item** removes an optional override. Configuration read at startup
+takes effect on the next successful start. Context sources that already reread
+configuration continue to do so.
 
 To use an eligible ChatGPT Plus or Pro plan, sign in with the official
 [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
