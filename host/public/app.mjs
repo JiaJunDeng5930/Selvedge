@@ -53,6 +53,12 @@ let updateStorageProblem = '';
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
 
+function randomBrowserIdentifier() {
+  // getRandomValues is available on private HTTP origins as well as HTTPS.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function showUpdateStatus({ status, operations, message }) {
   let text = '';
   switch (status) {
@@ -348,7 +354,7 @@ function observedSelection(node, composing = false) {
 }
 function registerFiles(action, selected) {
   for (const file of selected) {
-    const handle = crypto.randomUUID(); files.set(handle, file);
+    const handle = randomBrowserIdentifier(); files.set(handle, file);
     dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
@@ -733,7 +739,7 @@ const audio = new AudioRuntime({
   field(editor) {
     return Array.from(renderer.records.values()).find(record => record.metadata.editor && ticketKey(record.metadata.editor) === ticketKey(editor))?.node;
   },
-  browserId: crypto.randomUUID(), limits: boundary('audio.contract', {}),
+  browserId: randomBrowserIdentifier(), limits: boundary('audio.contract', {}),
   loginTarget(url) {
     const parsed = new URL(url);
     return boundary('audio.login_target', { url: parsed.href, protocol: parsed.protocol,
