@@ -36,7 +36,7 @@ Return through **More actions → Open board card** to see the linked card.
 
 Toolbar tabs, search and filters narrow the view. **执行中的卡片** counts the
 cards with an active linked conversation under the current search and filters.
-In **看板设置**, **启用自动执行** checks existing cards as soon as the change is
+Turning on **自动执行** in **看板设置** checks existing cards as soon as the change is
 saved. An unarchived card in **待办** or **进行中** enters the queue when it has a
 model assignee, no linked conversation, and any assisted drafting has succeeded.
 A card can start when it reaches the front of the eligible queue and the model
@@ -50,7 +50,8 @@ Assisted creation uses a separately selected ordinary profile to organize the
 request into a title and description. This request has no tools. Its profile is
 separate from the execution assignee; quality and availability depend on that
 endpoint. Explicit offline echo and adaptive task profiles are not drafting
-profiles. The form uses the configured Board default when it is available.
+profiles. Set **默认整理模型** in **看板设置** to choose the Board default for card
+titles and descriptions. The form uses that model when it is available.
 When the default is unavailable, choose a model in **整理用的模型**. Turning
 assistance off saves the title and description you enter.
 In **设置 → 常规 → 编辑标题设置**, **任务标题提示词** controls board card titles

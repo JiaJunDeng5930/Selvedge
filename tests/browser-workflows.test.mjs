@@ -317,8 +317,8 @@ test('task graph setup creates its conversations in scope and routes replies', {
   await page.setViewportSize({ width: 1280, height: 900 });
   await emptyGraph.getByRole('button', { name: '创建对话转发', exact: true }).click();
 
-  const dialog = page.getByRole('dialog', { name: '新建任务图', exact: true });
-  const create = dialog.getByRole('button', { name: '创建任务图', exact: true });
+  const dialog = page.getByRole('dialog', { name: '创建对话转发', exact: true });
+  const create = dialog.getByRole('button', { name: '创建对话转发', exact: true });
   await create.waitFor();
   assert.equal(await dialog.getByRole('textbox', { name: 'JSON 定义', exact: true }).isVisible(), false);
   assert.equal(await dialog.getByRole('alert').count(), 0);
@@ -378,7 +378,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
   await sourcePicker.selectOption(String(source));
   await expectBlockedBy('请选择接收对话。');
   await receiverPicker.selectOption(String(receiver));
-  await dialog.getByRole('button', { name: '创建任务图', exact: true, disabled: false }).waitFor();
+  await create.and(dialog.getByRole('button', { disabled: false })).waitFor();
 
   const direction = dialog.locator('[data-semantic-key="handoff-direction"]');
   const compactHeader = page.locator('[data-surface-role="compact-header"]');
@@ -431,7 +431,7 @@ test('leaving a graph conversation before its receipt preserves the newer destin
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
-  const graph = page.getByRole('dialog', { name: '新建任务图', exact: true });
+  const graph = page.getByRole('dialog', { name: '创建对话转发', exact: true });
   const name = graph.getByRole('textbox', { name: '任务图名称', exact: true });
   await name.fill('Keep this graph');
   await graph.getByRole('button', { name: '新建对话', exact: true }).click();

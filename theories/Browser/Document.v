@@ -173,7 +173,9 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"输入消息…"end);
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
+ |Fields.WorkName=>[("placeholder",Parameters.work_name_prompt);("aria-required","true")]
  |Fields.ProjectName=>[("placeholder",Parameters.project_name_prompt);("aria-required","true")]
+ |Fields.CardTitle=>[("placeholder",Parameters.card_title_prompt)]
  |_=>[]end) ++ disabled enabled in
  if ControlPurpose.toggle_widget field(Model.editing_observation value) then
  let checked:=Parameters.native_checked field(Model.editing_observation value)in
@@ -191,8 +193,12 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  | Fields.Multiline | Fields.StructuredText=>DOM.Element key "textarea"
  (attrs ++ [("value",text);("data-field-entry","multiline")])
  (styles ++ [("field-sizing","content")] ++
- (match field with Fields.MessageText=>[("min-block-size",Typography.px
-   (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines))]|_=>[]end) ++
+ (match field with
+ |Fields.MessageText=>[("min-block-size",Typography.px
+   (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines))]
+ |Fields.CardLabels=>[("min-block-size",Typography.px
+   (editor_content_edges activity field+3*Layout.input_line_height (Layout.parameters env)))]
+ |_=>[]end) ++
  [("max-block-size",Typography.px (editor_content_edges activity field+
    Layout.input_line_height (Layout.parameters env) *
    (Layout.input_maximum_height (Layout.parameters env) / Layout.input_line_height (Layout.parameters env))))]) events metadata []
@@ -805,8 +811,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    else None
  |_=>None end in
  let extra:=match S.node_children value with
- |excerpt::[context]=>if String.eqb (S.semantic_key excerpt) "result-excerpt" &&
-                           String.eqb (S.semantic_key context) "result-context"
+ |speaker::[excerpt]=>if String.eqb (S.semantic_key speaker) "result-speaker" &&
+                           String.eqb (S.semantic_key excerpt) "result-excerpt"
    then ("aria-describedby",S.node_key excerpt)::extra else extra
  |_=>extra end in
  let extra:=match summary_choice with Some (_,selected)=>
@@ -920,7 +926,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.PanelToggle expanded action=>
    let native:=button false action [("aria-expanded",flag expanded)] in
-   match source with
+   if String.eqb (S.semantic_key value) "interactive-markdown/source-disclosure" then
+     ControlContent.replace_content
+       [("data-source-disclosure","");("data-help",Model.control_label action)] [] [] native
+   else match source with
    |S.TaskRow _ _ _ _=>ControlContent.replace_content [] [] [] native
    |_=>native end
  |S.Edit owner subject value=>
@@ -1016,7 +1025,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [event key generation "change" "value" Gesture.SelectBoardProfile] empty
  ((if String.eqb selected "" then
    [DOM.Element (NavigationIdentity.key_part key "prompt") "option"
-    [("value","");("disabled","");("selected","")] [] [] empty [DOM.Text "请选择草稿模型"]] else []) ++
+    [("value","");("disabled","");("selected","")] [] [] empty [DOM.Text "请选择模型"]] else []) ++
   choices key selected values))
  |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
  (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
@@ -1143,8 +1152,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ("padding","8px 12px");("text-align","left");("border","0");("border-radius","6px");
  ("background",if selected then "var(--color-token-main-surface-tertiary)"else"transparent");("cursor","pointer")])
  [event key generation "click" "activate" Gesture.Press] empty children
- |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");("data-decision-field",UX.subject_name(UX.decision_subject decision));
-   ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
+ |S.DecisionGroup _ decision=>element "section"
+   ([("role","radiogroup");("data-decision-field",UX.subject_name(UX.decision_subject decision));
+    ("aria-labelledby",group_heading_keys key(S.node_children value))]++
+    match descriptions(S.node_children value) with
+    |""=>[]|description=>[("aria-describedby",description)]end) [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
  |S.ChoiceGroup=>element "section" ([("role","radiogroup")] ++
    if String.eqb (S.semantic_key value) "theme-options"

@@ -224,9 +224,9 @@ Definition graph_node snapshot s parent value :=
       (group_title (part key "task-graph/receipts") "最近发送结果" :: graph_receipt_nodes key value)])%list.
 Definition graphs_page snapshot s parent :=
  let graphs:=scoped_graphs(State.active_work(State.navigation_state s))snapshot in
- let create_label:=match graphs with Some []=>"创建对话转发"|_=>"新建任务图" end in
  let create:=declared parent Roles.PrimaryButton
-   (primary "graph/new" create_label (Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
+   (primary "graph/new" GraphAuthoring.handoff_creation_label
+     (Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
    (match graphs with Some []=>[]|_=>[page_region parent Composition.CollectionActions Composition.HeadingPosition [create]] end);

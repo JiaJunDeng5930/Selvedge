@@ -366,7 +366,11 @@ Definition collection_setting parent services entry item (page_collection measur
  let entries_body := if measuring then [] else
    [named_region id "settings-entries" label (match entries with
     | [] => [note list_id "description" (if collection_reset_has_effect entry
-                then "无法读取" ++ label ++ "列表。" else "暂无" ++ label ++ "。")]
+                then "无法读取" ++ label ++ "列表。"
+                else match path with
+                  | ["profiles"] => "暂无自定义模型配置。"
+                  | _ => "暂无" ++ label ++ "。"
+                  end)]
     | _ => map entry_row entries
     end)] in
  let feedback := if measuring then [] else match active_raw path view, Configuration.writing view with

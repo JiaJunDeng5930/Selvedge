@@ -67,7 +67,7 @@ Definition common_choice_obstruction (choices:list UX.availability) :=
  |UX.Unavailable reason::rest=>if forallb(fun choice=>match choice with
     |UX.Unavailable other=>String.eqb reason other|UX.Available=>false end)rest then Some reason else None
  |_=>None end.
-Definition decision_node {e} pending show_consequences occurrence parent query (decision:UX.decision e) :=
+Definition decision_node {e} pending show_consequences occurrence parent query shared_explanation (decision:UX.decision e) :=
  let identity:=part parent(UX.subject_name(UX.decision_subject decision))in
  let full:=UX.decision_alternatives decision in
  let search:=BoardFilter.lower_text(BoardFilter.trim query)in
@@ -88,7 +88,10 @@ Definition decision_node {e} pending show_consequences occurrence parent query (
  Node identity "decision"(UX.decision_question decision)Roles.Section(DecisionGroup e decision)
  ([Node(part identity "heading-row")"object-heading" ""Roles.Section(ActivityRow ObjectHeading)
    [group_title identity(UX.decision_question decision)]]++status++
-  map(candidate_node pending show_explanations show_consequences obstruction occurrence identity decision)visible).
+  map(candidate_node pending show_explanations show_consequences obstruction occurrence identity decision)visible++
+  match shared_explanation with
+  |Some text=>[information identity "shared-explanation" Information.Description text]
+  |None=>[]end).
 Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
@@ -105,8 +108,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
   let primary:=match Domain.workspace_primary workspace with Some root=>String.eqb path root|None=>false end in
   Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
    [region key "workspace-member-copy" "" Roles.Section
-     (information key "path" Information.FieldValue path ::
-      if primary then [information key "primary-state" Information.Description (label "主目录" "Primary directory")] else []);
+     [region key "workspace-member-heading" "" Roles.Section
+       ([information key "name" Information.FieldValue (UX.directory_basename path)] ++
+        if primary then [information key "primary-state" Information.Description (label "主目录" "Primary directory")] else []);
+      information key "full-path" Information.Description path];
     region key "workspace-member-actions" "" Roles.Section
      (if editable then
        ((if primary then [] else [declared key Roles.Button(secondary "primary" (label "设为主目录" "Use as primary")
@@ -116,7 +121,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status
      (label Observation.unadded_project_directory "Add or clear the directory before saving")])++
-   (let entry:=Node(part parent "directory")"directory" (label "目录路径" "Directory path") Roles.Field
+   (let entry_label:=match e with
+      |Identity.Project _=>match roots with []=>"目录路径"|_=>"添加另一个目录" end
+      |_=>"Directory path" end in
+    let entry:=Node(part parent "directory")"directory" entry_label Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[] in
     let add:=declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
@@ -131,7 +139,7 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
     let actions more:=region parent "directory-entry-actions" ""Roles.Toolbar (add::clear++more)%list in
     match e with
     |Identity.Project _=>
-      let path_entry:=region parent "project-directory-input" (label "目录路径" "Directory path") Roles.Toolbar [entry;browse] in
+      let path_entry:=region parent "project-directory-input" entry_label Roles.Toolbar [entry;browse] in
       [region parent "project-directory-entry" "" Roles.Section [path_entry;actions []]]
     |_=>[entry;actions [browse]]end) ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
@@ -256,7 +264,7 @@ Definition model_picker_view (s:State.state) {e} (activity:Act.activity e)
     let search:=if negb(String.eqb query "") || Nat.leb 6 (List.length(UX.decision_alternatives decision)) then
       [Node(part parent "search")"search" "Search models"Roles.Field
         (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[] in
-    (search++[region parent "model-picker-models" "" Roles.Section [decision_node pending false occurrence parent query decision]])%list
+    (search++[region parent "model-picker-models" "" Roles.Section [decision_node pending false occurrence parent query None decision]])%list
   end in
  let effort_controls:=if catalog then [] else match effort with
    |Some decision=>[Node(part parent "model-picker-effort")"model-picker-effort" "Reasoning effort" Roles.Field
@@ -272,8 +280,13 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
  let children:=match relation with Act.RootDecision _ children=>
   flat_map(relation_nodes snapshot s occurrence parent query request activity view)children|_=>[]end in
  match Observation.relation_exposure activity view relation,relation with
- |Observation.CandidateChoices,Act.RootDecision root _=>decision_node(UX.action_pending(Observation.action_unit_for s e))true occurrence parent query root::children
- |Observation.CandidateChoices,Act.DependentDecision _ _ child=>[decision_node(UX.action_pending(Observation.action_unit_for s e))true occurrence parent "" child]
+ |Observation.CandidateChoices,Act.RootDecision root _=>
+  let subject:=UX.decision_subject root in
+  let shared:=match UX.subject_declaration subject with
+  |Fields.ApprovalPolicy=>Some(Observation.shared_permission_explanation(Observation.observe_subject snapshot s subject))
+  |_=>None end in
+  decision_node(UX.action_pending(Observation.action_unit_for s e))true occurrence parent query shared root::children
+ |Observation.CandidateChoices,Act.DependentDecision _ _ child=>[decision_node(UX.action_pending(Observation.action_unit_for s e))true occurrence parent "" None child]
  |Observation.DependencySummary,Act.RootDecision root _=>dependency_summary snapshot s occurrence parent(UX.decision_subject root)::children
  |Observation.DependencySummary,Act.DependentDecision _ _ child=>[dependency_summary snapshot s occurrence parent(UX.decision_subject child)]
  |Observation.DependencySummary,Act.FieldSpecification _ subject _=>
@@ -315,7 +328,7 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in
    [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
-     (Editors.commit_reason parent draft assessment++[Editors.assessment_nodes parent assessment]++
+     (Editors.commit_reason parent assessment++[Editors.assessment_nodes parent assessment]++
       Composer.action_feedback parent action(Editors.draft_feedback draft)++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
         [Node(part parent "submit")"submit"(Editors.submit_label snapshot draft e)Roles.PrimaryButton

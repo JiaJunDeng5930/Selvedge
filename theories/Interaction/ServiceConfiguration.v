@@ -124,11 +124,7 @@ Definition interpret_setting_input entry raw :=
   else value.
 
 Definition can_reset entry :=
-  setting_resettable entry && setting_explicit entry &&
-  match setting_path entry, setting_input entry with
-  | ["compaction"; _], (Boolean | Number) => setting_reset_changes_value entry
-  | _, _ => true
-  end.
+  setting_resettable entry && setting_explicit entry && setting_reset_changes_value entry.
 
 Inductive change := Assign (value : json) | Reset.
 

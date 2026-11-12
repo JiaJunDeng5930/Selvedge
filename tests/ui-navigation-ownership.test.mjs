@@ -82,7 +82,7 @@ async function home(page) {
     .getByRole('button', { name: '首页', exact: true }).click();
 }
 
-async function requestWork(page, name = '浏览器工作组') {
+async function requestWork(page, name = '浏览器工作组', verifyName = false) {
   await page.getByRole('button', { name: /^对话范围 · / }).click();
   const menu = page.getByRole('menu', { name: '对话范围', exact: true });
   await menu.getByRole('menuitem', { name: '新建工作组', exact: true }).click();
@@ -92,14 +92,35 @@ async function requestWork(page, name = '浏览器工作组') {
   const create = editor.getByRole('button', { name: '创建工作组', exact: true });
   await title.and(page.locator(':focus')).waitFor();
   assert.equal(await create.isDisabled(), true);
+  if (verifyName) {
+    assert.equal(await title.getAttribute('placeholder'), '请输入工作组名称');
+    assert.equal(await title.getAttribute('aria-required'), 'true');
+    const alerts = editor.getByRole('alert');
+    const reason = editor.locator('[data-semantic-key="editor-commit-reason"]');
+    const quiet = async () => {
+      await alerts.waitFor({ state: 'hidden' });
+      await reason.waitFor({ state: 'hidden' });
+      assert.equal(await create.isDisabled(), true);
+    };
+    await quiet();
+    await title.fill('\u3000 ');
+    await quiet();
+    await title.press('Enter');
+    await quiet();
+    await title.fill('组'.repeat(1366));
+    await alerts.filter({ hasText: '工作组名称不能超过 4096 个 UTF-8 字节。' }).waitFor();
+    assert.equal(await create.isDisabled(), true);
+    await title.clear();
+    await quiet();
+  }
   await title.fill(name);
   await create.click();
   return editor;
 }
 
-async function startWork(page, name = '浏览器工作组') {
+async function startWork(page, name = '浏览器工作组', verifyName = false) {
   const response = commandResponse(page, 'create_work');
-  const editor = await requestWork(page, name);
+  const editor = await requestWork(page, name, verifyName);
   const { reply } = await (await response).json();
   assert.equal(reply.ok, true, JSON.stringify(reply));
   assert.equal(reply.result.name, name);
@@ -137,7 +158,7 @@ test('conversation scope stays anchored and opens a separate named Work editor',
     await menu.waitFor({ state: 'hidden' });
     await picker.and(page.locator(':focus')).waitFor();
   }
-  await startWork(page, '产品调研');
+  await startWork(page, '产品调研', true);
 });
 
 test('late Work creation cannot replace newer creation, navigation, or sidebar visibility choices', { timeout: 60000 }, async t => {

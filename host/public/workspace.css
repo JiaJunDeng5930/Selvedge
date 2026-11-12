@@ -129,6 +129,13 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 }
 
 [data-page-region="history-results"]
+  [data-semantic-key="result"] > button[data-semantic-key="open"]:has(> [data-semantic-key="result-speaker"]) {
+  --history-message-indent: .75rem;
+  inline-size: calc(100% - var(--history-message-indent)) !important;
+  margin-inline-start: var(--history-message-indent);
+}
+
+[data-page-region="history-results"]
   [data-semantic-key="result"] > :is(button[data-semantic-key="open"] > span, h3[data-semantic-key="result-title"]) {
   overflow-wrap: anywhere;
   white-space: normal !important;
@@ -151,7 +158,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   line-height: var(--rich-body-line) !important;
   font-weight: var(--rich-body-weight) !important;
 }
-[data-page-region="history-results"] [data-semantic-key="result-context"] {
+[data-page-region="history-results"] [data-semantic-key="result-speaker"] {
   color: var(--selvedge-muted) !important;
   font-size: var(--rich-support-size) !important;
   line-height: var(--rich-support-line) !important;

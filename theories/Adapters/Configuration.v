@@ -324,11 +324,21 @@ Definition remote (source : json) :=
     else type_error "remote requires only relay_url: an HTTPS origin on TCP 443 without credentials, path, query or fragment"
   end.
 
+(* The editable view uses the same disabled cloud value as runtime admission.
+   Configuration edits still apply to the original document. *)
+Definition editable_configuration definitions instructions source :=
+  let source := match field "cloud" source with
+    | Some cloud => if CloudConfiguration.disabled cloud
+        then set source "cloud" (JBool false) else source
+    | None => source
+    end in
+  Edit.editable (configuration_fields definitions instructions) source.
+
 Definition call (definitions : json) (instructions : string)
   (operation : string) (source : json) : json :=
   if String.eqb operation "config.defaults" then success (defaults definitions instructions)
   else if String.eqb operation "config.editable" then
-    Edit.editable (configuration_fields definitions instructions) (get source "configuration")
+    editable_configuration definitions instructions (get source "configuration")
   else if String.eqb operation "config.edit" then
     Edit.edit (configuration_fields definitions instructions) (get source "configuration") (get source "change")
   else if String.eqb operation "config.configuration_head" then success (configuration_head definitions instructions source)

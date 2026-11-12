@@ -1217,12 +1217,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   inset-block-start: 0;
   inset-inline-end: 0;
   list-style: none;
-}
-[data-semantic-key="interactive-markdown/chart-disclosure"] > summary::-webkit-details-marker {
-  display: none;
-}
-:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
-  button[data-semantic-key="interactive-markdown/source-disclosure"]) {
   --control-rest-background: transparent !important;
   display: inline-flex !important;
   align-items: center;
@@ -1237,8 +1231,10 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   white-space: nowrap;
   cursor: pointer;
 }
-:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
-  button[data-semantic-key="interactive-markdown/source-disclosure"])::before {
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary::-webkit-details-marker {
+  display: none;
+}
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary::before {
   content: "";
   flex: none;
   inline-size: .42em;
@@ -1247,12 +1243,10 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   border-width: 0 .1em .1em 0;
   transform: rotate(-45deg);
 }
-:is([data-semantic-key="interactive-markdown/chart-disclosure"][open] > summary,
-  button[data-semantic-key="interactive-markdown/source-disclosure"][aria-expanded="true"])::before {
+[data-semantic-key="interactive-markdown/chart-disclosure"][open] > summary::before {
   transform: rotate(45deg);
 }
-:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
-  button[data-semantic-key="interactive-markdown/source-disclosure"]):is(:hover, :focus-visible) {
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary:is(:hover, :focus-visible) {
   color: var(--selvedge-text) !important;
   background: var(--selvedge-hover) !important;
 }

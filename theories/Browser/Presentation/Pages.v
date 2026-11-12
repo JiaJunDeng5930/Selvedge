@@ -265,14 +265,15 @@ Definition history_result_groups hits : list (Read.task * list HistoryObservatio
 Definition history_message_result parent query width id title hit :=
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
- let context:="消息 #"++show_natural(N.succ index) in
+ let speaker:=match HistoryObservation.hit_speaker hit with
+  |Domain.UserSpeaker=>"用户"|Domain.AssistantSpeaker=>"助手" end in
  let excerpt:=match HistoryObservation.hit_preview hit with
    |Some text=>history_result_text key "result-excerpt" query width text
    |None=>Node (part key "result-excerpt") "result-excerpt" "" Roles.Content
       (ReadOnly "在消息原文中找到匹配") []
    end in
- history_result_button key (title++" · "++context) (Input.OpenHistoryResult id(Some index)(part key "open"))
-  [excerpt; Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly context) []].
+ history_result_button key (title++" · "++speaker) (Input.OpenHistoryResult id(Some index)(part key "open"))
+  [Node (part key "result-speaker") "result-speaker" "" Roles.Content (ReadOnly speaker) []; excerpt].
 Definition history_conversation_result parent query width
   (group:Read.task * list HistoryObservation.history_hit) :=
  let '(task,hits):=group in

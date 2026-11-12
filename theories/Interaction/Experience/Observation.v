@@ -179,16 +179,27 @@ Definition resolve_approval snapshot value:=match value with
 |Context.ChosenApproval Context.Unrestricted=>Some Selvedge.Kernel.Domain.FullAccess
 |Context.ChosenApproval(Context.AutomaticReview key)=>profile<-ModelSelection.observed_profile snapshot key;;
  if Selvedge.Kernel.ModelCapabilities.valid_reviewer_profile profile then Some(Selvedge.Kernel.Domain.ReviewWith profile)else None end.
-Definition permission_observation snapshot (value:Fields.observed) := match value with
- |Fields.ContextValue(Context.ProspectiveContext _ _ _ sandbox approval _)_=>
-   option_map (fun approval=>((match sandbox with Context.InheritedSandbox value|Context.ChosenSandbox value=>value end),approval)) (resolve_approval snapshot approval)
- |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_sandbox settings,
-   Selvedge.Kernel.Domain.settings_approval settings)
+Definition observed_approval snapshot value:=match value with
+ |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval
+ |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_approval settings)
  |_=>None end.
+Definition observed_permission_sandbox (value:Fields.observed) := match value with
+ |Fields.ContextValue(Context.ProspectiveContext _ _ _ sandbox _ _)_=>
+   Some(match sandbox with Context.InheritedSandbox value|Context.ChosenSandbox value=>value end)
+ |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_sandbox settings)
+ |_=>None end.
+Definition permission_observation snapshot (value:Fields.observed) :=
+ sandbox<-observed_permission_sandbox value;;
+ option_map(fun approval=>(sandbox,approval))(observed_approval snapshot value).
+Definition shared_permission_explanation value :=
+ match observed_permission_sandbox value with
+ |Some sandbox=>("询问和自动审批共用当前设置（"++sandbox_label sandbox++"，"++
+   network_label sandbox++"）。Bash 请求扩大权限时需要审批。")%string
+ |None=>"询问和自动审批在 Bash 请求扩大权限时需要审批。"end.
 Definition filesystem_summary := ContextObservation.filesystem_summary.
 Definition network_summary := ContextObservation.network_summary.
 Definition permission_effects snapshot sandbox approval : list(Fields.field*string) :=
- [(Fields.SandboxMode,String.append "文件系统 · "(filesystem_summary sandbox approval));
+ [(Fields.SandboxMode,String.append "文件系统 · "(ContextObservation.sandbox_summary sandbox approval "不受限" sandbox_label));
   (Fields.NetworkAccess,network_summary sandbox approval)]++
  match approval with
  |Selvedge.Kernel.Domain.FullAccess=>[(Fields.ApprovalReviewer,"无需审批")]
@@ -557,11 +568,17 @@ Definition graph_declaration_valid body :=
     |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
   |None=>false end
  |None=>false end.
+Definition missing_required_text_code := "missing_required_text".
+Definition required_name e field name valid invalid_code prompt invalid_message :=
+ let present:=Utf8.nonblank name in
+ failed_requirement e (present && valid) (Some field)
+   (if present then invalid_code else missing_required_text_code)
+   (if present then invalid_message else prompt).
 Definition card_text_requirements e value assisted :=
  let draft:=Board.normalized_draft assisted value in
  let title:=Domain.draft_title draft in
- failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) "card_title_required"
-   (if assisted then "请输入标题或描述。" else "请输入标题。")++
+ failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) missing_required_text_code
+   (if assisted then "请输入标题或描述。" else Parameters.card_title_prompt++"。")++
  failed_requirement e (BoardFacts.title_within_limit title) (Some Fields.CardTitle) "card_title_too_long" "标题太长，请缩短。"++
  failed_requirement e (BoardFacts.description_within_limit (Domain.draft_description draft))
    (Some Fields.CardDescription) "card_description_too_long" "描述太长，请缩短。".
@@ -572,12 +589,10 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    model_requirements snapshot e profile effort
  |Draft.MessageBody _ message _=>failed_requirement e(text_has_content message)
    (Some Fields.MessageText)"empty_message" Tasks.input_required_message
- |Draft.WorkNameBody _ name=>failed_requirement e(Work.valid_name name)
-   (Some Fields.WorkName)"invalid_work_name"
-   (if Utf8.nonblank name then "工作组名称不能超过 4096 个 UTF-8 字节。" else "请输入工作组名称。")
- |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
-   (Some Fields.ProjectName)"invalid_project_name"
-   (if Utf8.nonblank name then "项目名称不能超过 256 个 UTF-8 字节。" else Parameters.project_name_prompt)
+ |Draft.WorkNameBody _ name=>required_name e Fields.WorkName name (Work.valid_name name)
+   "invalid_work_name" (Parameters.work_name_prompt++"。") "工作组名称不能超过 4096 个 UTF-8 字节。"
+ |Draft.ProjectBody _ name _ _=>required_name e Fields.ProjectName name (Workspace.valid_project_name name)
+   "invalid_project_name" Parameters.project_name_prompt "项目名称不能超过 256 个 UTF-8 字节。"
  |Draft.CardBody _ _ value assisted selected _=>card_text_requirements e value assisted++
    (if negb assisted || assistance_profile_available snapshot selected then [] else
    [requirement_obstruction e (Some Fields.AssistanceProfile) "draft_profile_unavailable"
@@ -621,7 +636,8 @@ Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruc
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
  String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
  String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
- String.eqb(obstruction_code cause)"card_admission_pending".
+ String.eqb(obstruction_code cause)"card_admission_pending"||
+ String.eqb(obstruction_code cause)missing_required_text_code.
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
 Definition action_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
@@ -733,47 +749,41 @@ Definition assignment_available snapshot state {e}(assignment:assignment e):avai
   (fun _=>assignment_shape_available snapshot state assignment)
   (fun _=>Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment)
   (fun _=>Values.apply_assignment snapshot current assignment).
-Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
- if Parameters.live_configuration e(subject_declaration subject)then
+Definition candidate_approval snapshot state {e}(subject:Model.subject e) applied
+    (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
+ if Parameters.live_configuration e Fields.ApprovalPolicy then
   match e,command with
   |Identity.Message task,Some command=>
    settings<-FieldsObservation.task_settings task snapshot;;
    profile<-FieldsObservation.task_profile task snapshot;;
-   let encoded:=Schema.encode_command command in
-   sandbox<-Selvedge.Kernel.Codec.select_optional
-     (Selvedge.Kernel.Codec.parse_sandbox_patch(Selvedge.Kernel.Domain.settings_sandbox settings))
-     "sandbox" encoded(Selvedge.Kernel.Domain.settings_sandbox settings);;
-   approval<-Selvedge.Kernel.Codec.select_optional
+   Selvedge.Kernel.Codec.select_optional
      (Selvedge.Kernel.Codec.parse_approval profile(FieldsObservation.catalog snapshot))
-     "approval" encoded(Selvedge.Kernel.Domain.settings_approval settings);;Some(sandbox,approval)
+     "approval" (Schema.encode_command command)(Selvedge.Kernel.Domain.settings_approval settings)
   |_,_=>None end
- else permission_observation snapshot(observe_subject snapshot candidate subject).
+ else updated<-applied;;
+   observed_approval snapshot(observe_subject snapshot(EC.with_draft updated state)subject).
 Definition candidate_consequences snapshot state {e}(subject:Model.subject e)
     (observed:Fields.observed)(applied:option Draft.draft)
     (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
- let candidate:=match applied with
+ let candidate _:=match applied with
   |Some updated=>EC.with_draft updated state|None=>state end in
  match subject_declaration subject with
  |Fields.ModelProfile=>
    let next:=if Parameters.live_configuration e Fields.ModelProfile then
      bind command(fun command=>string_field "reasoning"(Schema.encode_command command))
-    else match observe_subject snapshot candidate subject with Fields.ModelValue _ effort=>Some effort|_=>None end in
+    else match observe_subject snapshot(candidate tt)subject with Fields.ModelValue _ effort=>Some effort|_=>None end in
    match observed,next with
    |Fields.ModelValue _ previous,Some effort=>if String.eqb previous effort then []else
      match related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue("Reasoning effort: "++effort))with
      |Some summary=>[summary]|None=>[]end
    |_,_=>[]end
- |Fields.ApprovalPolicy=>match candidate_permissions snapshot subject candidate command with
-   |Some(sandbox,approval)=>fold_right(fun '(field,text) rest=>match related_summary(e:=e)field(Model.TextValue text)with
-     |Some summary=>summary::rest|None=>rest end)[](permission_effects snapshot sandbox approval)
-   |None=>[]end
- |Fields.ReasoningEffort|Fields.ApprovalReviewer|Fields.DeliveryIntent=>[]
+ |Fields.ReasoningEffort|Fields.ApprovalPolicy|Fields.ApprovalReviewer|Fields.DeliveryIntent=>[]
  |_=>match applied with
    |Some _=>let kinds:=match subject_declaration subject with
      |Fields.ContextOrigin=>[ProjectProperty;WorkspaceProperty;PermissionsProperty]
      |Fields.WorkspaceDirectories|Fields.WorkspacePrimary|Fields.TaskEnvironment=>[WorkspaceProperty]
      |_=>[PermissionsProperty]end in
-    flat_map(fun kind=>match observe_property snapshot candidate e kind with
+    flat_map(fun kind=>match observe_property snapshot(candidate tt)e kind with
      |Some property=>information_summaries(property_information property)|None=>[]end)kinds
    |None=>[]end end.
 Definition alternative_explanation snapshot e field (choice:Fields.choice_value) :=
@@ -790,14 +800,21 @@ Definition alternative_explanation snapshot e field (choice:Fields.choice_value)
    |"steer"=>delivery_explanation snapshot e Fields.Steer
    |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
-   |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
-   |"approval-for-me"=>"由配置的模型处理审批请求。"
-   |"full-access"=>"允许完全访问，无需审批。"|_=>""end
+   |"ask-for-approval"=>"由你审批。"
+   |"approval-for-me"=>"由审批模型处理。"
+   |"full-access"=>"文件访问和联网不受限制，无需审批。"|_=>""end
  |_=>""end.
-Definition observed_approval snapshot value:=match value with
- |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval
- |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_approval settings)
- |_=>None end.
+Definition candidate_explanation snapshot state {e}(subject:Model.subject e) choice applied command :=
+ let field:=subject_declaration subject in
+ let explanation:=alternative_explanation snapshot e field choice in
+ match field with
+ |Fields.ApprovalPolicy=>if String.eqb (Fields.choice_value_of choice) "approval-for-me" then
+   match candidate_approval snapshot state subject applied command with
+   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>
+     ("由 "++ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer++" 审批。")%string
+   |_=>explanation end
+   else explanation
+ |_=>explanation end.
 Definition selected_input snapshot {e}(subject:subject e)(observed:Fields.observed):option json:=
  match subject_declaration subject with
  |Fields.ApprovalPolicy=>match observed_approval snapshot observed with
@@ -818,7 +835,8 @@ Definition alternative_for_choice snapshot state {e}(subject:Model.subject e) cu
  let availability:=assignment_availability snapshot state assignment current
    (fun _=>assignment_shape snapshot subject form(fun _=>observed)listed incoming)
    (fun _=>command)(fun _=>applied)in
- Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot e(subject_declaration subject)choice)value
+ Some(Alternative(Fields.choice_label choice)
+   (candidate_explanation snapshot state subject choice applied command)value
    (match selected with Some value=>Json.equal offered value|None=>false end)availability
    (candidate_consequences snapshot state subject observed applied command))
  else None.

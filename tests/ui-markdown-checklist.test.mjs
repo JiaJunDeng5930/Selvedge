@@ -86,9 +86,12 @@ test('interactive answer sections keep a readable outline and each source contro
       const caption = node.parentElement.querySelector(':scope > p');
       const code = node.nextElementSibling;
       const footer = code.querySelector('[data-semantic-key="interactive-markdown/source-controls"]');
-      const action = footer.querySelector(':scope > button').getBoundingClientRect();
+      const disclosure = footer.querySelector(':scope > button');
+      const action = disclosure.getBoundingClientRect();
       const reset = footer.querySelector('[data-interactive-component="button"] button').getBoundingClientRect();
       const controls = footer.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(disclosure);
       return {
         headingSize: parseFloat(getComputedStyle(node).fontSize),
         textSize: parseFloat(getComputedStyle(caption).fontSize),
@@ -96,7 +99,8 @@ test('interactive answer sections keep a readable outline and each source contro
         contentGap: code.getBoundingClientRect().top - title.bottom,
         footerInset: controls.left - code.getBoundingClientRect().left,
         sharesRow: Math.abs(action.top - reset.top) <= 1 && reset.right < action.left,
-        sourceGap: action.left - reset.right,
+        quietSource: action.width >= 32 && action.height >= 32 && action.width < reset.width &&
+          action.left - reset.right <= 16 && text.getBoundingClientRect().width <= 1,
         footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
       };
     });
@@ -104,7 +108,7 @@ test('interactive answer sections keep a readable outline and each source contro
     assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
     assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The source action starts at its own section edge');
     assert.ok(geometry.sharesRow, 'Reset and source actions share one footer row');
-    assert.ok(geometry.sourceGap >= 12 && geometry.sourceGap <= 24, 'The disclosure is separated from Reset and stays nearby');
+    assert.ok(geometry.quietSource, 'The source control is a compact icon beside Reset with a full button target');
     const tableChrome = await timeline.getByRole('table').evaluateAll(tables => tables.map(table => {
       const header = getComputedStyle(table.tHead.rows[0].cells[0]);
       const body = getComputedStyle(table.tBodies[0].rows[1].cells[0]);
@@ -122,9 +126,17 @@ test('interactive answer sections keep a readable outline and each source contro
   assert.equal(await codeActions.isVisible(), false);
   await timeline.locator('.code-block:has(code[data-language="text"])')
     .getByRole('button', { name: 'Copy code', exact: true }).waitFor();
-  await footer.getByRole('button', { name: '展开源码', exact: true }).press('Enter');
+  const reveal = footer.getByRole('button', { name: '展开源码', exact: true });
+  await reveal.hover();
+  const help = button => button.evaluate(node => getComputedStyle(node, '::after').content);
+  assert.equal(await help(reveal), '"展开源码"');
+  assert.equal(await reveal.getAttribute('aria-expanded'), 'false');
+  await reveal.press('Enter');
   await detail.locator('pre').waitFor();
-  assert.ok(await footer.getByRole('button', { name: '收起源码', exact: true }).evaluate(node => node === document.activeElement));
+  const hide = footer.getByRole('button', { name: '收起源码', exact: true });
+  assert.ok(await hide.evaluate(node => node === document.activeElement));
+  assert.equal(await hide.getAttribute('aria-expanded'), 'true');
+  assert.equal(await help(hide), '"收起源码"');
   const wrap = codeActions.getByRole('button', { name: 'Wrap code', exact: true });
   await wrap.click();
   assert.equal(await codeActions.getByRole('button', { name: 'Unwrap code', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -134,7 +146,7 @@ test('interactive answer sections keep a readable outline and each source contro
   assert.equal(sourceAfterPreview, true);
   assert.equal(await panels.nth(0).locator('pre').isVisible(), false);
   assert.match(await detail.locator('pre').textContent(), /id="detail"/);
-  await footer.getByRole('button', { name: '收起源码', exact: true }).click();
+  await hide.click();
   await codeActions.waitFor({ state: 'hidden' });
 });
 
@@ -197,9 +209,15 @@ test('interactive fences keep their original source collapsed while the preview 
   assert.equal(flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
   const raw = declined.locator('pre');
-  await declined.getByRole('button', { name: '展开源码', exact: true }).click();
+  const reveal = declined.getByRole('button', { name: '展开源码', exact: true });
+  assert.equal(await reveal.textContent(), '');
+  assert.equal(await reveal.getAttribute('aria-expanded'), 'false');
+  await reveal.press('Enter');
   await raw.waitFor();
   assert.match(await raw.innerText(), /preview-16/);
-  await declined.getByRole('button', { name: '收起源码', exact: true }).click();
+  const hide = declined.getByRole('button', { name: '收起源码', exact: true });
+  assert.ok(await hide.evaluate(node => node === document.activeElement));
+  assert.equal(await hide.getAttribute('aria-expanded'), 'true');
+  await hide.press('Enter');
   await raw.waitFor({ state: 'hidden' });
 });

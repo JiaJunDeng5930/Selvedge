@@ -41,7 +41,7 @@ test('opening conversation details preserves the desktop reading position and co
       scrolls: root.scrollHeight > root.clientHeight };
   });
   const assertDesktopGutter = geometry => {
-    assert.ok(geometry.scrolls && geometry.gutter >= 16,
+    assert.ok(geometry.scrolls && geometry.gutter >= 20,
       'A scrolling desktop conversation leaves space between its table or code and the reading edge');
   };
   const composer = page.getByRole('combobox', { name: 'Message', exact: true });
@@ -49,10 +49,15 @@ test('opening conversation details preserves the desktop reading position and co
     const { x, width } = root.getBoundingClientRect();
     return { x, width, scrollTop: root.scrollTop };
   });
-  await reading.press('Home');
+  await page.waitForFunction(() => document.querySelector('[data-reading-root]')?.scrollTop > 200);
+  const tail = await readingPosition();
+  await reading.hover({ position: { x: 4, y: 100 } });
+  await page.mouse.wheel(0, -160);
   await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
-  await reading.evaluate(root => root.scrollTo({ top: 160, behavior: 'instant' }));
-  await page.waitForFunction(() => document.querySelector('[data-reading-root]')?.scrollTop === 160);
+  await page.waitForFunction(last => {
+    const top = document.querySelector('[data-reading-root]')?.scrollTop;
+    return top > 0 && top < last - 100;
+  }, tail.scrollTop);
   const before = await readingPosition();
   assert.ok(before.scrollTop > 0, 'Open details while reading in the middle of a conversation');
   const composerBefore = await composer.boundingBox();

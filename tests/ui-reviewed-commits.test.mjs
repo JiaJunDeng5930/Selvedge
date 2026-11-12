@@ -13,6 +13,29 @@ async function observed(predicate, explanation) {
   throw new Error(explanation);
 }
 
+async function inspectPermissionChoices(permissions, sandbox) {
+  const shared = '询问和自动审批共用当前设置（' + sandbox + '）。Bash 请求扩大权限时需要审批。';
+  const note = permissions.getByText(shared, { exact: true });
+  await note.waitFor();
+  assert.equal(await note.count(), 1, 'The restricted choices share one visible description');
+  const group = permissions.getByRole('radiogroup', { name: '审批方式', exact: true });
+  const descriptionIds = (await group.getAttribute('aria-describedby') ?? '').split(/\s+/);
+  assert.ok(descriptionIds.includes(await note.getAttribute('id')),
+    'Keyboard and screen-reader users have the same shared group context');
+  const choice = name => permissions.getByRole('menuitemradio', { name, exact: true });
+  assert.match(await choice('询问审批').innerText(), /由你审批。/);
+  assert.match(await choice('自动审批').innerText(), /由 echo 审批。/);
+  const full = await choice('完全访问').innerText();
+  assert.equal(full.match(/完全访问/g)?.length, 1);
+  assert.match(full, /文件访问和联网不受限制，无需审批。/);
+  const sharedFacts = sandbox.split('，');
+  for (const name of ['询问审批', '自动审批']) {
+    const row = await choice(name).innerText();
+    for (const fact of sharedFacts) assert.equal(row.includes(fact), false);
+  }
+  return choice;
+}
+
 test('new Task permissions remain reachable with ordinary pointer clicks', async t => {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 700 }]) {
     await t.test(`${viewport.width} by ${viewport.height}`, async t => {
@@ -25,11 +48,38 @@ test('new Task permissions remain reachable with ordinary pointer clicks', async
         await permissions.getByRole('button', { name, exact: true }).click({ trial: true });
       }
       await permissions.getByRole('button', { name: '返回', exact: true }).click();
+      await inspectPermissionChoices(permissions, '工作目录内可写，联网受限');
       for (const name of ['询问审批', '自动审批', '完全访问']) {
         await permissions.getByRole('menuitemradio', { name, exact: true }).click({ trial: true });
       }
 
     });
+  }
+});
+
+test('conversation permission choices preserve the workspace limits after full access', { timeout: 90000 }, async t => {
+  const { page, command, root } = await browserFixture(t);
+  const sandbox = { mode: 'read-only', network_access: true };
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo',
+    settings: { workspace: { roots: [root], primary_root: root }, sandbox } });
+  const read = async () => (await command({ op: 'read', task_id })).task;
+  const { title } = await read();
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: title, exact: true }).click();
+  const permissions = page.getByRole('dialog', { name: '权限', exact: true });
+  for (const [name, approval] of [
+    ['自动审批', { mode: 'approval-for-me', reviewer_profile: 'demo' }],
+    ['完全访问', { mode: 'full-access' }],
+    ['询问审批', { mode: 'ask-for-approval' }],
+  ]) {
+    await page.getByRole('button', { name: /^权限:/ }).press('Enter');
+    const choice = await inspectPermissionChoices(permissions, '只读，允许联网');
+    await choice(name).click();
+    await permissions.waitFor({ state: 'hidden' });
+    const { settings } = await read();
+    assert.equal(settings.approval.mode, approval.mode);
+    assert.equal(settings.approval.reviewer_profile, approval.reviewer_profile);
+    assert.deepEqual(settings.sandbox, sandbox);
   }
 });
 
@@ -102,7 +152,7 @@ test('conversation and board controls distinguish same-name configurations and e
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
-  const draftModels = page.getByRole('combobox', { name: '草稿模型', exact: true });
+  const draftModels = page.getByRole('combobox', { name: '默认整理模型', exact: true });
   const draftNames = await draftModels.locator('option').allTextContents();
   for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(draftNames.includes(label), label);
   for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!draftNames.includes(label), label);
@@ -114,6 +164,8 @@ test('conversation and board controls distinguish same-name configurations and e
   const assistance = card.getByRole('combobox', { name: '整理用的模型', exact: true });
   assert.equal(await assistance.isVisible(), false);
   await card.getByText('更多卡片选项', { exact: true }).click();
+  await card.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
+  await assistance.waitFor();
   const assistanceNames = await assistance.locator('option').allTextContents();
   for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(assistanceNames.includes(label), label);
   for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!assistanceNames.includes(label), label);
@@ -123,7 +175,6 @@ test('conversation and board controls distinguish same-name configurations and e
   for (const label of ['image-fixture', fixedAstra, adaptiveAstra]) assert.ok(assigneeNames.includes(label), label);
   await assignee.selectOption({ label: adaptiveAstra });
   await card.getByRole('textbox', { name: '描述', exact: true }).fill('Plan the reviewed workflow.');
-  await card.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
   await assistance.selectOption({ label: 'image-fixture' });
   const creation = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
     && response.request().postDataJSON()?.command?.op === 'create_card');
@@ -139,7 +190,8 @@ test('conversation and board controls distinguish same-name configurations and e
   assert.equal(assisted.model, 'image-fixture');
   assert.ok(requests.every(request => request.model !== 'codex-auto-review'));
   await page.getByRole('button', { name: '筛选卡片', exact: true }).click();
-  const filters = page.getByRole('dialog').last();
+  const filters = page.getByRole('dialog', { name: '筛选卡片', exact: true });
+  await filters.locator('summary').filter({ hasText: '负责人' }).click();
   const adaptiveFilter = filters.getByRole('checkbox', { name: adaptiveAstra, exact: true });
   const fixedFilter = filters.getByRole('checkbox', { name: fixedAstra, exact: true });
   await adaptiveFilter.click();

@@ -10,13 +10,15 @@
   border: var(--native-focus-width) solid transparent !important;
   padding-inline: 6px !important;
   overflow-anchor: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--selvedge-muted) 46%, transparent) transparent;
   scroll-padding-block-start: .5rem;
 }
 [data-reading-root]:focus-visible {
   outline-offset: calc(-1 * var(--native-focus-width));
 }
 @media (min-width: 48rem) and (pointer: fine) {
-  [data-reading-root] { padding-inline-end: 1rem !important; }
+  [data-reading-root] { padding-inline-end: 1.25rem !important; }
 }
 [data-reading-root] > button[data-semantic-key="fork-current-history"] {
   align-self: flex-start;

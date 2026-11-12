@@ -122,7 +122,7 @@ Definition task_menu_actions (task:Read.task) (actions:list action) :=
 Definition available_first (actions:list action) :=
  let '(available,unavailable):=partition
    (fun value=>match action_status value with
-    |Unavailable _|AssessmentFailed _=>false|_=>true end) actions in
+    |Available=>true|_=>false end) actions in
  available++unavailable.
 Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in

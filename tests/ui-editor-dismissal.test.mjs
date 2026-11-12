@@ -86,12 +86,14 @@ test('canceling the card editor aborts its pending upload', async t => {
   const create = page.getByRole('button', { name: '新建卡片', exact: true });
   await create.click();
   const editor = page.getByRole('dialog', { name: '新建卡片', exact: true });
-  await editor.getByText('更多卡片选项', { exact: true }).click();
   const filename = 'discarded-draft.txt';
   const upload = /\/api\/board\/attachments\?name=discarded-draft\.txt$/;
   await page.route(upload, () => {});
   const started = page.waitForRequest(upload);
-  await editor.locator('input[type="file"]').setInputFiles({
+  const attachment = editor.getByLabel('添加附件', { exact: true }).and(editor.locator('input[type="file"]'));
+  assert.equal(await attachment.isVisible(), true);
+  assert.equal(await editor.getByRole('textbox', { name: '标签', exact: true }).isVisible(), false);
+  await attachment.setInputFiles({
     name: filename, mimeType: 'text/plain', buffer: Buffer.from('Unsaved card attachment.'),
   });
   const request = await started;
@@ -158,13 +160,19 @@ test('a project can start with only a name and save an optional directory later'
   assert.equal(await name.getAttribute('aria-required'), 'true');
   assert.equal(await submit.isDisabled(), true);
   assert.equal(await submit.getAttribute('title'), '请输入项目名称');
+  assert.equal(await create.getByRole('alert').count(), 0);
+  await create.locator('[data-semantic-key="editor-commit-reason"]').waitFor({ state: 'hidden' });
   assert.equal(await submit.evaluate(button => (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
     .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), '请输入项目名称');
   await name.fill('\u3000 ');
   assert.equal(await submit.getAttribute('title'), '请输入项目名称');
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await create.getByRole('alert').count(), 0);
+  await create.locator('[data-semantic-key="editor-commit-reason"]').waitFor({ state: 'hidden' });
   await name.fill(`${'项'.repeat(85)}ab`);
   assert.equal(await submit.isDisabled(), true);
   assert.equal(await submit.getAttribute('title'), '项目名称不能超过 256 个 UTF-8 字节。');
+  await create.getByRole('alert').filter({ hasText: '项目名称不能超过 256 个 UTF-8 字节。' }).waitFor();
   await name.fill(`${'项'.repeat(85)}a`);
   await create.getByRole('button', { name: '创建项目', exact: true, disabled: false }).waitFor();
 

@@ -11,6 +11,8 @@ async function saveFixtureConfig(fixture, values) {
   return filename;
 }
 
+const emptyCollection = name => name === '模型配置' ? '暂无自定义模型配置。' : `暂无${name}。`;
+
 async function openSettings(page, width) {
   await page.setViewportSize({ width, height: 740 });
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
@@ -46,7 +48,7 @@ test('empty settings collections show what can be added without an empty-list re
       assert.equal(await settings.getByRole('button', { name: '恢复列表默认值', exact: true }).count(), 0);
       for (const [name] of collections) {
         await settings.getByRole('region', { name, exact: true })
-          .getByText(`暂无${name}。`, { exact: true }).waitFor();
+          .getByText(emptyCollection(name), { exact: true }).waitFor();
       }
     }
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
@@ -58,11 +60,13 @@ test('saved collections place their effective reset beside Add and show the resu
   const fixture = await browserFixture(t);
   const filename = await saveFixtureConfig(fixture, {
     profiles: { local: { provider: 'responses', model: 'fixture' } },
+    reasoning_evaluators: { review: { provider: 'typesafe' } },
     plugins: { example: { command: '/usr/bin/true', args: [] } },
   });
   const { settings, select } = await openSettings(fixture.page, 390);
   const collections = [
     ['模型', '添加模型配置', 'local', '模型配置', 'profiles'],
+    ['模型', '添加评估器', 'review', '推理评估器', 'reasoning_evaluators'],
     ['扩展', '添加插件', 'example', '插件', 'plugins'],
   ];
   for (const [section, add, item, name, key] of collections) {
@@ -74,7 +78,7 @@ test('saved collections place their effective reset beside Add and show the resu
     await edit.waitFor();
     await reset.click();
     await settings.getByRole('region', { name, exact: true })
-      .getByText(`暂无${name}。`, { exact: true }).waitFor();
+      .getByText(emptyCollection(name), { exact: true }).waitFor();
     assert.equal(await edit.count(), 0);
     assert.equal(await reset.count(), 0);
     assert.equal(await addition.isEnabled(), true);
@@ -91,6 +95,6 @@ test('a malformed saved collection can still be restored', { timeout: 60000 }, a
   const profiles = settings.getByRole('region', { name: '模型配置', exact: true });
   await profiles.getByText('无法读取模型配置列表。', { exact: true }).waitFor();
   await settings.getByRole('button', { name: '恢复列表默认值', exact: true }).click();
-  await profiles.getByText('暂无模型配置。', { exact: true }).waitFor();
+  await profiles.getByText('暂无自定义模型配置。', { exact: true }).waitFor();
   assert.equal(Object.hasOwn(JSON.parse(await readFile(filename, 'utf8')), 'profiles'), false);
 });

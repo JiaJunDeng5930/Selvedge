@@ -231,7 +231,7 @@ test('Returning from a search hit restores its filtered results page and reading
   const work = main.getByRole('combobox', { name: '工作组', exact: true });
   const previous = main.getByRole('button', { name: '上一页', exact: true });
   const back = main.getByRole('button', { name: '返回搜索结果', exact: true });
-  const hit = main.getByRole('button', { name: /^Archive reading fixture · 消息 #/ }).nth(16);
+  const hit = main.getByRole('button', { name: /^Archive reading fixture · (用户|助手)$/u }).nth(16);
   const picker = page.getByRole('button', { name: /^对话范围 · / });
   const scope = page.getByRole('menu', { name: '对话范围', exact: true });
   await picker.click();
@@ -344,7 +344,7 @@ test('A search result opens and highlights a deep visible match while later repl
   const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
   await query.fill(enteredQuery);
   await query.press('Enter');
-  const hit = page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true });
+  const hit = page.getByRole('main').getByRole('button', { name: `${title} · 助手`, exact: true });
   await hit.press('Enter');
   const keyword = timeline.getByText(marker, { exact: true });
   await keyword.waitFor();

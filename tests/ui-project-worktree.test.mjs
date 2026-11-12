@@ -28,10 +28,10 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const worktree = project.getByRole('checkbox', { name: worktreeName, exact: true });
   const reason = message => project.getByRole('status').filter({ hasText: message });
   const name = project.getByRole('textbox', { name: '项目名称', exact: true });
-  const directory = project.getByRole('textbox', { name: '目录路径', exact: true });
   const add = project.getByRole('button', { name: '添加目录', exact: true });
   const browse = project.getByRole('button', { name: '浏览…', exact: true });
   const pathEntry = project.locator('[data-semantic-key="project-directory-input"]');
+  const directory = pathEntry.getByRole('textbox');
   const missingMessage = '请先添加并选择主目录。';
   const notGitMessage = '主目录需要位于包含至少一次提交的 Git 仓库中。';
   const missing = reason(missingMessage);
@@ -137,8 +137,31 @@ test('Project worktree defaults require a committed Git primary only while enabl
   await directory.fill(repository);
   await add.click();
   await assertBlockingReason(notGitMessage);
-  await project.getByRole('region', { name: repository, exact: true })
-    .getByRole('button', { name: '设为主目录', exact: true }).click();
+  await pathEntry.getByRole('textbox', { name: '添加另一个目录', exact: true }).waitFor();
+  const repositoryRoot = project.getByRole('region', { name: repository, exact: true });
+  const heading = repositoryRoot.locator('[data-semantic-key="workspace-member-heading"]');
+  const basename = heading.getByText('Git workspace', { exact: true });
+  const primaryLabel = heading.getByText('主目录', { exact: true });
+  await basename.waitFor();
+  const fullPath = repositoryRoot.getByText(repository, { exact: true });
+  await fullPath.waitFor();
+  await repositoryRoot.getByRole('button', { name: '设为主目录', exact: true }).click();
+  await primaryLabel.waitFor();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await basename.scrollIntoViewIfNeeded();
+  const [nameBox, primaryBox, fullPathBox, selectable] = await Promise.all([
+    basename.boundingBox(), primaryLabel.boundingBox(), fullPath.boundingBox(),
+    fullPath.evaluate(node => getComputedStyle(node).userSelect !== 'none'),
+  ]);
+  const center = box => box.y + box.height / 2;
+  assert.ok(nameBox && primaryBox && fullPathBox &&
+    Math.abs(center(nameBox) - center(primaryBox)) <= 1 &&
+    nameBox.x + nameBox.width <= primaryBox.x + 1,
+    'The directory basename and primary role share a line in a narrow project editor');
+  assert.ok(fullPathBox.y >= Math.max(nameBox.y + nameBox.height, primaryBox.y + primaryBox.height) - 1 &&
+    selectable,
+    'The complete path stays readable and selectable below the short name');
+  await page.setViewportSize({ width: 1280, height: 900 });
   await project.getByRole('region', { name: ordinary, exact: true })
     .getByRole('button', { name: '移除目录', exact: true }).click();
 

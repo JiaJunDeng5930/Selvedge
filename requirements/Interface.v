@@ -193,8 +193,9 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     interactive preview shows a loading status in place of its source. A
     refusal to mount leaves the original source available by disclosure.
     Headings distinguish sections in a long interactive answer. Each source
-    disclosure stays with its fence, and source copy and wrapping appear only
-    beside the revealed source. A final reset for the fence shares its action bar.
+    disclosure stays with its fence as an icon with an accessible label.
+    Source copy and wrapping appear beside the revealed source.
+    A final reset for the fence shares its action bar.
     Markdown and authored tables share row separators and header emphasis.
     Graph node controls
     retain native size within their own scrollable enclosures, with a readable
@@ -308,10 +309,13 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The new conversation composer exposes a compact settings icon in its
     toolbar. The menu displays project, actual directory and run settings
     with the current choices. Opening it keeps the composer in place.
+    The permissions menu describes who approves each choice and presents
+    shared filesystem and network limits once.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The empty graph page
-    shows the same direction beside its creation action. The same graph editor can
-    also accept a structured declaration for other rules.
+    shows the same direction beside its creation action. The entry action, form
+    title and commit label use the same name for creating a conversation relay.
+    The same graph editor can also accept a structured declaration for other rules.
     When the current scope has too few conversations, the source and receiver
     form and its unavailable commit identify how many more are needed.
     A conversation created from graph setup belongs to that scope. The
@@ -321,18 +325,21 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Opening a search result leaves the query, filters and page of results
     available for further comparison. Results lead with a short readable
-    excerpt and distinguish the matching text within it. A source-only match links to the original message and
-    shows a short label. Opening a readable match scrolls to and highlights
-    the matching text once it is rendered.
+    excerpt and distinguish the matching text within it. A result group names
+    its conversation once and identifies each message by its speaker role.
+    A source-only match links to the original message and shows a short label.
+    Opening a readable match scrolls to and highlights the matching text
+    once it is rendered.
     The conversation offers a direct return to the result list at the reader's
     previous position.
     Before adding a conversation to the board or linking it to an existing
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether
-    saving schedules execution or leaves the card for a later action. Card text
-    errors name the repair beside the relevant field when both fit. The assignee
-    filter keeps complete rows in its scrollable list, and card actions keep their labels
-    aligned with unavailable actions after the available actions.
+    saving schedules execution or leaves the card for a later action. An empty
+    required text field has a neutral prompt while submission is unavailable.
+    Invalid entered text names the repair beside the relevant field when both fit.
+    The assignee filter keeps complete rows in its scrollable list, and card
+    actions align their labels and list available actions first.
     Assisted capture offers the board default when it names an eligible
     drafting model. A missing selection leaves a prompt and its reason beside
     the model field.
@@ -341,8 +348,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     stage selected by its entry point.
     The fixed action area shows the same repair when the field or its inline
     explanation does not fit in view. Each repair is visible in one place.
-    An unadded directory path shows one reminder beside
-    its input.
+    Selected project directories show the short name and role before the full
+    path. An unadded directory path shows one reminder beside its input.
     The automatic execution setting explains which cards can start and when,
     including eligible cards already on the board.
 
@@ -369,6 +376,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     [reader_occurrences_preserve_the_task_reading_position] constrain the requested
     focus target and retained reading state. The browser performs the physical
     focus and scroll. Anchored menus refer to their actual trigger.
+    On desktop the conversation reader leaves space between the content and its
+    scrollbar. The scrollbar uses a subdued color from the reading palette.
 
     Publication separates a prepared document from the renderer's accepted
     generation. Markdown and canonical fence observers must catch up before

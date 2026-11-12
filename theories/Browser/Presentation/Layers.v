@@ -187,9 +187,10 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
        (Control "automation" "自动执行" Secondary input
          (if busy then Busy "正在更新设置" else
           domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))))[]]]end)++
- [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
+ [Node(part parent "drafting-model")"drafting-model" "默认整理模型"Roles.Field
   (BoardProfile automatic selected choices
-    (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
+    (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[];
+  information parent "drafting-model-purpose" Information.Description "用于整理卡片的标题和描述。"])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities

@@ -137,13 +137,36 @@
   color: var(--selvedge-muted);
   font-size: var(--rich-support-size);
 }
-.interactive-preview-status button {
-  padding: .35em .6em;
-  color: var(--selvedge-text);
-  background: transparent;
-  border: 1px solid var(--selvedge-border);
-  border-radius: .4em;
-  font: inherit;
+button[data-source-disclosure] {
+  --source-disclosure-target: max(2rem, 32px);
+  flex: none;
+  inline-size: var(--source-disclosure-target) !important;
+  min-inline-size: var(--source-disclosure-target) !important;
+  min-block-size: var(--source-disclosure-target) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--selvedge-muted) !important;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  button[data-source-disclosure] { --source-disclosure-target: max(2.75rem, 44px); }
+}
+button[data-source-disclosure]:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--selvedge-inset) !important;
+  color: var(--selvedge-text) !important;
+}
+button[data-source-disclosure][data-help]::before {
+  content: "</>";
+  display: grid;
+  place-items: center;
+  font: 600 .8125rem / 1 ui-monospace, monospace;
+  letter-spacing: -.08em;
+}
+button[data-source-disclosure]::after {
+  font-size: var(--rich-support-size, .8125rem);
+  line-height: 1.35;
 }
 .physical-markdown .markdown .interactive-markdown-target:empty { display: none; }
 .physical-markdown .markdown .code-block[data-interactive-source-visible="false"] > .code-toolbar {
@@ -183,27 +206,14 @@
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] {
   justify-content: flex-start !important;
   flex-wrap: wrap !important;
-  column-gap: 1rem !important;
+  column-gap: .5rem !important;
   margin-block-start: .4rem;
   padding-block-start: .2rem;
 
-  & > [data-interactive-component="button"] + button[data-semantic-key="interactive-markdown/source-disclosure"] {
-    position: relative;
+  & > [data-interactive-component="button"] {
+    inline-size: fit-content !important;
+    min-inline-size: 0 !important;
 
-    &::after {
-      content: "";
-      position: absolute;
-      inset-block: 25%;
-      inset-inline-start: -.5rem;
-      border-inline-start: 1px solid var(--selvedge-border);
-      pointer-events: none;
-    }
+    & > button { font-size: var(--rich-support-size) !important; }
   }
-}
-.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] > [data-interactive-component="button"] {
-  inline-size: fit-content !important;
-  min-inline-size: 0 !important;
-}
-.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] button {
-  font-size: var(--rich-support-size) !important;
 }

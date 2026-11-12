@@ -273,12 +273,16 @@ export class Markdown {
       source.status.firstChild.textContent = '无法显示交互界面';
       const disclosure = document.createElement('button');
       disclosure.type = 'button';
-      disclosure.textContent = '展开源码';
-      disclosure.setAttribute('aria-expanded', 'false');
-      disclosure.addEventListener('click', () => {
-        const expanded = source.frame.toggleAttribute('data-fallback-source-open');
+      disclosure.dataset.sourceDisclosure = '';
+      const describe = expanded => {
+        const label = expanded ? '收起源码' : '展开源码';
+        disclosure.setAttribute('aria-label', label);
         disclosure.setAttribute('aria-expanded', String(expanded));
-        disclosure.textContent = expanded ? '收起源码' : '展开源码';
+        disclosure.dataset.help = label;
+      };
+      describe(false);
+      disclosure.addEventListener('click', () => {
+        describe(source.frame.toggleAttribute('data-fallback-source-open'));
         options.onChange?.();
       });
       source.status.append(disclosure);

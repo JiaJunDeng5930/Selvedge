@@ -81,6 +81,102 @@ test('Settings applies configuration edits and shows their saved values after re
   assert.equal(await relayUrl.inputValue(), '');
 });
 
+test('Task and Service settings restore only saved values that differ from their defaults', { timeout: 60000 }, async t => {
+  const { page, running } = await browserFixture(t);
+  const configuration = path.join(running.service.home, 'config.json');
+  await writeFile(configuration, `{"format":${JSON.stringify(defaultConfig.format)},
+    "max_fork":4e0,"max_descendants":64,"cloud":null,"host":"127.0.0.1","port":7421,"remote":false}`);
+  const saved = async () => JSON.parse(await readFile(configuration, 'utf8'));
+  const settings = page.getByRole('dialog', { name: '设置', exact: true });
+  const button = (container, name) => container.getByRole('button', { name, exact: true });
+  const reset = container => button(container, '恢复默认');
+  const category = name => settings.getByRole('radio', { name, exact: true }).click();
+  const openSettings = () => button(page.getByRole('navigation', { name: 'Global navigation', exact: true }), '设置').click();
+  const textbox = (container, name) => container.getByRole('textbox', { name, exact: true });
+  const controls = field => field.locator('xpath=ancestor::*[@data-semantic-key="settings-controls"]');
+
+  async function restoreField(field, key, initial, changed, saveLabel) {
+    const restore = reset(controls(field));
+    await restore.waitFor({ state: 'hidden' });
+    if (key === 'host') await field.selectOption({ label: changed });
+    else await field.fill(changed);
+    await button(settings, saveLabel).click();
+    await restore.waitFor();
+    assert.equal((await saved())[key], key === 'host' ? changed : Number(changed));
+    assert.equal(await reset(settings).count(), 1, `Only ${key} differs from its default`);
+    await restore.click();
+    await restore.waitFor({ state: 'hidden' });
+    const displayed = key === 'host' ? await field.locator('option:checked').textContent() : await field.inputValue();
+    assert.equal(displayed, initial);
+    assert.equal(Object.hasOwn(await saved(), key), false);
+  }
+
+  async function restoreForm(openLabel, title, key, fill, expected) {
+    const form = page.getByRole('dialog', { name: title, exact: true });
+    const open = () => button(settings, openLabel).click();
+    await open();
+    await form.waitFor();
+    assert.equal(await reset(form).count(), 0);
+    await fill(form);
+    await button(form, '保存').click();
+    await form.waitFor({ state: 'hidden' });
+    assert.deepEqual((await saved())[key], expected);
+    await open();
+    await reset(form).click();
+    await form.waitFor({ state: 'hidden' });
+    assert.equal(Object.hasOwn(await saved(), key), false);
+    await open();
+    await form.waitFor();
+    assert.equal(await reset(form).count(), 0);
+    await button(form, '取消').click();
+    await form.waitFor({ state: 'hidden' });
+  }
+
+  await openSettings();
+  await category('任务');
+  const direct = textbox(settings, '直接分支上限');
+  const total = textbox(settings, '分支总数上限');
+  await total.waitFor();
+  assert.equal(await reset(settings).count(), 0);
+  await restoreField(direct, 'max_fork', '4', '4294967295', '保存');
+  await restoreField(total, 'max_descendants', '64', '4294967294', '保存');
+  assert.equal((await saved()).cloud, null);
+
+  const cloud = { backend: 'tencent_cvm', tencent_cvm: {
+    region: 'ap-guangzhou', zone: 'ap-guangzhou-1', image_id: 'img-fixture', instance_type: 'S5.MEDIUM4',
+    spot_max_price: '0.25', vpc_id: 'vpc-fixture', subnet_id: 'subnet-fixture',
+    security_group_ids: ['sg-fixture'], key_id: 'skey-fixture', ssh_private_key: '/fixture/id_rsa',
+  } };
+  await restoreForm('配置云端工作区', '云端工作区', 'cloud', async form => {
+    const config = cloud.tencent_cvm;
+    for (const [name, value] of [
+      ['地域', config.region], ['可用区', config.zone], ['镜像 ID', config.image_id],
+      ['实例规格', config.instance_type], ['竞价价格上限', config.spot_max_price],
+      ['VPC ID', config.vpc_id], ['子网 ID', config.subnet_id], ['SSH 密钥 ID', config.key_id],
+      ['私钥路径', config.ssh_private_key],
+    ]) await textbox(form, name).fill(value);
+    await button(form, '添加安全组 ID').click();
+    await textbox(form, '安全组 ID 1').fill(config.security_group_ids[0]);
+  }, cloud);
+
+  await category('服务');
+  const address = settings.getByRole('combobox', { name: '监听地址', exact: true });
+  const port = textbox(settings, '监听端口');
+  await port.waitFor();
+  assert.equal(await reset(settings).count(), 0);
+  await restoreField(address, 'host', '127.0.0.1', '::1', '保存地址');
+  await restoreField(port, 'port', '7421', '65535', '保存端口');
+  await restoreForm('配置中继', '远程控制中继', 'remote',
+    form => textbox(form, '中继网址').fill('https://relay.example'), { relay_url: 'https://relay.example' });
+
+  await page.reload();
+  await openSettings();
+  await category('服务');
+  assert.equal(await address.locator('option:checked').textContent(), '127.0.0.1');
+  assert.equal(await port.inputValue(), '7421');
+  assert.equal(await reset(settings).count(), 0);
+});
+
 test('Context settings show seconds and offer reset only for a changed value', { timeout: 60000 }, async t => {
   const { page, running } = await browserFixture(t);
   const configuration = path.join(running.service.home, 'config.json');

@@ -30,8 +30,9 @@ test('conversation search excerpts show rendered text around a match and label s
   await taskIdle(fixture.running.service, task_id);
   await page.getByRole('button', { name: '搜索对话', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const assistantHit = page.getByRole('button', { name: `${title} · 助手`, exact: true });
   const result = page.locator('[data-semantic-key="result"]').filter({
-    has: page.getByRole('button', { name: new RegExp('^' + title + ' · 消息 #') }),
+    has: assistantHit,
   });
   const search = async text => { await query.fill(text); await query.press('Enter'); };
 
@@ -40,12 +41,12 @@ test('conversation search excerpts show rendered text around a match and label s
   assert.equal(await result.locator('mark').textContent(), 'Review-only marker');
   const emphasis = await result.evaluate(card => {
     const excerpt = card.querySelector('[data-semantic-key="result-excerpt"]');
-    const context = card.querySelector('[data-semantic-key="result-context"]');
+    const speaker = card.querySelector('[data-semantic-key="result-speaker"]');
     return { excerpt: parseFloat(getComputedStyle(excerpt).fontSize),
-      context: parseFloat(getComputedStyle(context).fontSize),
-      beforeContext: excerpt.getBoundingClientRect().bottom <= context.getBoundingClientRect().top };
+      speaker: parseFloat(getComputedStyle(speaker).fontSize),
+      speakerFirst: speaker.getBoundingClientRect().bottom <= excerpt.getBoundingClientRect().top };
   });
-  assert.ok(emphasis.beforeContext && emphasis.excerpt > emphasis.context);
+  assert.ok(emphasis.speakerFirst && emphasis.excerpt > emphasis.speaker);
   const readable = await result.innerText();
   assert.doesNotMatch(readable, /<ui|internal-label|selvedge-ui|\*\*|example\.test|Earlier context|next paragraph|上一条|下一条/);
 
@@ -55,7 +56,8 @@ test('conversation search excerpts show rendered text around a match and label s
   await search('hidden-source-token');
   await result.getByText('在消息原文中找到匹配', { exact: true }).waitFor();
   assert.doesNotMatch(await result.innerText(), /<ui|hidden-source-token|selvedge-ui/);
-  await result.getByRole('button').click();
+  await assistantHit.getByText('助手', { exact: true }).waitFor();
+  await assistantHit.click();
   const original = page.locator('[data-reading-root] [data-history-match]');
   await original.getByText('Confirm the archive', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => CSS.highlights?.has('selvedge-history-match')), false);
@@ -97,9 +99,18 @@ test('Search groups an interleaved title and message hits and returns to each se
   assert.equal(await titleHit.locator('mark').textContent(), '发布前');
   assert.deepEqual(await excerpts(first).allTextContents(), [firstReply, firstPrompt]);
   assert.deepEqual(await excerpts(second).allTextContents(), [secondReply]);
+  assert.deepEqual(await main.locator('[data-semantic-key="result-speaker"]').allTextContents(), ['助手', '用户', '助手']);
+  assert.doesNotMatch(await main.innerText(), /消息\s*#\d+/u);
   assert.deepEqual(await main.locator('[data-semantic-key="result-excerpt"] mark').allTextContents(), ['发布前', '发布前', '发布前']);
   assert.equal((await first.innerText()).split(firstTitle).length - 1, 1);
   assert.equal((await second.innerText()).split(secondTitle).length - 1, 1);
+
+  const checkIndent = card => card.evaluate(node => {
+    const title = node.querySelector('[data-semantic-key="result-title"]').getBoundingClientRect();
+    return [...node.querySelectorAll('[data-semantic-key="result-excerpt"]')]
+      .every(excerpt => excerpt.getBoundingClientRect().left >= title.left + 8);
+  });
+  for (const card of [first, second]) assert.ok(await checkIndent(card));
 
   const openAndReturn = async (hit, located) => {
     await hit.press('Enter');
@@ -111,6 +122,7 @@ test('Search groups an interleaved title and message hits and returns to each se
   await openAndReturn(titleHit, () => main.getByText(firstReply, { exact: true }).waitFor());
   await page.setViewportSize({ width: 320, height: 740 });
   await page.locator('[data-semantic-key="compact-header"]').waitFor();
+  for (const card of [first, second]) assert.ok(await checkIndent(card));
   for (const [card, text] of [[first, firstReply], [first, firstPrompt], [second, secondReply]]) {
     const hit = card.getByRole('button').filter({ hasText: text });
     await openAndReturn(hit, () => page.waitForFunction(text => {

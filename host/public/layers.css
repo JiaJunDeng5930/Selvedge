@@ -153,6 +153,7 @@ dialog[data-semantic-key="project-editor"] {
     padding-block: var(--panel-related-space) var(--panel-inset) !important;
     overflow: hidden auto !important;
     overscroll-behavior: contain;
+    &:has(> [data-semantic-key="card-options"]) { padding-block: .25lh .5lh !important; }
   }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-actions"] {
     display: flex !important;
@@ -533,6 +534,35 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   gap: 0 !important;
   overflow-wrap: anywhere;
 }
+[data-semantic-key="workspace-member-heading"] {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  gap: .5rem !important;
+}
+[data-semantic-key="workspace-member-heading"] > [data-semantic-key="name"] {
+  flex: 0 1 auto !important;
+  inline-size: auto !important;
+  min-inline-size: 0 !important;
+  font-weight: 600 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-semantic-key="workspace-member-heading"] > [data-semantic-key="primary-state"] {
+  flex: none !important;
+  inline-size: auto !important;
+  padding: .08rem .4rem !important;
+  border-radius: 999px !important;
+  background: var(--selvedge-inset) !important;
+  white-space: nowrap;
+}
+[data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {
+  display: block !important;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
 [data-semantic-key="workspace-member-actions"],
 [data-semantic-key="directory-entry-actions"] {
   display: flex !important;
@@ -673,39 +703,29 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
 }
 
 [data-surface-role="dialog-body"]:has(> [data-semantic-key="card-options"]) {
-  gap: .5rem !important;
+  gap: .25rem !important;
 }
-[data-surface-role="dialog-body"]:has(> [data-semantic-key="card-options"])
-  textarea[data-semantic-key="description"] {
+[data-semantic-key="card-content"] {
+  display: flex !important;
+  flex-direction: column;
+  gap: .25rem !important;
+}
+[data-semantic-key="card-content"] textarea[data-semantic-key="description"] {
   min-block-size: 3.75rem !important;
 }
 [data-semantic-key="card-options"] > [data-editor-options-body] {
-  gap: .375rem;
-}
-@media (min-width: 768px) {
-  [data-semantic-key="card-options"] > [data-editor-options-body] {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, .55fr);
-    column-gap: .5rem;
-  }
-  [data-semantic-key="card-options"] > [data-editor-options-body]
-    > :not(:has(> textarea[data-semantic-key="labels"]), [data-semantic-key="attachments"]) {
-    grid-column: 1 / -1;
-  }
-  [data-semantic-key="card-options"] > [data-editor-options-body] > [data-semantic-key="attachments"] {
-    align-self: end;
-  }
+  gap: .25rem;
 }
 [data-semantic-key="card-options"] [data-semantic-key="card-option-pair"] {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   gap: .5rem !important;
 }
-[data-semantic-key="card-options"] [data-semantic-key="attachments"] > [data-file-picker] {
+[data-semantic-key="card-content"] [data-semantic-key="attachments"] > [data-file-picker] {
   align-self: flex-start;
   padding-inline: .375rem;
 }
-[data-semantic-key="card-options"] [data-semantic-key="attachments"] > [data-file-picker]:hover {
+[data-semantic-key="card-content"] [data-semantic-key="attachments"] > [data-file-picker]:hover {
   background: var(--selvedge-hover);
 }
 

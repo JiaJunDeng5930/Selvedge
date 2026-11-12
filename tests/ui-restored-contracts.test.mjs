@@ -359,7 +359,8 @@ test('keyboard users can read unavailable action reasons, choice context and col
   await automatic.focus();
   assert.match(await accessibleDescription(automatic), /echo/,
     'The reviewer context of a permission choice belongs to its accessible description');
-  assert.match(await accessibleDescription(automatic), /工作目录内可写/);
+  const permissionChoices = page.getByRole('radiogroup', { name: '审批方式', exact: true });
+  assert.match(await accessibleDescription(permissionChoices), /工作目录内可写，联网受限/);
   await page.keyboard.press('Escape');
 
   const { task_id } = await command({ op: 'create', profile: 'demo', message: 'A readable activity summary' });

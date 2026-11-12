@@ -26,7 +26,7 @@ Definition editor_title e := match e with
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
-|TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
+|TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
 Definition submit_label snapshot draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>
@@ -35,7 +35,7 @@ Definition submit_label snapshot draft e :=match Draft.contents draft with
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
-|TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
+|TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
 |Compact _=>"压缩"|TitlePrompts=>"保存"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
@@ -109,20 +109,13 @@ Definition graph_handoff body :=
  match body with
  |Draft.TaskGraphBody _ _ parsed _=>bind parsed GraphAuthoring.observe_handoff
  |_=>None end.
-Definition field_obstruction_visible {e} (draft:Draft.draft) (cause:UX.obstruction e) :=
- (* An empty project name is the initial input state. Keep the action
-    unavailable through the assessment and show errors for entered names. *)
- match Draft.contents draft with
- |Draft.ProjectBody _ name _ _=>
-   negb(String.eqb name "" && String.eqb(UX.obstruction_code cause)"invalid_project_name")
- |_=>true end.
-Definition visible_field_obstruction {e} draft (outcome:UX.assessment_result e) :=
+Definition visible_field_obstruction {e} (outcome:UX.assessment_result e) :=
  cause<-Observe.attention_obstruction outcome;;
  match UX.obstruction_target cause with
- |UX.RepairField subject=>if field_obstruction_visible draft cause then Some(subject,cause)else None
+ |UX.RepairField subject=>Some(subject,cause)
  |UX.RepairEditor=>None end.
-Definition commit_reason {e} parent draft (assessment:UX.assessment e) : list(node Input.input) :=
- match visible_field_obstruction draft(UX.assessment_outcome assessment)with
+Definition commit_reason {e} parent (assessment:UX.assessment e) : list(node Input.input) :=
+ match visible_field_obstruction(UX.assessment_outcome assessment)with
  |Some(subject,cause)=>
    (* The directory entry already displays this instruction beside Add and Clear. *)
    if String.eqb(UX.obstruction_code cause)Observe.unadded_project_directory_code then []
@@ -131,8 +124,7 @@ Definition commit_reason {e} parent draft (assessment:UX.assessment e) : list(no
     [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
  |None=>[]end.
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
- let obstruction:=visible_field_obstruction(Session.current_draft s e)
-   (UX.assessment_outcome(Observe.observe_assessment snapshot s e))in
+ let obstruction:=visible_field_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))in
  fold_right(fun field rest=>match field_node snapshot s e parent field with
  |Some node=>node::((match obstruction with
   |Some(subject,cause)=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
@@ -254,7 +246,9 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
  let details:=List.app
    [pair "classification" (List.app stage [Fields.CardPriority]);
     pair "ownership" [Fields.CardOwner;Fields.CardProject]]
-   (field_nodes snapshot s e parent [Fields.CardLabels;Fields.CardAttachments]) in
+   (field_nodes snapshot s e parent [Fields.CardLabels]) in
+ let content:=Node(part parent "card-content")"card-content" "" Roles.Content Region
+   (field_nodes snapshot s e parent [Fields.CardDescription;Fields.CardAttachments]) in
  let capture:=match target with
   |Identity.BoardCard None=>
     let fields:=[Fields.ContinueCapture;Fields.AssistedCapture] in
@@ -263,8 +257,8 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
       |_=>fields end in
     [field_section snapshot s e parent "创建设置" fields]
   |_=>[]end in
- (source++field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
- [editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
+ (source++field_nodes snapshot s e parent [Fields.CardTitle]++
+ [content;editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
 Definition fork_editor snapshot s e parent task :=
  let source:=value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)) in
  [read_only parent "fork-source" "来源对话" source;
@@ -355,7 +349,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let reason:=commit_reason parent draft assessment in
+ let reason:=commit_reason parent assessment in
  let consequence:=match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some value=>[information parent "card-save-consequence" Information.Description

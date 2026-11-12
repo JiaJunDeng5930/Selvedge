@@ -223,13 +223,22 @@ test('new card text checks guide the relevant field in Chinese', async t => {
     const button = document.getElementById(id);
     return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
   }, await create.getAttribute('id'));
-  await reason('请输入标题。');
-  assert.equal(await title.getAttribute('placeholder'), null);
+  async function missingTitle(prompt) {
+    await dialog.getByRole('alert').waitFor({ state: 'hidden' });
+    await dialog.locator('[data-semantic-key="editor-commit-reason"]').waitFor({ state: 'hidden' });
+    await page.waitForFunction(({ id, prompt }) => document.getElementById(id)?.title === prompt,
+      { id: await create.getAttribute('id'), prompt });
+    assert.equal(await create.isDisabled(), true);
+  }
+  await missingTitle('请输入标题。');
+  assert.equal(await title.getAttribute('placeholder'), '请输入标题');
   assert.equal(await description.getAttribute('placeholder'), null);
+  await title.fill('\u3000 ');
+  await missingTitle('请输入标题。');
 
   await description.fill('Use this description as the source');
-  await reason('请输入标题。');
   await dialog.getByText('更多卡片选项', { exact: true }).click();
+  await missingTitle('请输入标题。');
   await page.waitForFunction(() => {
     const dialog = document.querySelector('dialog[open]');
     const body = dialog?.querySelector('[data-surface-role="dialog-body"]');
@@ -240,11 +249,13 @@ test('new card text checks guide the relevant field in Chinese', async t => {
   await assisted.check();
   await ready();
   await description.clear();
-  await reason('请输入标题或描述。');
+  await missingTitle('请输入标题或描述。');
 
   await assisted.uncheck();
   await title.fill('长'.repeat(667));
   await reason('标题太长，请缩短。');
+  await title.clear();
+  await missingTitle('请输入标题。');
   await title.fill('Ready to save');
   await ready();
   await create.click();
@@ -349,8 +360,8 @@ test('assisted card creation keeps model selection truthful when the catalog cha
 
   await refresh(['replacement-fixture']);
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
-  const settingsProfile = page.getByRole('combobox', { name: '草稿模型', exact: true });
-  await settingsProfile.locator('option:checked').filter({ hasText: '请选择草稿模型' }).waitFor({ state: 'attached' });
+  const settingsProfile = page.getByRole('combobox', { name: '默认整理模型', exact: true });
+  await settingsProfile.locator('option:checked').filter({ hasText: '请选择模型' }).waitFor({ state: 'attached' });
 });
 
 test('assisted card creation can fall back to manual save when no drafting model exists', async t => {
@@ -419,6 +430,14 @@ test('card save shows whether a model will start, wait, or remain manual', async
     return beside(boxes[0], boxes[1]) && beside(boxes[2], boxes[3]);
   }, await Promise.all(optionFields.map(field => field.getAttribute('id'))));
   const upload = first.locator('input[type="file"]').and(first.getByLabel('添加附件', { exact: true }));
+  const labels = first.getByRole('textbox', { name: '标签', exact: true });
+  await labels.fill('发布\n体验走查');
+  assert.equal(await labels.inputValue(), '发布\n体验走查');
+  assert.ok(await labels.evaluate(input => {
+    const style = getComputedStyle(input);
+    return input.clientHeight - parseFloat(style.paddingBlockStart) - parseFloat(style.paddingBlockEnd)
+      >= 3 * parseFloat(style.lineHeight) - 1;
+  }), 'The label editor has three visible lines');
   assert.ok(await upload.evaluate(input => {
     const control = input.closest('label');
     const icon = control.querySelector('svg').getBoundingClientRect();
@@ -429,6 +448,14 @@ test('card save shows whether a model will start, wait, or remain manual', async
     return label.left >= icon.right && label.left - icon.right < 12
       && icon.top < label.bottom && label.top < icon.bottom;
   }), 'The attachment label and paperclip are in one adjacent control');
+  assert.ok(await upload.evaluate(input => {
+    const dialog = input.closest('dialog');
+    const attachment = input.closest('label').getBoundingClientRect();
+    const description = dialog.querySelector('textarea[data-semantic-key="description"]').getBoundingClientRect();
+    const options = dialog.querySelector('[data-semantic-key="card-options"] > summary').getBoundingClientRect();
+    return attachment.top >= description.bottom && attachment.top - description.bottom <= 12 &&
+      attachment.bottom <= options.top;
+  }), 'Attachments follow the description, above the options');
   const drafting = first.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
   const continuous = first.getByRole('checkbox', { name: '创建后继续添加', exact: true });
   const [captureBox, draftingBox] = await Promise.all([continuous, drafting].map(checkbox => checkbox.evaluate(input => {
@@ -451,12 +478,16 @@ test('card save shows whether a model will start, wait, or remain manual', async
   const [saved] = (await command({ op: 'list_cards' })).cards;
   assert.equal(saved.status, 'backlog');
   assert.equal(saved.task_id, null);
+  assert.deepEqual(saved.labels, ['发布', '体验走查']);
 
   const card = page.getByRole('article', { name: title, exact: true });
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
   await page.getByRole('button', { name: '编辑卡片', exact: true }).click();
   const edit = page.getByRole('dialog', { name: '编辑卡片', exact: true });
   await edit.getByText('更多卡片选项', { exact: true }).click();
+  const editLabels = edit.getByRole('textbox', { name: '标签', exact: true });
+  assert.equal(await editLabels.inputValue(), '发布\n体验走查');
+  await editLabels.fill('体验走查\n已复核');
   await stage(edit).selectOption('todo');
   await consequence(edit, '保存后会尝试启动对话。');
   await settings(false);
@@ -468,6 +499,7 @@ test('card save shows whether a model will start, wait, or remain manual', async
   const active = await command({ op: 'read_card', card_id: saved.card_id });
   assert.equal(active.status, 'in_progress');
   assert.notEqual(active.task_id, null);
+  assert.deepEqual(active.labels, ['体验走查', '已复核']);
   const movedTrigger = page.locator('[data-board-stage="in_progress"]')
     .getByRole('article', { name: title, exact: true }).getByRole('button', { name: '卡片操作', exact: true });
   await movedTrigger.waitFor();
@@ -508,13 +540,15 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   const submit = footer.getByRole('button', { name: '创建卡片', exact: true });
   const reasonText = '看板未设置默认整理模型，请选择模型。';
   const reason = footer.locator('[data-semantic-key="editor-commit-reason"]');
-  const titleReason = body.getByRole('alert').filter({ hasText: '请输入标题。' });
+  const titleError = '标题太长，请缩短。';
+  const titleReason = body.getByRole('alert').filter({ hasText: titleError });
+  await title.fill('长'.repeat(667));
   await titleReason.waitFor();
   await reason.waitFor({ state: 'hidden' });
   const options = dialog.getByText('更多卡片选项', { exact: true });
   await options.click();
   await body.evaluate(node => { node.scrollTop = node.scrollHeight; });
-  await reason.filter({ hasText: '请输入标题。' }).waitFor();
+  await reason.filter({ hasText: titleError }).waitFor();
   await titleReason.waitFor({ state: 'hidden' });
   await description.focus();
   await page.keyboard.press('Shift+Tab');
@@ -587,32 +621,60 @@ test('the card action menu aligns its labels and lists available actions first',
   const { page, command } = await browserFixture(t);
   const title = 'An unassigned card';
   await command({ op: 'create_card', title });
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '卡片看板', exact: true }).click();
-  await page.getByRole('article', { name: title, exact: true })
-    .getByRole('button', { name: '卡片操作', exact: true }).click();
-  const menu = page.getByRole('menu');
-  const available = ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片'];
-  const unavailable = ['启动对话', '重新生成标题'];
-  const actions = names => Promise.all(names.map(name => menu.getByRole('button', { name, exact: true }).getAttribute('id')));
-  await page.waitForFunction(({ available, unavailable }) => {
-    const ready = available.map(id => document.getElementById(id));
-    const blocked = unavailable.map(id => document.getElementById(id));
-    return ready.every(action => action && action.getAttribute('aria-disabled') !== 'true') &&
-      blocked.every(action => action?.title && action.getAttribute('aria-disabled') === 'true' &&
-        ready.every(item => item.getBoundingClientRect().top < action.getBoundingClientRect().top));
-  }, { available: await actions(available), unavailable: await actions(unavailable) });
-
-  const boxes = await menu.evaluate(element => [...element.querySelectorAll('button')].map(button => {
+  const archiveCheck = Promise.withResolvers();
+  const otherChecks = Promise.withResolvers();
+  await page.route('**/api/assess', async route => {
+    const owner = route.request().postDataJSON()?.editor;
+    if (owner?.kind === 'menu') await (owner.action === 'archive' ? archiveCheck.promise : otherChecks.promise);
+    await route.continue();
+  });
+  const menu = page.getByRole('menu', { name: '卡片操作', exact: true });
+  const action = name => menu.getByRole('button', { name, exact: true });
+  const rows = () => menu.getByRole('button').evaluateAll(buttons => buttons.map(button => {
     const label = button.querySelector('span:not([aria-hidden], .visually-hidden)');
-    return { disabled: button.getAttribute('aria-disabled') === 'true',
+    return { id: button.id, name: button.getAttribute('aria-label'), reason: button.title,
+      disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
       y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
   }));
+  function assertOrder(current, available, unavailable) {
+    assert.deepEqual(current.map(({ name, disabled }) => [name, disabled]), [
+      ...available.map(name => [name, false]), ...unavailable.map(name => [name, true]),
+    ]);
+    assert.ok(current.every((row, index) => index === 0 || row.y > current[index - 1].y),
+      'Visual order follows keyboard order');
+  }
+  let opening;
+  try {
+    await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+      .getByRole('button', { name: '卡片看板', exact: true }).click();
+    await page.getByRole('article', { name: title, exact: true })
+      .getByRole('button', { name: '卡片操作', exact: true }).click();
+    await action('重新生成标题').waitFor();
+    opening = await rows();
+    assertOrder(opening, ['移动卡片', '编辑卡片'], ['启动对话', '归档卡片', '置顶卡片', '删除卡片', '重新生成标题']);
+    await action('编辑卡片').focus();
+    archiveCheck.resolve();
+    await action('归档卡片').and(page.locator(':not([aria-disabled="true"])')).waitFor();
+    assertOrder(await rows(), ['移动卡片', '编辑卡片', '归档卡片'], ['启动对话', '置顶卡片', '删除卡片', '重新生成标题']);
+    assert.equal(await action('编辑卡片').evaluate(button => document.activeElement === button), true);
+  } finally {
+    archiveCheck.resolve();
+    otherChecks.resolve();
+  }
+  for (const name of ['启动对话', '重新生成标题'])
+    await action(name).and(page.locator('[aria-disabled="true"][title]:not([title="正在检查"])')).waitFor();
+  for (const name of ['置顶卡片', '删除卡片'])
+    await action(name).and(page.locator(':not([aria-disabled="true"])')).waitFor();
+  const boxes = await rows();
+  assertOrder(boxes, ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片'], ['启动对话', '重新生成标题']);
+  assert.deepEqual(boxes.map(row => row.id).sort(), opening.map(row => row.id).sort(),
+    'The same controls settle in declaration order within each group');
+  const reasons = boxes.filter(row => row.disabled).map(row => row.reason);
+  assert.ok(reasons.every(Boolean) && new Set(reasons).size === reasons.length,
+    'Unavailable actions expose their individual refusal reasons');
   assert.ok(boxes.every(row => row.labelX !== undefined && Math.abs(row.labelX - boxes[0].labelX) <= 1),
     'The visible card action labels start at the same horizontal position');
-  assert.ok(boxes.filter(row => !row.disabled).every(ready => boxes.filter(row => row.disabled)
-    .every(blocked => ready.y < blocked.y)), 'Available actions precede the unavailable actions');
-  await menu.getByRole('button', { name: '移动卡片', exact: true }).click();
+  await action('移动卡片').click();
   await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
 });
 
