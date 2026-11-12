@@ -81,6 +81,71 @@ test('Settings applies configuration edits and shows their saved values after re
   assert.equal(await relayUrl.inputValue(), '');
 });
 
+test('conversation guidance displays complete lines and preserves saved text', { timeout: 60000 }, async t => {
+  const { page, running } = await browserFixture(t);
+  const configuration = path.join(running.service.home, 'config.json');
+  const instructions = [
+    '  保留前后空格  ',
+    '',
+    ...Array.from({ length: 60 }, (_, index) => 'Keep original line ' + (index + 1) + '.'),
+    '\t',
+  ].join('\r\n');
+  await writeFile(configuration, JSON.stringify({
+    format: defaultConfig.format, host: '127.0.0.1', instructions,
+  }));
+  const saved = async () => JSON.parse(await readFile(configuration, 'utf8'));
+  const settings = page.getByRole('dialog', { name: '设置', exact: true });
+  const editor = page.getByRole('dialog', { name: '对话指引', exact: true });
+  const field = editor.getByRole('textbox', { name: '对话指引', exact: true });
+  const open = settings.getByRole('button', { name: '编辑指引', exact: true });
+  const cancel = editor.getByRole('button', { name: '取消', exact: true });
+  const save = editor.getByRole('button', { name: '保存', exact: true });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '设置', exact: true }).click();
+  await open.click();
+  assert.equal(await field.inputValue(), instructions.replaceAll('\r\n', '\n'),
+    'A native textarea displays the saved text with browser-normalized line endings');
+
+  for (const { width, height, minimumLines } of [{ width: 1280, height: 900, minimumLines: 16 },
+    { width: 390, height: 500, minimumLines: 11 }]) {
+    await page.setViewportSize({ width, height });
+    const lines = await field.evaluate(text => {
+      const style = getComputedStyle(text);
+      const insets = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+      return (text.clientHeight - insets) / Number.parseFloat(style.lineHeight);
+    });
+    assert.ok(lines >= minimumLines && Math.abs(lines - Math.round(lines)) < .05,
+      `${width}px: a long document has ${lines} complete editing lines`);
+    const decision = await cancel.boundingBox();
+    assert.ok(decision.y >= 0 && decision.y + decision.height <= height,
+      'The dialog footer stays reachable while the field scrolls');
+  }
+  await field.hover();
+  await page.mouse.wheel(0, 1200);
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="对话指引"]')?.scrollTop > 0);
+  assert.equal(await save.isDisabled(), true);
+  await cancel.click();
+  await editor.waitFor({ state: 'hidden' });
+  assert.equal((await saved()).instructions, instructions);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await settings.getByRole('radio', { name: '服务', exact: true }).click();
+  await settings.getByRole('combobox', { name: '监听地址', exact: true }).selectOption({ label: '::1' });
+  await settings.getByRole('button', { name: '保存地址', exact: true }).click();
+  await settings.getByRole('status').filter({ hasText: '设置已保存' }).waitFor();
+  assert.equal((await saved()).instructions, instructions);
+
+  await settings.getByRole('radio', { name: '常规', exact: true }).click();
+  await open.click();
+  await editor.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await editor.waitFor({ state: 'hidden' });
+  assert.equal(Object.hasOwn(await saved(), 'instructions'), false);
+  await open.click();
+  const restored = await field.inputValue();
+  assert.equal(restored, defaultConfig.instructions);
+  assert.ok(restored.split('\n\n').length >= 4, 'The built-in guidance is organized into paragraphs');
+});
+
 test('Task and Service settings restore only saved values that differ from their defaults', { timeout: 60000 }, async t => {
   const { page, running } = await browserFixture(t);
   const configuration = path.join(running.service.home, 'config.json');

@@ -323,7 +323,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
   assert.equal(await dialog.getByRole('textbox', { name: 'JSON 定义', exact: true }).isVisible(), false);
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);
-  const name = dialog.getByRole('textbox', { name: '任务图名称', exact: true });
+  const name = dialog.getByRole('textbox', { name: '转发名称', exact: true });
   assert.equal(await name.inputValue(), '对话转发');
   const newConversation = dialog.getByRole('button', { name: '新建对话', exact: true });
   const returnToGraph = page.getByRole('button', { name: '返回任务图', exact: true });
@@ -365,7 +365,8 @@ test('task graph setup creates its conversations in scope and routes replies', {
     return task;
   }
 
-  const source = await createEndpoint('Collect evidence for the graph');
+  const sourceRequest = 'Collect evidence for the graph';
+  const source = await createEndpoint(sourceRequest);
   await expectBlockedBy('请在此范围内再新建一条对话。');
   assert.equal(await prerequisite.innerText(), '请在此范围内再新建一条对话。');
   const receiver = await createEndpoint('Review evidence');
@@ -375,6 +376,19 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const receiverPicker = dialog.getByRole('combobox', { name: '接收对话', exact: true });
   const availableSources = await sourcePicker.locator('option').evaluateAll(options => options.map(option => option.value));
   assert.ok(!availableSources.includes(String(outsider)), 'The picker stays in the graph scope');
+  const sourceTitle = (await command({ op: 'read', task_id: source })).task.title;
+  const receiverTitle = (await command({ op: 'read', task_id: receiver })).task.title;
+  assert.notEqual(sourceTitle, receiverTitle);
+  const sourceOption = id => sourcePicker.locator(`option[value="${id}"]`);
+  assert.equal(await sourceOption(source).textContent(), sourceTitle);
+  assert.equal(await sourceOption(receiver).textContent(), receiverTitle);
+  const { task_id: duplicate } = await command({ op: 'create_work_task', work_id: work,
+    profile: 'demo', message: sourceRequest });
+  await taskIdle(fixture.running.service, duplicate);
+  assert.equal((await command({ op: 'read', task_id: duplicate })).task.title, sourceTitle);
+  await sourceOption(duplicate).filter({ hasText: `${sourceTitle} · #${duplicate}` }).waitFor({ state: 'attached' });
+  assert.equal(await sourceOption(source).textContent(), `${sourceTitle} · #${source}`);
+  assert.equal(await sourceOption(receiver).textContent(), receiverTitle);
   await sourcePicker.selectOption(String(source));
   await expectBlockedBy('请选择接收对话。');
   await receiverPicker.selectOption(String(receiver));
@@ -401,7 +415,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
   }
   await page.setViewportSize(desktop);
   await name.fill('');
-  await expectBlockedBy('请输入任务图名称。');
+  await expectBlockedBy('请输入转发名称。');
   await name.fill('Browser handoff');
   await create.click();
   await dialog.waitFor({ state: 'hidden' });
@@ -413,7 +427,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const to = editor.getByRole('combobox', { name: '接收对话', exact: true });
   assert.equal(await from.inputValue(), String(source));
   assert.equal(await to.inputValue(), String(receiver));
-  await editor.getByRole('textbox', { name: '任务图名称', exact: true }).fill('Edited handoff');
+  await editor.getByRole('textbox', { name: '转发名称', exact: true }).fill('Edited handoff');
   await editor.getByRole('button', { name: '保存', exact: true }).click();
   await editor.waitFor({ state: 'hidden' });
 
@@ -432,7 +446,7 @@ test('leaving a graph conversation before its receipt preserves the newer destin
     .getByRole('button', { name: '任务图', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
   const graph = page.getByRole('dialog', { name: '创建对话转发', exact: true });
-  const name = graph.getByRole('textbox', { name: '任务图名称', exact: true });
+  const name = graph.getByRole('textbox', { name: '转发名称', exact: true });
   await name.fill('Keep this graph');
   await graph.getByRole('button', { name: '新建对话', exact: true }).click();
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Create while leaving the graph');

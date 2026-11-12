@@ -1121,8 +1121,8 @@ dialog[data-semantic-key="settings-configuration-editor"] {
   --settings-text-action-height: 1.75rem;
 }
 dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="settings-instructions-field"]) {
-  --settings-editor-measure: 38rem;
-  block-size: min(23rem, calc(100dvh - 2 * var(--settings-dialog-clearance))) !important;
+  --settings-editor-measure: 46rem;
+  block-size: min(40rem, calc(100dvh - 2 * var(--settings-dialog-clearance))) !important;
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-body"] {
   gap: .875rem !important;
@@ -1190,13 +1190,26 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 [data-semantic-key="settings-instructions-field"],
 [data-semantic-key="settings-instructions-field"] :has(> textarea) {
   flex: 1 1 0 !important;
-  min-block-size: 3.5rem !important;
+  min-block-size: 0 !important;
   align-items: stretch !important;
   padding: 0 !important;
 }
-[data-semantic-key="settings-instructions-field"] textarea {
-  flex: 1 1 0 !important;
-  min-block-size: 3.5rem !important;
+[data-semantic-key="settings-instructions-field"] {
+  container-type: size;
+  min-block-size: 4lh !important;
+}
+dialog[data-semantic-key="settings-configuration-editor"] [data-semantic-key="settings-instructions-field"] textarea {
+  --instructions-padding: .5rem;
+  --instructions-insets: calc(var(--instructions-padding) + 2px);
+  flex: none !important;
+  min-block-size: 0 !important;
+  /* A textarea can paint part of the next line into its bottom padding. */
+  padding-block: var(--instructions-padding) 0 !important;
+  font-size: .9375rem !important;
+  line-height: 1.6 !important;
+  block-size: 100% !important;
+  /* Fit complete text lines in the available field after its padding and border. */
+  block-size: calc(round(down, 100cqb - var(--instructions-insets), 1lh) + var(--instructions-insets)) !important;
   resize: none !important;
 }
 [data-semantic-key="settings-instructions-field"] :has(> textarea) > span {

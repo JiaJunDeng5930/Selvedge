@@ -201,6 +201,59 @@ test('Search finds the displayed conversation title and lets the user retry a lo
   assert.equal(await page.getByText('This command is already pending.', { exact: true }).count(), 0);
 });
 
+test('Search gives the keyword room and keeps long scope choices usable on narrow screens', { timeout: 60000 }, async t => {
+  const title = '季度复核的交付记录';
+  const projectName = '季度复核与正式发布前需要逐项确认的文档归档项目';
+  const workName = '负责整理季度复核材料以及核对发布计划的协作工作组';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const root = path.join(fixture.root, 'release-review');
+  await mkdir(root);
+  const { project_id } = await command({ op: 'create_project', name: projectName, workspace: { roots: [root] } });
+  const { work_id } = await command({ op: 'create_work', name: workName });
+  const { task_id } = await command({ op: 'create_work_task', work_id, profile: fixture.profile,
+    settings: { project_id }, message: 'Record the delivery requirements.' });
+  const request = await until(() => fixture.requests[0], 'the scoped conversation request');
+  fixture.finish(request.index, { text: 'Delivery checklist recorded.' });
+  await taskIdle(fixture.running.service, task_id);
+
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const main = page.getByRole('main');
+  const query = main.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const project = main.getByRole('combobox', { name: '项目', exact: true });
+  const work = main.getByRole('combobox', { name: '工作组', exact: true });
+  const submit = main.getByRole('button', { name: '搜索', exact: true });
+  await query.fill('季度复核');
+  const bounds = async () => Promise.all([query, project, work, submit].map(control => control.boundingBox()));
+
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 820 });
+    if (width < 600) await page.locator('[data-semantic-key="compact-header"]').waitFor();
+    await project.selectOption('');
+    await work.selectOption('');
+    const [keyword, projectField, workField, action] = await bounds();
+    assert.ok(projectField.width <= 96 && workField.width <= 96, 'Short scopes only use a compact width');
+    if (width === 1280) {
+      assert.ok(keyword.width >= 2 * (projectField.width + workField.width), 'The keyword gets most of the toolbar');
+      assert.ok(Math.abs(keyword.y - action.y) <= 2, 'Search stays on the same row on desktop');
+    } else {
+      assert.ok(keyword.y + keyword.height <= projectField.y, 'The keyword moves to its own row at narrow widths');
+      assert.ok([keyword, projectField, workField, action].every(box => box.height >= 44 && box.width >= 44),
+        'All four controls retain touch targets');
+    }
+
+    await project.selectOption({ label: projectName });
+    await work.selectOption({ label: workName });
+    assert.equal(await project.locator('option:checked').textContent(), projectName);
+    assert.equal(await work.locator('option:checked').textContent(), workName);
+    assert.ok((await bounds()).every(box => box.x >= 0 && box.x + box.width <= width + 1),
+      'Long selected scopes stay in view');
+    assert.ok(await main.evaluate(node => node.scrollWidth <= node.clientWidth), 'The page has no horizontal overflow');
+  }
+  await submit.click();
+  await main.getByRole('button', { name: title, exact: true }).waitFor();
+});
+
 test('Returning from a search hit restores its filtered results page and reading position', { timeout: 60000 }, async t => {
   const title = 'Archive reading fixture';
   const fixture = await browserFixture(t, { taskTitle: () => title });

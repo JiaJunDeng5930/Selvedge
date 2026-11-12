@@ -19,6 +19,20 @@
 }
 @media (min-width: 48rem) and (pointer: fine) {
   [data-reading-root] { padding-inline-end: 1.25rem !important; }
+  [data-view^="main-task/"] {
+    /* Give the scrollbar part of the page inset without narrowing the reader. */
+    --reader-scrollbar-outset: min(1.5rem, 22px);
+    inline-size: calc(100% + var(--reader-scrollbar-outset)) !important;
+    max-inline-size: none !important;
+    padding-inline-end: var(--reader-scrollbar-outset) !important;
+
+    & > [data-page-region="timeline-content"] { overflow: visible !important; }
+    & > [data-page-region="timeline-content"] > [data-reading-root] {
+      inline-size: calc(100% + var(--reader-scrollbar-outset)) !important;
+      max-inline-size: none !important;
+      padding-inline-end: calc(1.25rem + var(--reader-scrollbar-outset)) !important;
+    }
+  }
 }
 [data-reading-root] > button[data-semantic-key="fork-current-history"] {
   align-self: flex-start;

@@ -266,13 +266,20 @@ Definition fork_editor snapshot s e parent task :=
   editor_options parent "fork-options" "分支选项"
    [field_section snapshot s e parent "分支" [Fields.ForkCount;Fields.ForkMessages];
     field_section snapshot s e parent "运行设置" Parameters.context_fields]].
-Definition task_choice (task:task) :=
- Fields.ChoiceValue (show_natural(task_id task))(task_title task++" · #"++show_natural(task_id task)).
+Definition handoff_choices (available:list task) :=
+ map(fun task=>
+  let id:=task_id task in
+  let title:=task_title task in
+  let duplicated:=existsb(fun other=>negb(N.eqb id(task_id other))&&
+   String.eqb title(task_title other))available in
+  let value:=show_natural id in
+  Fields.ChoiceValue value (if duplicated then title++" · #"++value else title))available.
 Definition graph_input parent key label text options (receive:json->option Input.input) :=
  Node(part parent key)key label Roles.Field(ConfigurationField false text options true receive)[].
-Definition graph_endpoint parent key label (available:list task) selected other receive :=
+Definition graph_endpoint parent key label (available:list Fields.choice_value) selected other receive :=
+ let excluded:=value_or ""(option_map show_natural other) in
  let choices:=Fields.ChoiceValue "" "选择对话"::
-   map task_choice (filter(fun task=>negb(same_id other(Some(task_id task))))available) in
+   filter(fun choice=>negb(String.eqb excluded(Fields.choice_value_of choice)))available in
  graph_input parent key label (value_or ""(option_map show_natural selected))(Some choices)
    (fun value=>text<-as_string value;;
     if String.eqb text "" then receive None else
@@ -288,14 +295,15 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
  |Some subject=>
   let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
     (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
-  graph_input parent "handoff-name" "任务图名称" name None
+  graph_input parent "handoff-name" GraphAuthoring.handoff_name_label name None
     (fun value=>name<-as_string value;;assign name source target)::
   match Observe.handoff_conversations snapshot work with
   |Some(inr available)=>
+    let choices:=handoff_choices available in
     [region parent "handoff-route" "转发方向" Roles.Section
-      [graph_endpoint parent "handoff-source" GraphAuthoring.source_endpoint_label available source target (fun id=>assign name id target);
+      [graph_endpoint parent "handoff-source" GraphAuthoring.source_endpoint_label choices source target (fun id=>assign name id target);
        Node(part parent "handoff-direction")"handoff-direction" "" Roles.Decorative(Fact "→")[];
-       graph_endpoint parent "handoff-target" GraphAuthoring.target_endpoint_label available target source (fun id=>assign name source id)];
+       graph_endpoint parent "handoff-target" GraphAuthoring.target_endpoint_label choices target source (fun id=>assign name source id)];
      information parent "handoff-purpose" Information.Description "自动把新回复作为消息转发。"]
   |Some(inl shortage)=>
     information parent "handoff-needs-conversations" Information.Description shortage::
@@ -323,6 +331,12 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
     |None=>[]end in
    (quick++[editor_options parent "graph-options" "编辑 JSON 定义" declaration])%list
  end.
+Definition title_prompt_fields snapshot s parent :=
+ let disclosure key label field := editor_options parent key label
+   (field_nodes snapshot s TitlePrompts (part parent key) [field]) in
+ (field_nodes snapshot s TitlePrompts parent [Fields.AgentTitleProfile] ++
+  [disclosure "conversation-title-prompt" "自动生成对话标题" Fields.AgentTitlePrompt;
+   disclosure "board-card-title-prompt" "看板卡片起草与重新生成标题" Fields.TaskTitlePrompt])%list.
 Definition section_nodes snapshot s e parent :=
  match e with
  |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
@@ -330,14 +344,13 @@ Definition section_nodes snapshot s e parent :=
  |Fork task=>fork_editor snapshot s e parent task
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
- |TitlePrompts=>field_nodes snapshot s e parent
-   [Fields.TaskTitlePrompt;Fields.AgentTitleProfile;Fields.AgentTitlePrompt]
+ |TitlePrompts=>title_prompt_fields snapshot s parent
  |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
  end.
 Definition title_prompt_help e parent : list (node Input.input) := match e with
 |TitlePrompts=>
  [information parent "title-prompts/help" Information.Description
-   "标题最多 36 个字符。更改只影响之后生成的标题。"]
+   "对话标题根据首条消息生成。标题最多 36 个字符，更改只影响之后的生成。"]
 |_=>[]end.
 Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) := match e with
 |TitlePrompts=>

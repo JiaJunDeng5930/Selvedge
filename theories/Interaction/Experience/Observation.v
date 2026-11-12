@@ -401,7 +401,7 @@ Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_dr
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
  (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
 Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
-Definition awaiting_admission := "Checking this action against the current state.".
+Definition awaiting_admission := "正在检查操作…".
 Definition admission snapshot state owner revision command:availability:=
  let sequence:=natural_field "sequence" snapshot in
  match sequence with None=>Unavailable "The current state has not been observed."
@@ -548,7 +548,7 @@ Definition graph_declaration_diagnostic snapshot graph parsed work :=
  |None=>invalid_graph_declaration
  |Some handoff=>match GraphAuthoring.handoff_source handoff,GraphAuthoring.handoff_target handoff with
   |Some _,Some _=>if String.eqb(GraphAuthoring.handoff_name handoff)"" then
-    ("invalid_task_graph_declaration","请输入任务图名称。") else invalid_graph_declaration
+    ("invalid_task_graph_declaration",("请输入"++GraphAuthoring.handoff_name_label++"。")%string) else invalid_graph_declaration
   |source,target=>
    let scope:=match graph with
     |None=>work|Some id=>bind(Read.find_graph id snapshot)Read.graph_work end in

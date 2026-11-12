@@ -297,6 +297,13 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   const editTitlePrompts = settings.getByRole('button', { name: '编辑标题设置', exact: true });
   const titlePrompts = page.getByRole('dialog', { name: '对话标题', exact: true });
+  const cardSection = titlePrompts.getByText('看板卡片起草与重新生成标题', { exact: true });
+  const conversationSection = titlePrompts.getByText('自动生成对话标题', { exact: true });
+  const cardPrompt = titlePrompts.getByRole('textbox', { name: '卡片提示词', exact: true });
+  const conversationPrompt = titlePrompts.getByRole('textbox', { name: '对话提示词', exact: true });
+  const assessment = titlePrompts.locator('[data-semantic-key="assessment"]');
+  const checking = assessment.getByText('正在检查操作…', { exact: true });
+  const save = titlePrompts.getByRole('button', { name: '保存', exact: true });
   async function openTitlePrompts() {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: '设置', exact: true }).click();
@@ -304,17 +311,46 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
     return titlePrompts;
   }
 
-  dialog = await openTitlePrompts();
-  const prompt = dialog.getByRole('textbox', { name: '任务标题提示词', exact: true });
-  const savedPrompt = await prompt.inputValue();
-  await prompt.fill('Unsaved title prompt');
+  const initial = await command({ op: 'read_title_settings' });
+  let releaseAssessment;
+  const held = new Promise(resolve => { releaseAssessment = resolve; });
+  await page.route('**/api/assess', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') await held;
+    await route.continue();
+  });
+  try {
+    dialog = await openTitlePrompts();
+    await conversationSection.waitFor();
+    await cardSection.waitFor();
+    assert.equal(await cardPrompt.isVisible(), false);
+    assert.equal(await conversationPrompt.isVisible(), false);
+    await checking.waitFor();
+    assert.equal(await save.isDisabled(), true);
+  } finally {
+    releaseAssessment();
+  }
+  await checking.waitFor({ state: 'hidden' });
+
+  await cardSection.click();
+  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
+  assert.equal(await conversationPrompt.isVisible(), false);
+  await cardPrompt.fill('Unsaved card title prompt');
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
   await editTitlePrompts.waitFor();
   assert.equal(await editTitlePrompts.evaluate(button => document.activeElement === button), true);
 
   await editTitlePrompts.click();
-  assert.equal(await prompt.inputValue(), savedPrompt);
+  await cardSection.waitFor();
+  assert.equal(await cardPrompt.isVisible(), false);
+  await cardSection.click();
+  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
+  const cardInstruction = '把卡片标题写成待办事项。';
+  const conversationInstruction = '用首条消息提炼一个行动标题。';
+  await cardPrompt.fill(cardInstruction);
+  await conversationSection.click();
+  assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
+  await conversationPrompt.fill(conversationInstruction);
 
   const titleModel = dialog.getByLabel('对话标题模型', { exact: true });
   const options = await titleModel.locator('option').evaluateAll(nodes => nodes.map(node => ({
@@ -326,7 +362,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   assert.ok(configured, 'The selector exposes the configured interactive model connection');
   assert.equal(await titleModel.inputValue(), automatic.value, 'Automatic selection is the initial title model');
   await titleModel.selectOption(configured.value);
-  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await save.click();
   await dialog.waitFor({ state: 'hidden' });
   await editTitlePrompts.waitFor();
 
@@ -335,4 +371,18 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   dialog = await openTitlePrompts();
   assert.equal(await dialog.getByLabel('对话标题模型', { exact: true }).inputValue(), configured.value,
     'The selected title model remains saved after the page reloads');
+  await cardSection.click();
+  await conversationSection.click();
+  assert.equal(await cardPrompt.inputValue(), cardInstruction);
+  assert.equal(await conversationPrompt.inputValue(), conversationInstruction);
+  const saved = await command({ op: 'read_title_settings' });
+  assert.equal(saved.task_prompt, cardInstruction);
+  assert.equal(saved.agent_prompt, conversationInstruction);
+
+  await conversationPrompt.fill('Another unsaved conversation title prompt');
+  await command({ op: 'configure_title_settings', revision: saved.revision,
+    task_prompt: saved.task_prompt, agent_prompt: saved.agent_prompt, agent_profile: saved.agent_profile });
+  await conversationPrompt.fill('Edited while the saved revision changed');
+  await assessment.getByText('Title settings changed; reopen the settings before saving', { exact: true }).waitFor();
+  assert.equal(await save.isDisabled(), true);
 });

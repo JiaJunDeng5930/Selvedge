@@ -4,6 +4,19 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
+async function assertConversationActivity(card, caption) {
+  const status = card.getByText(caption, { exact: true });
+  await status.waitFor();
+  const action = status.locator('..').getByRole('button', { name: '打开对话', exact: true });
+  await action.waitFor();
+  const [button, text] = await Promise.all([action.boundingBox(), status.boundingBox()]);
+  assert.ok(button && text);
+  const sideBySide = text.x >= button.x + button.width - 1 &&
+    text.x - button.x - button.width <= 16 && text.y < button.y + button.height && button.y < text.y + text.height;
+  const stacked = text.y >= button.y + button.height - 1 && text.y - button.y - button.height <= 16;
+  assert.ok(sideBySide || stacked, 'The conversation status stays next to its action');
+}
+
 test('board filters provide a compact keyboard-searchable assignee list', async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;
@@ -141,6 +154,13 @@ test('enabling board automation includes existing eligible cards and disabling p
   assert.equal((await read(planning)).task_id, null);
   assert.equal((await read(unassigned)).task_id, null);
 
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
+  const queued = page.getByRole('article', { name: 'Wait for the assigned model', exact: true });
+  await queued.getByText('排队中', { exact: true }).waitFor();
+  await queued.getByRole('button', { name: '关联对话', exact: true }).waitFor();
+  assert.equal(await queued.getByRole('button', { name: '打开对话', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '看板设置', exact: true }).click();
   await automation.press('Space');
   await automation.and(page.locator('[aria-checked="false"]')).waitFor();
   await guidance.waitFor();
@@ -752,6 +772,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await choice.click();
   await link.waitFor({ state: 'hidden' });
 
+  await assertConversationActivity(card, '工作中');
   const working = page.getByRole('radio', { name: '执行中的卡片 1', exact: true });
   await working.click();
   await board.locator('[data-board-stage="in_progress"]').getByRole('article', { name: title, exact: true }).waitFor();
@@ -763,6 +784,23 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await card.getByRole('button', { name: '打开对话', exact: true }).click();
   await page.getByRole('main').getByRole('article', { name: 'Message', exact: true })
     .getByText(message, { exact: true }).waitFor();
+
+  // The card can still reference a conversation omitted by the current
+  // observation. Keep the disabled link without a stale running label.
+  await page.route('**/api/browser/state', async route => {
+    const response = await route.fetch();
+    const snapshot = await response.json();
+    snapshot.program.tasks = snapshot.program.tasks.filter(task => String(task.id) !== String(task_id));
+    await route.fulfill({ response, json: snapshot });
+  });
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('radio', { name: '全部卡片', exact: true }).click();
+  const unavailable = card.getByRole('button', { name: '打开对话', exact: true });
+  await unavailable.and(page.locator('[aria-disabled="true"]')).waitFor();
+  assert.equal(await unavailable.getAttribute('title'), '关联的对话不可用');
+  assert.equal(await card.getByText('工作中', { exact: true }).count(), 0);
 });
 
 test('a conversation can be added to the board without starting another conversation', async t => {
@@ -833,7 +871,7 @@ test('a conversation can be added to the board without starting another conversa
   const review = main.locator('[data-board-stage="in_review"]');
   const reviewCard = review.getByRole('article', { name: title, exact: true });
   const completed = reviewCard.getByText('对话已完成', { exact: true });
-  await completed.waitFor();
+  await assertConversationActivity(reviewCard, '对话已完成');
   const heading = reviewCard.getByText(title, { exact: true });
   const reference = reviewCard.getByText(cards[0].identifier, { exact: true });
   const [headingBounds, referenceBounds, activityBounds] = await Promise.all(
@@ -867,8 +905,10 @@ test('a conversation can be added to the board without starting another conversa
   const idleTitle = 'Prepared conversation';
   await command({ op: 'create_card', title: idleTitle, task_id: idle, assignee: 'self', priority: 'high' });
   const idleCard = review.getByRole('article', { name: idleTitle, exact: true });
-  await idleCard.getByText('对话已就绪', { exact: true }).waitFor();
+  await assertConversationActivity(idleCard, '对话已就绪');
   await idleCard.getByText('我', { exact: true }).waitFor();
   await idleCard.getByText('高', { exact: true }).waitFor();
   assert.equal(await idleCard.getByText('对话已完成', { exact: true }).count(), 0);
+  await page.setViewportSize({ width: 390, height: 620 });
+  await assertConversationActivity(reviewCard, '对话已完成');
 });

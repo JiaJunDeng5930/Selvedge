@@ -460,6 +460,23 @@ input[data-model-effort-range]::-moz-range-thumb {
   block-size: var(--effort-thumb);
 }
 dialog[data-semantic-key="model-picker"]::backdrop { background: transparent; }
+/* Keep the desktop new-conversation heading clear as the model catalog grows. */
+@media (pointer: fine) and (width > 600px) {
+  #surface:has(main > [data-page-region="creation-introduction"])
+    dialog[data-semantic-key="model-picker"][data-native-layer="menu"]:not([data-anchor-available="false"]) {
+    position-area: bottom span-left !important;
+    position-try-fallbacks: none !important;
+    align-self: start !important;
+    justify-self: end !important;
+    inset-block: calc(var(--layer-gap) - var(--layer-clearance)) auto !important;
+    inset-inline: auto calc(0px - var(--layer-clearance)) !important;
+    max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
+    min-block-size: min-content !important;
+
+    &:has([data-semantic-key="model-picker-models"]) { min-block-size: 10.5rem !important; }
+    & > [role="menu"] { min-block-size: 0 !important; }
+  }
+}
 button[data-semantic-key="composer/model"] { touch-action: manipulation; }
 button[data-semantic-key="composer/model"][data-native-anchor-owner] {
   --control-rest-color: var(--selvedge-accent) !important;
@@ -574,6 +591,36 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   gap: var(--layer-gap, .5em) !important;
 }
 [data-semantic-key="workspace-member-actions"]:empty { display: none !important; }
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-rows: auto auto;
+  align-items: start !important;
+  column-gap: var(--layer-gap, .5em) !important;
+  row-gap: .2rem !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] {
+  display: contents !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-heading"] {
+  grid-column: 1;
+  grid-row: 1;
+  min-inline-size: 0 !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-actions"] {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start !important;
+  justify-content: flex-end !important;
+  margin-inline-start: 0 !important;
+}
+[data-semantic-key="workspace-collection"] [data-semantic-key="project-directory-entry"] {
+  margin-block-start: .5rem !important;
+}
 [data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] > div {
   padding-inline: 0 !important;
   gap: var(--layer-gap) !important;

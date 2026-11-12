@@ -309,12 +309,16 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The new conversation composer exposes a compact settings icon in its
     toolbar. The menu displays project, actual directory and run settings
     with the current choices. Opening it keeps the composer in place.
+    On desktop, the model menu keeps the new conversation heading clear when
+    the viewport has room for both.
     The permissions menu describes who approves each choice and presents
     shared filesystem and network limits once.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The empty graph page
     shows the same direction beside its creation action. The entry action, form
     title and commit label use the same name for creating a conversation relay.
+    Each endpoint choice leads with its conversation title and includes an
+    identifier for titles shared by multiple choices in the scope.
     The same graph editor can also accept a structured declaration for other rules.
     When the current scope has too few conversations, the source and receiver
     form and its unavailable commit identify how many more are needed.
@@ -340,6 +344,7 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Invalid entered text names the repair beside the relevant field when both fit.
     The assignee filter keeps complete rows in its scrollable list, and card
     actions align their labels and list available actions first.
+    A linked conversation's execution state appears beside its open action.
     Assisted capture offers the board default when it names an eligible
     drafting model. A missing selection leaves a prompt and its reason beside
     the model field.
@@ -384,8 +389,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     actions receive published-prefix authority. Recovery remains visible until
     explicit retry; a stale normal document must not masquerade as fresh success.
 
-    Before the first snapshot, show the connection attempt or its failure and
-    let the user reconnect. After the snapshot, a missing measurement selects
+    Before the first snapshot, preserve the basic navigation and content layout.
+    Show the connection attempt or its failure and let the user reconnect.
+    After the snapshot, a missing measurement selects
     the compact layout until real dimensions are available. A page change can
     continue to present the workspace while the browser measures it.
 

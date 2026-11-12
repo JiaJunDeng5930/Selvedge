@@ -1218,7 +1218,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (Layout.row_properties(if responsive then Layout.Vertical else Layout.Horizontal)++[("gap",Typography.px(Typography.scaled(Layout.root_font_size_milli env)12));("min-inline-size","0")]) [] empty content in
  let paired:=combine(S.node_children value)children in
  let opened:=card_part describe false paired in
- let conversation:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))"card/conversation")paired)in
+ let slot name:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))name)paired)in
+ let conversation:=slot "card/conversation" ++ slot "card/conversation-activity" in
  let grip:=if movable then
    [DOM.Element (key++"/grip")%string "span" [("data-card-grip","");("title","拖动卡片");("aria-hidden","true")]
      [] [] empty (glyph "grip")] else [] in
@@ -1233,10 +1234,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ([text "reference"(Model.card_reference face)]++
  (match Model.card_priority face with Selvedge.Features.Domain.NoPriority=>[]
   |priority=>[text "priority"(Selvedge.Features.Domain.priority_label priority)]end)++
- (if Model.card_pinned face then[text "pinned" "置顶"]else[])++optional "status"(Model.card_status face))]++
+ (if Model.card_pinned face then[text "pinned" "置顶"]else[])++slot "card/activity")]++
  optional "description"(Model.card_description face)++
  (match context with []=>[]|_=>[row "context" true context]end)++
- conversation++[DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
+ (match conversation with []=>[]|_=>[row "conversation" true conversation]end)++
+ [DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
  (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
  (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face)++grip)])
  end.

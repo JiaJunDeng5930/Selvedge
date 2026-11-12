@@ -161,6 +161,22 @@ test('Project worktree defaults require a committed Git primary only while enabl
   assert.ok(fullPathBox.y >= Math.max(nameBox.y + nameBox.height, primaryBox.y + primaryBox.height) - 1 &&
     selectable,
     'The complete path stays readable and selectable below the short name');
+  const [repositoryActionsBox, repositoryBox, appendBox] = await Promise.all([
+    repositoryRoot.locator('[data-semantic-key="workspace-member-actions"]').boundingBox(),
+    repositoryRoot.boundingBox(),
+    project.locator('[data-semantic-key="project-directory-entry"]').boundingBox(),
+  ]);
+  const ordinaryRoot = project.getByRole('region', { name: ordinary, exact: true });
+  const ordinaryActionsBox = await ordinaryRoot.locator('[data-semantic-key="workspace-member-actions"]').boundingBox();
+  const ordinaryHeadingBox = await ordinaryRoot.locator('[data-semantic-key="workspace-member-heading"]').boundingBox();
+  assert.ok(repositoryActionsBox && nameBox && Math.abs(repositoryActionsBox.y - nameBox.y) <= 1,
+    'The primary directory action aligns with its short name');
+  assert.ok(ordinaryActionsBox && ordinaryHeadingBox && Math.abs(ordinaryActionsBox.y - ordinaryHeadingBox.y) <= 1,
+    'The secondary directory actions align with their short name');
+  assert.ok(repositoryBox && appendBox && appendBox.y >= repositoryBox.y + repositoryBox.height + 6,
+    'The add-directory area is separated from the selected directory list');
+  assert.equal(await ordinaryRoot.getByRole('button', { name: '设为主目录', exact: true }).count(), 1);
+  assert.equal(await ordinaryRoot.getByRole('button', { name: '移除目录', exact: true }).count(), 1);
   await page.setViewportSize({ width: 1280, height: 900 });
   await project.getByRole('region', { name: ordinary, exact: true })
     .getByRole('button', { name: '移除目录', exact: true }).click();

@@ -92,24 +92,42 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 }
 
 [data-page-region="collection-actions"] > [data-semantic-key="history-query"] {
-  flex: 2 1 14rem !important;
+  flex: 1 1 14rem !important;
   align-self: end !important;
   min-inline-size: min(14rem, 100%) !important;
   max-inline-size: 100% !important;
 }
 
 [data-page-region="collection-actions"] > :has(> [data-semantic-key="history-scope"]) {
-  flex: 1 1 6.5rem !important;
+  flex: 0 0 auto !important;
   inline-size: auto !important;
-  min-inline-size: min(6.5rem, 100%) !important;
+  min-inline-size: min(4.5rem, 100%) !important;
+  max-inline-size: min(10rem, 100%) !important;
 }
 
 [data-page-region="collection-actions"] [data-semantic-key="history-scope"] {
+  field-sizing: content;
   inline-size: 100% !important;
 }
 
-[data-page-region="collection-actions"] > [data-semantic-key="history/submit"] {
-  margin-inline-start: auto;
+@container workspace-browse (max-width: 30rem) {
+  [data-page-region="collection-actions"] > [data-semantic-key="history-query"] {
+    flex-basis: 100% !important;
+  }
+
+  [data-page-region="collection-actions"] > :has(> [data-semantic-key="history-scope"]) {
+    max-inline-size: min(10rem, 38%) !important;
+  }
+}
+
+@media (pointer: coarse), (orientation: portrait) and (max-width: 600px) {
+  [data-page-region="collection-actions"] :is([data-semantic-key="history-query"], [data-semantic-key="history-scope"], [data-semantic-key="history/submit"]) {
+    min-block-size: max(44px, 2.75rem) !important;
+  }
+
+  [data-page-region="collection-actions"] > [data-semantic-key="history/submit"] {
+    min-inline-size: max(44px, 2.75rem) !important;
+  }
 }
 
 [data-page-region="history-results"]
@@ -204,12 +222,6 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   color: var(--selvedge-muted) !important;
 }
 
-@container workspace-browse (max-width: 38rem) {
-  [data-page-region="collection-actions"] > [data-semantic-key="history-query"] {
-    flex-basis: 100% !important;
-  }
-}
-
 [data-page-region="board-controls"] > [data-board-group="view-choices"] {
   flex-wrap: wrap !important;
 }
@@ -257,6 +269,15 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 [data-board-stage] :is([data-card-row="metadata"], [data-card-footer]) {
   flex-wrap: wrap !important;
   gap: .25rem .5rem !important;
+}
+
+[data-card-row="conversation"] {
+  align-items: start !important;
+  gap: .25rem .5rem !important;
+}
+[data-card-row="conversation"][data-native-row-direction="row"] { align-items: center !important; }
+[data-card-row] > :is([data-semantic-key="card/activity"], [data-semantic-key="card/conversation-activity"]) {
+  inline-size: fit-content !important;
 }
 
 dialog[data-semantic-key="card-details"] {

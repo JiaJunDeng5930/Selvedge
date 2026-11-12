@@ -45,6 +45,65 @@
 html, body { margin: 0; inline-size: 100%; min-block-size: 100%; }
 body { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); color: var(--selvedge-text); background: var(--selvedge-canvas); }
 #surface { inline-size: 100%; block-size: 100dvh; overflow: hidden; }
+/* The initial service scene uses the same frame while the world is unavailable. */
+:is(#selvedge-startup, [data-key="workspace-body"]:has(> [data-measure-region="main"] > main
+  :is([data-semantic-key="not-connected"], [data-semantic-key="connecting"], [data-semantic-key="connection-failed"]))) {
+  display: flex;
+  --startup-header-height: max(44px, 2.75rem);
+  block-size: 100%;
+  &::before {
+    content: "";
+    inline-size: 14.5rem;
+    flex: none;
+    background: var(--selvedge-navigation);
+    border-inline-end: 1px solid var(--selvedge-border);
+  }
+  & main {
+    flex: 1;
+    block-size: 100dvh !important;
+    min-inline-size: 0;
+    overflow-y: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: .75rem !important;
+    padding: 1rem !important;
+    text-align: center;
+    & > * { flex: none !important; }
+    & > [data-semantic-key="heading"] { display: none !important; }
+    & > :is([data-semantic-key="not-connected"], [data-semantic-key="connecting"],
+      [data-semantic-key="connection-failed"], [data-semantic-key="connection-reason"]) {
+      text-align: center !important;
+      overflow-wrap: anywhere;
+    }
+    & > button[data-semantic-key="connect"] { color: var(--selvedge-on-accent) !important; }
+  }
+  @media (max-width: 45rem) {
+    flex-direction: column !important;
+    & main { block-size: calc(100dvh - var(--startup-header-height)) !important; }
+    &::before {
+      inline-size: auto;
+      block-size: var(--startup-header-height);
+      background: var(--selvedge-canvas);
+      border-inline-end: 0;
+      border-block-end: 1px solid var(--selvedge-border);
+    }
+  }
+}
+.startup-content {
+  color: var(--selvedge-muted);
+}
+.startup-content > p { margin: 0; }
+.startup-content > button {
+  min-block-size: 44px;
+  padding: .375rem .875rem;
+  border: 1px solid var(--selvedge-border);
+  border-radius: .5rem;
+  background: var(--selvedge-surface);
+  color: var(--selvedge-text);
+}
+.startup-content > button:focus-visible { outline: 2px solid var(--selvedge-focus); }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { appearance: none; cursor: pointer; }
 button:disabled { cursor: default; }

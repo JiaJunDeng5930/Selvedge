@@ -22,27 +22,43 @@ test('opening conversation details preserves the desktop reading position and co
   const { page, command, profile, running } = fixture;
   const { task_id } = await command({ op: 'create', profile, message: 'Inspect reading space.' });
   await modelRequest(fixture, 0);
+  const columns = Array.from({ length: 36 }, (_, index) => 'Check ' + (index + 1));
+  const matrix = [columns, columns.map(() => '---'), columns.map(() => 'Pass')]
+    .map(row => '| ' + row.join(' | ') + ' |');
   fixture.finish(0, { text: [
     '| Item | Description |', '| --- | --- |',
     '| First | ' + 'a wide table value '.repeat(10) + ' |', '',
     '```text', 'A code value '.repeat(12), '```', '',
     ...Array.from({ length: 24 }, (_, index) => 'Reading paragraph ' + index + '.\n'),
+    ...matrix,
   ].join('\n') });
   await taskIdle(running.service, task_id);
   await (await conversationEntry(fixture, task_id)).click();
 
   const reading = page.locator('[data-reading-root]');
-  await reading.locator('.table-scroll').waitFor();
+  const wideTable = reading.locator('.table-scroll')
+    .filter({ has: page.getByRole('columnheader', { name: 'Check 36', exact: true }) });
+  await wideTable.waitFor();
+  assert.ok(await wideTable.evaluate(table => {
+    table.scrollLeft = table.scrollWidth;
+    return table.scrollLeft > 0 && table.closest('[data-reading-root]').scrollLeft === 0;
+  }), 'A wide table scrolls horizontally inside the reading region');
   const measure = () => reading.evaluate(root => {
     const bounds = root.getBoundingClientRect();
+    const pane = root.parentElement.getBoundingClientRect();
+    const view = root.closest('[data-view]');
     const blocks = [...root.querySelectorAll('.table-scroll, .code-block')];
     return { bounds: bounds.toJSON(),
+      outsideMeasure: bounds.right - pane.right,
       gutter: Math.min(...blocks.map(block => bounds.right - block.getBoundingClientRect().right)),
-      scrolls: root.scrollHeight > root.clientHeight };
+      scrolls: root.scrollHeight > root.clientHeight,
+      viewOverflow: view.scrollWidth > view.clientWidth,
+      viewportWidth: innerWidth };
   });
   const assertDesktopGutter = geometry => {
-    assert.ok(geometry.scrolls && geometry.gutter >= 20,
-      'A scrolling desktop conversation leaves space between its table or code and the reading edge');
+    assert.ok(geometry.scrolls && geometry.gutter >= 40 && geometry.outsideMeasure >= 20 &&
+      !geometry.viewOverflow && geometry.bounds.right <= geometry.viewportWidth,
+      'The native scrollbar is outside the reading measure and inside the conversation viewport');
   };
   const composer = page.getByRole('combobox', { name: 'Message', exact: true });
   const readingPosition = () => reading.evaluate(root => {
@@ -85,6 +101,11 @@ test('opening conversation details preserves the desktop reading position and co
   await details.waitFor({ state: 'hidden' });
   await page.waitForFunction(() => document.activeElement?.matches('[data-semantic-key="details"]'));
   assert.deepEqual(await readingPosition(), before);
+  await reading.press('PageUp');
+  await page.waitForFunction(previous => {
+    const root = document.querySelector('[data-reading-root]');
+    return document.activeElement === root && root.scrollTop < previous;
+  }, before.scrollTop);
   await toggle.press('Enter');
   await page.setViewportSize({ width: 1280, height: 360 });
   const short = await details.boundingBox();
@@ -98,8 +119,12 @@ test('opening conversation details preserves the desktop reading position and co
   await compactDetails.getByRole('button', { name: '任务详情', exact: true, expanded: true }).press('Enter');
   await compactDetails.waitFor({ state: 'hidden' });
   const compact = await measure();
-  assert.ok(compact.scrolls && compact.bounds.right <= 390 && compact.gutter >= 6 && compact.gutter < 20,
+  assert.ok(compact.scrolls && compact.bounds.right <= 390 && compact.gutter >= 6 && compact.gutter < 20 &&
+    compact.outsideMeasure === 0 && !compact.viewOverflow,
     'A compact conversation preserves a reading edge and uses the available width');
+
+  await page.setViewportSize({ width: 900, height: 730 });
+  assertDesktopGutter(await measure());
 });
 
 test('conversation rows keep one resting dot and identify execution that needs attention', async t => {

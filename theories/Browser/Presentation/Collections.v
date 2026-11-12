@@ -83,19 +83,21 @@ Definition card_destinations snapshot s board_parent candidates value :=
       |None=>[]|Some command=>[Placement(part board_parent "archive-destination")
         (Control "archive" "归档卡片"Secondary(Input.Command command)(domain_availability(Authoring.command_availability snapshot s command)))]end end)
  |None=>[]end.
-Definition card_conversation snapshot parent value :=
+Definition card_conversation snapshot parent value activity :=
  let identity:="card/conversation" in
  match Read.card_task value with
  |None=>if Read.card_archived value then [] else
    [declared parent Roles.Button(secondary identity "关联对话"
      (Input.OpenCardDecision(Read.card_id value)CardDecisions.LinkCard(part parent identity)))]
  |Some task=>
-   let availability:=match Read.find_task task snapshot with
-   |Some _=>Available
+   let open_conversation availability:=
+    declared parent Roles.Button(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability) in
+   match Read.find_task task snapshot with
+   |Some _=>open_conversation Available::(if String.eqb activity "" then [] else
+     [information parent "card/conversation-activity" Information.Description activity])
    (* DEFENSE: A linked conversation can be absent from the current observation. *)
-   |None=>Unavailable "关联的对话不可用"
-   end in
-   [declared parent Roles.Button(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability)]
+   |None=>[open_conversation(Unavailable "关联的对话不可用")]
+   end
  end.
 Definition card_node snapshot s board_parent candidates parent value :=
  let id:=Read.card_id value in
@@ -103,11 +105,19 @@ Definition card_node snapshot s board_parent candidates parent value :=
  let action_parent:=part board_parent("card/"++show_natural id)in
  let face:=card_face snapshot s value in
  let title:=Read.card_title value in
+ let status:=Model.card_status face in
+ (* Card enrichment takes precedence over linked execution in BoardFacts.activity. *)
+ let activity:=match Read.card_task value,Read.card_generation value with
+  |Some _,Read.Idle=>("",status)
+  |_,_=>(status,"")end in
+ let card_activity:=fst activity in
  Node key "card" title Roles.Card(CardContent face)
    ([Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
      declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
      declared action_parent Roles.Button(secondary "more" "卡片操作"(Input.OpenObjectActions(CardActions id)(part action_parent "more")))] ++
-     card_conversation snapshot key value)%list.
+     (if String.eqb card_activity "" then [] else
+       [information key "card/activity" Information.Description card_activity]) ++
+     card_conversation snapshot key value(snd activity))%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
