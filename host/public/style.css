@@ -1118,6 +1118,21 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-board-stage-mark="done"] { color: var(--selvedge-success); }
 [data-board-stage-mark="blocked"] { color: var(--selvedge-danger); }
 [data-board-count] { color: var(--selvedge-muted); }
+[data-interactive-component="checkbox"] label { align-items: center; }
+[data-interactive-component="checkbox"] label > [data-control-target="checkbox"] { order: -1; }
+
+[data-interactive-action-group="utilities"] {
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+}
+[data-interactive-action-group="utilities"] > [data-interactive-component="button"] {
+  flex: none;
+  inline-size: max-content !important;
+}
+[data-interactive-action-group="utilities"] > [data-interactive-component="button"] > button {
+  --control-rest-background: var(--selvedge-inset) !important;
+}
 [data-interactive-component="button"] > button { max-inline-size: 100%; }
 [data-interactive-component="button"] > button > span {
   white-space: normal !important;
@@ -1130,17 +1145,17 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   overflow-wrap: anywhere;
 }
 [data-chart-viewport] {
+  container-type: inline-size;
   scrollbar-width: thin;
 }
 [data-chart-viewport] > svg {
   display: block;
   inline-size: 100%;
-  min-inline-size: 320px;
-  max-inline-size: 500px !important;
+  min-inline-size: 336px;
   block-size: auto;
 }
 [data-chart-viewport] > svg > text {
-  font-size: 16px;
+  font-size: clamp(13px, calc(24px - 1.5cqi), 19px);
   font-variant-numeric: tabular-nums;
 }
 [data-chart-viewport] > svg > line {
@@ -1148,6 +1163,12 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 }
 [data-interactive-component]:is([data-interactive-component="bar-chart"], [data-interactive-component="line-chart"]) {
   gap: .25rem !important;
+}
+[data-semantic-key="interactive-markdown/chart-title"] {
+  color: var(--selvedge-text) !important;
+  font-size: .9375rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
 }
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
   inline-size: fit-content;
@@ -1174,19 +1195,83 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-interactive-component="row-layout"][data-native-equal-columns] [data-semantic-key="interactive-markdown/text"] {
   overflow-wrap: anywhere;
 }
-[data-interactive-component="row-layout"][data-native-equal-columns] > [data-interactive-motion="spin"]:has(> [data-interactive-component="badge"]) {
-  background: var(--selvedge-inset);
-  border-radius: 4px;
-  padding-inline: 6px;
+[data-interactive-component="row-layout"][data-native-equal-columns] > [data-interactive-component="badge"] {
+  inline-size: auto !important;
 }
-[data-interactive-component="row-layout"][data-native-equal-columns] > [data-interactive-motion="spin"] > [data-interactive-component="badge"] {
-  background: transparent !important;
-  padding-inline: 0 !important;
+[data-interactive-component="badge"] > [data-semantic-key="interactive-markdown/text"] {
+  color: inherit !important;
+  font: inherit !important;
+  inline-size: fit-content !important;
+  max-inline-size: 100%;
+  padding: 2px 7px !important;
+  border-radius: 999px !important;
+  background: var(--interactive-badge-background) !important;
+  overflow-wrap: anywhere;
+}
+
+[data-interactive-component="card"]:has(> [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child
+  + [data-interactive-component="text"] + [data-interactive-component="badge"]:last-child) {
+  display: grid !important;
+  grid-template-columns: fit-content(70%) minmax(0, 1fr);
+  align-items: center !important;
+  gap: .25rem .5rem !important;
+
+  & > [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]) {
+    grid-column: 1 / -1;
+    font-weight: var(--rich-strong-weight) !important;
+  }
+  & > [data-interactive-component="badge"] { align-self: center !important; }
+}
+
+[data-semantic-key="interactive-markdown/compact-card-list"] {
+  display: grid !important;
+  grid-template-columns: fit-content(36%) minmax(0, 1fr) minmax(0, max-content) fit-content(34%);
+  gap: 0 .625rem !important;
+
+  & > [data-interactive-component="card"] {
+    display: grid !important;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center !important;
+    column-gap: normal !important;
+    padding: .5rem 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+
+    & > [data-semantic-key="interactive-markdown/text"] {
+      color: inherit !important;
+      font-weight: var(--rich-strong-weight) !important;
+      overflow-wrap: anywhere;
+    }
+    & > [data-interactive-component="badge"] { align-self: center !important; }
+    & > [data-interactive-component="metric"] {
+      align-items: end !important;
+      gap: 0 !important;
+
+      & > [data-semantic-key] { text-align: end !important; }
+
+      & > [data-semantic-key="interactive-markdown/metric-value"] {
+        font-size: var(--rich-body-size) !important;
+        line-height: var(--rich-body-line) !important;
+      }
+      & > [data-semantic-key="interactive-markdown/metric-label"] {
+        color: var(--selvedge-muted) !important;
+        font-size: var(--rich-support-size) !important;
+        line-height: var(--rich-support-line) !important;
+        font-weight: 400 !important;
+      }
+    }
+    & > [data-interactive-component="button"] { justify-self: end; }
+  }
+  & > [data-interactive-component="card"] + [data-interactive-component="card"] {
+    border-block-start: 1px solid var(--selvedge-border) !important;
+  }
 }
 
 [data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-value"] {
-  font-size: var(--rich-title-size) !important;
-  line-height: var(--rich-title-line) !important;
+  font-size: var(--interactive-metric-value-size, var(--rich-title-size)) !important;
+  line-height: var(--interactive-metric-value-line, var(--rich-title-line)) !important;
   font-weight: var(--rich-title-weight) !important;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;

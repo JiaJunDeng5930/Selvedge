@@ -187,7 +187,9 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     does not become authority merely because its decoded shape is typed.
 
     Explicit interactive fences reuse the common scene and bounded expression
-    language; ordinary Markdown stays ordinary Markdown. Graph node controls
+    language. Ordinary Markdown keeps its standard presentation. Headings
+    distinguish sections in a long interactive answer. Each source disclosure
+    stays with the fence whose source it reveals. Graph node controls
     retain native size within their own scrollable enclosures, with a readable
     list equivalent. Charts display categories or numeric ticks along the axes,
     using authored axis labels for units. The axes enclose the plotted range

@@ -48,7 +48,8 @@ export class PacedText {
     return this.visible >= length && (!this.stopped || this.finished === true);
   }
   whenCaughtUp(length = this.target.length) {
-    if (this.visible >= length) return Promise.resolve(!this.stopped || this.finished === true);
+    // A synchronous terminal fence report can request a receipt before end() returns.
+    if (this.visible >= length) return this.stopped ? this.completion : Promise.resolve(true);
     if (this.stopped) return Promise.resolve(false);
     return new Promise(resolve => this.prefixWaiters.add({ length, resolve }));
   }

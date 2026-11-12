@@ -164,8 +164,8 @@ Proof. reflexivity. Qed.
 
 Theorem successful_chart_has_a_bounded_nontrivial_plot properties drawing :
   P.chart properties = Outcome.Good drawing ->
-  G.width drawing = 480%positive /\
-  G.height drawing = 204%positive /\
+  G.width drawing = 660%positive /\
+  G.height drawing = 192%positive /\
   exists points,
     Outcome.traverse (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
       (P.chart_rows properties) = Outcome.Good points /\

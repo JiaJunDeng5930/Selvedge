@@ -38,9 +38,29 @@ Definition optional_caption key label : list scene :=
 Definition component_caption event_id p : list scene :=
   match p.(description).(component_role) with
   | Field | Action | TextLeaf | MarkdownLeaf | MetricLeaf | Table | Column => []
+  | Chart =>
+    let label:=property_text "label" p in
+    if String.eqb label "" then [] else
+    [S.Node (Types.event_key event_id+++"/@label") "interactive-markdown/chart-title" ""
+       R.Content (S.Fact label) []]
   | _ => optional_caption (Types.event_key event_id) (property_text "label" p) end.
+Definition component_has_tag tag (node:scene) :=
+ match S.node_meaning node with
+ |S.InteractiveNode c=>String.eqb tag (component_tag (description (IP.component_properties c)))
+ |_=>false end.
+Definition compact_summary_card (node:scene) :=
+ component_has_tag "card" node &&
+ match S.node_children node with
+ |[caption;status;metric;action]=>
+  (match S.node_meaning caption with S.Fact _=>true|_=>false end) &&
+  component_has_tag "badge" status && component_has_tag "metric" metric && component_has_tag "button" action
+ |_=>false end.
 Definition component_node event_id p binding children : scene :=
- S.Node (Types.event_key event_id) ("interactive-markdown/"+++p.(description).(component_tag))
+ let tag:=p.(description).(component_tag) in
+ let presentation:=if String.eqb tag "each" &&
+  (match children with []=>false|_=>forallb compact_summary_card children end)
+  then "compact-card-list" else tag in
+ S.Node (Types.event_key event_id) ("interactive-markdown/"+++presentation)
   (property_text "label" p)
   (match binding with FieldLink _ _=>R.Field|ActionLink _ _=>R.Button|_=>R.Content end)
   (S.InteractiveNode (IP.Component event_id p binding)) (component_caption event_id p++children).
@@ -226,8 +246,9 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
      |Field,FieldLink id active=>match find_local id b.(locals) with
        |Some local=>[field_scene identity event_id p binding local active]|None=>[text (key+++"/@missing") "Field state no longer exists"] end
      |Action,ActionLink action availability=>
-       S.Node (key+++"/@button") key (property_text "label" p) R.Button
-        (S.Activate(M.Control (key+++"/@button") (property_text "label" p) M.Secondary (ActionClicked event_id)
+       let '(role,prominence):=match action with Submit _=>(R.PrimaryButton,M.Primary)|_=>(R.Button,M.Secondary)end in
+       S.Node (key+++"/@button") key (property_text "label" p) role
+        (S.Activate(M.Control (key+++"/@button") (property_text "label" p) prominence (ActionClicked event_id)
           (match availability with Enabled=>M.Available|Busy _=>M.Busy "This action is pending"|Disabled=>M.Unavailable "Control is not available" end))) []::
         (let notice:=feedback_text event_id.(path) b in if String.eqb notice ""then[]else
          [diagnostic_node (key+++"/@feedback") ("@feedback/"+++event_id.(path)) notice])

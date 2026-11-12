@@ -10,7 +10,7 @@ From Selvedge.Interaction Require Import Audit Identity.
 From Selvedge.Browser.Session Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local.
+From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local State.
 From Selvedge.Browser.Presentation Require Roles Information Composition Gesture.
 From Selvedge.Browser.Scene Require Model Surface.
 Module NativeAppearance := Selvedge.Browser.Appearance.
@@ -1021,14 +1021,22 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    then interactive_status env activity (String.append key "/@stale") "data-interactive-stale" "连接已断开，显示上次同步状态"::children
    else children in
  let row_attributes:=if String.eqb tag "row-layout" then
+  let row_children:=S.node_children value in
   let animated:=existsb (fun child=>match S.node_meaning child with
   |S.InteractiveNode component=>let props:=IP.component_properties component in
     let effect:=Expand.property_text "motion" props in
     String.eqb effect "pulse" || String.eqb effect "spin" ||
     String.eqb (Expand.property_text "transition" props) "status"
-  |_=>false end) (S.node_children value) in
-  ("data-native-responsive-row",key)::
-   (if animated then [("data-native-equal-columns","");("data-native-row-direction","column")] else [])
+  |_=>false end) row_children in
+  if animated then [("data-native-responsive-row",key);("data-native-equal-columns","");("data-native-row-direction","column")]
+  else if match row_children with
+   |_::_::_=>forallb (fun child=>match S.node_meaning child with
+      |S.InteractiveNode component=>match IP.component_binding component with
+       |Expand.ActionLink (State.Copy _ | State.Draft _ | State.Navigate _) _=>true
+       |_=>false end
+      |_=>false end) row_children
+   |_=>false end then [("data-interactive-action-group","utilities")]
+  else [("data-native-responsive-row",key)]
   else [] in
  let native:=element (role_tag role)
  (common ++ row_attributes) [] empty children in

@@ -48,3 +48,59 @@ test('conversation checklists use one marker and align wrapped text with ordinar
   assert.ok(geometry[0].markerInGutter && geometry[1].markerInGutter, 'Checkboxes occupy the list gutter');
   assert.ok(Math.abs(geometry[0].textStart - geometry[2].textStart) < 1, 'Mixed list text has a shared start');
 });
+
+test('interactive answer sections keep a readable outline and each source control with its own section', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Show two sections with controls.' });
+  const deadline = Date.now() + 10_000;
+  while (!fixture.requests[0] && Date.now() < deadline) await delay(10);
+  assert.ok(fixture.requests[0], 'The conversation started its model request');
+  const fence = (id, label) => [
+    '```selvedge-ui',
+    `<ui id="${id}"><metric id="value" label="${label}" value="3"/></ui>`,
+    '```',
+  ].join('\n');
+  fixture.finish(0, { text: [
+    '这份答复包含两个交互章节。',
+    '## 1. 指标概览', fence('summary', '访问量'),
+    '## 2. 详细检查', fence('detail', '完成项'),
+  ].join('\n\n') });
+  const { task } = await taskIdle(running.service, task_id);
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  const timeline = page.getByRole('main').getByRole('region', { name: 'Conversation', exact: true });
+  const heading = timeline.getByRole('heading', { name: '2. 详细检查', exact: true });
+  const panels = timeline.locator('.code-block[data-interactive-active="true"]');
+  await panels.nth(1).waitFor();
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    if (width === 390) await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
+    const geometry = await heading.evaluate(node => {
+      const before = node.previousElementSibling.getBoundingClientRect();
+      const title = node.getBoundingClientRect();
+      const caption = node.parentElement.querySelector(':scope > p');
+      const code = node.nextElementSibling;
+      const footer = code.querySelector('[data-semantic-key="interactive-markdown/source-controls"]');
+      const action = footer.querySelector('button').getBoundingClientRect();
+      const controls = footer.getBoundingClientRect();
+      return {
+        headingSize: parseFloat(getComputedStyle(node).fontSize),
+        textSize: parseFloat(getComputedStyle(caption).fontSize),
+        precedingGap: title.top - before.bottom,
+        contentGap: code.getBoundingClientRect().top - title.bottom,
+        rightInset: controls.right - action.right,
+        footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
+      };
+    });
+    assert.ok(geometry.headingSize > geometry.textSize, 'The section heading is larger than the explanation');
+    assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
+    assert.ok(geometry.rightInset <= 2 && geometry.footerFits, 'The source action fits at its own section edge');
+  }
+
+  await panels.nth(1).getByRole('button', { name: '展开源码', exact: true }).click();
+  await panels.nth(1).locator('pre').waitFor();
+  assert.equal(await panels.nth(0).locator('pre').isVisible(), false);
+  assert.match(await panels.nth(1).locator('pre').textContent(), /id="detail"/);
+});

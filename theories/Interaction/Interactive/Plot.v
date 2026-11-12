@@ -37,10 +37,10 @@ Definition axis_coordinate origin span axis value :=
  ((value-axis.(axis_lower))*span*Decimal.scale)/(axis.(axis_upper)-axis.(axis_lower)).
 Definition axis_pixel origin span axis value :=
  (axis_coordinate origin span axis value + Decimal.scale/2)/Decimal.scale.
-Definition plot_left : Z := 104.
-Definition plot_right : Z := 442.
-Definition plot_top : Z := 30.
-Definition plot_bottom : Z := 150.
+Definition plot_left : Z := 122.
+Definition plot_right : Z := 640.
+Definition plot_top : Z := 28.
+Definition plot_bottom : Z := 144.
 Definition plot_width := plot_right-plot_left.
 Definition plot_height := plot_bottom-plot_top.
 Definition category_coordinate index total :=
@@ -73,7 +73,7 @@ Definition axis_title p label binding :=
  if String.eqb title "" then property_text binding p else title.
 Definition x_title p := axis_title p "x-label" "x".
 Definition y_title p := axis_title p "y-label" "y".
-Definition label_width (scalar:N) : nat := if (scalar <? 128)%N then 9 else 16.
+Definition label_width (scalar:N) : nat := if (scalar <? 128)%N then 10 else 19.
 Fixpoint label_prefix budget (chunks:list(N*string)) :=
  match chunks with
  |[]=>[]
@@ -83,7 +83,7 @@ Definition fit_label budget label :=
  match Utf8.chunks label with
  |Some chunks=>let width:=fold_left (fun total chunk=>(total+label_width (fst chunk))%nat) chunks 0%nat in
    if Nat.leb width budget then label
-   else String.append (Utf8.render_chunks (label_prefix (budget-16)%nat chunks)) "…"
+   else String.append (Utf8.render_chunks (label_prefix (budget-19)%nat chunks)) "…"
  (* DEFENSE: Only valid UTF-8 is admitted in chart data. An invalid observation
     cannot be displayed as a partial byte sequence. *)
  |None=>"" end.
@@ -95,7 +95,7 @@ Definition y_ticks axis : list(primitive input) :=
 Definition x_ticks axis : list(primitive input) :=
  let ticks:=axis_ticks axis in
  let label anchor tick:=Label (axis_pixel (plot_left+10) (plot_width-20) axis tick)
-   (plot_bottom+21) anchor (Decimal.render tick) Muted in
+   (plot_bottom+19) anchor (Decimal.render tick) Muted in
  (* Close numeric values can require all six fractional digits at large
     magnitudes. Keep exact endpoints without crowding their text. *)
  if existsb (fun tick=>Nat.ltb 10 (String.length (Decimal.render tick))) ticks
@@ -109,13 +109,13 @@ Definition category_ticks points : list(primitive input) :=
    let index:=(sample*Nat.pred total/Nat.max 1 (Nat.pred shown))%nat in
    match nth_error points index with
    |Some p=>let x:=(category_coordinate index total+Decimal.scale/2)/Decimal.scale in
-     [Label x (plot_bottom+21) LabelMiddle (fit_label budget p.(x_text)) Muted]
+     [Label x (plot_bottom+19) LabelMiddle (fit_label budget p.(x_text)) Muted]
    |None=>[] end) (seq 0 shown).
 Definition chart_axes p x_axis y_axis points : list(primitive input) :=
  y_ticks y_axis++[Line plot_left plot_top plot_left plot_bottom Muted]++
  (match x_axis with Some axis=>x_ticks axis|None=>category_ticks points end)++
- [Label plot_left 19 LabelStart (fit_label 350 (y_title p)) Neutral;
-  Label ((plot_left+plot_right)/2) (plot_bottom+42) LabelMiddle (fit_label 350 (x_title p)) Neutral].
+ [Label plot_left 18 LabelStart (fit_label 500 (y_title p)) Muted;
+  Label ((plot_left+plot_right)/2) (plot_bottom+38) LabelMiddle (fit_label 500 (x_title p)) Muted].
 Fixpoint line_path (first:bool) (points:list(string*string)) :string :=
  match points with []=>""|(x,y)::rest=>
  ((if first then "M " else "L ")++x++" "++y++" "++line_path false rest)%string end.
@@ -140,7 +140,7 @@ Definition chart p : outcome(plot input):=
  points <-? Outcome.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
  let x_axis:=numeric_x_axis points in let y_axis:=y_axis points in
  let coordinates:=chart_coordinates x_axis y_axis points in
- Good(Plot 480%positive 204%positive
+ Good(Plot 660%positive 192%positive
   (chart_axes p x_axis y_axis points++
    chart_marks (String.eqb p.(description).(component_tag) "bar-chart") y_axis coordinates)).
 Fixpoint node_index wanted index nodes:=match nodes with []=>None|node::rest=>

@@ -175,15 +175,34 @@ test('a rejected card edit keeps its diagnostic visible as an assertive alert', 
 test('model charts and range controls keep their values readable', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
-  const source = `<ui id="monthly-report">
+  const monthlySource = `<ui id="dataset-showcase">
+<dataset id="monthlySales" columns={["id","month","income","orders"]} />
+<stack id="dataset-stack" gap="lg">
+<table id="monthly-table" label="月度演示数据" rows={monthlySales} row-key="id">
+ <column id="month" field="month" label="月份" />
+ <column id="income" field="income" label="收入（元）" />
+</table>
+<line-chart id="monthly" label="月收入趋势" data={monthlySales}
+ row-key="id" x="month" y="income" x-label="月份" y-label="收入（元）" />
+<bar-chart id="monthly-bars" label="月订单数" data={monthlySales}
+ row-key="id" x="month" y="orders" x-label="月份" y-label="订单数（单）" />
+</stack>
+<row dataset="monthlySales" key="jan" value={{id:"jan",month:"1月",income:200,orders:2}} />
+<row dataset="monthlySales" key="feb" value={{id:"feb",month:"2月",income:300,orders:3}} />
+<row dataset="monthlySales" key="mar" value={{id:"mar",month:"3月",income:250,orders:4}} />
+<row dataset="monthlySales" key="apr" value={{id:"apr",month:"4月",income:400,orders:3}} />
+<row dataset="monthlySales" key="may" value={{id:"may",month:"5月",income:350,orders:5}} />
+<row dataset="monthlySales" key="jun" value={{id:"jun",month:"6月",income:500,orders:6}} />
+</ui>`;
+  const productSource = `<ui id="data-showcase">
 <state id="seats" type="integer" initial={8} min={1} max={50} />
-<stack id="report">
-<line-chart id="monthly" data={[{id:"a",month:"Jan",value:2},{id:"b",month:"Feb",value:3}]}
- row-key="id" x="month" y="value" x-label="Month" y-label="Value" />
+<stack id="data-stack">
+<when id="bar-condition" test={true}>
 <bar-chart id="revenue" label="各产品收入对比"
- data={[{id:"a",product:"产品 A",income:2},{id:"b",product:"产品 B",income:3},{id:"c",product:"产品 C",income:5},
- {id:"d",product:"产品 D",income:6},{id:"e",product:"产品 E",income:7},{id:"f",product:"产品 F",income:8}]}
- row-key="id" x="product" y="income" x-label="产品" y-label="收入（万元）" />
+ data={[{id:"a",product:"显示器",income:2},{id:"b",product:"协作平台",income:3},{id:"c",product:"智能手表",income:5},
+ {id:"d",product:"机械键盘",income:6},{id:"e",product:"无线耳机",income:7},{id:"f",product:"阅读器",income:8}]}
+ row-key="id" x="product" y="income" x-label="产品" y-label="收入（元）" />
+</when>
 <slider id="seats-slider" bind="seats" label="Seats" />
 </stack>
 </ui>`;
@@ -192,20 +211,31 @@ test('model charts and range controls keep their values readable', { timeout: 60
   const deadline = Date.now() + 10000;
   while (fixture.requests.length <= index && Date.now() < deadline) await delay(10);
   assert.ok(fixture.requests.length > index, 'The actual service must request its model response');
-  fixture.finish(index, { text: '```selvedge-ui\n' + source + '\n```' });
+  fixture.finish(index, {
+    text: [monthlySource, productSource].map(source => '```selvedge-ui\n' + source + '\n```').join('\n\n'),
+  });
   await taskIdle(fixture.running.service, task_id);
   await selectTask(fixture, task_id);
   const main = page.getByRole('main');
-  const line = main.getByRole('img', { name: /^Value \/ Month/ });
-  const bars = main.getByRole('img', { name: /^收入（万元） \/ 产品/ });
-  await line.getByText('Jan', { exact: true }).waitFor();
-  assert.equal(await line.getByText('Feb', { exact: true }).isVisible(), true);
+  const line = main.getByRole('img', { name: /^收入（元） \/ 月份/ });
+  const monthlyBars = main.getByRole('img', { name: /^订单数（单） \/ 月份/ });
+  const bars = main.getByRole('img', { name: /^收入（元） \/ 产品/ });
+  await line.getByText('6月', { exact: true }).waitFor();
+  assert.equal(await line.getByText('1月', { exact: true }).isVisible(), true);
   assert.equal(await line.getByText('0', { exact: true }).isVisible(), true);
-  assert.equal(await line.getByText('3', { exact: true }).isVisible(), true);
-  await bars.getByText('收入（万元）', { exact: true }).waitFor();
-  for (const product of ['产品 A', '产品 B', '产品 C', '产品 D', '产品 E', '产品 F']) {
+  assert.equal(await line.getByText('600', { exact: true }).isVisible(), true);
+  await bars.getByText('收入（元）', { exact: true }).waitFor();
+  const categories = ['显示器', '协作平台', '智能手表', '机械键盘', '无线耳机', '阅读器'];
+  for (const product of categories) {
     assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
   }
+  const plotEdges = svg => {
+    const line = Array.from(svg.querySelectorAll('line')).find(line => line.x1.baseVal.value !== line.x2.baseVal.value);
+    const { left, right } = line.getBoundingClientRect();
+    return { left, right };
+  };
+  assert.deepEqual(await line.evaluate(plotEdges), await monthlyBars.evaluate(plotEdges),
+    'Both monthly charts have the same plot margins despite their different scales');
   const barChart = bars.locator('xpath=../..');
   const geometry = await bars.evaluate(svg => {
     const lines = Array.from(svg.querySelectorAll('line'));
@@ -213,18 +243,26 @@ test('model charts and range controls keep their values readable', { timeout: 60
     const baseline = Math.max(...lines.filter(line => line !== yAxis).map(line => line.y1.baseVal.value));
     const path = svg.querySelector('path');
     const plot = path.getBBox();
-    const summary = svg.parentElement.parentElement.querySelector('summary');
+    const chart = svg.parentElement.parentElement;
+    const summary = chart.querySelector('summary');
+    const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]');
+    const caption = svg.querySelector('text');
     return {
       endsAtBaseline: yAxis.y2.baseVal.value === baseline && plot.y + plot.height === baseline,
       quietAxis: Number(getComputedStyle(yAxis).opacity) < 1,
       accent: path.getAttribute('fill'),
       gap: summary.getBoundingClientRect().top - svg.getBoundingClientRect().bottom,
+      usesWidth: Math.abs(svg.getBoundingClientRect().width - svg.parentElement.clientWidth) <= 1,
+      titleWeight: Number(getComputedStyle(title).fontWeight),
+      axisWeight: Number(getComputedStyle(caption).fontWeight),
     };
   });
   assert.equal(geometry.endsAtBaseline, true, 'A positive chart ends both the bars and y axis at zero');
   assert.equal(geometry.quietAxis, true);
   assert.equal(geometry.accent, 'var(--color-token-icon-accent)');
   assert.ok(geometry.gap >= 0 && geometry.gap <= 12, 'The chart does not reserve a blank area below the plot');
+  assert.ok(geometry.usesWidth, 'The chart fills its available desktop width');
+  assert.ok(geometry.titleWeight > geometry.axisWeight, 'The chart title leads its axis labels');
   const lineChart = line.locator('xpath=../..');
   const disclosure = lineChart.getByText('查看数据', { exact: true });
   assert.equal(await barChart.getByRole('table').isVisible(), false);
@@ -234,16 +272,20 @@ test('model charts and range controls keep their values readable', { timeout: 60
   const table = lineChart.getByRole('table', { name: '图表数据', exact: true });
   await table.waitFor();
   assert.equal(await table.evaluate(node => node.localName), 'table', 'Passive chart data uses a native accessible table');
-  assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['Month', 'Value']);
-  assert.equal(await table.getByRole('row').count(), 3, 'The header and both source data rows remain readable');
-  assert.deepEqual(await table.getByRole('cell').allTextContents(), ['Jan', '2', 'Feb', '3']);
+  assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['月份', '收入（元）']);
+  assert.equal(await table.getByRole('row').count(), 7, 'The header and all six source data rows remain readable');
+  assert.deepEqual(await table.getByRole('cell').allTextContents(), [
+    '1月', '200', '2月', '300', '3月', '250', '4月', '400', '5月', '350', '6月', '500',
+  ]);
   await disclosure.focus();
   await page.keyboard.press('Enter');
   await table.waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 390, height: 844 });
-  await bars.getByText('产品 F', { exact: true }).waitFor();
+  for (const product of categories) {
+    assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
+  }
   const fits = await bars.evaluate(svg => {
-    const bounds = svg.getBoundingClientRect();
+    const bounds = svg.parentElement.getBoundingClientRect();
     return Array.from(svg.querySelectorAll('text')).every(label => {
       const rect = label.getBoundingClientRect();
       return rect.left >= bounds.left && rect.right <= bounds.right;

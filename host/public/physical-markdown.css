@@ -128,3 +128,25 @@
   margin-block-start: var(--physical-block-gap);
 }
 .physical-markdown .markdown .code-block[data-interactive-active="true"] > .code-language { display: none; }
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > h2 {
+  font-size: calc(var(--rich-section-size) * 1.125);
+  line-height: calc(var(--rich-section-line) * 1.125);
+  font-weight: var(--rich-title-weight);
+}
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > h3 {
+  font-size: var(--rich-section-size);
+  line-height: var(--rich-section-line);
+  font-weight: var(--rich-section-weight);
+}
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > :is(h2, h3):not(:first-child) {
+  margin-block-start: max(1.35rem, calc(2 * var(--physical-block-gap)));
+}
+.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] {
+  justify-content: flex-end !important;
+  margin-block-start: .4rem;
+  border-block-start: 1px solid var(--selvedge-border);
+  padding-block-start: .2rem;
+}
+.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] > button {
+  font-size: var(--rich-support-size) !important;
+}
