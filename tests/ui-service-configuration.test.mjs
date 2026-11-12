@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultConfig } from '../host/config.mjs';
 import { browserFixture } from './fixtures/browser.mjs';
@@ -79,6 +79,60 @@ test('Settings applies configuration edits and shows their saved values after re
   assert.equal(await listenAddress.locator('option:checked').textContent(), '::1');
   await configureRelay.click();
   assert.equal(await relayUrl.inputValue(), '');
+});
+
+test('Context settings show seconds and offer reset only for a changed value', { timeout: 60000 }, async t => {
+  const { page, running } = await browserFixture(t);
+  const configuration = path.join(running.service.home, 'config.json');
+  // Explicit settings with equivalent numeric spellings are still at their defaults.
+  await writeFile(configuration, `{"format":${JSON.stringify(defaultConfig.format)},
+    "compaction":{"enabled":true,"background_percent":6.5e1,"blocking_percent":90,"idle_lead_ms":6e4}}`);
+  const dialog = page.getByRole('dialog', { name: '设置', exact: true });
+  const openContext = async () => {
+    await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+      .getByRole('button', { name: '设置', exact: true }).click();
+    await dialog.getByRole('radio', { name: '上下文', exact: true }).click();
+  };
+  const idle = dialog.getByRole('textbox', { name: '空闲提前量（秒）', exact: true });
+  const background = dialog.getByRole('textbox', { name: '后台压缩阈值（%）', exact: true });
+  const restore = dialog.getByRole('button', { name: '恢复默认', exact: true });
+  const restoreIdle = idle.locator('xpath=ancestor::*[@data-semantic-key="settings-controls"]')
+    .getByRole('button', { name: '恢复默认', exact: true });
+  const save = dialog.getByRole('button', { name: '保存', exact: true });
+  const saved = () => dialog.getByRole('status').filter({ hasText: '设置已保存' }).waitFor();
+  const policy = async () => JSON.parse(await readFile(configuration, 'utf8')).compaction;
+
+  await openContext();
+  assert.equal(await idle.inputValue(), '60');
+  assert.equal(await restore.count(), 0);
+
+  await idle.fill('60.0001');
+  assert.equal(await save.isDisabled(), true, 'The seconds editor must not round a fraction of a millisecond');
+  await idle.fill('6.0001e1');
+  await save.click();
+  await saved();
+  assert.equal((await policy()).idle_lead_ms, 60001);
+  assert.equal(await idle.inputValue(), '60.001');
+  await restoreIdle.waitFor();
+  assert.equal(await restore.count(), 1);
+
+  await page.reload();
+  await openContext();
+  await restoreIdle.waitFor();
+  assert.equal(await idle.inputValue(), '60.001');
+  assert.equal(await restore.count(), 1);
+
+  await background.fill('95');
+  await save.click();
+  await dialog.getByRole('status').filter({ hasText: 'Invalid compaction settings' }).waitFor();
+  assert.equal((await policy()).background_percent, 65);
+  await dialog.getByRole('button', { name: '撤销编辑', exact: true }).click();
+
+  await restoreIdle.click();
+  await saved();
+  assert.equal(await idle.inputValue(), '60');
+  assert.equal(Object.hasOwn(await policy(), 'idle_lead_ms'), false);
+  assert.equal(await restore.count(), 0);
 });
 
 test('Model profile edits keep focus in the editor, discard drafts, and persist saved values', { timeout: 60000 }, async t => {

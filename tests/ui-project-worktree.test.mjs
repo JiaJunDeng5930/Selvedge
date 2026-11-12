@@ -31,6 +31,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const directory = project.getByRole('textbox', { name: '目录路径', exact: true });
   const add = project.getByRole('button', { name: '添加目录', exact: true });
   const browse = project.getByRole('button', { name: '浏览…', exact: true });
+  const pathEntry = project.locator('[data-semantic-key="project-directory-input"]');
   const missingMessage = '请先添加并选择主目录。';
   const notGitMessage = '主目录需要位于包含至少一次提交的 Git 仓库中。';
   const missing = reason(missingMessage);
@@ -54,6 +55,10 @@ test('Project worktree defaults require a committed Git primary only while enabl
 
   await create.click();
   await name.fill('默认使用工作树');
+  await pathEntry.getByRole('textbox', { name: '目录路径', exact: true }).waitFor();
+  await pathEntry.getByRole('button', { name: '浏览…', exact: true }).waitFor();
+  assert.equal(await pathEntry.getByRole('button', { name: '添加目录', exact: true }).count(), 0,
+    'Add directory remains a separate commit action for the typed path');
   const [box, caption] = await Promise.all([
     worktree.boundingBox(), project.getByText(worktreeName, { exact: true }).boundingBox(),
   ]);
@@ -96,6 +101,16 @@ test('Project worktree defaults require a committed Git primary only while enabl
     && scroll.before.left >= 0 && scroll.before.right <= narrow.width
     && scroll.before.top >= 0 && scroll.before.bottom <= narrow.height);
   assert.deepEqual(scroll.after, scroll.before, 'The visible footer reason stays in place while the form scrolls');
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.waitForFunction(({ dialogId, width }) => {
+    const bounds = document.getElementById(dialogId)?.getBoundingClientRect();
+    return innerWidth === width && bounds && bounds.left >= 0 && bounds.right <= width;
+  }, { dialogId, width: 320 });
+  await assertDirectoryRow(100);
+  const narrowPath = await pathEntry.boundingBox();
+  const narrowBrowse = await browse.boundingBox();
+  assert.ok(narrowPath && narrowBrowse && narrowPath.x >= 0 && narrowBrowse.x + narrowBrowse.width <= 320,
+    'The grouped directory field and Browse fit a 320px viewport');
   await page.setViewportSize({ width: 1280, height: 900 });
 
   await browse.click();

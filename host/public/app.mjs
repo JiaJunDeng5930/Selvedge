@@ -7,7 +7,7 @@ import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
-import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
+import { createEditorRepairPlacement, createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
@@ -39,6 +39,7 @@ const storage = new InteractiveSnapshotStorage({ ...storagePolicy,
   maximumBytes: Number(storagePolicy.maximumBytes instanceof JsonNumber ? storagePolicy.maximumBytes.source : storagePolicy.maximumBytes) });
 const activeModal = () => renderer.modal;
 const reveal = createLayoutRevealer(surface, activeModal);
+const editorRepair = createEditorRepairPlacement(activeModal);
 const motion = new PresentationMotion(surface, activeModal);
 let state = interaction('initial');
 let world = null;
@@ -403,7 +404,7 @@ function present(local) {
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
   } else synchronizePrefixActions();
-  if (!streamed) { reveal(); motion.refresh(); retryHistoryLocation(); layoutReading(); }
+  if (!streamed) { reveal(); editorRepair.refresh(); motion.refresh(); retryHistoryLocation(); layoutReading(); }
 }
 function schedulePhysicalRefresh() {
   if (disposed || measurementFrame !== null || measurementTask !== null) return;
@@ -542,8 +543,13 @@ const renderer = new Renderer(surface, {
       registerFiles(binding.action, filesFromEvent(event, node));
       if (node.type === 'file') node.value = '';
     }
-    else if (binding.kind === 'value') dispatch({ ...binding.action, value: node.value,
-      raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
+    else if (binding.kind === 'value') {
+      const publishReading = binding.event === 'change' && node.matches('select') &&
+        node.closest('[data-interactive-component="select"]') ? holdAuthoredReading(node) : null;
+      dispatch({ ...binding.action, value: node.value,
+        raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
+      publishReading?.();
+    }
     else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
     else if (binding.kind === 'checked') dispatch({ ...binding.action, value: node.checked });
     else {
@@ -625,7 +631,7 @@ const renderer = new Renderer(surface, {
   layout() {
     scheduleReadingLayout();
     if (layoutFrame === null) layoutFrame = requestAnimationFrame(() => {
-      layoutFrame = null; reveal(); renderer.confineMenus();
+      layoutFrame = null; reveal(); renderer.confineAnchoredLayers();
     });
   },
   codeSource(source, ordinal, text, view) {
@@ -709,7 +715,7 @@ function readingState(key, node) {
   readings.set(readingKey(node), bound);
   return bound;
 }
-function acceptReading(key, node, decision, locationTarget) {
+function acceptReading(key, node, decision, locationTarget, publishIntent = true) {
   const previous = readings.get(readingKey(node))?.intent ?? 'follow';
   readings.set(readingKey(node), decision.state);
   for (const effect of decision.effects) {
@@ -747,9 +753,27 @@ function acceptReading(key, node, decision, locationTarget) {
       else observeReadingAnchor(node, decision.state);
     }
   }
-  if (previous !== decision.state.intent && node.dataset.readerGeneration !== undefined)
+  if (previous === decision.state.intent || node.dataset.readerGeneration === undefined) return;
+  const publish = () => {
+    if (!node.isConnected || readings.get(readingKey(node))?.intent !== decision.state.intent) return;
     dispatch({ type: 'read_timeline', task: new JsonNumber(node.dataset.taskId),
       generation: new JsonNumber(node.dataset.readerGeneration), intent: decision.state.intent });
+  };
+  if (publishIntent) publish();
+  else return publish;
+}
+function holdAuthoredReading(node) {
+  const reader = node.closest('[data-reading-root="true"]');
+  const anchor = node.closest('[data-reading-anchor]');
+  if (!reader || !anchor || !reader.contains(anchor)) return;
+  const key = reader.dataset.key;
+  const state = readingState(key, reader);
+  if (state.intent !== 'follow') return;
+  // Install the bookmark before the change can alter layout. Publish its
+  // intent afterward, so the change retains the generation that admitted it.
+  return acceptReading(key, reader, browser('reading', { state, event: 'read_at', anchor: {
+    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - readingTop(reader)),
+  } }), undefined, false);
 }
 function observeReadingAnchor(node, state, selected) {
   const top = readingTop(node);
@@ -1361,7 +1385,7 @@ function selectionChanged() {
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();

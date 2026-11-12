@@ -60,14 +60,9 @@ Definition compact_summary_card (node:scene) :=
 Definition with_children (node:scene) children : scene :=
  S.Node (S.node_key node) (S.semantic_key node) (S.node_label node)
    (S.node_role node) (S.node_meaning node) children.
-Definition comparison_metric (node:scene) : scene :=
- match S.node_children node with
- |[value;label]=>with_children node [label;value]
- |_=>node end.
 Definition comparison_card (node:scene) : scene :=
  match S.node_children node with
- |[metric]=>with_children node [comparison_metric metric]
- |[caption;metric]=>with_children node [comparison_metric metric;caption]
+ |[caption;metric]=>with_children node [metric;caption]
  |_=>node end.
 Definition summary_metric_label (node:scene) :=
  match S.node_children node with [ _; _; metric; _ ]=>S.node_label metric|_=>""end.
@@ -201,7 +196,7 @@ Definition render_metric key p : list scene :=
  let part name value := S.Node (key+++"/@"+++name) ("interactive-markdown/metric-"+++name)
    "" R.Content (S.Fact value) [] in
  let label:=property_text "label" p in
- part "value" (metric p)::(if String.eqb label "" then [] else [part "label" label]).
+ (if String.eqb label "" then [] else [part "label" label])++[part "value" (metric p)].
 
 Theorem unformatted_number_preserves_its_text source :
  formatted_value (JNumber source) "" = source.
@@ -361,7 +356,8 @@ Definition render_graph event_id p b expanded rendered active : list scene :=
 Fixpoint grid_rows fuel event_id p index columns nodes : list scene := match fuel,nodes with
  |O,_|_,[]=>[]
  |S fuel,_=>synthetic event_id ("grid-row/"+++show_nat index) "row-layout"
-    [("gap",match property "gap" p with Some value=>value|None=>JString "md" end)] (firstn columns nodes)::
+    (match property "gap" p with Some (JString gap)=>[("gap",JString gap)]|_=>[] end)
+    (firstn columns nodes)::
    grid_rows fuel event_id p (S index) columns (skipn columns nodes) end.
 Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:list expanded) budget : list scene*nat :=
  match fuel with

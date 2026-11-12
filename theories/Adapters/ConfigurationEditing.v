@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require JsonObjects.
 From Selvedge.Adapters Require Import Common.
 From Selvedge.Programming Require ArgumentDeclaration Schema DeclarationFields.
 Import ListNotations.
@@ -29,6 +30,24 @@ Definition chosen (value : location) :=
   | None => match inherited value with Some value => value | None => JNull end
   end.
 
+Definition canonical_number declaration source :=
+  match source with
+  | JNumber _ => match D.decode declaration source with
+    | Some admitted => D.encode declaration admitted
+    | None => source
+    end
+  | _ => source
+  end.
+
+Definition reset_changes_value (value : location) :=
+  match supplied value, inherited value with
+  | Some current, Some default =>
+      negb (JsonObjects.equivalent (canonical_number (shape value) current)
+        (canonical_number (shape value) default))
+  | Some _, None => true
+  | None, _ => false
+  end.
+
 Definition describe (value : location) :=
   let schema := D.schema (shape value) in
   let '(kind, extra) :=
@@ -42,7 +61,8 @@ Definition describe (value : location) :=
     end in
   JObject ([("path", JArray (map JString (address value))); ("value", chosen value);
     ("explicit", JBool (D.present (supplied value)));
-    ("resettable", JBool (D.present (reset value))); ("kind", JString kind)] ++ extra).
+    ("resettable", JBool (D.present (reset value)));
+    ("reset_changes_value", JBool (reset_changes_value value)); ("kind", JString kind)] ++ extra).
 
 Definition member_location parent (property : F.property) :=
   let '(key, required, child) := property in

@@ -120,14 +120,22 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   justify-content: start !important;
   gap: .2em !important;
   inline-size: 100% !important;
-  padding: .45em .6em !important;
   text-align: start;
 }
 
 [data-page-region="history-results"]
-  [data-semantic-key="result"] > button[data-semantic-key="open"] > span {
+  [data-semantic-key="result"] > :is(button[data-semantic-key="open"], h3[data-semantic-key="result-title"]) {
+  padding: .375rem .5rem !important;
+}
+
+[data-page-region="history-results"]
+  [data-semantic-key="result"] > :is(button[data-semantic-key="open"] > span, h3[data-semantic-key="result-title"]) {
   overflow-wrap: anywhere;
   white-space: normal !important;
+}
+
+[data-page-region="history-results"] h3[data-semantic-key="result-title"] {
+  margin: 0;
 }
 
 [data-page-region="history-results"] :is([data-semantic-key="result-excerpt"], [data-semantic-key="result-title"]) {

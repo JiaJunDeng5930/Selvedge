@@ -9,11 +9,13 @@ test('authored task summaries align statuses and values while keeping each item 
   const { page, command, profile } = fixture;
   const source = `<ui id="task-report">
   <state id="selected" type="string" initial="" max-length={40} />
+  <state id="showDetails" type="boolean" initial={false} />
   <stack id="content" gap="lg">
     <card id="welcome" label="动态文本" gap="sm">
       <text id="greeting" label="你好，小岚 👋" />
       <badge id="plan" label="专业版" tone="accent" />
     </card>
+    <checkbox id="details" label="显示详情" bind="showDetails" />
     <each id="tasks" items={[{id:"design",name:"设计首页",status:"已完成",progress:1},{id:"code",name:"开发组件",status:"进行中",progress:0.6},{id:"test",name:"编写测试",status:"未开始",progress:0}]} item="task" key="id">
       <card id="item" label={task.name} tone={selected == task.id ? "accent" : "neutral"} gap="sm">
         <badge id="status" label={task.status} tone={task.status == "已完成" ? "success" : "warning"} />
@@ -75,16 +77,23 @@ test('authored task summaries align statuses and values while keeping each item 
   assert.ok(colors.every(color => color !== 'rgba(0, 0, 0, 0)'));
 
   const unselected = choice(inProgress, '选中这一项', '开发组件');
+  const checkbox = main.getByRole('checkbox', { name: '显示详情', exact: true });
+  const mark = '[data-checkbox-mark]';
+  const markShape = locator => locator.evaluate(node => {
+    const style = getComputedStyle(node);
+    const { width, height } = node.getBoundingClientRect();
+    return { width, height, border: style.borderWidth, radius: style.borderRadius };
+  });
   assert.equal(await unselected.getAttribute('aria-pressed'), 'false');
   assert.equal(await unselected.getAttribute('title'), '选中这一项 · 开发组件');
-  assert.equal((await unselected.innerText()).trim(), '☐', 'The selection button is distinct from a status dot');
+  assert.equal(await unselected.locator(mark + ' svg').count(), 0);
   await unselected.focus();
   await inProgress.locator('button:enabled:not([aria-disabled="true"])').waitFor();
   await page.keyboard.press('Enter');
   const selected = choice(inProgress, '已选中', '开发组件');
   await selected.waitFor();
   assert.equal(await selected.getAttribute('aria-pressed'), 'true');
-  assert.equal((await selected.innerText()).trim(), '☑');
+  assert.equal(await selected.locator(mark + ' svg').isVisible(), true);
   assert.equal(await selected.evaluate(node => document.activeElement === node), true);
   assert.equal(await choice(completed, '选中这一项', '设计首页').getAttribute('aria-pressed'), 'false');
 
@@ -109,22 +118,30 @@ test('authored task summaries align statuses and values while keeping each item 
     assert.ok(tag.width < 90, `The plan status fits its text at ${width}px`);
 
     const ends = [];
+    const checkboxShape = await markShape(checkbox.locator('..').locator(mark));
+    const checkboxHit = await checkbox.boundingBox();
+    assert.ok(checkboxHit);
     for (const [item, title, status, percent, label] of [
       [completed, '设计首页', '已完成', '100%', '选中这一项'],
       [inProgress, '开发组件', '进行中', '60%', '已选中'],
       [untouched, '编写测试', '未开始', '0%', '选中这一项'],
     ]) {
       const heading = item.getByText(title, { exact: true });
-      const [name, badge, value, action, bounds] = await Promise.all([
+      const button = choice(item, label, title);
+      const [name, badge, value, action, bounds, shape] = await Promise.all([
         heading.boundingBox(), item.getByText(status, { exact: true }).boundingBox(),
         textBounds(item.getByText(percent, { exact: true })),
-        choice(item, label, title).boundingBox(), item.boundingBox(),
+        button.boundingBox(), item.boundingBox(), markShape(button.locator(mark)),
       ]);
       assert.ok(name && badge && value && action && bounds);
       assert.ok(name.x + name.width <= badge.x + 1 && badge.x + badge.width <= value.x + 1 &&
-        value.x + value.width <= action.x + 1 && action.x + action.width <= bounds.x + bounds.width + 1,
+        value.x + value.width <= action.x + 1 && action.x + action.width <= bounds.x + bounds.width + 1 &&
+        action.x >= 0 && action.x + action.width <= width,
       `The title, status, value and reachable action fit in one ${width}px row`);
       assert.ok(overlapsVertically(name, badge) && overlapsVertically(name, value) && overlapsVertically(name, action));
+      assert.deepEqual(shape, checkboxShape, 'The square matches a normal checkbox');
+      assert.equal(action.width, checkboxHit.width);
+      assert.equal(action.height, checkboxHit.height);
       assert.ok(await weight(heading) > await weight(sharedCaption), 'The title is more prominent than the shared metric heading');
       ends.push(value.x + value.width);
     }
@@ -132,6 +149,10 @@ test('authored task summaries align statuses and values while keeping each item 
     const caption = await textBounds(sharedCaption);
     assert.ok(Math.abs(caption.x + caption.width - ends[0]) <= 1, 'The shared heading aligns over the percentage column');
   }
+  await choice(untouched, '选中这一项', '编写测试')
+    .and(untouched.locator('button:enabled:not([aria-disabled="true"])')).click();
+  await choice(untouched, '已选中', '编写测试').waitFor();
+  assert.equal(await choice(inProgress, '选中这一项', '开发组件').getAttribute('aria-pressed'), 'false');
 
   const detail = row('详情卡片');
   const custom = detail.getByText('这项任务还有一段说明。', { exact: true });

@@ -221,10 +221,20 @@
 }
 
 [data-semantic-key="task-details"][data-workspace-side] {
+  /* The inspector must not resize the reading column or composer. */
+  position: fixed;
+  z-index: 3;
+  inset-block-start: 4rem;
+  inset-inline-end: .75rem;
   inline-size: 16rem !important;
-  block-size: 100% !important;
+  max-inline-size: calc(100vw - 1.5rem);
+  block-size: fit-content !important;
+  max-block-size: min(26rem, calc(100dvh - 4.75rem)) !important;
   min-block-size: 0 !important;
   overflow: hidden !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .625rem;
+  box-shadow: var(--selvedge-shadow);
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-header"] > [data-semantic-key="details"] {
   justify-content: center !important;

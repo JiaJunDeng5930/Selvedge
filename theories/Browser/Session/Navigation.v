@@ -127,6 +127,7 @@ Definition initial_attention panel:=match panel with
  |State.EditorPanel (Identity.TitlePrompts|Identity.Fork _|Identity.TaskGraph _ _)=>
    (* Open at the visible introduction when the standard field is below it or collapsed. *)
    NavigationIdentity.key_part(panel_key panel)"heading"
+ |State.InformationPanel(State.TaskDetails _)=>NavigationIdentity.key_part(panel_key panel)"heading"
  |State.EditorPanel owner=>NavigationIdentity.key_part(panel_key panel)(match Parameters.fields owner with []=>"heading"|field::_=>Parameters.name field end)
  |State.PropertyPanel _ _=>NavigationIdentity.key_part(panel_key panel)"heading"
  |State.CardDecisionPanel _ _=>NavigationIdentity.key_part(panel_key panel)"search"

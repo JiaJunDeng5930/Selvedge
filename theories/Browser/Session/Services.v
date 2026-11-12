@@ -308,7 +308,7 @@ Definition configuration_write (reset:bool) s :=
     match Configuration.editing view with
     | Some (snapshot, draft, entry) =>
         let change := if reset then
-          if Configuration.Config.setting_resettable entry && Configuration.Config.setting_explicit entry
+          if Configuration.Config.can_reset entry
           then Some Configuration.Config.Reset else None
         else option_map Configuration.Config.Assign (Configuration.assignment entry draft view) in
         match change with

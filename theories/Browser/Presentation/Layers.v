@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Domain Commands Codec Images.
 From Selvedge.Generated Require Commands.
-From Selvedge.Features Require Domain BoardFacts BoardFilter BoardParameters.
+From Selvedge.Features Require Domain BoardFilter BoardParameters.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input.
@@ -164,11 +164,8 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
 Definition board_automation_description (automatic:bool) :=
- if automatic then "关闭后，等待中的卡片不会自动启动。正在运行的对话会继续。"
- else let stages:=String.concat "或" (map(fun stage=>"「"++Selvedge.Features.Domain.stage_label stage++"」")
-    (filter BoardFacts.automatic_stage Selvedge.Features.Domain.stages)) in
- "启用后会立即检查已有卡片。"++stages++
- "中已指派模型、未归档、未关联对话且内容就绪的卡片会排队，轮到卡片且模型空闲时尝试启动。".
+ if automatic then "关闭后，正在运行的对话会继续。"
+ else "启用后，符合条件的现有卡片会自动排队。".
 Definition board_settings snapshot s parent :=match Read.board_configuration snapshot with
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
 |Some board=>let automatic:=Read.board_automatic board in
@@ -181,8 +178,15 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
  let toggle:=option_map Input.Command(decode_command Selvedge.Kernel.Commands.command_specs
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
  ((match toggle with None=>[]|Some input=>
- [declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input));
-  information parent "automation-effect" Information.Description (board_automation_description automatic)]end)++
+ [region parent "board-automation" "" Roles.Section
+   [region parent "automation-copy" "" Roles.Content
+     [information parent "automation-label" Information.FieldLabel "自动执行";
+      information parent "automation-effect" Information.Description (board_automation_description automatic)];
+    Node(part parent "automation")"automation" "自动执行"Roles.Button
+     (Choice ToggleChoice automatic ""
+       (Control "automation" "自动执行" Secondary input
+         (if busy then Busy "正在更新设置" else
+          domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input))))[]]]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
   (BoardProfile automatic selected choices
     (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
@@ -236,6 +240,7 @@ Definition board_filters snapshot s occurrence query parent :=
 Definition panel_kind capacity panel :=match panel with
 |State.PropertyPanel _ _|State.ObjectActionsPanel _|State.InformationPanel(State.PropertySource _ _)
 |State.NavigationPanel GlobalMenu|State.NavigationPanel WorkOverview=>AnchoredMenu
+|State.ArchivedCardsPanel=>if navigation_beside_content capacity then AnchoredDialog else ModalDialog
 |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>if details_beside_timeline capacity then TrailingDetails else ModalDialog
 |_=>ModalDialog end.
 Definition source_origin_matches e request panel:=match panel with
@@ -398,7 +403,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
     |State.ArchivedCardsPanel=>"archived-cards"
     |State.Confirmation _ _ _=>"confirmation"
     |_=>"layer"end in
-  Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
+  Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog|AnchoredDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.
 
 Definition layer_view := layer_view_with_side side_content.

@@ -28,8 +28,10 @@ Definition editor_title e := match e with
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
 |TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
-Definition submit_label draft e :=match Draft.contents draft with
-|Draft.MessageBody _ _ Fields.Steer=>"调整回复"
+Definition submit_label snapshot draft e :=match Draft.contents draft with
+|Draft.MessageBody _ _ Fields.Steer=>
+ if Observe.delivery_responding(Observe.delivery_task snapshot e)
+ then Observe.delivery_label Fields.Steer else "发送"
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
@@ -201,7 +203,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let unit:=Observe.action_unit_for s e in
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
- let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let commit:=Control "submit"(submit_label snapshot(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
    (ServiceControls.file_items e parent s) in
  let attachments:=match List.app failed files with
@@ -352,7 +354,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
- let submit:=Control "submit"(submit_label draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  let reason:=commit_reason parent draft assessment in
  let consequence:=match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with

@@ -119,19 +119,21 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
    (let entry:=Node(part parent "directory")"directory" (label "目录路径" "Directory path") Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[] in
-    let actions:=region parent "directory-entry-actions" ""Roles.Toolbar
-     ([declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
+    let add:=declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
-       (if String.eqb buffer ""then Unavailable (label "请输入目录路径" "Enter a directory")else Available))] ++
-      (if String.eqb buffer "" then [] else
-       [declared parent Roles.Button(secondary "clear" (label "清空" "Clear")(Input.ActivityParameter occurrence ""))]) ++
-      [declared parent Roles.Button(Control "browse" (label "浏览…" "Browse…") Secondary
+       (if String.eqb buffer ""then Unavailable (label "请输入目录路径" "Enter a directory")else Available)) in
+    let clear:=if String.eqb buffer "" then [] else
+       [declared parent Roles.Button(secondary "clear" (label "清空" "Clear")(Input.ActivityParameter occurrence ""))] in
+    let browse:=declared parent Roles.Button(Control "browse" (label "浏览…" "Browse…") Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available))])%list in
+       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available)) in
+    let actions more:=region parent "directory-entry-actions" ""Roles.Toolbar (add::clear++more)%list in
     match e with
-    |Identity.Project _=>[region parent "project-directory-entry" "" Roles.Section [entry;actions]]
-    |_=>[entry;actions]end) ++
+    |Identity.Project _=>
+      let path_entry:=region parent "project-directory-input" (label "目录路径" "Directory path") Roles.Toolbar [entry;browse] in
+      [region parent "project-directory-entry" "" Roles.Section [path_entry;actions []]]
+    |_=>[entry;actions [browse]]end) ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -316,8 +318,8 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
      (Editors.commit_reason parent draft assessment++[Editors.assessment_nodes parent assessment]++
       Composer.action_feedback parent action(Editors.draft_feedback draft)++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
-        [Node(part parent "submit")"submit"(Editors.submit_label draft e)Roles.PrimaryButton
-          (ActionCommit e assessment(Control "submit"(Editors.submit_label draft e)Primary(Input.Submit e(part parent "submit"))
+        [Node(part parent "submit")"submit"(Editors.submit_label snapshot draft e)Roles.PrimaryButton
+          (ActionCommit e assessment(Control "submit"(Editors.submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
            (Editors.unit_availability action assessment)))[]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=

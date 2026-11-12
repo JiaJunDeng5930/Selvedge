@@ -17,7 +17,7 @@ async function conversationEntry(fixture, taskId) {
     .getByRole('button', { name: task.title, exact: true });
 }
 
-test('conversation details leave a reading gutter beside tables and code', async t => {
+test('opening conversation details preserves the desktop reading position and composer', async t => {
   const fixture = await browserFixture(t);
   const { page, command, profile, running } = fixture;
   const { task_id } = await command({ op: 'create', profile, message: 'Inspect reading space.' });
@@ -44,21 +44,53 @@ test('conversation details leave a reading gutter beside tables and code', async
     assert.ok(geometry.scrolls && geometry.gutter >= 16,
       'A scrolling desktop conversation leaves space between its table or code and the reading edge');
   };
+  const composer = page.getByRole('combobox', { name: 'Message', exact: true });
+  const readingPosition = () => reading.evaluate(root => {
+    const { x, width } = root.getBoundingClientRect();
+    return { x, width, scrollTop: root.scrollTop };
+  });
+  await reading.press('Home');
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  await reading.evaluate(root => root.scrollTo({ top: 160, behavior: 'instant' }));
+  await page.waitForFunction(() => document.querySelector('[data-reading-root]')?.scrollTop === 160);
+  const before = await readingPosition();
+  assert.ok(before.scrollTop > 0, 'Open details while reading in the middle of a conversation');
+  const composerBefore = await composer.boundingBox();
   assertDesktopGutter(await measure());
 
-  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const toggle = page.getByRole('button', { name: '任务详情', exact: true });
+  await toggle.press('Enter');
   const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.getByRole('heading', { name: '运行信息', exact: true }).waitFor();
-  const detailsWidth = (await details.boundingBox()).width;
-  assert.ok(detailsWidth > 210 && detailsWidth <= 270, 'Short metadata uses a compact desktop panel');
+  await page.waitForFunction(() => document.activeElement?.textContent === '任务详情' &&
+    document.activeElement?.matches('[data-semantic-key="task-details"] [data-semantic-key="heading"]'));
+  const bounds = await details.boundingBox();
+  assert.ok(bounds.width > 210 && bounds.width <= 270, 'Short metadata uses a compact desktop panel');
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 1280 &&
+    bounds.y >= 0 && bounds.y + bounds.height <= 900, 'The details panel fits within the viewport');
+  assert.deepEqual(await readingPosition(), before);
+  const composerWithDetails = await composer.boundingBox();
+  assert.equal(composerWithDetails.x, composerBefore.x);
+  assert.equal(composerWithDetails.width, composerBefore.width);
   assertDesktopGutter(await measure());
+
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '关闭任务详情');
+  await page.keyboard.press('Enter');
+  await details.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.activeElement?.matches('[data-semantic-key="details"]'));
+  assert.deepEqual(await readingPosition(), before);
+  await toggle.press('Enter');
+  await page.setViewportSize({ width: 1280, height: 360 });
+  const short = await details.boundingBox();
+  assert.ok(short.y >= 0 && short.y + short.height <= 360, 'Details fit a short desktop window');
 
   await page.setViewportSize({ width: 390, height: 730 });
   const compactDetails = page.getByRole('dialog', { name: '任务详情', exact: true });
   await compactDetails.getByRole('heading', { name: '运行信息', exact: true }).waitFor();
   const compactBounds = await compactDetails.boundingBox();
   assert.ok(compactBounds.x >= 0 && compactBounds.x + compactBounds.width <= 390);
-  await compactDetails.getByRole('button', { name: '任务详情', exact: true, expanded: true }).click();
+  await compactDetails.getByRole('button', { name: '任务详情', exact: true, expanded: true }).press('Enter');
   await compactDetails.waitFor({ state: 'hidden' });
   const compact = await measure();
   assert.ok(compact.scrolls && compact.bounds.right <= 390 && compact.gutter >= 6 && compact.gutter < 20,

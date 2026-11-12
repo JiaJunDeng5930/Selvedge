@@ -183,8 +183,22 @@
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] {
   justify-content: flex-start !important;
   flex-wrap: wrap !important;
+  column-gap: 1rem !important;
   margin-block-start: .4rem;
   padding-block-start: .2rem;
+
+  & > [data-interactive-component="button"] + button[data-semantic-key="interactive-markdown/source-disclosure"] {
+    position: relative;
+
+    &::after {
+      content: "";
+      position: absolute;
+      inset-block: 25%;
+      inset-inline-start: -.5rem;
+      border-inline-start: 1px solid var(--selvedge-border);
+      pointer-events: none;
+    }
+  }
 }
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] > [data-interactive-component="button"] {
   inline-size: fit-content !important;

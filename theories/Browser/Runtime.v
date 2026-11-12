@@ -203,6 +203,7 @@ Definition reading_call source := match field "state" source,string_field "event
  |"scroll"=>Some Reading.BeginUserScroll|"follow"=>Some Reading.Follow
  |"layout"=>match extent_field "dock_height" source,extent_field "viewport_height" source with
  Some h,Some v=>Some(Reading.LayoutChanged h v)|_,_=>None end
+ |"read_at"=>match field "anchor" source with Some point=>option_map Reading.ReadHistoryAt(anchor_state point)|None=>None end
  |"anchor"=>match field "anchor" source with Some point=>option_map Reading.AnchorObserved(anchor_state point)|None=>None end
  |"locate"=>option_map Reading.JumpToMessage(binary_field "index" source)
  |"key"=>option_map(fun key=>Reading.NavigationKey key (bool_value "editable" source))(string_field "keyboard" source)

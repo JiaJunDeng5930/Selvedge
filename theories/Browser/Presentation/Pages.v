@@ -251,31 +251,44 @@ Definition history_result_text parent name query width text : node Input.input :
 Definition history_result_button parent label input children : node Input.input :=
  Node (part parent "open") "open" label Roles.Button
    (Activate (secondary "open" label input)) children.
-Definition history_hit parent query width hit :=
+Definition history_hit_task hit :=
  match hit with
- |HistoryObservation.TitleMatch task=>
- let id:=Read.task_id task in
- let key:=part parent("hit/"++show_natural id++"/title")in
- let title:=Read.task_title task in
- region key "result" "标题匹配" Roles.Card
-  [history_result_button key title (Input.OpenHistoryResult id None(part key "open"))
-    [history_result_text key "result-title" query width title;
-     Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly "标题匹配") []]]
- |HistoryObservation.MessageMatch task hit=>
- let id:=Read.task_id task in
+ |HistoryObservation.TitleMatch task|HistoryObservation.MessageMatch task _=>task end.
+(* Moving the current hit's group to the front retains the first hit's
+   position, while prepending the hit preserves the order within its group. *)
+Definition history_result_groups hits : list (Read.task * list HistoryObservation.history_hit) :=
+ fold_right (fun hit groups=>
+   let task:=history_hit_task hit in
+   let '(same,others):=List.partition
+     (fun group=>N.eqb (Read.task_id task) (Read.task_id (fst group))) groups in
+   (task,hit::flat_map snd same)::others) [] hits.
+Definition history_message_result parent query width id title hit :=
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
- let context:=Read.task_title task++" · 消息 #"++show_natural(N.succ index) in
+ let context:="消息 #"++show_natural(N.succ index) in
  let excerpt:=match HistoryObservation.hit_preview hit with
    |Some text=>history_result_text key "result-excerpt" query width text
    |None=>Node (part key "result-excerpt") "result-excerpt" "" Roles.Content
       (ReadOnly "在消息原文中找到匹配") []
    end in
- region key "result" "搜索结果" Roles.Card
-  [history_result_button key context (Input.OpenHistoryResult id(Some index)(part key "open"))
-    [excerpt;
-     Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly context) []]]
- end.
+ history_result_button key (title++" · "++context) (Input.OpenHistoryResult id(Some index)(part key "open"))
+  [excerpt; Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly context) []].
+Definition history_conversation_result parent query width
+  (group:Read.task * list HistoryObservation.history_hit) :=
+ let '(task,hits):=group in
+ let id:=Read.task_id task in
+ let title:=Read.task_title task in
+ let key:=part parent("conversation/"++show_natural id)in
+ let title_key:=part parent("hit/"++show_natural id++"/title")in
+ let title_node:=if existsb (fun hit=>match hit with HistoryObservation.TitleMatch _=>true|_=>false end) hits then
+   history_result_button title_key title (Input.OpenHistoryResult id None(part title_key "open"))
+     [history_result_text title_key "result-title" query width title]
+  else information key "result-title" Information.GroupTitle title in
+ let messages:=flat_map (fun hit=>match hit with
+   |HistoryObservation.TitleMatch _=>[]
+   |HistoryObservation.MessageMatch _ message=>[history_message_result parent query width id title message]
+   end) hits in
+ region key "result" "" Roles.Card (title_node::messages).
 Definition history_page snapshot s parent :=
  let search:=SessionNavigation.search_state s in
  let page:=State.search_result search in
@@ -309,7 +322,7 @@ Definition history_page snapshot s parent :=
        |[]=>[information parent "history-empty" Information.Status
          (if filtered then "没有找到匹配的标题或消息。试试其他关键词，或将筛选改为「全部」。"
           else "没有找到匹配的标题或消息。试试其他关键词。")]
-       |hits=>map(history_hit results_parent query width)hits end)++
+       |hits=>map (history_conversation_result results_parent query width) (history_result_groups hits) end)++
       (if N.eqb after 0 then[]else
         [declared parent Roles.Button(observe_control availability
           (secondary "history/previous" "上一页"(Input.SubmitHistorySearch(N.sub after 20))))])++

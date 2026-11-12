@@ -67,6 +67,8 @@ test('authored forms and state adjustments keep related controls together', { ti
   assert.equal(await main.getByText('真实发送操作', { exact: true }).isVisible(), true);
   assert.equal(await main.getByText('点击下方按钮，会把上方文字作为新消息发送给助手。', { exact: true }).isVisible(), true);
   assert.equal(await notes.inputValue(), '第一行备注\n第二行备注');
+  assert.equal(await counter.getByText('本地状态操作', { exact: true }).isVisible(), true);
+  assert.equal(await metric.getByText('点击计数', { exact: true }).isVisible(), true);
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     if (width < 500) await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
@@ -80,13 +82,16 @@ test('authored forms and state adjustments keep related controls together', { ti
     assert.ok(note.bounds.left >= 0 && note.bounds.right <= width);
     const right = await details.boundingBox();
     assert.ok(right && right.x >= 0 && right.x + right.width <= width);
-    const [value, ...buttons] = await Promise.all([metric, action('加一'), action('减一'), action('归零')].map(node => node.boundingBox()));
-    assert.ok(value && buttons.every(box => box && box.x >= 0 && box.x + box.width <= width));
+    const [card, value, ...buttons] = await Promise.all([counter, metric, action('加一'), action('减一'), action('归零')].map(node => node.boundingBox()));
+    assert.ok(card && value && card.x >= 0 && card.x + card.width <= width);
+    assert.ok(buttons.every(box => box && box.x >= card.x && box.x + box.width <= card.x + card.width));
     if (width === 1280) {
       assert.ok(Math.abs(note.bounds.bottom - (right.y + right.height)) <= 24, 'The two form columns end near the same line');
       assert.ok(value.y < buttons[0].y + buttons[0].height && buttons[0].y < value.y + value.height);
       assert.ok(buttons[0].x - (value.x + value.width) >= -1 && buttons[0].x - (value.x + value.width) <= 16,
         'The first adjustment is next to the metric');
+      const trailingInset = card.x + card.width - Math.max(...buttons.map(box => box.x + box.width));
+      assert.ok(trailingInset <= 24, 'The counter border ends just beyond its last button');
     }
     for (let i = 1; i < buttons.length; i++) {
       if (Math.abs(buttons[i].y - buttons[i - 1].y) <= 1) {

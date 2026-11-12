@@ -81,6 +81,9 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     belongs beside its status, and cancelling a tool call belongs beside that
     call. Forking the current history belongs at the end of an idle
     conversation. The icon names the action on hover and keyboard focus.
+    The action menu puts controls that can open immediately before commands
+    whose availability needs a service check. It groups refused commands
+    after the other actions and keeps their reasons available.
 
     A chooser explains why a choice is unavailable at the point of selection.
     Model choices with the same name show the configuration difference in
@@ -327,8 +330,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether
     saving schedules execution or leaves the card for a later action. Card text
-    errors name the repair beside the relevant field. The assignee filter keeps
-    complete rows in its scrollable list, and card actions keep their labels
+    errors name the repair beside the relevant field when both fit. The assignee
+    filter keeps complete rows in its scrollable list, and card actions keep their labels
     aligned with unavailable actions after the available actions.
     Assisted capture offers the board default when it names an eligible
     drafting model. A missing selection leaves a prompt and its reason beside
@@ -336,8 +339,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
     stage selected by its entry point.
-    The fixed action area keeps submission reasons visible when their fields
-    scroll out of view. An unadded directory path shows one reminder beside
+    The fixed action area shows the same repair when the field or its inline
+    explanation does not fit in view. Each repair is visible in one place.
+    An unadded directory path shows one reminder beside
     its input.
     The automatic execution setting explains which cards can start and when,
     including eligible cards already on the board.

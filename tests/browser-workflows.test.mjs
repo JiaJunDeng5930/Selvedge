@@ -315,7 +315,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
     assert.deepEqual(geometry, { row: true, follows: true, fits: true }, 'Empty route at ' + width + 'px');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await emptyGraph.getByRole('button', { name: '新建任务图', exact: true }).click();
+  await emptyGraph.getByRole('button', { name: '创建对话转发', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: '新建任务图', exact: true });
   const create = dialog.getByRole('button', { name: '创建任务图', exact: true });
@@ -430,7 +430,7 @@ test('leaving a graph conversation before its receipt preserves the newer destin
   const { page } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
   const graph = page.getByRole('dialog', { name: '新建任务图', exact: true });
   const name = graph.getByRole('textbox', { name: '任务图名称', exact: true });
   await name.fill('Keep this graph');
@@ -461,7 +461,7 @@ test('leaving a graph conversation before its receipt preserves the newer destin
 
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
   await graph.locator('[data-semantic-key="handoff-needs-conversations"]')
     .filter({ hasText: '请在此范围内再新建一条对话。' }).waitFor();
   assert.equal(await name.inputValue(), 'Keep this graph');

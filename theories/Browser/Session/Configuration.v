@@ -218,7 +218,7 @@ Definition can_add_item s :=
 Definition assignment entry draft s :=
   match new_item s with
   | Some _ => bind (new_collection_entries s) (fun entries => collection_value entries s)
-  | None => Config.interpret_input (Config.setting_input entry) (draft_input draft)
+  | None => Config.interpret_setting_input entry (draft_input draft)
   end.
 Definition remove_item name :=
   update_collection (fun entries s =>

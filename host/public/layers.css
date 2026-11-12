@@ -16,13 +16,23 @@ dialog[data-semantic-key="project-editor"] {
   inline-size: 30rem !important;
 }
 [data-semantic-key="project-directory-entry"] {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="project-directory-entry"] > div { min-inline-size: 0 !important; }
+[data-semantic-key="project-directory-input"] {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: end !important;
   gap: var(--panel-related-space) !important;
 }
-[data-semantic-key="project-directory-entry"] > div { min-inline-size: 0 !important; }
+[data-semantic-key="project-directory-input"] > div:first-child { min-inline-size: 0 !important; }
 [data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] {
+  align-self: flex-start !important;
+  justify-content: flex-start !important;
+  margin-inline-start: 0 !important;
   flex-wrap: nowrap !important;
 }
 [data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] > button {
@@ -89,12 +99,12 @@ dialog[data-semantic-key="project-editor"] {
   color: var(--selvedge-muted) !important;
 }
 
-:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side])
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side])
   :where([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
   flex: none !important;
 }
 
-:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side]):not(
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side]):not(
   [data-semantic-key^="settings"], [data-semantic-key="task-navigation"],
   [data-semantic-key="work-overview"], [data-semantic-key="side-conversation"]
 ) {
@@ -196,9 +206,47 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
   [data-semantic-key="board-settings"], [data-semantic-key="archived-cards"]:has([data-semantic-key="empty"])) {
   inline-size: fit-content !important;
 }
-[data-semantic-key="board-settings"] [data-semantic-key="automation-effect"] {
-  max-inline-size: 24rem;
+dialog[data-semantic-key="archived-cards"]::backdrop { background: transparent; }
+dialog[data-semantic-key="archived-cards"]:not(:has([data-semantic-key="empty"])) {
+  inline-size: 26rem !important;
 }
+[data-semantic-key="board-automation"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="automation-copy"] { gap: .125rem !important; }
+[data-semantic-key="automation-label"] { font-weight: 600 !important; }
+button[data-semantic-key="automation"][role="switch"] {
+  display: grid !important;
+  place-items: center;
+  inline-size: max(44px, 2.75rem) !important;
+  min-block-size: max(44px, 2.75rem) !important;
+  padding: 0 !important;
+  --control-rest-background: transparent !important;
+  --control-hover-background: var(--selvedge-hover) !important;
+}
+button[data-semantic-key="automation"][role="switch"] > * { display: none !important; }
+button[data-semantic-key="automation"][role="switch"]::before,
+button[data-semantic-key="automation"][role="switch"]::after {
+  grid-area: 1 / 1;
+  border-radius: 999px;
+  content: "";
+}
+button[data-semantic-key="automation"][role="switch"]::before {
+  inline-size: 2.125rem;
+  block-size: 1.25rem;
+  background: var(--selvedge-muted);
+}
+button[data-semantic-key="automation"][role="switch"]::after {
+  inline-size: .875rem;
+  block-size: .875rem;
+  background: var(--selvedge-surface);
+  translate: -.4375rem 0;
+}
+button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::before { background: var(--selvedge-accent); }
+button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::after { translate: .4375rem 0; }
 [data-semantic-key="file-preview"] [data-semantic-key="preview-image"] {
   inline-size: auto !important;
   max-inline-size: 100% !important;
@@ -532,6 +580,15 @@ dialog[data-semantic-key="board-filters"] {
   inline-size: min(32rem, calc(100% - 2 * var(--panel-related-space))) !important;
   min-inline-size: 0 !important;
 }
+/* The fixed reason is the default until the inline repair fits the scrollport. */
+dialog:not([data-editor-repair-inline]) > form[data-semantic-key="editor"]:has([data-semantic-key="editor-commit-reason"])
+  > [data-surface-role="dialog-body"] [data-semantic-key="property-repair"] {
+  visibility: hidden;
+}
+dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-semantic-key="editor-commit-reason"] {
+  display: none !important;
+}
+
 [data-semantic-key="board-filters"] > [data-surface-role="dialog-body"] {
   gap: .5rem !important;
 }
@@ -615,6 +672,30 @@ dialog[data-semantic-key="board-filters"] {
   }
 }
 
+[data-surface-role="dialog-body"]:has(> [data-semantic-key="card-options"]) {
+  gap: .5rem !important;
+}
+[data-surface-role="dialog-body"]:has(> [data-semantic-key="card-options"])
+  textarea[data-semantic-key="description"] {
+  min-block-size: 3.75rem !important;
+}
+[data-semantic-key="card-options"] > [data-editor-options-body] {
+  gap: .375rem;
+}
+@media (min-width: 768px) {
+  [data-semantic-key="card-options"] > [data-editor-options-body] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, .55fr);
+    column-gap: .5rem;
+  }
+  [data-semantic-key="card-options"] > [data-editor-options-body]
+    > :not(:has(> textarea[data-semantic-key="labels"]), [data-semantic-key="attachments"]) {
+    grid-column: 1 / -1;
+  }
+  [data-semantic-key="card-options"] > [data-editor-options-body] > [data-semantic-key="attachments"] {
+    align-self: end;
+  }
+}
 [data-semantic-key="card-options"] [data-semantic-key="card-option-pair"] {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));

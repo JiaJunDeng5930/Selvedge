@@ -96,6 +96,7 @@ test('interactive answer sections keep a readable outline and each source contro
         contentGap: code.getBoundingClientRect().top - title.bottom,
         footerInset: controls.left - code.getBoundingClientRect().left,
         sharesRow: Math.abs(action.top - reset.top) <= 1 && reset.right < action.left,
+        sourceGap: action.left - reset.right,
         footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
       };
     });
@@ -103,6 +104,7 @@ test('interactive answer sections keep a readable outline and each source contro
     assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
     assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The source action starts at its own section edge');
     assert.ok(geometry.sharesRow, 'Reset and source actions share one footer row');
+    assert.ok(geometry.sourceGap >= 12 && geometry.sourceGap <= 24, 'The disclosure is separated from Reset and stays nearby');
     const tableChrome = await timeline.getByRole('table').evaluateAll(tables => tables.map(table => {
       const header = getComputedStyle(table.tHead.rows[0].cells[0]);
       const body = getComputedStyle(table.tBodies[0].rows[1].cells[0]);
@@ -120,8 +122,9 @@ test('interactive answer sections keep a readable outline and each source contro
   assert.equal(await codeActions.isVisible(), false);
   await timeline.locator('.code-block:has(code[data-language="text"])')
     .getByRole('button', { name: 'Copy code', exact: true }).waitFor();
-  await footer.getByRole('button', { name: '展开源码', exact: true }).click();
+  await footer.getByRole('button', { name: '展开源码', exact: true }).press('Enter');
   await detail.locator('pre').waitFor();
+  assert.ok(await footer.getByRole('button', { name: '收起源码', exact: true }).evaluate(node => node === document.activeElement));
   const wrap = codeActions.getByRole('button', { name: 'Wrap code', exact: true });
   await wrap.click();
   assert.equal(await codeActions.getByRole('button', { name: 'Unwrap code', exact: true }).getAttribute('aria-pressed'), 'true');

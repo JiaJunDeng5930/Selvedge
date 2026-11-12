@@ -57,6 +57,19 @@ Definition unavailable_native_button (value : DOM.node) : Prop :=
  | _ => False
  end.
 
+Local Lemma unavailable_control_has_aria_disabled {A} (action : Model.control A)
+    focusable help :
+  Model.available (Model.control_availability action) = false ->
+  In ("aria-disabled", "true")
+    (Document.control_attributes
+      (focusable || negb (Model.available (Model.control_availability action))) help action).
+Proof.
+ intro Unavailable. unfold Document.control_attributes. rewrite Unavailable, Bool.orb_true_r.
+ destruct (Model.control_availability action);
+   cbn [Model.available] in Unavailable; try discriminate;
+   cbn [List.app List.In]; tauto.
+Qed.
+
 Theorem unavailable_action_renders_an_unavailable_native_button {A} (describe : A -> ControlPurpose.purpose)
     env generation area activity source view component key semantic label
     (action : Model.control A) (children : list (Surface.node A)) :
@@ -72,11 +85,9 @@ Proof.
    Document.area_for unavailable_native_button Surface.node_key Surface.node_label
    Surface.node_meaning Surface.node_role Surface.node_children Surface.semantic_key].
  split; [reflexivity|].
- unfold Document.control_attributes; rewrite !Unavailable.
- cbn [Document.disabled Surface.node_role Surface.node_meaning Document.area_for].
- rewrite !Bool.orb_true_r.
- cbn; right.
- destruct(Model.control_availability action) eqn:Availability;
-   cbn [Model.available] in Unavailable; try discriminate;
-   repeat rewrite in_app_iff; cbn [List.In List.app]; tauto.
+ right.
+ apply in_or_app. right.
+ apply in_or_app. right.
+ apply in_or_app. left.
+ now apply unavailable_control_has_aria_disabled.
 Qed.

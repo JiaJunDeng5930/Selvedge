@@ -1133,22 +1133,25 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   :has(> [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child +
        [data-interactive-component="metric"] + [data-interactive-action-group="adjustments"]:last-child)
 ) {
-  flex-flow: row wrap !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, max-content));
   align-items: center !important;
   gap: .375rem .75rem !important;
+  inline-size: fit-content !important;
+  max-inline-size: 100%;
 
   & > [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child {
-    flex: 1 1 100%;
+    grid-column: 1 / -1;
   }
   & > [data-interactive-component="metric"] {
-    inline-size: max-content !important;
+    inline-size: auto !important;
   }
   & > [data-interactive-action-group="adjustments"] {
     display: flex !important;
     flex-flow: row wrap !important;
     align-items: center !important;
     justify-content: flex-start !important;
-    inline-size: max-content !important;
+    inline-size: auto !important;
     gap: .375rem !important;
   }
   & > [data-interactive-action-group="adjustments"] > [data-interactive-component="button"] {
@@ -1368,7 +1371,7 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
     & > [data-interactive-component="button"] button[aria-pressed] {
       justify-content: center !important;
     }
-    & > [data-interactive-component="button"] button[aria-pressed="true"] {
+    & > [data-interactive-component="button"] button[aria-pressed="true"] > [data-checkbox-mark] {
       color: var(--selvedge-accent) !important;
     }
   }

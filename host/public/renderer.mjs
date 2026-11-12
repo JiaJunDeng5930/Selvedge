@@ -151,10 +151,10 @@ export class Renderer {
   modalRecord() {
     return this.modal?.matches(':modal') ? this.records.get(this.modal.dataset.key) : null;
   }
-  confineMenus() {
+  confineAnchoredLayers() {
     const view = this.root.ownerDocument.defaultView;
     let width, height;
-    for (const menu of this.root.querySelectorAll('[data-native-layer="menu"]')) {
+    for (const menu of this.root.querySelectorAll('[data-native-layer="menu"], [data-native-layer="anchored-dialog"]')) {
       if (menu.style.translate) menu.style.removeProperty('translate');
       // Fixed menus declare confinement through a viewport media rule. Their
       // contents can change without forcing another layout to read that rule.
@@ -634,7 +634,7 @@ export class Renderer {
       top.open = false;
       top.showModal();
     }
-    this.confineMenus();
+    this.confineAnchoredLayers();
     // Moving a retained header into its native drawer must not discard its focused control.
     if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
         (!top || top.contains(active)) && !active.closest('[inert]') && !active.disabled) {

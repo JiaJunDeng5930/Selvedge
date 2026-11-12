@@ -113,7 +113,7 @@ Definition copy path : string * string :=
  | ["compaction"; "enabled"] => ("自动压缩", "接近模型的上下文上限时，摘要较早的内容。")
  | ["compaction"; "background_percent"] => ("后台压缩阈值（%）", "达到阈值后在后台压缩，对话可继续运行。")
  | ["compaction"; "blocking_percent"] => ("等待压缩阈值（%）", "达到阈值后，等压缩完成再发送下一次请求。")
- | ["compaction"; "idle_lead_ms"] => ("空闲提前量（ms）", "在缓存过期前提前多久开始压缩。")
+ | ["compaction"; "idle_lead_ms"] => ("空闲提前量（秒）", "在缓存过期前提前多久开始压缩，可精确到 0.001 秒。")
  | ["compaction"; "targets"] => ("模型上下文限制", "按模型配置设置上下文窗口和压缩方式。")
  | ["host"] => ("监听地址", "服务启动时绑定的回环地址。")
  | ["port"] => ("监听端口", "服务启动时使用的端口。填 0 自动选择可用端口。")
@@ -191,12 +191,12 @@ Definition write_status parent view : list (node Input.input) :=
  | Loaded _ _ _ => [information parent "saved" Information.Status "设置已保存"]
  | Dormant => []
  end.
-Definition is_resettable entry := Config.setting_resettable entry && Config.setting_explicit entry.
+Definition is_resettable := Config.can_reset.
 Definition reset_button parent entry enabled label :=
  if is_resettable entry then [button parent "restore-default" label enabled Services.ResetConfiguration] else [].
 Definition save_enabled entry raw view enabled :=
  enabled && Configuration.dirty view &&
- match Config.interpret_input (Config.setting_input entry) raw with Some _ => true | None => false end.
+ match Config.interpret_setting_input entry raw with Some _ => true | None => false end.
 Definition boolean_control parent path label raw (enabled : bool) :=
  let key := "setting-switch" in
  let on := String.eqb raw "true" in

@@ -57,11 +57,15 @@ Definition project_choices snapshot caption:=Fields.ChoiceValue "" caption::
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(show_natural id)name::rest|_,_=>rest end)[](items "projects" snapshot).
 Definition delivery_label intent:=match intent with
- |Fields.Send=>"正常发送"|Fields.Steer=>"调整回复"end.
+ |Fields.Send=>"正常发送"|Fields.Steer=>"打断并调整"end.
+Definition delivery_task snapshot e:=
+ match e with Identity.Message id=>World.find_task id snapshot|_=>None end.
+Definition delivery_responding task :=
+ String.eqb (value_or "" (bind task(string_field "phase"))) "model_pending".
 Definition delivery_explanation snapshot e intent:=
- let task:=match e with Identity.Message id=>World.find_task id snapshot|_=>None end in
+ let task:=delivery_task snapshot e in
  let status:=value_or "" (bind task(string_field "status")) in
- let responding:=String.eqb (value_or "" (bind task(string_field "phase"))) "model_pending" in
+ let responding:=delivery_responding task in
  let paused:=String.eqb status "frozen" in
  match intent with
  |Fields.Send=>if paused then "消息会排队，直到你恢复对话。"

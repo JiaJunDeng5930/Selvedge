@@ -31,6 +31,12 @@ test('authored motion, metrics and tables remain readable in the conversation', 
       <badge id="spin" label="Spin · 旋转效果" motion="spin" />
       <badge id="status" label="Transition · 状态过渡" transition="status" />
     </row-layout>
+    <metric id="budget" label="总预算" value={9000} format="currency:CNY" />
+    <grid id="prices" columns={3} gap="md">
+      <metric id="original-price" label="原价" value={299} format="currency:CNY" />
+      <metric id="discount" label="优惠比例" value={0.2} format="percent" />
+      <metric id="amount-due" label="应付金额" value={219} format="currency:CNY" tone="success" />
+    </grid>
     <row-layout id="metric-comparison" gap="sm">
       <card id="counts" label="普通数值">
         <metric id="visits" label="访问量" value={123456} format="number" />
@@ -86,6 +92,23 @@ test('authored motion, metrics and tables remain readable in the conversation', 
   const metricName = main.getByText('访问量', { exact: true });
   const formatCue = main.getByText('普通数值', { exact: true });
   const fontSize = locator => locator.evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+  const metricOrder = async (label, amount) => {
+    const name = main.getByText(label, { exact: true });
+    const value = main.getByText(amount, { exact: true });
+    const [labelBox, valueBox] = await Promise.all([name.boundingBox(), value.boundingBox()]);
+    assert.ok(labelBox.y + labelBox.height <= valueBox.y && await fontSize(value) > await fontSize(name),
+      `${label} appears above its larger value`);
+    return labelBox;
+  };
+  await metricOrder('总预算', '¥9,000.00');
+  await main.locator('[data-native-row-direction="row"]')
+    .filter({ hasText: '应付金额' }).waitFor();
+  const originalPrice = await metricOrder('原价', '¥299.00');
+  const discount = await metricOrder('优惠比例', '20%');
+  const amountDue = await metricOrder('应付金额', '¥219.00');
+  assert.ok(originalPrice.x < discount.x && discount.x < amountDue.x &&
+    [discount, amountDue].every(label => Math.abs(originalPrice.y - label.y) <= 1),
+    'Metrics with different value sizes align their labels at the top of the desktop row');
   assert.ok((await metricName.boundingBox()).y < (await number.boundingBox()).y &&
     (await number.boundingBox()).y < (await formatCue.boundingBox()).y,
     'The metric name precedes its value and the separate card caption follows');
@@ -171,6 +194,8 @@ test('authored motion, metrics and tables remain readable in the conversation', 
     assert.deepEqual(await comparison(), { columns: width === 390 ? 2 : 1, aligned: true, fits: true },
       `${width}px: metric cards reflow without clipping and align within each row`);
     assert.equal(await amountFits(), true, `${width}px: the emphasized amount still fits on one line`);
+    await metricOrder('总预算', '¥9,000.00');
+    await metricOrder('应付金额', '¥219.00');
   }
   await main.getByRole('button', { name: '展开源码', exact: true }).click();
   const original = main.locator('pre code').filter({ hasText: 'Spin · 旋转效果' });
@@ -229,6 +254,7 @@ test('authored checkboxes, result metrics and message actions have distinct visu
     const style = getComputedStyle(node);
     return { size: parseFloat(style.fontSize), color: style.color, background: style.backgroundColor };
   });
+  await main.locator('[data-native-row-direction="row"]').filter({ hasText: '应付金额' }).waitFor();
   for (const width of [1280, 390, 320]) {
     if (width !== 1280) {
       await page.setViewportSize({ width, height: 740 });
@@ -240,6 +266,14 @@ test('authored checkboxes, result metrics and message actions have distinct visu
     const [pay, base] = await Promise.all([paint(total.getByText('¥100.00', { exact: true })),
       paint(original.getByText('¥100.00', { exact: true }))]);
     assert.ok(pay.size > base.size && pay.color !== base.color, `${width}px: result amount is emphasized`);
+    const [baseName, payName, baseValue, payValue] = await Promise.all([
+      original.getByText('原价', { exact: true }), total.getByText('应付金额', { exact: true }),
+      original.getByText('¥100.00', { exact: true }), total.getByText('¥100.00', { exact: true }),
+    ].map(node => node.boundingBox()));
+    assert.ok(baseName.y + baseName.height <= baseValue.y && payName.y + payName.height <= payValue.y,
+      `${width}px: price names precede their values`);
+    if (width === 1280) assert.ok(Math.abs(baseName.y - payName.y) <= 1,
+      'The emphasized total keeps its name aligned with the other price names');
     const utilities = await Promise.all([copy.boundingBox(), fill.boundingBox(), open.boundingBox()]);
     assert.ok(utilities.every(rect => rect && rect.x >= 0 && rect.x + rect.width <= width));
     for (const [index, box] of utilities.entries()) {

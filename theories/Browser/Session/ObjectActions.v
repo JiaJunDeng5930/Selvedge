@@ -59,9 +59,8 @@ Definition declarations snapshot clock subject :=
  if Decisions.subject_exists snapshot subject then
  let commands := flat_map (fun value=>singleton(from_decision subject value))(Decisions.decisions snapshot clock subject) in
  match subject with
- |TaskActions id=>commands++
-  [local "side" "侧边对话"(SideConversation id);
-   local "compact" "压缩上下文"(Editor(Compact id))]
+ |TaskActions id=>local "compact" "压缩上下文"(Editor(Compact id))::
+  (commands++[local "side" "侧边对话"(SideConversation id)])
  |ProjectActions id=>local "edit" "编辑项目"(Editor(Project(Some id)))::commands
  |CardActions id=>local "edit" "编辑卡片"(Editor(Card(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
@@ -129,7 +128,8 @@ Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in
  match subject with
  |TaskActions id=>match Read.find_task id snapshot with
-  |Some task=>available_first (task_menu_actions task actions++map(observe snapshot s subject)(task_board_action snapshot id))
+  |Some task=>available_first
+    (map(observe snapshot s subject)(task_board_action snapshot id)++task_menu_actions task actions)
   |None=>[]end
  |CardActions _=>available_first actions
  |_=>actions end.

@@ -63,8 +63,23 @@ test('a conversation offers its fork at the end and Cancel restores the reading 
   const history = dialog.getByText('分支会继承这条对话当前的历史。', { exact: true });
   const cancel = dialog.getByRole('button', { name: '取消', exact: true });
   const moreActions = main.getByRole('button', { name: '对话操作', exact: true });
-  await moreActions.press('Enter');
   const menu = page.getByRole('menu', { name: '对话操作', exact: true });
+  let finishAssessment;
+  const assessment = new Promise(resolve => { finishAssessment = resolve; });
+  await page.route('**/api/assess', async route => { await assessment; await route.continue(); });
+  try {
+    await moreActions.press('Enter');
+    await menu.waitFor();
+    const firstActions = await menu.getByRole('button').evaluateAll(buttons => buttons.slice(0, 2)
+      .map(button => ({ label: button.textContent.trim(), available: button.getAttribute('aria-disabled') !== 'true' && !button.disabled })));
+    assert.deepEqual(firstActions, [
+      { label: '添加到看板', available: true },
+      { label: '压缩上下文', available: true },
+    ], 'Available actions come first while other actions are checked');
+    assert.equal(await menu.getByRole('button', { name: '暂停对话', exact: true }).isDisabled(), true);
+  } finally {
+    finishAssessment();
+  }
   for (const name of ['暂停对话', '归档对话', '侧边对话', '压缩上下文']) {
     const action = menu.getByRole('button', { name, exact: true });
     await action.waitFor();
