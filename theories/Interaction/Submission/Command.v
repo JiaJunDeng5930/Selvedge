@@ -29,7 +29,8 @@ Definition present (name:string)(value:json)(fields:list(string*json)):=match va
 Definition command_json (now:option N)(value:Draft.body):option json:=
  let record name fields:=JObject(("op",JString name)::fields)in
  match value with
- |Draft.WorkNameBody work name=>Some(record "rename_work"[("work_id",number work);("name",JString name)])
+ |Draft.WorkNameBody work name=>Some(record (match work with None=>"create_work"|Some _=>"rename_work"end)
+   (present "work_id" (optional_id work) [("name",JString name)]))
  |Draft.NewTaskBody message profile reasoning configuration mode work=>
    let fields:=[("profile",JString profile);("reasoning",JString reasoning);("message",text_content message);("settings",settings configuration)]in
    Some(match mode with

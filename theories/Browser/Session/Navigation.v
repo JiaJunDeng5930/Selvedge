@@ -198,7 +198,7 @@ Definition editor_available snapshot owner:=match owner with
  |Card(Some id)=>match field "board" snapshot with Some board=>match DocumentState.find_world "cards" "id" id board with Some _=>true|None=>false end|None=>false end
  |CardForConversation task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
  |TaskGraph(Some id)_=>match DocumentState.find_world "graphs" "graph_id" id snapshot with Some _=>true|None=>false end
- |WorkName id=>match DocumentState.find_work id snapshot with Some _=>true|None=>false end
+ |WorkName(Some id)=>match DocumentState.find_work id snapshot with Some _=>true|None=>false end
  |NewTask(Some work)=>match DocumentState.find_work work snapshot with Some _=>true|None=>false end
  |_=>true end.
 Definition edit_object snapshot owner trigger state:=
@@ -256,14 +256,14 @@ Definition generated (command : Commands.proposal) purpose state:=
  |None=>refuse "The operation does not match the public command protocol."state end.
 Definition selection_intent state:=State.with_navigation
  (set State.generation N.succ(State.navigation_state state))state.
-Definition create_work state:=
- (* Return to the workspace while creation is pending so a newer navigation
-    choice can supersede the eventual selection. *)
- let closed:=if overview_open state then close_panel state else keep state in
- let state:=selection_intent(result_state closed)in
- let issued:=generated(Commands.Cmd_create_work(Commands.Build_create_work(Some "")))
-  (State.WorkCreation(State.generation(State.navigation_state state))(State.next_layer state))state in
- set result_effects(List.app(result_effects closed))issued.
+Definition foreground_current navigation layer state:=
+ N.eqb navigation(State.generation(State.navigation_state state))&&N.eqb layer(State.next_layer state).
+Definition create_work snapshot state:=
+ match State.layers(State.navigation_state state)with
+ |layer::_=>match State.layer_panel layer with
+  |State.NavigationPanel WorkOverview=>handoff (edit_object snapshot(WorkName None)) layer state
+  |_=>keep state end
+ |[]=>keep state end.
 Definition begin_side snapshot task trigger state:=
  match DocumentState.find_task task snapshot with None=>refuse "The task is no longer available."state
  |Some _=>let state:=selection_intent state in
@@ -364,7 +364,7 @@ Definition toggle_disclosure id collapsed :=
 Definition step snapshot input state:option result:=match input with
  |Input.Navigate destination=>Some(visit snapshot destination state)
  |Input.SelectWork work=>Some(select_work snapshot work state)
- |Input.CreateWork=>Some(create_work state)
+ |Input.CreateWork=>Some(create_work snapshot state)
  |Input.SelectSharedTask work task=>Some(visit snapshot(SharedUI work task)state)
  |Input.OpenNavigation kind trigger=>Some(open_panel(State.NavigationPanel kind)trigger state)
  |Input.OpenObjectActions subject trigger=>Some(open_panel(State.ObjectActionsPanel subject)trigger state)
@@ -372,7 +372,7 @@ Definition step snapshot input state:option result:=match input with
  |Input.ActivitySearch occurrence query=>Some(modify_top occurrence(fun layer=>
    match State.layer_panel layer with
    |State.PropertyPanel _ (Activity.PropertyActivity Model.ModelProperty)
-   |State.CardDecisionPanel _ _=>Some(set State.layer_query(fun _=>query)layer)
+   |State.CardDecisionPanel _ _|State.BoardFiltersPanel=>Some(set State.layer_query(fun _=>query)layer)
    |_=>None end)state)
  |Input.OpenEditor owner trigger=>Some(edit_object snapshot owner trigger state)
  |Input.BeginGraphConversation=>Some(begin_graph_conversation snapshot state)
@@ -422,11 +422,6 @@ Definition outcome_result(outcome:sum string json):=match outcome with inl _=>No
 (** Work/side IO must not reclaim selection after navigation or a different
     foreground layer has been opened, even when the page route did not change. *)
 Definition complete snapshot purpose outcome state:option result:=match purpose with
- |State.WorkCreation generation layer_generation=>Some(if negb(outcome_success outcome)then
-   Result state [](Some(Codec.command_failure outcome))else
-   if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)then
-   match bind(outcome_result outcome)(natural_field "work_id")with Some work=>select_work snapshot(Some work)state
-   |None=>refuse "The Work creation result has no Work identity."state end else keep state)
  |State.SideCreation parent generation layer_generation trigger=>Some(if negb(outcome_success outcome)then
    Result state [](Some(Codec.command_failure outcome))else
    if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)&&task_visible state parent then

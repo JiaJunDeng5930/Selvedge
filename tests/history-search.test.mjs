@@ -219,7 +219,7 @@ test('Returning from a search hit restores its filtered results page and reading
     settings: { project_id }, message: prompt });
   const request = await until(() => fixture.requests.find(entry => !entry.closed
     && JSON.stringify(entry.input.input).includes(prompt)), 'the archive model request');
-  fixture.finish(request.index, { output: Array.from({ length: 31 }, (_, index) => ({
+  fixture.finish(request.index, { output: Array.from({ length: 45 }, (_, index) => ({
     type: 'message', role: 'assistant', content: [{ type: 'output_text',
       text: `${marker} ${index + 1}. ${'Searchable notes for the project archive. '.repeat(4)}` }],
   })) });
@@ -231,11 +231,11 @@ test('Returning from a search hit restores its filtered results page and reading
   const work = main.getByRole('combobox', { name: '工作组', exact: true });
   const previous = main.getByRole('button', { name: '上一页', exact: true });
   const back = main.getByRole('button', { name: '返回搜索结果', exact: true });
-  const hit = main.getByRole('button', { name: /^Archive reading fixture · 消息 #/ }).nth(4);
+  const hit = main.getByRole('button', { name: /^Archive reading fixture · 消息 #/ }).nth(16);
   const picker = page.getByRole('button', { name: /^对话范围 · / });
-  const scope = page.getByRole('dialog', { name: '对话范围', exact: true });
+  const scope = page.getByRole('menu', { name: '对话范围', exact: true });
   await picker.click();
-  await scope.getByRole('radio', { name: sourceWork, exact: true }).click();
+  await scope.getByRole('menuitemradio', { name: sourceWork, exact: true }).click();
   await page.getByRole('button', { name: `对话范围 · ${sourceWork}`, exact: true }).waitFor();
   const search = page.getByRole('button', { name: '搜索对话', exact: true });
   const enterSearch = async () => {

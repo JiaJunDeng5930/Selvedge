@@ -42,7 +42,7 @@ test('Settings and composer offer device-code and browser sign-in through the pu
   await navigation.getByRole('button', { name: '设置', exact: true }).click();
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   await settings.getByRole('radio', { name: '模型', exact: true }).click();
-  await settings.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).click();
+  await settings.getByRole('button', { name: '使用 ChatGPT 登录', exact: true }).click();
 
   const chooser = page.getByRole('dialog', { name: 'Sign in with ChatGPT', exact: true });
   const firstStatusPoll = page.waitForResponse(response => response.url().includes('/api/audio/login')

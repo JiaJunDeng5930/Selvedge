@@ -29,6 +29,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const name = project.getByRole('textbox', { name: '项目名称', exact: true });
   const directory = project.getByRole('textbox', { name: '目录路径', exact: true });
   const add = project.getByRole('button', { name: '添加目录', exact: true });
+  const browse = project.getByRole('button', { name: '浏览…', exact: true });
   const missingMessage = '请先添加并选择主目录。';
   const notGitMessage = '主目录需要位于包含至少一次提交的 Git 仓库中。';
   const missing = reason(missingMessage);
@@ -43,14 +44,22 @@ test('Project worktree defaults require a committed Git primary only while enabl
     assert.equal(await submit.evaluate(button => (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
       .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), message);
   }
+  async function assertDirectoryRow(minimumWidth) {
+    const [field, control] = await Promise.all([directory.boundingBox(), browse.boundingBox()]);
+    assert.ok(field && control && field.width >= minimumWidth);
+    assert.ok(field.x + field.width <= control.x + 1 && field.y < control.y + control.height &&
+      control.y < field.y + field.height, 'The directory field and Browse share the same row');
+  }
 
   await create.click();
   await name.fill('默认使用工作树');
   await worktree.check();
   await project.getByRole('heading', { name: '工作目录', exact: true }).waitFor();
   await assertBlockingReason(missingMessage);
+  assert.ok((await project.boundingBox()).width >= 420, 'The desktop Project form gives its directory row a reading width');
+  await assertDirectoryRow(200);
 
-  const narrow = { width: 390, height: 370 };
+  const narrow = { width: 390, height: 310 };
   const bodySelector = '[data-surface-role="dialog-body"]';
   const dialogId = await project.getAttribute('id');
   await page.setViewportSize(narrow);
@@ -64,6 +73,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
       && body && body.scrollHeight > body.clientHeight;
   }, { dialogId, ...narrow, bodySelector });
   await assertBlockingReason(missingMessage);
+  await assertDirectoryRow(120);
   const scroll = await missing.evaluate(async (reason, bodySelector) => {
     const body = reason.closest('dialog').querySelector(bodySelector);
     const before = reason.getBoundingClientRect().toJSON();
@@ -79,9 +89,13 @@ test('Project worktree defaults require a committed Git primary only while enabl
   assert.deepEqual(scroll.after, scroll.before, 'The visible footer reason stays in place while the form scrolls');
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  const browse = project.getByRole('button', { name: '浏览…', exact: true });
   await browse.click();
   const chooser = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
+  await chooser.waitFor();
+  await page.waitForFunction(id => {
+    const covered = document.getElementById(id);
+    return covered?.open && getComputedStyle(covered).visibility === 'hidden';
+  }, dialogId);
   const folder = chooser.getByRole('button', { name: 'Ordinary directory', exact: true });
   const choose = chooser.getByRole('button', { name: '使用此目录', exact: true });
   await folder.click();
@@ -90,6 +104,8 @@ test('Project worktree defaults require a committed Git primary only while enabl
   assert.equal(await choose.isDisabled(), true);
   await chooser.getByRole('button', { name: '取消', exact: true }).click();
   await chooser.waitFor({ state: 'hidden' });
+  await browse.and(page.locator(':focus')).waitFor();
+  assert.equal(await name.inputValue(), '默认使用工作树');
   assert.equal(await project.getByText(ordinary, { exact: true }).count(), 0);
   await directory.fill(ordinary);
   await add.click();

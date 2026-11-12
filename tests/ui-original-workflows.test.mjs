@@ -19,7 +19,7 @@ test('a Project task keeps its readable context and its primary and supporting a
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Harbour 海港', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
-  await page.getByText('New conversation in Harbour 海港', { exact: true }).waitFor();
+  await page.getByText('新建对话 · Harbour 海港', { exact: true }).waitFor();
 
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });
@@ -54,12 +54,19 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.equal(task.settings.project_id, project.project_id);
   assert.deepEqual(task.settings.workspace, { roots: [workspace], primary_root: workspace });
   await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.getByText('Harbour 海港', { exact: true }).waitFor();
+  for (const name of ['工作环境', '权限', '运行信息']) {
+    await details.getByRole('heading', { name, exact: true }).waitFor();
+  }
+  const pathText = details.getByText(workspace, { exact: true });
+  assert.equal(await pathText.isVisible(), false, 'The compact summary shows the directory name before revealing its path');
+  await details.getByText(`工作目录 · ${path.basename(workspace)}`, { exact: true }).click();
+  await pathText.waitFor();
   assert.equal(await details.getByText(workspace, { exact: true }).count(), 1,
     'Task details show a shared working and guidance directory once');
-  await details.getByText('Guidance revision', { exact: true }).waitFor();
+  await details.getByText('指引版本', { exact: true }).waitFor();
   await details.getByText(revision, { exact: true }).waitFor();
 });
 
@@ -75,10 +82,11 @@ test('a projectless task identifies its context without inventing a Project revi
   assert.equal(await entry.getAttribute('title'), null);
   assert.equal(await entry.getAttribute('data-help'), null);
   await entry.click();
-  await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
-  await details.getByText('Projectless task', { exact: true }).waitFor();
-  assert.equal(await details.getByText('Guidance revision', { exact: true }).count(), 0,
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
+  await details.getByText('未关联项目', { exact: true }).waitFor();
+  assert.equal(await details.getByText('项目指引', { exact: true }).count(), 0);
+  assert.equal(await details.getByText('指引版本', { exact: true }).count(), 0,
     'A projectless task has no Project guidance revision');
 });
 

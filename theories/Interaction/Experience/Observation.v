@@ -111,7 +111,7 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
      if existsb(fun choice=>String.eqb key(Fields.choice_value_of choice))available then []
      else [Fields.ChoiceValue key (key++"（连接不可用）")]
    |_=>[]end in
-   Fields.ChoiceValue "" "Automatic"::retained++available
+   Fields.ChoiceValue "" "自动"::retained++available
  |Fields.ApprovalReviewer=>profile_choices
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe tt in
@@ -560,7 +560,8 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.MessageBody _ message _=>failed_requirement e(text_has_content message)
    (Some Fields.MessageText)"empty_message" Tasks.input_required_message
  |Draft.WorkNameBody _ name=>failed_requirement e(Work.valid_name name)
-   (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
+   (Some Fields.WorkName)"invalid_work_name"
+   (if Utf8.nonblank name then "工作组名称不能超过 4096 个 UTF-8 字节。" else "请输入工作组名称。")
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
    (Some Fields.ProjectName)"invalid_project_name"
    (if Utf8.nonblank name then "项目名称不能超过 256 个 UTF-8 字节。" else Parameters.project_name_prompt)

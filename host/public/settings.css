@@ -344,6 +344,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   justify-content: flex-end !important;
   align-items: center !important;
 }
+[data-semantic-key="settings-controls"]:has(> button[data-semantic-key="restore-default"]) {
+  max-inline-size: 100% !important;
+  flex-wrap: nowrap !important;
+}
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
 [data-semantic-key="settings-values"] {
   align-items: stretch !important;
@@ -438,7 +442,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   line-height: 1.35 !important;
   white-space: normal !important;
 }
-[data-semantic-key="settings-controls"] > :has(> input) {
+[data-semantic-key="settings-controls"] > :has(> :is(input, select)) {
   inline-size: var(--settings-control-width) !important;
   max-inline-size: 100% !important;
 }
@@ -724,6 +728,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-color: transparent !important;
   color: var(--settings-muted) !important;
   align-self: flex-start !important;
+}
+[data-semantic-key="settings"] [data-semantic-key="settings-controls"] > button[data-semantic-key="restore-default"] {
+  align-self: center !important;
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="remove-value"],
   [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"]):is(:hover, :focus-visible) {

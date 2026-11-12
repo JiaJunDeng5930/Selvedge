@@ -3,6 +3,66 @@
 :where(dialog[data-surface-role], [data-workspace-side])
   :where([data-surface-role="dialog-body"]) { min-inline-size: 0 !important; }
 
+/* Covered dialogs retain their contents and attention targets. Only the
+   last centered modal and its backdrop are painted. Menus keep their anchors. */
+[data-layer-stack] > dialog[aria-modal="true"]:not([data-native-layer]):has(~ dialog:modal:not([data-native-layer])) {
+  visibility: hidden !important;
+}
+[data-layer-stack] > dialog[aria-modal="true"]:not([data-native-layer]):has(~ dialog:modal:not([data-native-layer]))::backdrop {
+  visibility: hidden;
+}
+
+dialog[data-semantic-key="project-editor"] {
+  inline-size: 30rem !important;
+}
+[data-semantic-key="project-directory-entry"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="project-directory-entry"] > div { min-inline-size: 0 !important; }
+[data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] {
+  flex-wrap: nowrap !important;
+}
+[data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] > button {
+  white-space: nowrap !important;
+}
+
+:is([data-semantic-key="task-details"], [data-semantic-key="task-context"]) {
+  & > [data-surface-role="dialog-body"] { gap: 0 !important; }
+
+  & :is([data-semantic-key="task-environment"], [data-semantic-key="task-permissions"], [data-semantic-key="task-execution"]) {
+    padding-block: .75rem;
+    gap: .375rem !important;
+
+    & + section { border-block-start: 1px solid var(--selvedge-border); }
+    & > h3 { font-weight: 600 !important; }
+    & > div:has(> [data-semantic-key="label"]) {
+      display: grid !important;
+      grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+      gap: .625rem !important;
+    }
+    & [data-semantic-key="label"] { color: var(--selvedge-muted) !important; }
+  }
+
+  & :is([data-semantic-key="directory-path"], [data-semantic-key="project-guidance"]) > summary {
+    min-inline-size: 0;
+    padding-block: .125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  & [data-semantic-key="directory-path"] [data-semantic-key="value"] {
+    max-inline-size: 100%;
+    overflow-x: auto;
+    white-space: pre;
+    overflow-wrap: normal !important;
+    font-family: ui-monospace, monospace;
+  }
+}
+
 [data-semantic-key="handoff-route"] {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -463,23 +523,83 @@ dialog[data-semantic-key="property-source"] {
   overflow-wrap: anywhere;
 }
 
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] {
+dialog[data-semantic-key="board-filters"] {
+  inline-size: min(32rem, calc(100% - 2 * var(--panel-related-space))) !important;
+  min-inline-size: 0 !important;
+}
+[data-semantic-key="board-filters"] > [data-surface-role="dialog-body"] {
+  gap: .5rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="board-filter-group"] {
+  display: grid !important;
+  grid-template-columns: 4em minmax(0, 1fr);
+  align-items: start !important;
+  gap: .375rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="board-filter-group"] > h3 {
+  padding-block: .5rem !important;
+  padding-inline: 0 !important;
+  font-size: .875rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap;
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-choices"] {
   display: flex !important;
   flex-flow: row wrap !important;
-  align-items: center !important;
-  gap: var(--panel-related-space) !important;
+  gap: .25rem !important;
 }
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] > h3 { flex-basis: 100%; }
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"]:not(:has(> button)) { display: none !important; }
 [data-semantic-key="board-filters"] button[data-semantic-key="filter-option"] {
   inline-size: fit-content !important;
+  min-inline-size: 2rem !important;
+  flex: none !important;
+  padding-inline: .5rem !important;
+  padding-block: .2rem !important;
+  font-size: .875rem !important;
+  gap: .25rem !important;
   border: 1px solid var(--selvedge-border) !important;
 }
 [data-semantic-key="board-filters"] button[data-semantic-key="filter-option"][aria-checked="true"] {
   background: var(--selvedge-selection) !important;
+  border-color: var(--selvedge-accent) !important;
 }
-[data-semantic-key="board-filters"] button[data-semantic-key="filters/clear"] {
-  align-self: end !important;
+[data-semantic-key="board-filters"] [data-semantic-key="filter-choices"] > button > span[aria-hidden="true"]:last-child {
+  display: none !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter/assignee"] {
+  display: block !important;
+  padding-inline: .5rem !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .5rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter/assignee"] > summary {
+  padding-block: .4rem;
+  cursor: pointer;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
+  max-block-size: min(10rem, 36dvh) !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  padding: .25rem !important;
+  gap: .125rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button {
+  inline-size: 100% !important;
+  justify-content: start !important;
+  border: 0 !important;
+}
+
+[data-semantic-key="card-options"] [data-semantic-key="card-option-pair"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: .5rem !important;
+}
+[data-semantic-key="card-options"] [data-semantic-key="attachments"] > [data-file-picker] {
+  align-self: flex-start;
+  padding-inline: .375rem;
+}
+[data-semantic-key="card-options"] [data-semantic-key="attachments"] > [data-file-picker]:hover {
+  background: var(--selvedge-hover);
 }
 
 /* Startup and rendering failures can appear before the workspace exists. */

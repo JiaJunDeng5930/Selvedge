@@ -38,7 +38,7 @@ test('conversation navigation releases desktop space and preserves the draft thr
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
   assert.equal(await message.getAttribute('placeholder'), 'Write a message…');
   const title = main.getByText(task.title, { exact: true }).first();
-  const details = main.getByRole('button', { name: 'Task details', exact: true });
+  const details = main.getByRole('button', { name: '任务详情', exact: true });
   const [titleBounds, actionBounds, expanded] = await Promise.all([
     title.boundingBox(), details.boundingBox(), main.boundingBox(),
   ]);
@@ -236,6 +236,27 @@ test('model charts and range controls keep their values readable', { timeout: 60
   };
   assert.deepEqual(await line.evaluate(plotEdges), await monthlyBars.evaluate(plotEdges),
     'Both monthly charts have the same plot margins despite their different scales');
+  const headingGeometry = svg => {
+    const chart = svg.parentElement.parentElement;
+    const summary = chart.querySelector('summary');
+    const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]');
+    const action = summary.getBoundingClientRect();
+    const heading = summary.parentElement.parentElement.getBoundingClientRect();
+    const titleRange = document.createRange();
+    titleRange.selectNodeContents(title);
+    const titleBox = titleRange.getBoundingClientRect();
+    return {
+      besideTitle: action.left >= titleBox.right - 1 && action.top < titleBox.bottom,
+      atEnd: Math.abs(action.right - heading.right) <= 1,
+      beforePlot: heading.bottom <= svg.getBoundingClientRect().top,
+      withinViewport: action.left >= 0 && action.right <= innerWidth,
+    };
+  };
+  for (const chart of [line, monthlyBars, bars]) {
+    const heading = await chart.evaluate(headingGeometry);
+    assert.ok(heading.besideTitle && heading.atEnd && heading.beforePlot,
+      'Each chart places its own data disclosure at the right of its title');
+  }
   const barChart = bars.locator('xpath=../..');
   const geometry = await bars.evaluate(svg => {
     const lines = Array.from(svg.querySelectorAll('line'));
@@ -244,14 +265,12 @@ test('model charts and range controls keep their values readable', { timeout: 60
     const path = svg.querySelector('path');
     const plot = path.getBBox();
     const chart = svg.parentElement.parentElement;
-    const summary = chart.querySelector('summary');
     const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]');
     const caption = svg.querySelector('text');
     return {
       endsAtBaseline: yAxis.y2.baseVal.value === baseline && plot.y + plot.height === baseline,
       quietAxis: Number(getComputedStyle(yAxis).opacity) < 1,
       accent: path.getAttribute('fill'),
-      gap: summary.getBoundingClientRect().top - svg.getBoundingClientRect().bottom,
       usesWidth: Math.abs(svg.getBoundingClientRect().width - svg.parentElement.clientWidth) <= 1,
       titleWeight: Number(getComputedStyle(title).fontWeight),
       axisWeight: Number(getComputedStyle(caption).fontWeight),
@@ -260,10 +279,10 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.equal(geometry.endsAtBaseline, true, 'A positive chart ends both the bars and y axis at zero');
   assert.equal(geometry.quietAxis, true);
   assert.equal(geometry.accent, 'var(--color-token-icon-accent)');
-  assert.ok(geometry.gap >= 0 && geometry.gap <= 12, 'The chart does not reserve a blank area below the plot');
   assert.ok(geometry.usesWidth, 'The chart fills its available desktop width');
   assert.ok(geometry.titleWeight > geometry.axisWeight, 'The chart title leads its axis labels');
   const lineChart = line.locator('xpath=../..');
+  const monthlyBarChart = monthlyBars.locator('xpath=../..');
   const disclosure = lineChart.getByText('查看数据', { exact: true });
   assert.equal(await barChart.getByRole('table').isVisible(), false);
   assert.equal(await lineChart.getByRole('table').isVisible(), false);
@@ -271,6 +290,12 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await page.keyboard.press('Enter');
   const table = lineChart.getByRole('table', { name: '图表数据', exact: true });
   await table.waitFor();
+  assert.equal(await line.isVisible(), true);
+  assert.ok(Math.abs((await table.boundingBox()).width - (await line.boundingBox()).width) <= 1,
+    'The opened data table uses the same width as its chart');
+  assert.equal(await monthlyBarChart.getByRole('table').isVisible(), false,
+    'Opening one chart disclosure leaves its sibling closed');
+  assert.equal(await disclosure.evaluate(node => node === document.activeElement), true);
   assert.equal(await table.evaluate(node => node.localName), 'table', 'Passive chart data uses a native accessible table');
   assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['月份', '收入（元）']);
   assert.equal(await table.getByRole('row').count(), 7, 'The header and all six source data rows remain readable');
@@ -281,6 +306,9 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await page.keyboard.press('Enter');
   await table.waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 390, height: 844 });
+  const narrowHeading = await bars.evaluate(headingGeometry);
+  assert.ok(narrowHeading.atEnd && narrowHeading.beforePlot && narrowHeading.withinViewport,
+    'The data action remains reachable above the plot on a narrow screen');
   for (const product of categories) {
     assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
   }
@@ -346,11 +374,11 @@ test('execution controls appear beside active work and stay out of conversation 
   const main = page.getByRole('main');
   const stop = main.getByRole('button', { name: 'Stop current execution', exact: true });
   await stop.waitFor();
-  await main.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
+  await main.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.waitFor();
   assert.equal(await details.getByRole('button', { name: /Stop current execution|Fork from current history|Pause conversation/ }).count(), 0);
-  await main.getByRole('button', { name: 'Task details', exact: true }).click();
+  await main.getByRole('button', { name: '任务详情', exact: true }).click();
   await stop.click();
   await stop.waitFor({ state: 'hidden' });
   assert.equal((await command({ op: 'read', task_id })).task.status, 'stopped');

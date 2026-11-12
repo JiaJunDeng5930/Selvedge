@@ -131,10 +131,11 @@ h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
   align-self: start;
   justify-self: center;
 }
-/* Composer property menus keep a single scrollport around the choices and
+/* Anchored pickers keep a single scrollport around the choices and
    their destinations. The trigger remains the visual point of reference. */
 dialog[data-native-layer="menu"]:is(
-  [data-semantic-key="activity"], [data-semantic-key="project-selection"], [data-semantic-key="property-source"]
+  [data-semantic-key="activity"], [data-semantic-key="project-selection"], [data-semantic-key="property-source"],
+  [data-semantic-key="work-overview"]
 ):not([data-anchor-available="false"]) {
   /* Percentages refer to the anchor's available area. Let the menu
      scroll, but reject a side that cannot fit the title and an item. */
@@ -326,10 +327,6 @@ pre, code { font-family: var(--rich-code-font); }
 .markdown pre { margin: 0; overflow-x: auto; padding: 0; white-space: pre; }
 .markdown pre code { white-space: inherit; overflow-wrap: normal; }
 .markdown .table-scroll { overflow-x: auto; }
-.markdown table { border-collapse: collapse; }
-.markdown :where(th, td) {
-  border: 1px solid var(--selvedge-border); padding: .5em;
-}
 .markdown .math-source { white-space: pre-wrap; }
 .code-toolbar { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }
 
@@ -1164,24 +1161,53 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-interactive-component]:is([data-interactive-component="bar-chart"], [data-interactive-component="line-chart"]) {
   gap: .25rem !important;
 }
+[data-semantic-key="interactive-markdown/chart-heading"] {
+  position: relative;
+  min-block-size: 2rem;
+}
 [data-semantic-key="interactive-markdown/chart-title"] {
+  min-block-size: 2rem;
+  padding-block: .35rem !important;
+  overflow-wrap: anywhere;
   color: var(--selvedge-text) !important;
   font-size: .9375rem !important;
   font-weight: 600 !important;
   line-height: 1.35 !important;
 }
+[data-semantic-key="interactive-markdown/chart-heading"]:has(> [data-semantic-key="interactive-markdown/chart-disclosure"])
+  > [data-semantic-key="interactive-markdown/chart-title"] {
+  padding-inline-end: 6rem !important;
+}
+[data-semantic-key="interactive-markdown/chart-heading"]:not(:has(> [data-semantic-key="interactive-markdown/chart-title"]))
+  > [data-semantic-key="interactive-markdown/chart-disclosure"] {
+  padding-block-start: 2rem !important;
+}
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
   inline-size: fit-content;
-  padding-block: .35rem;
+  min-block-size: 2rem;
+  padding: .35rem .45rem;
+  border-radius: 6px;
   color: var(--selvedge-muted);
   font-size: .8125rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary:is(:hover, :focus-visible) {
   color: var(--selvedge-text);
+  background: var(--selvedge-hover);
+}
+[data-semantic-key="interactive-markdown/chart-data-region"] {
+  max-inline-size: 100%;
+  overflow-x: auto;
 }
 [data-semantic-key="interactive-markdown/chart-data"] {
-  margin-block-start: .375rem;
+  inline-size: 100% !important;
+
+  & th { text-align: start; }
+  & :is(th, td):last-child { text-align: end; }
 }
 [data-interactive-component="row-layout"][data-native-equal-columns] > * { align-self: stretch !important; }
 [data-interactive-component="row-layout"][data-native-equal-columns][data-native-row-direction="row"] {
@@ -1223,10 +1249,32 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   & > [data-interactive-component="badge"] { align-self: center !important; }
 }
 
+[data-semantic-key="interactive-markdown/range-number"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(3.75rem, 6rem);
+  align-items: start;
+  gap: .25rem .625rem !important;
+  min-inline-size: 0;
+  max-inline-size: min(100%, 28.625rem) !important;
+
+  & > :is([data-semantic-key="interactive-markdown/range-number-heading"],
+          [data-semantic-key="interactive-markdown/range-number-detail"]) { grid-column: 1 / -1; }
+  & > [data-interactive-component="slider"] [data-interactive-slider] > div,
+  & > [data-interactive-component="number-input"] > div > div > span:first-child { display: none !important; }
+  & > [data-interactive-component] input { min-inline-size: 0 !important; }
+}
+
 [data-semantic-key="interactive-markdown/compact-card-list"] {
   display: grid !important;
   grid-template-columns: fit-content(36%) minmax(0, 1fr) minmax(0, max-content) fit-content(34%);
   gap: 0 .625rem !important;
+
+  & > [data-semantic-key="interactive-markdown/summary-metric-heading"] {
+    grid-column: 3;
+    justify-self: end;
+    text-align: end;
+    overflow-wrap: anywhere;
+  }
 
   & > [data-interactive-component="card"] {
     display: grid !important;
@@ -1263,6 +1311,12 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
       }
     }
     & > [data-interactive-component="button"] { justify-self: end; }
+    & > [data-interactive-component="button"] button[aria-pressed] {
+      justify-content: center !important;
+    }
+    & > [data-interactive-component="button"] button[aria-pressed="true"] {
+      color: var(--selvedge-accent) !important;
+    }
   }
   & > [data-interactive-component="card"] + [data-interactive-component="card"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
@@ -1285,20 +1339,44 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   font-size: var(--rich-support-size) !important;
   line-height: var(--rich-support-line) !important;
 }
+[data-semantic-key="interactive-markdown/metric-comparison"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  align-items: stretch !important;
 
-[data-interactive-component="table"] > table { inline-size: 100% !important; }
-[data-interactive-component="table"] :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
+  & > [data-interactive-component="card"] {
+    align-self: stretch !important;
+    block-size: auto !important;
+    container-type: inline-size;
+
+    & > [data-semantic-key="interactive-markdown/text"] { overflow-wrap: anywhere; }
+    & > [data-interactive-component="metric"] { flex: 1; }
+    & > [data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-value"] {
+      font-size: min(var(--interactive-metric-value-size, var(--rich-title-size)),
+        max(var(--rich-title-size), 15cqi)) !important;
+    }
+    & > [data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-label"] {
+      margin-block-start: auto;
+    }
+  }
+}
+
+:is(.markdown .table-scroll > table, [data-interactive-component="table"] > table) {
+  border-collapse: collapse;
+  inline-size: 100% !important;
+  & :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
+  & :where(th, td) { border: 0 !important; }
+  & thead th {
+    font-weight: var(--rich-strong-weight);
+    background: transparent !important;
+    border-block-end: 1px solid var(--selvedge-border) !important;
+  }
+  & tbody tr + tr td {
+    border-block-start: 1px solid color-mix(in srgb, var(--selvedge-border) 50%, transparent) !important;
+  }
+}
 [data-interactive-component="table"] caption { font-weight: var(--rich-strong-weight); }
 [data-interactive-component="table"] caption:empty { display: none; }
-/* Authored tables supply their own dividers inside Markdown. */
-[data-interactive-component="table"] :where(th, td) { border: 0 !important; }
-[data-interactive-component="table"] thead th {
-  background: transparent !important;
-  border-block-end: 1px solid var(--selvedge-border) !important;
-}
-[data-interactive-component="table"] tbody tr + tr td {
-  border-block-start: 1px solid color-mix(in srgb, var(--selvedge-border) 50%, transparent) !important;
-}
 [data-interactive-component="table"] > [data-semantic-key="interactive-markdown/toolbar"] { flex-wrap: wrap; }
 [data-interactive-component="table"] > [data-semantic-key="interactive-markdown/toolbar"] > button { flex: none; }
 

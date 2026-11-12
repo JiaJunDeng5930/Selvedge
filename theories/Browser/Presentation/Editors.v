@@ -27,14 +27,15 @@ Definition editor_title e := match e with
 |CardForConversation _=>"添加到看板"
 |Fork _=>"Fork conversation"|Compact _=>"Compact history"
 |TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
-|WorkName _=>"Rename Work"|TitlePrompts=>Settings.conversation_titles_label end.
+|WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
 |TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"Create fork"|Card(Some _)=>"保存"
-|Compact _=>"Compact history"|_=>"Save"end end.
+|WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
+|Compact _=>"Compact history"|TitlePrompts=>"保存"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
@@ -94,8 +95,7 @@ Definition field_node snapshot s e parent field :=
  |Some subject=>let identity:=part parent(Parameters.name field)in
   Some(match Parameters.entry_for field with
    |Fields.DirectoryCollection=>workspace_field snapshot s identity subject
-   |Fields.FileCollection=>region identity "field" "" Roles.Section
-    [information identity "label" Information.FieldLabel(Parameters.label field);ServiceControls.files e identity s]
+   |Fields.FileCollection=>ServiceControls.files e identity s "添加附件"
    |_=>Node identity(Parameters.name field)(Parameters.label field)Roles.Field(Edit e subject(field_control snapshot s subject))[]end)
  end.
 Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.input):=
@@ -209,7 +209,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let tools:=composer_tools snapshot s e parent in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
   (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
-  [ServiceControls.file_picker e parent s;
+  [ServiceControls.file_picker e parent s "Attach files";
    ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
   tools assessment commit feedback)end.
 
@@ -247,8 +247,12 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
    |_=>[]end)
   |None=>[] end) end in
  let stage:=match target with Identity.BoardCard _=>[Fields.CardStage]|_=>[]end in
- let details:=field_nodes snapshot s e parent
-   (List.app stage [Fields.CardPriority;Fields.CardOwner;Fields.CardProject;Fields.CardLabels;Fields.CardAttachments]) in
+ let pair key fields:=Node(part parent key)"card-option-pair" "" Roles.Content Region
+   (field_nodes snapshot s e parent fields)in
+ let details:=List.app
+   [pair "classification" (List.app stage [Fields.CardPriority]);
+    pair "ownership" [Fields.CardOwner;Fields.CardProject]]
+   (field_nodes snapshot s e parent [Fields.CardLabels;Fields.CardAttachments]) in
  let capture:=match target with
   |Identity.BoardCard None=>[field_section snapshot s e parent "创建设置"
     [Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile]]
@@ -289,9 +293,9 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
   match Observe.handoff_conversations snapshot work with
   |Some(inr available)=>
     [region parent "handoff-route" "转发方向" Roles.Section
-      [graph_endpoint parent "handoff-source" "来源对话" available source target (fun id=>assign name id target);
+      [graph_endpoint parent "handoff-source" GraphAuthoring.source_endpoint_label available source target (fun id=>assign name id target);
        Node(part parent "handoff-direction")"handoff-direction" "" Roles.Decorative(Fact "→")[];
-       graph_endpoint parent "handoff-target" "接收对话" available target source (fun id=>assign name source id)];
+       graph_endpoint parent "handoff-target" GraphAuthoring.target_endpoint_label available target source (fun id=>assign name source id)];
      information parent "handoff-purpose" Information.Description "自动把新回复作为消息转发。"]
   |Some(inl shortage)=>
     information parent "handoff-needs-conversations" Information.Description shortage::
@@ -333,12 +337,12 @@ Definition section_nodes snapshot s e parent :=
 Definition title_prompt_help e parent : list (node Input.input) := match e with
 |TitlePrompts=>
  [information parent "title-prompts/help" Information.Description
-   "Titles can be up to 36 characters. Changes apply to future titles."]
+   "标题最多 36 个字符。更改只影响之后生成的标题。"]
 |_=>[]end.
 Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) := match e with
 |TitlePrompts=>
- [declared parent Roles.Button(Control "title-prompts/reset" "Restore default prompts" Secondary Input.ResetTitlePrompts
-   (if pending then Unavailable "The current action is pending"else Available))]
+ [declared parent Roles.Button(Control "title-prompts/reset" "恢复默认提示词" Secondary Input.ResetTitlePrompts
+   (if pending then Unavailable "请等待当前操作完成"else Available))]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
@@ -370,6 +374,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with Card _|TaskGraph _ _|WorkName _|TitlePrompts=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

@@ -92,50 +92,57 @@ Definition committed_workspace_facts {A} parent workspace:list(node A) :=
  let roots:=Domain.workspace_roots workspace in
  let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
  match roots with
- |[]=>[read_only parent "working-directory" "Working directory" "No working directory"]
- |[path]=>[read_only parent "working-directory" "Working directory" path]
- |_=>map(fun path=>let key:=part parent("directory/"++path)in
-   Node key("directory/"++path)path Roles.Content(DirectoryRow path(selected path))
-    [read_only key "path" "" path;
-     read_only key "primary" ""(if selected path then "Primary working directory" else "Additional directory")])roots
+ |[]=>[information parent "working-directory" Information.Description "未设置工作目录"]
+ |[path]=>[Pages.directory_details parent "working-directory" "工作目录" path]
+ |_=>map(fun path=>Pages.directory_details parent ("directory/"++path)
+   (if selected path then "主目录" else "附加目录") path)roots
  end.
+Definition detail_group {A} parent key caption (facts:list(node A)) :=
+ region parent key caption Roles.Section (group_title(part parent key)caption::facts).
 Definition context_facts {A} snapshot task parent:list(node A) :=match Read.task_context task snapshot with
-|None=>[read_only parent "unavailable" "Execution context" "The committed context is unavailable"]
+|None=>[read_only parent "unavailable" "工作环境" "无法读取已提交的工作环境"]
 |Some context=>
  let workspace:=Read.context_workspace context in
  let project_facts:=List.app (match Read.context_project context with
- |None=>[read_only parent "project" "Project" "Projectless task"]
- |Some id=>[read_only parent "project" "Project"
-   (value_or ("Project unavailable (ID "++show_natural id++")")(Read.context_project_name context))]end)
+ |None=>[information parent "project" Information.Description "未关联项目"]
+ |Some id=>[read_only parent "project" "项目"
+   (value_or ("项目 #"++show_natural id++" 不可用")(Read.context_project_name context))]end)
  (match Read.context_project context,Read.context_guidance_root context,Read.context_guidance_revision context with
  |Some _,Some root,Some revision=>List.app
    (if existsb (String.eqb root) (Domain.workspace_roots workspace) then []
-    else [read_only parent "project-directory" "Guidance directory" root])
-   [read_only parent "guidance-revision" "Guidance revision" revision]
+    else [Pages.directory_details parent "project-directory" "指引目录" root])
+   [read_only parent "guidance-revision" "指引版本" revision]
  |_,_,_=>[]end) in
  let guidance:=match Read.context_instructions context with
-  |None=>"No project guidance"|Some instructions=>
-   if String.eqb instructions ""then "No project instructions"else instructions end in
- List.app project_facts (List.app (committed_workspace_facts parent workspace)
-  [read_only parent "filesystem" "Filesystem access"(Read.context_filesystem context);
-   read_only parent "network" "Network access"(Read.context_network context);
-   read_only parent "approval" "Approval policy"(Read.context_approval context);
-   read_only parent "guidance" "Project guidance" guidance])end.
+  |Some instructions=>if String.eqb instructions "" then [] else
+   [Node(part parent "guidance")"project-guidance" "项目指引" Roles.Content ContentDisclosure
+    [read_only (part parent "guidance") "instructions" "" instructions]]
+  |None=>[]end in
+ [detail_group parent "task-environment" "工作环境"
+   (committed_workspace_facts parent workspace++project_facts++guidance);
+  detail_group parent "task-permissions" "权限"
+   [read_only parent "filesystem" "文件系统"(Read.context_filesystem context);
+    read_only parent "network" "网络"(Read.context_network context);
+    read_only parent "approval" "审批"(Read.context_approval context)]]end.
+Definition task_execution_caption task :=match Read.task_status task with
+ |"active"=>if Read.task_working task then "运行中"else"就绪"
+ |"frozen"=>"已暂停"|"stopped"=>"已停止"|"archived"=>"已归档"
+ |_=>Read.task_caption task end.
 Definition task_details snapshot s id parent :=match Projection.task_details_observation snapshot id with
 |Some(task,details)=>
- (context_facts snapshot id parent++
+ (context_facts snapshot id parent++[detail_group parent "task-execution" "运行信息"
+ ([read_only parent "status" "状态"(task_execution_caption task);
+   read_only parent "model" "模型"(Read.task_detail_model details++" · "++Read.task_detail_reasoning details)]++
   (match Read.task_work task with
-  |None=>[]|Some work=>[read_only parent "work" "Work"
-    (match Read.find_work work snapshot with Some entry=>Read.work_name entry|None=>"Work unavailable"end)]end)++
- [read_only parent "model" "Model"(Read.task_detail_model details++" · "++Read.task_detail_reasoning details);
-  read_only parent "status" "Status"(Read.task_caption task)] ++
+  |None=>[]|Some work=>[read_only parent "work" "工作组"
+    (match Read.find_work work snapshot with Some entry=>Read.work_name entry|None=>"工作组不可用"end)]end)++
  (match bind (Read.task_parent task) (fun source=>Read.find_task source snapshot) with
-  |Some source=>[declared parent Roles.Button(secondary "lineage" ("Open parent: "++Read.task_title source)
+  |Some source=>[declared parent Roles.Button(secondary "lineage" ("打开来源对话 · "++Read.task_title source)
     (Input.Navigate(Conversation(Read.task_id source))))]|None=>[]end)++
- map(fun '(ordinal,contents)=>read_only parent(String.append "queued/"(show_natural(N.of_nat ordinal)))"Queued message" contents)
+ map(fun '(ordinal,contents)=>read_only parent(String.append "queued/"(show_natural(N.of_nat ordinal)))"排队中的消息" contents)
   (combine(seq 0(List.length(Read.task_detail_queued details)))(Read.task_detail_queued details))++
- Pages.worktree_details snapshot s id parent)%list
-|None=>[read_only parent "missing" "Task unavailable" "The task no longer exists"]end.
+ Pages.worktree_details snapshot s id parent)])%list
+|None=>[read_only parent "missing" "任务不可用" "这条对话已不存在"]end.
 Definition card_details snapshot s id parent :=match Read.find_card id snapshot with
 |None=>[information parent "missing" Information.Description "这张卡片已不存在。"]
 |Some card=>
@@ -192,16 +199,43 @@ Definition filter_choices snapshot category :=match category with
 Definition filter_title category :=match category with
 |BoardFilter.Status=>"状态"|BoardFilter.Priority=>"优先级"|BoardFilter.Date=>"更新时间"
 |BoardFilter.Assignee=>"负责人"|BoardFilter.Creator=>"创建人"|BoardFilter.Project=>"项目"|BoardFilter.Label=>"标签"end.
-Definition board_filters snapshot s parent :=
- declared parent Roles.Button(secondary "filters/clear" "清除筛选" Input.BoardClear)::map(fun category=>let name:=BoardFilter.category_name category in
- region parent("filter/"++name)(filter_title category)Roles.Section
-  (group_title(part parent("filter/"++name))(filter_title category)::map(fun '(value,label)=>
-   Node(part parent("filter/"++name++"/"++value))"filter-option"label Roles.Button
-    (Choice MultipleChoice(existsb(String.eqb value)(BoardFilter.filter_values(State.board_selection s)category))""
-     (secondary("filter/"++name++"/"++value)label(Input.BoardToggle name value)))[])(filter_choices snapshot category)))BoardFilter.categories.
+Definition filter_option parent category selected '(value,label) :=
+ let name:=BoardFilter.category_name category in
+ let identity:="filter/"++name++"/"++value in
+ Node(part parent identity)"filter-option"label Roles.Button
+  (Choice MultipleChoice(existsb(String.eqb value)selected)""
+    (secondary identity label(Input.BoardToggle name value)))[].
+Definition assignee_filter snapshot selection occurrence query parent :=
+ let category:=BoardFilter.Assignee in
+ let selected:=BoardFilter.filter_values selection category in
+ let search:=BoardFilter.lower_text(BoardFilter.trim query)in
+ let choices:=filter(fun '(value,label)=>existsb(String.eqb value)selected||
+    BoardFilter.contains search(BoardFilter.lower_text(label++" "++value)))(filter_choices snapshot category)in
+ let key:=part parent "filter/assignee" in
+ let caption:=filter_title category++match selected with
+   |[]=>""|_=>" · "++show_natural(N.of_nat(List.length selected))end in
+ Node key "filter/assignee" caption Roles.Section ContentDisclosure
+  [Node(part key "search")"search" "搜索负责人"Roles.Field
+    (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[];
+   region key "filter-assignee-options" "负责人选项" Roles.Section
+    (match choices with
+    |[]=>[information key "empty" Information.Status "没有匹配的负责人。"]
+    |_=>map(filter_option parent category selected)choices end)].
+Definition board_filters snapshot s occurrence query parent :=
+ let selection:=State.board_selection s in
+ flat_map(fun category=>match category with
+ |BoardFilter.Assignee=>[assignee_filter snapshot selection occurrence query parent]
+ |_=>match filter_choices snapshot category with
+  |[]=>[]
+  |choices=>let key:=part parent("filter/"++BoardFilter.category_name category)in
+   [Node key "board-filter-group" (filter_title category)Roles.Section Region
+     [group_title key(filter_title category);
+      region key "filter-choices" "" Roles.Content
+       (map(filter_option parent category(BoardFilter.filter_values selection category))choices)]]
+  end end)BoardFilter.categories.
 Definition panel_kind capacity panel :=match panel with
 |State.PropertyPanel _ _|State.ObjectActionsPanel _|State.InformationPanel(State.PropertySource _ _)
-|State.NavigationPanel GlobalMenu=>AnchoredMenu
+|State.NavigationPanel GlobalMenu|State.NavigationPanel WorkOverview=>AnchoredMenu
 |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>if details_beside_timeline capacity then TrailingDetails else ModalDialog
 |_=>ModalDialog end.
 Definition source_origin_matches e request panel:=match panel with
@@ -278,8 +312,8 @@ Definition panel_title panel := match panel with
  |State.NavigationPanel WorkOverview=>Navigation.conversation_scope_label|State.NavigationPanel TasksDrawer=>"Task tree"
  |State.ObjectActionsPanel _=>"Actions"
  |State.CardDecisionPanel _ decision=>card_decision_title decision
- |State.InformationPanel(State.TaskDetails _)=>"Task details"
- |State.InformationPanel(State.TaskContext _)=>"Execution context"
+ |State.InformationPanel(State.TaskDetails _)=>Pages.task_details_label
+ |State.InformationPanel(State.TaskContext _)=>"执行环境"
  |State.InformationPanel(State.CardDetails _)=>"卡片详情"
  |State.InformationPanel(State.PropertySource e _)=>Activities.configuration_source_label e
  |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选卡片"
@@ -307,7 +341,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
   |State.CardDecisionPanel card decision=>card_choice_nodes snapshot s card decision(State.layer_occurrence layer)(State.layer_query layer)parent
   |State.InformationPanel kind=>information_panel snapshot s kind parent
   |State.BoardSettingsPanel=>board_settings snapshot s parent
-  |State.BoardFiltersPanel=>board_filters snapshot s parent
+  |State.BoardFiltersPanel=>board_filters snapshot s(State.layer_occurrence layer)(State.layer_query layer)parent
   |State.ArchivedCardsPanel=>
    let candidates:=value_or[](Read.board_cards snapshot)in
    match filter Read.card_archived candidates with
@@ -335,9 +369,15 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
     |State.CardDecisionPanel _ _=>[dismissible_heading parent (panel_title panel);dialog_body parent (List.app feedback content)]
     |_=>List.app content feedback end
   |State.InformationPanel(State.TaskDetails _)=>
-    [dismissible_heading parent (panel_title panel); dialog_body parent content]
+    [dialog_header parent [title parent Pages.task_details_label;
+      declared parent Roles.Button(secondary "close" "关闭任务详情" Input.ClosePanel)]; dialog_body parent content]
+  |State.BoardFiltersPanel=>
+    [dialog_header parent [title parent (panel_title panel);
+      declared parent Roles.Button(secondary "filters/clear" "清除筛选" Input.BoardClear);
+      declared parent Roles.Button(secondary "close" "Close panel" Input.ClosePanel)];
+     dialog_body parent content]
   |State.InformationPanel(State.TaskContext _)
-  |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
+  |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel
   |State.ArchivedCardsPanel=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with

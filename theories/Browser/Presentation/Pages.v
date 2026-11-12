@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers Utf8.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Kernel Require Commands Domain.
+From Selvedge.Kernel Require Commands Domain Search.
 From Selvedge.Generated Require Commands.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context.
@@ -113,16 +113,20 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
  |"create_failed"|"archive_failed"=>[region parent "worktree/error" "Workspace" Roles.Alert
    [read_only (part parent "worktree/error") "message" "Workspace"(String.concat ": "[Read.worktree_caption value;Read.worktree_message value])]]
  |_=>[]end end.
+Definition directory_details {A} parent identity label path : node A :=
+ let key:=part parent identity in
+ Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
+  [read_only key "path" "" path].
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
- [read_only parent "worktree/status" "Workspace status"(Read.worktree_caption value);
-  read_only parent "worktree/source" "Source repository"(Read.worktree_source value)]
+ [read_only parent "worktree/status" "工作区状态"(Read.worktree_caption value);
+  directory_details parent "worktree/source" "源仓库"(Read.worktree_source value)]
  (List.app
   (match Read.worktree_root value with None=>[]|Some root=>
    let roots:=value_or [] (option_map (fun context=>Domain.workspace_roots(Read.context_workspace context))
      (Read.task_context task snapshot)) in
-   if existsb (String.eqb root) roots then [] else [read_only parent "worktree/root" "Managed workspace" root] end)
- (List.app(if String.eqb(Read.worktree_message value)""then[]else[read_only parent "worktree/error" "Workspace"(Read.worktree_message value)])
+   if existsb (String.eqb root) roots then [] else [directory_details parent "worktree/root" "托管工作区" root] end)
+ (List.app(if String.eqb(Read.worktree_message value)""then[]else[read_only parent "worktree/error" "工作区"(Read.worktree_message value)])
   (match ObjectActions.worktree_retry_action snapshot s task with
    |Some action=>match ObjectActions.command action with
     |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
@@ -146,12 +150,13 @@ Definition discarded_unfinished_notice s task parent:=
   [information key "discarded-unfinished-count" Information.Description
     ("已有 "++show_natural count++" 条未完成回复因会话容量限制被移除。");
    declared key Roles.Button(secondary "clear-discarded-unfinished" "清除此提示"(Input.ClearDiscarded task))]].
+Definition task_details_label := "任务详情".
 Definition task_details_control s task parent :=
  let expanded:=existsb(fun layer=>match State.layer_panel layer with
   |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end)
   (State.layers(State.navigation_state s))in
- Node(part parent "details")"details" "Task details"Roles.Button
-  (PanelToggle expanded(secondary "details" "Task details"
+ Node(part parent "details")"details" task_details_label Roles.Button
+  (PanelToggle expanded(secondary "details" task_details_label
     (Input.OpenInformation(State.TaskDetails task)(part parent "details"))))[].
 Definition run_control snapshot s (task:Read.task) parent key :=
  match ObjectActions.resolve snapshot s (TaskActions(Read.task_id task)) key with
@@ -230,24 +235,46 @@ Definition history_scope (project:bool) selected choices parent :=
   (HistorySearchScope project selected choices(fun value=>
    selected<-(match value with JString ""=>Some None|JString value=>option_map(@Some N)(parse_natural value)|_=>Identity.decode_id value end);;
    Some(Input.ChooseHistoryScope project selected))) [].
-Definition history_hit parent hit :=
+Definition history_result_text parent name query width text : node Input.input :=
+ let folded:=Search.lower text in
+ let meaning:=
+   match Utf8.chunks text with
+   | Some chunks=>if negb (Nat.eqb width 0) && Search.contains query folded then
+      let offset:=Search.match_offset query folded 0 in
+      let rest:=skipn offset chunks in
+      HistoryMatch (Utf8.render_chunks (firstn offset chunks))
+        (Utf8.render_chunks (firstn width rest)) (Utf8.render_chunks (skipn width rest))
+     else ReadOnly text
+   | None=>ReadOnly text
+   end in
+ Node (part parent name) name "" Roles.Content meaning [].
+Definition history_result_button parent label input children : node Input.input :=
+ Node (part parent "open") "open" label Roles.Button
+   (Activate (secondary "open" label input)) children.
+Definition history_hit parent query width hit :=
  match hit with
  |HistoryObservation.TitleMatch task=>
  let id:=Read.task_id task in
  let key:=part parent("hit/"++show_natural id++"/title")in
+ let title:=Read.task_title task in
  region key "result" "标题匹配" Roles.Card
-  [declared key Roles.Button(secondary "open"(Read.task_title task)
-    (Input.OpenHistoryResult id None(part key "open")));
-   information key "match" Information.Description "标题匹配"]
+  [history_result_button key title (Input.OpenHistoryResult id None(part key "open"))
+    [history_result_text key "result-title" query width title;
+     Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly "标题匹配") []]]
  |HistoryObservation.MessageMatch task hit=>
  let id:=Read.task_id task in
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
- region key "result" "Search result"Roles.Card
-   [declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))
-      (Input.OpenHistoryResult id(Some index)(part key "open")));
-    information key "snippet" Information.Description
-      (value_or "在消息原文中找到匹配"(HistoryObservation.hit_preview hit))]
+ let context:=Read.task_title task++" · 消息 #"++show_natural(N.succ index) in
+ let excerpt:=match HistoryObservation.hit_preview hit with
+   |Some text=>history_result_text key "result-excerpt" query width text
+   |None=>Node (part key "result-excerpt") "result-excerpt" "" Roles.Content
+      (ReadOnly "在消息原文中找到匹配") []
+   end in
+ region key "result" "搜索结果" Roles.Card
+  [history_result_button key context (Input.OpenHistoryResult id(Some index)(part key "open"))
+    [excerpt;
+     Node (part key "result-context") "result-context" "" Roles.Content (ReadOnly context) []]]
  end.
 Definition history_page snapshot s parent :=
  let search:=SessionNavigation.search_state s in
@@ -275,9 +302,14 @@ Definition history_page snapshot s parent :=
    |Some result=>match HistoryObservation.search_result(State.search_reply result)with
     |inr result=>
      let after:=HistoryObservation.page_after result in
+     let query:=Search.lower(Search.trim(State.keyword search))in
+     let width:=value_or 0 (Utf8.scalar_count query) in
+     let filtered:=match State.project_filter search,State.work_filter search with None,None=>false|_,_=>true end in
      ((match HistoryObservation.hits result with
-       |[]=>[information parent "history-empty" Information.Status "没有找到匹配的标题或消息。试试其他关键词或扩大搜索范围。"]
-       |hits=>map(history_hit results_parent)hits end)++
+       |[]=>[information parent "history-empty" Information.Status
+         (if filtered then "没有找到匹配的标题或消息。试试其他关键词，或将筛选改为「全部」。"
+          else "没有找到匹配的标题或消息。试试其他关键词。")]
+       |hits=>map(history_hit results_parent query width)hits end)++
       (if N.eqb after 0 then[]else
         [declared parent Roles.Button(observe_control availability
           (secondary "history/previous" "上一页"(Input.SubmitHistorySearch(N.sub after 20))))])++

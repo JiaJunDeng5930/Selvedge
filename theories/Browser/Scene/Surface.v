@@ -78,6 +78,7 @@ Inductive meaning (Action : Type) :=
 | CardArchive (count : N)
 | BoardGroup (grouping : board_grouping)
 | ReadOnly (text : string)
+| HistoryMatch (before matched after : string)
 | Fact (value : string)
 | ExternalLink (url : string)
 | EmbeddedMarkdown (value : string)
@@ -149,6 +150,7 @@ Arguments BoardLane {Action}.
 Arguments CardArchive {Action}.
 Arguments BoardGroup {Action}.
 Arguments ReadOnly {Action}.
+Arguments HistoryMatch {Action}.
 Arguments ExternalLink {Action}.
 Arguments Fact {Action}.
 Arguments EmbeddedMarkdown {Action}.
@@ -394,6 +396,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | CardArchive count => CardArchive count
   | BoardGroup grouping => BoardGroup grouping
   | ReadOnly text => ReadOnly text
+  | HistoryMatch before matched after => HistoryMatch before matched after
   | Fact value => Fact value
   | ExternalLink url => ExternalLink url
   | EmbeddedMarkdown value => EmbeddedMarkdown value

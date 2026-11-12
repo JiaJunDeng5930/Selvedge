@@ -82,17 +82,29 @@ async function home(page) {
     .getByRole('button', { name: '首页', exact: true }).click();
 }
 
-async function requestWork(page) {
+async function requestWork(page, name = '浏览器工作组') {
   await page.getByRole('button', { name: /^对话范围 · / }).click();
-  await page.getByRole('dialog', { name: '对话范围', exact: true })
-    .getByRole('button', { name: '新建工作组', exact: true }).click();
+  const menu = page.getByRole('menu', { name: '对话范围', exact: true });
+  await menu.getByRole('menuitem', { name: '新建工作组', exact: true }).click();
+  await menu.waitFor({ state: 'hidden' });
+  const editor = page.getByRole('dialog', { name: '新建工作组', exact: true });
+  const title = editor.getByRole('textbox', { name: '工作组名称', exact: true });
+  const create = editor.getByRole('button', { name: '创建工作组', exact: true });
+  await title.and(page.locator(':focus')).waitFor();
+  assert.equal(await create.isDisabled(), true);
+  await title.fill(name);
+  await create.click();
+  return editor;
 }
 
-async function startWork(page) {
+async function startWork(page, name = '浏览器工作组') {
   const response = commandResponse(page, 'create_work');
-  await requestWork(page);
+  const editor = await requestWork(page, name);
   const { reply } = await (await response).json();
   assert.equal(reply.ok, true, JSON.stringify(reply));
+  assert.equal(reply.result.name, name);
+  await editor.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: `对话范围 · ${name}`, exact: true }).waitFor();
   await page.getByRole('combobox', { name: 'Task', exact: true }).waitFor();
   return reply.result;
 }
@@ -103,6 +115,31 @@ async function sendSide(page, question) {
   await message.press('Enter');
 }
 
+test('conversation scope stays anchored and opens a separate named Work editor', async t => {
+  const { page } = await browserFixture(t);
+  const picker = page.getByRole('button', { name: '对话范围 · 全部对话', exact: true });
+  const menu = page.getByRole('menu', { name: '对话范围', exact: true });
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (width === 390) await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
+    const anchor = await picker.boundingBox();
+    await picker.click();
+    await menu.getByRole('menuitemradio', { name: '全部对话', exact: true, checked: true })
+      .and(page.locator(':focus')).waitFor();
+    const bounds = await menu.boundingBox();
+    assert.ok(anchor && bounds && bounds.x >= anchor.x - 12 && bounds.x <= anchor.x + 24);
+    assert.ok(bounds.y >= anchor.y + anchor.height && bounds.y < anchor.y + anchor.height + 30);
+    assert.ok(await menu.getByText('0 个对话', { exact: true })
+      .evaluate(count => count.scrollWidth <= count.clientWidth), 'The complete scope count is visible');
+    assert.equal(await menu.evaluate(node => getComputedStyle(node.closest('dialog'), '::backdrop').backgroundColor),
+      'rgba(0, 0, 0, 0)');
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+    await picker.and(page.locator(':focus')).waitFor();
+  }
+  await startWork(page, '产品调研');
+});
+
 test('late Work creation cannot replace newer creation, navigation, or sidebar visibility choices', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
@@ -110,8 +147,9 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await selectTask(fixture, task_id);
 
   let pending = await holdNextCommand(t, page, 'create_work');
-  await requestWork(page);
+  let editor = await requestWork(page);
   await pending.started;
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: '新建对话', exact: true }).click();
   await pending.release();
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Create this independent Task after the newer conversation request.');
@@ -124,8 +162,9 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
 
   await selectTask(fixture, task_id);
   pending = await holdNextCommand(t, page, 'create_work');
-  await requestWork(page);
+  editor = await requestWork(page);
   await pending.started;
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
@@ -135,8 +174,9 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await home(page);
   await selectTask(fixture, task_id);
   pending = await holdNextCommand(t, page, 'create_work');
-  await requestWork(page);
+  editor = await requestWork(page);
   await pending.started;
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: 'Collapse Task sidebar', exact: true }).click();
   await pending.release();
   assert.equal(await page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true,
@@ -145,8 +185,9 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await page.getByRole('button', { name: 'Expand Task sidebar', exact: true }).click();
 
   pending = await holdNextCommand(t, page, 'create_work');
-  await requestWork(page);
+  editor = await requestWork(page);
   await pending.started;
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.setViewportSize({ width: 450, height: 900 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).click();
   await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
@@ -216,14 +257,16 @@ test('Work and Side creation failures display the exact server code and explanat
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
   let failure = rejectNextCommand(page, 'create_work', command => ({ ...command, name: 'x'.repeat(4097) }));
-  await requestWork(page);
+  const editor = await requestWork(page);
   let diagnostic = await failure;
   assert.equal(diagnostic.code, 'command_not_submitted');
-  await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).waitFor();
+  const workAlert = editor.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` });
+  await workAlert.waitFor();
   await page.setViewportSize({ width: 500, height: 800 });
-  await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
-  assert.equal(await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).isVisible(), true,
+  await page.locator('[data-surface-role="compact-header"]').waitFor();
+  assert.equal(await workAlert.isVisible(), true,
     'A completed physical viewport observation must preserve the creation diagnostic');
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 900 });
 
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });

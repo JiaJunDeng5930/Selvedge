@@ -62,7 +62,6 @@ Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_gene
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
 | MenuSubmission (occurrence : N)
-| WorkCreation (navigation_generation layer_generation:N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
 | LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)

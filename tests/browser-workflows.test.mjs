@@ -97,8 +97,8 @@ test('Work navigation preserves Project grouping and opens the same conversation
   const picker = page.getByRole('button', { name: /^对话范围 · / });
   async function selectWork(name) {
     await picker.click();
-    const overview = page.getByRole('dialog', { name: '对话范围', exact: true });
-    await overview.getByRole('radio', { name, exact: true }).click();
+    const overview = page.getByRole('menu', { name: '对话范围', exact: true });
+    await overview.getByRole('menuitemradio', { name, exact: true }).click();
     await page.getByRole('button', { name: `对话范围 · ${name}`, exact: true }).waitFor();
   }
 
@@ -219,10 +219,10 @@ test('Project task creation preserves explicitly empty workspaces through the br
   assert.deepEqual(emptyTask.settings.workspace, { roots: [], primary_root: null },
     'Explicitly removing roots must not silently return to Project inheritance');
   await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
-  await details.getByText('No working directory', { exact: true }).waitFor();
-  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 0,
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
+  await details.getByText('未设置工作目录', { exact: true }).waitFor();
+  assert.equal(await details.getByText(/^主目录/).count(), 0,
     'An empty workspace needs only one absence indicator');
 });
 
@@ -292,11 +292,14 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const { work_id: work } = await command({ op: 'create_work', name: 'Graph setup' });
   const { task_id: outsider } = await command({ op: 'create_idle', profile: 'demo' });
   await page.getByRole('button', { name: /^对话范围 · / }).click();
-  await page.getByRole('dialog', { name: '对话范围', exact: true })
-    .getByRole('radio', { name: 'Graph setup', exact: true }).click();
+  await page.getByRole('menu', { name: '对话范围', exact: true })
+    .getByRole('menuitemradio', { name: 'Graph setup', exact: true }).click();
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
+  const emptyGraph = page.getByRole('main').locator('[data-semantic-key="task-graph/empty"]');
+  await emptyGraph.getByRole('region', { name: '转发方向', exact: true }).getByText('来源对话', { exact: true }).waitFor();
+  await emptyGraph.getByText('接收对话', { exact: true }).waitFor();
+  await emptyGraph.getByRole('button', { name: '新建任务图', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: '新建任务图', exact: true });
   const create = dialog.getByRole('button', { name: '创建任务图', exact: true });
@@ -305,6 +308,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);
   const name = dialog.getByRole('textbox', { name: '任务图名称', exact: true });
+  assert.equal(await name.inputValue(), '对话转发');
   const newConversation = dialog.getByRole('button', { name: '新建对话', exact: true });
   const returnToGraph = page.getByRole('button', { name: '返回任务图', exact: true });
   const prerequisite = dialog.locator('[data-semantic-key="handoff-needs-conversations"]');

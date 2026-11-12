@@ -4,18 +4,86 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
-test('task board exposes ordinary model and unassigned filter choices', async t => {
-  const { page } = await browserFixture(t);
+test('board filters provide a compact keyboard-searchable assignee list', async t => {
+  const fixture = await browserFixture(t);
+  const { page } = fixture;
+  const profiles = fixture.running.service.config.profiles;
+  const variants = Object.fromEntries(Array.from({ length: 14 }, (_, index) => {
+    const model = `review-worker-${String(index + 1).padStart(2, '0')}-with-a-long-display-name`;
+    return [model, { ...profiles.interactive, model }];
+  }));
+  await fixture.restart({ profiles: { ...profiles, ...variants } });
+  await page.goto(fixture.running.url);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('button', { name: '筛选卡片', exact: true }).click();
-  const dialog = page.getByRole('dialog').last();
+  const dialog = page.getByRole('dialog', { name: '筛选卡片', exact: true });
+  await dialog.waitFor();
+  const desktop = await dialog.boundingBox();
+  assert.ok(desktop && desktop.width < 600 && desktop.height < 450, 'Collapsed filters fit a compact desktop dialog');
+  const assignee = dialog.locator('details').filter({ hasText: '负责人' });
+  const summary = assignee.locator('summary');
+  const search = dialog.getByRole('searchbox', { name: '搜索负责人', exact: true });
+  await search.waitFor({ state: 'hidden' });
+  await summary.press('Enter');
+  await search.waitFor();
+  await dialog.evaluate(node => {
+    window.fixtureBoardResize = new Promise(resolve => {
+      window.addEventListener('resize', () => {
+        const { top, bottom, height } = node.getBoundingClientRect();
+        const visibleTop = window.visualViewport?.offsetTop ?? 0;
+        const visibleBottom = visibleTop + (window.visualViewport?.height ?? innerHeight);
+        resolve({ top, bottom, height, visibleTop, visibleBottom });
+      }, { once: true });
+    });
+  });
+  await page.setViewportSize({ width: 760, height: 420 });
+  const initial = await page.evaluate(() => window.fixtureBoardResize);
+  assert.ok(initial.height > 0 && initial.top >= initial.visibleTop && initial.bottom <= initial.visibleBottom,
+    `The first resized layout fits the visible viewport: ${JSON.stringify(initial)}`);
+  const options = dialog.getByRole('region', { name: '负责人选项', exact: true });
+  await page.waitForFunction(id => {
+    const list = document.getElementById(id);
+    return list && list.clientHeight > 0 && list.scrollHeight > list.clientHeight;
+  }, await options.getAttribute('id'));
+  const compact = await dialog.boundingBox();
+  assert.ok(compact && compact.y >= 0 && compact.y + compact.height <= 420);
+  const rows = options.getByRole('checkbox');
+  const last = rows.last();
+  await search.focus();
+  for (let index = 0, count = await rows.count(); index < count; index++) await page.keyboard.press('Tab');
+  await page.waitForFunction(({ listId, optionId }) => {
+    const list = document.getElementById(listId);
+    const option = document.getElementById(optionId);
+    if (!list || document.activeElement !== option || list.scrollTop <= 0) return false;
+    const row = option.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+    const body = list.closest('[data-surface-role="dialog-body"]').getBoundingClientRect();
+    return row.top >= Math.max(0, bounds.top, body.top) - 1
+      && row.bottom <= Math.min(innerHeight, bounds.bottom, body.bottom) + 1;
+  }, { listId: await options.getAttribute('id'), optionId: await last.getAttribute('id') });
+  const worker = options.getByRole('checkbox', { name: 'review-worker-14-with-a-long-display-name', exact: true });
+  await search.fill('WORKER-14');
+  await worker.waitFor();
+  assert.equal(await options.getByRole('checkbox').count(), 1);
+  await search.press('Tab');
+  await page.waitForFunction(id => document.activeElement?.id === id, await worker.getAttribute('id'));
+  await page.keyboard.press('Space');
+  await worker.and(page.locator('[aria-checked="true"]')).waitFor();
+  await search.fill('does not match a model');
+  assert.equal(await worker.getAttribute('aria-checked'), 'true');
+  await summary.press('Enter');
+  assert.equal(await summary.textContent(), '负责人 · 1');
+  await summary.press('Enter');
+  await worker.waitFor();
+  await dialog.getByRole('button', { name: '清除筛选', exact: true }).click();
+  await options.getByText('没有匹配的负责人。', { exact: true }).waitFor();
+  await search.clear();
   for (const label of ['interactive-fixture', '未分配', '未分配项目']) {
     const choice = dialog.getByRole('checkbox', { name: label, exact: true });
     await choice.click();
-    assert.equal(await choice.getAttribute('aria-checked'), 'true', label);
+    await choice.and(page.locator('[aria-checked="true"]')).waitFor();
     await choice.click();
-    assert.equal(await choice.getAttribute('aria-checked'), 'false', label);
+    await choice.and(page.locator('[aria-checked="false"]')).waitFor();
   }
 });
 
@@ -220,6 +288,24 @@ test('card save shows whether a model will start, wait, or remain manual', async
   }
   assert.ok(prediction.y + prediction.height <= submit.y);
   await page.setViewportSize({ width: 1280, height: 900 });
+  const optionFields = ['状态', '优先级', '负责人', '所属项目']
+    .map(name => first.getByRole('combobox', { name, exact: true }));
+  await page.waitForFunction(ids => {
+    const boxes = ids.map(id => document.getElementById(id)?.getBoundingClientRect());
+    const beside = (first, second) => first && second && Math.abs(first.y - second.y) <= 1 && first.right <= second.left;
+    return beside(boxes[0], boxes[1]) && beside(boxes[2], boxes[3]);
+  }, await Promise.all(optionFields.map(field => field.getAttribute('id'))));
+  const upload = first.locator('input[type="file"]').and(first.getByLabel('添加附件', { exact: true }));
+  assert.ok(await upload.evaluate(input => {
+    const control = input.closest('label');
+    const icon = control.querySelector('svg').getBoundingClientRect();
+    const text = Array.from(control.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const label = range.getBoundingClientRect();
+    return label.left >= icon.right && label.left - icon.right < 12
+      && icon.top < label.bottom && label.top < icon.bottom;
+  }), 'The attachment label and paperclip are in one adjacent control');
   const drafting = first.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
   await drafting.check();
   await consequence(first, '保存后先生成卡片内容，暂不启动对话。');
@@ -380,6 +466,12 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const title = 'Plan the release';
   const { card_id } = await command({ op: 'create_card', title });
   const card = board.getByRole('article', { name: title, exact: true });
+  await card.waitFor();
+  const tracks = await board.locator('[data-board-stage]').evaluateAll(stages =>
+    stages.map(stage => ({ bottom: stage.getBoundingClientRect().bottom, height: stage.getBoundingClientRect().height })));
+  assert.ok(Math.max(...tracks.map(track => track.height)) > 80
+    && tracks.every(track => Math.abs(track.bottom - tracks[0].bottom) < 1),
+    'Empty stages have the same track extent as a populated neighbor');
   const completed = board.locator('[data-board-stage="done"]');
   await card.locator('[data-card-grip]').dragTo(completed);
   await completed.getByRole('article', { name: title, exact: true }).waitFor();

@@ -116,10 +116,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status
      (label Observation.unadded_project_directory "Add or clear the directory before saving")])++
-   [Node(part parent "directory")"directory" (label "目录路径" "Directory path") Roles.Field
+   (let entry:=Node(part parent "directory")"directory" (label "目录路径" "Directory path") Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
-      (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
-    region parent "directory-entry-actions" ""Roles.Toolbar
+      (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[] in
+    let actions:=region parent "directory-entry-actions" ""Roles.Toolbar
      ([declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
        (if String.eqb buffer ""then Unavailable (label "请输入目录路径" "Enter a directory")else Available))] ++
@@ -128,7 +128,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
       [declared parent Roles.Button(Control "browse" (label "浏览…" "Browse…") Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available))])%list] ++
+       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available))])%list in
+    match e with
+    |Identity.Project _=>[region parent "project-directory-entry" "" Roles.Section [entry;actions]]
+    |_=>[entry;actions]end) ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -484,7 +487,8 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
       [Node(part parent "inspection")"inspection" ""Roles.Section(ActivityRow InspectionRow)
        [declared parent Roles.Button(secondary "source"(inspection_label(UX.property_kind_of(Act.activity_property activity)))
          (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list in
-  Node parent "activity" caption Roles.Dialog(ActivityGroup e activity view behavior)
+  Node parent (match e with Identity.Project _=>"project-editor"|_=>"activity"end)
+   caption Roles.Dialog(ActivityGroup e activity view behavior)
    (if Model.modal_layer behavior then
       ([dialog_header parent header;dialog_body parent body] ++
       (match actions with []=>[]|_=>[dialog_actions parent actions]end))%list

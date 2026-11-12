@@ -8,7 +8,7 @@ Inductive editor :=
 | NewTask (work : option N) | Message (task : N) | Project (id : option N)
 | Card (id : option N) | CardForConversation (task : N) | Fork (task : N)
 | Compact (task : N) | TaskGraph (id work : option N)
-| WorkName (work : N) | TitlePrompts.
+| WorkName (work : option N) | TitlePrompts.
 
 (* Existing graphs keep their editor when the surrounding Work selection changes. *)
 Definition graph_editor id work := TaskGraph id (match id with Some _=>None|None=>work end).
@@ -32,7 +32,7 @@ Definition encode_editor (e : editor) : json :=
   | CardForConversation task => record "conversation_card" (Some task) None
   | Fork t => record "fork" (Some t) None
   | Compact t => record "compact" (Some t) None | TaskGraph i w => record "graph" i w
-  | WorkName w => record "work" (Some w) None | TitlePrompts => record "title_prompts" None None
+  | WorkName w => record "work" w None | TitlePrompts => record "title_prompts" None None
   end.
 Definition decode_id (j : json) : option (option N) :=
   match j with JNull => Some None | JNumber n => option_map (@Some N) (parse_natural n) | _ => None end.
@@ -47,7 +47,7 @@ Definition decode_editor (j : json) : option editor :=
   | Some "fork", Some (Some t), Some None => Some (Fork t)
   | Some "compact", Some (Some t), Some None => Some (Compact t)
   | Some "graph", Some i, Some w => Some (graph_editor i w)
-  | Some "work", Some (Some w), Some None => Some (WorkName w)
+  | Some "work", Some w, Some None => Some (WorkName w)
   | Some "title_prompts", Some None, Some None => Some TitlePrompts
   | _,_,_ => None
   end.

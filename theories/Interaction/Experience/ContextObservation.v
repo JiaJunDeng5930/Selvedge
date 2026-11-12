@@ -57,7 +57,7 @@ Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sand
 Definition approval_caption approval:=match approval with
 |Selvedge.Kernel.Domain.FullAccess=>"Full access"|Selvedge.Kernel.Domain.AskForApproval=>"Ask"
 |Selvedge.Kernel.Domain.ReviewWith _=>"Automatic review"end.
-Definition filesystem_summary sandbox approval := match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Full access"|_=>sandbox_label sandbox end.
-Definition network_summary sandbox approval := match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Network available"|_=>network_label sandbox end.
+Definition sandbox_summary sandbox approval unrestricted (limited : Domain.sandbox -> string) :=
+ match approval with Domain.FullAccess=>unrestricted|_=>limited sandbox end.
+Definition filesystem_summary sandbox approval := sandbox_summary sandbox approval "Full access" sandbox_label.
+Definition network_summary sandbox approval := sandbox_summary sandbox approval "Network available" network_label.

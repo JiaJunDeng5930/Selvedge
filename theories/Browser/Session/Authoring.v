@@ -357,7 +357,7 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
      set_mention(Draft.owner captured)SkillMention.Inactive state
    |_=>state end
   else state in
- let foreground:=N.eqb navigation(SS.generation(SS.navigation_state state))&&N.eqb layer(SS.next_layer state)in
+ let foreground:=Navigation.foreground_current navigation layer state in
  if foreground && current then match Draft.contents captured with
  |Draft.NewTaskBody _ _ _ _ _ _=>match natural_field "task_id" reply with
    |Some task=>adopt_navigation snapshot(match SS.location(SS.navigation_state state)with
@@ -370,6 +370,13 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
      |None=>fail state "Side conversation creation did not return its task identity."end else keep state
    |None=>adopt_navigation snapshot(Navigation.follow_latest task state)end
  |Draft.CardBody (Identity.BoardCard None) _ _ _ _ true=>changed state[focus(NavigationIdentity.key_part(NavigationIdentity.editor_key(Identity.Card None))"title")]
+ |Draft.WorkNameBody None _=>match SS.layers(SS.navigation_state state)with
+  |top::_=>match SS.layer_panel top with
+   |SS.EditorPanel(Identity.WorkName None)=>match natural_field "work_id" reply with
+    |Some work=>adopt_navigation snapshot(Navigation.select_work snapshot(Some work)state)
+    |None=>fail state "创建工作组的结果缺少工作组编号。"end
+   |_=>keep state end
+  |[]=>keep state end
  |_=>match SS.layers(SS.navigation_state state)with
    |top::_=>match SS.layer_panel top with SS.EditorPanel owner|SS.PropertyPanel owner _=>if same_editor owner(Draft.owner captured)then adopt_navigation snapshot(Navigation.close_panel state)else keep state|_=>keep state end
    |[]=>keep state end end else keep state

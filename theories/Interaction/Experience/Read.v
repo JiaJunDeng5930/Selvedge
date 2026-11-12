@@ -62,8 +62,14 @@ Record committed_context := CommittedContext {
  context_filesystem : string; context_network : string; context_approval : string
 }.
 Definition approval_description snapshot approval := match approval with
- |KernelDomain.FullAccess=>"Unrestricted"|KernelDomain.AskForApproval=>"Ask"
- |KernelDomain.ReviewWith reviewer=>"Automatic review: "++ContextObservation.profile_label(Observation.catalog snapshot)reviewer end.
+ |KernelDomain.FullAccess=>"无需审批"|KernelDomain.AskForApproval=>"询问"
+ |KernelDomain.ReviewWith reviewer=>"自动审批 · "++ContextObservation.profile_label(Observation.catalog snapshot)reviewer end.
+Definition filesystem_description sandbox approval :=
+ ContextObservation.sandbox_summary sandbox approval "完全访问" (fun limited=>
+  match KernelDomain.sandbox_access limited with KernelDomain.ReadOnly=>"只读"|KernelDomain.WorkspaceWrite=>"工作目录内可写"end).
+Definition network_description sandbox approval :=
+ ContextObservation.sandbox_summary sandbox approval "允许" (fun limited=>
+  if KernelDomain.sandbox_network limited then "允许"else"受限").
 Definition task_context id snapshot :=
  settings<-ContextObservation.task_settings id snapshot;;
  let project:=KernelDomain.settings_project settings in
@@ -71,8 +77,8 @@ Definition task_context id snapshot :=
  let approval:=KernelDomain.settings_approval settings in
  Some(CommittedContext project (bind project(fun id=>option_map project_name(find_project id snapshot)))
    (KernelDomain.settings_workspace settings)(KernelDomain.settings_guidance settings)
-   (ContextObservation.filesystem_summary sandbox approval)
-   (ContextObservation.network_summary sandbox approval)(approval_description snapshot approval)).
+   (filesystem_description sandbox approval)
+   (network_description sandbox approval)(approval_description snapshot approval)).
 Definition context_guidance_root context := string_field "workspace"(Guidance.json(context_guidance context)).
 Definition context_guidance_revision context := string_field "revision"(Guidance.json(context_guidance context)).
 Definition context_instructions context := guidance_instructions(context_guidance context).
@@ -101,13 +107,13 @@ Record task_worktree := TaskWorktree {
  worktree_root : option string; worktree_message : string
 }.
 Definition worktree_status_caption status := match status with
- |"creating"=>"Creating workspace…"
- |"creating_archived"=>"Creating workspace before archiving…"
- |"ready"=>"Workspace ready"
- |"create_failed"=>"Workspace creation failed"
- |"archiving"=>"Archiving workspace…"
- |"archived"=>"Workspace archived"
- |"archive_failed"=>"Workspace archive failed"
+ |"creating"=>"正在创建工作区…"
+ |"creating_archived"=>"正在创建工作区以完成归档…"
+ |"ready"=>"工作区已就绪"
+ |"create_failed"=>"工作区创建失败"
+ |"archiving"=>"正在归档工作区…"
+ |"archived"=>"工作区已归档"
+ |"archive_failed"=>"工作区归档失败"
  |_=>"" end.
 Definition observe_worktree value :=
  status<-string_field "status" value;;source<-string_field "source_root" value;;

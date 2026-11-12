@@ -12,7 +12,7 @@ Open Scope string_scope.
 Record text := Text { text_value : string; text_images : list Selvedge.Features.Domain.attachment }.
 Inductive task_workspace := CurrentWorkspace | ManagedWorkspace (backend : WorkspaceBackend.backend).
 Inductive body :=
-| WorkNameBody (work : N) (name : string)
+| WorkNameBody (work : option N) (name : string)
 | NewTaskBody (message : text) (profile reasoning : string)
     (context : Context.configuration) (workspace_mode : task_workspace) (work : option N)
 | MessageBody (task : N) (message : text) (delivery : Fields.delivery)

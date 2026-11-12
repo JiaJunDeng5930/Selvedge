@@ -212,7 +212,7 @@ Definition complete namespace snapshot lagged ticket outcome state:=
   |purpose=>match Navigation.complete snapshot purpose outcome state with
    |Some decision=>let adopted:=Authoring.adopt_navigation snapshot decision in
      match purpose,Navigation.result_error decision with
-     |SS.WorkCreation _ _,Some _|SS.SideCreation _ _ _ _,Some _=>
+     |SS.SideCreation _ _ _ _,Some _=>
        set Authoring.result_visible_error(fun _=>true)adopted
      |_,_=>adopted end
    |None=>match Authoring.complete snapshot(SS.accepted_command pending)purpose outcome state with Some result=>result|None=>Authoring.keep state end end end end.

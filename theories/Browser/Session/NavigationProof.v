@@ -56,13 +56,11 @@ Proof.
  apply N.eqb_neq. apply N.neq_succ_diag_r.
 Qed.
 
-Theorem new_selection_intent_prevents_work_completion_selection snapshot state layer outcome :
- Navigation.outcome_success outcome=true ->
- Navigation.complete snapshot
-  (State.WorkCreation(State.generation(State.navigation_state state))layer)outcome
-  (Navigation.selection_intent state)=Some(Navigation.keep(Navigation.selection_intent state)).
+Theorem new_selection_intent_prevents_work_completion_selection state layer :
+ Navigation.foreground_current (State.generation(State.navigation_state state)) layer
+  (Navigation.selection_intent state)=false.
 Proof.
- intro Success. cbn[Navigation.complete]. rewrite Success. cbn.
+ unfold Navigation.foreground_current.
  rewrite selection_intent_invalidates_prior_generation. reflexivity.
 Qed.
 

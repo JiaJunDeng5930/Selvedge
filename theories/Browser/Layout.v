@@ -181,7 +181,7 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.CreationIntroduction => [("text-align","center")]
   | Composition.BoardStages => [("display","grid");
       ("grid-template-columns",("repeat(auto-fit, minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr))")%string);
-      ("align-content","start"); ("align-items","start");
+      ("align-content","start"); ("align-items","stretch");
       ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
       ("overflow","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.

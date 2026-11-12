@@ -249,9 +249,12 @@ Proof. intros rendered. eexists. repeat split; reflexivity. Qed.
 
 Theorem browser_task_detail_shows_observed_status snapshot state id task details parent :
  Projection.task_details_observation snapshot id = Some (task, details) ->
- In (Construction.read_only parent "status" "Status" (Read.task_caption task))
-    (Layers.task_details snapshot state id parent).
+ exists group, In group (Layers.task_details snapshot state id parent) /\
+  In (Construction.read_only parent "status" "状态" (Layers.task_execution_caption task))
+     (Surface.node_children group).
 Proof.
  intros Observed. unfold Layers.task_details. rewrite Observed.
- apply in_or_app. right. apply in_or_app. right. apply in_or_app. left. simpl. auto.
+ eexists. split.
+ - apply in_or_app. right. left. reflexivity.
+ - cbn [Layers.detail_group Construction.region Surface.node_children]. right. left. reflexivity.
 Qed.

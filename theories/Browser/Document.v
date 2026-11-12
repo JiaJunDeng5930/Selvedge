@@ -167,7 +167,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
    Fields.MessageText,Some _=>true|_,_=>false end))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
- |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"Describe a task…"|_=>"Write a message…"end);
+ |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"Write a message…"end);
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
  |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
@@ -325,7 +325,7 @@ Definition purpose_icon purpose := let purpose:=C.action_purpose purpose in matc
  |C.ResetDefaults=>Some "undo"|C.PreviewFile=>Some "preview"|C.DownloadFile=>Some "download"
  |C.Connect true _=>Some "spinner"|_=>None end.
 Definition icon_only purpose area := let purpose:=C.action_purpose purpose in match purpose,area with
- |C.WorkCreation,DialogArea|C.WorkCreation,DialogActionsArea|C.WorkCreation,TouchNavigationArea
+ |C.WorkCreation,DialogArea|C.WorkCreation,DialogActionsArea|C.WorkCreation,TouchNavigationArea|C.WorkCreation,MenuArea
  |C.Dismiss,DialogActionsArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
  |C.ForkTask,PageArea|C.ForkTask,DialogArea
@@ -414,6 +414,7 @@ Definition meaning_geometry {A} (describe : A -> C.purpose) env activity role ar
       (match area with BoardViewArea=>false|_=>true end) false
   | _, _ => [] end.
 Definition purpose_attributes purpose := match purpose with
+ |C.WorkCreation=>[("aria-haspopup","dialog")]
  |C.DialogTrigger _ expanded=>[("aria-haspopup","dialog");("aria-expanded",flag expanded)]
  |C.AuthoredAction=>[("data-prefix-action","true")]
  |C.MoreActions expanded|C.ChooseValue expanded|C.WorkspacePicker expanded=>[("aria-haspopup","true");("aria-expanded",flag expanded)]
@@ -647,7 +648,7 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
      set_style "max-block-size" (Typography.px maximum_height)
       (set_style "max-inline-size" (Typography.px viewport_width)
        (set_style "overflow" "auto" styles))
-    |_=>set_style "max-block-size" (Typography.px maximum_height)
+    |_=>set_style "max-block-size" ("calc(100dvb - "++Typography.px(2*clearance)++")")%string
       (set_style "max-inline-size" (Typography.px maximum_width)
        (set_style "overflow" "hidden" styles)) end
    else styles
@@ -784,6 +785,16 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    match property_help with Some _=>true|None=>match role with Roles.GlobalNavigationEntry _ true=>true|_=>false end end in
  let type_:=(if andb submit available then "submit" else "button") in
  let events:=if available then [event key generation "click" "activate" Gesture.Press] else [] in
+ let extra:=match S.node_children value with
+ |excerpt::[context]=>if String.eqb (S.semantic_key excerpt) "result-excerpt" &&
+                           String.eqb (S.semantic_key context) "result-context"
+   then ("aria-describedby",S.node_key excerpt)::extra else extra
+ |[mark]=>let marker:=S.semantic_key mark in
+   let selected:=String.eqb marker "interactive-markdown/summary-choice-selected" in
+   if selected || String.eqb marker "interactive-markdown/summary-choice"
+   then ("aria-pressed",flag selected)::(if available then ("title",Model.control_label action)::extra else extra)
+   else extra
+ |_=>extra end in
  let extra:=match source,C.action_purpose purpose with
   |S.TaskRow _ _ _ _ _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
   |_,_=>extra end in
@@ -833,6 +844,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
  |S.ReadOnly text=>element "span"
  [] [] empty [DOM.Text text]
+ |S.HistoryMatch before matched after=>element "span" [] [] empty
+ [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
  |S.Fact text=>element "span"
  [] [] empty
  [DOM.Text(if String.eqb text ""then "—"else text)]
@@ -869,12 +882,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [DOM.Element (target DocumentPublication.Body) "code" [] [] [] empty [DOM.Text(CodeBlock.presented_literal facts)]]]]
  |S.InteractiveRegion policy=>DOM.Mount (Observation.physical_target view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview))
    (interactive_status env activity (String.append key "/@pending") "data-interactive-pending" "正在更新显示" :: children)
- |S.Activate action=>button false action []
+ |S.Activate action=>button false action
+   (match C.action_purpose(describe(Model.control_input action)),current_area with
+    |C.WorkCreation,MenuArea=>[("role","menuitem")]|_,_=>[]end)
  |S.SettingEntry _ _ action|S.SupportingControl _ _ _ action=>button false action
  (let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.ActionCommit _ _ action=>button true action []
  |S.WorkChoice _ selected action=>button false action
- ([("role","radio");("aria-checked",flag selected)] ++
+ ([("role",match current_area with MenuArea=>"menuitemradio"|_=>"radio"end);("aria-checked",flag selected)] ++
   let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.Choice kind selected description action=>button false action
  ([("role",match current_area,kind with MenuArea,S.SingleChoice=>"menuitemradio"|MenuArea,S.MultipleChoice=>"menuitemcheckbox"|_,S.SingleChoice=>"radio"|_,S.MultipleChoice=>"checkbox"|_,S.ToggleChoice=>"switch" end);("aria-checked",flag selected)] ++
@@ -939,15 +954,18 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
        ("data-effort-labels",TextJson.render_json(JArray(map JString labels)))]++
       disabled(Nat.ltb 0 last))
      (if Nat.ltb 0 last then [event key generation "change" "value" Gesture.Change] else []) empty []]
- |S.ReceiveFile _ enabled _=>
+ |S.ReceiveFile owner enabled _=>
  (* The native chooser remains the real input target. A label presents its
     paperclip face without exposing the browser's filename widget. *)
+ let icon_only:=match owner,inherited_area with
+ |Identity.Card _,_|Identity.CardForConversation _,_=>false
+ |_,ComposerArea=>true|_,_=>false end in
  DOM.Element (key++"/@file-picker")%string "label" [("for",key);("title",if enabled then label else "Unavailable in the current state");("data-file-picker","")]
  ([("position","relative");("display","inline-flex");("align-items","center");
    ("justify-content","center");("gap","6px");("border-radius","6px");
    ("min-inline-size","32px");("min-block-size","32px");("flex","none");
    ("opacity",if enabled then "1"else"0.4");("cursor",if enabled then "pointer"else"default")]) [] empty
- ((artwork "paperclip" ++ (if match inherited_area with ComposerArea=>true|_=>false end then []else[DOM.Text label])) ++
+ ((artwork "paperclip" ++ (if icon_only then []else[DOM.Text label])) ++
  [DOM.Element key "input" (attrs++[("type","file");("multiple","")]++(if enabled then[]else[("aria-description","Unavailable in the current state")])++disabled enabled)
    [("position","absolute");("inset","0");("inline-size","100%");("block-size","100%");
     ("opacity","0");("padding","0");("border","0");("cursor","inherit")]
@@ -1201,7 +1219,7 @@ Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  DOM.UpdateTarget (Observation.physical_target current_view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Source))
  [] (DocumentPublication.source_properties policy)::
  DOM.UpdateTarget (Observation.physical_target current_view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Frame))
- (if DocumentPublication.preview_active policy then [("data-interactive-active","true")] else [])
+ (DocumentPublication.frame_attributes policy)
  (DocumentPublication.frame_properties policy)::children
  |_=>children end.
 Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=

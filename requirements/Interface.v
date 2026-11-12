@@ -189,7 +189,10 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     Explicit interactive fences reuse the common scene and bounded expression
     language. Ordinary Markdown keeps its standard presentation. Headings
     distinguish sections in a long interactive answer. Each source disclosure
-    stays with the fence whose source it reveals. Graph node controls
+    stays with its fence, and source copy and wrapping appear only beside the
+    revealed source. A final reset for the whole fence shares its action bar.
+    Markdown and authored tables share row separators and header emphasis.
+    Graph node controls
     retain native size within their own scrollable enclosures, with a readable
     list equivalent. Charts display categories or numeric ticks along the axes,
     using authored axis labels for units. The axes enclose the plotted range
@@ -257,7 +260,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Inert content still occupies space; foreground interaction does not imply
     removal from layout. Workspace navigation and supporting regions receive
     separate allocations from the viewport, so a temporary dialog cannot itself
-    force an otherwise viable desktop navigation mode.
+    force an otherwise viable desktop navigation mode. Centered dialogs fit
+    the current viewport while a new layout observation is pending.
 
     A Work scopes the conversation tree, graph views and shared interface.
     Project groups organize the conversations in that scope independently of
@@ -268,7 +272,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     as cards and exposes the action to link or open a conversation on the card.
     Its execution count uses the same filters and observations as the execution
     view. Each stage retains a visible heading, count, and drop target when empty.
-    Stage lanes wrap within the board's available width, with compact empty lanes.
+    Stage lanes wrap within the board's available width and keep a consistent
+    boundary across each row. The assignee filter keeps its options searchable
+    and its selected values available while filtering the list.
     Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
 
@@ -299,7 +305,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     toolbar. The menu displays project, actual directory and run settings
     with the current choices. Opening it keeps the composer in place.
     A graph can route new replies between existing conversations by selecting
-    its source and receiver in the current scope. The same graph editor can
+    its source and receiver in the current scope. The empty graph page
+    shows the same direction beside its creation action. The same graph editor can
     also accept a structured declaration for other rules.
     When the current scope has too few conversations, the source and receiver
     form and its unavailable commit identify how many more are needed.
@@ -309,8 +316,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the page.
 
     Opening a search result leaves the query, filters and page of results
-    available for further comparison. Results show a short readable excerpt
-    around the match. A source-only match links to the original message and
+    available for further comparison. Results lead with a short readable
+    excerpt and distinguish the matching text within it. A source-only match links to the original message and
     shows a short label. Opening a readable match scrolls to and highlights
     the matching text once it is rendered.
     The conversation offers a direct return to the result list at the reader's

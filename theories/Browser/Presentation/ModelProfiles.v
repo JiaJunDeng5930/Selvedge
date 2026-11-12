@@ -10,7 +10,7 @@ Open Scope string_scope.
 
 Definition provider_label (provider : ProviderCatalog.provider) :=
  match provider with
- | ProviderCatalog.Offline => "Offline echo"
+ | ProviderCatalog.Offline => "离线回显"
  | ProviderCatalog.EnvironmentSSE _ _ _ => "Responses API"
  | ProviderCatalog.AccountSSE => "ChatGPT"
  | ProviderCatalog.WebConnection _ _ => "ChatGPT Web"
@@ -46,15 +46,15 @@ Definition provider_choices parent (enabled : bool) profile : node Input.input :
    Node (part group key) "settings-provider-option" label Roles.Button
      (Choice SingleChoice (String.eqb key current) ""
        (Control key label Secondary (Input.ServiceInput (Services.EditModelProfileField "provider" key))
-         (if enabled then Available else Unavailable "Finish saving first"))) [] in
+         (if enabled then Available else Unavailable "请等待保存完成"))) [] in
  (* DEFENSE: The configuration can contain a provider outside the registry.
     Keep it in the draft until the user chooses a replacement. *)
  let unregistered := match ProviderCatalog.backend profile with
    | None => if String.eqb current "" then [] else
-       [information id "unregistered-provider" Information.Description ("Current provider: " ++ current)]
+       [information id "unregistered-provider" Information.Description ("当前提供方：" ++ current)]
    | Some _ => []
    end in
  Node id "settings-provider" "" Roles.Section Region
-   ([information id "provider-label" Information.FieldLabel "Provider"] ++ unregistered ++
-    [Node group "settings-provider-options" "Provider" Roles.Section ChoiceGroup
+   ([information id "provider-label" Information.FieldLabel "提供方"] ++ unregistered ++
+    [Node group "settings-provider-options" "提供方" Roles.Section ChoiceGroup
       (map choice providers)])%list.

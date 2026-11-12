@@ -56,7 +56,7 @@ Definition name field := match field with
 | TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" | AgentTitleProfile => "agent_profile" end.
 Definition project_name_prompt := "请输入项目名称".
 Definition label field := match field with
-| WorkName => "Name" | ProjectName => "项目名称" | MessageText => "Message"
+| WorkName => "工作组名称" | ProjectName => "项目名称" | MessageText => "Message"
 | CreateWorktree => "新对话默认创建 Git 工作树" | TaskEnvironment => "Run environment"
 | WorkspaceDirectories => "Working directories" | WorkspacePrimary => "Primary directory"
 | ContextOrigin => "Project" | SandboxMode => "Filesystem access" | NetworkAccess => "Network access"
@@ -67,8 +67,8 @@ Definition label field := match field with
 | CardAttachments => "附件" | ContinueCapture => "创建后继续添加"
 | AssistedCapture => "用模型整理标题和描述" | AssistanceProfile => "整理用的模型"
 | ForkCount => "Number of branches" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
-| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "Task title prompt"
-| AgentTitlePrompt => "Conversation title prompt" | AgentTitleProfile => "Conversation title model" end.
+| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "任务标题提示词"
+| AgentTitlePrompt => "对话标题提示词" | AgentTitleProfile => "对话标题模型" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary
 | TaskTitlePrompt | AgentTitlePrompt | CardLabels => Fields.Multiline

@@ -253,7 +253,7 @@ const tags = new Map([
   [smd.STRIKE, 's'], [smd.LINK, 'a'], [smd.RAW_URL, 'a'], [smd.IMAGE, 'a'],
   [smd.LINE_BREAK, 'br'], [smd.RULE, 'hr'], [smd.LIST_UNORDERED, 'ul'], [smd.LIST_ORDERED, 'ol'],
   [smd.LIST_ITEM, 'li'], [smd.CHECKBOX, 'input'], [smd.TABLE, 'table'], [smd.TABLE_ROW, 'tr'],
-  [smd.TABLE_CELL, 'td'], [smd.EQUATION_BLOCK, 'div'], [smd.EQUATION_INLINE, 'span'],
+  [smd.EQUATION_BLOCK, 'div'], [smd.EQUATION_INLINE, 'span'],
 ]);
 for (let i = 0; i < 6; i++) tags.set(smd.HEADING_1 + i, `h${i + 1}`);
 
@@ -326,9 +326,16 @@ export class Markdown {
             }
           }
           codeSources.set(node, { ordinal: codeOrdinal, text: null });
-          pre.append(node); block.append(toolbar, pre, ui); parent.append(block);
+          pre.append(node); block.append(ui, toolbar, pre); parent.append(block);
         } else {
-          node = document.createElement(tags.get(type));
+          if (type === smd.TABLE_ROW) {
+            parent = parent.tHead ? parent.tBodies[0] ?? parent.createTBody() : parent.createTHead();
+          }
+          if (type === smd.TABLE_CELL) {
+            const heading = parent.parentElement.tagName === 'THEAD';
+            node = document.createElement(heading ? 'th' : 'td');
+            if (heading) node.scope = 'col';
+          } else node = document.createElement(tags.get(type));
           if (type === smd.TABLE) {
             const scroll = document.createElement('div'); scroll.className = 'table-scroll'; parent.append(scroll); parent = scroll;
           }

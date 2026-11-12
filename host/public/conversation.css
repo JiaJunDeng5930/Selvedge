@@ -51,7 +51,7 @@
 
 /* The language and native code actions share a line. The source itself still
    controls wrapping and owns its horizontal scrollport. */
-[data-reading-root] .code-block:has(> .code-toolbar:not(:empty)) {
+[data-reading-root] .code-block:not([data-interactive-active="true"]):has(> .code-toolbar:not(:empty)) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

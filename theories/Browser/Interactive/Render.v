@@ -37,16 +37,18 @@ Definition optional_caption key label : list scene :=
  if String.eqb label "" then [] else [text (key+++"/@label") label].
 Definition component_caption event_id p : list scene :=
   match p.(description).(component_role) with
-  | Field | Action | TextLeaf | MarkdownLeaf | MetricLeaf | Table | Column => []
-  | Chart =>
-    let label:=property_text "label" p in
-    if String.eqb label "" then [] else
-    [S.Node (Types.event_key event_id+++"/@label") "interactive-markdown/chart-title" ""
-       R.Content (S.Fact label) []]
+  | Field | Action | TextLeaf | MarkdownLeaf | MetricLeaf | Table | Column | Chart => []
   | _ => optional_caption (Types.event_key event_id) (property_text "label" p) end.
 Definition component_has_tag tag (node:scene) :=
  match S.node_meaning node with
  |S.InteractiveNode c=>String.eqb tag (component_tag (description (IP.component_properties c)))
+ |_=>false end.
+Definition metric_comparison_card (node:scene) :=
+ component_has_tag "card" node &&
+ match S.node_children node with
+ |[metric]=>component_has_tag "metric" metric
+ |[caption;metric]=>component_has_tag "metric" metric &&
+  match S.node_meaning caption with S.Fact _=>true|_=>false end
  |_=>false end.
 Definition compact_summary_card (node:scene) :=
  component_has_tag "card" node &&
@@ -55,11 +57,114 @@ Definition compact_summary_card (node:scene) :=
   (match S.node_meaning caption with S.Fact _=>true|_=>false end) &&
   component_has_tag "badge" status && component_has_tag "metric" metric && component_has_tag "button" action
  |_=>false end.
-Definition component_node event_id p binding children : scene :=
+Definition with_children (node:scene) children : scene :=
+ S.Node (S.node_key node) (S.semantic_key node) (S.node_label node)
+   (S.node_role node) (S.node_meaning node) children.
+Definition summary_metric_label (node:scene) :=
+ match S.node_children node with [ _; _; metric; _ ]=>S.node_label metric|_=>""end.
+Definition summary_heading (children:list scene) :=
+ match children with
+ |first::others=>match others with
+   |[]=>None
+   |_=>let label:=summary_metric_label first in
+     if negb (String.eqb label "") && forallb (fun card=>String.eqb label (summary_metric_label card)) others
+     then Some label else None end
+ |[]=>None end.
+Definition concise_selection (title:string) (selected:bool) (node:scene) : scene :=
+ match S.node_meaning node, S.node_children node with
+ |S.InteractiveNode component,face::feedback=>
+   match IP.component_binding component,S.node_meaning face with
+   |ActionLink (Assign _ _) _,S.Activate control=>
+     let accessible:=M.control_label control+++" · "+++title in
+     let key:=S.node_key face in
+     let mark:=S.Node (key+++"/@choice-mark")
+       (if selected then "interactive-markdown/summary-choice-selected" else "interactive-markdown/summary-choice")
+       "" R.Decorative (S.Fact (if selected then "✓" else "○")) [] in
+     with_children node (S.Node key (S.semantic_key face) accessible (S.node_role face)
+       (S.Activate (M.Control (M.control_identity control) accessible (M.control_prominence control)
+         (M.control_input control) (M.control_availability control))) [mark]::feedback)
+   |_,_=>node end
+ |_,_=>node end.
+Definition summary_assignment (node:scene) :=
+ match S.node_children node with
+ |[_;_;_;action]=>match S.node_meaning action with
+   |S.InteractiveNode component=>match IP.component_binding component with
+     |ActionLink (Assign target value) _=>Some (target,value)|_=>None end
+   |_=>None end
+ |_=>None end.
+(** A row choice writes that row's collection key to the same state as every
+    other row. Other assignments keep their authored button faces. *)
+Definition summary_selection locals p (children:list scene) : option (list bool) :=
+ match children with
+ |first::_::_=>match summary_assignment first,collection_keys (property_text "key" p) (property_array "items" p) with
+   |Some (target,_),Good keys=>match find_local target locals with
+     |Some local=>let current:=key_value (Local.canonical local) in
+       if Nat.eqb (List.length keys) (List.length children) then
+       match traverse (fun pair=>
+         let '(row,key):=pair in
+         match summary_assignment row with
+         |Some (other,value)=>match key_value value with
+           |Some assigned=>if String.eqb target other && String.eqb key assigned then
+             Good (match current with Some value=>String.eqb value key|None=>false end)
+             else Error "Not a row choice"
+           |None=>Error "Not a row choice" end
+         |None=>Error "Not a row choice" end) (combine children keys) with
+       |Good selected=>Some selected|Error _=>None end else None
+     |None=>None end
+   |_,_=>None end
+ |_=>None end.
+Definition compact_summary (shared:option string) (selected:option bool) (node:scene) : scene :=
+ match S.node_children node with
+ |[caption;status;metric;action]=>
+   let metric:=match shared with
+     |Some _=>with_children metric (filter (fun child=>
+       negb (String.eqb (S.semantic_key child) "interactive-markdown/metric-label")) (S.node_children metric))
+     |None=>metric end in
+   let action:=match selected with Some value=>concise_selection (S.node_label node) value action|None=>action end in
+   with_children node [caption;status;metric;action]
+ |_=>node end.
+Definition field_binding (tag:string) (node:scene) :=
+ if component_has_tag tag node then
+   match S.node_meaning node with
+   |S.InteractiveNode component=>match IP.component_binding component with FieldLink id _=>Some id|_=>None end
+   |_=>None end
+ else None.
+Definition range_number_group (range number:scene) : scene :=
+ let key:=S.node_key range+++"/@range-number" in
+ let heading:=S.node_label range in let detail:=S.node_label number in
+ S.Node key "interactive-markdown/range-number" "" R.Content S.Region
+  ([S.Node (key+++"/@heading") "interactive-markdown/range-number-heading" heading
+    R.Content (S.InformationText Information.FieldLabel) [];range;number]++
+   if String.eqb heading detail || String.eqb detail "" then [] else
+   [S.Node (key+++"/@detail") "interactive-markdown/range-number-detail" detail
+     R.Content (S.InformationText Information.Description) []]).
+Fixpoint group_range_numbers (children:list scene) : list scene :=
+ match children with
+ |range::rest=>match rest with
+   |number::remaining=>
+     match field_binding "slider" range,field_binding "number-input" number with
+     |Some first,Some second=>if String.eqb first second then range_number_group range number::group_range_numbers remaining
+       else range::group_range_numbers rest
+     |_,_=>range::group_range_numbers rest end
+   |[]=>[range] end
+ |[]=>[] end.
+Definition component_node event_id p binding children locals : scene :=
  let tag:=p.(description).(component_tag) in
- let presentation:=if String.eqb tag "each" &&
-  (match children with []=>false|_=>forallb compact_summary_card children end)
-  then "compact-card-list" else tag in
+ let compact:=String.eqb tag "each" &&
+  (match children with []=>false|_=>forallb compact_summary_card children end) in
+ let presentation:=if compact then "compact-card-list"
+  else if String.eqb tag "row-layout" &&
+   (match children with _::_::_=>forallb metric_comparison_card children|_=>false end)
+  then "metric-comparison" else tag in
+ let children:=if compact then
+   let shared:=summary_heading children in
+   (match shared with None=>[]|Some label=>
+     [S.Node (Types.event_key event_id+++"/@metric-heading") "interactive-markdown/summary-metric-heading"
+       label R.Content (S.InformationText Information.Description) []]end)++
+   (match summary_selection locals p children with
+   |Some selected=>map (fun row=>compact_summary shared (Some (snd row)) (fst row)) (combine children selected)
+   |None=>map (compact_summary shared None) children end)
+  else if String.eqb tag "stack" || String.eqb tag "card" then group_range_numbers children else children in
  S.Node (Types.event_key event_id) ("interactive-markdown/"+++presentation)
   (property_text "label" p)
   (match binding with FieldLink _ _=>R.Field|ActionLink _ _=>R.Button|_=>R.Content end)
@@ -68,7 +173,7 @@ Definition synthetic event_id part tag attrs children : scene :=
  let event_id:=Event event_id.(event_owner) (event_id.(path)+++"/@"+++part) event_id.(occurrence) in
  match Vocabulary.component tag with
  |Some spec=>match Vocabulary.component_values spec (("id",JString part)::attrs) with
-   |Some values=>component_node event_id (Properties spec values) (Passive true) children
+   |Some values=>component_node event_id (Properties spec values) (Passive true) children []
    |None=>region (Types.event_key event_id) children end
  |None=>region (Types.event_key event_id) children end.
 Definition toolbar event_id part children : scene :=
@@ -154,17 +259,25 @@ Definition chart_summary_table event_id p : scene :=
       [Plot.x_title p; Plot.y_title p]
       (map (fun row => [scalar_text (get_path (property_text "x" p) row);
                         scalar_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
-Definition chart_summary event_id p :list scene :=
+Definition chart_heading event_id p (with_data:bool) : list scene :=
  let key:=Types.event_key event_id in
- let count:=List.length (property_array "data" p) in
- (if Nat.ltb Bounds.chart_points count then
-  [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")] else [])++
- [S.Node (key+++"/@data-disclosure") "interactive-markdown/chart-disclosure" "查看数据" R.Content
-   S.ContentDisclosure [chart_summary_table event_id p]].
+ let label:=property_text "label" p in
+ let children:=(if String.eqb label "" then [] else
+   [S.Node (key+++"/@label") "interactive-markdown/chart-title" "" R.Content (S.Fact label) []])++
+   (if with_data then
+   [S.Node (key+++"/@data-disclosure") "interactive-markdown/chart-disclosure" "查看数据" R.Content
+     S.ContentDisclosure
+     [S.Node (key+++"/@data-region") "interactive-markdown/chart-data-region" "" R.Content
+       S.Region [chart_summary_table event_id p]]] else []) in
+ match children with
+ |[]=>[]
+ |_=>[S.Node (key+++"/@heading") "interactive-markdown/chart-heading" "" R.Content S.Region children]
+ end.
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
  let count:=List.length (property_array "data" p) in
- if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else
+ chart_heading event_id p (Nat.ltb 0 count)++
+ (if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else
  (match Plot.chart p with
  |Error reason=>[S.Node (key+++"/@error") "interactive-markdown/status" reason R.Content
    (S.InformationText Information.Status) []]
@@ -175,7 +288,10 @@ Definition render_chart event_id p : list scene :=
      (Plot.y_title p+++" / "+++Plot.x_title p+++"；显示 "+++
       show_nat (List.length (Plot.chart_rows p))+++" / "+++show_nat count+++" 行")
      R.Content (S.Graphic drawing) []]]
- end)++chart_summary event_id p.
+ end)++
+ (if Nat.ltb Bounds.chart_points count then
+   [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")]
+  else [])).
 Definition expanded_path node := match node with Mounted event_id _ _ _=>event_id.(path)|Message path _=>path end.
 Definition graph_identity node := match string_field "identity" node with Some id=>id|None=>"" end.
 Definition graph_task_status node :=
@@ -268,14 +384,14 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
        grid_rows (List.length rendered) event_id p 0
         (match property "columns" p with Some value=>match natural value with Some columns=>N.to_nat columns|None=>2 end|None=>2 end) rendered
        else rendered end in
-    (component_node event_id p binding content::reversed,budget)
+    (component_node event_id p binding content b.(locals)::reversed,budget)
    end) nodes ([],budget) in (rev (fst result),snd result)
  end.
 Definition source_open b := match State.view_at "@source" false b with SourceView open=>open|_=>false end.
 Definition presentation_cost p (children:list expanded) :=
   match p.(description).(component_role) with
   | Table => 16 + (2 + 2 * Nat.min Bounds.table_page (List.length (property_array "rows" p))) * List.length children
-  | Chart => 34 + Nat.min Bounds.chart_points (List.length (property_array "data" p))
+  | Chart => 36 + Nat.min Bounds.chart_points (List.length (property_array "data" p))
   | Graph => 34 + 4 * List.length (property_array "nodes" p) + List.length (property_array "edges" p)
   | _ => if String.eqb p.(description).(component_tag) "grid" then 1 + List.length children else 1 end.
 Fixpoint expansion_cost (fuel : nat) (nodes : list expanded) : nat :=
@@ -320,12 +436,35 @@ Definition admitted_content identity b prepared nodes budget :=
   if Nat.leb (expansion_cost 64 nodes + diagnostics) Bounds.expanded_components
   then fst (render_nodes 64 identity b prepared nodes budget)++diagnostic_nodes identity issues
   else [diagnostic_node (CodeSource.key identity+++"/@presentation-limit") "ui" "交互界面展开超过 4096 个节点；局部输入已保留，请查看源码。"].
+Definition split_final_reset (nodes : list scene) : list scene * list scene :=
+ match rev_append nodes [] with
+ | last :: before =>
+   match S.node_meaning last with
+   | S.InteractiveNode component =>
+     match IP.component_binding component with
+     | ActionLink ResetAll _ => (rev_append before [], [last])
+     | _ => (nodes, [])
+     end
+   | _ => (nodes, [])
+   end
+ | [] => ([], [])
+ end.
+Definition split_footer_reset (nodes : list scene) : list scene * list scene :=
+ match nodes with
+ | [stack] =>
+   if component_has_tag "stack" stack then
+     let '(body, footer):=split_final_reset (S.node_children stack) in
+     ([with_children stack body],footer)
+   else split_final_reset nodes
+ | _=>split_final_reset nodes
+ end.
 Definition content identity b prepared nodes budget : list scene :=
  let key:=CodeSource.key identity in
- admitted_content identity b prepared nodes budget++
+ let '(body,footer):=split_footer_reset (admitted_content identity b prepared nodes budget) in
+ body++
  (match b.(block_ending) with Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]|_=>[] end)++
  [S.Node (key+++"/@source-controls") "interactive-markdown/source-controls" "" R.Toolbar S.Region
-  [button (key+++"/@disclose") (if source_open b then "收起源码" else "展开源码") (SourceDisclosure b.(block_owner)) true]].
+  (footer++[button (key+++"/@disclose") (if source_open b then "收起源码" else "展开源码") (SourceDisclosure b.(block_owner)) true])].
 Definition fence identity b prepared nodes budget : scene :=
  S.Node (CodeSource.key identity+++"/@interactive") "interactive-markdown/fence" "" R.Content
   (S.InteractiveRegion (DocumentPublication.interactive identity (source_open b))) (content identity b prepared nodes budget).

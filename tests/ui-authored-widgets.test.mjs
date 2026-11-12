@@ -31,9 +31,20 @@ test('authored motion, metrics and tables remain readable in the conversation', 
       <badge id="spin" label="Spin · 旋转效果" motion="spin" />
       <badge id="status" label="Transition · 状态过渡" transition="status" />
     </row-layout>
-    <card id="counts" label="普通数值">
-      <metric id="visits" label="访问量" value={123456} format="number" />
-    </card>
+    <row-layout id="metric-comparison" gap="sm">
+      <card id="counts" label="普通数值">
+        <metric id="visits" label="访问量" value={123456} format="number" />
+      </card>
+      <card id="cny" label="人民币">
+        <metric id="sales" label="销售额" value={987654.32} format="currency:CNY" tone="success" />
+      </card>
+      <card id="usd" label="美元">
+        <metric id="contract" label="合同额" value={12345.67} format="currency:USD" />
+      </card>
+      <card id="percent" label="百分比">
+        <metric id="completion" label="完成比例" value={0.72} format="percent" />
+      </card>
+    </row-layout>
     <card id="products" label="示例数据">
       <table id="details" label="${title}" rows={[{id:"a",name:"Alpha",revenue:2},{id:"b",name:"Beta",revenue:8},{id:"c",name:"Gamma",revenue:3},{id:"d",name:"Delta",revenue:4},{id:"e",name:"Echo",revenue:5},{id:"f",name:"Foxtrot",revenue:6}]} row-key="id" sortable={true}>
         <column id="name" field="name" label="产品" />
@@ -49,7 +60,8 @@ test('authored motion, metrics and tables remain readable in the conversation', 
 
   const main = page.getByRole('main');
   const spin = main.getByText('Spin · 旋转效果', { exact: true });
-  const arranged = direction => main.locator(`[data-interactive-component="row-layout"][data-native-row-direction="${direction}"]`);
+  const arranged = direction => main.locator(`[data-interactive-component="row-layout"][data-native-row-direction="${direction}"]`)
+    .filter({ hasText: 'Spin · 旋转效果' });
   await arranged('row').waitFor();
   const motionGeometry = () => spin.evaluate(label => {
     const cell = label.closest('[data-interactive-motion="spin"]');
@@ -76,6 +88,33 @@ test('authored motion, metrics and tables remain readable in the conversation', 
   const fontSize = locator => locator.evaluate(node => parseFloat(getComputedStyle(node).fontSize));
   assert.ok((await number.boundingBox()).y < (await metricName.boundingBox()).y);
   assert.ok(await fontSize(number) > await fontSize(metricName) && await fontSize(metricName) > await fontSize(formatCue));
+  const sales = main.getByText('¥987,654.32', { exact: true });
+  assert.ok(await fontSize(sales) > await fontSize(number),
+    'The emphasized currency retains its larger value');
+  const amountFits = () => sales.evaluate(node => {
+    const text = document.createRange();
+    text.selectNodeContents(node);
+    return text.getClientRects().length === 1 && node.scrollWidth <= node.clientWidth + 1;
+  });
+  assert.equal(await amountFits(), true, 'The emphasized amount reads on one line');
+  const comparison = () => metricName.evaluate(label => {
+    const group = label.closest('[data-interactive-component="row-layout"]');
+    const cards = [...group.children].map(card => ({
+      box: card.getBoundingClientRect(),
+      label: card.querySelector('[data-semantic-key="interactive-markdown/metric-label"]').getBoundingClientRect(),
+    }));
+    const firstTop = cards[0].box.top;
+    return {
+      columns: cards.filter(card => Math.abs(card.box.top - firstTop) <= 1).length,
+      aligned: cards.every((card, index) => cards.slice(index + 1).every(next =>
+        Math.abs(card.box.top - next.box.top) > 1 ||
+        Math.abs(card.box.bottom - next.box.bottom) <= 1 && Math.abs(card.label.bottom - next.label.bottom) <= 1)),
+      fits: group.scrollWidth <= group.clientWidth + 1 &&
+        cards.every(card => card.box.left >= 0 && card.box.right <= innerWidth),
+    };
+  });
+  assert.deepEqual(await comparison(), { columns: 4, aligned: true, fits: true },
+    'The desktop comparison aligns card outlines and metric labels');
 
   const details = main.getByRole('table', { name: title, exact: true });
   const single = details.locator('..');
@@ -110,6 +149,9 @@ test('authored motion, metrics and tables remain readable in the conversation', 
     const mobile = await motionGeometry();
     assert.ok(mobile.readable && mobile.withinViewport, `${width}px: icon and full label remain on one line`);
     assert.ok(mobile.cells.every(cell => Math.abs(cell.width - mobile.cells[0].width) <= 1), `${width}px: equal motion cells`);
+    assert.deepEqual(await comparison(), { columns: width === 390 ? 2 : 1, aligned: true, fits: true },
+      `${width}px: metric cards reflow without clipping and align within each row`);
+    assert.equal(await amountFits(), true, `${width}px: the emphasized amount still fits on one line`);
   }
   await main.getByRole('button', { name: '展开源码', exact: true }).click();
   const original = main.locator('pre code').filter({ hasText: 'Spin · 旋转效果' });

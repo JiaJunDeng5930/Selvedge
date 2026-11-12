@@ -30,7 +30,8 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
  let declaration := GraphAuthoring.handoff_declaration GraphAuthoring.empty_handoff in
  Some(Draft.TaskGraphBody None (TextJson.render_json declaration) (Some declaration) work)
 |Identity.TaskGraph(Some id)work=>graph<-World.find_world "graphs" "graph_id" id snapshot;;name<-field "name" graph;;nodes<-field "nodes" graph;;rules<-field "rules" graph;;let declaration:=JObject[("name",name);("nodes",nodes);("rules",rules)]in Some(Draft.TaskGraphBody(Some id)(TextJson.render_json declaration)(Some declaration)work)
-|Identity.WorkName work=>value<-World.find_work work snapshot;;name<-string_field "name" value;;Some(Draft.WorkNameBody work name)
+|Identity.WorkName None=>Some(Draft.WorkNameBody None "")
+|Identity.WorkName(Some work)=>value<-World.find_work work snapshot;;name<-string_field "name" value;;Some(Draft.WorkNameBody(Some work)name)
 |Identity.TitlePrompts=>settings<-field "title_settings" snapshot;;revision<-natural_field "revision" settings;;task<-string_field "task_prompt" settings;;agent<-string_field "agent_prompt" settings;;
  profile<-bind(field "agent_profile" settings)DraftCodec.decode_option_text;;Some(Draft.TitlePromptsBody revision task agent profile)end.
 Definition materialize snapshot preference e:=body<-materialize_body snapshot preference e;;Some(Draft.Draft 0 body Draft.Editing "" None).

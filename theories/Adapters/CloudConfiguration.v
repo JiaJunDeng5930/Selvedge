@@ -18,15 +18,15 @@ Definition optional_bounds : list (string * (N*N)) :=
    ("startup_timeout_ms",(1000,3600000))].
 Definition setting_label name :=
   match name with
-  | "region" => "Region" | "zone" => "Zone" | "image_id" => "Image ID"
-  | "instance_type" => "Instance type" | "spot_max_price" => "Maximum spot price"
-  | "vpc_id" => "VPC ID" | "subnet_id" => "Subnet ID"
-  | "security_group_ids" => "Security groups" | "key_id" => "SSH key ID"
-  | "ssh_private_key" => "Private key path" | "ssh_user" => "SSH user"
-  | "ssh_port" => "SSH port" | "address_type" => "Address type"
-  | "api_endpoint" => "API endpoint override"
-  | "internet_max_bandwidth_out" => "Outbound bandwidth (Mbps)"
-  | "startup_timeout_ms" => "Startup timeout (ms)"
+  | "region" => "地域" | "zone" => "可用区" | "image_id" => "镜像 ID"
+  | "instance_type" => "实例规格" | "spot_max_price" => "竞价价格上限"
+  | "vpc_id" => "VPC ID" | "subnet_id" => "子网 ID"
+  | "security_group_ids" => "安全组" | "key_id" => "SSH 密钥 ID"
+  | "ssh_private_key" => "私钥路径" | "ssh_user" => "SSH 用户"
+  | "ssh_port" => "SSH 端口" | "address_type" => "地址类型"
+  | "api_endpoint" => "自定义 API 端点"
+  | "internet_max_bandwidth_out" => "出站带宽（Mbps）"
+  | "startup_timeout_ms" => "启动超时（ms）"
   | _ => name
   end.
 Definition nonempty_text := D.Text (D.TextConstraints

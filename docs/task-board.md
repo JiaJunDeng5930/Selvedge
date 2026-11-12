@@ -53,8 +53,8 @@ endpoint. Explicit offline echo and adaptive task profiles are not drafting
 profiles. The form uses the configured Board default when it is available.
 When the default is unavailable, choose a model in **整理用的模型**. Turning
 assistance off saves the title and description you enter.
-**Settings → Conversation titles → Edit title prompts** edits **Task title prompt**
-for board cards independently of **Conversation title prompt**. Both retain the shared
+In **设置 → 常规 → 编辑标题设置**, **任务标题提示词** controls board card titles
+independently of **对话标题提示词**. Both retain the shared
 schema and normalization. Linked conversations generate their own names;
 renaming a card preserves its conversation's title. A linked card can regenerate
 its board title while its Task runs. Other metadata changes preserve that request;
@@ -68,7 +68,7 @@ leaves the saved settings in place. Saved settings survive service restart and
 apply to future requests. Existing titles and already-dispatched requests are
 preserved.
 
-**Conversation title model** selects a configured model connection for future
+**对话标题模型** selects a configured model connection for future
 conversation titles. Automatic mode prefers a configured `gpt-5.6-luna` profile from
 the Task's ChatGPT account when available, then uses the Task's own model
 connection. In automatic mode, explicitly configured offline echo profiles

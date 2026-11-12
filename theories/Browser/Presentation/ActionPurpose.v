@@ -17,7 +17,7 @@ Definition route_symbol route:=match route with
 |Start=>"home"|GraphConversation _ _|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
 |Board=>"columns"|Graphs=>"branch"|HistorySearch=>"search"end.
 Definition editor_purpose owner:=match owner with
-|Identity.Project None|Identity.Card None|Identity.CardForConversation _|Identity.TaskGraph None _=>P.CreateItem
+|Identity.Project None|Identity.Card None|Identity.CardForConversation _|Identity.TaskGraph None _|Identity.WorkName None=>P.CreateItem
 |Identity.NewTask _|Identity.Message _=>P.MessageSubmission
 |Identity.Fork _=>P.ForkTask|Identity.Compact _=>P.CompactTask|_=>P.EditItem end.
 Definition command_purpose (command:SS.public_command):=let source:=Schema.encode_command command in
@@ -57,7 +57,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.Command command=>command_purpose command
 |Input.Confirmation command _ _ trigger=>P.DialogTrigger(command_purpose command)(panel_open trigger state)
 |Input.OpenNavigation kind trigger=>match kind with GlobalMenu=>P.GlobalDestinations(panel_open trigger state)
- |WorkOverview=>P.OpenPanel "columns" false (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
+ |WorkOverview=>P.OpenPanel "columns" true (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
 |Input.OpenBoard kind trigger=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false (panel_open trigger state)
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end

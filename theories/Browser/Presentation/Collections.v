@@ -5,6 +5,7 @@ From Selvedge.Kernel Require Domain.
 From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction Require CardDecisions.
 From Selvedge.Interaction.Experience Require Read.
+From Selvedge.Interaction.Submission Require GraphAuthoring.
 From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
@@ -222,12 +223,20 @@ Definition graph_node snapshot s parent value :=
     region key "task-graph/receipts" "最近发送结果" Roles.Section
       (group_title (part key "task-graph/receipts") "最近发送结果" :: graph_receipt_nodes key value)])%list.
 Definition graphs_page snapshot s parent :=
+ let graphs:=scoped_graphs(State.active_work(State.navigation_state s))snapshot in
+ let create:=declared parent Roles.PrimaryButton
+   (primary "graph/new" "新建任务图"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
-   [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     [declared parent Roles.PrimaryButton(primary "graph/new" "新建任务图"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))]];
+   (match graphs with Some []=>[]|_=>[page_region parent Composition.CollectionActions Composition.HeadingPosition [create]] end);
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
-   (match scoped_graphs(State.active_work(State.navigation_state s))snapshot with
-    |Some []=>[read_only parent "empty" "" "新建任务图，让回复在对话间传递。"]
+   (match graphs with
+    |Some []=>[region parent "task-graph/empty" "" Roles.Section
+      [region parent "task-graph/empty-route" "转发方向" Roles.Section
+       [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
+        Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
+        Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
+       information parent "task-graph/empty-description" Information.Description "把来源对话的新回复发给接收对话。";
+       create]]
     |Some entries=>map(graph_node snapshot s parent)entries
     |None=>[read_only parent "unavailable" task_graphs_label "任务图暂不可用。"]end)].

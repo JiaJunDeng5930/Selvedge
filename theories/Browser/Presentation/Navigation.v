@@ -78,7 +78,7 @@ Definition rename_work s :=
  match State.active_work(State.navigation_state s)with
  |None=>[]
  |Some work=>[declared "/navigation" Roles.Button
-   (secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]
+   (secondary "rename-work" "重命名工作组"(Input.OpenEditor(WorkName(Some work))(part "/navigation" "rename-work")))]
  end.
 Definition work_destinations s controls :=
  let navigation:=State.navigation_state s in
@@ -144,14 +144,7 @@ Definition work_overview snapshot s parent :=
    match works snapshot with
    |None=>[read_only parent "unavailable" "" "工作组不可用"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
- [dialog_header parent
-   [title parent conversation_scope_label;
-    declared parent Roles.Button(secondary "done" "关闭对话范围" Input.ClosePanel)];
-  dialog_body parent
-   [information parent "scope" Information.Description "选择侧栏显示的对话。每个工作组有自己的任务图和共享界面。";
-    Node(part parent "work-choices")"work-choices" conversation_scope_label Roles.Section ChoiceGroup entries];
-  dialog_actions parent
-   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "新建工作组" Input.CreateWork))]].
+ (entries++[declared parent Roles.Button(secondary "work/new" "新建工作组" Input.CreateWork)])%list.
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
  [region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu

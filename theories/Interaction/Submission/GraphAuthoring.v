@@ -11,7 +11,9 @@ Record handoff := Handoff {
   handoff_target : option N
 }.
 
-Definition empty_handoff := Handoff "Conversation handoff" None None.
+Definition source_endpoint_label := "来源对话".
+Definition target_endpoint_label := "接收对话".
+Definition empty_handoff := Handoff "对话转发" None None.
 
 Definition handoff_node key task :=
  JObject [("key", JString key); ("task_id", match task with Some id => number id | None => JNull end)].

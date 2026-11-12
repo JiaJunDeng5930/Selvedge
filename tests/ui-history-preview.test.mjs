@@ -37,8 +37,20 @@ test('conversation search excerpts show rendered text around a match and label s
 
   await search('  review-only marker  ');
   await result.getByText('Before release, check the Review-only marker in the audit notes.', { exact: true }).waitFor();
+  assert.equal(await result.locator('mark').textContent(), 'Review-only marker');
+  const emphasis = await result.evaluate(card => {
+    const excerpt = card.querySelector('[data-semantic-key="result-excerpt"]');
+    const context = card.querySelector('[data-semantic-key="result-context"]');
+    return { excerpt: parseFloat(getComputedStyle(excerpt).fontSize),
+      context: parseFloat(getComputedStyle(context).fontSize),
+      beforeContext: excerpt.getBoundingClientRect().bottom <= context.getBoundingClientRect().top };
+  });
+  assert.ok(emphasis.beforeContext && emphasis.excerpt > emphasis.context);
   const readable = await result.innerText();
   assert.doesNotMatch(readable, /<ui|internal-label|selvedge-ui|\*\*|example\.test|Earlier context|next paragraph|上一条|下一条/);
+
+  await search('no-matching-release-note');
+  await page.getByText('没有找到匹配的标题或消息。试试其他关键词。', { exact: true }).waitFor();
 
   await search('hidden-source-token');
   await result.getByText('在消息原文中找到匹配', { exact: true }).waitFor();
