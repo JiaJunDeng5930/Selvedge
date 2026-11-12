@@ -60,8 +60,9 @@ test('the composer gear opens upward and preserves the draft at desktop and mobi
 test('project and directory choices open inside the composer menu and return to it', async t => {
   const { page } = await browserFixture(t);
   const menu = await openCreationEnvironment(page);
+  await menu.getByText('未关联项目', { exact: true }).waitFor();
   await menu.locator('button[data-logical-key="composer/project"]').click();
-  const project = page.getByRole('dialog', { name: 'Choose project', exact: true });
+  const project = page.getByRole('dialog', { name: '选择项目', exact: true });
   await project.waitFor();
   assert.equal(await menu.isVisible(), false);
   await project.getByRole('button', { name: '返回工作环境', exact: true }).click();
@@ -86,7 +87,7 @@ test('configured run environments show the current choice in the gear menu', asy
   await page.reload();
   const menu = await openCreationEnvironment(page);
   const choice = (name, checked) => menu.getByRole('menuitemradio', { name, exact: true, checked });
-  const cases = ['New Git worktree on the Selvedge host', 'Run on Tencent Cloud CVM', 'Use working directory as is'];
+  const cases = ['在 Selvedge 主机上新建 Git 工作树', '在腾讯云 CVM 上运行', '使用当前工作目录'];
   await choice(cases[2], true).waitFor();
   for (const name of cases) {
     await choice(name, false).click();

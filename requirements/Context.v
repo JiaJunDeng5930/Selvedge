@@ -11,7 +11,9 @@ From Selvedge.Kernel Require ContextProofs ReasoningProofs
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
   an_accepted_patch_installs_its_captured_target,
-  failed_context_observation_retains_the_last_admitted_binding).
+  failed_context_observation_retains_the_last_admitted_binding,
+  interactive_capability_requires_the_native_revision_and_body,
+  published_interactive_vocabulary_matches_the_executable_components).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
   context_completion_requires_the_current_ticket,
@@ -53,6 +55,10 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     history records. Re-parsing those private records supplies no new source
     observation. Context selection keeps original fixed records and excludes
     replacement-provided instruction records.
+    Interactive output authority requires the exact identity, revision and
+    body of a published native declaration. Replay recognizes each declaration
+    that the service issued so a wording change cannot change the mode of a
+    committed reply. New observations use the current declaration.
     A tool's ordinary file read is not automatically an instruction update, and
     observing instruction text cannot grant workspace or tool authority. [ContextTypes.definition]
     shares identity, fields, scope and observation declarations across admission

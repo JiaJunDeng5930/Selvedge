@@ -24,7 +24,8 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const create = page.getByRole('main').getByRole('button', { name: '新建项目', exact: true });
   const project = page.getByRole('dialog', { name: '新建项目', exact: true });
   const submit = project.getByRole('button', { name: '创建项目', exact: true });
-  const worktree = project.getByRole('checkbox', { name: '新对话默认创建 Git 工作树', exact: true });
+  const worktreeName = '新对话默认创建 Git 工作树';
+  const worktree = project.getByRole('checkbox', { name: worktreeName, exact: true });
   const reason = message => project.getByRole('status').filter({ hasText: message });
   const name = project.getByRole('textbox', { name: '项目名称', exact: true });
   const directory = project.getByRole('textbox', { name: '目录路径', exact: true });
@@ -53,7 +54,15 @@ test('Project worktree defaults require a committed Git primary only while enabl
 
   await create.click();
   await name.fill('默认使用工作树');
-  await worktree.check();
+  const [box, caption] = await Promise.all([
+    worktree.boundingBox(), project.getByText(worktreeName, { exact: true }).boundingBox(),
+  ]);
+  assert.ok(box && caption && box.x + box.width <= caption.x &&
+    Math.abs(box.y + box.height / 2 - caption.y - caption.height / 2) <= 1,
+  'The checkbox sits before and vertically centered with its label');
+  await worktree.press('Space');
+  await worktree.and(page.locator(':focus')).waitFor();
+  assert.equal(await worktree.isChecked(), true);
   await project.getByRole('heading', { name: '工作目录', exact: true }).waitFor();
   await assertBlockingReason(missingMessage);
   assert.ok((await project.boundingBox()).width >= 420, 'The desktop Project form gives its directory row a reading width');

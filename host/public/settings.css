@@ -346,6 +346,8 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-controls"]:has(> button[data-semantic-key="restore-default"]) {
   max-inline-size: 100% !important;
+}
+[data-semantic-key="settings-controls"]:has(> button[data-semantic-key="restore-default"]):not(:has(> button[data-semantic-key="begin-add"])) {
   flex-wrap: nowrap !important;
 }
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
@@ -405,13 +407,6 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-collection"] h3[data-semantic-key="heading"] {
   margin-block-end: 0 !important;
-}
-[data-semantic-key="settings-collection-actions"] {
-  flex-flow: row wrap !important;
-  justify-content: flex-start !important;
-  align-items: center !important;
-  gap: .5rem !important;
-  padding: 0 !important;
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is(input[type="text"], select, textarea) {
   inline-size: 100% !important;

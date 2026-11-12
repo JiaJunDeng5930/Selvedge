@@ -331,10 +331,10 @@ Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.ac
  |_=>[]end.
 Definition current_layer s occurrence:=find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s)).
 Definition inspection_label kind:=match kind with
-|UX.ModelProperty=>"Model settings…"|UX.PermissionsProperty=>"Custom permissions…"|_=>"Configuration source…"end.
+|UX.ModelProperty=>"Model settings…"|UX.PermissionsProperty=>"自定义权限…"|UX.DeliveryProperty=>"查看设置…"|_=>"Configuration source…"end.
 Definition view_title {e}(activity:Act.activity e)(view:Act.view e):string:=match view with
 |Act.DependentView subject|Act.InspectionView(Some subject)=>Parameters.label(UX.subject_declaration subject)
-|Act.InspectionView None=>match UX.property_kind_of(Act.activity_property activity)with UX.ModelProperty=>"Model settings"|UX.PermissionsProperty=>"Permissions"|_=>UX.property_label(Act.activity_property activity)end
+|Act.InspectionView None=>match UX.property_kind_of(Act.activity_property activity)with UX.ModelProperty=>"Model settings"|_=>UX.property_label(Act.activity_property activity)end
 |_=>match activity with Act.EditingActivity _ _ _=>Editors.editor_title e|_=>UX.property_label(Act.activity_property activity)end end.
 Definition navigation_header parent caption back (action:Input.input):node Input.input:=
  Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
@@ -410,18 +410,18 @@ Definition project_choice_details snapshot s {e}(subject:UX.subject e)(choice:Fi
  |Some(Context.ProjectDefaults id)|Some(Context.ProjectForParent _ id)=>
   match Read.projects snapshot with
   |Some projects=>match find(fun project=>N.eqb id(Read.project_id project))projects with
-   |Some project=>(value_or "No primary directory"(Domain.workspace_primary(Read.project_workspace project)),
+   |Some project=>(value_or "未设置主目录"(Domain.workspace_primary(Read.project_workspace project)),
      String.concat " "(Domain.workspace_roots(Read.project_workspace project)))
-   |None=>("Project information is unavailable","")end
-  |None=>("Project observations unavailable","")end
- |Some(Context.ParentTask _)=>("Use parent task defaults","")
- |Some Context.EnvironmentDefaults=>("Use environment defaults","")
+   |None=>("无法读取该项目的信息。","")end
+  |None=>("无法读取项目信息。","")end
+ |Some(Context.ParentTask _)=>("继承父对话的配置","")
+ |Some Context.EnvironmentDefaults=>("","")
  |None=>("","")end.
 Definition project_choice snapshot (s:State.state) {e} occurrence parent(subject:UX.subject e)(choice:Fields.choice_value)description:=
  let label:=Fields.choice_label choice in
  let key:=part parent("project/"++Fields.choice_value_of choice)in
  match Observation.alternative_from_choice snapshot s subject choice with
- |None=>read_only key "unavailable"label "Project selection is unavailable"
+ |None=>read_only key "unavailable"label "无法选择项目。"
  |Some alternative=>Node key "project-choice"label Roles.Button
   (Choice SingleChoice(UX.alternative_selected alternative)description
     (Control "select"label Secondary(Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value alternative)))
@@ -430,9 +430,9 @@ Definition project_choice snapshot (s:State.state) {e} occurrence parent(subject
 Definition project_menu snapshot (s:State.state) e occurrence parent behavior:=
  let query:=match current_layer s occurrence with Some layer=>State.layer_query layer|None=>""end in
  let content:=match Observation.observe_property snapshot s e UX.ProjectProperty with
- |None=>[read_only parent "unavailable" "Project" "Project selection is unavailable"]
+ |None=>[read_only parent "unavailable" "项目" "无法选择项目。"]
  |Some property=>let subject:=UX.property_subject property in
-  Node(part parent "search")"search" "Search projects"Roles.Field
+  Node(part parent "search")"search" "搜索项目"Roles.Field
    (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]::
   (map(fun choice=>project_choice snapshot s occurrence parent subject choice(fst(project_choice_details snapshot s subject choice)))
    (filter(fun choice=>negb(String.prefix "project/"(Fields.choice_value_of choice))||
@@ -440,10 +440,10 @@ Definition project_menu snapshot (s:State.state) e occurrence parent behavior:=
     BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
       (BoardFilter.lower_text(String.concat " "[Fields.choice_label choice;fst details;snd details]))))
     (Observation.context_origin_choices snapshot s subject))++
-  (match Read.projects snapshot with None=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]|Some _=>[]end))%list end in
- Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
-  [dialog_header parent [workspace_context_header s e occurrence parent "Choose project"];dialog_body parent
-    (content++[declared parent Roles.Button(secondary "project/new" "New project"
+  (match Read.projects snapshot with None=>[read_only parent "unavailable" "项目" "无法读取项目信息。"]|Some _=>[]end))%list end in
+ Node parent "project-selection" "选择项目"Roles.Dialog(LayerRegion behavior)
+  [dialog_header parent [workspace_context_header s e occurrence parent "选择项目"];dialog_body parent
+    (content++[declared parent Roles.Button(secondary "project/new" "新建项目"
       (Input.OpenEditor(Identity.Project None)(part parent "project/new")))])].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
 Definition activity_view snapshot (s:State.state) e request occurrence source_expanded parent behavior compact_model_picker :=
@@ -469,7 +469,9 @@ Definition activity_view snapshot (s:State.state) e request occurrence source_ex
   let completion:=Observation.completion_for activity view in
   let header:=match completion with
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
-      [navigation_header parent caption "Back"(Input.ActivityComplete occurrence)]
+      let back:=match UX.property_kind_of(Act.activity_property activity)with
+       |UX.PermissionsProperty|UX.DeliveryProperty=>"返回"|_=>"Back"end in
+      [navigation_header parent caption back(Input.ActivityComplete occurrence)]
     |_=>[title parent caption]end in
   let relations:=Act.activity_relations activity in
   let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in

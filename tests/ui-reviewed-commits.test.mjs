@@ -18,14 +18,14 @@ test('new Task permissions remain reachable with ordinary pointer clicks', async
     await t.test(`${viewport.width} by ${viewport.height}`, async t => {
       const { page } = await browserFixture(t);
       await page.setViewportSize(viewport);
-      await page.getByRole('button', { name: /^Permissions:/ }).click();
-      const permissions = page.getByRole('dialog', { name: 'Permissions', exact: true });
-      await permissions.getByRole('button', { name: 'Custom permissions…', exact: true }).click();
-      for (const name of ['Execution policy', 'Filesystem access', 'Network access']) {
+      await page.getByRole('button', { name: /^权限:/ }).click();
+      const permissions = page.getByRole('dialog', { name: '权限', exact: true });
+      await permissions.getByRole('button', { name: '自定义权限…', exact: true }).click();
+      for (const name of ['审批方式', '文件系统权限', '联网权限']) {
         await permissions.getByRole('button', { name, exact: true }).click({ trial: true });
       }
-      await permissions.getByRole('button', { name: 'Back', exact: true }).click();
-      for (const name of ['Ask for approval', 'Automatic review', 'Unrestricted']) {
+      await permissions.getByRole('button', { name: '返回', exact: true }).click();
+      for (const name of ['询问审批', '自动审批', '完全访问']) {
         await permissions.getByRole('menuitemradio', { name, exact: true }).click({ trial: true });
       }
 

@@ -134,3 +134,24 @@ test('interactive answer sections keep a readable outline and each source contro
   await footer.getByRole('button', { name: '收起源码', exact: true }).click();
   await codeActions.waitFor({ state: 'hidden' });
 });
+
+test('an execution error has one activity title and keeps its reason', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Inspect a provider failure.' });
+  const deadline = Date.now() + 10_000;
+  while (!fixture.requests[0] && Date.now() < deadline) await delay(20);
+  assert.ok(fixture.requests[0], 'The provider received the task request');
+  fixture.requests[0].response.end('data: {"type":"response.failed","response":{"status":"failed"}}\n\n');
+  const { task } = await taskIdle(running.service, task_id);
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  const activity = page.getByRole('main').locator('section[data-expanded]').filter({
+    has: page.getByRole('button', { name: '执行错误', exact: true }),
+  });
+  const disclosure = activity.getByRole('button', { name: '执行错误', exact: true });
+  await disclosure.waitFor();
+  if (await activity.getAttribute('data-expanded') === 'false') await disclosure.click();
+  await activity.getByText('Model stream ended with response.failed', { exact: true }).waitFor();
+  assert.equal(await activity.getByText('执行错误', { exact: true }).count(), 1);
+});

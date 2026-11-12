@@ -154,27 +154,32 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 [data-semantic-key="task-graph/empty"] {
   align-items: center !important;
   gap: .75rem !important;
-  max-inline-size: 32rem;
+  inline-size: min(100%, 32rem) !important;
   margin-inline: auto;
-  padding: clamp(1rem, 4vi, 2rem) .5rem;
+  padding: clamp(1rem, 4vi, 2rem) .5rem !important;
   text-align: center;
 }
 [data-semantic-key="task-graph/empty-route"] {
-  display: flex !important;
-  flex-flow: row wrap !important;
-  justify-content: center !important;
-  align-items: center !important;
-  gap: .5rem !important;
+  place-items: center;
+  inline-size: fit-content !important;
+  max-inline-size: 100% !important;
 }
 [data-semantic-key="task-graph/empty-endpoint"] {
   inline-size: auto !important;
-  padding: .35em .6em;
-  border: 1px solid var(--selvedge-border);
-  border-radius: .375em;
-  background: var(--selvedge-surface);
+  padding: .35em .6em !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .375em !important;
+  background: var(--selvedge-surface) !important;
 }
-[data-semantic-key="task-graph/empty-direction"] { color: var(--selvedge-muted) !important; }
-[data-semantic-key="task-graph/empty-description"] { color: var(--selvedge-muted) !important; }
+[data-semantic-key="task-graph/empty-direction"] {
+  align-self: center !important;
+  inline-size: auto !important;
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="task-graph/empty-description"] {
+  text-align: center !important;
+  color: var(--selvedge-muted) !important;
+}
 
 @container workspace-browse (max-width: 38rem) {
   [data-page-region="collection-actions"] > [data-semantic-key="history-query"] {

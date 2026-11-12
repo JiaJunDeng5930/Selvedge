@@ -167,7 +167,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
    Fields.MessageText,Some _=>true|_,_=>false end))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
- |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"Write a message…"end);
+ |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"输入消息…"end);
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
  |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
@@ -244,12 +244,14 @@ Definition interactive_editor {A} env key label generation (component:option IP.
  (if String.eqb component_tag "number-input" then ("inputmode","decimal")::map(fun property=>(String.append "data-number-" (fst property),snd property))constraints else constraints))
  styles (events "input" "value") metadata [].
 Definition label_field env activity key label (beside:bool) (field:DOM.node) :=
+ let caption:=DOM.Element (String.append key "/field-label") "span" []
+   (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label] in
  DOM.Element (String.append key "/field-wrapper") (if beside then "label"else"div") []
  (Layout.member_properties env activity false ++[("display","flex");
  ("flex-direction",if beside then "row"else"column");
- ("inline-size","100%");("max-inline-size","100%")]) [] empty
- [DOM.Element (String.append key "/field-label") "span" []
- (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label];field].
+ ("inline-size","100%");("max-inline-size","100%")] ++
+ (if beside then [("align-items","center")] else [])) [] empty
+ (if beside then [field;caption] else [caption;field]).
 Definition graphic_tone color := ("var(--color-token-" ++ match color with
  |Graphics.Neutral=>"text-primary"|Graphics.Accent=>"icon-accent"|Graphics.Success=>"text-success"
  |Graphics.Warning=>"text-warning"|Graphics.Danger=>"text-danger"|Graphics.Muted=>"text-secondary" end ++ ")")%string.
@@ -1081,10 +1083,13 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
  (children ++ if expanded then map(fun face=>
  let face_key:=String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face))) in
+ let titled:=match Audit.face_kind face with
+  |Audit.Diagnostic=>negb (String.eqb label (Audit.face_title face))
+  |_=>true end in
  DOM.Element face_key "section" [] [] [] empty
- [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)];
-  physical_markdown env Typography.Support NativeAppearance.PublishedMarkdown (String.append face_key "/@physical-markdown") ""
-   (Audit.detail(Audit.face_source face)) true (JObject [])])audit else [])
+ ((if titled then [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)]] else [])++
+  [physical_markdown env Typography.Support NativeAppearance.PublishedMarkdown (String.append face_key "/@physical-markdown") ""
+   (Audit.detail(Audit.face_source face)) true (JObject [])]))audit else [])
  |S.SummaryList=>element "ul" [("role","list")]
  [] empty (map(fun child=>DOM.Element "" "li" [] [] [] empty [child])children)
  |S.SkillSuggestions field expanded active=>DOM.Element key "div"

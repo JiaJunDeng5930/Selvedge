@@ -1115,8 +1115,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-board-stage-mark="done"] { color: var(--selvedge-success); }
 [data-board-stage-mark="blocked"] { color: var(--selvedge-danger); }
 [data-board-count] { color: var(--selvedge-muted); }
-[data-interactive-component="checkbox"] label { align-items: center; }
-[data-interactive-component="checkbox"] label > [data-control-target="checkbox"] { order: -1; }
 
 [data-interactive-action-group="utilities"] {
   flex-direction: row !important;

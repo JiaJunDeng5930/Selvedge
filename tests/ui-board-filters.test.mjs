@@ -192,6 +192,7 @@ test('assisted card creation keeps model selection truthful when the catalog cha
     await page.getByRole('button', { name: '新建卡片', exact: true }).click();
     await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
     await dialog.getByText('更多卡片选项', { exact: true }).click();
+    await profile.waitFor({ state: 'hidden' });
     await assisted.check();
   }
   const selected = label => profile.locator('option:checked').filter({ hasText: label }).waitFor({ state: 'attached' });
@@ -214,6 +215,12 @@ test('assisted card creation keeps model selection truthful when the catalog cha
   await blocked('看板默认整理模型不可用，请选择其他模型。');
   assert.ok(!(await profile.locator('option').allTextContents()).includes('看板默认模型'));
   await profile.selectOption(replacement.key);
+  for (const state of ['hidden', 'visible']) {
+    await assisted.press('Space');
+    await profile.waitFor({ state });
+    assert.equal(await assisted.evaluate(node => document.activeElement === node), true);
+  }
+  assert.equal(await profile.inputValue(), replacement.key);
   await page.waitForFunction(() => {
     const submit = document.querySelector('dialog[open] button[data-semantic-key="submit"]');
     return submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true';
@@ -221,8 +228,12 @@ test('assisted card creation keeps model selection truthful when the catalog cha
   await refresh(['image-fixture']);
   await blocked('所选整理模型不可用，请重新选择。');
   assert.ok((await profile.locator('option').allTextContents()).includes('看板默认模型'));
-  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await assisted.uncheck();
+  await profile.waitFor({ state: 'hidden' });
+  await create.click();
   await dialog.waitFor({ state: 'hidden' });
+  assert.ok((await command({ op: 'list_cards' })).cards.some(card => card.title === 'Preserve this card draft'));
+  assert.deepEqual(requests, ['image-fixture']);
 
   await refresh(['replacement-fixture']);
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
@@ -307,6 +318,14 @@ test('card save shows whether a model will start, wait, or remain manual', async
       && icon.top < label.bottom && label.top < icon.bottom;
   }), 'The attachment label and paperclip are in one adjacent control');
   const drafting = first.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
+  const continuous = first.getByRole('checkbox', { name: '创建后继续添加', exact: true });
+  const [captureBox, draftingBox] = await Promise.all([continuous, drafting].map(checkbox => checkbox.evaluate(input => {
+    const control = input.closest('[data-control-target="checkbox"]').getBoundingClientRect();
+    const text = input.closest('label').querySelector(':scope > span:not([data-control-target])').getBoundingClientRect();
+    return { left: control.left, beforeLabel: control.right <= text.left && control.top < text.bottom && text.top < control.bottom };
+  })));
+  assert.ok(captureBox.beforeLabel && draftingBox.beforeLabel && Math.abs(captureBox.left - draftingBox.left) <= 1,
+    'Card creation checkbox targets share a left edge before their labels');
   await drafting.check();
   await consequence(first, '保存后先生成卡片内容，暂不启动对话。');
   await stage(first).selectOption('todo');

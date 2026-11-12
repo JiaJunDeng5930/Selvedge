@@ -26,7 +26,7 @@ function cloudResponse(page, primary) {
 
 async function chooseCloud(page) {
   const settings = await openCreationEnvironment(page);
-  await settings.getByRole('menuitemradio', { name: 'Run on Tencent Cloud CVM', exact: true }).click();
+  await settings.getByRole('menuitemradio', { name: '在腾讯云 CVM 上运行', exact: true }).click();
   return settings;
 }
 
@@ -38,7 +38,7 @@ test('without configured cloud, the composer offers current and host Git directo
   });
   const settings = await openCreationEnvironment(page);
   await settings.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked: false }).waitFor();
-  assert.equal(await settings.getByText(/Tencent Cloud/).count(), 0);
+  assert.equal(await settings.getByText(/腾讯云 CVM/).count(), 0);
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Start a host conversation.');

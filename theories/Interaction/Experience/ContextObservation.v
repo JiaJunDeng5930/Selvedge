@@ -52,12 +52,12 @@ Definition profile_label profiles value :=
    then qualified++" ("++key++")" else qualified
  end.
 Definition sandbox_label sandbox:=match Selvedge.Kernel.Domain.sandbox_access sandbox with
-|Selvedge.Kernel.Domain.ReadOnly=>"Read only"|Selvedge.Kernel.Domain.WorkspaceWrite=>"Workspace write"end.
-Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "Network allowed"else "Network restricted".
+|Selvedge.Kernel.Domain.ReadOnly=>"只读"|Selvedge.Kernel.Domain.WorkspaceWrite=>"工作目录内可写"end.
+Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "允许联网"else "联网受限".
 Definition approval_caption approval:=match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Full access"|Selvedge.Kernel.Domain.AskForApproval=>"Ask"
-|Selvedge.Kernel.Domain.ReviewWith _=>"Automatic review"end.
+|Selvedge.Kernel.Domain.FullAccess=>"完全访问"|Selvedge.Kernel.Domain.AskForApproval=>"询问"
+|Selvedge.Kernel.Domain.ReviewWith _=>"自动审批"end.
 Definition sandbox_summary sandbox approval unrestricted (limited : Domain.sandbox -> string) :=
  match approval with Domain.FullAccess=>unrestricted|_=>limited sandbox end.
-Definition filesystem_summary sandbox approval := sandbox_summary sandbox approval "Full access" sandbox_label.
-Definition network_summary sandbox approval := sandbox_summary sandbox approval "Network available" network_label.
+Definition filesystem_summary sandbox approval := sandbox_summary sandbox approval "完全访问" sandbox_label.
+Definition network_summary sandbox approval := sandbox_summary sandbox approval "允许联网" network_label.

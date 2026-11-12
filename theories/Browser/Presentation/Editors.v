@@ -29,9 +29,9 @@ Definition editor_title e := match e with
 |TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
 Definition submit_label draft e :=match Draft.contents draft with
-|Draft.MessageBody _ _ Fields.Steer=>"Steer"
+|Draft.MessageBody _ _ Fields.Steer=>"调整回复"
 |_=>match e with
-|NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
+|NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
 |TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"Create fork"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
@@ -254,8 +254,12 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
     pair "ownership" [Fields.CardOwner;Fields.CardProject]]
    (field_nodes snapshot s e parent [Fields.CardLabels;Fields.CardAttachments]) in
  let capture:=match target with
-  |Identity.BoardCard None=>[field_section snapshot s e parent "创建设置"
-    [Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile]]
+  |Identity.BoardCard None=>
+    let fields:=[Fields.ContinueCapture;Fields.AssistedCapture] in
+    let fields:=match Draft.contents(Session.current_draft s e)with
+      |Draft.CardBody _ _ _ true _ _=>List.app fields [Fields.AssistanceProfile]
+      |_=>fields end in
+    [field_section snapshot s e parent "创建设置" fields]
   |_=>[]end in
  (source++field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
  [editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.

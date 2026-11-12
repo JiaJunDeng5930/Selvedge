@@ -208,8 +208,8 @@ Definition directory_view snapshot s :=
   |Some ticket,Some request=>let parent:="/directory-browser"in
    let owner:=Services.directory_editor request in
    let label (chinese english:string):=match owner with Identity.Project _=>chinese|_=>english end in
-   let git:=SO.directory_preview snapshot s in
-   let git_status:=directory_git_status label git in
+   let preview:=SO.directory_preview snapshot s in
+   let git_status:=directory_git_status label preview in
    let draft:=State.current_draft s owner in
    let source:=if SO.cloud_workspace_configured snapshot && SO.cloud_workspace_requested draft then
     [information parent "cloud-workspace-source" Information.Description(Experience.cloud_source_caption snapshot draft)]
@@ -225,11 +225,16 @@ Definition directory_view snapshot s :=
       (match Services.directory_previous request with None=>[]|Some path=>
        [declared parent Roles.Button(secondary "previous" (label "返回上一个可用目录" "Back to previous directory")
         (Input.ServiceInput(Services.VisitDirectory path)))]end)
-    |Resource.Loaded _ _ catalog=>(
-      map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
-       (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))(Selvedge.Interaction.Codec.items "entries" catalog)++
+    |Resource.Loaded _ _ catalog=>let entries:=Selvedge.Interaction.Codec.items "entries" catalog in
+      (map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
+       (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))entries++
       (if flag "truncated" catalog then[information parent "truncated" Information.Description
-        (label "目录列表仅显示部分结果。" "The directory listing is truncated.")]else[]))%list
+        (label "目录列表仅显示部分结果。" "The directory listing is truncated.")]else
+        match entries,preview with
+        |[],Some SO.AwaitingDirectory=>[]
+        |[],_=>[information parent "empty-folders" Information.Status
+          (label "此目录没有子目录。" "This directory has no subdirectories.")]
+        |_,_=>[]end))%list
     |_=>[]end in
    let navigation:=region parent "navigation" (label "目录导航" "Folder navigation") Roles.Section
         ([region parent "directory-location-actions" "" Roles.Toolbar
@@ -253,13 +258,13 @@ Definition directory_view snapshot s :=
      dialog_actions parent
       ((match resource,git_status with Resource.Loaded _ _ _,Some status=>
         [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++
-       (match git with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
+       (match preview with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
         [declared parent Roles.Button(secondary "retry-git" (label "重试 Git 检查" "Retry Git check")(Input.ServiceInput Services.GoDirectory))]|_=>[]end)++
        [declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory))]++
        match resource with Resource.Loaded _ _ _=>
        [declared parent Roles.PrimaryButton(Control "choose" (label "使用此目录" "Use this directory") Secondary
         (Input.ServiceInput Services.ChooseDirectory)
-        (if SO.directory_selection_allowed git then Available else Unavailable(value_or "" git_status)))]|_=>[]end)%list
+        (if SO.directory_selection_allowed preview then Available else Unavailable(value_or "" git_status)))]|_=>[]end)%list
        ]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with

@@ -330,6 +330,25 @@ Definition collection_add services path item :=
  button (setting_entry_parent path) "begin-add" ("添加" ++ item) (can_edit path services)
    (Services.BeginAddConfigurationItem path).
 
+(* The editable collections inherit empty lists. Resetting a saved empty
+   list has no effect on the entries. *)
+Definition collection_reset_has_effect entry :=
+ is_resettable entry &&
+ match Configuration.collection_root (Config.setting_path entry), Config.setting_value entry with
+ | Some None, JObject [] => false
+ | Some (Some wrapper), JObject [(key, JObject [])] => negb (String.eqb key wrapper)
+ (* DEFENSE: Editable snapshots can reflect malformed file contents. Keep
+    Reset available for recovery even when there are no readable entries. *)
+ | _, _ => true
+ end.
+
+Definition collection_controls parent services entry item :=
+ let path := Config.setting_path entry in
+ collection_add services path item ::
+ if collection_reset_has_effect entry then
+   [button parent "restore-default" "恢复列表默认值" (can_edit path services)
+     (Services.ResetConfigurationAt path)] else [].
+
 Definition collection_setting parent services entry item (page_collection measuring : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
@@ -344,32 +363,23 @@ Definition collection_setting parent services entry item (page_collection measur
    row list_id (part "entry" name) name (item_detail path value)
      [editor_button path (edit_item_key name) "编辑" ("编辑「" ++ name ++ "」") enabled
        (Services.SelectConfigurationItem path name)] [] in
- let entries_body := if measuring then [] else match entries with
-   | [] => [] | _ => [named_region id "settings-entries" label (map entry_row entries)] end in
- let footer := part id "settings-collection-actions" in
- let add := collection_add services path item in
- let actions := if is_resettable entry then
-   [button footer "restore-default" "恢复列表默认值" enabled (Services.ResetConfigurationAt path)]
-   else [] in
+ let entries_body := if measuring then [] else
+   [named_region id "settings-entries" label (match entries with
+    | [] => [note list_id "description" (if collection_reset_has_effect entry
+                then "无法读取" ++ label ++ "列表。" else "暂无" ++ label ++ "。")]
+    | _ => map entry_row entries
+    end)] in
  let feedback := if measuring then [] else match active_raw path view, Configuration.writing view with
-   | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
+   | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status (part id "feedback") view
    | _, _ => []
    end in
- (* A collection that gives the page its purpose already has a title and
-    an Add action in the page header. Embedded collections own both. *)
- let '(heading, footer_actions) := if page_collection then ([], actions) else
-   let '(header_actions, footer_actions) :=
-     match entries with [] => ([add], actions) | _ => ([], add :: actions) end in
-   ([named_region id "settings-row" ""
-       [named_region header "settings-copy" ""
-          [group_title header label; note header "description" description];
-        named_region header "settings-controls" "" header_actions]], footer_actions) in
+ let heading := if page_collection then [] else
+   [named_region id "settings-row" ""
+     [named_region header "settings-copy" ""
+        [group_title header label; note header "description" description];
+      named_region header "settings-controls" "" (collection_controls header services entry item)]] in
  Node id "settings-collection" "" Roles.Section Region
-   (heading ++ entries_body ++
-    match (footer_actions ++ feedback)%list with
-    | [] => []
-    | controls => [named_region id "settings-collection-actions" "" controls]
-    end)%list.
+   (heading ++ entries_body ++ feedback)%list.
 
 Definition normal_entry parent services speech primary measuring entry :=
  let path := Config.setting_path entry in
@@ -397,7 +407,8 @@ Definition page_heading parent services section :=
  | None => title_block parent label "" []
  | Some path =>
    let controls := match entries_for_paths services [path], ConfigurationForms.collection_item path with
-     | _ :: _, Some item => [collection_add services path item] | _, _ => [] end in
+     | entry :: _, Some item => collection_controls (part parent "settings-title") services entry item
+     | _, _ => [] end in
    title_block parent label (snd (copy path)) controls
  end.
 
@@ -527,7 +538,7 @@ Definition content root parent section services speech (measuring : bool) :=
  let design := section_design section in
  let header := (page_heading id services section ::
    if measuring then [] else catalog_status id services ++ draft_notice id section view)%list in
- (* The primary collection shares the page heading and its Add control. *)
+ (* The primary collection shares the page heading and its controls. *)
  let primary := match primary_group design with
    | Some group => [named_region id "settings-primary" ""
        (header ++ overview root id section services speech measuring [group])%list]

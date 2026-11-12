@@ -57,21 +57,21 @@ Definition project_choices snapshot caption:=Fields.ChoiceValue "" caption::
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(show_natural id)name::rest|_,_=>rest end)[](items "projects" snapshot).
 Definition delivery_label intent:=match intent with
- |Fields.Send=>"Send normally"|Fields.Steer=>"Steer response"end.
+ |Fields.Send=>"正常发送"|Fields.Steer=>"调整回复"end.
 Definition delivery_explanation snapshot e intent:=
  let task:=match e with Identity.Message id=>World.find_task id snapshot|_=>None end in
  let status:=value_or "" (bind task(string_field "status")) in
  let responding:=String.eqb (value_or "" (bind task(string_field "phase"))) "model_pending" in
  let paused:=String.eqb status "frozen" in
  match intent with
- |Fields.Send=>if paused then "Queues this message until you resume the conversation."
+ |Fields.Send=>if paused then "消息会排队，直到你恢复对话。"
    else if String.eqb status "active" && (match bind task(bool_field "working") with Some false=>true|_=>false end)
-   then "Starts a new response."
-   else if responding then "Queues behind the current response if it is still running."
-   else "Starts a new response when ready, or queues behind work in progress."
- |Fields.Steer=>if paused then "Uses this message for the next response after you resume."
-   else if responding then "Starts a new response, interrupting the current one if it is still running."
-   else "Starts a new response when idle, or interrupts a response in progress."end.
+   then "发送后开始新的回复。"
+   else if responding then "如果当前回复仍在生成，这条消息会排队。"
+   else "就绪时开始新的回复，有工作进行时先排队。"
+ |Fields.Steer=>if paused then "恢复对话后，用这条消息生成下一次回复。"
+   else if responding then "开始新的回复。如果当前回复仍在生成，会打断它。"
+   else "空闲时开始新的回复，有回复正在生成时会打断它。"end.
 Definition current_frozen_choice snapshot {e}(subject:Model.subject e):option Selvedge.Kernel.Domain.profile:=let declaration:=subject_declaration subject in match e,declaration with
 |Identity.Message task,Fields.ModelProfile=>FieldsObservation.task_profile task snapshot
 |Identity.Message task,Fields.ApprovalReviewer=>settings<-FieldsObservation.task_settings task snapshot;;
@@ -85,12 +85,12 @@ Definition model_profiles snapshot {e}(subject:Model.subject e) :=
  ModelSelection.selectable_profiles(retain_observed_choice snapshot subject(FieldsObservation.catalog snapshot)).
 Definition context_origin_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
  let body:=Draft.contents(EC.current_draft state e)in
- let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "Parent task"]|_=>[]end in
+ let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "父对话"]|_=>[]end in
  let inherited_project:=match Values.body_configuration body with
  |Some configuration=>match Context.context_origin configuration with
-  |Context.ProjectForParent _ project=>[Fields.ChoiceValue(String.append "parent-project/" (show_natural project))"Project defaults"]
+  |Context.ProjectForParent _ project=>[Fields.ChoiceValue(String.append "parent-project/" (show_natural project))"项目默认配置"]
   |_=>[]end|None=>[]end in
- Fields.ChoiceValue "environment" "Environment defaults"::parent++inherited_project++
+ Fields.ChoiceValue "environment" "使用环境默认配置"::parent++inherited_project++
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(String.append "project/" (show_natural id))name::rest
  |_,_=>rest end)[](items "projects" snapshot).
@@ -117,17 +117,17 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
  |Fields.ReasoningEffort=>let value:=observe tt in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
- |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Use working directory as is";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"New Git worktree on the Selvedge host"]++
+ |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "使用当前工作目录";
+   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"在 Selvedge 主机上新建 Git 工作树"]++
    if FieldsObservation.cloud_workspace_configured snapshot then
-    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Run on Tencent Cloud CVM"]
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"在腾讯云 CVM 上运行"]
    else if FieldsObservation.cloud_workspace_requested(EC.current_draft state e) then
-    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Tencent Cloud CVM unavailable"]
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"腾讯云 CVM 不可用"]
    else []
- |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "Workspace write";Fields.ChoiceValue "read-only" "Read only"]
- |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "Restricted";Fields.ChoiceValue "true" "Allowed"]
- |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "Ask for approval";
-   Fields.ChoiceValue "approval-for-me" "Automatic review";Fields.ChoiceValue "full-access" "Unrestricted"]
+ |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "工作目录内可写";Fields.ChoiceValue "read-only" "只读"]
+ |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "受限";Fields.ChoiceValue "true" "允许"]
+ |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "询问审批";
+   Fields.ChoiceValue "approval-for-me" "自动审批";Fields.ChoiceValue "full-access" "完全访问"]
  |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" (delivery_label Fields.Send);
    Fields.ChoiceValue "steer" (delivery_label Fields.Steer)]
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
@@ -184,11 +184,11 @@ Definition permission_observation snapshot (value:Fields.observed) := match valu
 Definition filesystem_summary := ContextObservation.filesystem_summary.
 Definition network_summary := ContextObservation.network_summary.
 Definition permission_effects snapshot sandbox approval : list(Fields.field*string) :=
- [(Fields.SandboxMode,String.append "Filesystem: "(filesystem_summary sandbox approval));
+ [(Fields.SandboxMode,String.append "文件系统 · "(filesystem_summary sandbox approval));
   (Fields.NetworkAccess,network_summary sandbox approval)]++
  match approval with
- |Selvedge.Kernel.Domain.FullAccess=>[(Fields.ApprovalReviewer,"No approval review")]
- |Selvedge.Kernel.Domain.ReviewWith reviewer=>[(Fields.ApprovalReviewer,String.append "Reviewer: "
+ |Selvedge.Kernel.Domain.FullAccess=>[(Fields.ApprovalReviewer,"无需审批")]
+ |Selvedge.Kernel.Domain.ReviewWith reviewer=>[(Fields.ApprovalReviewer,String.append "审批模型 · "
    (ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer))]
  |_=>[]end.
 Definition workspace_information {e}(subject:Model.subject e) workspace inherited:information e:=
@@ -224,14 +224,14 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
    Some policy=>network_summary sandbox policy|None=>network_label sandbox end))
  |Fields.ApprovalReviewer=>match approval with
   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice
-    (ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer)"Reviewing model")
-  |Some _=>NotApplicable "A reviewing model is used only for automatic review."
-  |None=>RequiredAbsence "Choose an available reviewing model"end
+    (ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer)"审批模型")
+  |Some _=>NotApplicable "自动审批时使用审批模型。"
+  |None=>RequiredAbsence "请选择可用的审批模型。"end
  |Fields.ApprovalPolicy=>match approval with
   |None=>match unavailable_reviewer with
-    |Some _=>PresentInformation(SummaryValue subject(Model.TextValue "Automatic review"))
+    |Some _=>PresentInformation(SummaryValue subject(Model.TextValue "自动审批"))
       (related_summary(e:=e)Fields.SandboxMode(Model.TextValue(sandbox_label sandbox)))
-    |None=>InvalidInformation "The selected reviewing model is not available for automatic review."end
+    |None=>InvalidInformation "所选模型无法用于自动审批。"end
   |Some policy=>PresentInformation(SummaryValue subject(Model.TextValue(approval_caption policy)))
    (match policy with
    |Selvedge.Kernel.Domain.FullAccess=>None
@@ -288,16 +288,16 @@ Definition context_origin_label source:=match source with
  |Context.ProjectDefaults _|Context.ProjectForParent _ _=>"Project configuration"
  |Context.ParentTask task=>"Parent task "++show_natural task end.
 Definition permission_origin_label source:=match source with
- |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"Environment defaults"
- |Context.ParentTask task|Context.ProjectForParent task _=>"Parent task "++show_natural task end.
+ |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"环境默认配置"
+ |Context.ParentTask task|Context.ProjectForParent task _=>"父对话 #"++show_natural task end.
 Definition prospective_source kind source workspace sandbox approval:=match kind with
  |WorkspaceProperty=>match workspace with
    |Context.InheritedWorkspace _=>context_origin_label source
    |Context.EnteredWorkspace _=>"Custom workspace; overrides "++context_origin_label source end
- |PermissionsProperty=>"Filesystem and network: "++
-   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"Custom"end)++
-   String (Ascii.ascii_of_nat 10)("Approval: "++match approval with
-    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"Custom"end)
+ |PermissionsProperty=>"文件系统和联网 · "++
+   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"自定义"end)++
+   String (Ascii.ascii_of_nat 10)("审批 · "++match approval with
+    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"自定义"end)
  |_=>context_origin_label source end.
 Definition property_source_description snapshot state {e}(property:property e):string:=
  match property_kind_of property with
@@ -305,7 +305,7 @@ Definition property_source_description snapshot state {e}(property:property e):s
    |Identity.NewTask _=>"Configured model list for this new task"
    |Identity.Message _=>"Configured model list for this task; the current selection retains its captured model definition"
    |Identity.Fork _=>"Configured model list for the new fork"|_=>"Configured model list for this editor"end
- |DeliveryProperty=>"Message delivery for this task"
+ |DeliveryProperty=>"这条消息的发送方式"
  |kind=>match observe_subject snapshot state(property_subject property)with
    |Fields.ContextValue(Context.ContextUnavailable reason)_=>reason
    |Fields.ContextValue(Context.ProspectiveContext source project workspace sandbox approval _)_=>
@@ -314,8 +314,8 @@ Definition property_source_description snapshot state {e}(property:property e):s
         Some name=>" · "++name|None=>""end|_,_=>""end)
    |Fields.CommittedContextValue task _ _=>match kind with
       |WorkspaceProperty=>"Task workspace"
-      |PermissionsProperty=>"Filesystem and network: Task "++show_natural task++
-        String (Ascii.ascii_of_nat 10)("Approval: Task "++show_natural task)
+      |PermissionsProperty=>"文件系统和联网 · 对话 #"++show_natural task++
+        String (Ascii.ascii_of_nat 10)("审批 · 对话 #"++show_natural task)
       |_=>"Task context"end
    |Fields.ProjectValue None=>"Environment defaults"
    |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
@@ -343,11 +343,11 @@ Definition property_help_text snapshot state {e}(property:property e):string:=
    |None=>value++detail++match observe_subject snapshot state(property_subject property)with
      |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>
        match unavailable_reviewer_key snapshot approval with
-       |Some key=>" · Automatic review unavailable: "++key|None=>""end
+       |Some key=>" · 自动审批不可用（"++key++"）"|None=>""end
      |_=>""end end in
-   "Permissions: "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
+   property_label property++": "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
  |DeliveryProperty=>match observe_subject snapshot state(property_subject property)with
-   |Fields.DeliveryValue intent=>"Delivery: "++delivery_explanation snapshot e intent
+   |Fields.DeliveryValue intent=>property_label property++": "++value++"。"++delivery_explanation snapshot e intent
    |_=>property_label property end
  |_=>property_label property++": "++value++detail end.
 Definition recognition_information snapshot {e}(subject:Model.subject e)(value:Fields.observed):information e:=
@@ -761,18 +761,18 @@ Definition alternative_explanation snapshot e field (choice:Fields.choice_value)
  |Fields.ModelProfile|Fields.ApprovalReviewer=>match ModelSelection.observed_profile snapshot(Fields.choice_value_of choice)with
    |Some profile=>Selvedge.Kernel.Domain.profile_provider profile|None=>""end
  |Fields.SandboxMode=>match Fields.choice_value_of choice with
-   |"workspace-write"=>"Allow edits in the working directories."
-   |"read-only"=>"Read files without modifying them."|_=>""end
+   |"workspace-write"=>"允许修改工作目录内的文件。"
+   |"read-only"=>"只允许读取文件。"|_=>""end
  |Fields.NetworkAccess=>match Fields.choice_value_of choice with
-   |"true"=>"Allow network access."|"false"=>"Keep network access off."|_=>""end
+   |"true"=>"允许联网。"|"false"=>"限制联网。"|_=>""end
  |Fields.DeliveryIntent=>match Fields.choice_value_of choice with
    |"send"=>delivery_explanation snapshot e Fields.Send
    |"steer"=>delivery_explanation snapshot e Fields.Steer
    |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
    |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
-   |"approval-for-me"=>"Review approvals with a configured model"
-   |"full-access"=>"Unrestricted execution without approval"|_=>""end
+   |"approval-for-me"=>"由配置的模型处理审批请求。"
+   |"full-access"=>"允许完全访问，无需审批。"|_=>""end
  |_=>""end.
 Definition observed_approval snapshot value:=match value with
  |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval

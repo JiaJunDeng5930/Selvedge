@@ -72,7 +72,7 @@ Definition title message := match text "role" message with
  |"function_call"=>call_name message|"function_output"=>"Tool output"
  |"operation_result"=>text "tool" message
  |"tool_receipt"=>text "name" (value_or JNull (field "call" message))
- |"error"=>"Execution error"
+ |"error"=>"执行错误"
  |"reasoning_record"=>"Reasoning: "++text "effort" (value_or JNull (field "content" message))
  |"hook_record"=>"Tool permission check"
  |"approval_record"=>"Approval: "++text "decision" (value_or JNull (field "content" message))
@@ -122,7 +122,7 @@ Definition summary history values :=
  |Some occurrence=>match find (fun entry=>Nat.eqb occurrence (fst entry)) values with
    |Some entry=>let source:=fork_result_source history (snd entry) in
      if String.eqb (text "role" source) "error" then title source else "Failed: "++title source
-   |None=>"Execution error" end
+   |None=>"执行错误" end
  |None=>match filter (fun entry=>String.eqb (text "role" (snd entry)) "function_call") values with
    |[entry]=>"Tool call: "++call_name (snd entry)
    |_::_::_=>Numbers.show_nat (operation_count values)++" tool calls"

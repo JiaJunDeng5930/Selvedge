@@ -297,8 +297,24 @@ test('task graph setup creates its conversations in scope and routes replies', {
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
   const emptyGraph = page.getByRole('main').locator('[data-semantic-key="task-graph/empty"]');
-  await emptyGraph.getByRole('region', { name: '转发方向', exact: true }).getByText('来源对话', { exact: true }).waitFor();
+  const emptyRoute = emptyGraph.getByRole('region', { name: '转发方向', exact: true });
+  await emptyRoute.getByText('来源对话', { exact: true }).waitFor();
   await emptyGraph.getByText('接收对话', { exact: true }).waitFor();
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 780 });
+    const geometry = await emptyRoute.evaluate(node => {
+      const [from, arrow, to] = Array.from(node.children, child => child.getBoundingClientRect());
+      const description = node.nextElementSibling.getBoundingClientRect();
+      const create = node.parentElement.querySelector('button').getBoundingClientRect();
+      const center = box => box.top + box.height / 2;
+      return { row: from.right < arrow.left && arrow.right < to.left &&
+        Math.abs(center(from) - center(arrow)) < 1 && Math.abs(center(arrow) - center(to)) < 1,
+      follows: description.top >= to.bottom && create.top >= description.bottom,
+      fits: from.left >= 0 && to.right <= innerWidth };
+    });
+    assert.deepEqual(geometry, { row: true, follows: true, fits: true }, 'Empty route at ' + width + 'px');
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await emptyGraph.getByRole('button', { name: '新建任务图', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: '新建任务图', exact: true });

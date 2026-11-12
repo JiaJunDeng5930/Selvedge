@@ -22,13 +22,13 @@ test('the delivery picker describes queueing and steering through a real streame
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: title, exact: true }).click();
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
-  const send = page.getByRole('button', { name: 'Send', exact: true });
-  const steer = page.getByRole('button', { name: 'Steer', exact: true });
-  const delivery = page.getByRole('button', { name: /^Delivery:/ });
-  const picker = page.getByRole('dialog', { name: 'Delivery', exact: true });
+  const send = page.getByRole('button', { name: '发送', exact: true });
+  const steer = page.getByRole('button', { name: '调整回复', exact: true });
+  const delivery = page.getByRole('button', { name: /^发送方式:/ });
+  const picker = page.getByRole('dialog', { name: '发送方式', exact: true });
   const choice = title => picker.getByRole('menuitemradio', { name: title, exact: true });
-  const normal = choice('Send normally');
-  const redirect = choice('Steer response');
+  const normal = choice('正常发送');
+  const redirect = choice('调整回复');
   const userInput = request => request.input.input.filter(item => item.role === 'user')
     .map(item => JSON.stringify(item.content)).join('\n');
   const requestFor = (prompt, minimumIndex = 0) => eventually(
@@ -45,8 +45,8 @@ test('the delivery picker describes queueing and steering through a real streame
 
   await page.setViewportSize({ width: 390, height: 500 });
   await delivery.click();
-  await assertChoice(normal, 'Send normally', 'Starts a new response.', true);
-  await assertChoice(redirect, 'Steer response', 'Starts a new response when idle, or interrupts a response in progress.', false);
+  await assertChoice(normal, '正常发送', '发送后开始新的回复。', true);
+  await assertChoice(redirect, '调整回复', '空闲时开始新的回复，有回复正在生成时会打断它。', false);
   assert.equal(await picker.getByRole('menuitemradio').count(), 2);
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'hidden' });
@@ -57,8 +57,8 @@ test('the delivery picker describes queueing and steering through a real streame
   const original = await requestFor(initial);
   fixture.emit(original.index, 'Streaming the original response');
   await delivery.click();
-  await assertChoice(normal, 'Send normally', 'Queues behind the current response if it is still running.', true);
-  await assertChoice(redirect, 'Steer response', 'Starts a new response, interrupting the current one if it is still running.', false);
+  await assertChoice(normal, '正常发送', '如果当前回复仍在生成，这条消息会排队。', true);
+  await assertChoice(redirect, '调整回复', '开始新的回复。如果当前回复仍在生成，会打断它。', false);
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'hidden' });
 
@@ -92,7 +92,7 @@ test('the delivery picker describes queueing and steering through a real streame
   fixture.finish(replacement.index, { text: 'Redirected response' });
   await page.getByText('Redirected response', { exact: true }).waitFor();
   await delivery.click();
-  await assertChoice(redirect, 'Steer response', 'Starts a new response when idle, or interrupts a response in progress.', true);
+  await assertChoice(redirect, '调整回复', '空闲时开始新的回复，有回复正在生成时会打断它。', true);
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'hidden' });
   assert.equal(await message.inputValue(), idle);

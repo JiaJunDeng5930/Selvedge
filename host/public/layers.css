@@ -63,12 +63,12 @@ dialog[data-semantic-key="project-editor"] {
   }
 }
 
-[data-semantic-key="handoff-route"] {
+:is([data-semantic-key="handoff-route"], [data-semantic-key="task-graph/empty-route"]) {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
   gap: .25rem .5rem !important;
 }
+[data-semantic-key="handoff-route"] { grid-template-rows: auto auto; }
 
 [data-semantic-key="handoff-route"] > div {
   display: grid !important;
@@ -582,6 +582,10 @@ dialog[data-semantic-key="board-filters"] {
   scrollbar-width: thin;
   padding: .25rem !important;
   gap: .125rem !important;
+  /* The local layer covers the scroll cue when the content ends. */
+  background:
+    linear-gradient(var(--panel-background), var(--panel-background)) bottom / 100% .5rem no-repeat local,
+    linear-gradient(transparent, var(--selvedge-border)) bottom / 100% .5rem no-repeat scroll !important;
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button {
   inline-size: 100% !important;

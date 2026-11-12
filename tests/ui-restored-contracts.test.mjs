@@ -36,7 +36,7 @@ test('conversation navigation releases desktop space and preserves the draft thr
   const task = await selectTask(fixture, task_id);
   const main = page.getByRole('main');
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
-  assert.equal(await message.getAttribute('placeholder'), 'Write a message…');
+  assert.equal(await message.getAttribute('placeholder'), '输入消息…');
   const title = main.getByText(task.title, { exact: true }).first();
   const details = main.getByRole('button', { name: '任务详情', exact: true });
   const [titleBounds, actionBounds, expanded] = await Promise.all([
@@ -90,9 +90,9 @@ test('task and conversation composers keep controls usable as width and height c
     const messageFontSize = await message.evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
     const targets = [
       scope.getByLabel('Attach files', { exact: true }), scope.locator('summary[aria-label="Voice"]'),
-      scope.getByRole('button', { name: creating ? 'Start task' : 'Send', exact: true }),
-      scope.getByRole('button', { name: /^Permissions:/ }), scope.getByRole('button', { name: /^Model:/ }),
-      ...(creating ? [] : [scope.getByRole('button', { name: /^Delivery:/ })]),
+      scope.getByRole('button', { name: creating ? 'Start task' : '发送', exact: true }),
+      scope.getByRole('button', { name: /^权限:/ }), scope.getByRole('button', { name: /^Model:/ }),
+      ...(creating ? [] : [scope.getByRole('button', { name: /^发送方式:/ })]),
     ];
     const bounds = await Promise.all(targets.map(target => target.boundingBox()));
     const size = `${width}×${height}`;
@@ -131,7 +131,7 @@ test('task and conversation composers keep controls usable as width and height c
   await main.getByRole('heading', { name: task.title, exact: true }).waitFor();
   for (const size of sizes) await checkComposer(main, size);
   await main.getByRole('combobox', { name: 'Message', exact: true }).fill('/side');
-  await main.getByRole('button', { name: 'Send', exact: true }).click();
+  await main.getByRole('button', { name: '发送', exact: true }).click();
   const side = page.getByRole('complementary', { name: 'Side conversation', exact: true })
     .or(page.getByRole('dialog'));
   for (const size of sizes) await checkComposer(side, size);
@@ -342,12 +342,12 @@ test('keyboard users can read unavailable action reasons, choice context and col
     'An unavailable action must keep its explanation reachable by keyboard');
   assert.match(await accessibleDescription(start), /A task input needs text or an image/);
   assert.equal(await page.getByText('A task input needs text or an image', { exact: true }).first().isVisible(), true);
-  await page.getByRole('button', { name: /^Permissions:/ }).click();
-  const automatic = page.getByRole('menuitemradio', { name: 'Automatic review', exact: true });
+  await page.getByRole('button', { name: /^权限:/ }).click();
+  const automatic = page.getByRole('menuitemradio', { name: '自动审批', exact: true });
   await automatic.focus();
   assert.match(await accessibleDescription(automatic), /echo/,
     'The reviewer context of a permission choice belongs to its accessible description');
-  assert.match(await accessibleDescription(automatic), /Workspace write/);
+  assert.match(await accessibleDescription(automatic), /工作目录内可写/);
   await page.keyboard.press('Escape');
 
   const { task_id } = await command({ op: 'create', profile: 'demo', message: 'A readable activity summary' });

@@ -20,6 +20,7 @@ test('the English workspace picker identifies host directories and supports keyb
 
   const picker = page.getByRole('dialog', { name: 'Choose a directory on the Selvedge host', exact: true });
   const location = picker.getByRole('textbox', { name: 'Directory', exact: true });
+  const unvisited = picker.getByRole('status').filter({ hasText: 'Press Enter or click Go to open the entered directory.' });
   const folderButton = picker.getByRole('button', { name: folder, exact: true });
   await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
@@ -28,12 +29,22 @@ test('the English workspace picker identifies host directories and supports keyb
   await folderButton.press('Enter');
   await nested.waitFor();
   assert.equal(await location.inputValue(), directory);
+  await nested.press('Enter');
+  const empty = picker.getByRole('status').filter({ hasText: 'This directory has no subdirectories.' });
+  await empty.waitFor();
+  assert.equal(await location.inputValue(), path.join(directory, 'Nested folder'));
+  assert.equal(await picker.getByRole('button', { name: 'Use this directory', exact: true }).isEnabled(), true);
 
+  await location.fill(directory);
+  await unvisited.waitFor();
+  assert.equal(await empty.count(), 0, 'The empty listing does not describe an unvisited address');
+  await location.press('Enter');
+  await nested.waitFor();
+  assert.equal(await empty.count(), 0);
   await picker.getByRole('button', { name: 'Parent directory', exact: true }).press('Enter');
   await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
   const choose = picker.getByRole('button', { name: 'Use this directory', exact: true });
-  const unvisited = picker.getByRole('status').filter({ hasText: 'Press Enter or click Go to open the entered directory.' });
   await location.fill(directory);
   await unvisited.waitFor();
   assert.equal(await choose.isDisabled(), true);
@@ -165,6 +176,7 @@ test('a failed directory visit keeps the address editable and can return to the 
   const child = picker.getByRole('button', { name: 'Visible child', exact: true });
   const missingMessage = '找不到这个目录，请检查路径。';
   const failure = message => picker.getByRole('alert').filter({ hasText: message });
+  const empty = picker.getByRole('status').filter({ hasText: '此目录没有子目录。' });
   const addressFocused = () => location.evaluate(input => document.activeElement === input);
   const listingResponse = address => page.waitForResponse(response => response.url().endsWith('/api/browser/observation')
     && response.request().postDataJSON()?.kind === 'browse-directories'
@@ -191,6 +203,7 @@ test('a failed directory visit keeps the address editable and can return to the 
   await location.fill(entered);
   await location.press('Enter');
   assert.equal((await observed.promise).path, directory);
+  assert.equal(await empty.count(), 0, 'An unresolved listing does not appear empty');
   await location.fill(missing);
   release.resolve();
   await child.waitFor();
@@ -204,6 +217,7 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(typeof missingOutcome.error, 'string');
   assert.equal(missingOutcome.errno, 'ENOENT');
   assert.equal(await failure(missingMessage).innerText(), missingMessage);
+  assert.equal(await empty.count(), 0, 'A failed listing does not appear empty');
   assert.equal(await location.inputValue(), missing);
   assert.equal(await location.isEditable(), true);
   assert.equal(await addressFocused(), true);
@@ -241,6 +255,7 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(await failure(transportMessage).innerText(), transportMessage);
   assert.equal(await location.inputValue(), corrected);
   await location.press('Enter');
+  await empty.waitFor();
   await choose.click();
   await picker.waitFor({ state: 'hidden' });
   await project.getByRole('region', { name: corrected, exact: true }).waitFor();
