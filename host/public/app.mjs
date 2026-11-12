@@ -9,7 +9,8 @@ import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
-import { safeHref } from './markdown.mjs';
+import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
+import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
 
@@ -56,6 +57,7 @@ let sourceFresh = false;
 let layoutFrame = null;
 let readingLayoutScheduled = false;
 let pendingHistoryLocation = null;
+let historyLocation = null;
 let searchResultsPosition = null;
 let focusRequest = 0;
 let pendingFocus = null;
@@ -209,7 +211,7 @@ function retireDocumentViews() {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
-  pendingHistoryLocation = null; pendingFocus = null; suspendedFocus = null; focusRequest++;
+  retireHistoryLocation(); pendingFocus = null; suspendedFocus = null; focusRequest++;
   searchResultsPosition = null;
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
@@ -703,6 +705,7 @@ function acceptReading(key, node, decision, locationTarget) {
   readings.set(readingKey(node), decision.state);
   for (const effect of decision.effects) {
     if (effect.type === 'leave_viewport') {
+      if (!locationTarget) retireHistoryLocation(node);
       restoredReadingOffsets.delete(node);
       node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
@@ -710,17 +713,25 @@ function acceptReading(key, node, decision, locationTarget) {
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
     else if (effect.type === 'locate_message' && locationTarget) {
+      const { target, range } = locationTarget;
+      const bounds = (range && firstRangeRect(range)) || target.getBoundingClientRect();
       const clearance = Number.parseFloat(getComputedStyle(node).scrollPaddingBlockStart);
-      node.scrollTo({ top: node.scrollTop + locationTarget.getBoundingClientRect().top - readingTop(node) - clearance,
+      node.scrollTo({ top: node.scrollTop + bounds.top - readingTop(node) - clearance,
         left: node.scrollLeft, behavior: 'instant' });
       restoredReadingOffsets.set(node, node.scrollTop);
-      observeReadingAnchor(node, decision.state, locationTarget);
+      if (range) locationTarget.offset = (firstRangeRect(range)?.top ?? readingTop(node) + clearance) - readingTop(node);
+      observeReadingAnchor(node, decision.state, target);
     }
     else if (effect.type === 'preserve_anchor' && !currentReadingMeasurement(node)) {
       const target = readingAnchor(node, effect.anchor.key);
       if (target) {
-        node.scrollTop += target.getBoundingClientRect().top - readingTop(node) - Number(effect.anchor.offset);
+        const location = currentHistoryLocation(node);
+        const bounds = location?.target === target && location.range && firstRangeRect(location.range);
+        node.scrollTop += (bounds?.top ?? target.getBoundingClientRect().top) - readingTop(node) -
+          (bounds ? location.offset : Number(effect.anchor.offset));
         restoredReadingOffsets.set(node, node.scrollTop);
+        // Keep the ordinary message bookmark usable after this Range is retired.
+        if (bounds) observeReadingAnchor(node, decision.state, target);
       }
     } else if (effect.type === 'measure_anchor') {
       if (currentReadingMeasurement(node)) requestReadingAnchor(key, node);
@@ -782,35 +793,90 @@ function endReadingPointer(event) {
 }
 window.addEventListener('pointerup', endReadingPointer, true);
 window.addEventListener('pointercancel', endReadingPointer, true);
-function retryHistoryLocation() {
-  const pending = pendingHistoryLocation;
-  if (!pending) return;
-  // DEFENSE: a selected history message can await physical publication while
-  // navigation replaces its journal or reader occurrence.
-  if (pending.namespace !== publication.namespace || pending.navigationGeneration !== integral(state.navigation.generation)) {
-    pendingHistoryLocation = null; return;
+const historyHighlight = 'selvedge-history-match';
+const sameHistoryVisit = location => location.namespace === publication.namespace &&
+  location.navigationGeneration === integral(state.navigation.generation);
+const historyReaderOwns = (root, location) => root.dataset.readerGeneration === location.readerGeneration &&
+  root.dataset.taskId === location.taskId;
+function clearHistoryHighlight(location) {
+  CSS.highlights?.delete(historyHighlight);
+  location.target.removeAttribute('data-history-match');
+  if (location.timer !== undefined) {
+    clearTimeout(location.timer);
+    timers.delete(location.timer);
+    delete location.timer;
   }
-  if (!admitted(renderer.generation)) return;
-  // The article itself is already mounted when its Markdown is still parsing.
-  // Its physical key names the occurrence in the main view.
-  const target = renderer.target(pending.key);
-  const root = target?.closest('[data-reading-root]');
-  const generation = integral(pending.reader_generation).toString();
-  if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
-      root.dataset.readerGeneration !== generation || root.dataset.taskId !== integral(pending.task_id).toString() ||
-      renderer.modal && !renderer.modal.contains(root)) return;
+}
+function retireHistoryLocation(root) {
+  const pending = pendingHistoryLocation;
+  if (pending && (!root || historyReaderOwns(root, pending))) {
+    if (pending.frame != null) cancelDisplay(pending.frame);
+    pendingHistoryLocation = null;
+  }
+  if (historyLocation && (!root || historyLocation.root === root)) {
+    clearHistoryHighlight(historyLocation);
+    historyLocation = null;
+  }
+}
+function currentHistoryLocation(root) {
+  const location = historyLocation;
+  // DEFENSE: parsing and layout can outlive the physical reader occurrence.
+  if (location && (!sameHistoryVisit(location) || !location.root.isConnected ||
+      !location.target.isConnected || !historyReaderOwns(location.root, location) ||
+      location.range && !location.target.contains(location.range.startContainer))) {
+    clearHistoryHighlight(location);
+    historyLocation = null;
+  }
+  return historyLocation && historyLocation.root === root ? historyLocation : null;
+}
+function locateHistoryRange(pending, root, target, range) {
   pendingHistoryLocation = null;
+  const location = { namespace: pending.namespace, navigationGeneration: pending.navigationGeneration,
+    readerGeneration: pending.readerGeneration, taskId: pending.taskId, root, target, range };
+  historyLocation = location;
   retireReadingMeasurement(root);
   const key = root.dataset.key;
   acceptReading(key, root, browser('reading', { state: readingState(key, root), event: 'locate',
-    index: pending.message_index }), target);
+    index: pending.message_index }), location);
   root.focus({ preventScroll: true });
-  target.dataset.historyMatch = generation;
-  const timer = setTimeout(() => {
-    timers.delete(timer);
-    if (target.dataset.historyMatch === generation) target.removeAttribute('data-history-match');
-  }, 2400);
-  timers.add(timer);
+  if (range && CSS.highlights && typeof Highlight === 'function') CSS.highlights.set(historyHighlight, new Highlight(range));
+  else target.dataset.historyMatch = pending.readerGeneration;
+  location.timer = setTimeout(() => clearHistoryHighlight(location), 2400);
+  timers.add(location.timer);
+}
+function retryHistoryLocation() {
+  currentHistoryLocation();
+  const pending = pendingHistoryLocation;
+  if (!pending) return;
+  if (!sameHistoryVisit(pending)) { retireHistoryLocation(); return; }
+  if (!admitted(renderer.generation)) return;
+  const target = renderer.target(pending.key);
+  const root = target?.closest('[data-reading-root]');
+  if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
+      !historyReaderOwns(root, pending) || renderer.modal && !renderer.modal.contains(root)) return;
+  const record = renderer.records.get(pending.markdown_key);
+  const markdown = record?.markdown;
+  if (!markdown || !target.contains(record.node)) return;
+  // The committed article mounts before its individual Markdown parse and
+  // decorations finish. An incomplete prefix cannot prove a missing match.
+  if (pending.markdown !== markdown) {
+    pending.markdown = markdown;
+    pending.settled = false;
+    pending.scan = null;
+    markdown.whenSettled().then(settled => {
+      if (!settled || pendingHistoryLocation !== pending || pending.markdown !== markdown) return;
+      pending.settled = true;
+      retryHistoryLocation();
+    }).catch(fatal);
+  }
+  if (!pending.settled || pending.frame != null) return;
+  pending.scan ??= findHistoryRange(record.node, pending.query);
+  const deadline = performance.now() + 4;
+  do {
+    const result = pending.scan.next();
+    if (result.done) { locateHistoryRange(pending, root, target, result.value); return; }
+  } while (performance.now() < deadline);
+  pending.frame = scheduleDisplay(() => { pending.frame = null; retryHistoryLocation(); });
 }
 function readingStep(key, node, event) {
   const state = readingState(key, node);
@@ -832,12 +898,16 @@ function scheduleReadingLayout() {
 }
 function layoutReading() {
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
+    if (pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation)) continue;
     const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
     const bookmark = readings.get(readingKey(node))?.anchor;
     const anchor = bookmark ? readingAnchor(node, bookmark.key) : null;
+    const location = currentHistoryLocation(node);
+    const hit = location?.range && firstRangeRect(location.range);
     const signature = JSON.stringify([node.dataset.readerGeneration, node.clientWidth, node.clientHeight,
       node.scrollHeight, dock?.getBoundingClientRect().height ?? 0,
-      anchor ? anchor.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null]);
+      anchor ? anchor.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null,
+      hit ? hit.top - readingTop(node) + node.scrollTop : null]);
     if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
     readingLayouts.set(node, signature);
     readingStep(node.dataset.key, node, 'layout');
@@ -1191,12 +1261,14 @@ async function execute(effect) {
     }
     case 'follow_latest': {
       const node = renderer.resolveTarget(effect.key, { modal: false });
-      if (node) readingStep(node.dataset.key, node, 'follow');
+      if (node) { retireHistoryLocation(node); readingStep(node.dataset.key, node, 'follow'); }
       return;
     }
     case 'scroll_to_message': {
+      retireHistoryLocation();
       pendingHistoryLocation = { ...effect, namespace: publication.namespace,
-        navigationGeneration: integral(state.navigation.generation) };
+        navigationGeneration: integral(state.navigation.generation), readerGeneration: integral(effect.reader_generation).toString(),
+        taskId: integral(effect.task_id).toString() };
       retryHistoryLocation();
       return;
     }
@@ -1288,7 +1360,7 @@ window.addEventListener('pagehide', () => {
   for (const controller of assessments.values()) controller.abort();
   candidateAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
-  pendingHistoryLocation = null;
+  retireHistoryLocation();
   window.removeEventListener('pointerup', endReadingPointer, true);
   window.removeEventListener('pointercancel', endReadingPointer, true);
   for (const resource of resources) URL.revokeObjectURL(resource);

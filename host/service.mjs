@@ -19,6 +19,7 @@ import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, a
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
+import { browserHistoryReply } from './history-preview.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -983,7 +984,8 @@ export class Service extends EventEmitter {
 
   async browserCommand(command) {
     const result = await this.command(command);
-    return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program), reply: result.reply };
+    return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program),
+      reply: browserHistoryReply(command, result) };
   }
 
   async browserObservation(observation) {

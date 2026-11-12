@@ -30,7 +30,7 @@ Definition component_properties env (value : Presentation.component) : list (str
  | "table" => [("min-block-size","40px"); ("max-block-size","560px"); ("overflow","auto")]
  | "text-input" | "number-input" | "select" | "textarea" | "slider" =>
      [("min-block-size",Typography.px (Layout.motor_minimum env))]
- | "button" => Appearance.role_properties env Roles.Button
+ | "button" => [("align-items","flex-start");("gap",Typography.px (gap "sm"))]
  | _ => [] end) ++
  (match tone (Expand.property_text "tone" props) with Some color => [("color",color)] | None => [] end) ++
  (match Presentation.component_binding value with

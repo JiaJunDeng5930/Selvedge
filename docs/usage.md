@@ -8,8 +8,9 @@ parent continues. Closing the side keeps its Task; the explicit return action
 sends only its new content back to the parent.
 
 Conversation search finds current titles and user and assistant messages, with
-optional Project and Work filters. Selecting a title opens the conversation;
-selecting a message opens the original message. Running Tasks can use
+optional Project and Work filters. A title result opens the conversation.
+A message result opens the original message and highlights the matching text
+when it appears in the rendered message. Running Tasks can use
 `search_history` with the same filters and history positions. Set
 `include_titles` to include title matches. Type `@`
 in a message to select an available skill and insert its exact `SKILL.md` reference.

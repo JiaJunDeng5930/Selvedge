@@ -843,7 +843,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.PublishedText document=>element (role_tag role) [] [] empty
  (List.app (agent_attribution key role)
  (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
- (String.append key "/@physical-markdown") (String.append key "/markdown")
+ (String.append key "/@physical-markdown") (message_markdown_key key)
  (DocumentPublication.published_text document)
  (match DocumentPublication.published_ending document with
  Selvedge.Interaction.Interactive.Types.Open=>false|_=>true end)
@@ -851,7 +851,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.RichText provenance text=>element (role_tag role) [] [] empty
  (List.app (agent_attribution key role)
  (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
- (String.append key "/@physical-markdown") (String.append key "/markdown") text
+ (String.append key "/@physical-markdown") (message_markdown_key key) text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
  (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children))
  |S.EmbeddedMarkdown text=>physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.EmbeddedMarkdown

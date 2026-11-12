@@ -20,7 +20,7 @@ Open Scope string_scope.
 Inductive effect := Attend (target:string) | EnsureDraft (owner:editor)
 | CancelEditor (owner:editor)
 | Issue (command:State.public_command)(purpose:State.pending_purpose)
-| LocateHistoryMessage (task index:N) | FollowTaskLatest(task:N).
+| LocateHistoryMessage (task index:N) (query:string) | FollowTaskLatest(task:N).
 Record result := Result {
  result_state:State.state;
  result_effects:list effect;
@@ -316,8 +316,9 @@ Definition open_history_result snapshot task index trigger state:=
      match index with
      |None=>changed state(result_effects visited)
      |Some message=>
+       let query:=Search.lower(Search.trim(State.keyword(search_state state)))in
        changed(store_reader(set State.reader_position(fun _=>State.ReadingHistory)(reader_for state task))state)
-         (List.app(result_effects visited)[LocateHistoryMessage task message])
+         (List.app(result_effects visited)[LocateHistoryMessage task message query])
      end
    end
  |_=>keep state end.

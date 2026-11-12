@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Images Streams.
+From Selvedge.Kernel Require Conversation OutputClassification Search.
 From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Interaction Require Codec.
 From Selvedge.Interaction Require Import Origin.
 Import ListNotations.
 Open Scope string_scope.
@@ -27,6 +29,35 @@ Definition image (source : json) :=
   if is_text raw && starts (text raw) prefix &&
     Images.valid_identifier (String.substring (String.length prefix) (String.length (text raw)) (text raw))
   then raw else JNull.
+
+Definition history_excerpt (needle : string) (width : nat) (text : string) : option string :=
+  let lowered := Search.lower text in
+  if Search.contains needle lowered then
+    Codec.bind (Utf8.chunks text) (fun chunks =>
+    let position := Search.match_offset needle lowered 0 in
+    let start := (position - 44)%nat in
+    let stop := (position + width + 72)%nat in
+    Some ((if Nat.eqb start 0 then "" else "…") ++
+      Search.trim (Utf8.render_chunks (firstn (stop - start)%nat (skipn start chunks))) ++
+      (if Nat.ltb stop (List.length chunks) then "…" else "")))
+  else None.
+Fixpoint first_history_excerpt (needle : string) (width : nat) (blocks : list json) : option string :=
+  match blocks with
+  | [] => None
+  | block :: rest =>
+    let found := if OutputClassification.interactive_markdown_fence_observation (get block "fence")
+      then None else Codec.bind (string_field "text" block) (history_excerpt needle width) in
+    match found with Some excerpt => Some excerpt | None => first_history_excerpt needle width rest end
+  end.
+Definition history_preview (source : json) :=
+  let query := Search.trim (str source "query") in
+  match Utf8.scalar_count query with
+  | Some width => if Search.valid_length width
+    then success (match first_history_excerpt (Search.lower query) width (items (get source "blocks")) with
+      | Some excerpt => JString excerpt | None => JNull end)
+    else type_error "Expected a valid history search query"
+  | None => type_error "Expected a valid history search query"
+  end.
 Definition stream_step (configuration : Streams.configuration) (source : json) :=
   match Streams.decode_state (get source "state"),Streams.decode_event (get source "notice") with
   | Some state,Some event => let '(state,publish) := Streams.step configuration event state in
@@ -46,6 +77,9 @@ Definition public_stream_step (source : json) :=
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "browser.link" then success (link source)
   else if String.eqb operation "browser.image" then success (image source)
+  else if String.eqb operation "browser.history_text"
+    then success (Conversation.json_message_content (get source "message"))
+  else if String.eqb operation "browser.history_preview" then history_preview source
   else if String.eqb operation "browser.stream_step" then public_stream_step source
   else if String.eqb operation "browser.host_stream_step" then stream_step Streams.host_configuration source
   else err ("Unknown browser model operation: " ++ operation).

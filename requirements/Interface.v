@@ -301,9 +301,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the page.
 
     Opening a search result leaves the query, filters and page of results
-    available for further comparison. The conversation offers a direct return
-    to that result list, at the reader's previous position. The keyboard
-    focus indicator and the match outline leave space for readable text.
+    available for further comparison. Results show a short readable excerpt
+    around the match. A source-only match links to the original message and
+    shows a short label. Opening a readable match scrolls to and highlights
+    the matching text once it is rendered.
+    The conversation offers a direct return to the result list at the reader's
+    previous position.
     Before adding a conversation to the board or linking it to an existing
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether

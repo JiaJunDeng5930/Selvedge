@@ -282,11 +282,10 @@ Definition history_hit parent hit :=
  let index:=HistoryObservation.hit_message hit in
  let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
  region key "result" "Search result"Roles.Card
-   ([declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))
-      (Input.OpenHistoryResult id(Some index)(part key "open")))]++
-    (if String.eqb(HistoryObservation.hit_before hit)""then[]else[read_only key "before" "上一条"(HistoryObservation.hit_before hit)])++
-    [read_only key "snippet" "命中消息"(HistoryObservation.hit_text hit)]++
-    (if String.eqb(HistoryObservation.hit_after hit)""then[]else[read_only key "after" "下一条"(HistoryObservation.hit_after hit)]))%list
+   [declared key Roles.Button(secondary "open"(Read.task_title task++" · 消息 #"++show_natural(N.succ index))
+      (Input.OpenHistoryResult id(Some index)(part key "open")));
+    information key "snippet" Information.Description
+      (value_or "在消息原文中找到匹配"(HistoryObservation.hit_preview hit))]
  end.
 Definition history_page snapshot s parent :=
  let search:=SessionNavigation.search_state s in

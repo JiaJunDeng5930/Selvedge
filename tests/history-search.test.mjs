@@ -296,11 +296,12 @@ test('Returning from a search hit restores its filtered results page and reading
   assert.equal(await main.evaluate(node => node.scrollTop), 0);
 });
 
-test('A message result opens its exact reading position while longer replies render', async t => {
+test('A search result opens and highlights a deep visible match while later replies render', { timeout: 60000 }, async t => {
   const title = 'Conversation reading fixture';
   const fixture = await browserFixture(t, { taskTitle: () => title });
   const { page, command } = fixture;
-  const marker = '你是谁？';
+  const marker = '追加式数据集';
+  const enteredQuery = `　${marker}　`;
   const firstPrompt = 'Start a conversation with a long introduction.';
   const { task_id } = await command({ op: 'create', profile: fixture.profile, message: firstPrompt });
   const requestFor = prompt => until(() => fixture.requests.find(entry => !entry.closed
@@ -312,21 +313,16 @@ test('A message result opens its exact reading position while longer replies ren
     '<ui id="budget">',
     '<state id="seats" type="integer" initial={5} min={1} max={20} />',
     '<slider id="seat-slider" bind="seats" label="Budget seats" />',
+    `<button id="follow-up" label="Prepare a question" action="draft" message="${marker}" />`,
     '</ui>',
     '```',
   ].join('\n');
-  fixture.finish((await requestFor(firstPrompt)).index, { text: longText('Introduction', 36) });
-  await taskIdle(fixture.running.service, task_id);
-  await command({ op: 'send', task_id, message: marker });
-  fixture.finish((await requestFor(marker)).index, { text: 'I am the assistant.' });
+  const visibleMatch = `The audit record uses **${marker}** to keep the earlier entries readable.`;
+  fixture.finish((await requestFor(firstPrompt)).index, { text: [calculator, longText('Introduction', 48),
+    '## Audit record', visibleMatch, longText('Audit details', 24)].join('\n\n') });
   const history = await taskIdle(fixture.running.service, task_id);
-  const index = history.messages.findIndex(message => message.role === 'user'
-    && JSON.stringify(message.content).includes(marker));
+  const index = history.messages.findIndex(message => JSON.stringify(message).includes(visibleMatch));
   assert.ok(index >= 0, 'The real conversation contains the selected message');
-  const laterPrompt = 'Create the budget example.';
-  await command({ op: 'send', task_id, message: laterPrompt });
-  fixture.finish((await requestFor(laterPrompt)).index, { text: calculator + '\n\n' + longText('Budget example', 55) });
-  await taskIdle(fixture.running.service, task_id);
   const livePrompt = 'Add a long follow-up to the budget.';
   await command({ op: 'send', task_id, message: livePrompt });
   const live = await requestFor(livePrompt);
@@ -346,15 +342,25 @@ test('A message result opens its exact reading position while longer replies ren
 
   await page.getByRole('button', { name: '搜索对话', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
-  await query.fill(marker);
+  await query.fill(enteredQuery);
   await query.press('Enter');
-  await page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true }).press('Enter');
-  const message = timeline.getByRole('article').filter({ hasText: marker });
-  await message.waitFor();
-  const highlight = message.and(timeline.locator('[data-history-match]'));
+  const hit = page.getByRole('main').getByRole('button', { name: `${title} · 消息 #${index + 1}`, exact: true });
+  await hit.press('Enter');
+  const keyword = timeline.getByText(marker, { exact: true });
+  await keyword.waitFor();
+  const highlighted = () => page.waitForFunction(({ task, marker }) => {
+    const root = document.querySelector(`[data-reading-root][data-task-id="${task}"]`);
+    const highlight = CSS.highlights.get('selvedge-history-match');
+    const [range] = highlight ?? [];
+    if (!root || highlight?.size !== 1 || range?.toString() !== marker ||
+        !range.startContainer.parentElement.closest('p')?.textContent.startsWith('The audit record uses')) return false;
+    const viewport = root.getBoundingClientRect(), bounds = range.getBoundingClientRect();
+    const article = range.startContainer.parentElement.closest('article').getBoundingClientRect();
+    return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1 && article.top < viewport.top - 1000;
+  }, { task: task_id, marker });
   const checkFocusFrame = async () => {
     await timeline.and(page.locator(':focus-visible')).waitFor();
-    const frame = await timeline.getByText('I am the assistant.', { exact: true }).evaluate(node => {
+    const frame = await keyword.evaluate(node => {
       const root = node.closest('[data-reading-root]');
       const bounds = root.getBoundingClientRect();
       const style = getComputedStyle(root);
@@ -369,31 +375,21 @@ test('A message result opens its exact reading position while longer replies ren
     assert.ok(frame.leftClearance >= 4,
       `The timeline focus ring clears the assistant text by ${frame.leftClearance}px`);
   };
-  const offset = () => message.evaluate(node => new Promise(resolve => {
+  const offset = () => keyword.evaluate(node => new Promise(resolve => {
     requestAnimationFrame(() => setTimeout(() => {
       const viewport = node.closest('[data-reading-root]').getBoundingClientRect();
       resolve(node.getBoundingClientRect().top - viewport.top);
     }, 0));
   }));
-  await page.waitForFunction(({ task, marker }) => {
-    const timeline = document.querySelector(`[data-reading-root][data-task-id="${task}"]`);
-    const message = [...timeline.querySelectorAll('article')].find(article => article.textContent.trim() === marker);
-    if (!message) return false;
-    const viewport = timeline.getBoundingClientRect(), bounds = message.getBoundingClientRect();
-    return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
-  }, { task: task_id, marker }, { timeout: 10000 });
-  await highlight.waitFor();
-  assert.equal(await highlight.evaluate(node => getComputedStyle(node).outlineStyle), 'solid');
+  await highlighted();
   await checkFocusFrame();
   const arrived = await offset();
   const previousWidth = await timeline.evaluate(root => root.clientWidth);
-  await message.evaluate(node => {
-    const id = node.id;
+  await keyword.evaluate(node => {
     window.firstResizedMessageOffset = new Promise(resolve => {
       window.addEventListener('resize', () => setTimeout(() => {
-        const message = document.getElementById(id);
-        const viewport = message?.closest('[data-reading-root]')?.getBoundingClientRect();
-        resolve(viewport ? message.getBoundingClientRect().top - viewport.top : null);
+        const viewport = node.closest('[data-reading-root]')?.getBoundingClientRect();
+        resolve(viewport ? node.getBoundingClientRect().top - viewport.top : null);
       }, 0), { once: true });
     });
   });
@@ -402,7 +398,7 @@ test('A message result opens its exact reading position while longer replies ren
     document.querySelector(selector)?.clientWidth < previousWidth, { selector: timelineSelector, previousWidth });
   const resized = await page.evaluate(() => window.firstResizedMessageOffset);
   assert.ok(resized !== null && Math.abs(resized - arrived) <= 2,
-    `The first resized frame retains the selected message (before ${arrived}px, after ${resized}px)`);
+    `The first resized frame retains the selected keyword (before ${arrived}px, after ${resized}px)`);
   await checkFocusFrame();
   const completion = longText('Finished follow-up', 30);
   fixture.emit(live.index, '\n\n' + completion);
@@ -411,13 +407,13 @@ test('A message result opens its exact reading position while longer replies ren
   await timeline.getByText(/Finished follow-up 30/).waitFor();
   const completed = await offset();
   assert.ok(Math.abs(completed - arrived) <= 2,
-    `The selected message stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
-  await highlight.waitFor({ state: 'detached' });
+    `The selected keyword stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
+  await page.waitForFunction(() => !CSS.highlights.has('selvedge-history-match'));
 
   const scrolledPast = previous => page.waitForFunction(({ selector, previous, marker }) => {
     const root = document.querySelector(selector);
-    const message = [...root.querySelectorAll('article')].find(article => article.textContent.trim() === marker);
-    return message && previous > message.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
+    const keyword = [...root.querySelectorAll('strong')].find(text => text.textContent === marker);
+    return keyword && previous > keyword.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
   }, { selector: timelineSelector, previous, marker });
   await page.keyboard.press('PageDown');
   await scrolledPast(arrived);
@@ -425,6 +421,13 @@ test('A message result opens its exact reading position while longer replies ren
   await timeline.hover();
   await page.mouse.wheel(0, 180);
   await scrolledPast(afterPaging);
+
+  await page.getByRole('button', { name: '返回搜索结果', exact: true }).click();
+  await hit.and(page.locator(':focus')).waitFor();
+  assert.equal(await query.inputValue(), enteredQuery);
+  await hit.press('Enter');
+  await highlighted();
+  await checkFocusFrame();
   await page.getByRole('button', { name: 'Return to latest', exact: true }).click();
   await atLatest();
 });

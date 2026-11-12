@@ -22,6 +22,10 @@
   outline: 2px solid var(--selvedge-focus);
   outline-offset: 2px;
 }
+::highlight(selvedge-history-match) {
+  background-color: color-mix(in srgb, var(--selvedge-focus) 30%, var(--selvedge-surface));
+  color: var(--selvedge-text);
+}
 [data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
 [data-reading-root] button[data-semantic-key="activity-disclosure"] {
   align-self: flex-start;

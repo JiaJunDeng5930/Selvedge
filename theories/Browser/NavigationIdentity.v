@@ -18,6 +18,7 @@ Fixpoint encode_key value:=match value with
 |Entity owner kind identity=>"e"++encode_key owner++key_payload kind++key_payload identity
 |Part owner name=>"r"++encode_key owner++key_payload name end.
 Definition key_part(parent name:string):=encode_key(Part(Place parent)name).
+Definition message_markdown_key key := String.append key "/markdown".
 
 Definition editor_key (e : editor) : string :=
   match e with

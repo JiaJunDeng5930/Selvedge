@@ -1072,6 +1072,17 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-board-stage-mark="done"] { color: var(--selvedge-success); }
 [data-board-stage-mark="blocked"] { color: var(--selvedge-danger); }
 [data-board-count] { color: var(--selvedge-muted); }
+[data-interactive-component="button"] > button { max-inline-size: 100%; }
+[data-interactive-component="button"] > button > span {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+/* Feedback wraps within the width set by its action. */
+[data-interactive-component="button"] > [role="status"] {
+  align-self: stretch;
+  contain: inline-size;
+  overflow-wrap: anywhere;
+}
 [data-interactive-component="table"] { border: 1px solid var(--selvedge-border) !important; border-radius: 8px !important; }
 [data-interactive-component="table"] :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
 [data-interactive-component="table"] :where(caption, thead) { background: var(--selvedge-inset); }

@@ -316,11 +316,14 @@ Definition adopt_navigation snapshot decision:=
  |Navigation.Issue command purpose=>issue command purpose state
  |Navigation.FollowTaskLatest task=>match find(fun view=>N.eqb task(NavigationIdentity.task_view_task view))(Navigation.visible_task_views state)with
    |Some view=>changed state[emit "follow_latest"[("key",JString(NavigationIdentity.task_view_key view "timeline"))]]|None=>keep state end
- |Navigation.LocateHistoryMessage task index=>match DocumentState.find_task task snapshot with
+ |Navigation.LocateHistoryMessage task index query=>match DocumentState.find_task task snapshot with
    |None=>fail state "The history task is no longer available."
    |Some value=>match nth_error(Selvedge.Interaction.Codec.items "history" value)(N.to_nat index)with
     |None=>fail state "The history message is no longer available."
-    |Some message=>changed state[emit "scroll_to_message"[("key",JString(AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message));("message_index",number index);("task_id",number task);("reader_generation",number(SS.reader_generation(Navigation.reader_for state task)))]]end end end))
+    |Some message=>let key:=AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message in
+      changed state[emit "scroll_to_message"[("key",JString key);("markdown_key",JString(message_markdown_key key));
+        ("query",JString query);("message_index",number index);("task_id",number task);
+        ("reader_generation",number(SS.reader_generation(Navigation.reader_for state task)))]]end end end))
  (Navigation.result_effects decision)(Result(Navigation.result_state decision)[](Navigation.result_error decision)false).
 Definition draft_current snapshot state:=match Draft.find_draft(Draft.owner snapshot)(SS.drafts(SS.authoring_state state))with
 |Some current=>N.eqb(Draft.revision current)(Draft.revision snapshot)|None=>false end.

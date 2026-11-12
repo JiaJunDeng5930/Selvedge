@@ -6,7 +6,7 @@ Open Scope string_scope.
 
 Record message_hit := MessageHit {
  hit_message : N;
- hit_before : string; hit_text : string; hit_after : string
+ hit_preview : option string
 }.
 Inductive history_hit := TitleMatch (task : Read.task) | MessageMatch (task : Read.task) (hit : message_hit).
 Definition observe_hit raw :=
@@ -14,8 +14,7 @@ Definition observe_hit raw :=
  match string_field "kind" raw with
  |Some "title"=>Some(TitleMatch task)
  |None=>index<-natural_field "message_index" raw;;
- before<-string_field "before" raw;;snippet<-string_field "snippet" raw;;after<-string_field "after" raw;;
- Some(MessageMatch task(MessageHit index before snippet after))
+ Some(MessageMatch task(MessageHit index(string_field "preview" raw)))
  |_=>None end.
 Record history_page := HistoryPage { hits : list history_hit; page_after : N; next_after : option N }.
 Definition observe_page raw :=
