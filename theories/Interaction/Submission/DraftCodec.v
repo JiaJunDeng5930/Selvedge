@@ -85,7 +85,7 @@ Definition encode_body value := match value with
 |ForkBody _ count messages configuration=>JObject[("child_count",number count);("messages",JArray(map JString messages));("context",encode_configuration configuration)]
 |CompactBody _ summary=>JObject[("summary",option_text summary)]
 |TaskGraphBody _ declaration parsed _=>JObject[("declaration",JString declaration);("parsed",optional_value(fun x=>x)parsed)]
-|TitlePromptsBody revision task agent profile=>JObject[("revision",number revision);("task_prompt",JString task);
+|TitlePromptsBody _ revision task agent profile=>JObject[("revision",number revision);("task_prompt",JString task);
  ("agent_prompt",JString agent);("agent_profile",option_text profile)]end.
 Definition decode_card_body card value :=
  revision<-natural_field "revision" value;;contents<-bind(field "card" value)decode_card;;
@@ -101,8 +101,8 @@ Definition decode_body e value :option body :=match e with
 |Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;Some(ForkBody task count messages configuration)
 |Identity.Compact task=>option_map(CompactBody task)(bind(field "summary" value)decode_option_text)
 |Identity.TaskGraph graph work=>declaration<-string_field "declaration" value;;parsed<-bind(field "parsed" value)(parse_optional(fun value=>Some value));;Some(TaskGraphBody graph declaration parsed work)
-|Identity.TitlePrompts=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;
- profile<-bind(field "agent_profile" value)decode_option_text;;Some(TitlePromptsBody revision task agent profile)end.
+|Identity.TitlePrompts scope=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;
+ profile<-bind(field "agent_profile" value)decode_option_text;;Some(TitlePromptsBody scope revision task agent profile)end.
 Definition encode_feedback value:=match value with Editing=>JObject[("kind",JString "editing")]
 |Accepted revision reply=>JObject[("kind",JString "accepted");("revision",number revision);("reply",reply)]
 |Rejected revision diagnostic=>JObject[("kind",JString "rejected");("revision",number revision);("reason",diagnostic)]

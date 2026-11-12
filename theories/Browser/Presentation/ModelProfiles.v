@@ -42,7 +42,11 @@ Definition provider_choices parent (enabled : bool) profile : node Input.input :
    end) (DeclarationRegistry.values ProviderCatalog.registered) in
  let choice provider :=
    let key := ProviderCatalog.provider_name provider in
-   let label := provider_label provider in
+   let label := match provider with
+     | ProviderCatalog.AccountSSE => "ChatGPT 账号"
+     | ProviderCatalog.WebConnection _ _ => "ChatGPT Web API"
+     | _ => provider_label provider
+     end in
    Node (part group key) "settings-provider-option" label Roles.Button
      (Choice SingleChoice (String.eqb key current) ""
        (Control key label Secondary (Input.ServiceInput (Services.EditModelProfileField "provider" key))

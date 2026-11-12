@@ -14,24 +14,28 @@ Definition tone name := match name with
  | "warning" => Some (Appearance.token "--selvedge-warning")
  | "danger" => Some (Appearance.token "--selvedge-danger")
  | "muted" => Some Appearance.secondary_text | _ => None end.
-Definition badge_properties env color : list (string * string) :=
- let background:=match color with
- |Some ink=>String.concat "" ["color-mix(in srgb, ";ink;" 12%, transparent)"]
- |None=>Appearance.background Appearance.InsetPaint Appearance.Rest end in
+Definition badge_properties env tone_name color : list (string * string) :=
+ let background := match tone_name, color with
+ | "muted", _ => "transparent"
+ | "accent", _ => Appearance.token "--selvedge-accent-wash"
+ | "danger", _ => Appearance.token "--selvedge-danger-wash"
+ | _, Some ink => String.concat "" ["color-mix(in srgb, ";ink;" 12%, transparent)"]
+ | _, None => Appearance.background Appearance.InsetPaint Appearance.Rest end in
  Typography.properties (Layout.root_font_size_milli env) Typography.Support Typography.Medium ++
  [("--interactive-badge-background",background);("inline-size","fit-content");("align-self","flex-start")].
 Definition component_properties env (value : Presentation.component) : list (string * string) :=
  let props := Presentation.component_properties value in
  let tag := Vocabulary.component_tag (Expand.description props) in
- let color := tone (Expand.property_text "tone" props) in
+ let tone_name := Expand.property_text "tone" props in
+ let color := tone tone_name in
  [("display","flex"); ("flex-direction","column"); ("min-inline-size","0");
   ("max-inline-size","100%"); ("gap",Typography.px (gap (Expand.property_text "gap" props)))] ++
  (match tag with
  | "row-layout" => Layout.row_properties Layout.Vertical ++ [("align-items","stretch");("overflow","hidden")]
  | "card" => Appearance.role_properties env Roles.Card
- | "badge" => badge_properties env color
+ | "badge" => badge_properties env tone_name color
  | "metric" => [("gap",Typography.px (gap "sm"))] ++
-     (if String.eqb (Expand.property_text "tone" props) "success" then
+     (if String.eqb tone_name "success" then
        let root:=Layout.root_font_size_milli env in
        [("--interactive-metric-value-size",Typography.px (Typography.size root Typography.Display));
         ("--interactive-metric-value-line",Typography.px (Typography.line_height root Typography.Display))]

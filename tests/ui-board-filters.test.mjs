@@ -546,7 +546,7 @@ test('card save shows whether a model will start, wait, or remain manual', async
   assert.notEqual(started.task_id, null);
 });
 
-test('the blocked card commit keeps its repair visible while the mobile form scrolls', async t => {
+test('the mobile card editor keeps real repairs visible and missing model choice neutral', async t => {
   const { page, command, requests, finish } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
@@ -558,7 +558,7 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   const body = dialog.locator('[data-surface-role="dialog-body"]');
   const footer = dialog.locator('[data-surface-role="dialog-actions"]');
   const submit = footer.getByRole('button', { name: '创建卡片', exact: true });
-  const reasonText = '看板未设置默认整理模型，请选择模型。';
+  const reasonText = '请选择整理用的模型。';
   const reason = footer.locator('[data-semantic-key="editor-commit-reason"]');
   const titleError = '标题太长，请缩短。';
   const titleReason = body.getByRole('alert').filter({ hasText: titleError });
@@ -582,41 +582,49 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   await description.fill('Review this step and keep the details in the card.\n'.repeat(18));
   await dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
   const model = dialog.getByRole('combobox', { name: '整理用的模型', exact: true });
-  const modelReason = body.locator('[data-semantic-key="property-repair"]').filter({ hasText: reasonText });
-  await modelReason.evaluate(node => node.scrollIntoView({ block: 'end' }));
-  await modelReason.waitFor();
-  await reason.waitFor({ state: 'hidden' });
-  await options.click();
-  await reason.filter({ hasText: reasonText }).waitFor();
-  await modelReason.waitFor({ state: 'hidden' });
-  await options.click();
+  const submitId = await submit.getAttribute('id');
+  async function needsModel() {
+    await page.waitForFunction(({ submitId, reasonText }) => {
+      const button = document.getElementById(submitId);
+      return button?.getAttribute('aria-disabled') === 'true' &&
+        (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
+          .some(id => document.getElementById(id)?.textContent === reasonText);
+    }, { submitId, reasonText });
+    assert.equal(await dialog.getByRole('alert').count(), 0);
+    await reason.waitFor({ state: 'hidden' });
+  }
+  await model.scrollIntoViewIfNeeded();
   assert.equal(await model.locator('option:checked').textContent(), '请选择模型');
-  assert.equal(await submit.isDisabled(), true);
+  await needsModel();
+  await options.click();
+  await model.waitFor({ state: 'hidden' });
+  await needsModel();
+  await title.press('Enter');
+  await needsModel();
+  assert.deepEqual((await command({ op: 'list_cards' })).cards, []);
+  await options.click();
 
   await title.focus();
   await page.keyboard.press('Tab');
-  await page.waitForFunction(({ descriptionId, modelId, reasonText }) => {
+  await page.waitForFunction(({ descriptionId, modelId, submitId }) => {
     const input = document.getElementById(descriptionId);
     const picker = document.getElementById(modelId);
     const panel = input?.closest('dialog');
     const body = panel?.querySelector('[data-surface-role="dialog-body"]');
     const footer = panel?.querySelector('[data-surface-role="dialog-actions"]');
-    const reason = [...(footer?.children ?? [])].find(node => node.textContent === reasonText);
-    const disabledCommit = footer?.querySelector('button[aria-disabled="true"]');
+    const commit = document.getElementById(submitId);
     if (!body || !picker || document.activeElement !== input || body.scrollHeight <= body.clientHeight) return false;
     const bodyBounds = body.getBoundingClientRect();
-    return picker.getBoundingClientRect().top >= bodyBounds.bottom
-      && [reason, disabledCommit].every(node => {
-        const rect = node?.getBoundingClientRect();
-        return rect && rect.top >= bodyBounds.bottom && rect.bottom <= window.innerHeight
-          && rect.left >= 0 && rect.right <= window.innerWidth;
-      });
-  }, { descriptionId: await description.getAttribute('id'), modelId: await model.getAttribute('id'), reasonText });
+    const rect = commit?.getBoundingClientRect();
+    return picker.getBoundingClientRect().top >= bodyBounds.bottom &&
+      footer?.contains(commit) && rect && rect.top >= bodyBounds.bottom && rect.bottom <= innerHeight &&
+      rect.left >= 0 && rect.right <= innerWidth;
+  }, { descriptionId: await description.getAttribute('id'), modelId: await model.getAttribute('id'), submitId });
 
-  await modelReason.waitFor({ state: 'hidden' });
+  await needsModel();
   const focused = locator => locator.evaluate(element => element === document.activeElement);
   for (let index = 0; index < 12 && !(await focused(model)); index++) await page.keyboard.press('Tab');
-  assert.equal(await focused(model), true, 'Tab reaches the field named in the footer');
+  assert.equal(await focused(model), true, 'Tab reaches the required model selector');
   await page.keyboard.press('i');
   assert.equal(await model.inputValue(), 'interactive');
   await reason.waitFor({ state: 'hidden' });
@@ -637,7 +645,7 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   assert.equal((await command({ op: 'list_cards' })).cards[0].title, generatedTitle);
 });
 
-test('the card action menu aligns its labels and lists available actions first', async t => {
+test('the card action menu keeps positions while service assessments settle', async t => {
   const { page, command } = await browserFixture(t);
   const title = 'An unassigned card';
   await command({ op: 'create_card', title });
@@ -645,8 +653,10 @@ test('the card action menu aligns its labels and lists available actions first',
   const otherChecks = Promise.withResolvers();
   await page.route('**/api/assess', async route => {
     const owner = route.request().postDataJSON()?.editor;
-    if (owner?.kind === 'menu') await (owner.action === 'archive' ? archiveCheck.promise : otherChecks.promise);
-    await route.continue();
+    if (owner?.kind !== 'menu') return route.continue();
+    const response = await route.fetch();
+    await (owner.action === 'archive' ? archiveCheck.promise : otherChecks.promise);
+    await route.fulfill({ response });
   });
   const menu = page.getByRole('menu', { name: '卡片操作', exact: true });
   const action = name => menu.getByRole('button', { name, exact: true });
@@ -656,14 +666,17 @@ test('the card action menu aligns its labels and lists available actions first',
       disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
       y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
   }));
-  function assertOrder(current, available, unavailable) {
-    assert.deepEqual(current.map(({ name, disabled }) => [name, disabled]), [
-      ...available.map(name => [name, false]), ...unavailable.map(name => [name, true]),
-    ]);
-    assert.ok(current.every((row, index) => index === 0 || row.y > current[index - 1].y),
-      'Visual order follows keyboard order');
-  }
+  const order = ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片', '重新生成标题'];
   let opening;
+  function assertMenu(current, available) {
+    assert.deepEqual(current.map(({ name }) => name), order);
+    assert.deepEqual(current.filter(row => !row.disabled).map(({ name }) => name), available);
+    assert.deepEqual(current.map(({ id }) => id), opening.map(({ id }) => id));
+    assert.ok(current.every((row, index) => Math.abs(row.y - opening[index].y) <= 1),
+      'Permission results leave each action at the same screen position');
+    assert.ok(current.every(row => row.labelX !== undefined && Math.abs(row.labelX - current[0].labelX) <= 1),
+      'The visible card action labels start at the same horizontal position');
+  }
   try {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
       .getByRole('button', { name: '卡片看板', exact: true }).click();
@@ -671,11 +684,15 @@ test('the card action menu aligns its labels and lists available actions first',
       .getByRole('button', { name: '卡片操作', exact: true }).click();
     await action('重新生成标题').waitFor();
     opening = await rows();
-    assertOrder(opening, ['移动卡片', '编辑卡片'], ['启动对话', '归档卡片', '置顶卡片', '删除卡片', '重新生成标题']);
+    assertMenu(opening, ['移动卡片', '编辑卡片']);
+    assert.ok(opening.every((row, index) => index === 0 || row.y > opening[index - 1].y),
+      'Visual order follows the declared action order');
     await action('编辑卡片').focus();
     archiveCheck.resolve();
     await action('归档卡片').and(page.locator(':not([aria-disabled="true"])')).waitFor();
-    assertOrder(await rows(), ['移动卡片', '编辑卡片', '归档卡片'], ['启动对话', '置顶卡片', '删除卡片', '重新生成标题']);
+    const partial = await rows();
+    assertMenu(partial, ['移动卡片', '编辑卡片', '归档卡片']);
+    assert.equal(partial.find(row => row.name === '启动对话').reason, '正在检查');
     assert.equal(await action('编辑卡片').evaluate(button => document.activeElement === button), true);
   } finally {
     archiveCheck.resolve();
@@ -686,14 +703,10 @@ test('the card action menu aligns its labels and lists available actions first',
   for (const name of ['置顶卡片', '删除卡片'])
     await action(name).and(page.locator(':not([aria-disabled="true"])')).waitFor();
   const boxes = await rows();
-  assertOrder(boxes, ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片'], ['启动对话', '重新生成标题']);
-  assert.deepEqual(boxes.map(row => row.id).sort(), opening.map(row => row.id).sort(),
-    'The same controls settle in declaration order within each group');
+  assertMenu(boxes, ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片']);
   const reasons = boxes.filter(row => row.disabled).map(row => row.reason);
   assert.ok(reasons.every(Boolean) && new Set(reasons).size === reasons.length,
     'Unavailable actions expose their individual refusal reasons');
-  assert.ok(boxes.every(row => row.labelX !== undefined && Math.abs(row.labelX - boxes[0].labelX) <= 1),
-    'The visible card action labels start at the same horizontal position');
   await action('移动卡片').click();
   await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
 });

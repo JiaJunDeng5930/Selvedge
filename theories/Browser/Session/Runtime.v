@@ -329,7 +329,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  |EM.Unavailable reason=>Authoring.fail state reason end
 |Input.SubmitHistorySearch after=>Authoring.adopt_navigation snapshot(Navigation.submit_search after state)
 |Input.OpenEditor owner trigger=>let state:=match owner,Services.settings_return(SS.service_state state)with
- |Identity.TitlePrompts,_|_,None=>state
+ |Identity.TitlePrompts Identity.ConversationTitles,_|_,None=>state
  |_,Some _=>SS.with_services(Services.with_settings_return None(SS.service_state state))
     (SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state) end in
  Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner trigger state)

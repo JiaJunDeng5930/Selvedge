@@ -312,7 +312,7 @@ Definition history_page snapshot s parent :=
   page_region results_parent Composition.HistoryResults Composition.BodyPosition
    (if pending then[information parent "searching" Information.Status "正在搜索…"]else
     match page with
-   |None=>[information parent "prompt" Information.Description "搜索标题和消息正文，可按项目或工作组缩小范围。"]
+   |None=>[]
    |Some result=>match HistoryObservation.search_result(State.search_reply result)with
     |inr result=>
      let after:=HistoryObservation.page_after result in

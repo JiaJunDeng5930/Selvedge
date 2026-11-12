@@ -197,6 +197,8 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     Source copy and wrapping appear beside the revealed source.
     A final reset for the fence shares its action bar.
     Markdown and authored tables share row separators and header emphasis.
+    Default and muted badges differ in visual weight. Danger and accent
+    remain distinct in both light and dark appearance.
     Graph node controls
     retain native size within their own scrollable enclosures, with a readable
     list equivalent. Charts display categories or numeric ticks along the axes,
@@ -339,15 +341,16 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Before adding a conversation to the board or linking it to an existing
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether
-    saving schedules execution or leaves the card for a later action. An empty
-    required text field has a neutral prompt while submission is unavailable.
+    saving schedules execution or leaves the card for a later action. An
+    unfilled required field gives a neutral prompt while submission is unavailable.
     Invalid entered text names the repair beside the relevant field when both fit.
-    The assignee filter keeps complete rows in its scrollable list, and card
-    actions align their labels and list available actions first.
+    The assignee filter keeps complete rows in its scrollable list. Action menus
+    align their labels and keep their order while service checks change their
+    availability. Unavailable actions explain why they cannot be used.
     A linked conversation's execution state appears beside its open action.
     Assisted capture offers the board default when it names an eligible
-    drafting model. A missing selection leaves a prompt and its reason beside
-    the model field.
+    drafting model. When models are available and no default applies, the picker
+    prompts for a selection. An unavailable configured model explains the repair.
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
     stage selected by its entry point.

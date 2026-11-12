@@ -568,20 +568,32 @@ Definition graph_declaration_valid body :=
     |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
   |None=>false end
  |None=>false end.
-Definition missing_required_text_code := "missing_required_text".
+Definition missing_required_input_code := "missing_required_input".
 Definition required_name e field name valid invalid_code prompt invalid_message :=
  let present:=Utf8.nonblank name in
  failed_requirement e (present && valid) (Some field)
-   (if present then invalid_code else missing_required_text_code)
+   (if present then invalid_code else missing_required_input_code)
    (if present then invalid_message else prompt).
 Definition card_text_requirements e value assisted :=
  let draft:=Board.normalized_draft assisted value in
  let title:=Domain.draft_title draft in
- failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) missing_required_text_code
+ failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) missing_required_input_code
    (if assisted then "请输入标题或描述。" else Parameters.card_title_prompt++"。")++
  failed_requirement e (BoardFacts.title_within_limit title) (Some Fields.CardTitle) "card_title_too_long" "标题太长，请缩短。"++
  failed_requirement e (BoardFacts.description_within_limit (Domain.draft_description draft))
    (Some Fields.CardDescription) "card_description_too_long" "描述太长，请缩短。".
+Definition card_assistance_requirements snapshot e assisted selected :=
+ if negb assisted || assistance_profile_available snapshot selected then [] else
+ let blocked code message:=[requirement_obstruction e (Some Fields.AssistanceProfile) code message] in
+ let unavailable:=blocked "draft_profile_unavailable" in
+ match drafting_profile_choices snapshot with
+ |[]=>unavailable "没有可用的整理模型。请配置模型，或关闭模型整理。"
+ |_=>if String.eqb selected "" then
+   if String.eqb (board_default_drafting_profile snapshot) "" then
+   blocked missing_required_input_code "请选择整理用的模型。"
+   else unavailable "看板默认整理模型不可用，请选择其他模型。"
+  else unavailable "所选整理模型不可用，请重新选择。"
+ end.
 Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  match body with
  |Draft.NewTaskBody message profile effort _ _ _=>
@@ -594,20 +606,13 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.ProjectBody _ name _ _=>required_name e Fields.ProjectName name (Workspace.valid_project_name name)
    "invalid_project_name" Parameters.project_name_prompt "项目名称不能超过 256 个 UTF-8 字节。"
  |Draft.CardBody _ _ value assisted selected _=>card_text_requirements e value assisted++
-   (if negb assisted || assistance_profile_available snapshot selected then [] else
-   [requirement_obstruction e (Some Fields.AssistanceProfile) "draft_profile_unavailable"
-    (match drafting_profile_choices snapshot with
-    |[]=>"没有可用的整理模型。请配置模型，或关闭模型整理。"
-    |_=>if String.eqb selected "" then
-      if String.eqb (board_default_drafting_profile snapshot) "" then "看板未设置默认整理模型，请选择模型。"
-      else "看板默认整理模型不可用，请选择其他模型。"
-     else "所选整理模型不可用，请重新选择。" end)])
+   card_assistance_requirements snapshot e assisted selected
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
  |Draft.TaskGraphBody graph _ parsed work=>
    if graph_declaration_valid body then [] else
    let '(code,reason):=graph_declaration_diagnostic snapshot graph parsed work in
    [requirement_obstruction e (Some Fields.TaskGraphDeclaration) code reason]
- |Draft.TitlePromptsBody _ task agent _=>
+ |Draft.TitlePromptsBody _ _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
  |_=>[]end.
@@ -637,7 +642,7 @@ Definition passive_obstruction {e}(cause:obstruction e):bool:=
  String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
  String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
  String.eqb(obstruction_code cause)"card_admission_pending"||
- String.eqb(obstruction_code cause)missing_required_text_code.
+ String.eqb(obstruction_code cause)missing_required_input_code.
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
 Definition action_obstruction {e}(outcome:assessment_result e):option(obstruction e):=

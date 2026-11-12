@@ -297,62 +297,76 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   const editTitlePrompts = settings.getByRole('button', { name: '编辑标题设置', exact: true });
   const titlePrompts = page.getByRole('dialog', { name: '对话标题', exact: true });
-  const cardSection = titlePrompts.getByText('看板卡片起草与重新生成标题', { exact: true });
-  const conversationSection = titlePrompts.getByText('自动生成对话标题', { exact: true });
-  const cardPrompt = titlePrompts.getByRole('textbox', { name: '卡片提示词', exact: true });
   const conversationPrompt = titlePrompts.getByRole('textbox', { name: '对话提示词', exact: true });
-  const assessment = titlePrompts.locator('[data-semantic-key="assessment"]');
-  const checking = assessment.getByText('正在检查操作…', { exact: true });
-  const save = titlePrompts.getByRole('button', { name: '保存', exact: true });
+  const boardSettings = page.getByRole('dialog', { name: '看板设置', exact: true });
+  const editCardPrompt = boardSettings.getByRole('button', { name: '编辑卡片提示词', exact: true });
+  const cardEditor = page.getByRole('dialog', { name: '卡片提示词', exact: true });
+  const cardPrompt = cardEditor.getByRole('textbox', { name: '卡片提示词', exact: true });
+  const titleModel = titlePrompts.getByLabel('对话标题模型', { exact: true });
+  const nav = page.getByRole('navigation', { name: 'Global navigation', exact: true });
+  const readSettings = () => command({ op: 'read_title_settings' });
+  const assessment = editor => editor.locator('[data-semantic-key="assessment"]');
+  const save = editor => editor.getByRole('button', { name: '保存', exact: true });
+  const reset = (field, name) => field.locator('xpath=ancestor::*[@data-semantic-key="title-prompt"]')
+    .getByRole('button', { name, exact: true });
+  const restoreConversation = reset(conversationPrompt, '恢复默认对话提示词');
+  const restoreCard = reset(cardPrompt, '恢复默认卡片提示词');
   async function openTitlePrompts() {
-    await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-      .getByRole('button', { name: '设置', exact: true }).click();
+    await nav.getByRole('button', { name: '设置', exact: true }).click();
     await editTitlePrompts.click();
-    return titlePrompts;
+  }
+  async function openBoardPrompts() {
+    await nav.getByRole('button', { name: '卡片看板', exact: true }).click();
+    await page.getByRole('button', { name: '看板设置', exact: true }).click();
+    await boardSettings.getByRole('combobox', { name: '默认整理模型', exact: true }).waitFor();
+    await editCardPrompt.click();
+  }
+  async function close(editor) {
+    await page.keyboard.press('Escape');
+    await editor.waitFor({ state: 'hidden' });
+  }
+  async function store(editor) {
+    await save(editor).click();
+    await editor.waitFor({ state: 'hidden' });
+    return readSettings();
+  }
+  async function changeOtherPrompt(editor, field, saved, changes) {
+    await field.fill('Unsaved prompt');
+    await command({ op: 'configure_title_settings', revision: saved.revision,
+      task_prompt: saved.task_prompt, agent_prompt: saved.agent_prompt, agent_profile: saved.agent_profile,
+      ...changes });
+    await field.fill('Edited after another settings update');
+    await assessment(editor).getByText('Title settings changed; reopen the settings before saving', { exact: true }).waitFor();
+    assert.equal(await save(editor).isDisabled(), true);
   }
 
-  const initial = await command({ op: 'read_title_settings' });
-  let releaseAssessment;
-  const held = new Promise(resolve => { releaseAssessment = resolve; });
+  const initial = await readSettings();
+  const held = Promise.withResolvers();
+  const checking = assessment(titlePrompts).getByText('正在检查操作…', { exact: true });
   await page.route('**/api/assess', async route => {
-    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') await held;
+    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') await held.promise;
     await route.continue();
   });
   try {
-    dialog = await openTitlePrompts();
-    await conversationSection.waitFor();
-    await cardSection.waitFor();
-    assert.equal(await cardPrompt.isVisible(), false);
-    assert.equal(await conversationPrompt.isVisible(), false);
+    await openTitlePrompts();
+    assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
+    assert.equal(await titlePrompts.getByRole('textbox', { name: '卡片提示词', exact: true }).count(), 0);
+    assert.equal(await restoreConversation.count(), 0);
     await checking.waitFor();
-    assert.equal(await save.isDisabled(), true);
+    assert.equal(await save(titlePrompts).isDisabled(), true);
   } finally {
-    releaseAssessment();
+    held.resolve();
   }
   await checking.waitFor({ state: 'hidden' });
-
-  await cardSection.click();
-  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
-  assert.equal(await conversationPrompt.isVisible(), false);
-  await cardPrompt.fill('Unsaved card title prompt');
-  await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'hidden' });
+  await conversationPrompt.fill('Unsaved conversation title prompt');
+  await close(titlePrompts);
   await editTitlePrompts.waitFor();
   assert.equal(await editTitlePrompts.evaluate(button => document.activeElement === button), true);
 
   await editTitlePrompts.click();
-  await cardSection.waitFor();
-  assert.equal(await cardPrompt.isVisible(), false);
-  await cardSection.click();
-  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
-  const cardInstruction = '把卡片标题写成待办事项。';
-  const conversationInstruction = '用首条消息提炼一个行动标题。';
-  await cardPrompt.fill(cardInstruction);
-  await conversationSection.click();
   assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
+  const conversationInstruction = '用首条消息提炼一个行动标题。';
   await conversationPrompt.fill(conversationInstruction);
-
-  const titleModel = dialog.getByLabel('对话标题模型', { exact: true });
   const options = await titleModel.locator('option').evaluateAll(nodes => nodes.map(node => ({
     label: node.label, value: node.value,
   })));
@@ -362,27 +376,51 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   assert.ok(configured, 'The selector exposes the configured interactive model connection');
   assert.equal(await titleModel.inputValue(), automatic.value, 'Automatic selection is the initial title model');
   await titleModel.selectOption(configured.value);
-  await save.click();
-  await dialog.waitFor({ state: 'hidden' });
-  await editTitlePrompts.waitFor();
+  const conversationSaved = await store(titlePrompts);
+  assert.equal(conversationSaved.agent_prompt, conversationInstruction);
+  assert.equal(conversationSaved.task_prompt, initial.task_prompt);
+  await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+
+  await openBoardPrompts();
+  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
+  assert.equal(await cardEditor.getByRole('textbox', { name: '对话提示词', exact: true }).count(), 0);
+  assert.equal(await restoreCard.count(), 0);
+  const cardInstruction = '把卡片标题写成待办事项。';
+  await cardPrompt.fill(cardInstruction);
+  const boardSaved = await store(cardEditor);
+  assert.equal(boardSaved.task_prompt, cardInstruction);
+  assert.equal(boardSaved.agent_prompt, conversationInstruction);
+  assert.equal(boardSaved.agent_profile, conversationSaved.agent_profile);
+  await editCardPrompt.waitFor();
+  assert.equal(await editCardPrompt.evaluate(button => document.activeElement === button), true);
+  await close(boardSettings);
 
   await page.reload();
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
-  dialog = await openTitlePrompts();
-  assert.equal(await dialog.getByLabel('对话标题模型', { exact: true }).inputValue(), configured.value,
-    'The selected title model remains saved after the page reloads');
-  await cardSection.click();
-  await conversationSection.click();
-  assert.equal(await cardPrompt.inputValue(), cardInstruction);
+  await openTitlePrompts();
+  assert.equal(await titleModel.inputValue(), configured.value);
   assert.equal(await conversationPrompt.inputValue(), conversationInstruction);
-  const saved = await command({ op: 'read_title_settings' });
-  assert.equal(saved.task_prompt, cardInstruction);
-  assert.equal(saved.agent_prompt, conversationInstruction);
+  const newerCard = '卡片标题保留工单编号。';
+  await changeOtherPrompt(titlePrompts, conversationPrompt, boardSaved, { task_prompt: newerCard });
+  await close(titlePrompts);
+  await editTitlePrompts.click();
+  await restoreConversation.click();
+  assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
+  const conversationReset = await store(titlePrompts);
+  assert.equal(conversationReset.agent_prompt, initial.agent_prompt);
+  assert.equal(conversationReset.task_prompt, newerCard);
+  assert.equal(conversationReset.agent_profile, conversationSaved.agent_profile);
+  await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
 
-  await conversationPrompt.fill('Another unsaved conversation title prompt');
-  await command({ op: 'configure_title_settings', revision: saved.revision,
-    task_prompt: saved.task_prompt, agent_prompt: saved.agent_prompt, agent_profile: saved.agent_profile });
-  await conversationPrompt.fill('Edited while the saved revision changed');
-  await assessment.getByText('Title settings changed; reopen the settings before saving', { exact: true }).waitFor();
-  assert.equal(await save.isDisabled(), true);
+  await openBoardPrompts();
+  assert.equal(await cardPrompt.inputValue(), newerCard);
+  const newerConversation = '对话标题保留用户语言。';
+  await changeOtherPrompt(cardEditor, cardPrompt, conversationReset, { agent_prompt: newerConversation });
+  await close(cardEditor);
+  await editCardPrompt.click();
+  await restoreCard.click();
+  assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
+  const boardReset = await store(cardEditor);
+  assert.equal(boardReset.task_prompt, initial.task_prompt);
+  assert.equal(boardReset.agent_prompt, newerConversation);
+  assert.equal(boardReset.agent_profile, conversationSaved.agent_profile);
 });

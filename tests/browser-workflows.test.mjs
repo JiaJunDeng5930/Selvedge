@@ -397,9 +397,9 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const direction = dialog.locator('[data-semantic-key="handoff-direction"]');
   const compactHeader = page.locator('[data-surface-role="compact-header"]');
   const desktop = page.viewportSize();
-  for (const width of [desktop.width, 390]) {
+  for (const width of [desktop.width, 390, 320]) {
     await page.setViewportSize({ width, height: desktop.height });
-    await compactHeader.waitFor({ state: width === 390 ? 'visible' : 'hidden' });
+    await compactHeader.waitFor({ state: width === desktop.width ? 'hidden' : 'visible' });
     const [left, arrow, right, sourceLabel, receiverLabel] = await Promise.all([
       sourcePicker.boundingBox(), direction.boundingBox(), receiverPicker.boundingBox(),
       dialog.getByText('来源对话', { exact: true }).boundingBox(),
@@ -410,6 +410,16 @@ test('task graph setup creates its conversations in scope and routes replies', {
     assert.equal(await direction.innerText(), '→');
     assert.ok(Math.abs(sourceLabel.y - receiverLabel.y) <= 2, `Both labels share one row at ${width}px`);
     assert.ok(Math.abs(left.y - right.y) <= 2, `The endpoint controls share one row at ${width}px`);
+    const arrowCenter = await direction.evaluate(element => {
+      const text = document.createRange();
+      text.selectNodeContents(element);
+      const { y, height } = text.getBoundingClientRect();
+      return y + height / 2;
+    });
+    for (const picker of [left, right]) {
+      const difference = Math.abs(arrowCenter - (picker.y + picker.height / 2));
+      assert.ok(difference <= 2, `The direction and select centerlines differ by ${difference}px at ${width}px`);
+    }
     assert.ok(left.x + left.width <= arrow.x + 1 && arrow.x + arrow.width <= right.x + 1,
       `Source, arrow and destination are ordered without overlap at ${width}px`);
   }

@@ -119,19 +119,12 @@ Definition task_menu_actions (task:Read.task) (actions:list action) :=
   |"stop"=>String.eqb(Read.task_status task)"active" && Read.task_working task
   |"archive"=>negb(String.eqb(Read.task_status task)"archived")
   |_=>true end) actions.
-Definition available_first (actions:list action) :=
- let '(available,unavailable):=partition
-   (fun value=>match action_status value with
-    |Available=>true|_=>false end) actions in
- available++unavailable.
 Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in
  match subject with
  |TaskActions id=>match Read.find_task id snapshot with
-  |Some task=>available_first
-    (map(observe snapshot s subject)(task_board_action snapshot id)++task_menu_actions task actions)
+  |Some task=>map(observe snapshot s subject)(task_board_action snapshot id)++task_menu_actions task actions
   |None=>[]end
- |CardActions _=>available_first actions
  |_=>actions end.
 Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with

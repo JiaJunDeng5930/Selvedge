@@ -190,7 +190,9 @@ Definition board_settings snapshot s parent :=match Read.board_configuration sna
  [Node(part parent "drafting-model")"drafting-model" "默认整理模型"Roles.Field
   (BoardProfile automatic selected choices
     (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[];
-  information parent "drafting-model-purpose" Information.Description "用于整理卡片的标题和描述。"])%list end.
+  information parent "drafting-model-purpose" Information.Description "用于整理卡片的标题和描述。";
+  declared parent Roles.Button(secondary "edit-board-title-prompt" "编辑卡片提示词"
+    (Input.OpenEditor (TitlePrompts BoardTitles) (part parent "edit-board-title-prompt")))])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities
@@ -388,7 +390,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with
     |State.SideConversationPanel _=>"side-conversation"
-    |State.EditorPanel Identity.TitlePrompts=>"settings-title-editor"
+    |State.EditorPanel (Identity.TitlePrompts _)=>"settings-title-editor"
     |State.EditorPanel(Identity.WorkName _)=>"work-name-editor"
     |State.NavigationPanel GlobalMenu=>"global-navigation-menu"
     |State.NavigationPanel WorkOverview=>"work-overview"

@@ -84,7 +84,7 @@ Definition view_overlays_with render_layer snapshot state capacity :=
  let render:=map render_layer in
  let '(settings_editors, workspace_layers):=partition
    (fun layer => match State.layer_panel layer with
-     | State.EditorPanel Identity.TitlePrompts => true | _ => false end)
+     | State.EditorPanel (Identity.TitlePrompts Identity.ConversationTitles) => true | _ => false end)
    (rev (Layers.visible_layers (State.layers (State.navigation_state state)))) in
  (* An editor launched from Settings returns to its settings row. Keep the
     settings layer beneath it, and keep service-owned pickers above both. *)

@@ -124,7 +124,7 @@ Definition panel_key panel:=match panel with
  |State.InformationPanel kind=>information_key kind
  |State.Confirmation _ _ _=>"confirm/cancel"end.
 Definition initial_attention panel:=match panel with
- |State.EditorPanel (Identity.TitlePrompts|Identity.Fork _|Identity.TaskGraph _ _)=>
+ |State.EditorPanel (Identity.TitlePrompts _|Identity.Fork _|Identity.TaskGraph _ _)=>
    (* Open at the visible introduction when the standard field is below it or collapsed. *)
    NavigationIdentity.key_part(panel_key panel)"heading"
  |State.InformationPanel(State.TaskDetails _)=>NavigationIdentity.key_part(panel_key panel)"heading"

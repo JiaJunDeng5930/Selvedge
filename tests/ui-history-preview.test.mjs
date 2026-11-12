@@ -30,6 +30,9 @@ test('conversation search excerpts show rendered text around a match and label s
   await taskIdle(fixture.running.service, task_id);
   await page.getByRole('button', { name: '搜索对话', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  await query.waitFor();
+  assert.equal(await page.getByText('搜索标题和消息正文，可按项目或工作组缩小范围。', { exact: true }).count(), 0,
+    'The initial search page does not repeat guidance already covered by its controls');
   const assistantHit = page.getByRole('button', { name: `${title} · 助手`, exact: true });
   const result = page.locator('[data-semantic-key="result"]').filter({
     has: assistantHit,

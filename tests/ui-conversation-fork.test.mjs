@@ -66,7 +66,14 @@ test('a conversation offers its fork at the end and Cancel restores the reading 
   const menu = page.getByRole('menu', { name: '对话操作', exact: true });
   let finishAssessment;
   const assessment = new Promise(resolve => { finishAssessment = resolve; });
-  await page.route('**/api/assess', async route => { await assessment; await route.continue(); });
+  let finishArchiveAssessment;
+  const archiveAssessment = new Promise(resolve => { finishArchiveAssessment = resolve; });
+  await page.route('**/api/assess', async route => {
+    const owner = route.request().postDataJSON()?.editor;
+    if (owner?.kind !== 'menu') return route.continue();
+    await (owner.action === 'archive' ? archiveAssessment : assessment);
+    await route.continue();
+  });
   try {
     await moreActions.press('Enter');
     await menu.waitFor();
@@ -75,10 +82,21 @@ test('a conversation offers its fork at the end and Cancel restores the reading 
     assert.deepEqual(firstActions, [
       { label: '添加到看板', available: true },
       { label: '压缩上下文', available: true },
-    ], 'Available actions come first while other actions are checked');
-    assert.equal(await menu.getByRole('button', { name: '暂停对话', exact: true }).isDisabled(), true);
+    ], 'Local actions are available while service checks run');
+    const pause = menu.getByRole('button', { name: '暂停对话', exact: true });
+    const archive = menu.getByRole('button', { name: '归档对话', exact: true });
+    assert.equal(await pause.isDisabled(), true);
+    const actionOrder = () => menu.getByRole('button').evaluateAll(buttons => buttons.map(button => button.id));
+    const openingOrder = await actionOrder();
+    finishArchiveAssessment();
+    await archive.and(page.locator(':not([aria-disabled="true"])')).waitFor();
+    assert.equal(await pause.isDisabled(), true);
+    assert.deepEqual(await actionOrder(), openingOrder,
+      'An earlier archive assessment leaves the menu in its original order');
   } finally {
+    finishArchiveAssessment();
     finishAssessment();
+    await page.unrouteAll({ behavior: 'wait' });
   }
   for (const name of ['暂停对话', '归档对话', '侧边对话', '压缩上下文']) {
     const action = menu.getByRole('button', { name, exact: true });

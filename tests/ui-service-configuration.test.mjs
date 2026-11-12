@@ -330,7 +330,7 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   assert.equal(await model.inputValue(), 'interactive-fixture');
   await page.setViewportSize({ width: 320, height: 360 });
   await page.evaluate(() => { document.documentElement.style.fontSize = '150%'; });
-  await provider.getByRole('radio', { name: 'ChatGPT', exact: true }).click();
+  await provider.getByRole('radio', { name: 'ChatGPT 账号', exact: true }).click();
   const overrides = editor.getByRole('button', { name: '自定义连接参数', exact: true });
   if ((await overrides.getAttribute('aria-expanded')) === 'false') await overrides.click();
   const timeout = editor.getByRole('textbox', { name: '超时（ms）', exact: true });
@@ -383,20 +383,49 @@ test('new model profiles start blank, hide the offline demo, and require a provi
   const editor = page.getByRole('dialog', { name: '新建模型配置', exact: true });
   const name = editor.getByRole('textbox', { name: '名称', exact: true });
   const model = editor.getByRole('textbox', { name: '模型', exact: true });
-  const provider = editor.getByRole('radiogroup');
+  const provider = editor.getByRole('radiogroup', { name: '提供方', exact: true });
+  const responses = provider.getByRole('radio', { name: 'Responses API', exact: true });
+  const account = provider.getByRole('radio', { name: 'ChatGPT 账号', exact: true });
+  const web = provider.getByRole('radio', { name: 'ChatGPT Web API', exact: true });
   const add = editor.getByRole('button', { name: '添加模型配置', exact: true });
 
   assert.equal(await model.inputValue(), '');
   assert.equal(await editor.getByRole('radio', { name: '离线回显', exact: true }).count(), 0);
-  assert.ok(await provider.getByRole('radio').count() > 0);
+  assert.equal(await provider.getByRole('radio').count(), 3);
   assert.equal(await provider.getByRole('radio', { checked: true }).count(), 0);
   assert.equal(await add.isEnabled(), false);
+
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 740 });
+    const rows = await Promise.all([responses, account, web].map(option => option.boundingBox()));
+    assert.ok(rows.every(row => row && row.x >= 0 && row.x + row.width <= width + 1));
+    assert.ok(rows.every(row => Math.abs(row.x - rows[0].x) < 1 && Math.abs(row.width - rows[0].width) < 1));
+    assert.ok(rows.slice(1).every((row, index) => row.y >= rows[index].y + rows[index].height));
+  }
 
   await name.fill('production');
   await model.fill('provider-model');
   assert.equal(await add.isEnabled(), false);
   await model.fill('');
-  await editor.getByRole('radio', { name: 'Responses API', exact: true }).click();
+  const details = editor.getByRole('button', { name: '自定义连接参数', exact: true });
+  const showDetails = async () => {
+    if ((await details.getAttribute('aria-expanded')) === 'false') await details.click();
+  };
+  const authFile = editor.getByRole('textbox', { name: '认证文件', exact: true });
+  const endpoint = editor.getByRole('textbox', { name: '端点', exact: true });
+  await responses.press('ArrowDown');
+  await account.and(provider.getByRole('radio', { checked: true })).waitFor();
+  await showDetails();
+  await authFile.waitFor();
+  assert.equal(await endpoint.count(), 0);
+  await account.press('ArrowDown');
+  await web.and(provider.getByRole('radio', { checked: true })).waitFor();
+  await showDetails();
+  await endpoint.waitFor();
+  await editor.getByRole('textbox', { name: 'API 密钥环境变量', exact: true }).waitFor();
+  assert.equal(await authFile.count(), 0);
+
+  await responses.click();
   assert.equal(await add.isEnabled(), false);
   await model.fill('   ');
   assert.equal(await add.isEnabled(), false);

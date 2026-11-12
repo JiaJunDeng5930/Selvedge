@@ -16,7 +16,6 @@ Inductive workspace_change := AddDirectory (path:string) | RemoveDirectory (path
 | ChoosePrimaryDirectory (path:string) | InheritWorkspace.
 Inductive selection_change := SelectionChanged | SelectionFocused | SelectionBlurred.
 Inductive input :=
-| ResetTitlePrompts
 | ToggleProjectGroup(project:N) | ToggleTaskBranches(task:N) | BeginTask(project:option N)
 | BeginGraphConversation | ReturnToGraphSetup
 | BeginVoiceNew(origin:editor) | SelectSharedTask(work:N)(task:option N)

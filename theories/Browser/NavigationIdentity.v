@@ -28,7 +28,9 @@ Definition editor_key (e : editor) : string :=
   | Fork t => "fork/" ++ show_natural t
   | Compact t => "compact/" ++ show_natural t
   | TaskGraph i w => "graph/" ++ id_text i ++ "/work/" ++ id_text w
-  | WorkName w => "work/" ++ id_text w | TitlePrompts => "title-prompts"
+  | WorkName w => "work/" ++ id_text w
+  | TitlePrompts ConversationTitles => "title-prompts"
+  | TitlePrompts BoardTitles => "board-title-prompt"
   end.
 Inductive task_view := PrimaryTask(task:N)|SideTask(task:N).
 Definition task_view_task view := match view with PrimaryTask task|SideTask task=>task end.

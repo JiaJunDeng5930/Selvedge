@@ -679,12 +679,6 @@ Definition step snapshot input state:option result:=match input with
  Some(keep(set_mention owner(SkillMention.move_mention(Z.ltb offset 0)(skill_items view)(skill_mention view))state))
 |Input.SkillDismiss owner=>Some(keep(set_mention owner(SkillMention.dismiss_mention(mention_for owner state))state))
 |Input.ClockObserved now=>Some(keep(SS.with_now(Some now)state))
-|Input.ResetTitlePrompts=>let state:=ensure_draft snapshot Identity.TitlePrompts state in
- let draft:=SS.current_draft state Identity.TitlePrompts in
- Some(match Draft.contents draft with
- |Draft.TitlePromptsBody revision _ _ profile=>keep(SS.save_draft(Draft.with_body
-   (Draft.TitlePromptsBody revision Selvedge.Features.Titles.instructions Selvedge.Features.Titles.instructions profile)draft)state)
- |_=>keep state end)
 |_=>None end.
 Definition visible_editors state:=
  let navigation:=SS.navigation_state state in

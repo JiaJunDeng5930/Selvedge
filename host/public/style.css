@@ -20,9 +20,9 @@
   --selvedge-success: light-dark(#426650, #a6c5b1);
   --selvedge-warning: light-dark(#775a2b, #e1bc7c);
   --selvedge-warning-border: light-dark(#d5bf9a, #776044);
-  --selvedge-danger: light-dark(#9e4037, #f3a39b);
-  --selvedge-danger-wash: light-dark(#f6e8e4, #4d302d);
-  --selvedge-danger-pressed: light-dark(#f0d9d3, #593733);
+  --selvedge-danger: light-dark(#a52d46, #ff879a);
+  --selvedge-danger-wash: light-dark(#f7e5ea, #4b2b35);
+  --selvedge-danger-pressed: light-dark(#f2d4dd, #5b3240);
   --selvedge-shadow: 0 8px 24px light-dark(#3b27161a, #100b0870);
 
   /* The native graphic palette and pre-rendering states share these colors. */

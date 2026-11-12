@@ -479,7 +479,7 @@ Definition overview root parent section services speech measuring groups :=
        (map (fun entry => form_setting id services speech entry measuring) (entries_for_paths services [instructions])
        ++ [row id "title-prompts" conversation_titles_label "选择生成标题的模型和提示词。"
            [declared root Roles.Button (secondary "title-prompts" "编辑标题设置"
-              (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
+              (Input.OpenEditor (TitlePrompts ConversationTitles) (part root "title-prompts")))] []])%list
      | LocalService => [local_connection id services]
      | ConfigurationSettings paths => render_entries (entries_for_paths services paths)
      | ContextSources =>
@@ -581,7 +581,12 @@ Definition view s :=
 
 Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=
  let id := part parent key in
- Node id key label Roles.Button
+ let role := match emphasis with
+   | Primary => Roles.PrimaryButton
+   | Secondary => Roles.Button
+   | Destructive => Roles.DestructiveButton
+   end in
+ Node id key label role
    (Activate (Control key label emphasis (Input.ServiceInput input)
      (if enabled then Available else Unavailable "当前不可用")))
    [information id "label" Information.OptionLabel caption].
@@ -609,7 +614,8 @@ Definition configuration_dialog generation id caption trigger fallback view
            primary]])])].
 
 Definition configuration_save id entry raw view enabled :=
- action id "save" "保存" Primary (save_enabled entry raw view enabled) Services.SetConfiguration.
+ configuration_action id "save" "保存" "保存" Primary
+   (save_enabled entry raw view enabled) Services.SetConfiguration.
 
 Definition collection_editor generation id entry draft view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in

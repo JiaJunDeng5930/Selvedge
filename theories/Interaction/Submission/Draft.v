@@ -23,7 +23,8 @@ Inductive body :=
 | ForkBody (task count : N) (messages : list string) (context : Context.configuration)
 | CompactBody (task : N) (summary : option string)
 | TaskGraphBody (graph : option N) (declaration : string) (parsed : option json) (work : option N)
-| TitlePromptsBody (revision : N) (task_prompt agent_prompt : string) (agent_profile : option string).
+| TitlePromptsBody (scope : title_prompt_scope) (revision : N)
+    (task_prompt agent_prompt : string) (agent_profile : option string).
 Inductive feedback := Editing | Accepted (revision : N) (reply : json)
 | Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string).
 Inductive selection_direction := DirectionNone | DirectionForward | DirectionBackward.
@@ -55,7 +56,7 @@ Definition owner value := match contents value with
 | ForkBody task _ _ _ => Identity.Fork task
 | CompactBody task _ => Identity.Compact task
 | TaskGraphBody graph _ _ work => Identity.graph_editor graph work
-| TitlePromptsBody _ _ _ _ => Identity.TitlePrompts end.
+| TitlePromptsBody scope _ _ _ _ => Identity.TitlePrompts scope end.
 Definition empty_text := Text "" [].
 Definition empty_workspace := Selvedge.Kernel.Domain.Workspace [] None.
 Definition new_card card title stage project := CardBody card 0
@@ -71,7 +72,7 @@ Definition new_body e := match e with
 | Identity.Compact task => CompactBody task None
 | Identity.TaskGraph id work => TaskGraphBody id "" None work
 | Identity.WorkName work => WorkNameBody work ""
-| Identity.TitlePrompts => TitlePromptsBody 0 "" "" None end.
+| Identity.TitlePrompts scope => TitlePromptsBody scope 0 "" "" None end.
 Definition new_draft e := Draft 0 (new_body e) Editing "" None.
 Definition with_body value d := Draft (N.succ (revision d)) value Editing (directory_entry d) (message_selection d).
 Definition with_directory_entry value d := Draft (revision d) (contents d) (draft_feedback d) value (message_selection d).

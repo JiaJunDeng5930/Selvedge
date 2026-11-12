@@ -18,6 +18,8 @@ Definition origin_choice source := match source with
 |Context.ProjectDefaults project=>String.append "project/" (show_natural project)
 |Context.ParentTask _=>"parent"
 |Context.ProjectForParent _ project=>String.append "parent-project/" (show_natural project) end.
+Definition title_prompt_field scope := match scope with
+| ConversationTitles => AgentTitlePrompt | BoardTitles => TaskTitlePrompt end.
 Definition fields e := match e with
 | Identity.NewTask _ => [MessageText; TaskEnvironment] ++ model_fields ++ context_fields
 | Identity.Message _ => [MessageText; DeliveryIntent]
@@ -30,7 +32,9 @@ Definition fields e := match e with
 | Identity.Compact _ => [CompactionSummary]
 | Identity.TaskGraph _ _ => [TaskGraphDeclaration]
 | Identity.WorkName _ => [WorkName]
-| Identity.TitlePrompts => [TaskTitlePrompt; AgentTitleProfile; AgentTitlePrompt] end.
+| Identity.TitlePrompts scope => match scope with
+  | ConversationTitles => [AgentTitleProfile; title_prompt_field scope]
+  | BoardTitles => [title_prompt_field scope] end end.
 Definition field_eq_dec : forall a b : field, {a=b}+{a<>b}.
 Proof. decide equality. Defined.
 Definition live_fields := model_fields++[SandboxMode;NetworkAccess;ApprovalPolicy;ApprovalReviewer].

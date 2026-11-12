@@ -90,11 +90,17 @@ dialog[data-semantic-key="project-editor"] {
 
 [data-semantic-key="handoff-route"] > div:first-child { grid-column: 1; }
 [data-semantic-key="handoff-route"] > div:last-child { grid-column: 3; }
+[data-semantic-key="handoff-route"] > div > select {
+  align-self: stretch !important;
+  block-size: auto !important;
+}
 
 [data-semantic-key="handoff-direction"] {
   display: grid !important;
   grid-area: 2 / 2;
-  place-items: center;
+  align-self: stretch !important;
+  block-size: auto !important;
+  place-items: center !important;
   min-block-size: 2rem;
   color: var(--selvedge-muted) !important;
 }
@@ -103,6 +109,10 @@ dialog[data-semantic-key="project-editor"] {
   :where([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
   flex: none !important;
 }
+
+/* A modal editor exposes focus on the field or action receiving it. */
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side])
+  > form[data-semantic-key="editor"]:focus-within { outline: none; }
 
 :is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side]):not(
   [data-semantic-key^="settings"], [data-semantic-key="task-navigation"],
@@ -116,10 +126,6 @@ dialog[data-semantic-key="project-editor"] {
   &:is(dialog):has(> :is([data-surface-role="dialog-body"], form[data-semantic-key="editor"])) {
     padding: 0 !important;
   }
-  /* A form exposes focus on the field or action receiving it. Its layout
-     wrapper must not draw a second ring across the dialog header. */
-  & > form[data-semantic-key="editor"]:focus-within { outline: none; }
-
   :is(&, & > form[data-semantic-key="editor"]) >
     :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
     padding-inline: var(--panel-inset) !important;
@@ -610,6 +616,7 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
 [data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {
   grid-column: 1 / -1;
   grid-row: 2;
+  max-inline-size: 100% !important;
 }
 [data-semantic-key="project-editor"] [data-semantic-key="workspace-member-actions"] {
   grid-column: 2;

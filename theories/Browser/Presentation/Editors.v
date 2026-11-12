@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Features Require Domain BoardFacts.
+From Selvedge.Features Require Domain BoardFacts Titles.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Browser.Session Require Services.
 From Selvedge.Browser Require Import NavigationIdentity.
@@ -27,7 +27,9 @@ Definition editor_title e := match e with
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
 |TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"编辑任务图"
-|WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
+|WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"
+|TitlePrompts ConversationTitles=>Settings.conversation_titles_label
+|TitlePrompts BoardTitles=>"卡片提示词" end.
 Definition submit_label snapshot draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>
  if Observe.delivery_responding(Observe.delivery_task snapshot e)
@@ -37,7 +39,7 @@ Definition submit_label snapshot draft e :=match Draft.contents draft with
 |CardForConversation _=>"添加卡片"
 |TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
-|Compact _=>"压缩"|TitlePrompts=>"保存"end end.
+|Compact _=>"压缩"|TitlePrompts _=>"保存"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
@@ -222,7 +224,7 @@ Definition editor_sections e :=match e with
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|Identity.Project _|CardForConversation _|WorkName _|TitlePrompts=>[]end.
+|Identity.Project _|CardForConversation _|WorkName _|TitlePrompts _=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
@@ -331,12 +333,26 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
     |None=>[]end in
    (quick++[editor_options parent "graph-options" "编辑 JSON 定义" declaration])%list
  end.
-Definition title_prompt_fields snapshot s parent :=
- let disclosure key label field := editor_options parent key label
-   (field_nodes snapshot s TitlePrompts (part parent key) [field]) in
- (field_nodes snapshot s TitlePrompts parent [Fields.AgentTitleProfile] ++
-  [disclosure "conversation-title-prompt" "自动生成对话标题" Fields.AgentTitlePrompt;
-   disclosure "board-card-title-prompt" "看板卡片起草与重新生成标题" Fields.TaskTitlePrompt])%list.
+Definition title_prompt_reset snapshot s scope parent : list (node Input.input) :=
+ let owner := TitlePrompts scope in
+ match UX.admit_subject owner (Parameters.name (Parameters.title_prompt_field scope)) with
+ |Some subject=>match Observe.observe_subject snapshot s subject, Input.assign_subject subject (JString Titles.instructions) with
+  |Fields.TextValue value, Some input=>if String.eqb value Titles.instructions then [] else
+   let label := match scope with
+    |ConversationTitles=>"恢复默认对话提示词"|BoardTitles=>"恢复默认卡片提示词" end in
+   [declared parent Roles.Button(Control "title-prompts/reset" label Secondary input
+     (if UX.action_pending (Observe.action_unit_for s owner) then Unavailable "请等待当前操作完成" else Available))]
+  |_,_=>[] end
+ |None=>[] end.
+Definition title_prompt_fields snapshot s scope parent :=
+ let owner := TitlePrompts scope in
+ let prompt := part parent "title-prompt" in
+ (match scope with
+  |ConversationTitles=>field_nodes snapshot s owner parent [Fields.AgentTitleProfile]
+  |BoardTitles=>[] end ++
+  [region parent "title-prompt" "" Roles.Section
+    (field_nodes snapshot s owner prompt [Parameters.title_prompt_field scope] ++
+     title_prompt_reset snapshot s scope prompt)])%list.
 Definition section_nodes snapshot s e parent :=
  match e with
  |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
@@ -344,18 +360,13 @@ Definition section_nodes snapshot s e parent :=
  |Fork task=>fork_editor snapshot s e parent task
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
- |TitlePrompts=>title_prompt_fields snapshot s parent
+ |TitlePrompts scope=>title_prompt_fields snapshot s scope parent
  |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
  end.
 Definition title_prompt_help e parent : list (node Input.input) := match e with
-|TitlePrompts=>
+|TitlePrompts ConversationTitles=>
  [information parent "title-prompts/help" Information.Description
    "对话标题根据首条消息生成。标题最多 36 个字符，更改只影响之后的生成。"]
-|_=>[]end.
-Definition title_prompt_reset e parent (pending:bool) : list (node Input.input) := match e with
-|TitlePrompts=>
- [declared parent Roles.Button(Control "title-prompts/reset" "恢复默认提示词" Secondary Input.ResetTitlePrompts
-   (if pending then Unavailable "请等待当前操作完成"else Available))]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
@@ -379,7 +390,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  |_=>[]end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
-   title_prompt_reset e parent (UX.action_pending unit) ++
    [assessment_nodes parent assessment] ++
    Composer.action_feedback parent unit (draft_feedback draft))%list in
  [dialog_header parent [title parent(editor_title e)];
@@ -387,6 +397,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

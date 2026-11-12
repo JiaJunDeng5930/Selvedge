@@ -171,6 +171,8 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const ordinaryHeadingBox = await ordinaryRoot.locator('[data-semantic-key="workspace-member-heading"]').boundingBox();
   assert.ok(repositoryActionsBox && nameBox && Math.abs(repositoryActionsBox.y - nameBox.y) <= 1,
     'The primary directory action aligns with its short name');
+  assert.ok(repositoryBox && fullPathBox.width >= repositoryBox.width - 20,
+    'The full path uses the available row width at a narrow viewport');
   assert.ok(ordinaryActionsBox && ordinaryHeadingBox && Math.abs(ordinaryActionsBox.y - ordinaryHeadingBox.y) <= 1,
     'The secondary directory actions align with their short name');
   assert.ok(repositoryBox && appendBox && appendBox.y >= repositoryBox.y + repositoryBox.height + 6,
@@ -178,6 +180,11 @@ test('Project worktree defaults require a committed Git primary only while enabl
   assert.equal(await ordinaryRoot.getByRole('button', { name: '设为主目录', exact: true }).count(), 1);
   assert.equal(await ordinaryRoot.getByRole('button', { name: '移除目录', exact: true }).count(), 1);
   await page.setViewportSize({ width: 1280, height: 900 });
+  const [desktopRepositoryBox, desktopPathBox] = await Promise.all([
+    repositoryRoot.boundingBox(), fullPath.boundingBox(),
+  ]);
+  assert.ok(desktopRepositoryBox && desktopPathBox && desktopPathBox.width >= desktopRepositoryBox.width - 20,
+    'The full path uses the available row width at a desktop viewport');
   await project.getByRole('region', { name: ordinary, exact: true })
     .getByRole('button', { name: '移除目录', exact: true }).click();
 
