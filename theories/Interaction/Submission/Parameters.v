@@ -67,7 +67,7 @@ Definition label field := match field with
 | CardAttachments => "附件" | ContinueCapture => "创建后继续添加"
 | AssistedCapture => "用模型整理标题和描述" | AssistanceProfile => "整理用的模型"
 | ForkCount => "Number of branches" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
-| TaskGraphDeclaration => "Graph JSON" | TaskTitlePrompt => "Task title prompt"
+| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "Task title prompt"
 | AgentTitlePrompt => "Conversation title prompt" | AgentTitleProfile => "Conversation title model" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary

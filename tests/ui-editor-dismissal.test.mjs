@@ -286,12 +286,12 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
-  const editTitlePrompts = settings.getByRole('button', { name: 'Edit title prompts', exact: true });
-  const titlePrompts = page.getByRole('dialog', { name: 'Conversation titles', exact: true });
+  const settings = page.getByRole('dialog', { name: '设置', exact: true });
+  const editTitlePrompts = settings.getByRole('button', { name: '编辑标题设置', exact: true });
+  const titlePrompts = page.getByRole('dialog', { name: '对话标题', exact: true });
   async function openTitlePrompts() {
     await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-      .getByRole('button', { name: 'Settings', exact: true }).click();
+      .getByRole('button', { name: '设置', exact: true }).click();
     await editTitlePrompts.click();
     return titlePrompts;
   }

@@ -208,18 +208,27 @@ Definition source_origin_matches e request panel:=match panel with
 |State.PropertyPanel actual requested=>same_editor e actual&&String.eqb(SessionNavigation.request_key request)(SessionNavigation.request_key requested)
 |State.EditorPanel actual=>same_editor e actual
 |_=>false end.
+Definition context_submenu panel origin:=match panel with
+ |State.PropertyPanel e request=>
+  (Activities.workspace_request request||Activities.project_request request)&&
+  run_environment_panel e origin
+ |_=>false end.
 Fixpoint visible_layers(layers:list State.layer):list State.layer:=match layers with
 |[]=>[]
 |layer::rest=>let shown:=visible_layers rest in
  match State.layer_panel layer,rest,shown with
  |State.InformationPanel(State.PropertySource e request),origin::_,_::others=>
   layer::if source_origin_matches e request(State.layer_panel origin)then others else shown
+ |panel,origin::_,_::others=>
+  layer::if context_submenu panel(State.layer_panel origin)then others else shown
  |_,_,_=>layer::shown end end.
 Fixpoint layers_after occurrence(layers:list State.layer):list State.layer:=match layers with
 |[]=>[]|layer::rest=>if N.eqb occurrence(State.layer_occurrence layer)then rest else layers_after occurrence rest end.
 Definition anchor s layer:=match State.layer_panel layer,layers_after(State.layer_occurrence layer)(State.layers(State.navigation_state s))with
 |State.InformationPanel(State.PropertySource e request),origin::_=>
  if source_origin_matches e request(State.layer_panel origin)then State.layer_trigger origin else State.layer_trigger layer
+|panel,origin::_=>
+ if context_submenu panel(State.layer_panel origin)then State.layer_trigger origin else State.layer_trigger layer
 |_,_=>State.layer_trigger layer end.
 Definition behavior s capacity layer :=
  let kind:=panel_kind capacity(State.layer_panel layer)in

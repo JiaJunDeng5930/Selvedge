@@ -41,6 +41,18 @@
 }
 .physical-markdown .markdown :where(ul, ol) { padding-inline-start: var(--physical-list-indent); }
 .physical-markdown .markdown li { margin: 0; padding: 0; }
+.physical-markdown .markdown li:has(> input[type="checkbox"]) {
+  position: relative;
+  list-style: none;
+}
+.physical-markdown .markdown li > input[type="checkbox"] {
+  position: absolute;
+  inset-inline-end: calc(100% + .4em);
+  inset-block-start: calc((1lh - .9em) / 2);
+  inline-size: .9em;
+  block-size: .9em;
+  margin: 0;
+}
 .physical-markdown .markdown a { color: var(--selvedge-accent); text-underline-offset: .16em; }
 .physical-markdown .markdown .code-block {
   box-sizing: border-box;

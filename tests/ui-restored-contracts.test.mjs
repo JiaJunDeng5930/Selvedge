@@ -180,6 +180,10 @@ test('model charts and range controls keep their values readable', { timeout: 60
 <stack id="report">
 <line-chart id="monthly" data={[{id:"a",month:"Jan",value:2},{id:"b",month:"Feb",value:3}]}
  row-key="id" x="month" y="value" x-label="Month" y-label="Value" />
+<bar-chart id="revenue" label="各产品收入对比"
+ data={[{id:"a",product:"产品 A",income:2},{id:"b",product:"产品 B",income:3},{id:"c",product:"产品 C",income:5},
+ {id:"d",product:"产品 D",income:6},{id:"e",product:"产品 E",income:7},{id:"f",product:"产品 F",income:8}]}
+ row-key="id" x="product" y="income" x-label="产品" y-label="收入（万元）" />
 <slider id="seats-slider" bind="seats" label="Seats" />
 </stack>
 </ui>`;
@@ -191,12 +195,61 @@ test('model charts and range controls keep their values readable', { timeout: 60
   fixture.finish(index, { text: '```selvedge-ui\n' + source + '\n```' });
   await taskIdle(fixture.running.service, task_id);
   await selectTask(fixture, task_id);
-  const table = page.getByRole('main').getByRole('table');
+  const main = page.getByRole('main');
+  const line = main.getByRole('img', { name: /^Value \/ Month/ });
+  const bars = main.getByRole('img', { name: /^收入（万元） \/ 产品/ });
+  await line.getByText('Jan', { exact: true }).waitFor();
+  assert.equal(await line.getByText('Feb', { exact: true }).isVisible(), true);
+  assert.equal(await line.getByText('0', { exact: true }).isVisible(), true);
+  assert.equal(await line.getByText('3', { exact: true }).isVisible(), true);
+  await bars.getByText('收入（万元）', { exact: true }).waitFor();
+  for (const product of ['产品 A', '产品 B', '产品 C', '产品 D', '产品 E', '产品 F']) {
+    assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
+  }
+  const barChart = bars.locator('xpath=../..');
+  const geometry = await bars.evaluate(svg => {
+    const lines = Array.from(svg.querySelectorAll('line'));
+    const yAxis = lines.find(line => line.x1.baseVal.value === line.x2.baseVal.value);
+    const baseline = Math.max(...lines.filter(line => line !== yAxis).map(line => line.y1.baseVal.value));
+    const path = svg.querySelector('path');
+    const plot = path.getBBox();
+    const summary = svg.parentElement.parentElement.querySelector('summary');
+    return {
+      endsAtBaseline: yAxis.y2.baseVal.value === baseline && plot.y + plot.height === baseline,
+      quietAxis: Number(getComputedStyle(yAxis).opacity) < 1,
+      accent: path.getAttribute('fill'),
+      gap: summary.getBoundingClientRect().top - svg.getBoundingClientRect().bottom,
+    };
+  });
+  assert.equal(geometry.endsAtBaseline, true, 'A positive chart ends both the bars and y axis at zero');
+  assert.equal(geometry.quietAxis, true);
+  assert.equal(geometry.accent, 'var(--color-token-icon-accent)');
+  assert.ok(geometry.gap >= 0 && geometry.gap <= 12, 'The chart does not reserve a blank area below the plot');
+  const lineChart = line.locator('xpath=../..');
+  const disclosure = lineChart.getByText('查看数据', { exact: true });
+  assert.equal(await barChart.getByRole('table').isVisible(), false);
+  assert.equal(await lineChart.getByRole('table').isVisible(), false);
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  const table = lineChart.getByRole('table', { name: '图表数据', exact: true });
   await table.waitFor();
   assert.equal(await table.evaluate(node => node.localName), 'table', 'Passive chart data uses a native accessible table');
   assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['Month', 'Value']);
   assert.equal(await table.getByRole('row').count(), 3, 'The header and both source data rows remain readable');
   assert.deepEqual(await table.getByRole('cell').allTextContents(), ['Jan', '2', 'Feb', '3']);
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await table.waitFor({ state: 'hidden' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await bars.getByText('产品 F', { exact: true }).waitFor();
+  const fits = await bars.evaluate(svg => {
+    const bounds = svg.getBoundingClientRect();
+    return Array.from(svg.querySelectorAll('text')).every(label => {
+      const rect = label.getBoundingClientRect();
+      return rect.left >= bounds.left && rect.right <= bounds.right;
+    });
+  });
+  assert.equal(fits, true, 'Axis text fits the plotted surface on narrow screens');
   const seats = page.getByRole('slider', { name: 'Seats', exact: true });
   const shownValue = value => seats.locator('..').getByText(value, { exact: true });
   await shownValue('8').waitFor();

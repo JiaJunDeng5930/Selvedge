@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { browserFixture } from './fixtures/browser.mjs';
+import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
 
 async function postPublicCommand(running, command) {
   const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
@@ -51,14 +51,18 @@ test('a submitted Task survives directory preparation while newer writing and na
     await route.fulfill({ response });
   });
   await openProjectTask(fixture, 'Captured submission Project', workspace);
-  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
+  const environment = await openCreationEnvironment(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
   const directories = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await directories.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await directories.getByRole('textbox', { name: 'Directory path', exact: true }).fill(workspace);
   await directories.getByRole('button', { name: 'Add directory', exact: true }).click();
   await directories.getByText(workspace, { exact: true }).waitFor();
   await page.keyboard.press('Escape');
+  await directories.waitFor({ state: 'hidden' });
+  await environment.waitFor();
+  await page.keyboard.press('Escape');
+  await environment.waitFor({ state: 'hidden' });
   const draft = page.getByRole('combobox', { name: 'Task', exact: true });
   await draft.fill('Run exactly this captured submission.');
   const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')

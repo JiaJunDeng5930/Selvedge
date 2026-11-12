@@ -249,13 +249,17 @@ function synchronizeNativeAuthority() {
   }
 }
 let suspendedPrefixFocus = null;
+function synchronizePrefixActions() {
+  if (renderer.prefixActions.size) renderer.synchronizePrefixActions(!prefixAdmitted(renderer.generation));
+}
 function synchronizePrefixAuthority() {
-  if (!renderer.prefixFields.size && !suspendedPrefixFocus) return;
+  if (!renderer.prefixFields.size && !renderer.prefixActions.size && !suspendedPrefixFocus) return;
   const inert = !prefixAdmitted(renderer.generation);
   const node = document.activeElement;
   if (inert && renderer.prefixFields.has(node) && !node.inert)
     suspendedPrefixFocus = { node, attempt: focusRequest };
   renderer.synchronizePrefixFields(inert);
+  renderer.synchronizePrefixActions(inert);
   if (!inert && suspendedPrefixFocus) {
     const retained = suspendedPrefixFocus;
     suspendedPrefixFocus = null;
@@ -345,6 +349,7 @@ function present(local) {
   const measuringDocument = measuring && renderer.document;
   const deferRender = () => {
     if (publication.native_displayed_generation === null) synchronizeNativeAuthority();
+    synchronizePrefixActions();
     // A single transaction can still publish its local update after the
     // measurement. Multiple transactions require the complete current view.
     renderAfterMeasurement = { local: renderAfterMeasurement ? null : local };
@@ -397,7 +402,7 @@ function present(local) {
       synchronizePrefixAuthority();
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
-  }
+  } else synchronizePrefixActions();
   if (!streamed) { reveal(); motion.refresh(); retryHistoryLocation(); layoutReading(); }
 }
 function schedulePhysicalRefresh() {
@@ -528,8 +533,9 @@ const renderer = new Renderer(surface, {
       }
       return;
     }
-    if (node.dataset.prefixField === 'true' && !prefixAdmitted(generation)) {
-      renderer.restorePrefixField(key);
+    if ((node.dataset.prefixField === 'true' || node.dataset.prefixAction === 'true') && !prefixAdmitted(generation)) {
+      if (node.dataset.prefixField === 'true') renderer.restorePrefixField(key);
+      else event.preventDefault();
       return;
     }
     if (binding.kind === 'files') {

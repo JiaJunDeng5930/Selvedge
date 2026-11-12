@@ -9,19 +9,20 @@ From Selvedge.Browser.Session Require Configuration Speech.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
-From Selvedge.Browser.Presentation Require Roles Information ModelProfiles ConfigurationForms.
+From Selvedge.Browser.Presentation Require Roles Information ModelProfiles ConfigurationForms Navigation.
 Import ListNotations.
 Open Scope string_scope.
 
 Module Config := Configuration.Config.
 
 Definition settings_root := "/settings".
+Definition conversation_titles_label := "对话标题".
 
 Definition section_label section :=
  match section with
- | SettingsGeneral => "General" | SettingsModels => "Models" | SettingsTools => "Connectors"
- | SettingsExtensions => "Extensions"
- | SettingsTasks => "Tasks" | SettingsContext => "Context" | SettingsConnection => "Service"
+ | SettingsGeneral => "常规" | SettingsModels => "模型" | SettingsTools => "连接器"
+ | SettingsExtensions => "扩展"
+ | SettingsTasks => "任务" | SettingsContext => "上下文" | SettingsConnection => "服务"
  end.
 Definition same_section left right :=
  String.eqb (settings_section_name left) (settings_section_name right).
@@ -43,7 +44,7 @@ Definition section_design section : settings_section_design :=
  match section with
  | SettingsGeneral => SectionDesign None
    [("appearance", "", AppearanceSettings);
-    ("conversation", "Conversation defaults", ConversationSettings ["instructions"])]
+    ("conversation", "对话默认设置", ConversationSettings ["instructions"])]
  | SettingsModels => SectionDesign (Some ("model-configurations", ["profiles"]))
    [("model-services", "", ConfigurationSettings [["chatgpt"]; ["reasoning_evaluators"]])]
  | SettingsTools => SectionDesign (Some ("tool-connections", ["mcp"]))
@@ -51,17 +52,17 @@ Definition section_design section : settings_section_design :=
  | SettingsExtensions => SectionDesign None
    [("tool-sources", "", ConfigurationSettings [["plugins"]; ["skills"]])]
  | SettingsTasks => SectionDesign None
-   [("limits", "Task limits", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
+   [("limits", "任务限制", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
     ("workspaces", "", ConfigurationSettings [["cloud"]])]
  | SettingsContext => SectionDesign None
-   [("compaction", "Context compaction",
+   [("compaction", "上下文压缩",
       ConfigurationSettings [["compaction"; "enabled"]; ["compaction"; "background_percent"];
        ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]);
     ("model-limits", "", ConfigurationSettings [["compaction"; "targets"]]);
-    ("sources", "Context sources", ContextSources)]
+    ("sources", "上下文来源", ContextSources)]
  | SettingsConnection => SectionDesign None
    [("connection", "", LocalService);
-    ("binding", "Listen on this device", ConfigurationSettings [["host"]; ["port"]]);
+    ("binding", "本机监听", ConfigurationSettings [["host"]; ["port"]]);
     ("remote", "", ConfigurationSettings [["remote"]])]
  end.
 
@@ -98,7 +99,7 @@ Definition section_for path :=
 
 Definition copy path : string * string :=
  match path with
- | ["instructions"] => ("Instructions", "Standing guidance supplied to tasks by the local service.")
+ | ["instructions"] => ("对话指引", "适用于新建对话。")
  | ["profiles"] => ("Model profiles", "Choose the providers and models available to tasks.")
  | ["chatgpt"] => ("ChatGPT model access", "Choose whether tasks can use models from your ChatGPT account.")
  | ["reasoning_evaluators"] => ("Reasoning evaluators", "Services that assess adaptive reasoning.")
@@ -122,7 +123,7 @@ Definition copy path : string * string :=
 Definition open_label path :=
  match path with
  | ["chatgpt"] => "Configure access" | ["remote"] => "Configure relay"
- | ["instructions"] => "Edit instructions"
+ | ["instructions"] => "编辑指引"
  | ["cloud"] => "Configure cloud" | ["compaction"; "targets"] => "Edit limits"
  | ["skills"] => "Edit sources" | _ => "Edit " ++ fst (copy path)
  end.
@@ -133,7 +134,7 @@ Definition save_label path :=
  | ["mcp"] => "Save servers" | ["plugins"] => "Save plugins" | ["skills"] => "Save sources"
  | ["remote"] => "Save relay" | ["cloud"] => "Save cloud settings"
  | ["compaction"; "targets"] => "Save limits"
- | ["instructions"] => "Save instructions" | ["host"] => "Save address" | ["port"] => "Save port"
+ | ["instructions"] => "保存指引" | ["host"] => "Save address" | ["port"] => "Save port"
  | _ => "Save"
  end.
 
@@ -406,21 +407,20 @@ Definition appearance_sample parent key : node Input.input :=
  region parent key "" Roles.Decorative
    [region sample "theme-sample-rail" "" Roles.Decorative
       [text rail "theme-sample-brand" "Selvedge";
-       text rail "theme-sample-task" "All Tasks"];
+       text rail "theme-sample-task" Navigation.all_conversations_label];
     region sample "theme-sample-main" "" Roles.Decorative
-      [text main "theme-sample-title" "New task";
+      [text main "theme-sample-title" Navigation.new_conversation_label;
        region main "theme-sample-composer" "" Roles.Decorative
-         [text composer "theme-sample-prompt" "Describe a task…";
-          text composer "theme-sample-mode" "Ask";
+         [text composer "theme-sample-prompt" "输入消息…";
           text composer "theme-sample-send" "↑"]]].
 
 Definition appearance parent current :=
  let section := part parent "theme" in
  let id := part (part section "settings-controls") "theme-options" in
- let themes := [("Light", Appearance.LightAppearance); ("Match system", Appearance.SystemAppearance); ("Dark", Appearance.DarkAppearance)] in
+ let themes := [("浅色", Appearance.LightAppearance); ("跟随系统", Appearance.SystemAppearance); ("深色", Appearance.DarkAppearance)] in
  named_region parent "theme" ""
-   [group_title section "Appearance";
-    Node id "theme-options" "Color theme" Roles.Section ChoiceGroup
+   [group_title section "外观";
+    Node id "theme-options" "颜色主题" Roles.Section ChoiceGroup
      (map (fun '(label, theme) =>
         let key := Appearance.appearance_name theme in
         let choice := part id key in
@@ -459,8 +459,8 @@ Definition overview root parent section services speech measuring groups :=
      | AppearanceSettings => if measuring then [] else [appearance id (Services.theme services)]
      | ConversationSettings instructions =>
        (map (fun entry => form_setting id services speech entry measuring) (entries_for_paths services [instructions])
-       ++ [row id "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
-           [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
+       ++ [row id "title-prompts" conversation_titles_label "选择生成标题的模型和提示词。"
+           [declared root Roles.Button (secondary "title-prompts" "编辑标题设置"
               (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
      | LocalService => [local_connection id services]
      | ConfigurationSettings paths => render_entries (entries_for_paths services paths)
@@ -490,8 +490,8 @@ Definition draft_notice parent section view :=
    if (Configuration.has_unsaved_work view || Configuration.pending view) && negb (same_section section owner) then
      let id := part parent "draft-notice" in
      [named_region parent "draft-notice" ""
-       [note id "description" ("Editing " ++ fst (copy path) ++ " in " ++ section_label owner ++ ".");
-        button id "return-to-edit" "Return to edit" true (Services.SelectSettingsSection owner)]]
+       [note id "description" ("正在编辑「" ++ fst (copy path) ++ "」（" ++ section_label owner ++ "）。");
+        button id "return-to-edit" "返回编辑" true (Services.SelectSettingsSection owner)]]
    else []
  | None => []
  end.
@@ -504,7 +504,7 @@ Definition navigation parent current : list (node Input.input) :=
    Node (part id key) "settings-category" label Roles.Button
      (Choice SingleChoice (same_section current section) ""
        (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
- [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup
+ [Node id "settings-nav" "设置分类" Roles.Section ChoiceGroup
    (map section_choice settings_sections)].
 
 (* The same category choice moves from the rail to the settings heading
@@ -512,7 +512,7 @@ Definition navigation parent current : list (node Input.input) :=
 Definition compact_navigation parent current :=
  let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) settings_sections in
  named_region parent "settings-mobile-nav" ""
-   [Node (part parent "settings-section-picker") "settings-section-picker" "Settings section" Roles.Field
+   [Node (part parent "settings-section-picker") "settings-section-picker" "设置分类" Roles.Field
      (ConfigurationField false (settings_section_name current) (Some options) true
        (fun value => option_map (fun section => Input.ServiceInput (Services.SelectSettingsSection section))
          (bind (as_string value) decode_settings_section))) []].
@@ -549,14 +549,14 @@ Definition view s :=
    let root := settings_root in
    let body := part root "body" in
    let section := Services.settings_section services in
-   [Node root "settings" "Settings" Roles.Dialog
+   [Node root "settings" Navigation.settings_label Roles.Dialog
       (LayerRegion (LayerBehavior ModalDialog false (State.generation (State.navigation_state s))
         (part root "close") (Services.settings_focus_target trigger) "/main" trigger
         (Input.ServiceInput Services.CloseSettings) true true))
       [dialog_header root
          [named_region root "settings-identity" ""
-           [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
-            title root "Settings"];
+           [declared root Roles.Button (secondary "close" "关闭设置" (Input.ServiceInput Services.CloseSettings));
+            title root Navigation.settings_label];
           compact_navigation root section];
        dialog_body root (navigation body section ++ [documents root body section services (State.speech_state s)])]]
  end.

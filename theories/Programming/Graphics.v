@@ -5,6 +5,9 @@ Open Scope string_scope.
 Open Scope list_scope.
 Inductive tone:=Neutral|Accent|Success|Warning|Danger|Muted.
 Definition tone_name t:=match t with Neutral=>"neutral"|Accent=>"accent"|Success=>"success"|Warning=>"warning"|Danger=>"danger"|Muted=>"muted"end.
+Inductive label_anchor := LabelStart | LabelMiddle | LabelEnd.
+Definition label_anchor_name anchor :=
+ match anchor with LabelStart=>"start"|LabelMiddle=>"middle"|LabelEnd=>"end" end.
 Inductive primitive(Action:Type):Type:=
 | Line(x1 y1 x2 y2:Z)(color:tone)
 | CubicCurve(x1 y1 c1x c1y c2x c2y x2 y2:Z)(arrow:bool)(color:tone)
@@ -14,7 +17,7 @@ Inductive primitive(Action:Type):Type:=
 | FilledPath(data:string)(color:tone)
 | Rectangle(x y:Z)(width height:N)(color:tone)
 | Circle(x y:Z)(radius:N)(color:tone)
-| Label(x y:Z)(text:string)(color:tone)
+| Label(x y:Z)(anchor:label_anchor)(text:string)(color:tone)
 | Hitbox(key:string)(x y:Z)(width height:N)(label:string)(action:Action).
 Arguments Line {Action}.
 Arguments CubicCurve {Action}.
@@ -50,7 +53,7 @@ Definition encode_primitive{A}(encode_action:A->json)(p:primitive A):json:=
  | FilledPath data color=>pack "filled-path"[("data",JString data);("tone",JString(tone_name color))]
  | Rectangle x y width height color=>pack "rect"(position x y++[("width",extent width);("height",extent height);("tone",JString(tone_name color))])
  | Circle x y radius color=>pack "circle"(position x y++[("radius",extent radius);("tone",JString(tone_name color))])
- | Label x y text color=>pack "text"(position x y++[("text",JString text);("tone",JString(tone_name color))])
+ | Label x y anchor text color=>pack "text"(position x y++[("anchor",JString(label_anchor_name anchor));("text",JString text);("tone",JString(tone_name color))])
  | Hitbox key x y width height label action=>pack "hitbox"(position x y++[("key",JString key);("width",extent width);("height",extent height);("label",JString label);("action",encode_action action)])end.
 Definition encode{A}encode_action(p:plot A):json:=JObject[("width",extent(Npos p.(width)));("height",extent(Npos p.(height)));
  ("primitives",JArray(map(encode_primitive encode_action)p.(primitives)))].
@@ -58,7 +61,7 @@ Definition map_primitive_with_key{A B}(key:string->string)(f:A->B)(p:primitive A
  |Line x y u v t=>Line x y u v t
  |CubicCurve x y c1x c1y c2x c2y u v arrow t=>CubicCurve x y c1x c1y c2x c2y u v arrow t
  |StrokePath data t=>StrokePath data t|FilledPath data t=>FilledPath data t
- |Rectangle x y w h t=>Rectangle x y w h t|Circle x y r t=>Circle x y r t|Label x y text t=>Label x y text t
+ |Rectangle x y w h t=>Rectangle x y w h t|Circle x y r t=>Circle x y r t|Label x y anchor text t=>Label x y anchor text t
  |Hitbox identity x y w h label a=>Hitbox(key identity)x y w h label(f a)end.
 Definition map_primitive{A B}(f:A->B):primitive A->primitive B:=map_primitive_with_key(fun key=>key)f.
 Definition map_actions{A B}(f:A->B)(p:plot A):plot B:=Plot p.(width)p.(height)(map(map_primitive f)p.(primitives)).
@@ -68,6 +71,8 @@ Definition opt_bind{A B}(value:option A)(f:A->option B):=match value with Some v
 Notation "x <-o a ;; b" :=(opt_bind a(fun x=>b))(at level 100,a at next level,right associativity).
 Definition decode_tone source:=name <-o string_field "tone"source;;
  find(fun t=>String.eqb(tone_name t)name)[Neutral;Accent;Success;Warning;Danger;Muted].
+Definition decode_label_anchor source:=name <-o string_field "anchor" source;;
+ find(fun anchor=>String.eqb(label_anchor_name anchor)name)[LabelStart;LabelMiddle;LabelEnd].
 Definition z_field name source:=text <-o number_field name source;;parse_integer text.
 Definition n_field name source:=text <-o number_field name source;;parse_natural text.
 Definition decode_primitive(source:json):option(primitive json):=
@@ -90,7 +95,8 @@ Definition decode_primitive(source:json):option(primitive json):=
  else if String.eqb kind "circle"then
  x <-o z_field "x"source;;y <-o z_field "y"source;;r <-o n_field "radius"source;;t <-o decode_tone source;;Some(Circle x y r t)
  else if String.eqb kind "text"then
- x <-o z_field "x"source;;y <-o z_field "y"source;;text <-o string_field "text"source;;t <-o decode_tone source;;Some(Label x y text t)
+ x <-o z_field "x"source;;y <-o z_field "y"source;;anchor <-o decode_label_anchor source;;
+ text <-o string_field "text"source;;t <-o decode_tone source;;Some(Label x y anchor text t)
  else if String.eqb kind "hitbox"then
  key <-o string_field "key"source;;x <-o z_field "x"source;;y <-o z_field "y"source;;w <-o n_field "width"source;;h <-o n_field "height"source;;
  label <-o string_field "label"source;;action <-o field "action"source;;Some(Hitbox key x y w h label action)

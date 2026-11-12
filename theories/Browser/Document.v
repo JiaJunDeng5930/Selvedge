@@ -264,7 +264,8 @@ Definition graphic_primitive {A} generation (value:Graphics.primitive A) :=
  |Graphics.FilledPath data color=>element "" "path" [("d",data);("fill",graphic_tone color)] [] []
  |Graphics.Rectangle x y w h color=>element "" "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill",graphic_tone color)]) [] []
  |Graphics.Circle x y radius color=>element "" "circle" [("cx",show_integer x);("cy",show_integer y);("r",text_number radius);("fill",graphic_tone color)] [] []
- |Graphics.Label x y text color=>element "" "text" (position x y ++ [("fill",graphic_tone color)]) [] [DOM.Text text]
+ |Graphics.Label x y anchor text color=>element "" "text"
+  (position x y ++ [("text-anchor",Graphics.label_anchor_name anchor);("fill",graphic_tone color)]) [] [DOM.Text text]
  |Graphics.Hitbox key x y w h label _=>element key "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill","transparent");("tabindex","0");("role","button");("aria-label",label)]) [event key generation "click" "activate" Gesture.Press;event key generation "keydown" "press_key" Gesture.Press] []
  end.
 Definition layer_metadata {A} key (behavior:Model.layer_behavior A) :=
@@ -327,6 +328,7 @@ Definition icon_only purpose area := let purpose:=C.action_purpose purpose in ma
  |C.WorkCreation,DialogArea|C.WorkCreation,DialogActionsArea|C.WorkCreation,TouchNavigationArea
  |C.Dismiss,DialogActionsArea=>false
  |C.WorkCreation,_|C.EditItem,NavigationArea|C.EditItem,TouchNavigationArea
+ |C.ForkTask,PageArea|C.ForkTask,DialogArea
  |C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
  |C.ActivityBack,_
  |C.ProjectTaskCreation,NavigationArea|C.ProjectTaskCreation,TouchNavigationArea|C.CreateItem,BoardLaneArea
@@ -413,6 +415,7 @@ Definition meaning_geometry {A} (describe : A -> C.purpose) env activity role ar
   | _, _ => [] end.
 Definition purpose_attributes purpose := match purpose with
  |C.DialogTrigger _ expanded=>[("aria-haspopup","dialog");("aria-expanded",flag expanded)]
+ |C.AuthoredAction=>[("data-prefix-action","true")]
  |C.MoreActions expanded|C.ChooseValue expanded|C.WorkspacePicker expanded=>[("aria-haspopup","true");("aria-expanded",flag expanded)]
  |C.OpenPanel _ menu expanded=>[("aria-haspopup",if menu then "menu"else"dialog");("aria-expanded",flag expanded)]
  |C.ActivityDestination=>[("data-activity-destination","")]
@@ -710,8 +713,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      |_=>activity end end in
  let authored_children:=children in
  let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
- let supporting:=match meaning with S.PageRegion Composition.CreationContext _=>false
-  |_=>match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end end in
+ let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value) label role ++
@@ -999,7 +1001,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (map(fun text=>DOM.Element "" "th" [("scope","col")] table_cell_properties [] empty [DOM.Text text])headings)];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
  (map(fun row=>DOM.Element "" "tr" [] [] [] empty (map(fun text=>DOM.Element "" "td" [] table_cell_properties [] empty [DOM.Text text])row))rows)])
- |S.InteractivePlacement placement=>element "div" [] [] empty children
+ |S.InteractivePlacement placement=>element "div"
+   (match placement with
+    |IP.ChartViewport=>[("data-chart-viewport","");("tabindex","0");("role","region")]
+    |_=>[] end) [] empty children
  |S.ReadingTimeline task_view reader_generation=>element "section"
  [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
@@ -1008,15 +1013,25 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.MovableCard _ _=>DOM.Text ""
  |S.InteractiveNode c=>
  let properties:=IP.component_properties c in
+ let tag:=Vocabulary.component_tag(Expand.description properties) in
  let motion:=Expand.property_text "motion" properties in
- let common:=[("data-interactive-component",Vocabulary.component_tag(Expand.description properties));
+ let common:=[("data-interactive-component",tag);
  ("data-interactive-key",key);("data-interactive-transition",Expand.property_text "transition" properties)] in
- let children:=if String.eqb(Vocabulary.component_tag(Expand.description properties))"resource-view"
+ let children:=if String.eqb tag "resource-view"
    then interactive_status env activity (String.append key "/@stale") "data-interactive-stale" "连接已断开，显示上次同步状态"::children
    else children in
+ let row_attributes:=if String.eqb tag "row-layout" then
+  let animated:=existsb (fun child=>match S.node_meaning child with
+  |S.InteractiveNode component=>let props:=IP.component_properties component in
+    let effect:=Expand.property_text "motion" props in
+    String.eqb effect "pulse" || String.eqb effect "spin" ||
+    String.eqb (Expand.property_text "transition" props) "status"
+  |_=>false end) (S.node_children value) in
+  ("data-native-responsive-row",key)::
+   (if animated then [("data-native-equal-columns","");("data-native-row-direction","column")] else [])
+  else [] in
  let native:=element (role_tag role)
- (common ++ if String.eqb(Vocabulary.component_tag(Expand.description properties))"row-layout"
- then [("data-native-responsive-row",key)] else []) [] empty children in
+ (common ++ row_attributes) [] empty children in
  if String.eqb motion "spin" then
  DOM.Element (String.append key "/motion") "div" [("data-interactive-motion",motion)]
  [("display","flex");("flex-direction","row");("gap","6px");("align-items","center");("min-inline-size","0")]
@@ -1029,7 +1044,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (map(fun column=>let identity:=IP.column_key key column in DOM.Element identity "th"
  [("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)] table_cell_properties [] empty
  (match IP.column_sort column with None=>[DOM.Text(IP.column_heading column)]|Some _=>
- [DOM.Element (identity++"/control")%string "button" ([("type","button")]++disabled(IP.column_enabled column))
+ [DOM.Element (identity++"/control")%string "button" ([("type","button");("data-prefix-action","true")]++disabled(IP.column_enabled column))
  (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
  (map(fun row=>let row_key:=NavigationIdentity.key_part key(IP.row_identity row) in
@@ -1099,6 +1114,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label];
     DOM.Element (key++"/body")%string "div" [("data-editor-options-body","")]
       [] [] empty children]
+ |S.ContentDisclosure=>DOM.Element key "details" attrs styles [] empty
+   (DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label]::children)
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true
@@ -1120,7 +1137,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text value]in
  let optional part value:=if String.eqb value ""then[]else[text part value]in
  let row part (responsive:bool) content:=DOM.Element(key++"/"++part)%string "div"
- (if responsive then[("data-native-responsive-row",(key++"/"++part)%string)]else[])
+ ([("data-card-row",part)]++if responsive then[("data-native-responsive-row",(key++"/"++part)%string)]else[])
  (Layout.row_properties(if responsive then Layout.Vertical else Layout.Horizontal)++[("gap",Typography.px(Typography.scaled(Layout.root_font_size_milli env)12));("min-inline-size","0")]) [] empty content in
  let paired:=combine(S.node_children value)children in
  let opened:=card_part describe false paired in
@@ -1128,18 +1145,23 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let grip:=if movable then
    [DOM.Element (key++"/grip")%string "span" [("data-card-grip","");("title","拖动卡片");("aria-hidden","true")]
      [] [] empty (glyph "grip")] else [] in
+ let context:=optional "project"(Model.card_project face)++
+   map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face)in
  DOM.Element key "article" (attrs++[("data-card-id",text_number(Model.card_identity face));("data-card-title",Model.card_title face);
  ("draggable",flag movable);("data-drop-target",key)]) styles [] (card_drag generation movement)
- (grip++[row "metadata" true
- ([text "reference"(Model.card_reference face);text "priority"(Selvedge.Features.Domain.priority_label(Model.card_priority face))]++
- (if Model.card_pinned face then[text "pinned" "置顶"]else[])++optional "status"(Model.card_status face));
- row "actions" false [DOM.Element(key++"/open-group")%string "div" [][("flex","1");("min-inline-size","0")][]empty
+ ([row "actions" false [DOM.Element(key++"/open-group")%string "div" [][("flex","1");("min-inline-size","0")][]empty
  (match opened with []=>[DOM.Text(Model.card_title face)]|_=>opened end);
- row "more-group" false(card_part describe true paired)]]++optional "description"(Model.card_description face)++
- [row "context" true(optional "project"(Model.card_project face)++map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face))]++
+ row "more-group" false(card_part describe true paired)];
+ row "metadata" false
+ ([text "reference"(Model.card_reference face)]++
+ (match Model.card_priority face with Selvedge.Features.Domain.NoPriority=>[]
+  |priority=>[text "priority"(Selvedge.Features.Domain.priority_label priority)]end)++
+ (if Model.card_pinned face then[text "pinned" "置顶"]else[])++optional "status"(Model.card_status face))]++
+ optional "description"(Model.card_description face)++
+ (match context with []=>[]|_=>[row "context" true context]end)++
  conversation++[DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
  (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
- (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face))])
+ (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face)++grip)])
  end.
 Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : DOM.node :=
  compile_element describe env generation inherited_area activity source view component value

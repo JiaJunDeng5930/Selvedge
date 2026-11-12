@@ -5,6 +5,23 @@ import { chromium } from 'playwright-core';
 import { interactiveMarkdownFixture } from './interactive-markdown.mjs';
 import { imagesFixture } from './images.mjs';
 
+export const creationEnvironmentTrigger = page => page.getByRole('button', { name: '配置工作环境', exact: true });
+
+export async function openCreationEnvironment(page) {
+  const menu = page.getByRole('dialog', { name: '工作环境', exact: true });
+  if (!await menu.isVisible()) await creationEnvironmentTrigger(page).click();
+  await menu.waitFor();
+  return menu;
+}
+
+export async function enableCreationWorktree(page) {
+  const menu = await openCreationEnvironment(page);
+  const toggle = menu.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true });
+  if (await toggle.getAttribute('aria-checked') === 'false') await toggle.click();
+  await menu.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked: true }).waitFor();
+  return menu;
+}
+
 async function chromiumExecutable() {
   const requested = process.env.SELVEDGE_CHROMIUM_EXECUTABLE_PATH;
   if (requested) {

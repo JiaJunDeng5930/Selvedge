@@ -179,9 +179,6 @@ Definition region_properties env (region : Composition.region) (position : Compo
       [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]
-  | Composition.CreationContext => [("display","flex");("flex-direction","column");
-      ("align-items","center");("text-align","center");("padding-inline","0");
-      ("padding-block","0");("gap",Typography.px (Enclosure.separation Enclosure.Sections));("min-block-size","0")]
   | Composition.BoardStages => [("display","grid");
       ("grid-template-columns",("repeat(auto-fit, minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr))")%string);
       ("align-content","start"); ("align-items","start");

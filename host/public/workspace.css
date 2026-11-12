@@ -152,9 +152,16 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   overflow-wrap: anywhere;
 }
 
+[data-card-footer]:has(> [data-card-grip]) {
+  position: relative;
+  padding-inline-end: 1.25rem;
+}
+
 [data-card-grip] {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
   display: inline-flex;
-  align-self: start;
   color: var(--selvedge-muted);
   cursor: grab;
 }
@@ -170,7 +177,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   overflow-wrap: anywhere;
 }
 
-[data-board-stage] [data-card-footer] {
+[data-board-stage] :is([data-card-row="metadata"], [data-card-footer]) {
   flex-wrap: wrap !important;
   gap: .25rem .5rem !important;
 }

@@ -55,7 +55,7 @@ Definition recipe value :=
 Inductive region :=
 | SharedTitle | SharedContent | ConversationHeader | ConversationTitle | TaskActions
 | TimelineContent | LatestAction | ApprovalDecisions
-| CreationIntroduction | CreationContext | ComposerInput
+| CreationIntroduction | ComposerInput
 | ProjectTitle | ProjectActions | DefaultWorkspace | ProjectGuidance | ProjectTasks
 | CollectionTitle | CollectionActions | ProjectEntries | HistoryResults
 | BoardTitle | BoardControls | BoardStages | TaskGraphEntries
@@ -76,7 +76,7 @@ Definition region_name value :=
   | ConversationTitle => "conversation-title" | TaskActions => "task-actions"
   | TimelineContent => "timeline-content" | LatestAction => "latest-action"
   | ApprovalDecisions => "approval-decisions"
-  | CreationIntroduction => "creation-introduction" | CreationContext => "creation-context"
+  | CreationIntroduction => "creation-introduction"
   | ComposerInput => "composer-input"
   | ProjectTitle => "project-title" | ProjectActions => "project-actions"
   | DefaultWorkspace => "default-workspace" | ProjectGuidance => "project-guidance"

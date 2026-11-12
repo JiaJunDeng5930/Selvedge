@@ -6,11 +6,10 @@ import { taskIdle } from './support.mjs';
 
 const forkActionLabel = 'Fork from current history';
 
-async function finishAnswer(fixture, index, text) {
+async function waitForAnswer(fixture, index) {
   const deadline = Date.now() + 10_000;
   while (!fixture.requests[index] && Date.now() < deadline) await delay(10);
   assert.ok(fixture.requests[index], 'The conversation started its model request');
-  fixture.finish(index, { text });
 }
 
 async function openTask(page, title) {
@@ -22,6 +21,15 @@ async function expectFocus(page, locator) {
   await page.waitForFunction(id => document.activeElement?.id === id, await locator.getAttribute('id'));
 }
 
+async function expectForkTooltip(page, fork) {
+  await page.waitForFunction(({ id, label }) => {
+    const button = document.getElementById(id);
+    if (!button) return false;
+    const tooltip = getComputedStyle(button, '::after');
+    return tooltip.content === JSON.stringify(label) && tooltip.display !== 'none' && tooltip.visibility === 'visible';
+  }, { id: await fork.getAttribute('id'), label: forkActionLabel });
+}
+
 test('the conversation menu and end offer the same fork, with reading position restored on Cancel', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command, running, profile } = fixture;
@@ -30,13 +38,26 @@ test('the conversation menu and end offer the same fork, with reading position r
   const latest = 'Latest answer belongs to the fork too.';
   const background = Array.from({ length: 24 }, (_, index) =>
     `Part ${index + 1}. ${'Background details for the conversation. '.repeat(4)}`).join('\n\n');
-  await finishAnswer(fixture, 0, `${earlier}\n\n${background}`);
-  await taskIdle(running.service, task_id);
-  await command({ op: 'send', task_id, message: 'Finish the source conversation.' });
-  await finishAnswer(fixture, 1, latest);
+  await waitForAnswer(fixture, 0);
+  fixture.finish(0, { text: `${earlier}\n\n${background}` });
   const { task } = await taskIdle(running.service, task_id);
   await openTask(page, task.title);
   const main = page.getByRole('main');
+  const timeline = main.getByRole('region', { name: 'Conversation', exact: true });
+  const finalAnswer = timeline.getByText(latest, { exact: true });
+  const fork = timeline.getByRole('button', { name: forkActionLabel, exact: true });
+  await fork.waitFor();
+  await command({ op: 'send', task_id, message: 'Finish the source conversation.' });
+  await waitForAnswer(fixture, 1);
+  fixture.emit(1, `${latest}\n\n`);
+  await finalAnswer.waitFor();
+  assert.equal(await fork.count(), 0, 'The end action is absent while a reply is streaming');
+  fixture.finish(1);
+  await taskIdle(running.service, task_id);
+  await fork.waitFor();
+  assert.equal(await fork.locator('svg').count(), 1);
+  assert.equal(await fork.locator('span:not(.visually-hidden)').count(), 0);
+
   const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
   const source = dialog.getByText(task.title, { exact: true });
   const history = dialog.getByText('The new conversation starts with the source conversation’s current history.', { exact: true });
@@ -53,9 +74,6 @@ test('the conversation menu and end offer the same fork, with reading position r
 
   await page.setViewportSize({ width: 390, height: 700 });
   await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
-  const timeline = main.getByRole('region', { name: 'Conversation', exact: true });
-  const finalAnswer = timeline.getByText(latest, { exact: true });
-  const fork = timeline.getByRole('button', { name: forkActionLabel, exact: true });
   const message = main.getByRole('combobox', { name: 'Message', exact: true });
   const returnLatest = main.getByRole('button', { name: 'Return to latest', exact: true });
   await finalAnswer.waitFor();
@@ -66,7 +84,8 @@ test('the conversation menu and end offer the same fork, with reading position r
   await page.waitForFunction(id => document.getElementById(id)?.scrollTop <= 2, timelineId);
   assert.ok(await fork.evaluate(button => button.getBoundingClientRect().top >= button.parentElement.getBoundingClientRect().bottom),
     'Earlier history does not carry a fork control');
-  await timeline.press('End');
+  await timeline.hover();
+  await page.mouse.wheel(0, await timeline.evaluate(node => node.scrollHeight));
   await page.waitForFunction(id => {
     const node = document.getElementById(id);
     return node && node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
@@ -80,6 +99,12 @@ test('the conversation menu and end offer the same fork, with reading position r
   'The action is visible after the current answer and above the composer');
 
   const offset = await timeline.evaluate(node => node.scrollTop);
+  await fork.hover();
+  await expectForkTooltip(page, fork);
+  await page.mouse.move(0, 0);
+  await page.keyboard.press('Tab');
+  await expectFocus(page, fork);
+  await expectForkTooltip(page, fork);
   await fork.press('Enter');
   await source.waitFor();
   await history.waitFor();
@@ -117,6 +142,9 @@ test('the side conversation end opens its own fork editor and restores the tail 
   await page.getByRole('main').getByRole('button', { name: 'Open side conversation', exact: true }).click();
   const side = page.getByRole('dialog', { name: sideTask.title, exact: true });
   const fork = side.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: forkActionLabel, exact: true });
+  await fork.waitFor();
+  assert.equal(await fork.locator('svg').count(), 1);
+  assert.equal(await fork.locator('span:not(.visually-hidden)').count(), 0);
   await fork.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
   await dialog.getByText(sideTask.title, { exact: true }).waitFor();

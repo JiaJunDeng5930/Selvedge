@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { browserFixture } from './fixtures/browser.mjs';
+import { browserFixture, enableCreationWorktree, openCreationEnvironment } from './fixtures/browser.mjs';
 
 test('the English workspace picker identifies host directories and supports keyboard navigation', async t => {
   const { page, root } = await browserFixture(t);
@@ -12,8 +12,8 @@ test('the English workspace picker identifies host directories and supports keyb
   const directory = path.join(root, folder);
   await mkdir(path.join(directory, 'Nested folder'), { recursive: true });
 
-  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
+  const environment = await openCreationEnvironment(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   const browse = workspace.getByRole('button', { name: 'Browse…', exact: true });
   await browse.press('Enter');
@@ -49,6 +49,9 @@ test('the English workspace picker identifies host directories and supports keyb
   await picker.waitFor({ state: 'hidden' });
   await workspace.getByText(directory, { exact: true }).waitFor();
   assert.equal(await browse.evaluate(button => document.activeElement === button), true);
+  await workspace.getByRole('button', { name: '返回工作环境', exact: true }).press('Enter');
+  await workspace.waitFor({ state: 'hidden' });
+  await environment.waitFor();
 });
 
 test('a local worktree picker checks the visited directory before selecting a primary', { timeout: 60000 }, async t => {
@@ -64,10 +67,8 @@ test('a local worktree picker checks the visited directory before selecting a pr
   await git('commit', '--allow-empty', '-m', 'Initial commit');
 
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Open this conversation in a Git worktree.');
-  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
-  await page.getByRole('combobox', { name: 'Run environment', exact: true })
-    .selectOption({ label: 'New Git worktree on the Selvedge host' });
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
+  const environment = await enableCreationWorktree(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   const browse = workspace.getByRole('button', { name: 'Browse…', exact: true });
@@ -129,6 +130,10 @@ test('a local worktree picker checks the visited directory before selecting a pr
   await workspace.getByText(repository, { exact: true }).waitFor();
   assert.equal(await browse.evaluate(button => document.activeElement === button), true);
   await page.keyboard.press('Escape');
+  await workspace.waitFor({ state: 'hidden' });
+  await environment.waitFor();
+  await page.keyboard.press('Escape');
+  await environment.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(gitChecks, 4, 'The selected primary reuses its verified Git result');
 });

@@ -486,6 +486,7 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
  match result_error updated with
  |Some _=>updated
  |None=>
+  if EditorContext.is_run_environment_request request then updated else
   if match SS.layers(SS.navigation_state state)with top::_=>model_picker_layer top|[]=>false end
   then append updated(adopt_navigation snapshot(Navigation.leave_request occurrence owner(result_state updated)))
   else
@@ -493,6 +494,10 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
   |EO.ApplyAndDismiss=>let closed:=Navigation.close_panel(result_state updated)in
     let closed:=match owner,request with
     |Identity.NewTask _,Activity.PropertyActivity EM.ProjectProperty=>
+      let closed:=match SS.layers(SS.navigation_state(Navigation.result_state closed))with
+       |top::_=>if EditorContext.run_environment_panel owner(SS.layer_panel top)
+         then Navigation.close_panel(Navigation.result_state closed)else closed
+       |[]=>closed end in
       set Navigation.result_effects(fun _=>[Navigation.Attend(message_focus(Navigation.result_state closed)owner)])closed
     |_,_=>closed end in
     append updated(adopt_navigation snapshot closed)

@@ -6,7 +6,7 @@ From Selvedge.Interaction.Submission Require Fields.
 (** Native control intent is derived once from the actual action at publication.
     It carries the original control grammar; it is not another action registry. *)
 Inductive purpose :=
-| MessageSubmission | NamedAction | CreateItem | EditItem | ForkTask | CompactTask | ProjectTaskCreation
+| MessageSubmission | NamedAction | AuthoredAction | CreateItem | EditItem | ForkTask | CompactTask | ProjectTaskCreation
 | WorkCreation
 | OpenCardDetails (card : N)
 | ProjectDisclosure (project : N)

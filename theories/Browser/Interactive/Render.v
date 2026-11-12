@@ -33,12 +33,12 @@ Definition button key label action (active:bool) : scene :=
  S.Node key "interactive-markdown/control" label R.Button
   (S.Activate (M.Control key label M.Secondary action
     (if active then M.Available else M.Unavailable "Control is not available"))) [].
+Definition optional_caption key label : list scene :=
+ if String.eqb label "" then [] else [text (key+++"/@label") label].
 Definition component_caption event_id p : list scene :=
-  let label := property_text "label" p in
   match p.(description).(component_role) with
-  | Field | Action | TextLeaf | MarkdownLeaf | Column => []
-  | _ => if String.eqb label "" then [] else
-      [text (Types.event_key event_id+++"/@label") label] end.
+  | Field | Action | TextLeaf | MarkdownLeaf | MetricLeaf | Table | Column => []
+  | _ => optional_caption (Types.event_key event_id) (property_text "label" p) end.
 Definition component_node event_id p binding children : scene :=
  S.Node (Types.event_key event_id) ("interactive-markdown/"+++p.(description).(component_tag))
   (property_text "label" p)
@@ -62,6 +62,11 @@ Definition formatted_value value style := match value with
  |_=>scalar_text value end.
 Definition metric p := match property "value" p with
  |Some value=>formatted_value value (property_text "format" p)|None=>"" end.
+Definition render_metric key p : list scene :=
+ let part name value := S.Node (key+++"/@"+++name) ("interactive-markdown/metric-"+++name)
+   "" R.Content (S.Fact value) [] in
+ let label:=property_text "label" p in
+ part "value" (metric p)::(if String.eqb label "" then [] else [part "label" label]).
 
 Theorem unformatted_number_preserves_its_text source :
  formatted_value (JNumber source) "" = source.
@@ -99,55 +104,58 @@ Definition table_column event_id b (sortable active:bool) p : IP.table_column Ty
    |TableView (Some current) descending _=>if String.eqb current(property_text "field" p)then Some descending else None|_=>None end).
 Definition render_table event_id p b children active ordered : list scene :=
  let key:=Types.event_key event_id in let columns:=table_columns children in
+ let caption:=property_text "label" p in
  match ordered with
- |Error reason=>[text (key+++"/@error") reason]
- |Good rows=>let page:=Nat.min (table_page event_id.(path) b) ((List.length rows-1)/Bounds.table_page) in
+ |Error reason=>optional_caption key caption++[text (key+++"/@error") reason]
+ |Good rows=>let row_count:=List.length rows in
+ let last_page:=Bounds.last_table_page_index row_count in
+ let page:=Nat.min (table_page event_id.(path) b) last_page in
  let start:=(page*Bounds.table_page)%nat in let visible:=firstn Bounds.table_page (skipn start rows) in
- [S.Node (key+++"/@table") "interactive-markdown/table" (property_text "label" p) R.Content
-   (S.InteractiveTable (IP.DataTable (property_text "label" p)
+ let summary label := S.Node (key+++"/@page") "interactive-markdown/table-summary"
+   label R.Content (S.InformationText Information.Description) [] in
+ let count_text:="共 "+++show_nat row_count+++" 行" in
+ [S.Node (key+++"/@table") "interactive-markdown/table" caption R.Content
+   (S.InteractiveTable (IP.DataTable caption
      (map (table_column event_id b (property_bool false "sortable" p) active) columns)
      (map (fun row=>IP.TableRow(TextJson.render_json(get_path(property_text "row-key" p)row))
        (map (fun column=>cell_value column row) columns)) visible))) []]++
- (if Nat.eqb (List.length visible) 0 then [text (key+++"/@empty") "暂无数据"] else [])++
- [toolbar event_id "pages"
+ (if Nat.eqb row_count 0 then [summary "暂无数据"]
+  else if Nat.eqb last_page 0 then [summary count_text]
+  else [toolbar event_id "pages"
   [button (key+++"/@previous") "上一页" (ViewChanged event_id (Page (Nat.pred page))) (active&&Nat.ltb 0 page);
-   text (key+++"/@page") ("第 "+++show_nat (S page)+++" / "+++show_nat (Nat.max 1 ((List.length rows+99)/100))+++" 页，共 "+++show_nat (List.length rows)+++" 行");
-   button (key+++"/@next") "下一页" (ViewChanged event_id (Page (S page))) (active&&Nat.ltb (start+Bounds.table_page) (List.length rows))]]
+   summary ("第 "+++show_nat (S page)+++" / "+++show_nat (S last_page)+++" 页，"+++count_text);
+   button (key+++"/@next") "下一页" (ViewChanged event_id (Page (S page))) (active&&Nat.ltb page last_page)]])
  end.
 Definition placement key position children : scene :=
  S.Node key "interactive-markdown/placement" "" R.Content (S.InteractivePlacement position) children.
 Definition chart_summary_table event_id p : scene :=
-  let x_label := property_text "x-label" p in let y_label := property_text "y-label" p in
   S.Node (Types.event_key event_id+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content
     (S.Table "图表数据"
-      [if String.eqb x_label "" then property_text "x" p else x_label;
-       if String.eqb y_label "" then property_text "y" p else y_label]
+      [Plot.x_title p; Plot.y_title p]
       (map (fun row => [scalar_text (get_path (property_text "x" p) row);
                         scalar_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
 Definition chart_summary event_id p :list scene :=
  let key:=Types.event_key event_id in
- let all_rows:=property_array "data" p in let count:=List.length all_rows in
- let rows:=Plot.chart_rows p in
- let x_label:=property_text "x-label" p in let y_label:=property_text "y-label" p in
- (if String.eqb x_label "" && String.eqb y_label "" then [] else
-  [text (key+++"/@axes") (x_label+++" / "+++y_label)])++
+ let count:=List.length (property_array "data" p) in
  (if Nat.ltb Bounds.chart_points count then
   [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")] else [])++
- (if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else [])++
- [chart_summary_table event_id p].
+ [S.Node (key+++"/@data-disclosure") "interactive-markdown/chart-disclosure" "查看数据" R.Content
+   S.ContentDisclosure [chart_summary_table event_id p]].
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
- match Plot.chart p with
+ let count:=List.length (property_array "data" p) in
+ if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else
+ (match Plot.chart p with
  |Error reason=>[S.Node (key+++"/@error") "interactive-markdown/status" reason R.Content
    (S.InformationText Information.Status) []]
  |Good drawing=>
- [placement (key+++"/@viewport") IP.ChartViewport
-   [placement (key+++"/@canvas") (IP.GraphCanvas IP.FixedPixels (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
+ [S.Node (key+++"/@viewport") "interactive-markdown/chart-viewport" "图表区域" R.Content
+    (S.InteractivePlacement IP.ChartViewport)
     [S.Node (key+++"/@plot") "interactive-markdown/chart"
-     ("图表；显示 "+++show_nat (List.length (Plot.chart_rows p))+++" / "+++
-      show_nat (List.length (property_array "data" p))+++" 行；数值见下方数据")
-     R.Content (S.Graphic drawing) []]]]
- end++chart_summary event_id p.
+     (Plot.y_title p+++" / "+++Plot.x_title p+++"；显示 "+++
+      show_nat (List.length (Plot.chart_rows p))+++" / "+++show_nat count+++" 行")
+     R.Content (S.Graphic drawing) []]]
+ end)++chart_summary event_id p.
 Definition expanded_path node := match node with Mounted event_id _ _ _=>event_id.(path)|Message path _=>path end.
 Definition graph_identity node := match string_field "identity" node with Some id=>id|None=>"" end.
 Definition graph_task_status node :=
@@ -225,7 +233,7 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
          [diagnostic_node (key+++"/@feedback") ("@feedback/"+++event_id.(path)) notice])
      |TextLeaf,_=>[text (key+++"/@text") (property_text "label" p)]
      |MarkdownLeaf,_=>[S.Node (key+++"/@markdown") "interactive-markdown/markdown" "" R.Content (S.EmbeddedMarkdown (property_text "value" p)) []]
-     |MetricLeaf,_=>[text (key+++"/@value") (metric p)]
+     |MetricLeaf,_=>render_metric key p
      |Table,Passive active=>render_table event_id p b children active ordered
      |Chart,_=>render_chart event_id p
      |Graph,Passive active=>render_graph event_id p b children rendered active
@@ -246,7 +254,7 @@ Definition source_open b := match State.view_at "@source" false b with SourceVie
 Definition presentation_cost p (children:list expanded) :=
   match p.(description).(component_role) with
   | Table => 16 + (2 + 2 * Nat.min Bounds.table_page (List.length (property_array "rows" p))) * List.length children
-  | Chart => 8 + Nat.min Bounds.chart_points (List.length (property_array "data" p))
+  | Chart => 34 + Nat.min Bounds.chart_points (List.length (property_array "data" p))
   | Graph => 34 + 4 * List.length (property_array "nodes" p) + List.length (property_array "edges" p)
   | _ => if String.eqb p.(description).(component_tag) "grid" then 1 + List.length children else 1 end.
 Fixpoint expansion_cost (fuel : nat) (nodes : list expanded) : nat :=

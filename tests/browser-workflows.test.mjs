@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { browserFixture } from './fixtures/browser.mjs';
+import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
 async function submitTask(page) {
@@ -131,16 +131,16 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await finishModelReply(fixture, prompt, delivered);
   await finishModelReply(fixture, delivered, 'The destination reviewed the signed finding.');
 
-  const graphs = page.getByRole('button', { name: 'Task graphs', exact: true });
+  const graphs = page.getByRole('button', { name: '任务图', exact: true });
   await graphs.click();
   const graph = center.getByRole('region', { name: 'Evidence handoff', exact: true });
   await graph.waitFor();
   await center.getByRole('region', { name: 'Release checklist', exact: true }).waitFor({ state: 'hidden' });
   await graph.getByText(project, { exact: true }).first().waitFor();
   await graph.locator('svg[data-semantic-key="task-graph/edges"] path').first().waitFor();
-  const rules = graph.getByRole('region', { name: 'Output rules', exact: true });
+  const rules = graph.getByRole('region', { name: '发送规则', exact: true });
   assert.match(await rules.innerText(), /collect[^\n]*→[^\n]*review/u);
-  await graph.getByRole('region', { name: 'Last delivery results', exact: true })
+  await graph.getByRole('region', { name: '最近发送结果', exact: true })
     .getByText(/forward-output/).waitFor();
   await graph.getByRole('button', { name: destination.title, exact: true }).click();
   await seeDestination();
@@ -180,14 +180,17 @@ test('Project task creation restores Project workspace inheritance through the b
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), false);
-  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
-  let workspace = page.getByRole('dialog');
+  const environment = await openCreationEnvironment(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
+  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).click();
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
+  await environment.waitFor();
+  await page.keyboard.press('Escape');
+  await environment.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
   const inherited = await submitTask(page);
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
@@ -199,13 +202,16 @@ test('Project task creation preserves explicitly empty workspaces through the br
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await projectTask(page);
-  await page.getByRole('group', { name: /^Project and run settings · / }).locator('summary').click();
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog');
+  const environment = await openCreationEnvironment(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
+  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
+  await environment.waitFor();
+  await page.keyboard.press('Escape');
+  await environment.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use explicitly no workspace roots');
   const empty = await submitTask(page);
   const emptyTask = (await command({ op: 'read', task_id: empty })).task;
@@ -266,15 +272,15 @@ test('ordered image content and the active composer survive responsive navigatio
   await tasks.press('Space');
   await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
   await page.getByRole('dialog', { name: '对话', exact: true })
-    .getByRole('button', { name: 'Task graphs', exact: true }).waitFor();
+    .getByRole('button', { name: '任务图', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: '对话', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,
     'Closing the Task tree restores its actual keyboard launcher');
   await tasks.press('Enter');
   await page.getByRole('dialog', { name: '对话', exact: true })
-    .getByRole('button', { name: 'Task graphs', exact: true }).click();
-  await page.getByRole('main').getByRole('heading', { name: 'Task graphs', exact: true }).waitFor();
+    .getByRole('button', { name: '任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('heading', { name: '任务图', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
@@ -289,18 +295,18 @@ test('task graph setup creates its conversations in scope and routes replies', {
   await page.getByRole('dialog', { name: '对话范围', exact: true })
     .getByRole('radio', { name: 'Graph setup', exact: true }).click();
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: 'Task graphs', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
+    .getByRole('button', { name: '任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'New task graph', exact: true });
-  const create = dialog.getByRole('button', { name: 'Create task graph', exact: true });
+  const dialog = page.getByRole('dialog', { name: '新建任务图', exact: true });
+  const create = dialog.getByRole('button', { name: '创建任务图', exact: true });
   await create.waitFor();
-  assert.equal(await dialog.getByRole('textbox', { name: 'Graph JSON', exact: true }).isVisible(), false);
+  assert.equal(await dialog.getByRole('textbox', { name: 'JSON 定义', exact: true }).isVisible(), false);
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);
-  const name = dialog.getByRole('textbox', { name: 'Graph name', exact: true });
-  const newConversation = dialog.getByRole('button', { name: 'New conversation', exact: true });
-  const returnToGraph = page.getByRole('button', { name: 'Back to task graph', exact: true });
+  const name = dialog.getByRole('textbox', { name: '任务图名称', exact: true });
+  const newConversation = dialog.getByRole('button', { name: '新建对话', exact: true });
+  const returnToGraph = page.getByRole('button', { name: '返回任务图', exact: true });
   const prerequisite = dialog.locator('[data-semantic-key="handoff-needs-conversations"]');
   async function expectBlockedBy(message) {
     await create.and(dialog.locator(`[data-help=${JSON.stringify(message)}]`)).waitFor();
@@ -310,10 +316,10 @@ test('task graph setup creates its conversations in scope and routes replies', {
         .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), message);
   }
   await name.fill('Browser handoff');
-  await expectBlockedBy('Create two conversations in this scope.');
-  assert.equal(await prerequisite.innerText(), 'Create two conversations in this scope.');
+  await expectBlockedBy('请在此范围内新建两条对话。');
+  assert.equal(await prerequisite.innerText(), '请在此范围内新建两条对话。');
   await newConversation.click();
-  assert.equal(await returnToGraph.innerText(), 'Back to task graph');
+  assert.equal(await returnToGraph.innerText(), '返回任务图');
   await returnToGraph.click();
   assert.equal(await name.inputValue(), 'Browser handoff');
 
@@ -340,40 +346,62 @@ test('task graph setup creates its conversations in scope and routes replies', {
   }
 
   const source = await createEndpoint('Collect evidence for the graph');
-  await expectBlockedBy('Create one more conversation in this scope.');
-  assert.equal(await prerequisite.innerText(), 'Create one more conversation in this scope.');
-  const receiver = await createEndpoint('Review the routed evidence');
-  await expectBlockedBy('Choose a source and a receiving conversation.');
+  await expectBlockedBy('请在此范围内再新建一条对话。');
+  assert.equal(await prerequisite.innerText(), '请在此范围内再新建一条对话。');
+  const receiver = await createEndpoint('Review evidence');
+  await expectBlockedBy('请选择来源对话和接收对话。');
   assert.deepEqual((await command({ op: 'read_work', work_id: work })).task_ids, [source, receiver]);
-  const availableSources = await dialog.getByRole('combobox', { name: 'Source conversation', exact: true })
-    .locator('option').evaluateAll(options => options.map(option => option.value));
+  const sourcePicker = dialog.getByRole('combobox', { name: '来源对话', exact: true });
+  const receiverPicker = dialog.getByRole('combobox', { name: '接收对话', exact: true });
+  const availableSources = await sourcePicker.locator('option').evaluateAll(options => options.map(option => option.value));
   assert.ok(!availableSources.includes(String(outsider)), 'The picker stays in the graph scope');
-  await dialog.getByRole('combobox', { name: 'Source conversation', exact: true }).selectOption(String(source));
-  await expectBlockedBy('Choose a receiving conversation.');
-  await dialog.getByRole('combobox', { name: 'Receiving conversation', exact: true }).selectOption(String(receiver));
-  await dialog.getByRole('button', { name: 'Create task graph', exact: true, disabled: false }).waitFor();
+  await sourcePicker.selectOption(String(source));
+  await expectBlockedBy('请选择接收对话。');
+  await receiverPicker.selectOption(String(receiver));
+  await dialog.getByRole('button', { name: '创建任务图', exact: true, disabled: false }).waitFor();
+
+  const direction = dialog.locator('[data-semantic-key="handoff-direction"]');
+  const compactHeader = page.locator('[data-surface-role="compact-header"]');
+  const desktop = page.viewportSize();
+  for (const width of [desktop.width, 390]) {
+    await page.setViewportSize({ width, height: desktop.height });
+    await compactHeader.waitFor({ state: width === 390 ? 'visible' : 'hidden' });
+    const [left, arrow, right, sourceLabel, receiverLabel] = await Promise.all([
+      sourcePicker.boundingBox(), direction.boundingBox(), receiverPicker.boundingBox(),
+      dialog.getByText('来源对话', { exact: true }).boundingBox(),
+      dialog.getByText('接收对话', { exact: true }).boundingBox(),
+    ]);
+    assert.ok(left && arrow && right && sourceLabel && receiverLabel,
+      `Both choices, their labels and the direction must be visible at ${width}px`);
+    assert.equal(await direction.innerText(), '→');
+    assert.ok(Math.abs(sourceLabel.y - receiverLabel.y) <= 2, `Both labels share one row at ${width}px`);
+    assert.ok(Math.abs(left.y - right.y) <= 2, `The endpoint controls share one row at ${width}px`);
+    assert.ok(left.x + left.width <= arrow.x + 1 && arrow.x + arrow.width <= right.x + 1,
+      `Source, arrow and destination are ordered without overlap at ${width}px`);
+  }
+  await page.setViewportSize(desktop);
   await name.fill('');
-  await expectBlockedBy('Enter a graph name.');
+  await expectBlockedBy('请输入任务图名称。');
   await name.fill('Browser handoff');
   await create.click();
   await dialog.waitFor({ state: 'hidden' });
 
   await page.getByRole('region', { name: 'Browser handoff', exact: true })
-    .getByRole('button', { name: 'Edit task graph', exact: true }).click();
-  const editor = page.getByRole('dialog', { name: 'Edit task graph', exact: true });
-  const from = editor.getByRole('combobox', { name: 'Source conversation', exact: true });
-  const to = editor.getByRole('combobox', { name: 'Receiving conversation', exact: true });
+    .getByRole('button', { name: '编辑任务图', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '编辑任务图', exact: true });
+  const from = editor.getByRole('combobox', { name: '来源对话', exact: true });
+  const to = editor.getByRole('combobox', { name: '接收对话', exact: true });
   assert.equal(await from.inputValue(), String(source));
   assert.equal(await to.inputValue(), String(receiver));
-  await editor.getByRole('textbox', { name: 'Graph name', exact: true }).fill('Edited handoff');
-  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await editor.getByRole('textbox', { name: '任务图名称', exact: true }).fill('Edited handoff');
+  await editor.getByRole('button', { name: '保存', exact: true }).click();
   await editor.waitFor({ state: 'hidden' });
 
   const graph = page.getByRole('region', { name: 'Edited handoff', exact: true });
   await graph.waitFor();
   await command({ op: 'send', task_id: source, message: 'Forward this through the graph' });
-  await graph.getByRole('region', { name: 'Last delivery results', exact: true })
-    .getByText(new RegExp(`Task #${source} → Task #${receiver}`)).waitFor();
+  await graph.getByRole('region', { name: '最近发送结果', exact: true })
+    .getByText(new RegExp(`对话 #${source} → 对话 #${receiver}`)).waitFor();
   const delivered = await command({ op: 'read', task_id: receiver });
   assert.match(JSON.stringify(delivered), /Forward this through the graph/);
 });
@@ -381,12 +409,12 @@ test('task graph setup creates its conversations in scope and routes replies', {
 test('leaving a graph conversation before its receipt preserves the newer destination', { timeout: 60000 }, async t => {
   const { page } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: 'Task graphs', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
-  const graph = page.getByRole('dialog', { name: 'New task graph', exact: true });
-  const name = graph.getByRole('textbox', { name: 'Graph name', exact: true });
+    .getByRole('button', { name: '任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
+  const graph = page.getByRole('dialog', { name: '新建任务图', exact: true });
+  const name = graph.getByRole('textbox', { name: '任务图名称', exact: true });
   await name.fill('Keep this graph');
-  await graph.getByRole('button', { name: 'New conversation', exact: true }).click();
+  await graph.getByRole('button', { name: '新建对话', exact: true }).click();
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Create while leaving the graph');
 
   let started, release;
@@ -412,10 +440,10 @@ test('leaving a graph conversation before its receipt preserves the newer destin
   assert.equal(await graph.isVisible(), false);
 
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: 'Task graphs', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task graph', exact: true }).click();
+    .getByRole('button', { name: '任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '新建任务图', exact: true }).click();
   await graph.locator('[data-semantic-key="handoff-needs-conversations"]')
-    .filter({ hasText: 'Create one more conversation in this scope.' }).waitFor();
+    .filter({ hasText: '请在此范围内再新建一条对话。' }).waitFor();
   assert.equal(await name.inputValue(), 'Keep this graph');
 });
 

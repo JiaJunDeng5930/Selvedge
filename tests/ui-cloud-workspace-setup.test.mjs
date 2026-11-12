@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { browserFixture } from './fixtures/browser.mjs';
+import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
 
 const execute = promisify(execFile);
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
@@ -24,15 +24,9 @@ function cloudResponse(page, primary) {
     && response.request().postDataJSON().primary === primary);
 }
 
-function cloudSettings(page) {
-  return page.getByRole('group', { name: /^Project and run settings · / });
-}
-
 async function chooseCloud(page) {
-  const settings = cloudSettings(page);
-  const environment = settings.getByRole('combobox', { name: 'Run environment', exact: true });
-  if (!(await environment.isVisible())) await settings.locator('summary').click();
-  await environment.selectOption({ label: 'Run on Tencent Cloud CVM' });
+  const settings = await openCreationEnvironment(page);
+  await settings.getByRole('menuitemradio', { name: 'Run on Tencent Cloud CVM', exact: true }).click();
   return settings;
 }
 
@@ -42,10 +36,11 @@ test('without configured cloud, the composer offers current and host Git directo
   page.on('request', request => {
     if (request.url().endsWith('/api/browser/observation') && request.postDataJSON()?.kind === 'cloud-repository') probes.push(request);
   });
-  const settings = cloudSettings(page);
-  await settings.locator('summary').click();
-  const choices = settings.getByRole('combobox', { name: 'Run environment', exact: true }).getByRole('option');
-  assert.deepEqual(await choices.allTextContents(), ['Use working directory as is', 'New Git worktree on the Selvedge host']);
+  const settings = await openCreationEnvironment(page);
+  await settings.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked: false }).waitFor();
+  assert.equal(await settings.getByText(/Tencent Cloud/).count(), 0);
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Start a host conversation.');
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(probes.length, 0);
@@ -87,12 +82,18 @@ test('Tencent Cloud checks the working directory GitHub source before a message 
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
 
+  await settings.waitFor();
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
   await message.fill('Keep this draft while I configure the GitHub source.');
   assert.equal(await start.isDisabled(), true);
   await addRemote(root);
+  await openCreationEnvironment(page);
   const rechecked = cloudResponse(page, root);
   await settings.getByRole('button', { name: 'Check again', exact: true }).click();
   assert.equal((await (await rechecked).json()).available, true);
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(await message.inputValue(), 'Keep this draft while I configure the GitHub source.');
   assert.equal(requests.length, 0);
@@ -135,8 +136,11 @@ test('Tencent Cloud uses the project primary and rejects a stale check after a w
   await settings.getByText(/clones the GitHub repository from the project's primary directory/).waitFor();
 
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
   await message.fill('Keep this project conversation draft.');
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
+  await openCreationEnvironment(page);
+  await settings.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('textbox', { name: 'Directory path', exact: true }).fill(override);
@@ -160,6 +164,9 @@ test('Tencent Cloud uses the project primary and rejects a stale check after a w
   assert.equal((await (await refreshed).json()).available, true);
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
+  await settings.waitFor();
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(await message.inputValue(), 'Keep this project conversation draft.');
   assert.equal(requests.length, 0);

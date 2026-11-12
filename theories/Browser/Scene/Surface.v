@@ -68,6 +68,7 @@ Inductive meaning (Action : Type) :=
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
 | EditorOptions
+| ContentDisclosure
 | SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
 | ChoiceGroup
@@ -138,6 +139,7 @@ Arguments WorkChoice {Action}.
 Arguments DirectoryRow {Action}.
 Arguments ContextSummary {Action}.
 Arguments EditorOptions {Action}.
+Arguments ContentDisclosure {Action}.
 Arguments SkillSuggestions {Action}.
 Arguments SkillSuggestion {Action}.
 Arguments ChoiceGroup {Action}.
@@ -382,6 +384,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
   | EditorOptions => EditorOptions
+  | ContentDisclosure => ContentDisclosure
   | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)
   | ChoiceGroup => ChoiceGroup

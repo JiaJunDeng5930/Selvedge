@@ -39,9 +39,9 @@ test('Settings and composer offer device-code and browser sign-in through the pu
   }));
 
   const navigation = page.getByRole('navigation', { name: 'Global navigation', exact: true });
-  await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
-  await settings.getByRole('radio', { name: 'Models', exact: true }).click();
+  await navigation.getByRole('button', { name: '设置', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: '设置', exact: true });
+  await settings.getByRole('radio', { name: '模型', exact: true }).click();
   await settings.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).click();
 
   const chooser = page.getByRole('dialog', { name: 'Sign in with ChatGPT', exact: true });
@@ -61,7 +61,7 @@ test('Settings and composer offer device-code and browser sign-in through the pu
   releaseSuccess = true;
   await chooser.getByText('Signed in to ChatGPT.', { exact: true }).waitFor();
   await chooser.getByRole('button', { name: 'Done', exact: true }).click();
-  await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
 
   const taskTree = page.getByRole('navigation', { name: 'Task tree', exact: true });
   await taskTree.getByRole('button', { name: '新建对话', exact: true }).click();

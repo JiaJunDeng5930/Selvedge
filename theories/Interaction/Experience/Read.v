@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Kernel Require Codec Domain Images Guidance.
+From Selvedge.Kernel Require Codec Domain Images Guidance Conversation.
 From Selvedge.Features Require BoardFilter BoardParameters Domain.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Attachments Audit World ModelSelection.
@@ -176,11 +176,18 @@ Definition observe_card value :=
 Definition board_cards snapshot := bind(board_value snapshot)(list_field observe_card "cards").
 Definition find_card id snapshot := value<-board_value snapshot;;
  bind(World.find_world "cards" "card_id" id value)observe_card.
-Definition card_activity_label name:=value_or "未开始"
+Definition card_activity_label snapshot card:=
+ let name:=card_activity card in
+ if String.eqb name "completed" then
+  match bind(card_task card)(fun id=>World.find_task id snapshot)with
+  |Some task=>if existsb Conversation.json_message_assistant (items "history" task)
+    then "对话已完成"else "对话已就绪"
+  |None=>"" end
+ else value_or "未开始"
  (option_map snd(find(fun entry=>String.eqb name(fst entry))
  [("generating","生成中");("draft_failed","生成失败");("queued","排队中");("working","工作中");
   ("evaluating","评估推理等级");("compacting","整理上下文");("awaiting_approval","等待授权");
-  ("completed","已完成");("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")])).
+  ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")])).
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with

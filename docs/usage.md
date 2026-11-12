@@ -50,8 +50,10 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 object with `project_id`, `workspace`, `sandbox`, `approval`, and
 `realtime_context`.
 
-When starting a conversation, the run settings offer the current workspace,
-a local Git worktree, or Tencent Cloud CVM. A local worktree requires verifying
+The gear in the new conversation composer opens the project, working directory
+and run settings. On a host with local execution, the worktree toggle switches
+between the current directory and a local Git worktree. Hosts with Tencent
+Cloud CVM configured also offer that environment. A local worktree requires verifying
 that the primary directory belongs to a Git repository with a commit. The
 selected environment remains in place during verification and if it fails, so
 you can correct the directory or choose another environment.

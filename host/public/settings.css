@@ -85,8 +85,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-identity"] > [data-semantic-key="heading"] {
   margin: 0 !important;
-  font: 400 1.8125rem/1.2 Georgia, serif !important;
-  letter-spacing: -.025em !important;
+  font-family: inherit !important;
+  font-size: 1.8125rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
 }
 [data-semantic-key="settings-identity"] > button[data-semantic-key="close"] {
   position: absolute;
@@ -657,17 +659,13 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: nowrap;
   text-align: start;
 }
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-sample-task"] {
-  white-space: normal;
-  overflow-wrap: normal !important;
-}
 [data-semantic-key="theme-sample-title"] {
   font-weight: 650 !important;
   white-space: nowrap;
 }
 [data-semantic-key="theme-sample-composer"] {
   display: grid !important;
-  grid-template: "prompt prompt" auto "mode send" auto / minmax(min-content, 1fr) auto;
+  grid-template: "prompt prompt" auto ". send" auto / 1fr auto;
   align-items: center !important;
   gap: .7em .35em !important;
   padding: .65em !important;
@@ -676,15 +674,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-radius: .55em !important;
   text-align: start;
 }
-[data-semantic-key="theme-sample-prompt"] { grid-area: prompt; }
-[data-semantic-key="theme-sample-mode"] { grid-area: mode; }
-[data-semantic-key="theme-sample-composer"] :is([data-semantic-key="theme-sample-prompt"], [data-semantic-key="theme-sample-mode"]) {
-  color: var(--selvedge-muted) !important;
-  white-space: nowrap;
-}
 [data-semantic-key="theme-sample-composer"] [data-semantic-key="theme-sample-prompt"] {
-  /* Draw the prompt as a text stroke. The mode and send mark provide the
-     composer's intrinsic width, so the sample never needs a clipped label. */
+  /* A short stroke represents input without asking users to read thumbnail text. */
+  grid-area: prompt;
+  color: var(--selvedge-muted) !important;
   font-size: 0 !important;
 }
 [data-semantic-key="theme-sample-prompt"]::before {

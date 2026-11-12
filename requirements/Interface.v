@@ -79,8 +79,9 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     inspector shows effective settings, while commands act at the level of
     their target. Interrupting current work
     belongs beside its status, and cancelling a tool call belongs beside that
-    call. The conversation menu and the end of the conversation use the same
-    action to fork the current history and name that starting point.
+    call. The conversation menu and the end of an idle conversation use the
+    same action to fork the current history. The end shows an icon with the
+    action name available on hover and keyboard focus.
 
     A chooser explains why a choice is unavailable at the point of selection.
     Model choices with the same name show the configuration difference in
@@ -141,7 +142,7 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     they do not create another logical editor or Task document. *)
 
 From Selvedge.Browser Require DocumentsProof.
-From Selvedge.Interaction.Interactive Require Guarantees SemanticsGuarantees.
+From Selvedge.Interaction.Interactive Require Guarantees SemanticsGuarantees PlotProof.
 From Selvedge.Browser.Interactive Require RenderProof.
 Export DocumentsProof(inherited_document_has_no_external_capability,
   accepted_observation_uses_registered_visible_document,
@@ -155,6 +156,7 @@ Export Guarantees(preview_or_interrupted_actions_issue_no_external_effect,
 Export SemanticsGuarantees(builtin_budget_safe).
 Export RenderProof(chart_accessible_values_keep_order,
   over_budget_presentation_is_replaced).
+Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plot_edges).
 
 (** ** Visible source, document lifetime and publication rights
 
@@ -187,9 +189,12 @@ Export RenderProof(chart_accessible_values_keep_order,
     Explicit interactive fences reuse the common scene and bounded expression
     language; ordinary Markdown stays ordinary Markdown. Graph node controls
     retain native size within their own scrollable enclosures, with a readable
-    list equivalent. Charts keep source row order in an accessible table and
-    require coherent axes. [chart_accessible_values_keep_order] constrains the
-    actual rendering projection. [builtin_budget_safe] establishes that metered
+    list equivalent. Charts display categories or numeric ticks along the axes,
+    using authored axis labels for units. The axes enclose the plotted range
+    and their endpoints agree with its coordinates. The chart's data disclosure
+    preserves the exact plotted rows in source order.
+    [chart_accessible_values_keep_order] constrains that rendering projection.
+    [builtin_budget_safe] establishes that metered
     builtins cannot replenish their remaining work budget.
     [over_budget_presentation_is_replaced] replaces oversized expansion with
     a diagnostic. These bounds limit admitted operations and nodes; elapsed
@@ -288,8 +293,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     settings identify the primary directory for the GitHub source and offer a
     way to correct it. The pushed revision must contain the setup script, and
     the task directories must lie within that repository.
-    Collapsed run settings identify the selected environment. Expanding those
-    settings keeps the composer anchored above them.
+    The new conversation composer exposes a compact settings icon in its
+    toolbar. The menu displays project, actual directory and run settings
+    with the current choices. Opening it keeps the composer in place.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The same graph editor can
     also accept a structured declaration for other rules.

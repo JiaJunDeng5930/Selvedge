@@ -49,7 +49,6 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.BoardGroup _ => false
   | Surface.PageRegion Composition.ConversationHeader _
   | Surface.PageRegion Composition.BoardControls _ => true
-  | Surface.PageRegion Composition.CreationContext _ => false
   | Surface.InteractiveNode component =>
       String.eqb (Vocabulary.component_tag (Expand.description (Presentation.component_properties component))) "row-layout"
   | Surface.PageRegion Composition.TaskActions _ => false

@@ -240,8 +240,11 @@ Theorem browser_card_face_uses_observed_facts snapshot state card board_parent c
  exists face,
   Surface.node_meaning rendered = Surface.CardContent face /\
   Model.card_title face = Read.card_title card /\
-  Model.card_status face = Read.card_activity_label (Read.card_activity card) /\
-  Model.card_owner face = Read.card_owner_label snapshot (Read.card_owner card).
+  Model.card_status face = Read.card_activity_label snapshot card /\
+  Model.card_owner face = match Read.card_owner card with
+  | Selvedge.Features.Domain.Unassigned => ""
+  | owner => Read.card_owner_label snapshot owner
+  end.
 Proof. intros rendered. eexists. repeat split; reflexivity. Qed.
 
 Theorem browser_task_detail_shows_observed_status snapshot state id task details parent :

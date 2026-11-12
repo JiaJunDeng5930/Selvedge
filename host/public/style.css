@@ -808,11 +808,11 @@ dialog[data-semantic-key="side-conversation"] {
   max-inline-size: 100% !important;
   padding: 0 .35rem !important;
 }
-:is([data-semantic-key="composer/tools"], [data-page-region="creation-context"]) [data-property-summary] {
+:is([data-semantic-key="composer/tools"], [data-semantic-key="creation-environment"]) [data-property-summary] {
   min-inline-size: 0 !important;
   overflow: hidden;
 }
-:is([data-semantic-key="composer/tools"], [data-page-region="creation-context"]) [data-property-summary] > * {
+:is([data-semantic-key="composer/tools"], [data-semantic-key="creation-environment"]) [data-property-summary] > * {
   display: block !important;
   min-inline-size: 0 !important;
   overflow: hidden;
@@ -944,19 +944,65 @@ main:has(> [data-page-region="creation-introduction"]) {
     border-color: var(--selvedge-focus) !important;
   }
 }
-[data-page-region="creation-context"] [data-editor-options] {
-  inline-size: 100%;
-  text-align: start;
+[data-semantic-key="composer/tools"] > [data-semantic-key="composer/environment"] {
+  inline-size: 32px !important;
+  min-inline-size: 32px !important;
+  flex: none !important;
+  border-radius: 50% !important;
+  padding: 0 !important;
 }
-[data-page-region="creation-context"] [data-editor-options-body] {
-  align-items: flex-start;
+[data-native-layer="menu"][data-semantic-key="creation-environment"] {
+  inline-size: min(260px, calc(100dvw - 16px)) !important;
+  max-block-size: calc(100dvb - 2 * var(--layer-clearance)) !important;
+  overflow: auto !important;
+  overscroll-behavior: contain;
 }
-[data-page-region="creation-context"] [data-semantic-key="run-environment-status"] {
+[data-native-layer="menu"][data-semantic-key="creation-environment"]::backdrop { background: transparent; }
+[data-semantic-key="creation-environment"] h2[tabindex="-1"] { outline: none; }
+[data-native-layer="menu"][data-semantic-key="creation-environment"]:not([data-anchor-available="false"]) {
+  max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
+  position-area: top span-left !important;
+  align-self: end !important;
+  justify-self: end !important;
+  inset-inline: auto calc(0px - var(--layer-clearance)) !important;
+  inset-block: auto calc(var(--layer-gap) - var(--layer-clearance)) !important;
+}
+[data-semantic-key="creation-worktree"] > span:last-child {
+  position: relative;
+  inline-size: 28px !important;
+  block-size: 16px !important;
+  border-radius: 999px;
+  background: var(--selvedge-border);
+}
+[data-semantic-key="creation-worktree"] > span:last-child::after {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 50%;
+  background: var(--selvedge-text);
+  content: "";
+}
+[data-semantic-key="creation-worktree"][aria-checked="true"] > span:last-child {
+  background: var(--selvedge-accent);
+}
+[data-semantic-key="creation-worktree"][aria-checked="true"] > span:last-child::after {
+  inset-inline-start: 14px;
+  background: var(--selvedge-on-accent);
+}
+[data-semantic-key="creation-worktree"] > span:last-child > svg { display: none; }
+[data-page-region="composer-input"] > [data-semantic-key="run-environment-status"] {
   color: var(--selvedge-warning) !important;
   overflow-wrap: anywhere;
 }
-[data-page-region="creation-context"] [data-editor-options][open] + [data-semantic-key="run-environment-status"] {
-  display: none !important;
+@container composer (inline-size < 26rem) {
+  [data-semantic-key="composer/tools"] > [data-semantic-key="composer/environment"] {
+    inline-size: 44px !important;
+    min-inline-size: 44px !important;
+    block-size: 44px !important;
+    min-block-size: 44px !important;
+  }
 }
 @media (max-width: 480px) {
   [data-composer-dock] { border-radius: 16px !important; }
@@ -1083,10 +1129,93 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   contain: inline-size;
   overflow-wrap: anywhere;
 }
-[data-interactive-component="table"] { border: 1px solid var(--selvedge-border) !important; border-radius: 8px !important; }
+[data-chart-viewport] {
+  scrollbar-width: thin;
+}
+[data-chart-viewport] > svg {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 320px;
+  max-inline-size: 500px !important;
+  block-size: auto;
+}
+[data-chart-viewport] > svg > text {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+[data-chart-viewport] > svg > line {
+  opacity: .38;
+}
+[data-interactive-component]:is([data-interactive-component="bar-chart"], [data-interactive-component="line-chart"]) {
+  gap: .25rem !important;
+}
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
+  inline-size: fit-content;
+  padding-block: .35rem;
+  color: var(--selvedge-muted);
+  font-size: .8125rem;
+  cursor: pointer;
+}
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary:is(:hover, :focus-visible) {
+  color: var(--selvedge-text);
+}
+[data-semantic-key="interactive-markdown/chart-data"] {
+  margin-block-start: .375rem;
+}
+[data-interactive-component="row-layout"][data-native-equal-columns] > * { align-self: stretch !important; }
+[data-interactive-component="row-layout"][data-native-equal-columns][data-native-row-direction="row"] {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+[data-interactive-component="row-layout"][data-native-equal-columns][data-native-row-direction="row"] [data-semantic-key="interactive-markdown/text"] {
+  white-space: nowrap;
+}
+[data-interactive-component="row-layout"][data-native-equal-columns] [data-semantic-key="interactive-markdown/text"] {
+  overflow-wrap: anywhere;
+}
+[data-interactive-component="row-layout"][data-native-equal-columns] > [data-interactive-motion="spin"]:has(> [data-interactive-component="badge"]) {
+  background: var(--selvedge-inset);
+  border-radius: 4px;
+  padding-inline: 6px;
+}
+[data-interactive-component="row-layout"][data-native-equal-columns] > [data-interactive-motion="spin"] > [data-interactive-component="badge"] {
+  background: transparent !important;
+  padding-inline: 0 !important;
+}
+
+[data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-value"] {
+  font-size: var(--rich-title-size) !important;
+  line-height: var(--rich-title-line) !important;
+  font-weight: var(--rich-title-weight) !important;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+[data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-label"] {
+  font-weight: var(--rich-strong-weight) !important;
+  overflow-wrap: anywhere;
+}
+[data-interactive-component="card"]:has(> [data-interactive-component="metric"]) > [data-semantic-key="interactive-markdown/text"] {
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size) !important;
+  line-height: var(--rich-support-line) !important;
+}
+
+[data-interactive-component="table"] > table { inline-size: 100% !important; }
 [data-interactive-component="table"] :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
-[data-interactive-component="table"] :where(caption, thead) { background: var(--selvedge-inset); }
-[data-interactive-component="table"] :where(th, td) { border-block-start: 1px solid var(--selvedge-border); }
+[data-interactive-component="table"] caption { font-weight: var(--rich-strong-weight); }
+[data-interactive-component="table"] caption:empty { display: none; }
+/* Authored tables supply their own dividers inside Markdown. */
+[data-interactive-component="table"] :where(th, td) { border: 0 !important; }
+[data-interactive-component="table"] thead th {
+  background: transparent !important;
+  border-block-end: 1px solid var(--selvedge-border) !important;
+}
+[data-interactive-component="table"] tbody tr + tr td {
+  border-block-start: 1px solid color-mix(in srgb, var(--selvedge-border) 50%, transparent) !important;
+}
+[data-interactive-component="table"] > [data-semantic-key="interactive-markdown/toolbar"] { flex-wrap: wrap; }
+[data-interactive-component="table"] > [data-semantic-key="interactive-markdown/toolbar"] > button { flex: none; }
 
 /* The task graph uses its canvas's intrinsic height while its own scrollport
    contains larger graphs. Authored graphs keep their fixed viewport. */

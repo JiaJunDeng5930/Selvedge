@@ -86,6 +86,7 @@ export class Renderer {
     this.targets = new Map();
     this.markdownRecords = new Set();
     this.prefixFields = new Set();
+    this.prefixActions = new Set();
     this.styleTexts = new Map();
     this.menuCssConfinement = new WeakMap();
     this.resizeMenus = () => { this.menuCssConfinement = new WeakMap(); };
@@ -267,6 +268,11 @@ export class Renderer {
       this.prefixFields.delete(node);
       node.inert = next.has('inert') && next.get('inert') !== 'false';
     }
+    if (next.has('data-prefix-action')) this.prefixActions.add(record);
+    else if (record.attributes.has('data-prefix-action')) {
+      this.prefixActions.delete(record);
+      if (!next.has('aria-disabled')) node.removeAttribute('aria-disabled');
+    }
     record.attributes = next;
     if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
       const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
@@ -419,11 +425,21 @@ export class Renderer {
     record.markdown?.dispose(); record.fences?.dispose();
     this.markdownRecords.delete(record);
     this.prefixFields.delete(record.node);
+    this.prefixActions.delete(record);
     this.records.delete(record.key);
     this.targets.delete(record.key);
   }
   synchronizePrefixFields(inert) {
     for (const node of this.prefixFields) if (node.inert !== inert) node.inert = inert;
+  }
+  synchronizePrefixActions(pending) {
+    for (const { node, attributes } of this.prefixActions) {
+      // A pending source receipt disables activation without removing keyboard focus.
+      const value = pending && !node.disabled ? 'true' : attributes.get('aria-disabled') ?? null;
+      if (node.getAttribute('aria-disabled') === value) continue;
+      if (value === null) node.removeAttribute('aria-disabled');
+      else node.setAttribute('aria-disabled', value);
+    }
   }
   restorePrefixField(key) {
     const record = this.records.get(key);
@@ -718,7 +734,7 @@ export class Renderer {
   reset() {
     for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
     reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
-    this.markdownRecords.clear(); this.prefixFields.clear();
+    this.markdownRecords.clear(); this.prefixFields.clear(); this.prefixActions.clear();
     this.document = null; this.focusScope = []; this.pendingFocus = null; this.updatedTargets = new Set(); this.targetProperties = new WeakMap();
   }
   dispose() {

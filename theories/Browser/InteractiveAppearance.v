@@ -27,6 +27,7 @@ Definition component_properties env (value : Presentation.component) : list (str
  | "row-layout" => Layout.row_properties Layout.Vertical ++ [("align-items","stretch");("overflow","hidden")]
  | "card" => Appearance.role_properties env Roles.Card
  | "badge" => badge_properties env
+ | "metric" => [("gap",Typography.px (gap "sm"))]
  | "table" => [("min-block-size","40px"); ("max-block-size","560px"); ("overflow","auto")]
  | "text-input" | "number-input" | "select" | "textarea" | "slider" =>
      [("min-block-size",Typography.px (Layout.motor_minimum env))]
@@ -45,7 +46,7 @@ Definition graph_distance scale value :=
  end.
 Definition placement_properties (env : Layout.environment) (value : Presentation.placement) : list (string * string) :=
  match value with
- | Presentation.ChartViewport => [("position","relative");("inline-size","100%");("block-size","240px");("overflow-x","auto");("overflow-y","hidden")]
+ | Presentation.ChartViewport => [("inline-size","100%");("overflow-x","auto");("overflow-y","hidden")]
  | Presentation.GraphViewport => [("position","relative"); ("inline-size","100%"); ("block-size","420px"); ("overflow","auto")]
  | Presentation.GraphCanvas scale width height =>
      let distance := graph_distance scale in

@@ -56,9 +56,9 @@ Definition elapsed_label seconds:=
  else if N.ltb seconds 86400 then show_natural(N.div seconds 3600)++"小时前"else show_natural(N.div seconds 86400)++"天前".
 Definition card_face snapshot s value :=
  CardFace (Read.card_id value)(Read.card_identifier value)(Read.card_title value)(Read.card_description value)
-  (Read.card_priority value)(Read.card_pinned value)(Read.card_activity_label(Read.card_activity value))
+  (Read.card_priority value)(Read.card_pinned value)(Read.card_activity_label snapshot value)
   (Read.card_project_label snapshot(Read.card_project value))(Read.card_labels value)
-  (Read.card_owner_label snapshot(Read.card_owner value))
+  (match Read.card_owner value with BoardDomain.Unassigned=>""|owner=>Read.card_owner_label snapshot owner end)
   (match State.now s with Some now=>elapsed_label(BoardFilter.elapsed now(Read.card_updated value))|None=>"更新时间待观测"end).
 Definition card_destinations snapshot s board_parent candidates value :=
  match State.now s with
@@ -147,18 +147,18 @@ Definition board_page snapshot s parent :=
          map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)].
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with
- |Some task=>String.concat ""[name;" (Task #";show_natural task;")"]
- |None=>String.append name " (unavailable)"end.
+ |Some task=>String.concat ""[name;"（对话 #";show_natural task;"）"]
+ |None=>String.append name "（不可用）"end.
 Definition graph_rule_nodes {A} parent graph:list(node A):=map(fun rule=>let key:=part parent(String.append "rule/"(Read.rule_key rule))in
  region parent(String.append "rule/"(Read.rule_key rule))(Read.rule_key rule)Roles.Section
-  (information key "rule-name" Information.FieldLabel (Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"Output delivery"
+  (information key "rule-name" Information.FieldLabel (Read.rule_key rule)::map(fun '(ordinal,action)=>read_only key(show_natural(N.of_nat ordinal))"发送规则"
     (String.concat ""[graph_endpoint_label graph(rule_source rule);" → ";graph_endpoint_label graph(Read.action_target action);": ";
      TextJson.render_json(Read.action_message action)]))
    (combine(seq 0(List.length(Read.rule_actions rule)))(Read.rule_actions rule))))
   (graph_rules graph).
 Definition graph_receipt_nodes {A} parent graph:list(node A):=map(fun '(ordinal,receipt)=>
- read_only parent(String.append "receipt/"(show_natural(N.of_nat ordinal)))"Last delivery result"
-  (String.concat ""["Task #";show_natural(receipt_source receipt);" → Task #";show_natural(receipt_target receipt);
+ read_only parent(String.append "receipt/"(show_natural(N.of_nat ordinal)))"最近发送结果"
+  (String.concat ""["对话 #";show_natural(receipt_source receipt);" → 对话 #";show_natural(receipt_target receipt);
    " (";receipt_rule receipt;"): ";match receipt_reply receipt with JString value=>value|reply=>TextJson.render_json reply end]))
  (combine(seq 0(List.length(graph_receipts graph)))(graph_receipts graph)).
 Definition graph_placement parent name label role place children : node Input.input :=
@@ -168,7 +168,7 @@ Definition graph_task_card snapshot parent placed :=
   let entry := TaskGraphCanvas.entry placed in
   let task := Read.node_task entry in
   let key := part parent (String.append "node/" (Read.node_key entry)) in
-  let label := String.concat "" [Read.node_key entry; " · Task #"; show_natural task] in
+  let label := String.concat "" [Read.node_key entry; " · 对话 #"; show_natural task] in
   let placement := Presentation.GraphNode Presentation.RootFontScale
     (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
     (Z.to_N TaskGraphCanvas.node_width) (Z.to_N TaskGraphCanvas.node_height) false in
@@ -177,16 +177,16 @@ Definition graph_task_card snapshot parent placed :=
      | Some entry =>
          let title := task_title entry in
          let project := match task_project entry with
-           | Some id => value_or ("Project #" ++ show_natural id)
+           | Some id => value_or ("项目 #" ++ show_natural id)
                (option_map project_name (find_project id snapshot))
-           | None => "No project"
+           | None => "未归入项目"
            end in
          let open_key := part key "open" in
          [Node open_key "task-graph/open" title Roles.Button
            (Activate (secondary "open" title (Input.Navigate (Conversation task))))
            [information open_key "task-graph/title" Information.OptionLabel title;
             information open_key "task-graph/project" Information.Description project]]
-     | None => [read_only key "status" label "Task unavailable"]
+     | None => [read_only key "status" label "对话不可用"]
      end).
 
 Definition graph_canvas snapshot parent graph :=
@@ -195,7 +195,7 @@ Definition graph_canvas snapshot parent graph :=
   let viewport := part parent "task-graph/viewport" in
   let canvas := part viewport "task-graph/canvas" in
   let edges := part canvas "edges" in
-  graph_placement parent "task-graph/viewport" "Task graph canvas" Roles.Section
+  graph_placement parent "task-graph/viewport" "任务图画布" Roles.Section
     Presentation.GraphViewport
     [graph_placement viewport "task-graph/canvas" "" Roles.Content
       (Presentation.GraphCanvas Presentation.RootFontScale (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
@@ -207,27 +207,27 @@ Definition graph_node snapshot s parent value :=
  let id:=graph_id value in
  let key:=part parent("graph/"++show_natural id)in
  Node key "task-graph/group" (graph_name value) Roles.Section Region
-  ([region key "task-graph/actions" "Task graph actions" Roles.Toolbar
+  ([region key "task-graph/actions" "任务图操作" Roles.Toolbar
     [group_title key (graph_name value);
-     declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
+     declared key Roles.Button(secondary "edit" "编辑任务图"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
      more key(GraphActions id)]] ++
    (match graph_nodes value with
-    | [] => [read_only key "nodes" "" "No tasks in this graph."]
+    | [] => [read_only key "nodes" "" "此任务图还没有对话。"]
     | _ => [information key "task-graph/direction" Information.Description
-              "Arrows show how output from a source conversation is delivered to a target conversation.";
+              "来源对话的回复沿箭头传给接收对话。";
             graph_canvas snapshot key value]
     end) ++
-   [region key "task-graph/rules" "Output rules" Roles.Section
-      (group_title (part key "task-graph/rules") "Output rules" :: graph_rule_nodes key value);
-    region key "task-graph/receipts" "Last delivery results" Roles.Section
-      (group_title (part key "task-graph/receipts") "Last delivery results" :: graph_receipt_nodes key value)])%list.
+   [region key "task-graph/rules" "发送规则" Roles.Section
+      (group_title (part key "task-graph/rules") "发送规则" :: graph_rule_nodes key value);
+    region key "task-graph/receipts" "最近发送结果" Roles.Section
+      (group_title (part key "task-graph/receipts") "最近发送结果" :: graph_receipt_nodes key value)])%list.
 Definition graphs_page snapshot s parent :=
  [browse_heading parent
-   (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"])
+   (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
    [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))]];
+     [declared parent Roles.PrimaryButton(primary "graph/new" "新建任务图"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))]];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
    (match scoped_graphs(State.active_work(State.navigation_state s))snapshot with
-    |Some []=>[read_only parent "empty" "" "Create a task graph to route output between conversations."]
+    |Some []=>[read_only parent "empty" "" "新建任务图，让回复在对话间传递。"]
     |Some entries=>map(graph_node snapshot s parent)entries
-    |None=>[read_only parent "unavailable" "Task graphs" "Task graph observations unavailable"]end)].
+    |None=>[read_only parent "unavailable" task_graphs_label "任务图暂不可用。"]end)].

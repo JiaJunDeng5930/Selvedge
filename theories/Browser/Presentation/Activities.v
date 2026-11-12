@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Kernel Require Domain.
+From Selvedge.Kernel Require Domain WorkspaceBackend.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context.
@@ -333,9 +333,69 @@ Definition view_title {e}(activity:Act.activity e)(view:Act.view e):string:=matc
 |Act.DependentView subject|Act.InspectionView(Some subject)=>Parameters.label(UX.subject_declaration subject)
 |Act.InspectionView None=>match UX.property_kind_of(Act.activity_property activity)with UX.ModelProperty=>"Model settings"|UX.PermissionsProperty=>"Permissions"|_=>UX.property_label(Act.activity_property activity)end
 |_=>match activity with Act.EditingActivity _ _ _=>Editors.editor_title e|_=>UX.property_label(Act.activity_property activity)end end.
+Definition navigation_header parent caption back (action:Input.input):node Input.input:=
+ Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
+  [declared parent Roles.Button(secondary "back" back action);title parent caption].
+Definition workspace_context_header s e occurrence parent caption:=
+ match State.layers(State.navigation_state s)with
+ |current::origin::_=>
+  if N.eqb occurrence(State.layer_occurrence current)&&run_environment_panel e(State.layer_panel origin)
+  then navigation_header parent caption "返回工作环境"(Input.ActivityComplete occurrence)
+  else title parent caption
+ |_=>title parent caption end.
+Definition run_environment_choices snapshot (s:State.state) e occurrence parent :=
+ match UX.admit_subject e(Parameters.name Fields.TaskEnvironment)with
+ |None=>[]
+ |Some subject=>
+  let decision:=Observation.decision_for snapshot s subject in
+  let alternatives:=UX.decision_alternatives decision in
+  let is_mode mode (alternative:UX.alternative e subject):=
+    Json.equal (JString mode) (Schema.encode_value (UX.subject_kind subject) (UX.alternative_value alternative)) in
+  match alternatives,find (is_mode "current") alternatives,
+      find (is_mode (WorkspaceBackend.name WorkspaceBackend.Local)) alternatives with
+  |[_;_],Some current,Some worktree=>
+   let checked:=UX.alternative_selected worktree in
+   let next:=if checked then current else worktree in
+   let key:=part parent "worktree" in
+   let label:="新建工作树" in
+   [Node key "creation-worktree" label Roles.Button
+    (Choice MultipleChoice checked ""
+      (Control "worktree" label Secondary
+        (Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value next)))
+        (domain_availability(UX.alternative_availability next))))[]]
+  |_,_,_=>map(candidate_node false false false None occurrence parent decision)alternatives
+  end end.
+Definition run_environment_menu snapshot (s:State.state) e occurrence parent behavior :=
+ let draft:=State.current_draft s e in
+ let cloud_help:=if Selvedge.Browser.Session.Observation.cloud_workspace_configured snapshot &&
+    Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then
+  [information parent "cloud-workspace-help" Information.Description
+    (Observation.cloud_source_caption snapshot draft++" Push the current commit with .selvedge/env.sh. Use directories inside that repository.")]
+  else[]in
+ let workspace label:=declared parent Roles.Button(secondary "cloud-workspace" label
+  (Input.OpenActivity e (Act.PropertyActivity UX.WorkspaceProperty)(part parent "cloud-workspace")))in
+ let repair:=match Observation.run_environment_problem_for snapshot s draft with
+  |None=>[]
+  |Some problem=>((match Observation.environment_problem_repair problem with
+    |Some Observation.ChooseCloudDirectory=>[workspace "Choose working directory…"]
+    |Some Observation.UseCloudProjectDirectory=>[workspace "Use project directory…"]
+    |Some(Observation.EditCloudProject project)=>[declared parent Roles.Button(secondary "cloud-project" "Edit project…"
+       (Input.OpenEditor(Identity.Project(Some project))(part parent "cloud-project")))]
+    |None=>[]end)++
+    (if Observation.environment_problem_recheck problem then
+      [declared parent Roles.Button(secondary "cloud-check" "Check again"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
+     else[]))%list end in
+ let context:=filter(fun property=>match UX.property_kind_of property with
+  |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observation.observe_properties snapshot s e)in
+ let status:=match Observation.run_environment_problem_for snapshot s draft with
+ |Some problem=>[information parent "run-environment-status" Information.Status(Observation.environment_problem_message problem)]
+ |None=>[]end in
+ Node parent "creation-environment" "工作环境" Roles.Menu (LayerRegion behavior)
+  (title parent "工作环境"::(run_environment_choices snapshot s e occurrence parent ++
+    Editors.property_controls snapshot s e parent context++cloud_help++status++repair)%list).
 Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:=
  Node parent "workspace-settings" "Workspace"Roles.Menu(LayerRegion behavior)
-  (title parent "Workspace"::
+  (workspace_context_header s e occurrence parent "Workspace"::
    (match Observation.observe_collection snapshot s e with
     |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
     |None=>[read_only parent "unavailable" "Workspace" "The working directory observation is unavailable"]end)++
@@ -379,14 +439,12 @@ Definition project_menu snapshot (s:State.state) e occurrence parent behavior:=
     (Observation.context_origin_choices snapshot s subject))++
   (match Read.projects snapshot with None=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]|Some _=>[]end))%list end in
  Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
-  [dialog_header parent [title parent "Choose project"];dialog_body parent
+  [dialog_header parent [workspace_context_header s e occurrence parent "Choose project"];dialog_body parent
     (content++[declared parent Roles.Button(secondary "project/new" "New project"
       (Input.OpenEditor(Identity.Project None)(part parent "project/new")))])].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
-Definition navigation_header parent caption back (action:Input.input):node Input.input:=
- Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
-  [declared parent Roles.Button(secondary "back" back action);title parent caption].
 Definition activity_view snapshot (s:State.state) e request occurrence source_expanded parent behavior compact_model_picker :=
+ if is_run_environment_request request then run_environment_menu snapshot s e occurrence parent behavior else
  if workspace_request request && match e with Identity.Project _=>false|_=>true end
  then workspace_menu snapshot s e occurrence parent behavior else
  if project_request request && match e with Identity.Project _=>false|_=>true end

@@ -68,8 +68,10 @@ Definition describe snapshot state input:P.purpose:=match input with
     |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end
   |[]=>false end)
 |Input.OpenInformation _ trigger=>P.OpenPanel "inspector" false(panel_open trigger state)
-|Input.OpenActivity owner request _=>match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker(activity_expanded owner request state)
- |_=>P.ChooseValue(activity_expanded owner request state)end
+|Input.OpenActivity owner request _=>let expanded:=activity_expanded owner request state in
+ if is_run_environment_request request then P.OpenPanel "settings" true expanded else
+ match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker expanded
+ |_=>P.ChooseValue expanded end
 |Input.ActivityAssignment _ _ _=>P.SelectedOption false
 |Input.ApplyAssignment _ assignment=>
  match Model.subject_declaration(Activity.assignment_subject assignment)with
@@ -104,5 +106,5 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.SetDisclosure _ _ _ expanded=>P.ShowActivity(negb expanded)
 |Input.RetainedOutput _ true=>P.NamedAction
 |Input.RetainedOutput _ false=>P.Dismiss
-|Input.Interactive _=>P.NamedAction
+|Input.Interactive _=>P.AuthoredAction
 |_=>P.NamedAction end.

@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
-From Selvedge.Kernel Require Commands Domain WorkspaceBackend.
+From Selvedge.Kernel Require Commands Domain.
 From Selvedge.Generated Require Commands.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Context.
@@ -27,63 +27,24 @@ Definition missing {A} parent message:list(node A) :=[page_region parent Composi
  [read_only parent "unavailable-message" "Unavailable"message]].
 Definition creation_heading snapshot s e :=match SessionObserve.draft_preview snapshot(State.current_draft s e)with
 |Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
- |Some project=>"New conversation in "++project_name project|None=>"New conversation"end
-|_=>"New conversation"end.
-Definition creation_settings_caption (draft:Draft.draft) :=
- "Project and run settings"++match Draft.contents draft with
- |Draft.NewTaskBody _ _ _ _ mode _=>" · "++match mode with
-   |Draft.CurrentWorkspace=>"Current directory"
-   |Draft.ManagedWorkspace WorkspaceBackend.Local=>"Host Git worktree"
-   |Draft.ManagedWorkspace WorkspaceBackend.TencentCvm=>"Tencent Cloud CVM" end
- |_=>""end.
+ |Some project=>Navigation.new_conversation_label++" · "++project_name project
+ |None=>Navigation.new_conversation_label end
+|_=>Navigation.new_conversation_label end.
 Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let owner:=editor_key e in
- let draft:=State.current_draft s e in
- let issue:=Observe.run_environment_problem_for snapshot s draft in
- let environment_key:=part parent "creation-options" in
- let environment_status key:=match issue with
-  |Some problem=>[information key "run-environment-status" Information.Status(Observe.environment_problem_message problem)]
+ let configuring:=match State.layers(State.navigation_state s)with
+ |top::_=>run_environment_panel e(State.layer_panel top)|[]=>false end in
+ let status:=if configuring then [] else match Observe.run_environment_problem_for snapshot s (State.current_draft s e) with
+  |Some problem=>[information parent "run-environment-status" Information.Status(Observe.environment_problem_message problem)]
   |None=>[]end in
- let cloud_help:=if SessionObserve.cloud_workspace_configured snapshot && SessionObserve.cloud_workspace_requested draft then
-  [information environment_key "cloud-workspace-help" Information.Description
-    (Observe.cloud_source_caption snapshot draft++" Push the current commit with .selvedge/env.sh. Use directories inside that repository.")]
-  else[]in
- let workspace label:=declared environment_key Roles.Button(secondary "cloud-workspace" label
-  (Input.OpenActivity e (Activity.PropertyActivity UX.WorkspaceProperty)(part environment_key "cloud-workspace")))in
- let repair:=match issue with
-  |None=>[]
-  |Some problem=>((match Observe.environment_problem_repair problem with
-    |Some Observe.ChooseCloudDirectory=>[workspace "Choose working directory…"]
-    |Some Observe.UseCloudProjectDirectory=>[workspace "Use project directory…"]
-    |Some(Observe.EditCloudProject project)=>[declared environment_key Roles.Button(secondary "cloud-project" "Edit project…"
-       (Input.OpenEditor(Identity.Project(Some project))(part environment_key "cloud-project")))]
-    |None=>[]end)++
-    (if Observe.environment_problem_recheck problem then
-      [declared environment_key Roles.Button(secondary "cloud-check" "Check again"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
-     else[]))%list end in
- let environment:=match Editors.field_node snapshot s e owner Fields.TaskEnvironment with
-  |Some node=>node::(cloud_help++environment_status environment_key++repair)%list
-  |None=>[]end in
- let properties:=Observe.observe_properties snapshot s e in
- let context:=flat_map(fun property=>match UX.property_kind_of property with
-  |UX.ProjectProperty=>
-   information parent "creation/project-label" Information.FieldLabel "Project"::
-   Editors.property_controls snapshot s e parent [property]
-  |UX.WorkspaceProperty=>
-   information parent "creation/directory-label" Information.FieldLabel "Working directory"::
-   Editors.property_controls snapshot s e parent [property]
-  |_=>[]end)properties in
  page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++
-    [page_region parent Composition.CreationContext Composition.BodyPosition
-      (Editors.editor_options parent "creation-options" (creation_settings_caption draft)
-        (context++environment)::environment_status parent)])%list.
+   ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++status)%list.
 Definition creation_page snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let graph_return:=match State.location(State.navigation_state s)with
   |GraphConversation _ _=>
-   [declared parent Roles.Button(secondary "return-to-graph" "Back to task graph" Input.ReturnToGraphSetup)]
+   [declared parent Roles.Button(secondary "return-to-graph" "返回任务图" Input.ReturnToGraphSetup)]
   |_=>[]end in
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
    (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return);
@@ -230,7 +191,8 @@ Definition task_contents snapshot s view parent task :=
  let operations:=value_or[](Read.task_operations id snapshot)in
  let history:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
- let tail:=match history with []=>[]|_=>fork_history_control view end in
+ let tail:=if Read.task_working task then [] else
+   match history with []=>[]|_=>fork_history_control view end in
  let timeline:=List.app history(List.app(operation_controls snapshot s id parent operations)tail)in
  let timeline:=match timeline with []=>
    [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]

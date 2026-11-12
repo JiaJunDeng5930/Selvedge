@@ -489,6 +489,22 @@ test('a conversation can be added to the board without starting another conversa
   await page.keyboard.press('Escape');
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
+  const review = main.locator('[data-board-stage="in_review"]');
+  const reviewCard = review.getByRole('article', { name: title, exact: true });
+  const completed = reviewCard.getByText('对话已完成', { exact: true });
+  await completed.waitFor();
+  const heading = reviewCard.getByText(title, { exact: true });
+  const reference = reviewCard.getByText(cards[0].identifier, { exact: true });
+  const [headingBounds, referenceBounds, activityBounds] = await Promise.all(
+    [heading, reference, completed].map(element => element.boundingBox()));
+  assert.ok(headingBounds && referenceBounds && activityBounds);
+  assert.ok(headingBounds.y < referenceBounds.y && headingBounds.y < activityBounds.y,
+    'The card title is above the secondary ID and the separate conversation status');
+  for (const absent of ['无', '未分配']) {
+    assert.equal(await reviewCard.getByText(absent, { exact: true }).count(), 0);
+  }
+  await reviewCard.locator('[data-card-grip]').waitFor();
+  await reviewCard.getByRole('button', { name: '卡片操作', exact: true }).waitFor();
   await main.getByRole('button', { name: '新建卡片', exact: true }).click();
   const ordinary = page.getByRole('dialog', { name: '新建卡片', exact: true });
   const ordinaryTitle = ordinary.getByRole('textbox', { name: '标题', exact: true });
@@ -499,4 +515,13 @@ test('a conversation can be added to the board without starting another conversa
   const listed = (await command({ op: 'list_cards' })).cards;
   assert.equal(listed.length, 2);
   assert.equal(listed.find(value => value.title === 'Independent plan').task_id, null);
+
+  const { task_id: idle } = await command({ op: 'create_idle', profile: 'demo' });
+  const idleTitle = 'Prepared conversation';
+  await command({ op: 'create_card', title: idleTitle, task_id: idle, assignee: 'self', priority: 'high' });
+  const idleCard = review.getByRole('article', { name: idleTitle, exact: true });
+  await idleCard.getByText('对话已就绪', { exact: true }).waitFor();
+  await idleCard.getByText('我', { exact: true }).waitFor();
+  await idleCard.getByText('高', { exact: true }).waitFor();
+  assert.equal(await idleCard.getByText('对话已完成', { exact: true }).count(), 0);
 });

@@ -13,7 +13,7 @@ From Selvedge.Browser.Session Require State Observation Authoring.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
 From Selvedge.Browser.Presentation Require Import ServiceControls Projection.
-From Selvedge.Browser.Presentation Require Roles Information.
+From Selvedge.Browser.Presentation Require Roles Information Settings.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -26,14 +26,14 @@ Definition editor_title e := match e with
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>"Fork conversation"|Compact _=>"Compact history"
-|TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
-|WorkName _=>"Rename Work"|TitlePrompts=>"Conversation titles"end.
+|TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
+|WorkName _=>"Rename Work"|TitlePrompts=>Settings.conversation_titles_label end.
 Definition submit_label draft e :=match Draft.contents draft with
 |Draft.MessageBody _ _ Fields.Steer=>"Steer"
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
-|TaskGraph None _=>"Create task graph"|Fork _=>"Create fork"|Card(Some _)=>"保存"
+|TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"Create fork"|Card(Some _)=>"保存"
 |Compact _=>"Compact history"|_=>"Save"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
@@ -156,7 +156,13 @@ Definition property_controls snapshot (s:Session.state) e parent properties :=
 Definition composer_tools snapshot (s:Session.state) e parent :=
  let selected property:=match UX.property_kind_of property with
  |UX.ModelProperty|UX.PermissionsProperty|UX.DeliveryProperty=>true|_=>false end in
- property_controls snapshot s e parent(filter selected(Observe.observe_properties snapshot s e)).
+ let tools:=property_controls snapshot s e parent(filter selected(Observe.observe_properties snapshot s e))in
+ match e with
+ |NewTask _=>
+  let key:="composer/environment" in
+  (tools++[declared parent Roles.Button(secondary key "配置工作环境"
+    (Input.OpenActivity e run_environment_request (part parent key)))])%list
+ |_=>tools end.
 Definition assessment_nodes {e} parent (assessment:UX.assessment e):node Input.input :=
  Node(part parent "assessment")"assessment" ""Roles.Content(ActionExplanation e assessment)
   (match Observe.action_obstruction(UX.assessment_outcome assessment)with
@@ -261,7 +267,7 @@ Definition task_choice (task:task) :=
 Definition graph_input parent key label text options (receive:json->option Input.input) :=
  Node(part parent key)key label Roles.Field(ConfigurationField false text options true receive)[].
 Definition graph_endpoint parent key label (available:list task) selected other receive :=
- let choices:=Fields.ChoiceValue "" "Choose a conversation"::
+ let choices:=Fields.ChoiceValue "" "选择对话"::
    map task_choice (filter(fun task=>negb(same_id other(Some(task_id task))))available) in
  graph_input parent key label (value_or ""(option_map show_natural selected))(Some choices)
    (fun value=>text<-as_string value;;
@@ -278,17 +284,19 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
  |Some subject=>
   let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
     (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
-  graph_input parent "handoff-name" "Graph name" name None
+  graph_input parent "handoff-name" "任务图名称" name None
     (fun value=>name<-as_string value;;assign name source target)::
   match Observe.handoff_conversations snapshot work with
   |Some(inr available)=>
-    [information parent "handoff-purpose" Information.Description "New replies in the source conversation are sent as messages to the receiving conversation.";
-     graph_endpoint parent "handoff-source" "Source conversation" available source target (fun id=>assign name id target);
-     graph_endpoint parent "handoff-target" "Receiving conversation" available target source (fun id=>assign name source id)]
+    [region parent "handoff-route" "转发方向" Roles.Section
+      [graph_endpoint parent "handoff-source" "来源对话" available source target (fun id=>assign name id target);
+       Node(part parent "handoff-direction")"handoff-direction" "" Roles.Decorative(Fact "→")[];
+       graph_endpoint parent "handoff-target" "接收对话" available target source (fun id=>assign name source id)];
+     information parent "handoff-purpose" Information.Description "自动把新回复作为消息转发。"]
   |Some(inl shortage)=>
     information parent "handoff-needs-conversations" Information.Description shortage::
     match e with
-    |TaskGraph None _=>[declared parent Roles.Button(secondary "handoff-new-conversation" "New conversation" Input.BeginGraphConversation)]
+    |TaskGraph None _=>[declared parent Roles.Button(secondary "handoff-new-conversation" "新建对话" Input.BeginGraphConversation)]
     |_=>[]end
   |None=>[information parent "handoff-conversations-unavailable" Information.Description Observe.handoff_conversations_loading]
   end
@@ -309,7 +317,7 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
    let quick:=match graph_handoff (Draft.contents(Session.current_draft s e)) with
     |Some handoff=>handoff_fields snapshot e parent scope handoff
     |None=>[]end in
-   (quick++[editor_options parent "graph-options" "Edit JSON definition" declaration])%list
+   (quick++[editor_options parent "graph-options" "编辑 JSON 定义" declaration])%list
  end.
 Definition section_nodes snapshot s e parent :=
  match e with
@@ -362,6 +370,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with Card _|TaskGraph _ _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

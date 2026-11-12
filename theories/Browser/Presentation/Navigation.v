@@ -12,8 +12,11 @@ Import ListNotations.
 Open Scope string_scope.
 
 Definition destination := (string * string * route)%type.
-Definition home_destination : destination := ("home","Home",Start).
-Definition graph_destination : destination := ("task-graphs","Task graphs",Graphs).
+Definition new_conversation_label := "新建对话".
+Definition task_graphs_label := "任务图".
+Definition settings_label := "设置".
+Definition home_destination : destination := ("home","首页",Start).
+Definition graph_destination : destination := ("task-graphs",task_graphs_label,Graphs).
 Definition destinations : list destination := [
  ("board","卡片看板",Board);("projects","项目",Projects);
  ("history-search","搜索对话",HistorySearch)].
@@ -29,7 +32,7 @@ Definition global_navigation s :=
  region "/workspace" "global-navigation" "Global navigation" (Roles.GlobalNavigation false)
   (List.app(map(destination_node current "/global-navigation")destinations)
     [declared "/global-navigation" (Roles.NavigationEntry false)
-     (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]).
+     (secondary "settings/open" settings_label (Input.ServiceInput Services.OpenSettings))]).
 Definition all_conversations_label := "全部对话".
 Definition conversation_scope_label := "对话范围".
 Definition work_label snapshot s :=
@@ -105,7 +108,7 @@ Definition task_collection snapshot s :=
  region "/navigation" "contents" "" Roles.NavigationCollection
   (region "/navigation" "task-creation" "" Roles.NavigationSection
     [declared "/navigation"(Roles.NavigationEntry(same_route current Start))
-      (secondary "new-task" "新建对话"(Input.BeginTask None))]::content).
+      (secondary "new-task" new_conversation_label(Input.BeginTask None))]::content).
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   [region "/navigation" "header" "Task tree" Roles.NavigationHeader
@@ -156,7 +159,7 @@ Definition global_menu s parent :=
      declared parent(Roles.CompactNavigationEntry(same_route current target))
        (secondary identity label(Input.Navigate target)))(home_destination::destinations))
     [declared parent(Roles.CompactNavigationEntry false)
-      (secondary "settings" "Settings"(Input.ServiceInput Services.OpenSettings))])].
+      (secondary "settings" settings_label(Input.ServiceInput Services.OpenSettings))])].
 Definition compact_header snapshot s :=
  region "/workspace" "compact-header" "Workspace navigation" Roles.CompactHeader
   [declared "/compact-header" Roles.Button (secondary "global" "Global navigation"(Input.OpenNavigation GlobalMenu(part "/compact-header" "global")));

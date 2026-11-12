@@ -3,6 +3,32 @@
 :where(dialog[data-surface-role], [data-workspace-side])
   :where([data-surface-role="dialog-body"]) { min-inline-size: 0 !important; }
 
+[data-semantic-key="handoff-route"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: .25rem .5rem !important;
+}
+
+[data-semantic-key="handoff-route"] > div {
+  display: grid !important;
+  grid-row: 1 / span 2;
+  grid-template-rows: subgrid;
+  row-gap: normal !important;
+  min-inline-size: 0 !important;
+}
+
+[data-semantic-key="handoff-route"] > div:first-child { grid-column: 1; }
+[data-semantic-key="handoff-route"] > div:last-child { grid-column: 3; }
+
+[data-semantic-key="handoff-direction"] {
+  display: grid !important;
+  grid-area: 2 / 2;
+  place-items: center;
+  min-block-size: 2rem;
+  color: var(--selvedge-muted) !important;
+}
+
 :is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side])
   :where([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
   flex: none !important;

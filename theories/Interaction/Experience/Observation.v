@@ -521,18 +521,18 @@ Definition fork_requirements snapshot e task count (messages:list string):list(o
   |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end end.
 Definition handoff_conversations snapshot work : option (string + list Read.task) :=
  option_map (fun all=>match Read.work_tasks work all with
-  |[]=>inl "Create two conversations in this scope."
-  |[_]=>inl "Create one more conversation in this scope."
+  |[]=>inl "请在此范围内新建两条对话。"
+  |[_]=>inl "请在此范围内再新建一条对话。"
   |available=>inr available end)(Read.tasks snapshot).
-Definition handoff_conversations_loading := "Loading conversations…".
+Definition handoff_conversations_loading := "正在读取对话…".
 Definition invalid_graph_declaration :=
- ("invalid_task_graph_declaration","Check the graph name, conversation references and routing rules.").
+ ("invalid_task_graph_declaration","请检查任务图名称、对话和转发规则。").
 Definition graph_declaration_diagnostic snapshot graph parsed work :=
  match bind parsed GraphAuthoring.observe_handoff with
  |None=>invalid_graph_declaration
  |Some handoff=>match GraphAuthoring.handoff_source handoff,GraphAuthoring.handoff_target handoff with
   |Some _,Some _=>if String.eqb(GraphAuthoring.handoff_name handoff)"" then
-    ("invalid_task_graph_declaration","Enter a graph name.") else invalid_graph_declaration
+    ("invalid_task_graph_declaration","请输入任务图名称。") else invalid_graph_declaration
   |source,target=>
    let scope:=match graph with
     |None=>work|Some id=>bind(Read.find_graph id snapshot)Read.graph_work end in
@@ -540,9 +540,9 @@ Definition graph_declaration_diagnostic snapshot graph parsed work :=
     |None=>handoff_conversations_loading
     |Some(inl shortage)=>shortage
     |Some(inr _)=>match source,target with
-     |None,None=>"Choose a source and a receiving conversation."
-     |None,Some _=>"Choose a source conversation."
-     |Some _,_=>"Choose a receiving conversation."end end)
+     |None,None=>"请选择来源对话和接收对话。"
+     |None,Some _=>"请选择来源对话。"
+     |Some _,_=>"请选择接收对话。"end end)
   end
  end.
 Definition graph_declaration_valid body :=
