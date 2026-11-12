@@ -4,7 +4,7 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
-From Selvedge.Features Require Domain BoardParameters BoardDrafting Work Titles TaskGraph.
+From Selvedge.Features Require Domain Board BoardFacts BoardParameters BoardDrafting Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
@@ -386,16 +386,17 @@ Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_dr
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
  (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
 Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
+Definition awaiting_admission := "Checking this action against the current state.".
 Definition admission snapshot state owner revision command:availability:=
  let sequence:=natural_field "sequence" snapshot in
  match sequence with None=>Unavailable "The current state has not been observed."
  |Some sequence=>match find(CommandAssessment.owned_assessment owner)(EC.command_assessments(EC.observed state))with
  |Some(Loaded _ request observation)=>if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation then
    match CommandAssessment.observed_admission observation with CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
-   else Unavailable "Checking this action against the current state."
+   else Unavailable awaiting_admission
  |Some(Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request
-   then Unavailable reason else Unavailable "Checking this action against the current state."
- | _=>Unavailable "Checking this action against the current state."end end.
+   then Unavailable reason else Unavailable awaiting_admission
+ | _=>Unavailable awaiting_admission end end.
 Definition card_save_consequence snapshot state (draft:Draft.draft) :=
  let context:=EC.observed state in
  let owner:=CommandAssessment.DraftOwner(Draft.owner draft) in
@@ -552,6 +553,14 @@ Definition graph_declaration_valid body :=
     |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
   |None=>false end
  |None=>false end.
+Definition card_text_requirements e value assisted :=
+ let draft:=Board.normalized_draft assisted value in
+ let title:=Domain.draft_title draft in
+ failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) "card_title_required"
+   (if assisted then "请输入标题或描述。" else "请输入标题。")++
+ failed_requirement e (BoardFacts.title_within_limit title) (Some Fields.CardTitle) "card_title_too_long" "标题太长，请缩短。"++
+ failed_requirement e (BoardFacts.description_within_limit (Domain.draft_description draft))
+   (Some Fields.CardDescription) "card_description_too_long" "描述太长，请缩短。".
 Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  match body with
  |Draft.NewTaskBody message profile effort _ _ _=>
@@ -565,15 +574,15 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
    (Some Fields.ProjectName)"invalid_project_name"
    (if Utf8.nonblank name then "项目名称不能超过 256 个 UTF-8 字节。" else Parameters.project_name_prompt)
- |Draft.CardBody _ _ _ true selected _=>
-   if assistance_profile_available snapshot selected then [] else
+ |Draft.CardBody _ _ value assisted selected _=>card_text_requirements e value assisted++
+   (if negb assisted || assistance_profile_available snapshot selected then [] else
    [requirement_obstruction e (Some Fields.AssistanceProfile) "draft_profile_unavailable"
     (match drafting_profile_choices snapshot with
     |[]=>"没有可用的整理模型。请配置模型，或关闭模型整理。"
     |_=>if String.eqb selected "" then
       if String.eqb (board_default_drafting_profile snapshot) "" then "看板未设置默认整理模型，请选择模型。"
       else "看板默认整理模型不可用，请选择其他模型。"
-     else "所选整理模型不可用，请重新选择。" end)]
+     else "所选整理模型不可用，请重新选择。" end)])
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
  |Draft.TaskGraphBody graph _ parsed work=>
    if graph_declaration_valid body then [] else
@@ -607,7 +616,8 @@ Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruc
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
  String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
- String.eqb(obstruction_code cause)"graph_handoff_incomplete".
+ String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
+ String.eqb(obstruction_code cause)"card_admission_pending".
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
 Definition action_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
@@ -627,7 +637,13 @@ Definition preparation_admission snapshot state e draft command:availability:=
   |None=>Available end end.
 Definition preliminary_assessment snapshot state e:assessment_result e:=
  let draft:=EC.current_draft state e in
- let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
+ let obstruction (reason:string):assessment_result e:=
+   let checking_card:=match e with
+    |Identity.Card _|Identity.CardForConversation _=>String.eqb reason awaiting_admission
+    |_=>false end in
+   PreparationBlocked
+     (if checking_card then Obstruction RepairEditor "card_admission_pending" "正在检查卡片。"
+      else Obstruction RepairEditor "NotAdmitted" reason)[]in
  match draft_requirements snapshot state e with
  |first::rest=>PreparationBlocked first rest
  |[]=>match Draft.contents draft,EC.current_time(EC.observed state) with

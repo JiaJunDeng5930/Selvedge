@@ -23,7 +23,7 @@ Theorem irrelevant_document_observation_is_idle request context namespace source
    (Selvedge.Browser.Session.Runtime.context namespace (Application.prepared_world context) state)
    source(SS.document_retention state)=Documents.IrrelevantObservation ->
  Application.input_decision request context namespace (Input.CodeObserved source)raw=
- (Authoring.keep state,"keep",context).
+ ((Authoring.keep state,"keep",context),Some false).
 Proof. cbn zeta. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
 (** A world refresh can follow ordinary command admission while the stream is
@@ -83,7 +83,7 @@ Theorem rejected_interactive_input_is_idle request context namespace language ra
  let state:=Application.prepared_state context in
  Selvedge.Browser.Session.Runtime.native_language namespace (Application.prepared_world context) state language=false ->
  Application.input_decision request context namespace (Input.Interactive language)raw=
- (Authoring.keep state,"keep",context).
+ ((Authoring.keep state,"keep",context),None).
 Proof. cbn zeta. intro Rejected; unfold Application.input_decision; rewrite Rejected; reflexivity. Qed.
 
 Theorem repeated_native_selection_keeps_its_publication input current updated :

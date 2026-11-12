@@ -10,7 +10,7 @@ Record message_hit := MessageHit {
 }.
 Inductive history_hit := TitleMatch (task : Read.task) | MessageMatch (task : Read.task) (hit : message_hit).
 Definition observe_hit raw :=
- task<-bind(field "task" raw)Read.observe_task;;
+ task<-bind(field "task" raw)Read.observe_task_summary;;
  match string_field "kind" raw with
  |Some "title"=>Some(TitleMatch task)
  |None=>index<-natural_field "message_index" raw;;

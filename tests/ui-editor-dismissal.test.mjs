@@ -115,12 +115,12 @@ test('canceling Add to board restores the source conversation defaults on reopen
   const { task } = await command({ op: 'read', task_id });
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
-  const actions = page.getByRole('main').getByRole('button', { name: 'More actions', exact: true });
+  const actions = page.getByRole('main').getByRole('button', { name: '对话操作', exact: true });
   const editor = page.getByRole('dialog', { name: '添加到看板', exact: true });
   const title = editor.getByRole('textbox', { name: '标题', exact: true });
   async function openCardEditor() {
     await actions.click();
-    await page.getByRole('button', { name: 'Add to board', exact: true }).click();
+    await page.getByRole('button', { name: '添加到看板', exact: true }).click();
   }
   await openCardEditor();
   await title.fill('Discard this draft title');

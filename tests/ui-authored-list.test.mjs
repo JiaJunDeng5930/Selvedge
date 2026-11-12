@@ -77,15 +77,14 @@ test('authored task summaries align statuses and values while keeping each item 
   const unselected = choice(inProgress, '选中这一项', '开发组件');
   assert.equal(await unselected.getAttribute('aria-pressed'), 'false');
   assert.equal(await unselected.getAttribute('title'), '选中这一项 · 开发组件');
-  const unselectedFace = (await unselected.innerText()).trim();
-  assert.equal(Array.from(unselectedFace).length, 1, 'The selection button presents a visible mark');
+  assert.equal((await unselected.innerText()).trim(), '☐', 'The selection button is distinct from a status dot');
   await unselected.focus();
   await inProgress.locator('button:enabled:not([aria-disabled="true"])').waitFor();
   await page.keyboard.press('Enter');
   const selected = choice(inProgress, '已选中', '开发组件');
   await selected.waitFor();
   assert.equal(await selected.getAttribute('aria-pressed'), 'true');
-  assert.notEqual((await selected.innerText()).trim(), unselectedFace);
+  assert.equal((await selected.innerText()).trim(), '☑');
   assert.equal(await selected.evaluate(node => document.activeElement === node), true);
   assert.equal(await choice(completed, '选中这一项', '设计首页').getAttribute('aria-pressed'), 'false');
 

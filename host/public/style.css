@@ -1128,6 +1128,34 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-interactive-action-group="utilities"] > [data-interactive-component="button"] > button {
   --control-rest-background: var(--selvedge-inset) !important;
 }
+[data-interactive-component="card"]:is(
+  :has(> [data-interactive-component="metric"]:first-child + [data-interactive-action-group="adjustments"]:last-child),
+  :has(> [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child +
+       [data-interactive-component="metric"] + [data-interactive-action-group="adjustments"]:last-child)
+) {
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .375rem .75rem !important;
+
+  & > [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child {
+    flex: 1 1 100%;
+  }
+  & > [data-interactive-component="metric"] {
+    inline-size: max-content !important;
+  }
+  & > [data-interactive-action-group="adjustments"] {
+    display: flex !important;
+    flex-flow: row wrap !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    inline-size: max-content !important;
+    gap: .375rem !important;
+  }
+  & > [data-interactive-action-group="adjustments"] > [data-interactive-component="button"] {
+    flex: none !important;
+    inline-size: max-content !important;
+  }
+}
 [data-interactive-component="button"] > button { max-inline-size: 100%; }
 [data-interactive-component="button"] > button > span {
   white-space: normal !important;
@@ -1147,11 +1175,12 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   display: block;
   inline-size: 100%;
   min-inline-size: 336px;
-  block-size: auto;
+  block-size: auto !important;
 }
 [data-chart-viewport] > svg > text {
-  font-size: clamp(13px, calc(24px - 1.5cqi), 19px);
+  font-size: clamp(11px, calc(22px - 1.5cqi), 17px);
   font-variant-numeric: tabular-nums;
+  opacity: .88;
 }
 [data-chart-viewport] > svg > line {
   opacity: .38;
@@ -1184,18 +1213,45 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   position: absolute;
   inset-block-start: 0;
   inset-inline-end: 0;
+  list-style: none;
+}
+[data-semantic-key="interactive-markdown/chart-disclosure"] > summary::-webkit-details-marker {
+  display: none;
+}
+:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
+  button[data-semantic-key="interactive-markdown/source-disclosure"]) {
+  --control-rest-background: transparent !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: .4rem !important;
   inline-size: fit-content;
-  min-block-size: 2rem;
-  padding: .35rem .45rem;
-  border-radius: 6px;
-  color: var(--selvedge-muted);
-  font-size: .8125rem;
+  min-block-size: 2rem !important;
+  padding: .35rem .45rem !important;
+  border-color: transparent !important;
+  border-radius: 6px !important;
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size, .8125rem) !important;
   white-space: nowrap;
   cursor: pointer;
 }
-[data-semantic-key="interactive-markdown/chart-disclosure"] > summary:is(:hover, :focus-visible) {
-  color: var(--selvedge-text);
-  background: var(--selvedge-hover);
+:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
+  button[data-semantic-key="interactive-markdown/source-disclosure"])::before {
+  content: "";
+  flex: none;
+  inline-size: .42em;
+  block-size: .42em;
+  border: solid currentColor;
+  border-width: 0 .1em .1em 0;
+  transform: rotate(-45deg);
+}
+:is([data-semantic-key="interactive-markdown/chart-disclosure"][open] > summary,
+  button[data-semantic-key="interactive-markdown/source-disclosure"][aria-expanded="true"])::before {
+  transform: rotate(45deg);
+}
+:is([data-semantic-key="interactive-markdown/chart-disclosure"] > summary,
+  button[data-semantic-key="interactive-markdown/source-disclosure"]):is(:hover, :focus-visible) {
+  color: var(--selvedge-text) !important;
+  background: var(--selvedge-hover) !important;
 }
 [data-semantic-key="interactive-markdown/chart-data-region"] {
   max-inline-size: 100%;
@@ -1353,9 +1409,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
       font-size: min(var(--interactive-metric-value-size, var(--rich-title-size)),
         max(var(--rich-title-size), 15cqi)) !important;
     }
-    & > [data-interactive-component="metric"] > [data-semantic-key="interactive-markdown/metric-label"] {
-      margin-block-start: auto;
-    }
   }
 }
 
@@ -1363,6 +1416,10 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   border-collapse: collapse;
   inline-size: 100% !important;
   & :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
+  & :where(th, td)[data-numeric-cell] {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
   & :where(th, td) { border: 0 !important; }
   & thead th {
     font-weight: var(--rich-strong-weight);
@@ -1372,6 +1429,11 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   & tbody tr + tr td {
     border-block-start: 1px solid color-mix(in srgb, var(--selvedge-border) 50%, transparent) !important;
   }
+}
+[data-interactive-component="table"] th[data-numeric-cell] > button {
+  justify-content: flex-end !important;
+  margin-inline-start: auto;
+  padding-inline-end: 0 !important;
 }
 [data-interactive-component="table"] caption { font-weight: var(--rich-strong-weight); }
 [data-interactive-component="table"] caption:empty { display: none; }

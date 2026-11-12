@@ -352,10 +352,11 @@ Definition native_step namespace snapshot lagged input raw current :=
 Definition feedback_update (error:option json) (visible acknowledge:bool) :=
  if visible || acknowledge then match error with
  |Some _=>"replace"|None=>"clear" end else "keep".
-Definition decision_packet context effects error handled visible_error acknowledge (publication_event:string):=JObject[("state",prepared_encoding context);
+Definition decision_packet context effects error handled visible_error acknowledge (publication_event:string) fence_admitted:=JObject[("state",prepared_encoding context);
  ("file_handles",JArray(map JString(Selvedge.Browser.Session.Services.retained_file_handles(Session.service_state(prepared_state context)))));
  ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled);
+ ("fence_admitted",match fence_admitted with Some value=>JBool value|None=>JNull end);
  ("native_picker",JBool(match prepared_picker_update context with Some _=>true|None=>false end));
  ("native_stream",JBool(match prepared_stream_update context with Some _=>true|None=>false end))].
 Definition refresh context decision:=match prepared_scene context with
@@ -486,18 +487,18 @@ Definition run_stream request context namespace source :=
 Definition input_decision request context namespace input raw:=
  let snapshot:=prepared_world context in let current:=prepared_state context in
  match input with
- |Input.Stream source=>run_stream request context namespace source
+ |Input.Stream source=>(run_stream request context namespace source,None)
  |Input.CodeObserved source=>match Documents.admit_observation
    (SR.context namespace snapshot current)source(Session.document_retention current)with
-  |Documents.MalformedObservation=>(SA.fail current "The document observation does not belong to the current output.","keep",context)
-  |Documents.IrrelevantObservation=>(SA.keep current,"keep",context)
-  |Documents.AdmittedObservation _ _=>run_input request context namespace input raw end
+  |Documents.MalformedObservation=>((SA.fail current "The document observation does not belong to the current output.","keep",context),Some false)
+  |Documents.IrrelevantObservation=>((SA.keep current,"keep",context),Some false)
+  |Documents.AdmittedObservation _ _=>(run_input request context namespace input raw,Some true) end
  |Input.Interactive language=>
    if SR.native_language namespace snapshot current language &&
       negb (flag "semantic_lagged" request && Selvedge.Interaction.Interactive.Runtime.authored_input language &&
         negb (match string_field "op" raw with Some "element"=>true|_=>false end))
-   then run_input request context namespace input raw else (SA.keep current,"keep",context)
- |_=>run_input request context namespace input raw end.
+   then (run_input request context namespace input raw,None) else ((SA.keep current,"keep",context),None)
+ |_ => (run_input request context namespace input raw,None) end.
 
 Definition initialized := SC.encode_state Session.initial.
 (* Only navigation and drafts belong to the tab across a release change.
@@ -538,11 +539,11 @@ Definition prepared_call operation request context : json * prepared :=
  else if String.eqb operation "step"then match field "input" request with
   |None=>unchanged(Json.failure "InvalidInput" "An input observation is required.")
   |Some raw=>match decode_input request context raw with
-   |None=>unchanged(Json.success(decision_packet context [] None false false false "keep"))
+   |None=>unchanged(Json.success(decision_packet context [] None false false false "keep" None))
    |Some input=>match string_field "namespace" request with
     |None=>unchanged(Json.failure "InvalidNamespace" "The runtime namespace is required.")
-    |Some namespace=>let '(decision,publication,next):=input_decision request context namespace input raw in
-     (Json.success(decision_packet next(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)publication),next)end end end
+    |Some namespace=>let '((decision,publication,next),fence_admitted):=input_decision request context namespace input raw in
+     (Json.success(decision_packet next(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)publication fence_admitted),next)end end end
  else unchanged(Json.failure "UnknownOperation" operation).
 
 Definition call operation request:json:=

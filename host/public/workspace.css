@@ -132,8 +132,16 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 
 [data-page-region="history-results"] :is([data-semantic-key="result-excerpt"], [data-semantic-key="result-title"]) {
   color: var(--selvedge-text) !important;
+}
+[data-page-region="history-results"] [data-semantic-key="result-title"] {
+  font-size: var(--rich-section-size) !important;
+  line-height: var(--rich-section-line) !important;
+  font-weight: var(--rich-strong-weight) !important;
+}
+[data-page-region="history-results"] [data-semantic-key="result-excerpt"] {
   font-size: var(--rich-body-size) !important;
   line-height: var(--rich-body-line) !important;
+  font-weight: var(--rich-body-weight) !important;
 }
 [data-page-region="history-results"] [data-semantic-key="result-context"] {
   color: var(--selvedge-muted) !important;

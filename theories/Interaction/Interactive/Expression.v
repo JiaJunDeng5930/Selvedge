@@ -228,6 +228,7 @@ Definition sort_values path descending xs budget:=let '(result,remaining):=sort_
 Fixpoint group_whole s : string :=
  match s with EmptyString=>"" | String c r=>
  String c (if (negb(String.eqb r ""))&&Nat.eqb(String.length r mod 3)0 then ","++group_whole r else group_whole r)end.
+Definition grouped_decimal := Decimal.render_whole group_whole.
 Definition formatted d style : outcome string :=
  let n:=Decimal.units d in
  match Builtins.decode_format style with
@@ -235,11 +236,7 @@ Definition formatted d style : outcome string :=
  |Builtins.DecimalFormat|Builtins.PercentFormat=>
    let percent:=match selected with Builtins.PercentFormat=>true|_=>false end in
    let n:=if percent then (n*100)%Z else n in
-   let s:=Decimal.render(Z.abs n)in
-   match Decimal.split_dot s with
-   | Some(w,f)=>Good((if Z.ltb n 0 then "-"else "")++group_whole w++
-       (match f with Some s=>"."++s|_=>""end)++(if percent then "%"else ""))
-   | None=>Error "Invalid decimal format"end
+   Good(grouped_decimal n++(if percent then "%"else ""))
  |Builtins.UsdFormat|Builtins.CnyFormat=>
    cents <-? from_option "Invalid currency"(Decimal.rounded_division(Z.abs n)10000);;
    let fraction:=show_integer(Z.rem cents 100)in

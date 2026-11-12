@@ -46,7 +46,7 @@ Inductive placement :=
     semantic event resolution and native compilation. *)
 Record table_column (Action:Type) := TableColumn {
  column_identity:string; column_heading:string; column_sort:option Action;
- column_enabled:bool; column_order:option bool
+ column_enabled:bool; column_order:option bool; column_numeric:bool
 }.
 Arguments TableColumn {Action}.
 Arguments column_identity {Action}.
@@ -54,9 +54,14 @@ Arguments column_heading {Action}.
 Arguments column_sort {Action}.
 Arguments column_enabled {Action}.
 Arguments column_order {Action}.
+Arguments column_numeric {Action}.
+Record table_cell := TableCell {
+ cell_text:string;
+ cell_numeric:bool
+}.
 Record table_row := TableRow {
  row_identity:string;
- row_values:list string
+ row_values:list table_cell
 }.
 Record table (Action:Type) := DataTable {
  table_caption:string; table_columns:list(table_column Action);
@@ -70,6 +75,7 @@ Definition column_key {A} (table_key:string) (column:table_column A) :=
  String.append table_key (String.append "/column/" (column_identity column)).
 Definition map_column {A B} (f:A->B) (column:table_column A) : table_column B :=
  TableColumn (column_identity column) (column_heading column)
-  (option_map f (column_sort column)) (column_enabled column) (column_order column).
+  (option_map f (column_sort column)) (column_enabled column) (column_order column)
+  (column_numeric column).
 Definition map_table {A B} (f:A->B) (value:table A) : table B :=
  DataTable (table_caption value) (map (map_column f) (table_columns value)) (table_rows value).

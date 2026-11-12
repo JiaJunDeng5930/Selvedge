@@ -489,6 +489,7 @@ export class Renderer {
       record.markdown?.dispose(); record.markdownTargets.clear(); record.node.replaceChildren();
       const current = () => this.records.get(key) === record;
       record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) { this.refreshLinks([record]); this.callbacks.layout?.(); } },
+        ...(record.metadata.origin === undefined ? {} : { interactiveFence: this.callbacks.interactiveFence }),
         ...(record.metadata.source === undefined ? {} : {
           codeIdentity: ordinal => this.callbacks.codeIdentity?.(record.metadata.source, ordinal),
           codeTargets: identity => this.callbacks.codeTargets?.(identity, record.metadata.view ?? null),
@@ -508,7 +509,10 @@ export class Renderer {
     if (value.complete) record.markdown.finish();
     if (value.metadata.origin && value.metadata.epoch !== undefined && value.metadata.revision !== undefined) {
       record.fences ??= new MarkdownFenceObserver({ onFence: observed => {
-        if (this.records.get(key) === record) this.callbacks.fence?.(record.metadata, observed);
+        if (this.records.get(key) !== record) return;
+        const admitted = this.callbacks.fence?.(record.metadata, observed);
+        if (admitted === false && (observed.closed || (observed.ending !== 'open' && observed.inputPrefix === record.text)))
+          record.markdown.refusePreview(observed.ordinal);
       } });
       record.fences.sync({ text: value.value, epoch: stringifyJson(value.metadata.epoch),
         revision: value.metadata.revision, ending: value.metadata.ending ?? (value.complete ? 'complete' : 'open') });

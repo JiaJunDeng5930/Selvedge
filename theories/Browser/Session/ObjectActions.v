@@ -43,21 +43,25 @@ Definition from_decision subject value :=
   (Decisions.decision_proposal value).
 Definition add_to_board_key := "board/add".
 Definition open_board_card_key := "board/card".
-Definition task_fork_action task := local "fork" "Fork from current history"(Editor(Fork task)).
+Definition menu_label subject := match subject with
+ |TaskActions _=>"对话操作"|ProjectActions _=>"项目操作"
+ |CardActions _=>"卡片操作"|GraphActions _=>"任务图操作" end.
+Definition fork_label := "创建对话分支".
+Definition task_fork_action task := local "fork" fork_label (Editor(Fork task)).
 Definition task_board_action snapshot task :=
  match Read.board_cards snapshot with
  |None=>[]
  |Some cards=>match find(fun card=>Read.same_id (Read.card_task card) (Some task))cards with
-  |Some card=>[local open_board_card_key "Open board card" (InspectCard(Read.card_id card))]
-  |None=>[local add_to_board_key "Add to board" (Editor(CardForConversation task))] end
+  |Some card=>[local open_board_card_key "打开关联卡片" (InspectCard(Read.card_id card))]
+  |None=>[local add_to_board_key "添加到看板" (Editor(CardForConversation task))] end
  end.
 Definition declarations snapshot clock subject :=
  if Decisions.subject_exists snapshot subject then
  let commands := flat_map (fun value=>singleton(from_decision subject value))(Decisions.decisions snapshot clock subject) in
  match subject with
  |TaskActions id=>commands++
-  [local "side" "Side conversation"(SideConversation id);
-   task_fork_action id;local "compact" "Compact context"(Editor(Compact id))]
+  [local "side" "侧边对话"(SideConversation id);
+   local "compact" "压缩上下文"(Editor(Compact id))]
  |ProjectActions id=>local "edit" "编辑项目"(Editor(Project(Some id)))::commands
  |CardActions id=>local "edit" "编辑卡片"(Editor(Card(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
@@ -116,12 +120,18 @@ Definition task_menu_actions (task:Read.task) (actions:list action) :=
   |"stop"=>String.eqb(Read.task_status task)"active" && Read.task_working task
   |"archive"=>negb(String.eqb(Read.task_status task)"archived")
   |_=>true end) actions.
+Definition available_first (actions:list action) :=
+ let '(available,unavailable):=partition
+   (fun value=>match action_status value with
+    |Unavailable _|AssessmentFailed _=>false|_=>true end) actions in
+ available++unavailable.
 Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in
  match subject with
  |TaskActions id=>match Read.find_task id snapshot with
-  |Some task=>task_menu_actions task actions++map(observe snapshot s subject)(task_board_action snapshot id)
+  |Some task=>available_first (task_menu_actions task actions++map(observe snapshot s subject)(task_board_action snapshot id))
   |None=>[]end
+ |CardActions _=>available_first actions
  |_=>actions end.
 Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with

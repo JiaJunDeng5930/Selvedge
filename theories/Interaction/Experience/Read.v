@@ -16,16 +16,20 @@ Module BoardDomain := Selvedge.Features.Domain.
     Each entry decides which facts to present and how to present them. *)
 Record task := ObservedTask {
  task_id : N; task_title : string; task_status : string; task_caption : string;
- task_working : bool; task_project : option N; task_work : option N; task_parent : option N
+ task_working : bool; task_project : option N; task_work : option N; task_parent : option N;
+ task_awaiting_human : bool; task_execution_failed : bool
 }.
-Definition observe_task value :=
+Definition observe_task_with_failure (include_failure:bool) value :=
  id<-natural_field "id" value;;name<-string_field "title" value;;
  status<-string_field "status" value;;
  if existsb(String.eqb status)["active";"frozen";"stopped";"archived"]then
  caption<-string_field "status_label" value;;working<-bool_field "working" value;;
  settings<-field "settings" value;;project<-id_field "project_id" settings;;
  work<-id_field "work_id" value;;parent<-id_field "parent" value;;
- Some(ObservedTask id name status caption working project work parent)else None.
+ Some(ObservedTask id name status caption working project work parent
+   (flag "awaitingHuman" value) (if include_failure then flag "execution_failed" value else false))else None.
+Definition observe_task_summary := observe_task_with_failure false.
+Definition observe_task := observe_task_with_failure true.
 Definition tasks snapshot := list_field observe_task "tasks" snapshot.
 Definition find_task id snapshot := bind(World.find_task id snapshot)observe_task.
 Definition same_id lhs rhs := match lhs,rhs with

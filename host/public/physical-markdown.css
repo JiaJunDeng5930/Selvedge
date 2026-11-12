@@ -122,6 +122,29 @@
   margin-block-start: var(--physical-block-gap);
 }
 .physical-markdown .markdown .code-block[data-interactive-active="true"] > .code-language { display: none; }
+.physical-markdown .markdown .code-block[data-interactive-active="true"] > .interactive-preview-status {
+  display: none;
+}
+.physical-markdown .markdown .code-block[data-interactive-preview-candidate]:not([data-interactive-active="true"], [data-fallback-source-open]) > :is(pre, .code-toolbar, .code-language) {
+  display: none !important;
+}
+.interactive-preview-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  min-block-size: 2rem;
+  color: var(--selvedge-muted);
+  font-size: var(--rich-support-size);
+}
+.interactive-preview-status button {
+  padding: .35em .6em;
+  color: var(--selvedge-text);
+  background: transparent;
+  border: 1px solid var(--selvedge-border);
+  border-radius: .4em;
+  font: inherit;
+}
 .physical-markdown .markdown .interactive-markdown-target:empty { display: none; }
 .physical-markdown .markdown .code-block[data-interactive-source-visible="false"] > .code-toolbar {
   display: none !important;
@@ -158,18 +181,14 @@
   margin-block-start: max(1.35rem, calc(2 * var(--physical-block-gap)));
 }
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] {
-  justify-content: flex-end !important;
+  justify-content: flex-start !important;
   flex-wrap: wrap !important;
   margin-block-start: .4rem;
-  border-block-start: 1px solid var(--selvedge-border);
   padding-block-start: .2rem;
 }
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] > [data-interactive-component="button"] {
   inline-size: fit-content !important;
   min-inline-size: 0 !important;
-}
-.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] > button {
-  margin-inline-start: auto;
 }
 .interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] button {
   font-size: var(--rich-support-size) !important;

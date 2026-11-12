@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
-const forkActionLabel = 'Fork from current history';
+const forkActionLabel = '创建对话分支';
 
 async function waitForAnswer(fixture, index) {
   const deadline = Date.now() + 10_000;
@@ -30,7 +30,7 @@ async function expectForkTooltip(page, fork) {
   }, { id: await fork.getAttribute('id'), label: forkActionLabel });
 }
 
-test('the conversation menu and end offer the same fork, with reading position restored on Cancel', { timeout: 60000 }, async t => {
+test('a conversation offers its fork at the end and Cancel restores the reading position', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command, running, profile } = fixture;
   const { task_id } = await command({ op: 'create', profile, message: 'Fork this conversation at its end.' });
@@ -58,18 +58,21 @@ test('the conversation menu and end offer the same fork, with reading position r
   assert.equal(await fork.locator('svg').count(), 1);
   assert.equal(await fork.locator('span:not(.visually-hidden)').count(), 0);
 
-  const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
+  const dialog = page.getByRole('dialog', { name: forkActionLabel, exact: true });
   const source = dialog.getByText(task.title, { exact: true });
-  const history = dialog.getByText('The new conversation starts with the source conversation’s current history.', { exact: true });
-  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
-  const moreActions = main.getByRole('button', { name: 'More actions', exact: true });
+  const history = dialog.getByText('分支会继承这条对话当前的历史。', { exact: true });
+  const cancel = dialog.getByRole('button', { name: '取消', exact: true });
+  const moreActions = main.getByRole('button', { name: '对话操作', exact: true });
   await moreActions.press('Enter');
-  await page.getByRole('menu', { name: 'Actions', exact: true })
-    .getByRole('button', { name: forkActionLabel, exact: true }).press('Enter');
-  await source.waitFor();
-  await history.waitFor();
-  await cancel.click();
-  await dialog.waitFor({ state: 'hidden' });
+  const menu = page.getByRole('menu', { name: '对话操作', exact: true });
+  for (const name of ['暂停对话', '归档对话', '侧边对话', '压缩上下文']) {
+    const action = menu.getByRole('button', { name, exact: true });
+    await action.waitFor();
+    assert.equal(await action.locator('svg').count(), 1);
+  }
+  assert.equal(await menu.getByRole('button', { name: forkActionLabel, exact: true }).count(), 0);
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
   await expectFocus(page, moreActions);
 
   await page.setViewportSize({ width: 390, height: 700 });
@@ -118,7 +121,7 @@ test('the conversation menu and end offer the same fork, with reading position r
   await fork.press('Enter');
   const response = page.waitForResponse(value => value.url().endsWith('/api/browser/command')
     && value.request().postDataJSON()?.command?.op === 'fork');
-  await dialog.getByRole('button', { name: 'Create fork', exact: true }).click();
+  await dialog.getByRole('button', { name: '创建分支', exact: true }).click();
   const receipt = await response;
   assert.equal(receipt.request().postDataJSON().command.task_id, task_id);
   const { reply } = await receipt.json();
@@ -146,7 +149,7 @@ test('the side conversation end opens its own fork editor and restores the tail 
   assert.equal(await fork.locator('svg').count(), 1);
   assert.equal(await fork.locator('span:not(.visually-hidden)').count(), 0);
   await fork.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'Fork conversation', exact: true });
+  const dialog = page.getByRole('dialog', { name: forkActionLabel, exact: true });
   await dialog.getByText(sideTask.title, { exact: true }).waitFor();
   assert.equal(await dialog.getByText(parentTask.title, { exact: true }).count(), 0);
   await page.keyboard.press('Escape');

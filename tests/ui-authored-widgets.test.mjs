@@ -46,7 +46,7 @@ test('authored motion, metrics and tables remain readable in the conversation', 
       </card>
     </row-layout>
     <card id="products" label="示例数据">
-      <table id="details" label="${title}" rows={[{id:"a",name:"Alpha",revenue:2},{id:"b",name:"Beta",revenue:8},{id:"c",name:"Gamma",revenue:3},{id:"d",name:"Delta",revenue:4},{id:"e",name:"Echo",revenue:5},{id:"f",name:"Foxtrot",revenue:6}]} row-key="id" sortable={true}>
+      <table id="details" label="${title}" rows={[{id:"a",name:"007",revenue:2},{id:"b",name:"Beta",revenue:8},{id:"c",name:"Gamma",revenue:3},{id:"d",name:"Delta",revenue:4},{id:"e",name:"Echo",revenue:5},{id:"f",name:"Foxtrot",revenue:6}]} row-key="id" sortable={true}>
         <column id="name" field="name" label="产品" />
         <column id="revenue" field="revenue" label="收入" format="currency:CNY" />
       </table>
@@ -86,9 +86,15 @@ test('authored motion, metrics and tables remain readable in the conversation', 
   const metricName = main.getByText('访问量', { exact: true });
   const formatCue = main.getByText('普通数值', { exact: true });
   const fontSize = locator => locator.evaluate(node => parseFloat(getComputedStyle(node).fontSize));
-  assert.ok((await number.boundingBox()).y < (await metricName.boundingBox()).y);
+  assert.ok((await metricName.boundingBox()).y < (await number.boundingBox()).y &&
+    (await number.boundingBox()).y < (await formatCue.boundingBox()).y,
+    'The metric name precedes its value and the separate card caption follows');
   assert.ok(await fontSize(number) > await fontSize(metricName) && await fontSize(metricName) > await fontSize(formatCue));
   const sales = main.getByText('¥987,654.32', { exact: true });
+  const salesName = main.getByText('销售额', { exact: true });
+  const currencyCue = main.getByText('人民币', { exact: true });
+  assert.ok((await salesName.boundingBox()).y < (await sales.boundingBox()).y &&
+    (await sales.boundingBox()).y < (await currencyCue.boundingBox()).y);
   assert.ok(await fontSize(sales) > await fontSize(number),
     'The emphasized currency retains its larger value');
   const amountFits = () => sales.evaluate(node => {
@@ -123,8 +129,21 @@ test('authored motion, metrics and tables remain readable in the conversation', 
   assert.equal(await main.getByText('示例数据', { exact: true }).count(), 1);
   await single.getByText('共 6 行', { exact: true }).waitFor();
   assert.equal(await single.getByRole('button', { name: /上一页|下一页/ }).count(), 0);
-  await details.getByRole('cell', { name: '¥2.00', exact: true }).waitFor();
+  const firstAmount = details.getByRole('cell', { name: '¥2.00', exact: true });
+  await firstAmount.waitFor();
+  const align = cell => cell.evaluate(node => getComputedStyle(node).textAlign);
+  assert.match(await align(firstAmount), /^(end|right)$/);
+  assert.match(await align(details.getByRole('columnheader', { name: '收入', exact: true })), /^(end|right)$/);
+  assert.match(await align(details.getByRole('cell', { name: '007', exact: true })), /^(start|left)$/,
+    'Text that resembles a number retains text alignment');
   const sort = details.getByRole('button', { name: '收入', exact: true });
+  const textRight = locator => locator.evaluate(node => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    return range.getBoundingClientRect().right;
+  });
+  assert.ok(Math.abs(await textRight(sort) - await textRight(firstAmount)) <= 1,
+    'The sortable column title aligns with its numeric values');
   await sort.click();
   await details.locator('th[aria-sort="ascending"]').waitFor();
   await sort.click();

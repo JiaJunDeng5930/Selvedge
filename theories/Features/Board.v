@@ -86,11 +86,12 @@ Proof.
 Defined.
 Definition create_card_result (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world) :=
  let parsed:=apply_patch input empty_draft in let draft:=normalized_draft assisted parsed in
- CommandResult.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
+ let valid:=valid_draft draft value in
+ CommandResult.require (valid && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
  (fun Valid => if assisted then request_text_result
    (parsed_drafting_target parsed assisted value observed Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
- "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.".
+ "invalid_card" (if valid then "看板已达容量上限。" else "请检查卡片内容和所属项目。").
 Definition retains_assignment (input:patch) (card:Selvedge.Features.Domain.card) :=
  match patch_owner input with None=>true | Some owner=>
  if Selvedge.Features.Domain.owner_eq_dec owner (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) then true else false end.

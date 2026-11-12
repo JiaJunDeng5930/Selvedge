@@ -94,14 +94,14 @@ test('interactive answer sections keep a readable outline and each source contro
         textSize: parseFloat(getComputedStyle(caption).fontSize),
         precedingGap: title.top - before.bottom,
         contentGap: code.getBoundingClientRect().top - title.bottom,
-        rightInset: controls.right - action.right,
+        footerInset: controls.left - code.getBoundingClientRect().left,
         sharesRow: Math.abs(action.top - reset.top) <= 1 && reset.right < action.left,
         footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
       };
     });
     assert.ok(geometry.headingSize > geometry.textSize, 'The section heading is larger than the explanation');
     assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
-    assert.ok(geometry.rightInset <= 2 && geometry.footerFits, 'The source action fits at its own section edge');
+    assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The source action starts at its own section edge');
     assert.ok(geometry.sharesRow, 'Reset and source actions share one footer row');
     const tableChrome = await timeline.getByRole('table').evaluateAll(tables => tables.map(table => {
       const header = getComputedStyle(table.tHead.rows[0].cells[0]);
@@ -154,4 +154,49 @@ test('an execution error has one activity title and keeps its reason', { timeout
   if (await activity.getAttribute('data-expanded') === 'false') await disclosure.click();
   await activity.getByText('Model stream ended with response.failed', { exact: true }).waitFor();
   assert.equal(await activity.getByText('执行错误', { exact: true }).count(), 1);
+});
+
+test('interactive fences keep their original source collapsed while the preview is mounting', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Show a report with interactive sections.' });
+  const deadline = Date.now() + 10_000;
+  while (!fixture.requests[0] && Date.now() < deadline) await delay(10);
+  assert.ok(fixture.requests[0], 'The provider received the task request');
+  const sections = Array.from({ length: 17 }, (_, index) => [
+    '```selvedge-ui',
+    `<ui id="preview-${index}">${' '.repeat(2800)}<metric id="value" label="章节 ${index + 1}" value="3"/></ui>`,
+    '```',
+  ].join('\n'));
+  fixture.finish(0, { text: [...sections, '```selvedge-ui example\nAn ordinary example.\n```'].join('\n\n') });
+  const { task } = await taskIdle(running.service, task_id);
+  await page.evaluate(() => {
+    const probe = { flashing: false, running: true };
+    window.fencePaintProbe = probe;
+    function sample() {
+      for (const code of document.querySelectorAll('pre > code')) {
+        if (code.textContent.startsWith('<ui id="preview-') && code.getClientRects().length > 0) probe.flashing = true;
+      }
+      if (probe.running) requestAnimationFrame(sample);
+    }
+    requestAnimationFrame(sample);
+  });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  const timeline = page.getByRole('region', { name: 'Conversation', exact: true });
+  const previews = timeline.locator('.code-block[data-interactive-active="true"]');
+  await previews.nth(15).waitFor();
+  await timeline.getByText('An ordinary example.', { exact: true }).waitFor();
+  const flashing = await page.evaluate(() => {
+    window.fencePaintProbe.running = false;
+    return window.fencePaintProbe.flashing;
+  });
+  assert.equal(flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
+  const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
+  const raw = declined.locator('pre');
+  await declined.getByRole('button', { name: '展开源码', exact: true }).click();
+  await raw.waitFor();
+  assert.match(await raw.innerText(), /preview-16/);
+  await declined.getByRole('button', { name: '收起源码', exact: true }).click();
+  await raw.waitFor({ state: 'hidden' });
 });

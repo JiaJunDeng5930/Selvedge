@@ -79,9 +79,8 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     inspector shows effective settings, while commands act at the level of
     their target. Interrupting current work
     belongs beside its status, and cancelling a tool call belongs beside that
-    call. The conversation menu and the end of an idle conversation use the
-    same action to fork the current history. The end shows an icon with the
-    action name available on hover and keyboard focus.
+    call. Forking the current history belongs at the end of an idle
+    conversation. The icon names the action on hover and keyboard focus.
 
     A chooser explains why a choice is unavailable at the point of selection.
     Model choices with the same name show the configuration difference in
@@ -187,10 +186,12 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     does not become authority merely because its decoded shape is typed.
 
     Explicit interactive fences reuse the common scene and bounded expression
-    language. Ordinary Markdown keeps its standard presentation. Headings
-    distinguish sections in a long interactive answer. Each source disclosure
-    stays with its fence, and source copy and wrapping appear only beside the
-    revealed source. A final reset for the whole fence shares its action bar.
+    language. Ordinary Markdown keeps its standard presentation. A pending
+    interactive preview shows a loading status in place of its source. A
+    refusal to mount leaves the original source available by disclosure.
+    Headings distinguish sections in a long interactive answer. Each source
+    disclosure stays with its fence, and source copy and wrapping appear only
+    beside the revealed source. A final reset for the fence shares its action bar.
     Markdown and authored tables share row separators and header emphasis.
     Graph node controls
     retain native size within their own scrollable enclosures, with a readable
@@ -325,7 +326,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Before adding a conversation to the board or linking it to an existing
     card, the interface shows the destination stage for the currently observed
     conversation. A card assigned to a model shows near the commit whether
-    saving schedules execution or leaves the card for a later action.
+    saving schedules execution or leaves the card for a later action. Card text
+    errors name the repair beside the relevant field. The assignee filter keeps
+    complete rows in its scrollable list, and card actions keep their labels
+    aligned with unavailable actions after the available actions.
     Assisted capture offers the board default when it names an eligible
     drafting model. A missing selection leaves a prompt and its reason beside
     the model field.

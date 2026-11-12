@@ -26,7 +26,7 @@ Open Scope string_scope.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module G := Selvedge.Generated.Commands.
 Definition status_availability status :=match status with
-|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
+|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "正在处理"|ObjectActions.Awaiting=>Unavailable "正在检查"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
 Definition action_nodes subject occurrence parent :=flat_map(fun action=>
  let key:=part parent(ObjectActions.action_key action)in
@@ -37,7 +37,7 @@ Definition action_nodes subject occurrence parent :=flat_map(fun action=>
  match ObjectActions.action_status action with
  |ObjectActions.AssessmentFailed reason=>[command;
    information parent("failure/"++ObjectActions.action_key action)Information.Description reason;
-   declared parent Roles.Button(secondary("retry/"++ObjectActions.action_key action)"Retry"(Input.RetryMenuAssessment subject(ObjectActions.action_key action)occurrence))]
+   declared parent Roles.Button(secondary("retry/"++ObjectActions.action_key action)"重试"(Input.RetryMenuAssessment subject(ObjectActions.action_key action)occurrence))]
  | _=>[command]end).
 Definition card_decision_title decision := match decision with
  |CardDecisions.MoveCard=>"移动卡片"|CardDecisions.LinkCard=>"关联对话"end.
@@ -51,7 +51,7 @@ Definition card_decision_controls snapshot subject parent :=
   else []
  |_=>[]end.
 Definition menu_nodes snapshot s subject occurrence parent :=
- title parent "Actions" :: List.app (card_decision_controls snapshot subject parent)
+ List.app (card_decision_controls snapshot subject parent)
    (action_nodes subject occurrence parent (ObjectActions.menu_items snapshot s subject)).
 Definition card_choice_nodes snapshot s card decision occurrence query parent :=
  let subject:=CardActions card in
@@ -310,7 +310,7 @@ Definition panel_title panel := match panel with
  |State.SideConversationPanel _=>"Side conversation"
  |State.NavigationPanel GlobalMenu=>"Global navigation"
  |State.NavigationPanel WorkOverview=>Navigation.conversation_scope_label|State.NavigationPanel TasksDrawer=>"Task tree"
- |State.ObjectActionsPanel _=>"Actions"
+ |State.ObjectActionsPanel subject=>ObjectActions.menu_label subject
  |State.CardDecisionPanel _ decision=>card_decision_title decision
  |State.InformationPanel(State.TaskDetails _)=>Pages.task_details_label
  |State.InformationPanel(State.TaskContext _)=>"执行环境"

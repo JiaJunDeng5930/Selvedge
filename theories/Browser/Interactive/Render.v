@@ -60,6 +60,15 @@ Definition compact_summary_card (node:scene) :=
 Definition with_children (node:scene) children : scene :=
  S.Node (S.node_key node) (S.semantic_key node) (S.node_label node)
    (S.node_role node) (S.node_meaning node) children.
+Definition comparison_metric (node:scene) : scene :=
+ match S.node_children node with
+ |[value;label]=>with_children node [label;value]
+ |_=>node end.
+Definition comparison_card (node:scene) : scene :=
+ match S.node_children node with
+ |[metric]=>with_children node [comparison_metric metric]
+ |[caption;metric]=>with_children node [comparison_metric metric;caption]
+ |_=>node end.
 Definition summary_metric_label (node:scene) :=
  match S.node_children node with [ _; _; metric; _ ]=>S.node_label metric|_=>""end.
 Definition summary_heading (children:list scene) :=
@@ -79,7 +88,7 @@ Definition concise_selection (title:string) (selected:bool) (node:scene) : scene
      let key:=S.node_key face in
      let mark:=S.Node (key+++"/@choice-mark")
        (if selected then "interactive-markdown/summary-choice-selected" else "interactive-markdown/summary-choice")
-       "" R.Decorative (S.Fact (if selected then "✓" else "○")) [] in
+       "" R.Decorative (S.Fact (if selected then "☑" else "☐")) [] in
      with_children node (S.Node key (S.semantic_key face) accessible (S.node_role face)
        (S.Activate (M.Control (M.control_identity control) accessible (M.control_prominence control)
          (M.control_input control) (M.control_availability control))) [mark]::feedback)
@@ -152,10 +161,10 @@ Definition component_node event_id p binding children locals : scene :=
  let tag:=p.(description).(component_tag) in
  let compact:=String.eqb tag "each" &&
   (match children with []=>false|_=>forallb compact_summary_card children end) in
+ let comparison:=String.eqb tag "row-layout" &&
+   (match children with _::_::_=>forallb metric_comparison_card children|_=>false end) in
  let presentation:=if compact then "compact-card-list"
-  else if String.eqb tag "row-layout" &&
-   (match children with _::_::_=>forallb metric_comparison_card children|_=>false end)
-  then "metric-comparison" else tag in
+  else if comparison then "metric-comparison" else tag in
  let children:=if compact then
    let shared:=summary_heading children in
    (match shared with None=>[]|Some label=>
@@ -164,6 +173,7 @@ Definition component_node event_id p binding children locals : scene :=
    (match summary_selection locals p children with
    |Some selected=>map (fun row=>compact_summary shared (Some (snd row)) (fst row)) (combine children selected)
    |None=>map (compact_summary shared None) children end)
+  else if comparison then map comparison_card children
   else if String.eqb tag "stack" || String.eqb tag "card" then group_range_numbers children else children in
  S.Node (Types.event_key event_id) ("interactive-markdown/"+++presentation)
   (property_text "label" p)
@@ -219,14 +229,21 @@ Definition table_order rows path b budget := match State.view_at path false b wi
  |TableView (Some field) descending _=>Expression.sort_metered field descending rows budget
  |_ =>(Good rows,budget) end.
 Definition table_page path b := match State.view_at path false b with TableView _ _ page=>page|_=>0 end.
+Definition numeric_value value := match value with JNumber _=>true|_=>false end.
 Definition cell_value p row :=
- formatted_value (get_path (property_text "field" p) row) (property_text "format" p).
-Definition table_column event_id b (sortable active:bool) p : IP.table_column Types.input :=
+ let value:=get_path (property_text "field" p) row in
+ IP.TableCell (formatted_value value (property_text "format" p)) (numeric_value value).
+Definition numeric_column p rows :=
+ let values:=map (get_path (property_text "field" p)) rows in
+ existsb numeric_value values &&
+ forallb (fun value=>match value with JNull=>true|_=>numeric_value value end) values.
+Definition table_column event_id b (sortable active:bool) rows p : IP.table_column Types.input :=
  let id:=property_text "id" p in
  IP.TableColumn id (property_text "label" p)
   (if sortable then Some (ViewChanged event_id (SortColumn id)) else None) active
   (match State.view_at event_id.(path) false b with
-   |TableView (Some current) descending _=>if String.eqb current(property_text "field" p)then Some descending else None|_=>None end).
+   |TableView (Some current) descending _=>if String.eqb current(property_text "field" p)then Some descending else None|_=>None end)
+  (numeric_column p rows).
 Definition render_table event_id p b children active ordered : list scene :=
  let key:=Types.event_key event_id in let columns:=table_columns children in
  let caption:=property_text "label" p in
@@ -241,7 +258,7 @@ Definition render_table event_id p b children active ordered : list scene :=
  let count_text:="共 "+++show_nat row_count+++" 行" in
  [S.Node (key+++"/@table") "interactive-markdown/table" caption R.Content
    (S.InteractiveTable (IP.DataTable caption
-     (map (table_column event_id b (property_bool false "sortable" p) active) columns)
+     (map (table_column event_id b (property_bool false "sortable" p) active visible) columns)
      (map (fun row=>IP.TableRow(TextJson.render_json(get_path(property_text "row-key" p)row))
        (map (fun column=>cell_value column row) columns)) visible))) []]++
  (if Nat.eqb row_count 0 then [summary "暂无数据"]
@@ -458,13 +475,19 @@ Definition split_footer_reset (nodes : list scene) : list scene * list scene :=
    else split_final_reset nodes
  | _=>split_final_reset nodes
  end.
+Definition source_disclosure key b : scene :=
+ let key:=key+++"/@disclose" in
+ let expanded:=source_open b in
+ let label:=if expanded then "收起源码" else "展开源码" in
+ S.Node key "interactive-markdown/source-disclosure" label R.Button
+   (S.PanelToggle expanded (M.Control key label M.Secondary (SourceDisclosure b.(block_owner)) M.Available)) [].
 Definition content identity b prepared nodes budget : list scene :=
  let key:=CodeSource.key identity in
  let '(body,footer):=split_footer_reset (admitted_content identity b prepared nodes budget) in
  body++
  (match b.(block_ending) with Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]|_=>[] end)++
  [S.Node (key+++"/@source-controls") "interactive-markdown/source-controls" "" R.Toolbar S.Region
-  (footer++[button (key+++"/@disclose") (if source_open b then "收起源码" else "展开源码") (SourceDisclosure b.(block_owner)) true])].
+  (footer++[source_disclosure key b])].
 Definition fence identity b prepared nodes budget : scene :=
  S.Node (CodeSource.key identity+++"/@interactive") "interactive-markdown/fence" "" R.Content
   (S.InteractiveRegion (DocumentPublication.interactive identity (source_open b))) (content identity b prepared nodes budget).

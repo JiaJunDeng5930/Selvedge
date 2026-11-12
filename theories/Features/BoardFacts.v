@@ -6,8 +6,13 @@ From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
 Definition registry (value:world) := Selvedge.Features.Domain.feature_board (world_features value).
+Definition title_has_content := Codec.nonempty.
+Definition title_within_limit (title:string) := BoardParameters.limited title 2000.
+Definition description_within_limit (description:string) := BoardParameters.limited description 400000.
 Definition valid_draft (draft:Selvedge.Features.Domain.card_draft) (value:world) :=
- Codec.nonempty (Selvedge.Features.Domain.draft_title draft) && BoardParameters.limited (Selvedge.Features.Domain.draft_title draft) 2000 && BoardParameters.limited (Selvedge.Features.Domain.draft_description draft) 400000 &&
+ title_has_content (Selvedge.Features.Domain.draft_title draft) &&
+ title_within_limit (Selvedge.Features.Domain.draft_title draft) &&
+ description_within_limit (Selvedge.Features.Domain.draft_description draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_labels draft)) 32 && forallb (fun label=>Codec.nonempty label && BoardParameters.limited label 128) (Selvedge.Features.Domain.draft_labels draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4 &&
  (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).

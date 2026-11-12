@@ -170,7 +170,6 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"输入消息…"end);
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
- |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
  |Fields.ProjectName=>[("placeholder",Parameters.project_name_prompt);("aria-required","true")]
  |_=>[]end) ++ disabled enabled in
  if ControlPurpose.toggle_widget field(Model.editing_observation value) then
@@ -235,11 +234,11 @@ Definition interactive_editor {A} env key label generation (component:option IP.
  (map (fun option=>let label:=match string_field "label" option with Some s=>s|None=>native_string option end in
  let option_value:=match field "value" option with Some v=>native_string v|None=>native_string option end in
  DOM.Element (key++"/"++option_value)%string "option" [("value",option_value)] [] [] empty [DOM.Text label]) options)
- else if String.eqb component_tag "textarea" then DOM.Element key "textarea"
- (attrs ++ [("value",text);("data-field-entry","multiline")])
- (styles++[("block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)));
- ("min-block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)));
- ("max-block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)))]) (events "input" "value") metadata []
+ else if String.eqb component_tag "textarea" then
+ let compact_height:=Typography.px (16+2*Layout.input_line_height(Layout.parameters env)) in
+ DOM.Element key "textarea" (attrs ++ [("value",text);("data-field-entry","multiline")])
+ (styles++[("block-size",compact_height);("min-block-size",compact_height);("resize","vertical")])
+ (events "input" "value") metadata []
  else DOM.Element key "input" (attrs ++ [("type",if String.eqb component_tag "slider" then "range" else "text");("value",text)] ++
  (if String.eqb component_tag "number-input" then ("inputmode","decimal")::map(fun property=>(String.append "data-number-" (fst property),snd property))constraints else constraints))
  styles (events "input" "value") metadata [].
@@ -266,8 +265,10 @@ Definition graphic_primitive {A} generation (value:Graphics.primitive A) :=
  |Graphics.FilledPath data color=>element "" "path" [("d",data);("fill",graphic_tone color)] [] []
  |Graphics.Rectangle x y w h color=>element "" "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill",graphic_tone color)]) [] []
  |Graphics.Circle x y radius color=>element "" "circle" [("cx",show_integer x);("cy",show_integer y);("r",text_number radius);("fill",graphic_tone color)] [] []
- |Graphics.Label x y anchor text color=>element "" "text"
-  (position x y ++ [("text-anchor",Graphics.label_anchor_name anchor);("fill",graphic_tone color)]) [] [DOM.Text text]
+ |Graphics.Label x y anchor text color fitted=>element "" "text"
+  (position x y ++ [("text-anchor",Graphics.label_anchor_name anchor);("fill",graphic_tone color)]++
+   match fitted with Some width=>[("textLength",text_number (Npos width));("lengthAdjust","spacingAndGlyphs")]
+   |None=>[]end) [] [DOM.Text text]
  |Graphics.Hitbox key x y w h label _=>element key "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill","transparent");("tabindex","0");("role","button");("aria-label",label)]) [event key generation "click" "activate" Gesture.Press;event key generation "keydown" "press_key" Gesture.Press] []
  end.
 Definition layer_metadata {A} key (behavior:Model.layer_behavior A) :=
@@ -529,10 +530,14 @@ Definition card_part {A} (describe:A->C.purpose) (more:bool) (values:list(S.node
    |C.OpenCardDetails _=>if more then rest else native::rest
    |_=>rest end
  |_=>rest end)[]values.
-Definition task_status_symbol status (working:bool) :=
- if String.eqb status "active"then if working then "play-triangle"else"idle-circle"
- else if String.eqb status "frozen"then"pause-bars"
- else if String.eqb status "stopped"then"stop-square"else"archive-box".
+Definition task_notice_content notice := match notice with
+ |S.NoticeRunning=>("running","play-triangle","运行中")
+ |S.NoticeWaiting=>("waiting","clock","等待审批")
+ |S.NoticeFailure=>("failure","warning","执行出错")
+ |S.NoticePaused=>("paused","pause-bars","已暂停")
+ |S.NoticeStopped=>("stopped","stop-square","已停止")
+ |S.NoticeArchived=>("archived","archive-box","已归档")
+ end.
 Definition native_field_stretches {A} (meaning:S.meaning A) :=
  match meaning with
  | S.Edit _ subject control =>
@@ -798,7 +803,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    else extra
  |_=>extra end in
  let extra:=match source,C.action_purpose purpose with
-  |S.TaskRow _ _ _ _ _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
+  |S.TaskRow _ _ (Some _) _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
   |_,_=>extra end in
  DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++
  (match property_help with Some name=>[("aria-label",name)]|None=>[]end)++
@@ -808,7 +813,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (match role with Roles.GlobalNavigationEntry _ true=>[]|_=>[("title",description)]end)else[])++
  purpose_attributes purpose++navigation_attributes role++help_describedby key help extra)
  (styles++control_styles purpose role++
- (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,C.action_purpose purpose with S.CardContent _,C.OpenCardDetails _=>
+ (match source with S.TaskRow _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,C.action_purpose purpose with S.CardContent _,C.OpenCardDetails _=>
  [("background","transparent");("border","0");("text-align","left");("font-weight","600");("white-space","nowrap");("overflow","hidden");("text-overflow","ellipsis")]|_,_=>[]end)
  events empty
  ((match ControlContent.face_content env key glyph meaning (S.node_children value) with Some content=>content|None=>
@@ -816,11 +821,13 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  if N.eqb card(Model.card_identity face)then[DOM.Text(Model.card_title face)]
  else face_children purpose current_area role(Model.control_label action)children
  |S.WorkChoice _ _ _,_=>artwork "columns"++children
- |S.TaskRow _ status caption working _,C.NavigateTo _=>
- let status_key:=(key++"/status-slot")%string in
- [navigation_title (key++"/title-slot")%string (Model.control_label action) children;
-  navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);("title",caption);("data-task-working",flag working)]
-    (glyph(task_status_symbol status working))]
+ |S.TaskRow _ _ notice _,C.NavigateTo _=>
+ navigation_title (key++"/title-slot")%string (Model.control_label action) children ::
+  match notice with None=>[]|Some notice=>
+   let status_key:=(key++"/status-slot")%string in
+   let '(kind,symbol,caption):=task_notice_content notice in
+   [navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);
+     ("title",caption);("data-task-notice",kind)] (glyph symbol)] end
  |_,_=>match meaning with
    |S.Choice _ selected _ _=>match current_area with
     |BoardViewArea=>face_children purpose current_area role(Model.control_label action)authored_children
@@ -899,7 +906,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.PanelToggle expanded action=>
    let native:=button false action [("aria-expanded",flag expanded)] in
    match source with
-   |S.TaskRow _ _ _ _ _=>ControlContent.replace_content [] [] [] native
+   |S.TaskRow _ _ _ _=>ControlContent.replace_content [] [] [] native
    |_=>native end
  |S.Edit owner subject value=>
  let field_attrs:=attrs ++ match current_area,UX.subject_declaration subject with
@@ -1042,6 +1049,13 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    else children in
  let row_attributes:=if String.eqb tag "row-layout" then
   let row_children:=S.node_children value in
+  let row_action child:=match S.node_meaning child with
+   |S.InteractiveNode component=>match IP.component_binding component with
+     |Expand.ActionLink action _=>Some action|_=>None end
+   |_=>None end in
+  let all_actions accept:=match row_children with
+   |_::_::_=>forallb (fun child=>match row_action child with Some action=>accept action|None=>false end) row_children
+   |_=>false end in
   let animated:=existsb (fun child=>match S.node_meaning child with
   |S.InteractiveNode component=>let props:=IP.component_properties component in
     let effect:=Expand.property_text "motion" props in
@@ -1049,14 +1063,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     String.eqb (Expand.property_text "transition" props) "status"
   |_=>false end) row_children in
   if animated then [("data-native-responsive-row",key);("data-native-equal-columns","");("data-native-row-direction","column")]
-  else if match row_children with
-   |_::_::_=>forallb (fun child=>match S.node_meaning child with
-      |S.InteractiveNode component=>match IP.component_binding component with
-       |Expand.ActionLink (State.Copy _ | State.Draft _ | State.Navigate _) _=>true
-       |_=>false end
-      |_=>false end) row_children
-   |_=>false end then [("data-interactive-action-group","utilities")]
-  else [("data-native-responsive-row",key)]
+  else if all_actions (fun action=>match action with State.Copy _ | State.Draft _ | State.Navigate _=>true|_=>false end)
+   then [("data-interactive-action-group","utilities")]
+  else ("data-native-responsive-row",key)::
+   (match row_children with first::_=>match row_action first with
+    |Some (State.Assign target _)=>
+      if all_actions (fun action=>match action with State.Assign other _=>String.eqb target other|_=>false end)
+      then [("data-interactive-action-group","adjustments")] else []
+    |_=>[] end|[]=>[] end)
   else [] in
  let native:=element (role_tag role)
  (common ++ row_attributes) [] empty children in
@@ -1070,15 +1084,17 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text(IP.table_caption table)];
  DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
  (map(fun column=>let identity:=IP.column_key key column in DOM.Element identity "th"
- [("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)] table_cell_properties [] empty
+ ([("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)]++
+  if IP.column_numeric column then [("data-numeric-cell","")] else []) table_cell_properties [] empty
  (match IP.column_sort column with None=>[DOM.Text(IP.column_heading column)]|Some _=>
  [DOM.Element (identity++"/control")%string "button" ([("type","button");("data-prefix-action","true")]++disabled(IP.column_enabled column))
  (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
  (map(fun row=>let row_key:=NavigationIdentity.key_part key(IP.row_identity row) in
   DOM.Element row_key "tr" [] [] [] empty
-   (map(fun '(column,text)=>DOM.Element(IP.column_key row_key column)"td" []
-     table_cell_properties [] empty [DOM.Text text])
+   (map(fun '(column,cell)=>DOM.Element(IP.column_key row_key column)"td"
+     (if IP.cell_numeric cell then [("data-numeric-cell","")] else [])
+     table_cell_properties [] empty [DOM.Text(IP.cell_text cell)])
     (combine(IP.table_columns table)(IP.row_values row))))(IP.table_rows table))]
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
  (children ++ if expanded then map(fun face=>
@@ -1118,7 +1134,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    else []) [] empty children
  |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>NavigationIdentity.task_view_scope v|None=>"" end)] [] empty children
  |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
- |S.TaskRow task status caption working selected=>
+ |S.TaskRow task status _ selected=>
  let paired:=combine(S.node_children value)children in
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
  let marker:=if existsb(fun child=>match S.node_meaning child with S.PanelToggle _ _=>true|_=>false end)(S.node_children value)

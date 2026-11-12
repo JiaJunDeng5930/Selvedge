@@ -76,6 +76,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
  ("history", JArray (map (public_message_json id) history));
  ("context", JArray (map Context.snapshot_json context));
+ ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>

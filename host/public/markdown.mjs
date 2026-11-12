@@ -268,13 +268,36 @@ export class Markdown {
     this.settled = new Promise(resolve => { this.resolveSettled = resolve; });
     let ordinal = 0n;
     const codeSources = new Map();
+    const document = root.ownerDocument;
+    const showPreviewFailure = source => {
+      source.status.firstChild.textContent = '无法显示交互界面';
+      const disclosure = document.createElement('button');
+      disclosure.type = 'button';
+      disclosure.textContent = '展开源码';
+      disclosure.setAttribute('aria-expanded', 'false');
+      disclosure.addEventListener('click', () => {
+        const expanded = source.frame.toggleAttribute('data-fallback-source-open');
+        disclosure.setAttribute('aria-expanded', String(expanded));
+        disclosure.textContent = expanded ? '收起源码' : '展开源码';
+        options.onChange?.();
+      });
+      source.status.append(disclosure);
+    };
+    this.refusePreview = ordinal => {
+      // DEFENSE: The fence observer may finish before the Markdown node exists.
+      const source = codeSources.get(ordinal) ?? {};
+      if (source.refused) return;
+      source.refused = true;
+      codeSources.set(ordinal, source);
+      if (source.status) showPreviewFailure(source);
+    };
     const reportCode = () => {
-      for (const [node, identity] of codeSources) {
-        const text = node.textContent;
-        if (identity.text !== text) { identity.text = text; options.codeSource?.(identity.ordinal, text); }
+      for (const [ordinal, source] of codeSources) {
+        if (!source.node) continue;
+        const text = source.node.textContent;
+        if (source.text !== text) { source.text = text; options.codeSource?.(ordinal, text); }
       }
     };
-    const document = root.ownerDocument;
     const stack = [{ node: root, type: smd.DOCUMENT }];
     const close = (completed) => {
       const entry = stack.pop();
@@ -310,7 +333,7 @@ export class Markdown {
       add_token: (_, type, equation) => {
         if (type === smd.DOCUMENT) return;
         let parent = stack.at(-1).node;
-        let node;
+        let node, codeSource;
         if ([smd.CODE_BLOCK, smd.CODE_FENCE].includes(type)) {
           const block = document.createElement('div'); block.className = 'code-block';
           const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
@@ -325,7 +348,8 @@ export class Markdown {
               options.target?.(targets[name], target);
             }
           }
-          codeSources.set(node, { ordinal: codeOrdinal, text: null });
+          codeSource = Object.assign(codeSources.get(codeOrdinal) ?? {}, { frame: block, node, text: null });
+          codeSources.set(codeOrdinal, codeSource);
           pre.append(node); block.append(ui, toolbar, pre); parent.append(block);
         } else {
           if (type === smd.TABLE_ROW) {
@@ -345,7 +369,7 @@ export class Markdown {
           parent.append(node);
         }
         node.dataset.pending = 'true';
-        stack.push({ node, type, equation });
+        stack.push({ node, type, equation, codeSource });
       },
       end_token: (_, completed = true) => close(completed),
       add_text: (_, text) => {
@@ -366,6 +390,19 @@ export class Markdown {
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
           const entry = stack.at(-1);
+          if (entry.type === smd.CODE_FENCE && options.interactiveFence?.(value)) {
+            const source = entry.codeSource;
+            const status = document.createElement('div');
+            status.className = 'interactive-preview-status';
+            const caption = document.createElement('span');
+            caption.setAttribute('role', 'status');
+            caption.textContent = '正在加载交互界面…';
+            status.append(caption);
+            source.status = status;
+            source.frame.setAttribute('data-interactive-preview-candidate', '');
+            source.frame.prepend(status);
+            if (source.refused) showPreviewFailure(source);
+          }
           if (!entry.language) {
             entry.language = document.createElement('span');
             entry.language.className = 'code-language';

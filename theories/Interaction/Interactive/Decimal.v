@@ -36,12 +36,13 @@ Fixpoint trim_zero (s:string) : string :=
  match s with EmptyString=>"" | String c r=>let tail:=trim_zero r in
   if String.eqb tail "" && Ascii.eqb c "0" then "" else String c tail end.
 Fixpoint zeros n := match n with O=>"" | S k=>"0"++zeros k end.
-Definition render (n:Z) : string :=
+Definition render_whole (whole_text:string->string) (n:Z) : string :=
  let absolute:=Z.abs n in
- let whole:=show_integer (Z.quot absolute scale) in
+ let whole:=whole_text (show_integer (Z.quot absolute scale)) in
  let fractional:=show_integer (Z.rem absolute scale) in
  let fractional:=trim_zero (zeros (Bounds.fraction_digits-String.length fractional)++fractional) in
  (if n <? 0 then "-" else "")++whole++(if String.eqb fractional "" then "" else "."++fractional).
+Definition render := render_whole (fun whole=>whole).
 Definition text (d:decimal) := render(units d).
 Definition rounded_division (numerator denominator:Z) : option Z :=
  if denominator =? 0 then None else

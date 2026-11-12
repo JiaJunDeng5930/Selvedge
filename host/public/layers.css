@@ -130,6 +130,11 @@ dialog[data-semantic-key="project-editor"] {
     overflow-wrap: anywhere;
     scrollbar-width: thin;
   }
+  /* Centered dialogs share a title tier when their content comes from an activity. */
+  &:is(dialog):not([data-semantic-key="model-picker"]) > [data-surface-role="dialog-header"] > h2 {
+    font-size: var(--rich-title-size) !important;
+    line-height: var(--rich-title-line) !important;
+  }
   & > [data-surface-role="dialog-header"] > h2[tabindex="-1"] { outline: none !important; }
   & > [data-surface-role="dialog-header"] > button { flex: none !important; }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] {
@@ -577,11 +582,13 @@ dialog[data-semantic-key="board-filters"] {
   cursor: pointer;
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
-  max-block-size: min(10rem, 36dvh) !important;
+  --assignee-row-size: 2.25rem;
+  max-block-size: max(var(--assignee-row-size), round(down, min(10rem, 36dvh), var(--assignee-row-size))) !important;
   overflow-y: auto !important;
   scrollbar-width: thin;
-  padding: .25rem !important;
-  gap: .125rem !important;
+  scroll-snap-type: y mandatory;
+  padding: 0 .25rem !important;
+  gap: 0 !important;
   /* The local layer covers the scroll cue when the content ends. */
   background:
     linear-gradient(var(--panel-background), var(--panel-background)) bottom / 100% .5rem no-repeat local,
@@ -589,8 +596,23 @@ dialog[data-semantic-key="board-filters"] {
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button {
   inline-size: 100% !important;
+  block-size: var(--assignee-row-size) !important;
+  min-block-size: var(--assignee-row-size) !important;
+  flex: none !important;
   justify-content: start !important;
   border: 0 !important;
+  scroll-snap-align: start;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button > span:not([aria-hidden]) {
+  display: block !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
+    --assignee-row-size: max(2.25rem, 44px);
+  }
 }
 
 [data-semantic-key="card-options"] [data-semantic-key="card-option-pair"] {

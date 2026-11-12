@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Import BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
-From Selvedge.Interaction Require Import Codec Identity CommandAssessment.
+From Selvedge.Interaction Require Import Codec Identity CommandAssessment CardDecisions.
 From Selvedge.Browser.Session Require Import Input Services Speech ObjectActions.
 From Selvedge.Browser.Session Require State Navigation Authoring.
 From Selvedge.Interaction.Experience Require Model Activity.
@@ -32,6 +32,7 @@ Definition command_purpose (command:SS.public_command):=let source:=Schema.encod
  |Some "board_settings"=>P.AutomaticScheduling(negb(flag "automatic" source))
  |Some "regenerate_card_title"=>P.Regenerate
  |Some "run_card"=>P.ResumeExecution
+ |Some "open_side_conversation"=>P.NavigateTo "conversation"
  |_=>P.NamedAction end.
 Definition activity_expanded owner request state:=match State.layers(State.navigation_state state)with
 |layer::_=>match State.layer_panel layer with State.PropertyPanel actual requested=>
@@ -53,12 +54,16 @@ Definition describe snapshot state input:P.purpose:=match input with
  |layer::_=>match State.layer_panel layer with State.ObjectActionsPanel actual=>if CommandAssessment.object_subject_eq_dec subject actual then true else false|_=>false end|[]=>false end)
 |Input.MenuAction subject key trigger=>match ObjectActions.resolve snapshot state subject key with
  |Some action=>match ObjectActions.command action with Some command=>command_purpose command|None=>match ObjectActions.action_operation action with
-  ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)|ObjectActions.Destination route=>P.NavigateTo(route_symbol route)|_=>P.NamedAction end end|None=>P.NamedAction end
+  ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)
+ |ObjectActions.Destination route=>P.NavigateTo(route_symbol route)
+ |ObjectActions.InspectCard card=>P.OpenCardDetails card
+ |_=>P.NamedAction end end|None=>P.NamedAction end
 |Input.Command command=>command_purpose command
 |Input.Confirmation command _ _ trigger=>P.DialogTrigger(command_purpose command)(panel_open trigger state)
 |Input.OpenNavigation kind trigger=>match kind with GlobalMenu=>P.GlobalDestinations(panel_open trigger state)
  |WorkOverview=>P.OpenPanel "columns" true (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
 |Input.OpenBoard kind trigger=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false (panel_open trigger state)
+|Input.OpenCardDecision _ CardDecisions.MoveCard trigger=>P.OpenPanel "columns" false (panel_open trigger state)
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) trigger=>P.DialogTrigger(P.OpenCardDetails card)(panel_open trigger state)

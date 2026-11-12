@@ -24,9 +24,21 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   const assignee = dialog.locator('details').filter({ hasText: '负责人' });
   const summary = assignee.locator('summary');
   const search = dialog.getByRole('searchbox', { name: '搜索负责人', exact: true });
+  const options = dialog.getByRole('region', { name: '负责人选项', exact: true });
+  async function wholeAssigneeRows() {
+    await page.waitForFunction(id => {
+      const list = document.getElementById(id);
+      if (!list || list.scrollHeight <= list.clientHeight) return false;
+      const { top, bottom } = list.getBoundingClientRect();
+      const visible = [...list.children].map(option => option.getBoundingClientRect())
+        .filter(row => row.bottom > top + 1 && row.top < bottom - 1);
+      return visible.length > 1 && visible.every(row => row.top >= top - 1 && row.bottom <= bottom + 1);
+    }, await options.getAttribute('id'));
+  }
   await search.waitFor({ state: 'hidden' });
   await summary.press('Enter');
   await search.waitFor();
+  await wholeAssigneeRows();
   await dialog.evaluate(node => {
     window.fixtureBoardResize = new Promise(resolve => {
       window.addEventListener('resize', () => {
@@ -41,13 +53,14 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   const initial = await page.evaluate(() => window.fixtureBoardResize);
   assert.ok(initial.height > 0 && initial.top >= initial.visibleTop && initial.bottom <= initial.visibleBottom,
     `The first resized layout fits the visible viewport: ${JSON.stringify(initial)}`);
-  const options = dialog.getByRole('region', { name: '负责人选项', exact: true });
-  await page.waitForFunction(id => {
-    const list = document.getElementById(id);
-    return list && list.clientHeight > 0 && list.scrollHeight > list.clientHeight;
-  }, await options.getAttribute('id'));
+  await wholeAssigneeRows();
   const compact = await dialog.boundingBox();
   assert.ok(compact && compact.y >= 0 && compact.y + compact.height <= 420);
+  await options.evaluate(list => list.scrollIntoView({ block: 'center' }));
+  await options.hover();
+  await page.mouse.wheel(0, 95);
+  await page.waitForFunction(id => document.getElementById(id)?.scrollTop > 0, await options.getAttribute('id'));
+  await wholeAssigneeRows();
   const rows = options.getByRole('checkbox');
   const last = rows.last();
   await search.focus();
@@ -138,6 +151,55 @@ test('enabling board automation includes existing eligible cards and disabling p
   assert.equal(after.task_id, null);
   assert.equal(after.activity, 'not_started');
   assert.equal(requests.length, 1);
+});
+
+test('new card text checks guide the relevant field in Chinese', async t => {
+  const { page, command } = await browserFixture(t);
+  await command({ op: 'board_settings', automatic: false, draft_profile: 'interactive' });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const title = dialog.getByRole('textbox', { name: '标题', exact: true });
+  const description = dialog.getByRole('textbox', { name: '描述', exact: true });
+  const create = dialog.getByRole('button', { name: '创建卡片', exact: true });
+  async function reason(message) {
+    const alert = dialog.getByRole('alert').filter({ hasText: message });
+    await alert.waitFor();
+    assert.equal(await alert.count(), 1);
+    assert.equal(await create.isEnabled(), false);
+    const [field, help, body] = await Promise.all([
+      title.boundingBox(), alert.boundingBox(), dialog.locator('[data-surface-role="dialog-body"]').boundingBox(),
+    ]);
+    assert.ok(field && help && body && help.y >= field.y + field.height - 1 &&
+      help.y - field.y - field.height < 24 && help.y + help.height <= body.y + body.height,
+    'The validation appears beside the title, inside the editor body');
+  }
+  const ready = async () => page.waitForFunction(id => {
+    const button = document.getElementById(id);
+    return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+  }, await create.getAttribute('id'));
+  await reason('请输入标题。');
+  assert.equal(await title.getAttribute('placeholder'), null);
+  assert.equal(await description.getAttribute('placeholder'), null);
+
+  await description.fill('Use this description as the source');
+  await reason('请输入标题。');
+  await dialog.getByText('更多卡片选项', { exact: true }).click();
+  const assisted = dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
+  await assisted.check();
+  await ready();
+  await description.clear();
+  await reason('请输入标题或描述。');
+
+  await assisted.uncheck();
+  await title.fill('长'.repeat(667));
+  await reason('标题太长，请缩短。');
+  await title.fill('Ready to save');
+  await ready();
+  await create.click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.getByRole('article', { name: 'Ready to save', exact: true }).waitFor();
 });
 
 test('assisted card creation keeps model selection truthful when the catalog changes', async t => {
@@ -396,9 +458,10 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   const submit = footer.getByRole('button', { name: '创建卡片', exact: true });
   const reasonText = '看板未设置默认整理模型，请选择模型。';
   const reason = footer.locator('[data-semantic-key="editor-commit-reason"]');
-  await submit.waitFor();
-  assert.equal(await reason.count(), 0);
+  const titleReason = reason.filter({ hasText: '请输入标题。' });
+  await titleReason.waitFor();
   await title.fill('A card with a long description');
+  await titleReason.waitFor({ state: 'hidden' });
   await description.fill('Review this step and keep the details in the card.\n'.repeat(18));
   await dialog.getByText('更多卡片选项', { exact: true }).click();
   await dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
@@ -452,6 +515,39 @@ test('the blocked card commit keeps its repair visible while the mobile form scr
   assert.equal((await command({ op: 'list_cards' })).cards[0].title, generatedTitle);
 });
 
+test('the card action menu aligns its labels and lists available actions first', async t => {
+  const { page, command } = await browserFixture(t);
+  const title = 'An unassigned card';
+  await command({ op: 'create_card', title });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('article', { name: title, exact: true })
+    .getByRole('button', { name: '卡片操作', exact: true }).click();
+  const menu = page.getByRole('menu');
+  const available = ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片'];
+  const unavailable = ['启动对话', '重新生成标题'];
+  const actions = names => Promise.all(names.map(name => menu.getByRole('button', { name, exact: true }).getAttribute('id')));
+  await page.waitForFunction(({ available, unavailable }) => {
+    const ready = available.map(id => document.getElementById(id));
+    const blocked = unavailable.map(id => document.getElementById(id));
+    return ready.every(action => action && action.getAttribute('aria-disabled') !== 'true') &&
+      blocked.every(action => action?.title && action.getAttribute('aria-disabled') === 'true' &&
+        ready.every(item => item.getBoundingClientRect().top < action.getBoundingClientRect().top));
+  }, { available: await actions(available), unavailable: await actions(unavailable) });
+
+  const boxes = await menu.evaluate(element => [...element.querySelectorAll('button')].map(button => {
+    const label = button.querySelector('span:not([aria-hidden], .visually-hidden)');
+    return { disabled: button.getAttribute('aria-disabled') === 'true',
+      y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
+  }));
+  assert.ok(boxes.every(row => row.labelX !== undefined && Math.abs(row.labelX - boxes[0].labelX) <= 1),
+    'The visible card action labels start at the same horizontal position');
+  assert.ok(boxes.filter(row => !row.disabled).every(ready => boxes.filter(row => row.disabled)
+    .every(blocked => ready.y < blocked.y)), 'Available actions precede the unavailable actions');
+  await menu.getByRole('button', { name: '移动卡片', exact: true }).click();
+  await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
+});
+
 test('the board keeps empty stages visible and counts only matching cards linked to executing conversations', async t => {
   const { page, command } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -479,7 +575,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const { task_id } = await command({ op: 'create', profile: 'interactive', message });
   const { task } = await command({ op: 'read', task_id });
   const nav = page.getByRole('navigation', { name: 'Task tree', exact: true });
-  await nav.locator(`[data-task-id="${task_id}"] [data-task-working="true"]`).waitFor();
+  await nav.locator(`[data-task-id="${task_id}"]`).getByRole('img', { name: '运行中', exact: true }).waitFor();
   await page.getByRole('radio', { name: '执行中的卡片 0', exact: true }).waitFor();
 
   const title = 'Plan the release';
@@ -495,7 +591,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await card.locator('[data-card-grip]').dragTo(completed);
   await completed.getByRole('article', { name: title, exact: true }).waitFor();
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Actions', exact: true })
+  await page.getByRole('dialog', { name: '卡片操作', exact: true })
     .getByRole('button', { name: '移动卡片', exact: true }).click();
   const move = page.getByRole('dialog', { name: '移动卡片', exact: true });
   await move.getByRole('button', { name: '移至待规划', exact: true }).click();
@@ -548,9 +644,9 @@ test('a conversation can be added to the board without starting another conversa
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
   const main = page.getByRole('main');
-  const actions = main.getByRole('button', { name: 'More actions', exact: true });
+  const actions = main.getByRole('button', { name: '对话操作', exact: true });
   await actions.click();
-  await page.getByRole('button', { name: 'Add to board', exact: true }).click();
+  await page.getByRole('button', { name: '添加到看板', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: '添加到看板', exact: true });
   const titleField = dialog.getByRole('textbox', { name: '标题', exact: true });
@@ -591,10 +687,10 @@ test('a conversation can be added to the board without starting another conversa
 
   await page.keyboard.press('Escape');
   await actions.click();
-  await page.getByRole('button', { name: 'Open board card', exact: true }).click();
+  await page.getByRole('button', { name: '打开关联卡片', exact: true }).click();
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
   await details.getByText(title, { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Add to board', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '添加到看板', exact: true }).count(), 0);
 
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');

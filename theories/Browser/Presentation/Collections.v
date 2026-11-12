@@ -18,7 +18,7 @@ Import ListNotations.
 Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
 Definition more parent subject :=declared parent Roles.Button
- (secondary "more" "More actions"(Input.OpenObjectActions subject(part parent "more"))).
+ (secondary "more" (ObjectActions.menu_label subject)(Input.OpenObjectActions subject(part parent "more"))).
 Definition browse_heading {A} parent leading (trailing : list (node A)) :=
  region parent "workspace-browse-heading" "" Roles.Section (leading :: trailing).
 Definition projects_page snapshot s parent :=

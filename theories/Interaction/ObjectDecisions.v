@@ -25,11 +25,11 @@ Definition subject_exists snapshot subject := match subject with
 |CardActions id=>present(Read.find_card id snapshot) end.
 
 Definition task_decisions task := [
- immediate "interrupt" "Stop current execution" (G.Cmd_interrupt(G.Build_interrupt task));
- immediate "freeze" "Pause conversation" (G.Cmd_freeze(G.Build_freeze task));
- immediate "unfreeze" "Resume conversation" (G.Cmd_unfreeze(G.Build_unfreeze task));
- immediate "stop" "Stop after tool calls" (G.Cmd_stop(G.Build_stop task));
- immediate "archive" "Archive conversation" (G.Cmd_archive(G.Build_archive task))].
+ immediate "interrupt" "停止当前执行" (G.Cmd_interrupt(G.Build_interrupt task));
+ immediate "freeze" "暂停对话" (G.Cmd_freeze(G.Build_freeze task));
+ immediate "unfreeze" "恢复对话" (G.Cmd_unfreeze(G.Build_unfreeze task));
+ immediate "stop" "工具完成后停止" (G.Cmd_stop(G.Build_stop task));
+ immediate "archive" "归档对话" (G.Cmd_archive(G.Build_archive task))].
 Definition card_decisions snapshot clock (card:Read.card) :=
  match clock with None=>[] | Some now=>
   let id:=Read.card_id card in

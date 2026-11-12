@@ -187,20 +187,20 @@ test('model charts and range controls keep their values readable', { timeout: 60
 <bar-chart id="monthly-bars" label="月订单数" data={monthlySales}
  row-key="id" x="month" y="orders" x-label="月份" y-label="订单数（单）" />
 </stack>
-<row dataset="monthlySales" key="jan" value={{id:"jan",month:"1月",income:200,orders:2}} />
-<row dataset="monthlySales" key="feb" value={{id:"feb",month:"2月",income:300,orders:3}} />
-<row dataset="monthlySales" key="mar" value={{id:"mar",month:"3月",income:250,orders:4}} />
-<row dataset="monthlySales" key="apr" value={{id:"apr",month:"4月",income:400,orders:3}} />
-<row dataset="monthlySales" key="may" value={{id:"may",month:"5月",income:350,orders:5}} />
-<row dataset="monthlySales" key="jun" value={{id:"jun",month:"6月",income:500,orders:6}} />
+<row dataset="monthlySales" key="jan" value={{id:"jan",month:"1月",income:2000,orders:2}} />
+<row dataset="monthlySales" key="feb" value={{id:"feb",month:"2月",income:3000,orders:3}} />
+<row dataset="monthlySales" key="mar" value={{id:"mar",month:"3月",income:2500,orders:4}} />
+<row dataset="monthlySales" key="apr" value={{id:"apr",month:"4月",income:4000,orders:3}} />
+<row dataset="monthlySales" key="may" value={{id:"may",month:"5月",income:3500,orders:5}} />
+<row dataset="monthlySales" key="jun" value={{id:"jun",month:"6月",income:5000,orders:6}} />
 </ui>`;
   const productSource = `<ui id="data-showcase">
 <state id="seats" type="integer" initial={8} min={1} max={50} />
 <stack id="data-stack">
 <when id="bar-condition" test={true}>
 <bar-chart id="revenue" label="各产品收入对比"
- data={[{id:"a",product:"显示器",income:2},{id:"b",product:"协作平台",income:3},{id:"c",product:"智能手表",income:5},
- {id:"d",product:"机械键盘",income:6},{id:"e",product:"无线耳机",income:7},{id:"f",product:"阅读器",income:8}]}
+ data={[{id:"a",product:"显示器",income:200000000},{id:"b",product:"协作平台",income:300000000},{id:"c",product:"智能手表",income:500000000},
+ {id:"d",product:"机械键盘",income:600000000},{id:"e",product:"无线耳机",income:700000000},{id:"f",product:"阅读器",income:1000000000}]}
  row-key="id" x="product" y="income" x-label="产品" y-label="收入（元）" />
 </when>
 <slider id="seats-slider" bind="seats" label="Seats" />
@@ -223,8 +223,13 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await line.getByText('6月', { exact: true }).waitFor();
   assert.equal(await line.getByText('1月', { exact: true }).isVisible(), true);
   assert.equal(await line.getByText('0', { exact: true }).isVisible(), true);
-  assert.equal(await line.getByText('600', { exact: true }).isVisible(), true);
+  assert.equal(await line.getByText('6,000', { exact: true }).isVisible(), true);
   await bars.getByText('收入（元）', { exact: true }).waitFor();
+  assert.equal(await bars.getByText('1,000,000,000', { exact: true }).isVisible(), true);
+  const monthlyTable = main.getByRole('table', { name: '月度演示数据', exact: true });
+  const numericCell = monthlyTable.getByRole('cell', { name: '2000', exact: true });
+  assert.match(await numericCell.evaluate(node => getComputedStyle(node).textAlign), /^(end|right)$/,
+    'An unformatted number still aligns with other numeric cells');
   const categories = ['显示器', '协作平台', '智能手表', '机械键盘', '无线耳机', '阅读器'];
   for (const product of categories) {
     assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
@@ -272,6 +277,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
       quietAxis: Number(getComputedStyle(yAxis).opacity) < 1,
       accent: path.getAttribute('fill'),
       usesWidth: Math.abs(svg.getBoundingClientRect().width - svg.parentElement.clientWidth) <= 1,
+      compactMargin: yAxis.x1.baseVal.value / svg.viewBox.baseVal.width < .16,
       titleWeight: Number(getComputedStyle(title).fontWeight),
       axisWeight: Number(getComputedStyle(caption).fontWeight),
     };
@@ -280,6 +286,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.equal(geometry.quietAxis, true);
   assert.equal(geometry.accent, 'var(--color-token-icon-accent)');
   assert.ok(geometry.usesWidth, 'The chart fills its available desktop width');
+  assert.ok(geometry.compactMargin, 'The tick area stays compact');
   assert.ok(geometry.titleWeight > geometry.axisWeight, 'The chart title leads its axis labels');
   const lineChart = line.locator('xpath=../..');
   const monthlyBarChart = monthlyBars.locator('xpath=../..');
@@ -300,7 +307,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['月份', '收入（元）']);
   assert.equal(await table.getByRole('row').count(), 7, 'The header and all six source data rows remain readable');
   assert.deepEqual(await table.getByRole('cell').allTextContents(), [
-    '1月', '200', '2月', '300', '3月', '250', '4月', '400', '5月', '350', '6月', '500',
+    '1月', '2000', '2月', '3000', '3月', '2500', '4月', '4000', '5月', '3500', '6月', '5000',
   ]);
   await disclosure.focus();
   await page.keyboard.press('Enter');
@@ -309,6 +316,11 @@ test('model charts and range controls keep their values readable', { timeout: 60
   const narrowHeading = await bars.evaluate(headingGeometry);
   assert.ok(narrowHeading.atEnd && narrowHeading.beforePlot && narrowHeading.withinViewport,
     'The data action remains reachable above the plot on a narrow screen');
+  assert.ok(await bars.evaluate(svg => {
+    const bounds = svg.getBoundingClientRect();
+    const view = svg.viewBox.baseVal;
+    return Math.abs(bounds.height - bounds.width * view.height / view.width) <= 1;
+  }), 'The narrow chart scales its height with the plotted surface');
   for (const product of categories) {
     assert.equal(await bars.getByText(product, { exact: true }).isVisible(), true);
   }
@@ -372,12 +384,12 @@ test('execution controls appear beside active work and stay out of conversation 
   const { task_id } = await command({ op: 'create', profile: fixture.profile, message: 'Stop this running reply' });
   await selectTask(fixture, task_id);
   const main = page.getByRole('main');
-  const stop = main.getByRole('button', { name: 'Stop current execution', exact: true });
+  const stop = main.getByRole('button', { name: '停止当前执行', exact: true });
   await stop.waitFor();
   await main.getByRole('button', { name: '任务详情', exact: true }).click();
   const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.waitFor();
-  assert.equal(await details.getByRole('button', { name: /Stop current execution|Fork from current history|Pause conversation/ }).count(), 0);
+  assert.equal(await details.getByRole('button', { name: /停止当前执行|创建对话分支|暂停对话/ }).count(), 0);
   await main.getByRole('button', { name: '任务详情', exact: true }).click();
   await stop.click();
   await stop.waitFor({ state: 'hidden' });

@@ -181,9 +181,12 @@ dialog[data-semantic-key="work-overview"] {
 dialog[data-semantic-key="work-name-editor"] {
   inline-size: 24rem !important;
 }
-[data-workspace-sidebar] [data-navigation-slot="status"][data-task-working="true"] {
+[data-navigation-slot="status"][data-task-notice="running"] {
   color: var(--selvedge-accent) !important;
 }
-[data-task-status="frozen"] [data-navigation-slot="status"] {
+[data-navigation-slot="status"]:is([data-task-notice="waiting"], [data-task-notice="paused"]) {
   color: var(--selvedge-warning) !important;
+}
+[data-navigation-slot="status"][data-task-notice="failure"] {
+  color: var(--selvedge-danger) !important;
 }

@@ -37,7 +37,7 @@ Definition axis_coordinate origin span axis value :=
  ((value-axis.(axis_lower))*span*Decimal.scale)/(axis.(axis_upper)-axis.(axis_lower)).
 Definition axis_pixel origin span axis value :=
  (axis_coordinate origin span axis value + Decimal.scale/2)/Decimal.scale.
-Definition plot_left : Z := 122.
+Definition plot_left : Z := 98.
 Definition plot_right : Z := 640.
 Definition plot_top : Z := 28.
 Definition plot_bottom : Z := 144.
@@ -90,15 +90,17 @@ Definition fit_label budget label :=
 Definition y_ticks axis : list(primitive input) :=
  List.concat (map (fun tick=>
    let y:=axis_pixel plot_bottom (-plot_height) axis tick in
+   let text:=grouped_decimal tick in
+   let fitted:=if Nat.ltb 9 (String.length text) then Some (Z.to_pos (plot_left-12)) else None in
    [Line plot_left y plot_right y (if tick =? 0 then Neutral else Muted);
-    Label (plot_left-10) (y+5) LabelEnd (Decimal.render tick) Muted]) (axis_ticks axis)).
+    Label (plot_left-8) (y+5) LabelEnd text Muted fitted]) (axis_ticks axis)).
 Definition x_ticks axis : list(primitive input) :=
  let ticks:=axis_ticks axis in
  let label anchor tick:=Label (axis_pixel (plot_left+10) (plot_width-20) axis tick)
-   (plot_bottom+19) anchor (Decimal.render tick) Muted in
+   (plot_bottom+19) anchor (grouped_decimal tick) Muted None in
  (* Close numeric values can require all six fractional digits at large
     magnitudes. Keep exact endpoints without crowding their text. *)
- if existsb (fun tick=>Nat.ltb 10 (String.length (Decimal.render tick))) ticks
+ if existsb (fun tick=>Nat.ltb 10 (String.length (grouped_decimal tick))) ticks
  then [label LabelStart axis.(axis_lower);label LabelEnd axis.(axis_upper)]
  else map (label LabelMiddle) ticks.
 Definition category_ticks points : list(primitive input) :=
@@ -109,13 +111,13 @@ Definition category_ticks points : list(primitive input) :=
    let index:=(sample*Nat.pred total/Nat.max 1 (Nat.pred shown))%nat in
    match nth_error points index with
    |Some p=>let x:=(category_coordinate index total+Decimal.scale/2)/Decimal.scale in
-     [Label x (plot_bottom+19) LabelMiddle (fit_label budget p.(x_text)) Muted]
+     [Label x (plot_bottom+19) LabelMiddle (fit_label budget p.(x_text)) Muted None]
    |None=>[] end) (seq 0 shown).
 Definition chart_axes p x_axis y_axis points : list(primitive input) :=
  y_ticks y_axis++[Line plot_left plot_top plot_left plot_bottom Muted]++
  (match x_axis with Some axis=>x_ticks axis|None=>category_ticks points end)++
- [Label plot_left 18 LabelStart (fit_label 500 (y_title p)) Muted;
-  Label ((plot_left+plot_right)/2) (plot_bottom+38) LabelMiddle (fit_label 500 (x_title p)) Muted].
+ [Label plot_left 18 LabelStart (fit_label 500 (y_title p)) Muted None;
+  Label ((plot_left+plot_right)/2) (plot_bottom+38) LabelMiddle (fit_label 500 (x_title p)) Muted None].
 Fixpoint line_path (first:bool) (points:list(string*string)) :string :=
  match points with []=>""|(x,y)::rest=>
  ((if first then "M " else "L ")++x++" "++y++" "++line_path false rest)%string end.

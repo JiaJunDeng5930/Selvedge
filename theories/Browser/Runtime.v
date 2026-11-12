@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Kernel Require Import OutputClassification.
 From Selvedge.Browser Require Import Document Keyboard Focus Reading Publication Observation Typography Layout FieldSession ControlContent.
 From Selvedge.Browser Require Import CodeBlock.
 Module NativeAppearance := Selvedge.Browser.Appearance.
@@ -362,6 +363,7 @@ Definition call operation source := match operation with
  |"menu_viewport_correction"=>menu_viewport_correction_call source
  |"font_specs"=>font_specs source|"environment"=>environment_call source
  |"code_present"=>code_call "present" source
+ |"interactive_fence"=>success(JBool(interactive_markdown_fence_observation source))
  |"code_key"=>match field "identity" source with Some encoded=>match CodeSource.decode_identity encoded with Some identity=>success(JString(CodeSource.key identity))|None=>invalid "Invalid code identity" end|None=>invalid "Code identity is required" end
  |"code_initial"=>code_call "initial" source|"code_step"=>code_call "step" source
  |"code_targets"=>match field "identity" source,request_view source with Some who,Some view=>match CodeSource.decode_identity who with

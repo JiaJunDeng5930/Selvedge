@@ -24,6 +24,8 @@ Inductive activity_row_role :=
 | MemberRow | TerminalRow | ObjectHeading | NavigationRow.
 Inductive board_grouping := ViewChoices | SearchArea | SecondaryActions | PrimaryAction.
 Inductive choice_kind := SingleChoice | MultipleChoice | ToggleChoice.
+Inductive task_notice := NoticeRunning | NoticeWaiting | NoticeFailure
+ | NoticePaused | NoticeStopped | NoticeArchived.
 
 
 Record placement (Action : Type) := Placement {
@@ -61,7 +63,7 @@ Inductive meaning (Action : Type) :=
 | PageBody (page : Composition.page)
 | PageContext (conversation : option NavigationIdentity.task_view)
 | ProjectGroup (project : N) (selected expanded : bool)
-| TaskRow (task : N) (status caption : string) (working selected : bool)
+| TaskRow (task : N) (status : string) (notice : option task_notice) (selected : bool)
 | TaskChildren (task : N)
 | ProjectChooser (selected : option N)
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
@@ -379,7 +381,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | PageBody page => PageBody page
   | PageContext conversation => PageContext conversation
   | ProjectGroup project selected expanded => ProjectGroup project selected expanded
-  | TaskRow task status caption working selected => TaskRow task status caption working selected
+  | TaskRow task status notice selected => TaskRow task status notice selected
   | TaskChildren task => TaskChildren task
   | ProjectChooser selected => ProjectChooser selected
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)

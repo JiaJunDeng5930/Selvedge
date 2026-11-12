@@ -351,6 +351,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   flex-wrap: nowrap !important;
 }
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
+[data-semantic-key="settings"] [data-semantic-key="settings-controls"] > button[data-semantic-key="title-prompts"] > svg {
+  display: none;
+}
 [data-semantic-key="settings-values"] {
   align-items: stretch !important;
   /* A saved URL or profile name wraps under the setting that describes it. */

@@ -43,7 +43,7 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.InformationText _ | Surface.Fact _ | Surface.ReadOnly _
   | Surface.Edit _ _ _ | Surface.RichText _ _ | Surface.PublishedText _
   | Surface.EmbeddedMarkdown _ => false
-  | Surface.TaskRow _ _ _ _ _ => false
+  | Surface.TaskRow _ _ _ _ => false
   | Surface.ActivityRow _ => false
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => activity
   | Surface.BoardGroup _ => false
@@ -120,7 +120,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto");("overflow-x","hidden")]
   | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
-  | Surface.TaskRow _ _ _ _ _ =>
+  | Surface.TaskRow _ _ _ _ =>
       [("display","flex");("flex-direction","column");("min-inline-size","0")]
   | Surface.TaskChildren _ => Layout.member_properties env false true
   | Surface.ProjectChooser _ => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("gap","0"); ("padding","0")]
@@ -185,7 +185,7 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
   | Surface.WorkChoice _ _ _,Surface.InformationText _ =>
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
        ("text-overflow","ellipsis");("white-space","nowrap")]
-  | Surface.TaskRow _ _ _ _ selected, Surface.Activate _ =>
+  | Surface.TaskRow _ _ _ selected, Surface.Activate _ =>
       Appearance.style_properties env (Appearance.navigation_style selected 6 0) ++
       [("flex","1");("text-align","left");("white-space","nowrap");
        ("min-inline-size",Typography.px (Layout.motor_minimum env))]

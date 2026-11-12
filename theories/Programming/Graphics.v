@@ -17,7 +17,7 @@ Inductive primitive(Action:Type):Type:=
 | FilledPath(data:string)(color:tone)
 | Rectangle(x y:Z)(width height:N)(color:tone)
 | Circle(x y:Z)(radius:N)(color:tone)
-| Label(x y:Z)(anchor:label_anchor)(text:string)(color:tone)
+| Label(x y:Z)(anchor:label_anchor)(text:string)(color:tone)(fitted_width:option positive)
 | Hitbox(key:string)(x y:Z)(width height:N)(label:string)(action:Action).
 Arguments Line {Action}.
 Arguments CubicCurve {Action}.
@@ -53,7 +53,9 @@ Definition encode_primitive{A}(encode_action:A->json)(p:primitive A):json:=
  | FilledPath data color=>pack "filled-path"[("data",JString data);("tone",JString(tone_name color))]
  | Rectangle x y width height color=>pack "rect"(position x y++[("width",extent width);("height",extent height);("tone",JString(tone_name color))])
  | Circle x y radius color=>pack "circle"(position x y++[("radius",extent radius);("tone",JString(tone_name color))])
- | Label x y anchor text color=>pack "text"(position x y++[("anchor",JString(label_anchor_name anchor));("text",JString text);("tone",JString(tone_name color))])
+ | Label x y anchor text color fitted=>pack "text"
+   (position x y++[("anchor",JString(label_anchor_name anchor));("text",JString text);("tone",JString(tone_name color))]++
+    match fitted with Some width=>[("fitted_width",extent (Npos width))]|None=>[]end)
  | Hitbox key x y width height label action=>pack "hitbox"(position x y++[("key",JString key);("width",extent width);("height",extent height);("label",JString label);("action",encode_action action)])end.
 Definition encode{A}encode_action(p:plot A):json:=JObject[("width",extent(Npos p.(width)));("height",extent(Npos p.(height)));
  ("primitives",JArray(map(encode_primitive encode_action)p.(primitives)))].
@@ -61,7 +63,8 @@ Definition map_primitive_with_key{A B}(key:string->string)(f:A->B)(p:primitive A
  |Line x y u v t=>Line x y u v t
  |CubicCurve x y c1x c1y c2x c2y u v arrow t=>CubicCurve x y c1x c1y c2x c2y u v arrow t
  |StrokePath data t=>StrokePath data t|FilledPath data t=>FilledPath data t
- |Rectangle x y w h t=>Rectangle x y w h t|Circle x y r t=>Circle x y r t|Label x y anchor text t=>Label x y anchor text t
+ |Rectangle x y w h t=>Rectangle x y w h t|Circle x y r t=>Circle x y r t
+ |Label x y anchor text t fitted=>Label x y anchor text t fitted
  |Hitbox identity x y w h label a=>Hitbox(key identity)x y w h label(f a)end.
 Definition map_primitive{A B}(f:A->B):primitive A->primitive B:=map_primitive_with_key(fun key=>key)f.
 Definition map_actions{A B}(f:A->B)(p:plot A):plot B:=Plot p.(width)p.(height)(map(map_primitive f)p.(primitives)).
@@ -75,6 +78,7 @@ Definition decode_label_anchor source:=name <-o string_field "anchor" source;;
  find(fun anchor=>String.eqb(label_anchor_name anchor)name)[LabelStart;LabelMiddle;LabelEnd].
 Definition z_field name source:=text <-o number_field name source;;parse_integer text.
 Definition n_field name source:=text <-o number_field name source;;parse_natural text.
+Definition positive_extent n:=match n with N0=>None|Npos p=>Some p end.
 Definition decode_primitive(source:json):option(primitive json):=
  kind <-o string_field "kind"source;;
  if String.eqb kind "line"then
@@ -96,13 +100,16 @@ Definition decode_primitive(source:json):option(primitive json):=
  x <-o z_field "x"source;;y <-o z_field "y"source;;r <-o n_field "radius"source;;t <-o decode_tone source;;Some(Circle x y r t)
  else if String.eqb kind "text"then
  x <-o z_field "x"source;;y <-o z_field "y"source;;anchor <-o decode_label_anchor source;;
- text <-o string_field "text"source;;t <-o decode_tone source;;Some(Label x y anchor text t)
+ text <-o string_field "text"source;;t <-o decode_tone source;;
+ fitted <-o (match field "fitted_width" source with
+   |None=>Some None|Some _=>width <-o n_field "fitted_width" source;;
+                           option_map Some (positive_extent width)end);;
+ Some(Label x y anchor text t fitted)
  else if String.eqb kind "hitbox"then
  key <-o string_field "key"source;;x <-o z_field "x"source;;y <-o z_field "y"source;;w <-o n_field "width"source;;h <-o n_field "height"source;;
  label <-o string_field "label"source;;action <-o field "action"source;;Some(Hitbox key x y w h label action)
  else None.
 Fixpoint decode_primitives source:=match source with []=>Some[]|head::tail=>head <-o decode_primitive head;;tail <-o decode_primitives tail;;Some(head::tail)end.
-Definition positive_extent n:=match n with N0=>None|Npos p=>Some p end.
 Definition decode(source:json):option(plot json):=
  w <-o n_field "width"source;;w <-o positive_extent w;;h <-o n_field "height"source;;h <-o positive_extent h;;
  xs <-o array_field "primitives"source;;xs <-o decode_primitives xs;;Some(Plot w h xs).

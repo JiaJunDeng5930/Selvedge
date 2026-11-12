@@ -9,7 +9,7 @@ From Selvedge.Interaction Require Import Codec Identity Context SkillMention.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Interaction.Experience Require Model Activity Observation Read.
 From Selvedge.Interaction.Submission Require Draft GraphAuthoring Initialize.
-From Selvedge.Browser.Session Require State Observation Authoring.
+From Selvedge.Browser.Session Require State Observation Authoring ObjectActions.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
 From Selvedge.Browser.Presentation Require Import ServiceControls Projection.
@@ -25,7 +25,7 @@ Definition editor_title e := match e with
 |NewTask _=>"New conversation"|Message _=>"Message"
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
-|Fork _=>"Fork conversation"|Compact _=>"Compact history"
+|Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
 |TaskGraph None _=>"新建任务图"|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"|TitlePrompts=>Settings.conversation_titles_label end.
 Definition submit_label draft e :=match Draft.contents draft with
@@ -33,9 +33,9 @@ Definition submit_label draft e :=match Draft.contents draft with
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
-|TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"Create fork"|Card(Some _)=>"保存"
+|TaskGraph None _=>"创建任务图"|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
-|Compact _=>"Compact history"|TitlePrompts=>"保存"end end.
+|Compact _=>"压缩"|TitlePrompts=>"保存"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
@@ -264,12 +264,12 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
  (source++field_nodes snapshot s e parent [Fields.CardTitle;Fields.CardDescription]++
  [editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
 Definition fork_editor snapshot s e parent task :=
- let source:=value_or ("Conversation #"++show_natural task)(option_map task_title(find_task task snapshot)) in
- [read_only parent "fork-source" "Source conversation" source;
-  information parent "fork-history" Information.Description "The new conversation starts with the source conversation’s current history.";
-  editor_options parent "fork-options" "Fork options"
-   [field_section snapshot s e parent "Branches" [Fields.ForkCount;Fields.ForkMessages];
-    field_section snapshot s e parent "Run settings" Parameters.context_fields]].
+ let source:=value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)) in
+ [read_only parent "fork-source" "来源对话" source;
+  information parent "fork-history" Information.Description "分支会继承这条对话当前的历史。";
+  editor_options parent "fork-options" "分支选项"
+   [field_section snapshot s e parent "分支" [Fields.ForkCount;Fields.ForkMessages];
+    field_section snapshot s e parent "运行设置" Parameters.context_fields]].
 Definition task_choice (task:task) :=
  Fields.ChoiceValue (show_natural(task_id task))(task_title task++" · #"++show_natural(task_id task)).
 Definition graph_input parent key label text options (receive:json->option Input.input) :=
@@ -378,6 +378,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _|WorkName _|TitlePrompts=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

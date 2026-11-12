@@ -15,6 +15,9 @@
 [data-reading-root]:focus-visible {
   outline-offset: calc(-1 * var(--native-focus-width));
 }
+@media (min-width: 48rem) and (pointer: fine) {
+  [data-reading-root] { padding-inline-end: 1rem !important; }
+}
 [data-reading-root] > button[data-semantic-key="fork-current-history"] {
   align-self: flex-start;
 }
@@ -218,6 +221,7 @@
 }
 
 [data-semantic-key="task-details"][data-workspace-side] {
+  inline-size: 16rem !important;
   block-size: 100% !important;
   min-block-size: 0 !important;
   overflow: hidden !important;

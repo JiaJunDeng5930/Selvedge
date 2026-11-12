@@ -298,7 +298,7 @@ function dispatch(input) {
   if (decision.publication_event !== 'keep')
     render(decision.native_stream ? 'stream' : decision.native_picker ? 'picker' : null);
   for (const effect of decision.effects) execute(effect).catch(fatal);
-  return decision.handled;
+  return decision;
 }
 function retryFocus() {
   const pending = pendingFocus;
@@ -634,12 +634,15 @@ const renderer = new Renderer(surface, {
   codePublication({ identity, view, text }) { publishCode(identity, view, text); },
   codeIdentity(source, ordinal) { return browser('code_identity', { source, ordinal }); },
   codeTargets(identity, view) { return browser('code_targets', { identity, view }); },
+  interactiveFence(info) {
+    return browser('interactive_fence', { raw_info: info, fence_kind: 'fenced', info_complete: true });
+  },
   fence(metadata, observed) {
-    dispatch({ type: 'code_observed', origin: metadata.origin, document_key: metadata.document_key,
+    return dispatch({ type: 'code_observed', origin: metadata.origin, document_key: metadata.document_key,
       epoch: metadata.epoch, revision: observed.inputRevision, ordinal: observed.ordinal,
       fence_kind: observed.kind, info_complete: observed.infoComplete,
       raw_info: observed.info, code_prefix: observed.code, closed: observed.closed,
-      input_prefix: observed.inputPrefix });
+      input_prefix: observed.inputPrefix })?.fence_admitted;
   },
 });
 

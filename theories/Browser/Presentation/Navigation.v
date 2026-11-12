@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Identity Codec.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Browser.Session Require Import Input Services.
 From Selvedge.Browser.Session Require State Navigation Authoring.
 Module SessionNavigation := Selvedge.Browser.Session.Navigation.
@@ -45,6 +46,15 @@ Definition work_picker snapshot s parent identity :=
  let label:=work_label snapshot s in
  declared parent (Roles.CompactWorkScope label(work_count snapshot))
   (secondary identity (conversation_scope_label++" · "++label)(Input.OpenNavigation WorkOverview(part parent identity))).
+Definition task_attention (task:Read.task) : option task_notice :=
+ match task_status task with
+ |"archived"=>Some NoticeArchived
+ |status=>if Read.task_awaiting_human task then Some NoticeWaiting else
+  if String.eqb status "frozen" then Some NoticePaused else
+  if Read.task_execution_failed task then Some NoticeFailure else
+  if String.eqb status "stopped" then Some NoticeStopped else
+  if task_working task then Some NoticeRunning else None
+ end.
 Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.input :=
  let 'TaskTree task children:=tree in
  let id:=task_id task in
@@ -55,7 +65,7 @@ Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.
   [Node(part key "toggle-branches")"toggle-branches" label Roles.Button
    (PanelToggle expanded(secondary "toggle-branches" label(Input.ToggleTaskBranches id)))[]]end in
  Node key "task-entry" (task_title task) Roles.Section
-  (TaskRow id(task_status task)(task_caption task)(task_working task)(task_selected current task))
+  (TaskRow id(task_status task)(task_attention task)(task_selected current task))
   (disclosure ++ [declared key(Roles.NavigationEntry(task_selected current task))
       (secondary "open"(task_title task)(Input.Navigate(Conversation id)))] ++
    match children,expanded with

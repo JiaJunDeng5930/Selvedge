@@ -221,7 +221,7 @@ Definition project_title {A} (value : S.node A) :=
   match S.node_role value with Roles.NavigationEntry _ => true | _ => false end.
 Fixpoint project_titles {A} (value : S.node A) : list (string * string) :=
   match S.node_meaning value with
-  | S.TaskRow _ _ _ _ _ | S.TaskChildren _ => []
+  | S.TaskRow _ _ _ _ | S.TaskChildren _ => []
   | _ => if project_title value then [(S.node_key value,S.node_label value)]
     else flat_map project_titles (S.node_children value) end.
 Definition project_auxiliary {A} describe (value : S.node A) :=
