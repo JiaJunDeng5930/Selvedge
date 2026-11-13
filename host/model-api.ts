@@ -141,6 +141,7 @@ export function httpReplyStatus(input: unknown): number { return decodeHttpReply
 export interface BrowserObservationPrimitives {
   streams(): unknown;
   workspaceGit(plan: Extract<BrowserObservationPlan, {kind: 'workspace-git'}>): Promise<unknown>;
+  cloudRepository(plan: Extract<BrowserObservationPlan, {kind: 'cloud-repository'}>): Promise<unknown>;
   browseDirectories(plan: Extract<BrowserObservationPlan, {kind: 'browse-directories'}>): Promise<unknown>;
   directories(plan: Extract<BrowserObservationPlan, {kind: 'directories'}>): Promise<unknown>;
   skillCatalog(plan: Extract<BrowserObservationPlan, {kind: 'skill-catalog'}>): Promise<unknown>;
@@ -150,6 +151,7 @@ export async function interpretBrowserObservation(input: unknown, io: BrowserObs
   switch (plan.kind) {
     case 'streams': return io.streams();
     case 'workspace-git': return io.workspaceGit(plan);
+    case 'cloud-repository': return io.cloudRepository(plan);
     case 'browse-directories': return io.browseDirectories(plan);
     case 'directories': return io.directories(plan);
     case 'skill-catalog': return io.skillCatalog(plan);

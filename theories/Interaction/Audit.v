@@ -41,6 +41,26 @@ Qed.
 
 Open Scope string_scope.
 
+(** Internal context contributes to execution and to the audit, but it is not
+    an event a reader needs to follow the conversation. *)
+Definition readable_activity message :=
+ failed message ||
+ match text "role" message with
+ |"function_call"|"function_output"|"operation_result"|"tool_receipt"
+ |"approval_record"|"fork_result"|"context_replacement"=>true
+ |"task_context"=>String.eqb (text "type" message) "environment_notice" &&
+   negb (String.eqb (text "content" message) "")
+ |_=>false end.
+Definition reading_group (value:group) :=
+ match value with
+ |Spoken _=>[value]
+ |Activity first rest=>match filter (fun entry=>readable_activity(snd entry)) (first::rest) with
+   |[]=>[]|entry::tail=>[Activity entry tail] end
+ end.
+Definition reading_groups index messages := flat_map reading_group (groups index messages).
+Definition has_reading messages :=
+ existsb (fun message=>negb (hidden message) && (speech message || readable_activity message)) messages.
+
 (** Audit faces retain the admitted event. *)
 Inductive kind := ToolInvocation | ToolResult | Reasoning | ContextChange
  | PermissionDecision | Diagnostic | TaskRelation.
@@ -54,15 +74,14 @@ Definition title message := match text "role" message with
  |"function_call"=>call_name message|"function_output"=>"Tool output"
  |"operation_result"=>text "tool" message
  |"tool_receipt"=>text "name" (value_or JNull (field "call" message))
- |"error"=>match field "content" message with Some (JString value)=>value|_=>"Error" end
+ |"error"=>"执行错误"
  |"reasoning_record"=>"Reasoning: "++text "effort" (value_or JNull (field "content" message))
  |"hook_record"=>"Tool permission check"
  |"approval_record"=>"Approval: "++text "decision" (value_or JNull (field "content" message))
  |"after_record"=>"Tool result processing"|"fork_result"=>"Task fork"
  |"context_replacement"=>"Context compacted"|"model_context"=>"Model activity"
- |"task_context"=>if String.eqb (text "type" message) "reasoning_configuration"
-    then "Reasoning changed to "++text "effort" message else "Conversation event"
- |_=>"Conversation event" end.
+ |"task_context"=>"Execution environment"
+ |_=>"Activity" end.
 Record face := Face { face_occurrence:N; face_kind:kind; face_title:string; face_source:json }.
 Definition native_fork_invocation receipt message :=
  String.eqb (text "role" message) "function_call" &&
@@ -98,14 +117,20 @@ Definition detail message := match text "role" message with
  |"hook_record"|"after_record"|"model_context"=>render_json (value_or JNull (field "content" message))
  |"error"=>match field "content" message with Some (JString value)=>value|_=>title message end
  |"context_replacement"=>"Context compacted; original conversation retained."
+ |"task_context"=>text "content" message
  |_=>title message end.
 Definition summary history values :=
  match latest_failure values with
  |Some occurrence=>match find (fun entry=>Nat.eqb occurrence (fst entry)) values with
-   |Some entry=>"Failure: "++title (fork_result_source history (snd entry))++" · "++Numbers.show_nat (List.length values)++" events"
-   |None=>"Activity" end
- |None=>match rev values with
-   |[]=>"Activity"|entry::_=>title (fork_result_source history (snd entry))++" · "++Numbers.show_nat (operation_count values)++" operations" end
+   |Some entry=>let source:=fork_result_source history (snd entry) in
+     if String.eqb (text "role" source) "error" then title source else "Failed: "++title source
+   |None=>"执行错误" end
+ |None=>match filter (fun entry=>String.eqb (text "role" (snd entry)) "function_call") values with
+   |[entry]=>"Tool call: "++call_name (snd entry)
+   |_::_::_=>Numbers.show_nat (operation_count values)++" tool calls"
+   |[]=>match rev values with
+     |[]=>"Activity"|entry::_=>title (fork_result_source history (snd entry)) end
+   end
  end.
 Definition disclosed (group:N) (values:list(N*N*bool)) (attention:N) :=
  match find (fun entry=>let '(id,_,_):=entry in N.eqb group id) values with

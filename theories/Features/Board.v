@@ -7,11 +7,10 @@ From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
 From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
+From Selvedge.Features Require Import Domain State Observation Titles Worktree BoardFacts.
 From Selvedge.Features Require Import BoardParameters BoardDrafting.
 From Selvedge.Programming Require CardScope.
 Module BD := BoardDrafting.
-Module FRA := FeatureRequestAdmission.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
@@ -50,7 +49,6 @@ Definition unlinked := BoardFacts.unlinked.
 Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
 Definition runnable := BoardFacts.runnable.
-Definition latest_failure := BoardFacts.latest_failure.
 Definition card_json (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Observation.card_json_in_world value id card.
 Definition visible_cards (value:world) := fold_right (fun id rest=>match CardScope.lookup id value with Some card=>card_json id card value::rest | None=>rest end) [] (Selvedge.Features.Domain.board_order (registry value)).
 Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) (caller:option N) (value:world) :json :=
@@ -58,16 +56,13 @@ Definition handle_list_cards (p:Selvedge.Generated.Commands.list_cards_payload) 
 Definition handle_read_card (p:Selvedge.Generated.Commands.read_card_payload) (caller:option N) (value:world) :json :=
  match CardScope.lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end.
 Definition request_text_result {value} (target:BD.drafting_target value) (profile_name:string) :=
- let name:=if String.eqb profile_name "" then Selvedge.Features.Domain.board_draft_profile (registry value) else profile_name in
- FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
- (fun profile Selected =>
-   CommandResult.require (TitleRuntime.ordinary profile) (fun Ordinary =>
+ let name:=BD.profile_name (Selvedge.Features.Domain.board_draft_profile (registry value)) profile_name in
+ BD.require_profile name (environment_profiles (world_environment value))
+ (fun profile Selected Ordinary =>
      let request:=BD.plan target name profile Selected Ordinary in
      let issued:=FeatureRequest.feature_issue_change request in
      CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
-       (CommandResult.change_world issued) (CommandResult.change_effects issued)))
-   "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
- (fun _ => CommandResult.refuse "draft_profile_required" "Choose a configured ordinary drafting endpoint").
+       (CommandResult.change_world issued) (CommandResult.change_effects issued))).
 Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card_draft) := if assisted then
    match Utf8.chunks (Selvedge.Features.Domain.draft_title draft) with
    | None=>draft
@@ -91,11 +86,12 @@ Proof.
 Defined.
 Definition create_card_result (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world) :=
  let parsed:=apply_patch input empty_draft in let draft:=normalized_draft assisted parsed in
- CommandResult.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
+ let valid:=valid_draft draft value in
+ CommandResult.require (valid && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
  (fun Valid => if assisted then request_text_result
    (parsed_drafting_target parsed assisted value observed Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
- "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.".
+ "invalid_card" (if valid then "看板已达容量上限。" else "请检查卡片内容和所属项目。").
 Definition retains_assignment (input:patch) (card:Selvedge.Features.Domain.card) :=
  match patch_owner input with None=>true | Some owner=>
  if Selvedge.Features.Domain.owner_eq_dec owner (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) then true else false end.
@@ -128,15 +124,25 @@ Definition pin (id revision:N) (observed:BoardParameters.clock) (pinned:bool) (v
  if editable card then let updated:=revised (Selvedge.Features.Domain.card_contents card) now card in
  save id (set Selvedge.Features.Domain.card_pinned (fun _=>pinned) updated) value
  else Selvedge.Kernel.State.reject "card_locked" "Restore the archived card before pinning or unpinning it" value).
-Definition link (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
- let now:=observed in CardScope.with_card id revision value (fun card=>
- match Selvedge.Kernel.State.find_task target value with None=>Selvedge.Kernel.State.reject "task_not_found" "The conversation to link does not exist" value | Some _=>
+Definition link_result (id revision:N) (observed:BoardParameters.clock) (target:N) (value:world) :=
+ CommandResult.bind (CardScope.select_card id revision value) (fun card=>
+ match Selvedge.Kernel.State.find_task target value with None=>CommandResult.refuse "task_not_found" "The conversation to link does not exist" | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
  if editable card && unlinked card && negb used then
- let updated:=revised (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) now card in
- save id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
-   (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value
- else Selvedge.Kernel.State.reject "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" value end).
+ let updated:=revised (with_stage BoardFacts.initial_link_stage (Selvedge.Features.Domain.card_contents card)) observed card in
+ CommandResult.Accepted (save_change id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
+   (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value)
+ else CommandResult.refuse "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" end).
+Definition link id revision observed target value :=
+ CommandResult.decide value (link_result id revision observed target value).
+Definition create_card_with_task_result input observed assisted profile task value :=
+ let creation:=create_card_result input observed assisted profile value in
+ match task with
+ |None=>creation
+ |Some target=>CommandResult.bind creation (fun created=>
+   CommandResult.map (CommandResult.append_effects (CommandResult.change_effects created))
+    (link_result (BD.fresh_id value) 0 observed target (CommandResult.change_world created)))
+ end.
 Definition archive_interrupt_target (archived:bool) (card:Selvedge.Features.Domain.card) (value:world) :=
  if archived then match Selvedge.Features.Domain.card_task card with
  | Some target=>match Selvedge.Kernel.State.find_task target value with
@@ -182,7 +188,7 @@ Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:o
 Definition run (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  CommandResult.decide value (run_result id revision observed caller value).
 Definition settings (automatic:bool) (profile:string) (value:world) :=
- let valid:=String.eqb profile "" || match Tasks.find_profile profile (environment_profiles (world_environment value)) with Some chosen=>TitleRuntime.ordinary chosen | None=>false end in
+ let valid:=String.eqb profile "" || BD.profile_available profile (environment_profiles (world_environment value)) in
  if valid then let b:=registry value in Selvedge.Kernel.State.accept JNull
  (store ((set Selvedge.Features.Domain.board_draft_profile (fun _=>profile) (set Selvedge.Features.Domain.board_automatic (fun _=>automatic) (b)))) value) []
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
@@ -194,7 +200,7 @@ Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (p
 Definition regenerate (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.decide value (regenerate_result id revision observed profile value).
 Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change :=
- create_card_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") value.
+ create_card_with_task_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") (Selvedge.Generated.Commands.create_card_task_id p) value.
 Definition handle_create_card (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :decision :=
  CommandResult.decide value (handle_create_card_result p caller value).
 Definition handle_update_card (p:Selvedge.Generated.Commands.update_card_payload) (caller:option N) (value:world) :decision :=
@@ -259,17 +265,32 @@ Definition completion_inputs := [InputRoute.callback ModelDeclarations.BoardText
 Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
  if Selvedge.Features.Domain.card_archived card then card else match linked_task card value with None=>card | Some task=>
  let previous:=Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) in
- let next:=if busy_task task then Selvedge.Features.Domain.InProgress else match previous with Selvedge.Features.Domain.InProgress=>if latest_failure task then Selvedge.Features.Domain.Blocked else Selvedge.Features.Domain.InReview | _=>previous end in
+ let next:=BoardFacts.stage_after_task previous task in
  if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then card else revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card end.
 Definition synchronize (value:world) := let b:=registry value in
  store ((set Selvedge.Features.Domain.board_cards (fun _=>(map (option_map (fun card=>synchronize_card card value)) (Selvedge.Features.Domain.board_cards b))) (b))) value.
 Definition ready (card:Selvedge.Features.Domain.card) (value:world) := runnable card value &&
- (match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.NoEnrichment=>true | _=>false end) && match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true | _=>false end.
+ BoardFacts.enrichment_ready card && BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)).
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
  flat_map (fun pinned=>flat_map (fun priority=>filter (fun id=>match CardScope.lookup id value with Some card=>
  Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) && N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) && ready card value | None=>false end) order) [4%N;3%N;2%N;1%N;0%N]) [true;false].
 Definition next (value:world) := if Selvedge.Features.Domain.board_automatic (registry value) then hd_error (queued value) else None.
+Definition save_consequence (id:N) (value:world) : option BoardFacts.save_consequence :=
+ match CardScope.lookup id value with None=>None|Some card=>
+ let draft:=Selvedge.Features.Domain.card_contents card in
+ let automatic:=Selvedge.Features.Domain.board_automatic (registry value) in
+ let stage_ready:=BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage draft) in
+ if negb (unlinked card) then Some BoardFacts.SaveLinked else
+ let model_assigned:=match Selvedge.Features.Domain.draft_owner draft with ProfileOwner _=>true|_=>false end in
+ if pending card then Some (if automatic && model_assigned && stage_ready then BoardFacts.SaveDraftsThenQueues else BoardFacts.SaveDrafts) else
+ if model_assigned then Some (
+   if negb automatic then BoardFacts.SaveManual else
+   if negb stage_ready then BoardFacts.SaveNeedsStage else
+   if negb (BoardFacts.enrichment_ready card) then BoardFacts.SaveManual else
+   if negb (runnable card value) then BoardFacts.SaveWaitsForModel else
+   match next value with Some first=>if N.eqb first id then BoardFacts.SaveStarts else BoardFacts.SaveQueues
+   |None=>BoardFacts.SaveQueues end) else None end.
 Definition start_failed (id:N) (card:Selvedge.Features.Domain.card) (reason:string) (value:world) := put id
  ((set Selvedge.Features.Domain.card_start_error (fun _=>(failure_text reason)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.Blocked (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) value.
 Fixpoint pump (fuel:nat) : DecisionComposition.step := fun value effects => match fuel with

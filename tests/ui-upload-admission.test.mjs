@@ -14,10 +14,8 @@ test('a normal Task composer rejects a stored text file without making it a subm
 
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('region', { name: 'Upload admission project', exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Project details', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Upload admission project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
 
   const task = page.getByRole('combobox', { name: 'Task', exact: true });
   const start = page.getByRole('button', { name: 'Start task', exact: true });

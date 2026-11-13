@@ -85,19 +85,24 @@ Definition encode_body value := match value with
 |ForkBody _ count messages configuration=>JObject[("child_count",number count);("messages",JArray(map JString messages));("context",encode_configuration configuration)]
 |CompactBody _ summary=>JObject[("summary",option_text summary)]
 |TaskGraphBody _ declaration parsed _=>JObject[("declaration",JString declaration);("parsed",optional_value(fun x=>x)parsed)]
-|TitlePromptsBody revision task agent profile=>JObject[("revision",number revision);("task_prompt",JString task);
+|TitlePromptsBody _ revision task agent profile=>JObject[("revision",number revision);("task_prompt",JString task);
  ("agent_prompt",JString agent);("agent_profile",option_text profile)]end.
+Definition decode_card_body card value :=
+ revision<-natural_field "revision" value;;contents<-bind(field "card" value)decode_card;;
+ assist<-bool_field "assisted" value;;profile<-string_field "draft_profile" value;;
+ keep<-bool_field "keep_open" value;;Some(CardBody card revision contents assist profile keep).
 Definition decode_body e value :option body :=match e with
 |Identity.WorkName work=>option_map(WorkNameBody work)(string_field "name" value)
 |Identity.NewTask work=>message<-bind(field "message" value)decode_text;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;mode<-bind(field "task_environment" value)decode_workspace_mode;;Some(NewTaskBody message profile reasoning configuration mode work)
 |Identity.Message task=>message<-bind(field "message" value)decode_text;;delivery<-string_field "delivery" value;;match delivery with "send"=>Some(MessageBody task message Fields.Send)|"steer"=>Some(MessageBody task message Fields.Steer)|_=>None end
 |Identity.Project project=>name<-string_field "name" value;;workspace<-bind(field "workspace" value)Codec.parse_workspace;;worktree<-bool_field "create_worktree" value;;Some(ProjectBody project name workspace worktree)
-|Identity.Card card=>revision<-natural_field "revision" value;;contents<-bind(field "card" value)decode_card;;assist<-bool_field "assisted" value;;profile<-string_field "draft_profile" value;;keep<-bool_field "keep_open" value;;Some(CardBody card revision contents assist profile keep)
+|Identity.Card id=>decode_card_body (Identity.BoardCard id) value
+|Identity.CardForConversation task=>decode_card_body (Identity.ConversationCard task) value
 |Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;Some(ForkBody task count messages configuration)
 |Identity.Compact task=>option_map(CompactBody task)(bind(field "summary" value)decode_option_text)
 |Identity.TaskGraph graph work=>declaration<-string_field "declaration" value;;parsed<-bind(field "parsed" value)(parse_optional(fun value=>Some value));;Some(TaskGraphBody graph declaration parsed work)
-|Identity.TitlePrompts=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;
- profile<-bind(field "agent_profile" value)decode_option_text;;Some(TitlePromptsBody revision task agent profile)end.
+|Identity.TitlePrompts scope=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;
+ profile<-bind(field "agent_profile" value)decode_option_text;;Some(TitlePromptsBody scope revision task agent profile)end.
 Definition encode_feedback value:=match value with Editing=>JObject[("kind",JString "editing")]
 |Accepted revision reply=>JObject[("kind",JString "accepted");("revision",number revision);("reply",reply)]
 |Rejected revision diagnostic=>JObject[("kind",JString "rejected");("revision",number revision);("reason",diagnostic)]

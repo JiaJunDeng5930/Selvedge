@@ -13,19 +13,43 @@ async function observed(predicate, explanation) {
   throw new Error(explanation);
 }
 
+async function inspectPermissionChoices(permissions, sandbox) {
+  const shared = '询问和自动审批 · ' + sandbox.replace('，', ' · ');
+  const note = permissions.getByText(shared, { exact: true });
+  await note.waitFor();
+  assert.equal(await note.count(), 1, 'The restricted choices share one visible description');
+  const group = permissions.getByRole('radiogroup', { name: '审批方式', exact: true });
+  const descriptionIds = (await group.getAttribute('aria-describedby') ?? '').split(/\s+/);
+  assert.ok(descriptionIds.includes(await note.getAttribute('id')),
+    'Keyboard and screen-reader users have the same shared group context');
+  const choice = name => permissions.getByRole('menuitemradio', { name, exact: true });
+  assert.match(await choice('询问审批').innerText(), /需要扩大权限时会询问你。/);
+  assert.match(await choice('自动审批').innerText(), /需要扩大权限时由模型审批。/);
+  const full = await choice('完全访问').innerText();
+  assert.equal(full.match(/完全访问/g)?.length, 1);
+  assert.match(full, /文件访问和联网不受限制，无需审批。/);
+  const sharedFacts = sandbox.split('，');
+  for (const name of ['询问审批', '自动审批']) {
+    const row = await choice(name).innerText();
+    for (const fact of sharedFacts) assert.equal(row.includes(fact), false);
+  }
+  return choice;
+}
+
 test('new Task permissions remain reachable with ordinary pointer clicks', async t => {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 700 }]) {
     await t.test(`${viewport.width} by ${viewport.height}`, async t => {
       const { page } = await browserFixture(t);
       await page.setViewportSize(viewport);
-      await page.getByRole('button', { name: /^Permissions:/ }).click();
-      const permissions = page.getByRole('dialog', { name: 'Permissions', exact: true });
-      await permissions.getByRole('button', { name: 'Custom permissions…', exact: true }).click();
-      for (const name of ['Execution policy', 'Filesystem access', 'Network access']) {
+      await page.getByRole('button', { name: /^权限:/ }).click();
+      const permissions = page.getByRole('dialog', { name: '权限', exact: true });
+      await permissions.getByRole('button', { name: '自定义权限…', exact: true }).click();
+      for (const name of ['审批方式', '文件系统权限', '联网权限']) {
         await permissions.getByRole('button', { name, exact: true }).click({ trial: true });
       }
-      await permissions.getByRole('button', { name: 'Back', exact: true }).click();
-      for (const name of ['Ask for approval', 'Automatic review', 'Unrestricted']) {
+      await permissions.getByRole('button', { name: '返回', exact: true }).click();
+      await inspectPermissionChoices(permissions, '工作目录内可写，联网受限');
+      for (const name of ['询问审批', '自动审批', '完全访问']) {
         await permissions.getByRole('menuitemradio', { name, exact: true }).click({ trial: true });
       }
 
@@ -33,12 +57,40 @@ test('new Task permissions remain reachable with ordinary pointer clicks', async
   }
 });
 
-test('ordinary Task and Board assistance choices exclude the auto-review-only profile', async t => {
+test('conversation permission choices preserve the workspace limits after full access', { timeout: 90000 }, async t => {
+  const { page, command, root } = await browserFixture(t);
+  const sandbox = { mode: 'read-only', network_access: true };
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo',
+    settings: { workspace: { roots: [root], primary_root: root }, sandbox } });
+  const read = async () => (await command({ op: 'read', task_id })).task;
+  const { title } = await read();
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: title, exact: true }).click();
+  const permissions = page.getByRole('dialog', { name: '权限', exact: true });
+  for (const [name, approval] of [
+    ['自动审批', { mode: 'approval-for-me', reviewer_profile: 'demo' }],
+    ['完全访问', { mode: 'full-access' }],
+    ['询问审批', { mode: 'ask-for-approval' }],
+  ]) {
+    await page.getByRole('button', { name: /^权限:/ }).press('Enter');
+    const choice = await inspectPermissionChoices(permissions, '只读，允许联网');
+    await choice(name).click();
+    await permissions.waitFor({ state: 'hidden' });
+    const { settings } = await read();
+    assert.equal(settings.approval.mode, approval.mode);
+    assert.equal(settings.approval.reviewer_profile, approval.reviewer_profile);
+    assert.deepEqual(settings.sandbox, sandbox);
+  }
+});
+
+test('conversation and board controls distinguish same-name configurations and exclude the review-only model', async t => {
   const fixture = await browserFixture(t, { images: true });
-  const { page, upstream } = fixture;
+  const { page, upstream, command } = fixture;
   const delegate = upstream.options.respond;
   const requests = [];
-  const models = ['image-fixture', 'codex-auto-review'].map(slug => ({
+  const fixedAstra = 'gpt-6-astra · Fixed effort';
+  const adaptiveAstra = 'gpt-6-astra · Adaptive effort';
+  const models = ['image-fixture', 'gpt-6-astra', 'codex-auto-review'].map(slug => ({
     slug, display_name: slug, visibility: 'list', context_window: 128000,
     effective_context_window_percent: 100, default_reasoning_level: 'medium',
     supported_reasoning_levels: [{ effort: 'medium' }],
@@ -68,6 +120,12 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   assert.equal(catalog.ok, true, JSON.stringify(catalog));
   assert.ok(catalog.result.profiles.some(profile => profile.name === 'codex-auto-review'),
     'The connected catalog must contain the dedicated profile before testing its exclusion');
+  const astraProfiles = catalog.result.profiles.filter(profile => profile.name === 'gpt-6-astra');
+  assert.equal(astraProfiles.length, 2);
+  const fixed = astraProfiles.find(profile => !profile.adaptive_reasoning);
+  const adaptive = astraProfiles.find(profile => profile.adaptive_reasoning);
+  assert.ok(fixed?.key);
+  assert.ok(adaptive?.key);
   await page.reload();
   await page.getByRole('button', { name: /^Model:/ }).click();
   const picker = page.getByRole('dialog', { name: 'Model', exact: true });
@@ -76,7 +134,12 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   await Promise.any([summary.waitFor(), ordinaryModel.waitFor()]);
   if (await summary.isVisible()) await summary.click();
   await ordinaryModel.waitFor();
-  assert.equal(await picker.getByRole('menuitemradio', { name: 'codex-auto-review', exact: true }).count(), 0);
+  for (const label of [fixedAstra, adaptiveAstra]) {
+    assert.equal(await picker.getByRole('menuitemradio', { name: label, exact: true }).count(), 1, label);
+  }
+  for (const label of ['gpt-6-astra', 'codex-auto-review']) {
+    assert.equal(await picker.getByRole('menuitemradio', { name: label, exact: true }).count(), 0, label);
+  }
   await ordinaryModel.click();
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'hidden' });
@@ -87,26 +150,56 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   assert.equal(ordinary.model, 'image-fixture');
 
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('button', { name: '看板设置', exact: true }).click();
-  const draftModels = page.getByRole('combobox', { name: '草稿模型', exact: true });
+  const draftModels = page.getByRole('combobox', { name: '默认整理模型', exact: true });
   const draftNames = await draftModels.locator('option').allTextContents();
-  assert.ok(draftNames.includes('image-fixture'));
-  assert.ok(!draftNames.includes('codex-auto-review'));
+  for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(draftNames.includes(label), label);
+  for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!draftNames.includes(label), label);
+  assert.equal(await draftModels.locator('option').filter({ hasText: 'gpt-6-astra' }).getAttribute('value'), fixed.key);
   await page.keyboard.press('Escape');
-  await page.getByRole('main').getByRole('button', { name: '新建任务', exact: true }).first().click();
+  await page.getByRole('main').getByRole('button', { name: '新建卡片', exact: true }).first().click();
   const card = page.getByRole('dialog');
-  const assistance = card.getByRole('combobox', { name: 'Assistance model', exact: true });
+  await card.getByRole('textbox', { name: '标题', exact: true }).waitFor();
+  const assistance = card.getByRole('combobox', { name: '整理用的模型', exact: true });
+  assert.equal(await assistance.isVisible(), false);
+  await card.getByText('更多卡片选项', { exact: true }).click();
+  await card.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
+  await assistance.waitFor();
   const assistanceNames = await assistance.locator('option').allTextContents();
-  assert.ok(assistanceNames.includes('image-fixture'));
-  assert.ok(!assistanceNames.includes('codex-auto-review'));
-  await card.getByRole('textbox', { name: 'Description', exact: true }).fill('Plan the reviewed workflow.');
-  await card.getByRole('checkbox', { name: 'Assist with title and description', exact: true }).check();
+  for (const label of ['image-fixture', 'gpt-6-astra']) assert.ok(assistanceNames.includes(label), label);
+  for (const label of [fixedAstra, adaptiveAstra, 'codex-auto-review']) assert.ok(!assistanceNames.includes(label), label);
+  assert.equal(await assistance.locator('option').filter({ hasText: 'gpt-6-astra' }).getAttribute('value'), fixed.key);
+  const assignee = card.getByRole('combobox', { name: '负责人', exact: true });
+  const assigneeNames = await assignee.locator('option').allTextContents();
+  for (const label of ['image-fixture', fixedAstra, adaptiveAstra]) assert.ok(assigneeNames.includes(label), label);
+  await assignee.selectOption({ label: adaptiveAstra });
+  await card.getByRole('textbox', { name: '描述', exact: true }).fill('Plan the reviewed workflow.');
   await assistance.selectOption({ label: 'image-fixture' });
-  await card.getByRole('button', { name: 'Create card', exact: true }).click();
-  await page.getByText('A readable assisted card', { exact: true }).waitFor();
+  const creation = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
+    && response.request().postDataJSON()?.command?.op === 'create_card');
+  await card.getByRole('button', { name: '创建卡片', exact: true }).click();
+  const { reply } = await (await creation).json();
+  assert.ok(reply.ok, JSON.stringify(reply));
+  const persisted = await command({ op: 'read_card', card_id: reply.result.card_id });
+  assert.equal(persisted.assignee, `profile/${adaptive.key}`);
+  const created = page.getByRole('article', { name: 'A readable assisted card', exact: true });
+  await created.getByText(adaptiveAstra, { exact: true }).waitFor();
   const assisted = await observed(() => requests.find(request => request.text?.format?.schema?.properties?.description),
     'Card assistance must reach its ordinary provider');
   assert.equal(assisted.model, 'image-fixture');
   assert.ok(requests.every(request => request.model !== 'codex-auto-review'));
+  await page.getByRole('button', { name: '筛选卡片', exact: true }).click();
+  const filters = page.getByRole('dialog', { name: '筛选卡片', exact: true });
+  await filters.locator('summary').filter({ hasText: '负责人' }).click();
+  const modelsFilter = filters.getByRole('region', { name: '模型', exact: true });
+  const adaptiveFilter = modelsFilter.getByRole('checkbox', { name: 'gpt-6-astra · 自适应推理强度', exact: true });
+  const fixedFilter = modelsFilter.getByRole('checkbox', { name: 'gpt-6-astra · 固定推理强度', exact: true });
+  await adaptiveFilter.click();
+  assert.equal(await adaptiveFilter.getAttribute('aria-checked'), 'true');
+  await created.waitFor();
+  await adaptiveFilter.click();
+  await fixedFilter.click();
+  assert.equal(await fixedFilter.getAttribute('aria-checked'), 'true');
+  await created.waitFor({ state: 'hidden' });
 });

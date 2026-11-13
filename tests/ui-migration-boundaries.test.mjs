@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { browserFixture } from './fixtures/browser.mjs';
+import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
 
 async function postPublicCommand(running, command) {
   const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
@@ -28,6 +28,7 @@ async function openProjectTask(fixture, name, workspace) {
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name, exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   await page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
 }
 
@@ -50,9 +51,18 @@ test('a submitted Task survives directory preparation while newer writing and na
     await route.fulfill({ response });
   });
   await openProjectTask(fixture, 'Captured submission Project', workspace);
-  await page.locator('button[data-logical-key="composer/workspace"]').click();
-  await page.getByRole('button', { name: 'Use as primary', exact: true }).click();
+  const environment = await openCreationEnvironment(page);
+  await environment.locator('button[data-logical-key="composer/workspace"]').click();
+  const directories = page.getByRole('dialog', { name: '工作目录', exact: true });
+  await directories.getByRole('button', { name: '移除目录', exact: true }).click();
+  await directories.getByRole('textbox', { name: '目录路径', exact: true }).fill(workspace);
+  await directories.getByRole('button', { name: '添加目录', exact: true }).click();
+  await directories.getByText(workspace, { exact: true }).waitFor();
   await page.keyboard.press('Escape');
+  await directories.waitFor({ state: 'hidden' });
+  await environment.waitFor();
+  await page.keyboard.press('Escape');
+  await environment.waitFor({ state: 'hidden' });
   const draft = page.getByRole('combobox', { name: 'Task', exact: true });
   await draft.fill('Run exactly this captured submission.');
   const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
@@ -61,8 +71,8 @@ test('a submitted Task survives directory preparation while newer writing and na
   await preparation;
   await draft.fill('Keep this later unsent draft.');
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '任务看板', exact: true }).click();
-  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
   release();
   const response = await receipt;
   assert.equal(response.status(), 200);
@@ -72,10 +82,11 @@ test('a submitted Task survives directory preparation while newer writing and na
   assert.deepEqual(task.task.settings.workspace, { roots: [workspace], primary_root: workspace });
   assert.ok(JSON.stringify(task.messages).includes('Run exactly this captured submission.'));
   assert.ok(!JSON.stringify(task.messages).includes('Keep this later unsent draft.'));
-  await page.getByRole('main').getByText('任务看板', { exact: true }).waitFor();
+  await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Captured submission Project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Keep this later unsent draft.');
 });
 

@@ -6,8 +6,13 @@ From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
 Definition registry (value:world) := Selvedge.Features.Domain.feature_board (world_features value).
+Definition title_has_content := Codec.nonempty.
+Definition title_within_limit (title:string) := BoardParameters.limited title 2000.
+Definition description_within_limit (description:string) := BoardParameters.limited description 400000.
 Definition valid_draft (draft:Selvedge.Features.Domain.card_draft) (value:world) :=
- Codec.nonempty (Selvedge.Features.Domain.draft_title draft) && BoardParameters.limited (Selvedge.Features.Domain.draft_title draft) 2000 && BoardParameters.limited (Selvedge.Features.Domain.draft_description draft) 400000 &&
+ title_has_content (Selvedge.Features.Domain.draft_title draft) &&
+ title_within_limit (Selvedge.Features.Domain.draft_title draft) &&
+ description_within_limit (Selvedge.Features.Domain.draft_description draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_labels draft)) 32 && forallb (fun label=>Codec.nonempty label && BoardParameters.limited label 128) (Selvedge.Features.Domain.draft_labels draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4 &&
  (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).
@@ -31,15 +36,33 @@ Definition runnable_profile (card:Selvedge.Features.Domain.card) (value:world) :
  | _=>None end else None.
 Definition runnable (card:Selvedge.Features.Domain.card) (value:world) :=
  match runnable_profile card value with Some _=>true | None=>false end.
-Fixpoint latest_failure_events (history:list message) := match history with
- | []=>false | FailureMessage _::_=>true | UserMessage _::_|AssistantMessage _ _::_|ModelContext _ _::_=>false | _::rest=>latest_failure_events rest end.
-Definition latest_failure (task:task) := latest_failure_events (rev (task_history task)).
+Definition observe_failure (failed:bool) (event:message) := match event with
+ |FailureMessage _=>true |UserMessage _|AssistantMessage _ _|ModelContext _ _=>false
+ |_=>failed end.
+Definition latest_failure (task:task) := fold_left observe_failure (task_history task) false.
+Definition initial_link_stage := InProgress.
+Definition stage_after_execution (previous:board_stage) (busy:bool) (failed:unit->bool) :=
+ if busy then InProgress else
+ match previous with InProgress=>if failed tt then Blocked else InReview|_=>previous end.
+Definition stage_after_task previous task :=
+ stage_after_execution previous (busy_task task) (fun _=>latest_failure task).
+Definition automatic_stage stage := match stage with Todo|InProgress=>true|_=>false end.
+Definition enrichment_ready (card:Selvedge.Features.Domain.card) :=
+ match Selvedge.Features.Domain.card_enrichment card with NoEnrichment=>true|_=>false end.
 (** A queued card may still be waiting for its model profile's concurrency slot. *)
 Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
  negb (Selvedge.Features.Domain.card_archived card) && unlinked card &&
- (match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.NoEnrichment=>true|_=>false end) &&
- (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true|_=>false end) &&
+ enrichment_ready card && automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.ProfileOwner _=>true|_=>false end.
+Inductive save_consequence := SaveManual | SaveNeedsStage | SaveStarts | SaveQueues | SaveWaitsForModel
+ | SaveDrafts | SaveDraftsThenQueues | SaveLinked.
+Definition save_consequence_name consequence := match consequence with
+ |SaveManual=>"manual"|SaveNeedsStage=>"needs_stage"|SaveStarts=>"starts"|SaveQueues=>"queues"
+ |SaveWaitsForModel=>"waits_for_model"|SaveDrafts=>"drafts"|SaveDraftsThenQueues=>"drafts_then_queues"
+ |SaveLinked=>"linked" end.
+Definition save_consequence_of_name name :=
+ find(fun consequence=>String.eqb name(save_consequence_name consequence))
+ [SaveManual;SaveNeedsStage;SaveStarts;SaveQueues;SaveWaitsForModel;SaveDrafts;SaveDraftsThenQueues;SaveLinked].
 Definition activity (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_enrichment card with
  | Selvedge.Features.Domain.Enriching _=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
  | Some task=>match task_lifecycle task with Archived _=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"

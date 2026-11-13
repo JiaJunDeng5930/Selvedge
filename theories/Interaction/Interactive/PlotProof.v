@@ -50,18 +50,20 @@ Qed.
 Theorem chart_ignores_unplotted_values left right :
   X.property_text "x" left = X.property_text "x" right ->
   X.property_text "y" left = X.property_text "y" right ->
+  P.x_title left = P.x_title right ->
+  P.y_title left = P.y_title right ->
   P.chart_rows left = P.chart_rows right ->
   V.component_tag (X.description left) = V.component_tag (X.description right) ->
   P.chart left = P.chart right.
 Proof.
-  intros XAxis YAxis Rows Kind. unfold P.chart.
-  rewrite XAxis, YAxis, Rows, Kind. reflexivity.
+  intros XAxis YAxis XTitle YTitle Rows Kind. unfold P.chart, P.chart_axes.
+  rewrite XAxis, YAxis, Rows, Kind, XTitle, YTitle. reflexivity.
 Qed.
 
 Theorem data_point_admits_category_x x_path y_path row category y_value :
   get_path x_path row = JString category ->
   E.decimal_value (get_path y_path row) = Some y_value ->
-  P.data_point x_path y_path row = Outcome.Good (P.Point None y_value).
+  P.data_point x_path y_path row = Outcome.Good (P.Point None category y_value).
 Proof.
   intros X Y.
   unfold P.data_point.
@@ -73,7 +75,7 @@ Theorem data_point_admits_finite_numeric_x x_path y_path row x_source x_value y_
   get_path x_path row = JNumber x_source ->
   E.decimal_value (JNumber x_source) = Some x_value ->
   E.decimal_value (get_path y_path row) = Some y_value ->
-  P.data_point x_path y_path row = Outcome.Good (P.Point (Some x_value) y_value).
+  P.data_point x_path y_path row = Outcome.Good (P.Point (Some x_value) (D.text x_value) y_value).
 Proof.
   intros X FiniteX FiniteY.
   unfold P.data_point.
@@ -102,42 +104,52 @@ Proof.
   reflexivity.
 Qed.
 
-Theorem chart_magnitude_stays_within_the_decimal_range project points magnitude :
-  P.magnitude project points = Outcome.Good magnitude ->
-  Z.abs (D.units magnitude) <= D.limit.
+Lemma tick_step_positive span : 0 < P.tick_step span.
 Proof.
-  unfold P.magnitude, Outcome.from_option.
-  destruct (D.checked
-    (fold_left (fun value point => Z.max value (Z.abs (project point))) points 1))
-    as [value|] eqn:Checked; simpl; try discriminate.
-  intros Admitted.
-  inversion Admitted; subst magnitude.
-  unfold D.checked in Checked.
-  destruct (Z_le_dec (Z.abs
-    (fold_left (fun value point => Z.max value (Z.abs (project point))) points 1)) D.limit)
-    as [Within|Outside]; inversion Checked; exact Within.
+  unfold P.tick_step.
+  set (rough := Z.max 1 ((span + 3) / 4)).
+  set (decade := Z.pow 10 (Z.of_nat (Nat.pred (String.length (show_integer rough))))).
+  assert (0 < decade) by (unfold decade; apply Z.pow_pos_nonneg; lia).
+  destruct (rough <=? decade), (rough <=? 2 * decade), (rough <=? 5 * decade); lia.
 Qed.
 
-Definition negative_one := P.chart_whole (-1)%Z eq_refl.
-Definition positive_one := P.chart_whole 1%Z eq_refl.
-Definition negative_two := P.chart_whole (-2)%Z eq_refl.
-Definition positive_two := P.chart_whole 2%Z eq_refl.
-Definition zero := P.chart_whole 0%Z eq_refl.
+Theorem chart_axis_covers_values lower upper :
+  let axis := P.make_axis lower upper in
+  P.axis_lower axis <= lower /\ upper <= P.axis_upper axis /\
+  P.axis_lower axis < P.axis_upper axis.
+Proof.
+  unfold P.make_axis.
+  set (step := if lower =? upper then D.scale else P.tick_step (upper - lower)).
+  assert (Positive : 0 < step).
+  { unfold step. destruct (lower =? upper).
+    - vm_compute. reflexivity.
+    - apply tick_step_positive. }
+  cbn.
+  pose proof (Z.mod_pos_bound lower step Positive).
+  pose proof (Z.mod_pos_bound (-upper) step Positive).
+  pose proof (Z.div_mod lower step ltac:(lia)).
+  pose proof (Z.div_mod (-upper) step ltac:(lia)).
+  repeat split; lia.
+Qed.
 
-Theorem negative_y_lies_below_the_zero_baseline :
-  P.chart_coordinate P.y_origin P.y_span false negative_one positive_one =
-    Outcome.Good "210".
-Proof. vm_compute. reflexivity. Qed.
+Theorem chart_axis_coordinates_reach_both_plot_edges origin span axis :
+  P.axis_lower axis < P.axis_upper axis ->
+  P.axis_coordinate origin span axis (P.axis_lower axis) = origin * D.scale /\
+  P.axis_coordinate origin span axis (P.axis_upper axis) = (origin + span) * D.scale.
+Proof.
+  intros Strict. unfold P.axis_coordinate.
+  assert (Nonzero : P.axis_upper axis - P.axis_lower axis <> 0) by lia.
+  split.
+  - replace ((P.axis_lower axis - P.axis_lower axis) * span * D.scale) with 0 by ring.
+    rewrite Z.div_0_l by exact Nonzero. ring.
+  - replace ((P.axis_upper axis - P.axis_lower axis) * span * D.scale)
+      with ((span * D.scale) * (P.axis_upper axis - P.axis_lower axis)) by ring.
+    rewrite Z.div_mul by exact Nonzero. ring.
+Qed.
 
-Theorem zero_y_lies_on_the_zero_baseline :
-  P.chart_coordinate P.y_origin P.y_span false zero positive_one =
-    Outcome.Good "120".
-Proof. vm_compute. reflexivity. Qed.
-
-Theorem numeric_x_uses_both_sides_of_zero :
-  P.chart_coordinate P.x_origin P.x_span true negative_two positive_two = Outcome.Good "40" /\
-  P.chart_coordinate P.x_origin P.x_span true positive_two positive_two = Outcome.Good "440".
-Proof. vm_compute. repeat split; reflexivity. Qed.
+Theorem chart_axis_ticks_are_bounded axis :
+  (List.length (P.axis_ticks axis) <= 7)%nat.
+Proof. unfold P.axis_ticks. rewrite length_map, length_seq. lia. Qed.
 
 Theorem line_geometry_connects_points_in_order :
   P.line_path true [("40", "210"); ("440", "30")] = "M 40 210 L 440 30 " /\
@@ -146,18 +158,20 @@ Theorem line_geometry_connects_points_in_order :
 Proof. split; reflexivity. Qed.
 
 Theorem bar_geometry_returns_to_the_zero_baseline :
-  P.bar_path 4 [("40", "210"); ("440", "30")] =
+  P.bar_path "120" 4 [("40", "210"); ("440", "30")] =
     "M 40 120 m -2 0 V 210 h 4 V 120 Z M 440 120 m -2 0 V 30 h 4 V 120 Z ".
 Proof. reflexivity. Qed.
 
 Theorem successful_chart_has_a_bounded_nontrivial_plot properties drawing :
   P.chart properties = Outcome.Good drawing ->
-  G.width drawing = 480%positive /\
-  G.height drawing = 240%positive /\
-  exists values,
-    G.primitives drawing =
-      List.app [G.Line 40 20 40 220 G.Neutral; G.Line 40 120 460 120 G.Neutral] values /\
-    (1 <= List.length values <= 2)%nat.
+  G.width drawing = 660%positive /\
+  G.height drawing = 192%positive /\
+  exists points,
+    Outcome.traverse (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
+      (P.chart_rows properties) = Outcome.Good points /\
+    exists marks, G.primitives drawing =
+      List.app (P.chart_axes properties (P.numeric_x_axis points) (P.y_axis points) points) marks /\
+    (1 <= List.length marks <= 2)%nat.
 Proof.
   intros Admitted.
   unfold P.chart in Admitted.
@@ -168,19 +182,11 @@ Proof.
     (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
     (P.chart_rows properties)) as [points|reason] eqn:Rows;
     cbn [Outcome.bind] in Admitted; try discriminate.
-  destruct (P.magnitude
-    (fun point => match P.x_number point with Some x => D.units x | None => 0 end) points)
-    as [x_domain|reason] eqn:XDomain; cbn [Outcome.bind] in Admitted; try discriminate.
-  destruct (P.magnitude (fun point => D.units (P.y_number point)) points)
-    as [y_domain|reason] eqn:YDomain; cbn [Outcome.bind] in Admitted; try discriminate.
-  destruct (P.chart_coordinates x_domain y_domain 0 (List.length points) points)
-    as [coordinates|reason] eqn:Coordinates; cbn [Outcome.bind] in Admitted; try discriminate.
   inversion Admitted; subst drawing.
   repeat split; try reflexivity.
-  exists (if String.eqb properties.(X.description).(V.component_tag) "bar-chart"
-    then [G.FilledPath (P.bar_path (P.bar_width (List.length points)) coordinates) G.Neutral]
-    else [G.StrokePath (P.line_path true coordinates) G.Neutral;
-      G.StrokePath (P.point_path coordinates) G.Neutral]).
+  exists points. split; [reflexivity|].
+  eexists.
   split; [reflexivity|].
+  unfold P.chart_marks.
   destruct (String.eqb properties.(X.description).(V.component_tag) "bar-chart"); simpl; lia.
 Qed.

@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Import BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
-From Selvedge.Interaction Require Import Codec Identity CommandAssessment.
+From Selvedge.Interaction Require Import Codec Identity CommandAssessment CardDecisions.
 From Selvedge.Browser.Session Require Import Input Services Speech ObjectActions.
 From Selvedge.Browser.Session Require State Navigation Authoring.
 From Selvedge.Interaction.Experience Require Model Activity.
@@ -14,10 +14,10 @@ Open Scope string_scope.
 Module SS:=Selvedge.Browser.Session.State.
 Module P:=Selvedge.Browser.ControlPurpose.
 Definition route_symbol route:=match route with
-|Start=>"home"|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
+|Start=>"home"|GraphConversation _ _|Conversation _=>"conversation"|SharedUI _ _=>"columns"|Projects|ProjectHome _=>"folder"
 |Board=>"columns"|Graphs=>"branch"|HistorySearch=>"search"end.
 Definition editor_purpose owner:=match owner with
-|Identity.Project None|Identity.Card None|Identity.TaskGraph None _=>P.CreateItem
+|Identity.Project None|Identity.Card None|Identity.CardForConversation _|Identity.TaskGraph None _|Identity.WorkName None=>P.CreateItem
 |Identity.NewTask _|Identity.Message _=>P.MessageSubmission
 |Identity.Fork _=>P.ForkTask|Identity.Compact _=>P.CompactTask|_=>P.EditItem end.
 Definition command_purpose (command:SS.public_command):=let source:=Schema.encode_command command in
@@ -32,6 +32,7 @@ Definition command_purpose (command:SS.public_command):=let source:=Schema.encod
  |Some "board_settings"=>P.AutomaticScheduling(negb(flag "automatic" source))
  |Some "regenerate_card_title"=>P.Regenerate
  |Some "run_card"=>P.ResumeExecution
+ |Some "open_side_conversation"=>P.NavigateTo "conversation"
  |_=>P.NamedAction end.
 Definition activity_expanded owner request state:=match State.layers(State.navigation_state state)with
 |layer::_=>match State.layer_panel layer with State.PropertyPanel actual requested=>
@@ -46,18 +47,23 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.NewCard _ trigger=>P.DialogTrigger P.CreateItem (panel_open trigger state)
 |Input.CreateWork=>P.WorkCreation
 |Input.BeginTask None=>P.CreateItem|Input.BeginTask(Some _)=>P.ProjectTaskCreation
+|Input.BeginGraphConversation=>P.CreateItem|Input.ReturnToGraphSetup=>P.NamedAction
 |Input.OpenEditor owner trigger=>P.DialogTrigger(editor_purpose owner)(panel_open trigger state)
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with
  |layer::_=>match State.layer_panel layer with State.ObjectActionsPanel actual=>if CommandAssessment.object_subject_eq_dec subject actual then true else false|_=>false end|[]=>false end)
 |Input.MenuAction subject key trigger=>match ObjectActions.resolve snapshot state subject key with
  |Some action=>match ObjectActions.command action with Some command=>command_purpose command|None=>match ObjectActions.action_operation action with
-  ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)|ObjectActions.Destination route=>P.NavigateTo(route_symbol route)|_=>P.NamedAction end end|None=>P.NamedAction end
+  ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)
+ |ObjectActions.Destination route=>P.NavigateTo(route_symbol route)
+ |ObjectActions.InspectCard card=>P.OpenCardDetails card
+ |_=>P.NamedAction end end|None=>P.NamedAction end
 |Input.Command command=>command_purpose command
 |Input.Confirmation command _ _ trigger=>P.DialogTrigger(command_purpose command)(panel_open trigger state)
 |Input.OpenNavigation kind trigger=>match kind with GlobalMenu=>P.GlobalDestinations(panel_open trigger state)
- |WorkOverview=>P.OpenPanel "columns" false (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
+ |WorkOverview=>P.OpenPanel "columns" true (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
 |Input.OpenBoard kind trigger=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false (panel_open trigger state)
+|Input.OpenCardDecision _ CardDecisions.MoveCard trigger=>P.OpenPanel "columns" false (panel_open trigger state)
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) trigger=>P.DialogTrigger(P.OpenCardDetails card)(panel_open trigger state)
@@ -67,8 +73,10 @@ Definition describe snapshot state input:P.purpose:=match input with
     |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end
   |[]=>false end)
 |Input.OpenInformation _ trigger=>P.OpenPanel "inspector" false(panel_open trigger state)
-|Input.OpenActivity owner request _=>match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker(activity_expanded owner request state)
- |_=>P.ChooseValue(activity_expanded owner request state)end
+|Input.OpenActivity owner request _=>let expanded:=activity_expanded owner request state in
+ if is_run_environment_request request then P.OpenPanel "settings" true expanded else
+ match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker expanded
+ |_=>P.ChooseValue expanded end
 |Input.ActivityAssignment _ _ _=>P.SelectedOption false
 |Input.ApplyAssignment _ assignment=>
  match Model.subject_declaration(Activity.assignment_subject assignment)with
@@ -84,7 +92,9 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
 |Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))
 |Input.ToggleProjectGroup project=>P.ProjectDisclosure project
-|Input.FollowLatest _=>P.Latest|Input.ResetTitlePrompts=>P.ResetDefaults
+|Input.ReturnToHistorySearch=>P.ActivityBack
+|Input.FollowLatest _=>P.Latest
+|Input.CopyPath _=>P.CopyPath
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue
 |Input.RetryWorkspace _ _=>P.NamedAction|Input.RetryMenuAssessment _ _ _=>P.RetryTransfer
 |Input.ServiceInput input=>match input with
@@ -101,6 +111,7 @@ Definition describe snapshot state input:P.purpose:=match input with
   (match Selvedge.Programming.Resource.resource_request(Services.directory(State.service_state state))with
    |Some request=>String.eqb trigger(Services.directory_trigger request)|None=>false end)|_=>P.NamedAction end
 |Input.SetDisclosure _ _ _ expanded=>P.ShowActivity(negb expanded)
-|Input.RetainedOutput _ toggle=>P.ShowActivity(negb toggle)
-|Input.Interactive _=>P.NamedAction
+|Input.RetainedOutput _ true=>P.NamedAction
+|Input.RetainedOutput _ false=>P.Dismiss
+|Input.Interactive _=>P.AuthoredAction
 |_=>P.NamedAction end.

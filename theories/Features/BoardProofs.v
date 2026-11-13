@@ -185,12 +185,12 @@ Proof.
    apply existsb_exists in Used as [[other|] [Member Matches]]; [|discriminate].
    destruct (F.card_task other) as [previous|] eqn:Previous; [|discriminate].
    apply N.eqb_eq in Matches. subst previous. exact (Unused other Member Previous). }
- unfold linked,Board.link,CardScope.with_card.
+ unfold linked,Board.link,Board.link_result.
  rewrite selecting_a_card_retains_the_observed_value,Found,N.eqb_refl.
- cbn [CommandResult.resolve]. rewrite Target.
+ cbn [CommandResult.bind]. rewrite Target.
  unfold Board.editable,BoardFacts.editable,Board.unlinked,BoardFacts.unlinked.
  rewrite Active,Unlinked,NotUsed.
- cbn [negb andb Board.save CommandResult.accept CommandResult.change_value
+ cbn [negb andb Board.save CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.change_value
    CommandResult.change_world CommandResult.change_effects Board.save_change
    accept decision_reply decision_world decision_effects].
  split; [reflexivity|].
@@ -377,7 +377,7 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
 Proof.
  intros id revision value card profile_name selected observed Found Current Ready Available Ordinary.
  subst revision. rewrite (available_regeneration_uses_drafting_policy id value card profile_name observed Found Ready).
- unfold Board.request_text_result.
+ unfold Board.request_text_result, BoardDrafting.profile_name, BoardDrafting.require_profile.
  eapply observe_present; [exact Available|]; intros Selected.
  eapply CommandResult.require_satisfied; [exact Ordinary|]; intros Capable.
  eexists; repeat split; reflexivity.
@@ -569,7 +569,8 @@ Proof.
    rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
-   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
+   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage
+       BoardFacts.automatic_stage BoardFacts.enrichment_ready].
      now repeat rewrite Bool.andb_false_r.
 Qed.
 

@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Stdlib Require FSets.FMapAVL Structures.OrderedTypeEx.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
@@ -22,8 +23,10 @@ Module Components := Selvedge.Interaction.Interactive.Presentation.
 Inductive activity_row_role :=
 | ChoiceRow | DependencyRow | InspectionRow | SupportingRow
 | MemberRow | TerminalRow | ObjectHeading | NavigationRow.
-Inductive board_grouping := ViewChoices | SearchArea | WorkStatus | SecondaryActions | PrimaryAction.
+Inductive board_grouping := ViewChoices | SearchArea | SecondaryActions | PrimaryAction.
 Inductive choice_kind := SingleChoice | MultipleChoice | ToggleChoice.
+Inductive task_notice := NoticeRunning | NoticeWaiting | NoticeFailure
+ | NoticePaused | NoticeStopped | NoticeArchived.
 
 
 Record placement (Action : Type) := Placement {
@@ -61,12 +64,14 @@ Inductive meaning (Action : Type) :=
 | PageBody (page : Composition.page)
 | PageContext (conversation : option NavigationIdentity.task_view)
 | ProjectGroup (project : N) (selected expanded : bool)
-| TaskRow (task : N) (status caption : string) (working selected : bool)
+| TaskRow (task : N) (status : string) (notice : option task_notice) (selected : bool)
 | TaskChildren (task : N)
 | ProjectChooser (selected : option N)
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
+| EditorOptions
+| ContentDisclosure
 | SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
 | ChoiceGroup
@@ -76,6 +81,7 @@ Inductive meaning (Action : Type) :=
 | CardArchive (count : N)
 | BoardGroup (grouping : board_grouping)
 | ReadOnly (text : string)
+| HistoryMatch (before matched after : string)
 | Fact (value : string)
 | ExternalLink (url : string)
 | EmbeddedMarkdown (value : string)
@@ -136,6 +142,8 @@ Arguments ProjectChooser {Action}.
 Arguments WorkChoice {Action}.
 Arguments DirectoryRow {Action}.
 Arguments ContextSummary {Action}.
+Arguments EditorOptions {Action}.
+Arguments ContentDisclosure {Action}.
 Arguments SkillSuggestions {Action}.
 Arguments SkillSuggestion {Action}.
 Arguments ChoiceGroup {Action}.
@@ -145,6 +153,7 @@ Arguments BoardLane {Action}.
 Arguments CardArchive {Action}.
 Arguments BoardGroup {Action}.
 Arguments ReadOnly {Action}.
+Arguments HistoryMatch {Action}.
 Arguments ExternalLink {Action}.
 Arguments Fact {Action}.
 Arguments EmbeddedMarkdown {Action}.
@@ -284,60 +293,36 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | _, _ => None
   end.
 
-Definition resolve_graphic {A} key gesture (drawing : Graphics.plot A) : option A :=
-  match gesture with
-  | Gesture.Press =>
-      match find (fun primitive => match primitive with
-        | Graphics.Hitbox identity _ _ _ _ _ _ => String.eqb key identity
-        | _ => false end) (Graphics.primitives drawing) with
-      | Some (Graphics.Hitbox _ _ _ _ _ _ action) => Some action
-      | _ => None
-      end
-  | _ => None
-  end.
+Module BindingMap := FMapAVL.Make OrderedTypeEx.String_as_OT.
+Definition receiver A := Gesture.gesture -> json -> option A.
 
-Definition resolve_table {A} identity key gesture (table : Components.table A) : option A :=
-  match gesture with
-  | Gesture.Press => match find (fun column => String.eqb key (Components.column_key identity column))
-      (Components.table_columns table) with
-    | Some column => if Components.column_enabled column then Components.column_sort column else None
-    | None => None end
-  | _ => None end.
+Definition press_receiver {A} (action : option A) : receiver A :=
+ fun gesture _ => match gesture with Gesture.Press => action | _ => None end.
 
-Fixpoint resolve_node {A} key gesture value (tree : node A) : option A :=
-  let 'Node identity _ _ _ content children := tree in
-  if String.eqb key identity then resolve_meaning content gesture value else
-  match match content with
-  | Graphic drawing => resolve_graphic key gesture drawing
-  | InteractiveTable table => resolve_table identity key gesture table
-  | _ => None end with
-  | Some action => Some action
-  | None =>
-      let fix seek (items : list (node A)) := match items with
-      | [] => None
-      | child :: rest => match resolve_node key gesture value child with
-        | Some action => Some action | None => seek rest end
-      end in seek children
-  end.
+Definition bind_meaning {A B} (wrap : receiver A -> B) key (content : meaning A) (bindings : BindingMap.t B) :=
+ let bindings := BindingMap.add key (wrap (resolve_meaning content)) bindings in
+ match content with
+ | Graphic drawing => fold_left (fun bindings primitive => match primitive with
+   | Graphics.Hitbox target _ _ _ _ _ action => BindingMap.add target (wrap (press_receiver (Some action))) bindings
+   | _ => bindings end) (Graphics.primitives drawing) bindings
+ | InteractiveTable table => fold_left (fun bindings column =>
+   BindingMap.add (Components.column_key key column)
+     (wrap (press_receiver (if Components.column_enabled column then Components.column_sort column else None))) bindings)
+   (Components.table_columns table) bindings
+ | _ => bindings end.
 
-Fixpoint resolve_nodes {A} key gesture value (items : list (node A)) :=
-  match items with
-  | [] => None
-  | child :: rest => match resolve_node key gesture value child with
-    | Some action => Some action | None => resolve_nodes key gesture value rest end
-  end.
+Fixpoint bind_node {A B} (wrap : receiver A -> B) (value : node A) (bindings : BindingMap.t B) :=
+ bind_meaning wrap (node_key value) (node_meaning value)
+   (fold_right (bind_node wrap) bindings (node_children value)).
+
+Definition unbind_node {A B} (value : node A) (bindings : BindingMap.t B) :=
+ BindingMap.fold (fun key _ result => BindingMap.remove key result)
+   (bind_node (fun _ => tt) value (BindingMap.empty unit)) bindings.
 
 Definition is_modal_node {A} (node : node A) :=
   match layer_region (node_meaning node) with
   |Some behavior => modal_layer behavior|None => false end.
 Definition modal_nodes {A} (value : surface A) := filter is_modal_node (overlays value).
-Definition active_modal {A} (value : surface A) := hd_error (rev (modal_nodes value)).
-
-Definition resolve_element {A} (value : surface A) key gesture input :=
-  match active_modal value with
-  | Some modal => resolve_node key gesture input modal
-  | None => resolve_nodes key gesture input (List.app (base value) (overlays value))
-  end.
 
 Definition map_receiver {A B} (f : A -> B) (receive : json -> option A) value :=
   option_map f (receive value).
@@ -373,12 +358,14 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | PageBody page => PageBody page
   | PageContext conversation => PageContext conversation
   | ProjectGroup project selected expanded => ProjectGroup project selected expanded
-  | TaskRow task status caption working selected => TaskRow task status caption working selected
+  | TaskRow task status notice selected => TaskRow task status notice selected
   | TaskChildren task => TaskChildren task
   | ProjectChooser selected => ProjectChooser selected
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
+  | EditorOptions => EditorOptions
+  | ContentDisclosure => ContentDisclosure
   | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)
   | ChoiceGroup => ChoiceGroup
@@ -388,6 +375,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | CardArchive count => CardArchive count
   | BoardGroup grouping => BoardGroup grouping
   | ReadOnly text => ReadOnly text
+  | HistoryMatch before matched after => HistoryMatch before matched after
   | Fact value => Fact value
   | ExternalLink url => ExternalLink url
   | EmbeddedMarkdown value => EmbeddedMarkdown value
@@ -421,10 +409,6 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
 Fixpoint map_node {A B} (f : A -> B) (value : node A) : node B :=
   let 'Node key semantic label role content children := value in
   Node key semantic label role (map_meaning f content) (map (map_node f) children).
-
-Definition map_actions {A B} (f : A -> B) (value : surface A) : surface B :=
-  Surface (workspace_key value) (main_key value)
-    (map (map_node f) (base value)) (map (map_node f) (overlays value)) (surface_appearance value).
 
 (** Enumerate only the finite observations already declared by a native control.
     Text receivers remain open; current parameter Apply actions are explicit nodes. *)
@@ -462,7 +446,3 @@ Definition meaning_actions {A}(content:meaning A):list A:=match content with
 Fixpoint node_actions {A}(value:node A):list A:=
  let 'Node _ _ _ _ content children:=value in
  List.app(meaning_actions content)(flat_map node_actions children).
-Definition actions {A}(value:surface A):list A:=
- flat_map node_actions(List.app(base value)(overlays value)).
-Definition current_actions {A}(value:surface A):list A:=
- match active_modal value with Some modal=>node_actions modal|None=>actions value end.

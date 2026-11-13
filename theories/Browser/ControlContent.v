@@ -29,7 +29,7 @@ Definition inline_properties : list (string * string) :=
   [("display","inline-flex");("flex-direction","row");("align-items","baseline");
    ("font","inherit");("line-height","inherit");("white-space","nowrap")].
 Definition single_line_attributes text :=
-  [("title",text);("data-native-minimum-inline","1ch")].
+  [("data-overflow-label",text);("data-native-minimum-inline","1ch")].
 Definition single_line_properties : list (string * string) :=
   [("display","block");("min-inline-size","1ch");("overflow","hidden");
    ("text-overflow","ellipsis");("white-space","nowrap")].
@@ -43,9 +43,8 @@ Definition form_name value := match value with
   FullSupporting => "full" | CompactSupporting => "compact" end.
 Definition board_group_attributes grouping :=
   let '(name,label):=match grouping with
-  |S.ViewChoices=>("view-choices","看板视图")|S.SearchArea=>("search","任务搜索")
-  |S.WorkStatus=>("work-status","当前工作状态")
-  |S.SecondaryActions=>("secondary-actions","看板筛选和设置")
+  |S.ViewChoices=>("view-choices","看板视图和筛选")|S.SearchArea=>("search","搜索卡片")
+  |S.SecondaryActions=>("secondary-actions","看板设置和归档")
   |S.PrimaryAction=>("primary-action","主要操作")end in
   [("data-board-group",name);("aria-label",label)].
 Definition choose_supporting available full_preferred compact_minimum :=
@@ -73,7 +72,7 @@ Definition property_icon {e} (property : UX.property e) :=
   | UX.ModelProperty => None
   | UX.DeliveryProperty => Some "conversation"
   end.
-Definition stage_filter_glyph (stage : Domain.board_stage) :=
+Definition stage_glyph (stage : Domain.board_stage) :=
   match stage with
   | Domain.Backlog => "status-backlog"
   | Domain.Todo => "status-todo"
@@ -93,12 +92,12 @@ Definition priority_filter_glyph (priority : Domain.priority) :=
 Definition board_filter_glyph (category : BoardFilter.category) (value : string)
     : option string :=
   match category with
-  | BoardFilter.Status => option_map stage_filter_glyph
+  | BoardFilter.Status => option_map stage_glyph
       (find (fun stage => String.eqb value (Domain.stage_name stage)) Domain.stages)
   | BoardFilter.Priority => option_map priority_filter_glyph
       (find (fun priority => String.eqb value (Domain.priority_name priority)) Domain.priorities)
   | BoardFilter.Date => Some "clock"
-  | BoardFilter.Assignee => Some "user"
+  | BoardFilter.Assignee => None
   | BoardFilter.Creator => Some "user"
   | BoardFilter.Project => Some "folder"
   | BoardFilter.Label => Some "tag"
@@ -222,7 +221,7 @@ Definition project_title {A} (value : S.node A) :=
   match S.node_role value with Roles.NavigationEntry _ => true | _ => false end.
 Fixpoint project_titles {A} (value : S.node A) : list (string * string) :=
   match S.node_meaning value with
-  | S.TaskRow _ _ _ _ _ | S.TaskChildren _ => []
+  | S.TaskRow _ _ _ _ | S.TaskChildren _ => []
   | _ => if project_title value then [(S.node_key value,S.node_label value)]
     else flat_map project_titles (S.node_children value) end.
 Definition project_auxiliary {A} describe (value : S.node A) :=
@@ -255,7 +254,7 @@ Definition project_header {A} describe env key project selected expanded
     map (replace_content [("data-navigation-slot","title")]
       [("flex","1 1 auto");("min-inline-size","0");("padding-inline","0");
        ("text-align","start");("white-space","nowrap")]
-      [span (private_key (fst entry) "caption") [("title",snd entry)]
+      [span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
         [("flex","1 1 auto");("min-inline-size","0");("white-space","nowrap");
          ("overflow","hidden");("text-overflow","ellipsis")] (snd entry)]) (native_for (fst entry) native))
     (flat_map project_titles children) in
@@ -279,7 +278,7 @@ Definition project_header {A} describe env key project selected expanded
        ("inline-size",Typography.px (2 * target + scaled env 8));
        ("gap",pixels env 8);("flex","none")] auxiliary]).
 
-Definition lane_content {A} describe env key label stage count
+Definition lane_content {A} describe artwork env key label stage count
     (children : list (S.node A)) native :=
   let paired := combine children native in
   let header_actions := map snd (filter (fun pair => create_action describe (fst pair)) paired) in
@@ -290,23 +289,20 @@ Definition lane_content {A} describe env key label stage count
   let text_style strength := Typography.properties (Layout.root_font_size_milli env)
     Typography.Support strength in
   [box (private_key key "lane-heading") "header" [("data-board-lane-heading","true")]
-    [("display","flex");("align-items","center");("gap",pixels env 12);("flex","none")]
+    [("display","flex");("align-items","center");("gap",pixels env 4);("flex","none")]
     [box (private_key key "lane-heading-leading") "div" []
       [("display","flex");("align-items","center");("flex","1 1 0%");
-       ("min-inline-size","0");("gap",pixels env 12)]
+       ("min-inline-size","0");("gap",pixels env 6)]
       [box (private_key key "stage-mark") "span"
-        [("data-board-stage-mark",stage);("aria-hidden","true")] [] [];
+        [("data-board-stage-mark",stage);("aria-hidden","true")] []
+        (match board_filter_glyph BoardFilter.Status stage with Some symbol=>artwork symbol|None=>[]end);
        span (private_key key "lane-title") [] (text_style Typography.Medium) label;
        span (private_key key "lane-count") [("data-board-count",show_natural count)]
          (text_style Typography.Regular) (show_natural count)];
      box (private_key key "lane-heading-trailing") "div" []
-      [("display","flex");("align-items","center");("flex","none")] header_actions];
-   box (private_key key "lane-cards") "div" [("data-board-cards","true")]
-    [("display","flex");("flex-direction","column");("gap",pixels env 12);
-     ("flex","1 1 0%");("min-block-size","0");("overflow-y","auto")]
-    ((if N.eqb count 0 then
-      [box (private_key key "lane-empty") "p" [("data-board-empty","true")]
-        (text_style Typography.Regular) [DOM.Text "暂无任务"]] else []) ++ cards)].
+      [("display","flex");("align-items","center");("flex","none")] header_actions]] ++
+  [box (private_key key "lane-cards") "div" [("data-board-cards","true")]
+    [("display","flex");("flex-direction","column");("gap",pixels env 8);("min-inline-size","0")] cards].
 
 Definition collection_children (env : Layout.environment) key (children : list DOM.node) :=
   match children with
@@ -337,9 +333,6 @@ Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning 
   | Roles.NavigationSection => [("display","flex");("flex-direction","column");("gap","0")]
   | _ => [] end) ++
   match meaning with
-  | S.BoardLane _ _ => let width := Typography.px (Layout.lane_minimum_width (Layout.parameters env)) in
-      [("inline-size",width);("min-inline-size",width);("max-inline-size",width);
-       ("block-size","100%");("min-block-size","0");("flex","none");("overflow","hidden")]
   | S.WorkChoice _ _ _ => [("min-inline-size","0");("white-space","nowrap")]
   | S.SettingEntry _ _ _ => [("inline-size","100%");("text-align","start")]
   | S.SupportingControl _ _ _ _ => [("flex","0 1 auto");("white-space","nowrap");
@@ -350,7 +343,7 @@ Definition container_content {A} (describe : A -> C.purpose)
     (artwork : string -> list DOM.node) env key label (role : Roles.role)
     (meaning : S.meaning A) (children : list (S.node A)) native : option (list DOM.node) :=
   match meaning with
-  | S.BoardLane stage count => Some (lane_content describe env key label stage count children native)
+  | S.BoardLane stage count => Some (lane_content describe artwork env key label stage count children native)
   | S.ProjectGroup project selected expanded =>
       let paired := combine children native in
       let members := map snd (filter (fun pair =>

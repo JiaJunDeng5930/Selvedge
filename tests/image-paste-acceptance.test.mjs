@@ -84,7 +84,7 @@ test('pasted PNG is previewed, submitted alone and remains readable after servic
 
   const desktop = page.viewportSize();
   await page.setViewportSize({ width: 320, height: 568 });
-  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const send = page.getByRole('button', { name: '发送', exact: true });
   assert.equal(await send.isEnabled(), true, 'An image alone must be a sendable task input');
   const sendBounds = await send.boundingBox();
   assert.ok(sendBounds && sendBounds.y + sendBounds.height <= 568,

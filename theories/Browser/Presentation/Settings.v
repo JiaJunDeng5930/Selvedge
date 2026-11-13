@@ -9,20 +9,24 @@ From Selvedge.Browser.Session Require Configuration Speech.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
-From Selvedge.Browser.Presentation Require Roles Information ModelProfiles ConfigurationForms.
+From Selvedge.Browser.Presentation Require Roles Information ModelProfiles ConfigurationForms Navigation.
 Import ListNotations.
 Open Scope string_scope.
 
 Module Config := Configuration.Config.
 
 Definition settings_root := "/settings".
+Definition conversation_titles_label := "对话标题".
 
 Definition section_label section :=
  match section with
- | SettingsGeneral => "General" | SettingsModels => "Models" | SettingsTools => "Connectors"
- | SettingsExtensions => "Extensions"
- | SettingsTasks => "Tasks" | SettingsContext => "Context" | SettingsConnection => "Service"
+ | SettingsGeneral => "常规" | SettingsModels => "模型" | SettingsTools => "连接器"
+ | SettingsExtensions => "扩展"
+ | SettingsTasks => "任务" | SettingsContext => "上下文" | SettingsConnection => "服务"
  end.
+Definition editor_context parent section : node Input.input :=
+ information parent "settings-editor-context" Information.Description
+   (Navigation.settings_label ++ " / " ++ section_label section).
 Definition same_section left right :=
  String.eqb (settings_section_name left) (settings_section_name right).
 Inductive settings_group_content :=
@@ -43,7 +47,7 @@ Definition section_design section : settings_section_design :=
  match section with
  | SettingsGeneral => SectionDesign None
    [("appearance", "", AppearanceSettings);
-    ("conversation", "Conversation defaults", ConversationSettings ["instructions"])]
+    ("conversation", "对话默认设置", ConversationSettings ["instructions"])]
  | SettingsModels => SectionDesign (Some ("model-configurations", ["profiles"]))
    [("model-services", "", ConfigurationSettings [["chatgpt"]; ["reasoning_evaluators"]])]
  | SettingsTools => SectionDesign (Some ("tool-connections", ["mcp"]))
@@ -51,17 +55,17 @@ Definition section_design section : settings_section_design :=
  | SettingsExtensions => SectionDesign None
    [("tool-sources", "", ConfigurationSettings [["plugins"]; ["skills"]])]
  | SettingsTasks => SectionDesign None
-   [("limits", "Task limits", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
+   [("limits", "任务限制", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
     ("workspaces", "", ConfigurationSettings [["cloud"]])]
  | SettingsContext => SectionDesign None
-   [("compaction", "Context compaction",
+   [("compaction", "上下文压缩",
       ConfigurationSettings [["compaction"; "enabled"]; ["compaction"; "background_percent"];
        ["compaction"; "blocking_percent"]; ["compaction"; "idle_lead_ms"]]);
     ("model-limits", "", ConfigurationSettings [["compaction"; "targets"]]);
-    ("sources", "Context sources", ContextSources)]
+    ("sources", "上下文来源", ContextSources)]
  | SettingsConnection => SectionDesign None
    [("connection", "", LocalService);
-    ("binding", "Listen on this device", ConfigurationSettings [["host"]; ["port"]]);
+    ("binding", "本机监听", ConfigurationSettings [["host"]; ["port"]]);
     ("remote", "", ConfigurationSettings [["remote"]])]
  end.
 
@@ -98,48 +102,48 @@ Definition section_for path :=
 
 Definition copy path : string * string :=
  match path with
- | ["instructions"] => ("Instructions", "Standing guidance supplied to tasks by the local service.")
- | ["profiles"] => ("Model profiles", "Choose the providers and models available to tasks.")
- | ["chatgpt"] => ("ChatGPT model access", "Choose whether tasks can use models from your ChatGPT account.")
- | ["reasoning_evaluators"] => ("Reasoning evaluators", "Services that assess adaptive reasoning.")
- | ["mcp"] => ("MCP servers", "Connect tools and resources through Model Context Protocol.")
- | ["plugins"] => ("Plugins", "Programs the service can use to extend task capabilities.")
- | ["skills"] => ("Skill sources", "Files and directories where the service looks for skills.")
- | ["chatgpt_plugin"] => ("ChatGPT app connections", "Grant a ChatGPT app access to selected projects.")
- | ["max_fork"] => ("Forks per task", "Maximum number of direct forks a task can create.")
- | ["max_descendants"] => ("Task descendants", "Maximum number of tasks descended from a single root.")
- | ["cloud"] => ("Cloud workspaces", "Provision workspaces for tasks using Tencent Cloud.")
- | ["compaction"; "enabled"] => ("Automatic compaction", "Summarize older context as a task approaches its model’s context limit.")
- | ["compaction"; "background_percent"] => ("Background threshold (%)", "Start summarizing while the task can still run.")
- | ["compaction"; "blocking_percent"] => ("Blocking threshold (%)", "Wait for compaction before sending the next request.")
- | ["compaction"; "idle_lead_ms"] => ("Idle lead time (ms)", "Start compaction this long before the cache expires.")
- | ["compaction"; "targets"] => ("Model-specific limits", "Set context windows and compaction methods by profile.")
- | ["host"] => ("Listen address", "Loopback address used when the service starts.")
- | ["port"] => ("Listen port", "Port used when the service starts. Use 0 to choose an available port.")
- | ["remote"] => ("Remote control relay", "Configure the relay used to pair remote controllers.")
+ | ["instructions"] => ("对话指引", "适用于新建对话。")
+ | ["profiles"] => ("模型配置", "选择对话可用的模型及其提供方。")
+ | ["chatgpt"] => ("ChatGPT 模型", "允许对话使用 ChatGPT 账号中的模型。")
+ | ["reasoning_evaluators"] => ("推理评估器", "用于评估自适应推理结果的服务。")
+ | ["mcp"] => ("MCP 服务器", "通过 MCP 连接工具和资源。")
+ | ["plugins"] => ("插件", "扩展对话可用的功能。")
+ | ["skills"] => ("技能来源", "自动查找服务和项目目录中的技能。可添加 SKILL.md 文件路径。")
+ | ["chatgpt_plugin"] => ("ChatGPT 应用连接", "允许 ChatGPT 应用访问选定项目。")
+ | ["max_fork"] => ("直接分支上限", "每个对话能创建的直接分支数。")
+ | ["max_descendants"] => ("分支总数上限", "从同一根对话派生的全部分支数。")
+ | ["cloud"] => ("云端工作区", "通过腾讯云为对话创建工作区。")
+ | ["compaction"; "enabled"] => ("自动压缩", "接近模型的上下文上限时，摘要较早的内容。")
+ | ["compaction"; "background_percent"] => ("后台压缩阈值（%）", "达到阈值后在后台压缩，对话可继续运行。")
+ | ["compaction"; "blocking_percent"] => ("等待压缩阈值（%）", "达到阈值后，等压缩完成再发送下一次请求。")
+ | ["compaction"; "idle_lead_ms"] => ("空闲提前量（秒）", "在缓存过期前提前多久开始压缩，可精确到 0.001 秒。")
+ | ["compaction"; "targets"] => ("模型上下文限制", "按模型配置设置上下文窗口和压缩方式。")
+ | ["host"] => ("监听地址", "服务启动时绑定的回环地址。")
+ | ["port"] => ("监听端口", "服务启动时使用的端口。填 0 自动选择可用端口。")
+ | ["remote"] => ("远程控制中继", "设置配对远程控制设备所用的中继。")
  | _ => (String.concat " / " path, "")
  end.
 Definition open_label path :=
  match path with
- | ["chatgpt"] => "Configure access" | ["remote"] => "Configure relay"
- | ["instructions"] => "Edit instructions"
- | ["cloud"] => "Configure cloud" | ["compaction"; "targets"] => "Edit limits"
- | ["skills"] => "Edit sources" | _ => "Edit " ++ fst (copy path)
+ | ["chatgpt"] => "配置账号访问" | ["remote"] => "配置中继"
+ | ["instructions"] => "编辑指引"
+ | ["cloud"] => "配置云端工作区" | ["compaction"; "targets"] => "编辑限制"
+ | _ => "编辑" ++ fst (copy path)
  end.
 Definition save_label path :=
  match path with
- | ["profiles"] => "Save profiles" | ["reasoning_evaluators"] => "Save evaluators"
- | ["chatgpt"] => "Save access settings" | ["chatgpt_plugin"] => "Save connections"
- | ["mcp"] => "Save servers" | ["plugins"] => "Save plugins" | ["skills"] => "Save sources"
- | ["remote"] => "Save relay" | ["cloud"] => "Save cloud settings"
- | ["compaction"; "targets"] => "Save limits"
- | ["instructions"] => "Save instructions" | ["host"] => "Save address" | ["port"] => "Save port"
- | _ => "Save"
+ | ["profiles"] => "保存模型配置" | ["reasoning_evaluators"] => "保存评估器"
+ | ["chatgpt"] => "保存账号访问设置" | ["chatgpt_plugin"] => "保存连接"
+ | ["mcp"] => "保存服务器" | ["plugins"] => "保存插件" | ["skills"] => "保存来源"
+ | ["remote"] => "保存中继" | ["cloud"] => "保存云端设置"
+ | ["compaction"; "targets"] => "保存限制"
+ | ["instructions"] => "保存指引" | ["host"] => "保存地址" | ["port"] => "保存端口"
+ | _ => "保存"
  end.
 
 Definition action parent key label emphasis (enabled : bool) input : node Input.input :=
  declared parent Roles.Button (Control key label emphasis (Input.ServiceInput input)
-   (if enabled then Available else Unavailable "Unavailable in the current state")).
+   (if enabled then Available else Unavailable "当前不可用")).
 Definition button parent key label := action parent key label Secondary.
 Definition note parent key text : node Input.input := information parent key Information.Description text.
 Definition named_region parent key label (children : list (node Input.input)) := region parent key label Roles.Section children.
@@ -175,27 +179,26 @@ Definition active_raw path view :=
  draft <- Configuration.current_draft view ;;
  if Configuration.matches_path path draft then Some (Configuration.draft_input draft) else None.
 Definition value_label value :=
- match value with JBool true => "On" | JBool false => "Off" | _ => Config.display_value value end.
+ match value with JBool true => "开启" | JBool false => "关闭" | _ => Config.display_value value end.
 Definition options_for raw options :=
  let choices := map (fun value => Fields.ChoiceValue (render_json value) (value_label value)) options in
  if existsb (fun value => String.eqb (render_json value) raw) options then choices
- else Fields.ChoiceValue raw "Choose a value" :: choices.
+ else Fields.ChoiceValue raw "请选择" :: choices.
 Definition can_edit path services :=
  Services.connected services && Configuration.can_select path (service_configuration services).
 
 Definition write_status parent view : list (node Input.input) :=
  match Configuration.writing view with
- | Loading _ _ => [information parent "saving" Information.Status "Saving…"]
+ | Loading _ _ => [information parent "saving" Information.Status "正在保存…"]
  | Failed _ _ reason => [information parent "save-error" Information.Status reason]
- | Loaded _ _ _ => [information parent "saved" Information.Status "Configuration updated"]
+ | Loaded _ _ _ => [information parent "saved" Information.Status "设置已保存"]
  | Dormant => []
  end.
-Definition is_resettable entry := Config.setting_resettable entry && Config.setting_explicit entry.
+Definition is_resettable := Config.can_reset.
 Definition reset_button parent entry enabled label :=
  if is_resettable entry then [button parent "restore-default" label enabled Services.ResetConfiguration] else [].
-Definition save_enabled entry raw view enabled :=
- enabled && Configuration.dirty view &&
- match Config.interpret_input (Config.setting_input entry) raw with Some _ => true | None => false end.
+Definition save_enabled view enabled :=
+ enabled && Configuration.dirty view && Configuration.can_assign view.
 Definition boolean_control parent path label raw (enabled : bool) :=
  let key := "setting-switch" in
  let on := String.eqb raw "true" in
@@ -203,7 +206,7 @@ Definition boolean_control parent path label raw (enabled : bool) :=
    (Choice ToggleChoice on ""
      (Control key label Secondary (Input.ServiceInput
        (Services.SetConfigurationAt path (if on then "false" else "true")))
-       (if enabled then Available else Unavailable "Finish saving the current setting"))) [].
+       (if enabled then Available else Unavailable "请等待当前设置保存完成"))) [].
 Definition compact_setting parent services entry :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
@@ -222,20 +225,49 @@ Definition compact_setting parent services entry :=
  | _ => configuration_field controls "setting-value" label false raw None enabled path
  end in
  let defaults := if is_resettable entry && negb (Configuration.dirty view) then
-   [button controls "restore-default" "Default" enabled (Services.ResetConfigurationAt path)] else [] in
+   [button controls "restore-default" "恢复默认" enabled (Services.ResetConfigurationAt path)] else [] in
  let bar := part id "setting-feedback" in
  let updates := match draft with
  | Some _ =>
    (write_status bar view ++
     if Configuration.dirty view then
-      [button bar "cancel" "Undo edit" enabled Services.CancelConfigurationEdit;
-       action bar "save" (match Config.setting_input entry with Config.Boolean => "Retry change" | _ => save_label path end)
-         Primary (save_enabled entry raw view enabled) Services.SetConfiguration]
+      [button bar "cancel" "撤销编辑" enabled Services.CancelConfigurationEdit;
+       action bar "save" (match Config.setting_input entry with Config.Boolean => "重试保存" | _ => save_label path end)
+         Primary (save_enabled view enabled) Services.SetConfiguration]
     else [])%list
  | None => []
  end in
  row parent key label description (widget :: defaults)
    (match updates with [] => [] | _ => [region id "setting-feedback" "" Roles.DialogActions updates] end).
+
+Definition skills_setting parent services entry :=
+ let path := Config.setting_path entry in
+ let id := part parent (Config.setting_key path) in
+ let view := service_configuration services in
+ let raw := active_raw path view in
+ let enabled := can_edit path services in
+ let source := value_or (Config.setting_value entry) (bind raw TextJson.parse_json) in
+ let paths := Common.items source in
+ let '(label, description) := copy path in
+ let footer := part id "setting-feedback" in
+ let changes := match raw with
+   | Some _ =>
+     (write_status footer view ++
+      if Configuration.dirty view then
+        [button footer "cancel" "撤销编辑" enabled Services.CancelConfigurationEdit;
+         declared footer Roles.Button (Control "save" (save_label path) Primary
+           (Input.ServiceInput Services.SetConfiguration)
+           (if save_enabled view enabled then Available
+            else if enabled then Unavailable "请输入完整的技能文件路径"
+            else Unavailable "请等待当前操作完成"))]
+      else [])%list
+   | None => []
+   end in
+ region parent (Config.setting_key path) label Roles.Section
+   (group_title id label :: note id "description" description ::
+    ConfigurationForms.value_list id "paths" "" "路径" (JString "") paths enabled JString
+      (ConfigurationForms.assign path) ::
+    match changes with [] => [] | _ => [region id "setting-feedback" "" Roles.DialogActions changes] end).
 
 Definition child_items path value : list (string * json) :=
  match Configuration.collection_root path with
@@ -253,14 +285,14 @@ Definition item_detail path value :=
    let provider := match ProviderCatalog.backend value with
        | Some registered => ModelProfiles.provider_label registered
        | None => Common.text (Common.get value "provider") end in
-   if String.eqb provider "Offline echo" && String.eqb model "echo" then provider
+   if String.eqb provider (ModelProfiles.provider_label ProviderCatalog.Offline) && String.eqb model "echo" then provider
    else detail_join provider model
  | ["reasoning_evaluators"] => detail_join
      (value_or "vercel" (as_string (Common.get value "provider"))) (Common.text (Common.get value "model"))
  | ["mcp"] | ["plugins"] => Common.text (Common.get value "command")
  | ["chatgpt_plugin"] =>
    let count := List.length (Common.items (Common.get value "project_ids")) in
-   show_natural (N.of_nat count) ++ (if Nat.eqb count 1 then " project" else " projects")
+   show_natural (N.of_nat count) ++ " 个项目"
  | _ => ""
  end.
 Definition summary_lines parent path value : list (node Input.input) :=
@@ -269,14 +301,14 @@ Definition summary_lines parent path value : list (node Input.input) :=
       | JString url => [note parent "current-value" url] | _ => [] end
  | ["cloud"] => match Common.get value "tencent_cvm" with
       | JObject _ => [note parent "current-value"
-        (detail_join "Tencent Cloud" (Common.text (Common.get (Common.get value "tencent_cvm") "region")))]
+        (detail_join "腾讯云" (Common.text (Common.get (Common.get value "tencent_cvm") "region")))]
       | _ => [] end
  | ["compaction"; "targets"] =>
     map (fun '(index, item) =>
       let id := part parent ("target-summary-" ++ ConfigurationForms.index_label index) in
       Node id "settings-summary-item" "" Roles.Section Region
         (copy_nodes id (Common.text (Common.get item "profile"))
-          (match Common.get item "window_tokens" with JNumber amount => amount ++ " tokens" | _ => "" end)))
+          (match Common.get item "window_tokens" with JNumber amount => amount ++ " 个 token" | _ => "" end)))
       (ConfigurationForms.indexed (Common.items value))
  | _ => map (fun '(index, item) => note parent
       ("item-" ++ ConfigurationForms.index_label index) (Config.display_value item))
@@ -288,45 +320,85 @@ Definition summary_lines parent path value : list (node Input.input) :=
 Definition setting_entry_parent path := part settings_root (Config.setting_key path).
 Definition edit_item_key name := part "edit" name.
 Definition editor_trigger path key := part (setting_entry_parent path) key.
-Definition editor_button path key caption label (enabled : bool) input : node Input.input :=
+Definition editor_button_with_status path key caption label status input : node Input.input :=
  let id := editor_trigger path key in
  Node id "edit-setting" label Roles.Button
-   (Activate (Control key label Secondary (Input.ServiceInput input)
-     (if enabled then Available else Unavailable "Finish the current edit first")))
+   (Activate (Control key label Secondary (Input.ServiceInput input) status))
    [information id "label" Information.OptionLabel caption].
+Definition editor_button path key caption label (enabled : bool) input :=
+ editor_button_with_status path key caption label
+   (if enabled then Available else Unavailable "请先完成当前编辑") input.
 
-Definition sign_in_button parent (speech : Speech.speech) : node Input.input :=
+Definition account_sign_in_button parent label unavailable (speech : Speech.speech) : node Input.input :=
  let key := "sign-in" in
- declared parent Roles.Button (Control key "Sign in with ChatGPT" Secondary
+ declared parent Roles.Button (Control key label Secondary
    (Input.SpeechInput (Speech.Authorize (part parent key)))
-   (if Speech.can_authorize speech then Available else Unavailable "Sign-in is unavailable in the current state")).
+   (if Speech.can_authorize speech then Available else Unavailable unavailable)).
+Definition sign_in_button parent := account_sign_in_button parent
+ "Sign in with ChatGPT" "Sign-in is unavailable in the current state".
 
-Definition form_setting parent services speech entry (measuring : bool) :=
+Definition form_setting parent services speech entry :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
  let saved := Config.setting_value entry in
  let '(label, description) := copy path in
  let description := match path, saved with
-   | ["chatgpt"], JBool false => "ChatGPT account access is turned off."
+   | ["chatgpt"], JBool false => "已关闭 ChatGPT 账号访问。"
    | _, _ => description end in
- let lines := if measuring then [] else summary_lines (part id "settings-values") path saved in
+ let lines := summary_lines (part id "settings-values") path saved in
  row parent key label description
    ((match path, Speech.connections speech with
     | ["chatgpt"], [] => match saved with
-      | JBool false => [] | _ => [sign_in_button (part id "settings-controls") speech] end
+      | JBool false => [] | _ => [account_sign_in_button (part id "settings-controls")
+         "使用 ChatGPT 登录" "当前无法登录" speech] end
     | _, _ => [] end) ++
     [editor_button path "open" (open_label path) (open_label path)
       (can_edit path services) (Services.SelectConfiguration path)])
    (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
 
+Definition guidance_setting parent services path :=
+ let configuration := service_configuration services in
+ let status := match Configuration.catalog configuration with
+   | Loading _ _ => Unavailable "正在加载服务设置"
+   | Loaded _ _ snapshot =>
+     match Config.find_setting path snapshot with
+     | Some _ => if can_edit path services then Available else Unavailable "请先完成当前编辑"
+     | None => Unavailable "服务未提供对话指引"
+     end
+   | _ => Unavailable "服务设置尚未加载"
+   end in
+ let '(label, description) := copy path in
+ let action := open_label path in
+ row parent (Config.setting_key path) label description
+   [editor_button_with_status path "open" action action status (Services.SelectConfiguration path)] [].
+
 (* The overview enumerates saved objects. Draft edits and removals become
    visible here after a successful write. *)
 Definition collection_add services path item :=
- button (setting_entry_parent path) "begin-add" ("Add " ++ item) (can_edit path services)
+ button (setting_entry_parent path) "begin-add" ("添加" ++ item) (can_edit path services)
    (Services.BeginAddConfigurationItem path).
 
-Definition collection_setting parent services entry item (page_collection measuring : bool) :=
+(* The editable collections inherit empty lists. Resetting a saved empty
+   list has no effect on the entries. *)
+Definition collection_reset_has_effect entry :=
+ is_resettable entry &&
+ match Configuration.collection_root (Config.setting_path entry), Config.setting_value entry with
+ | Some None, JObject [] => false
+ | Some (Some wrapper), JObject [(key, JObject [])] => negb (String.eqb key wrapper)
+ (* DEFENSE: Editable snapshots can reflect malformed file contents. Keep
+    Reset available for recovery even when there are no readable entries. *)
+ | _, _ => true
+ end.
+
+Definition collection_controls parent services entry item :=
+ let path := Config.setting_path entry in
+ collection_add services path item ::
+ if collection_reset_has_effect entry then
+   [button parent "restore-default" "恢复列表默认值" (can_edit path services)
+     (Services.ResetConfigurationAt path)] else [].
+
+Definition collection_setting parent services entry item (page_collection : bool) :=
  let path := Config.setting_path entry in
  let key := Config.setting_key path in
  let id := part parent key in
@@ -338,42 +410,37 @@ Definition collection_setting parent services entry item (page_collection measur
  let '(label, description) := copy path in
  let entry_row '(name, value) :=
    row list_id (part "entry" name) name (item_detail path value)
-     [editor_button path (edit_item_key name) "Edit" ("Edit " ++ name) enabled
+     [editor_button path (edit_item_key name) "编辑" ("编辑「" ++ name ++ "」") enabled
        (Services.SelectConfigurationItem path name)] [] in
- let entries_body := if measuring then [] else match entries with
-   | [] => [] | _ => [named_region id "settings-entries" label (map entry_row entries)] end in
- let footer := part id "settings-collection-actions" in
- let add := collection_add services path item in
- let actions := if is_resettable entry then
-   [button footer "restore-default" "Restore list defaults" enabled (Services.ResetConfigurationAt path)]
-   else [] in
- let feedback := if measuring then [] else match active_raw path view, Configuration.writing view with
-   | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status footer view
+ let entries_body := named_region id "settings-entries" label (match entries with
+    | [] => [note list_id "description" (if collection_reset_has_effect entry
+                then "无法读取" ++ label ++ "列表。"
+                else match path with
+                  | ["profiles"] => "暂无自定义模型配置。"
+                  | _ => "暂无" ++ label ++ "。"
+                  end)]
+    | _ => map entry_row entries
+    end) in
+ let feedback := match active_raw path view, Configuration.writing view with
+   | Some _, Loading _ _ | Some _, Failed _ _ _ => write_status (part id "feedback") view
    | _, _ => []
    end in
- (* A collection that gives the page its purpose already has a title and
-    an Add action in the page header. Embedded collections own both. *)
- let '(heading, footer_actions) := if page_collection then ([], actions) else
-   let '(header_actions, footer_actions) :=
-     match entries with [] => ([add], actions) | _ => ([], add :: actions) end in
-   ([named_region id "settings-row" ""
-       [named_region header "settings-copy" ""
-          [group_title header label; note header "description" description];
-        named_region header "settings-controls" "" header_actions]], footer_actions) in
+ let heading := if page_collection then [] else
+   [named_region id "settings-row" ""
+     [named_region header "settings-copy" ""
+        [group_title header label; note header "description" description];
+      named_region header "settings-controls" "" (collection_controls header services entry item)]] in
  Node id "settings-collection" "" Roles.Section Region
-   (heading ++ entries_body ++
-    match (footer_actions ++ feedback)%list with
-    | [] => []
-    | controls => [named_region id "settings-collection-actions" "" controls]
-    end)%list.
+   (heading ++ entries_body :: feedback)%list.
 
-Definition normal_entry parent services speech primary measuring entry :=
+Definition normal_entry parent services speech primary entry :=
  let path := Config.setting_path entry in
- match ConfigurationForms.collection_item path with
- | Some item => collection_setting parent services entry item
+ match path, ConfigurationForms.collection_item path with
+ | ["skills"], _ => skills_setting parent services entry
+ | _, Some item => collection_setting parent services entry item
      (match primary with Some main => String.eqb (Config.setting_key main) (Config.setting_key path)
-       | None => false end) measuring
- | None => if Configuration.focused_editor entry then form_setting parent services speech entry measuring
+       | None => false end)
+ | _, None => if Configuration.focused_editor entry then form_setting parent services speech entry
            else compact_setting parent services entry
  end.
 
@@ -393,7 +460,8 @@ Definition page_heading parent services section :=
  | None => title_block parent label "" []
  | Some path =>
    let controls := match entries_for_paths services [path], ConfigurationForms.collection_item path with
-     | _ :: _, Some item => [collection_add services path item] | _, _ => [] end in
+     | entry :: _, Some item => collection_controls (part parent "settings-title") services entry item
+     | _, _ => [] end in
    title_block parent label (snd (copy path)) controls
  end.
 
@@ -406,21 +474,20 @@ Definition appearance_sample parent key : node Input.input :=
  region parent key "" Roles.Decorative
    [region sample "theme-sample-rail" "" Roles.Decorative
       [text rail "theme-sample-brand" "Selvedge";
-       text rail "theme-sample-task" "All Tasks"];
+       text rail "theme-sample-task" Navigation.all_conversations_label];
     region sample "theme-sample-main" "" Roles.Decorative
-      [text main "theme-sample-title" "New task";
+      [text main "theme-sample-title" Navigation.new_conversation_label;
        region main "theme-sample-composer" "" Roles.Decorative
-         [text composer "theme-sample-prompt" "Describe a task…";
-          text composer "theme-sample-mode" "Ask";
+         [text composer "theme-sample-prompt" "输入消息…";
           text composer "theme-sample-send" "↑"]]].
 
 Definition appearance parent current :=
  let section := part parent "theme" in
  let id := part (part section "settings-controls") "theme-options" in
- let themes := [("Light", Appearance.LightAppearance); ("Match system", Appearance.SystemAppearance); ("Dark", Appearance.DarkAppearance)] in
+ let themes := [("浅色", Appearance.LightAppearance); ("跟随系统", Appearance.SystemAppearance); ("深色", Appearance.DarkAppearance)] in
  named_region parent "theme" ""
-   [group_title section "Appearance";
-    Node id "theme-options" "Color theme" Roles.Section ChoiceGroup
+   [group_title section "外观";
+    Node id "theme-options" "颜色主题" Roles.Section ChoiceGroup
      (map (fun '(label, theme) =>
         let key := Appearance.appearance_name theme in
         let choice := part id key in
@@ -439,29 +506,29 @@ Definition appearance parent current :=
 Definition local_connection parent services :=
  let id := part (part parent "local") "settings-controls" in
  match Services.connection services with
- | ConnectionReady _ => row parent "local" "Local service" "This browser is connected to Selvedge."
-      [information id "service-connected" Information.OptionLabel "Connected"] []
- | ConnectionLoading _ => row parent "local" "Local service" "Connecting to Selvedge…"
-      [information id "service-connecting" Information.Status "Connecting"] []
- | ConnectionDormant => row parent "local" "Local service" "Connect this browser to Selvedge."
-      [button id "connect" "Connect" true Services.Connect] []
+ | ConnectionReady _ => row parent "local" "本地服务" "当前浏览器已连接 Selvedge。"
+      [information id "service-connected" Information.OptionLabel "已连接"] []
+ | ConnectionLoading _ => row parent "local" "本地服务" "正在连接 Selvedge…"
+      [information id "service-connecting" Information.Status "连接中"] []
+ | ConnectionDormant => row parent "local" "本地服务" "将当前浏览器连接到 Selvedge。"
+      [button id "connect" "连接" true Services.Connect] []
  | ConnectionFailed _ reason | ConnectionRevoked _ reason =>
-      row parent "local" "Local service" "Connect this browser to Selvedge."
-        [button id "connect" "Reconnect" true Services.Connect]
+      row parent "local" "本地服务" "将当前浏览器连接到 Selvedge。"
+        [button id "connect" "重新连接" true Services.Connect]
         [information (part parent "local") "service-error" Information.Status reason]
  end.
-Definition overview root parent section services speech measuring groups :=
+Definition overview root parent section services speech groups :=
  let render_group '(key, label, content) :=
    let id := part parent key in
-   let render_entries := map (normal_entry id services speech (primary_collection section) measuring) in
+   let render_entries := map (normal_entry id services speech (primary_collection section)) in
    let body :=
      match content with
-     | AppearanceSettings => if measuring then [] else [appearance id (Services.theme services)]
+     | AppearanceSettings => [appearance id (Services.theme services)]
      | ConversationSettings instructions =>
-       (map (fun entry => form_setting id services speech entry measuring) (entries_for_paths services [instructions])
-       ++ [row id "title-prompts" "Conversation titles" "Set the model and prompts used to name conversations and tasks."
-           [declared root Roles.Button (secondary "title-prompts" "Edit title prompts"
-              (Input.OpenEditor TitlePrompts (part root "title-prompts")))] []])%list
+       [guidance_setting id services instructions;
+        row id "title-prompts" conversation_titles_label "选择生成标题的模型和提示词。"
+           [declared root Roles.Button (secondary "title-prompts" "编辑标题设置"
+              (Input.OpenEditor (TitlePrompts ConversationTitles) (part root "title-prompts")))] []]
      | LocalService => [local_connection id services]
      | ConfigurationSettings paths => render_entries (entries_for_paths services paths)
      | ContextSources =>
@@ -476,10 +543,10 @@ Definition overview root parent section services speech measuring groups :=
 Definition catalog_status parent services :=
  let load label := button parent "load-configuration" label (Services.connected services) Services.LoadConfiguration in
  match Configuration.catalog (service_configuration services) with
- | Dormant => if Services.connected services then [load "Load service settings"]
-       else [note parent "connection-needed" "Connect to the local service to edit its settings."]
- | Loading _ _ => [information parent "loading" Information.Status "Loading service settings…"]
- | Failed _ _ reason => [information parent "load-error" Information.Status reason; load "Reload settings"]
+ | Dormant => if Services.connected services then [load "加载服务设置"]
+       else [note parent "connection-needed" "连接本地服务后可编辑设置。"]
+ | Loading _ _ => [information parent "loading" Information.Status "正在加载服务设置…"]
+ | Failed _ _ reason => [information parent "load-error" Information.Status reason; load "重新加载设置"]
  | Loaded _ _ _ => []
  end.
 Definition draft_notice parent section view :=
@@ -490,8 +557,8 @@ Definition draft_notice parent section view :=
    if (Configuration.has_unsaved_work view || Configuration.pending view) && negb (same_section section owner) then
      let id := part parent "draft-notice" in
      [named_region parent "draft-notice" ""
-       [note id "description" ("Editing " ++ fst (copy path) ++ " in " ++ section_label owner ++ ".");
-        button id "return-to-edit" "Return to edit" true (Services.SelectSettingsSection owner)]]
+       [note id "description" ("正在编辑「" ++ fst (copy path) ++ "」（" ++ section_label owner ++ "）。");
+        button id "return-to-edit" "返回编辑" true (Services.SelectSettingsSection owner)]]
    else []
  | None => []
  end.
@@ -504,7 +571,7 @@ Definition navigation parent current : list (node Input.input) :=
    Node (part id key) "settings-category" label Roles.Button
      (Choice SingleChoice (same_section current section) ""
        (secondary key label (Input.ServiceInput (Services.SelectSettingsSection section)))) [] in
- [Node id "settings-nav" "Settings categories" Roles.Section ChoiceGroup
+ [Node id "settings-nav" "设置分类" Roles.Section ChoiceGroup
    (map section_choice settings_sections)].
 
 (* The same category choice moves from the rail to the settings heading
@@ -512,34 +579,30 @@ Definition navigation parent current : list (node Input.input) :=
 Definition compact_navigation parent current :=
  let options := map (fun section => Fields.ChoiceValue (settings_section_name section) (section_label section)) settings_sections in
  named_region parent "settings-mobile-nav" ""
-   [Node (part parent "settings-section-picker") "settings-section-picker" "Settings section" Roles.Field
+   [Node (part parent "settings-section-picker") "settings-section-picker" "设置分类" Roles.Field
      (ConfigurationField false (settings_section_name current) (Some options) true
        (fun value => option_map (fun section => Input.ServiceInput (Services.SelectSettingsSection section))
          (bind (as_string value) decode_settings_section))) []].
 (* Changing the category changes the scroll document. Editing a setting
    within it preserves the document and its scroll position. *)
-Definition content root parent section services speech (measuring : bool) :=
+Definition content root parent section services speech :=
  let view := service_configuration services in
  let id := part parent ("settings-content/" ++ settings_section_name section) in
  let design := section_design section in
- let header := (page_heading id services section ::
-   if measuring then [] else catalog_status id services ++ draft_notice id section view)%list in
- (* The primary collection shares the page heading and its Add control. *)
- let primary := match primary_group design with
-   | Some group => [named_region id "settings-primary" ""
-       (header ++ overview root id section services speech measuring [group])%list]
-   | None => header
+ let status := (catalog_status id services ++ draft_notice id section view)%list in
+ let header := page_heading id services section in
+ (* The primary collection shares the page heading and its controls. *)
+ let body := match section, primary_group design, section_groups design with
+   | SettingsGeneral, _, appearance_group :: other_groups =>
+       (header :: overview root id section services speech (appearance_group :: other_groups) ++ status)%list
+   | _, Some group, groups =>
+       named_region id "settings-primary" ""
+         (header :: status ++ overview root id section services speech [group]) ::
+       overview root id section services speech groups
+   | _, _, groups =>
+       (header :: status ++ overview root id section services speech groups)%list
    end in
- Node id (if measuring then "settings-measure" else "settings-content") "" Roles.Section Region
-   (primary ++ overview root id section services speech measuring (section_groups design))%list.
-
-(* All categories contribute to the same desktop reading track. Keep only
-   the selected document operable. Saved record details have no influence on
-   the track, so the other documents need only their headings and controls. *)
-Definition documents root parent section services speech :=
- named_region parent "settings-documents" ""
-   (map (fun candidate => content root parent candidate services speech (negb (same_section candidate section)))
-      settings_sections).
+ Node id "settings-content" "" Roles.Section Region body.
 
 Definition view s :=
  let services := State.service_state s in
@@ -549,29 +612,37 @@ Definition view s :=
    let root := settings_root in
    let body := part root "body" in
    let section := Services.settings_section services in
-   [Node root "settings" "Settings" Roles.Dialog
+   [Node root "settings" Navigation.settings_label Roles.Dialog
       (LayerRegion (LayerBehavior ModalDialog false (State.generation (State.navigation_state s))
         (part root "close") (Services.settings_focus_target trigger) "/main" trigger
         (Input.ServiceInput Services.CloseSettings) true true))
       [dialog_header root
          [named_region root "settings-identity" ""
-           [declared root Roles.Button (secondary "close" "Close settings" (Input.ServiceInput Services.CloseSettings));
-            title root "Settings"];
+           [declared root Roles.Button (secondary "close" "关闭设置" (Input.ServiceInput Services.CloseSettings));
+            title root Navigation.settings_label];
           compact_navigation root section];
-       dialog_body root (navigation body section ++ [documents root body section services (State.speech_state s)])]]
+       dialog_body root (navigation body section ++ [content root body section services (State.speech_state s)])]]
  end.
 
-Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=
+Definition configuration_action_with_status parent key caption label emphasis status input : node Input.input :=
  let id := part parent key in
- Node id key label Roles.Button
-   (Activate (Control key label emphasis (Input.ServiceInput input)
-     (if enabled then Available else Unavailable "Unavailable in the current state")))
+ let role := match emphasis with
+   | Primary => Roles.PrimaryButton
+   | Secondary => Roles.Button
+   | Destructive => Roles.DestructiveButton
+   end in
+ Node id key label role
+   (Activate (Control key label emphasis (Input.ServiceInput input) status))
    [information id "label" Information.OptionLabel caption].
+
+Definition configuration_action parent key caption label emphasis (enabled : bool) input :=
+ configuration_action_with_status parent key caption label emphasis
+   (if enabled then Available else Unavailable "当前不可用") input.
 
 (* The fields describe the object and can scroll. Operations on the whole
    object share the fixed footer with the decision, outside the field order.
    A write's result belongs with the decision that initiated it. *)
-Definition configuration_dialog generation id caption trigger fallback view
+Definition configuration_dialog generation id section caption trigger fallback view
   (fields object_actions : list (node Input.input)) primary : node Input.input :=
  let dirty := Configuration.has_unsaved_work view in
  let ready := negb (Configuration.pending view) in
@@ -581,29 +652,40 @@ Definition configuration_dialog generation id caption trigger fallback view
    (LayerRegion (LayerBehavior ModalDialog false generation (part id "heading")
      trigger fallback trigger (Input.ServiceInput Services.CancelConfigurationEdit)
      false (ready && negb dirty)))
-   [dialog_header id [title id caption];
+   [dialog_header id [editor_context id section; title id caption];
     dialog_body id fields;
     dialog_actions id (write_status footer view ++
       [named_region footer "settings-editor-actions" "" (object_actions ++
         [named_region controls "settings-editor-decisions" ""
-          [configuration_action id "cancel" (if dirty then "Discard" else "Cancel")
-             (if dirty then "Discard changes" else "Cancel") Secondary ready Services.CancelConfigurationEdit;
+          [configuration_action id "cancel" (if dirty then "放弃" else "取消")
+             (if dirty then "放弃更改" else "取消") Secondary ready Services.CancelConfigurationEdit;
            primary]])])].
 
-Definition configuration_save id entry raw view enabled :=
- action id "save" "Save" Primary (save_enabled entry raw view enabled) Services.SetConfiguration.
+Definition configuration_save id entry view enabled :=
+ let status := if save_enabled view enabled then Available
+   else Unavailable
+     (if negb enabled then "请等待当前操作完成"
+      else if negb (Configuration.dirty view) then
+        match Config.setting_path entry, Common.items (Config.setting_value entry) with
+        | ["compaction"; "targets"], [] => "添加配置项后可以保存"
+        | _, _ => "修改设置后可以保存"
+        end
+      else match Config.setting_path entry with
+        | ["compaction"; "targets"] => "请填写有效的模型配置名称与上下文窗口，并检查可选限制"
+        | _ => "请修正输入后再保存"
+        end) in
+ configuration_action_with_status id "save" "保存" "保存" Primary status Services.SetConfiguration.
 
-Definition collection_editor generation id entry draft view enabled item : list (node Input.input) :=
+Definition collection_editor generation id section entry view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in
- let raw := Configuration.draft_input draft in
  let add := editor_trigger path "begin-add" in
- let dialog caption trigger := configuration_dialog generation id caption trigger add view in
+ let dialog caption trigger := configuration_dialog generation id section caption trigger add view in
  match Configuration.new_item view with
  | Some (name, value) =>
-   [dialog ("New " ++ item) add
-     [ConfigurationForms.new_item_field id name enabled;
+   [dialog ("新建" ++ item) add
+     [ConfigurationForms.new_item_field path id name enabled;
       ConfigurationForms.item_fields path id value view enabled] []
-     (configuration_action id "add" "Add" ("Add " ++ item) Primary (enabled && Configuration.can_add_item view)
+     (configuration_action id "add" "添加" ("添加" ++ item) Primary (enabled && Configuration.can_add_item view)
        Services.SetConfiguration)]
  | None => match Configuration.preferred_item (Configuration.form_editor_current view) with
    | None => []
@@ -612,14 +694,14 @@ Definition collection_editor generation id entry draft view enabled item : list 
      let trigger := match lookup name saved with
        | Some _ => editor_trigger path (edit_item_key name) | None => add end in
      match lookup name (Configuration.collection_entries view) with
-     | Some source => [dialog ("Edit " ++ name) trigger
+     | Some source => [dialog ("编辑「" ++ name ++ "」") trigger
          [ConfigurationForms.item_fields path id source view enabled]
-         [ConfigurationForms.button id "remove-item" ("Remove " ++ item) enabled (Services.RemoveConfigurationItem name)]
-         (configuration_save id entry raw view enabled)]
-     | None => [dialog ("Remove " ++ name ++ "?") trigger
-         [note id "description" ("This " ++ item ++ " will be removed from settings.")] []
-         (configuration_action id "confirm-remove" "Remove" ("Remove " ++ item) Destructive
-           (save_enabled entry raw view enabled) Services.SetConfiguration)]
+         [ConfigurationForms.button id "remove-item" ("移除" ++ item) enabled (Services.RemoveConfigurationItem name)]
+         (configuration_save id entry view enabled)]
+     | None => [dialog ("移除「" ++ name ++ "」？") trigger
+         [note id "description" ("此" ++ item ++ "将从设置中移除。")] []
+         (configuration_action id "confirm-remove" "移除" ("移除" ++ item) Destructive
+           (save_enabled view enabled) Services.SetConfiguration)]
      end
    end
  end.
@@ -630,13 +712,14 @@ Definition configuration_editor s : list (node Input.input) :=
  match Services.settings_return services, Configuration.editing view with
  | Some _, Some (_, draft, entry) =>
    let path := Config.setting_path entry in
-   if same_section (section_for path) (Services.settings_section services) && Configuration.focused_editor entry then
+   let section := section_for path in
+   if same_section section (Services.settings_section services) && Configuration.focused_editor entry then
      let generation := State.generation (State.navigation_state s) in
      let id := part (part settings_root "configuration-editor") (Config.setting_key path) in
      let raw := Configuration.draft_input draft in
      let enabled := can_edit path services in
      match ConfigurationForms.collection_item path with
-     | Some item => collection_editor generation id entry draft view enabled item
+     | Some item => collection_editor generation id section entry view enabled item
      | None =>
        let trigger := editor_trigger path "open" in
        let '(label, description) := copy path in
@@ -649,10 +732,10 @@ Definition configuration_editor s : list (node Input.input) :=
                    (value_or JNull (TextJson.parse_json raw)) view enabled
          end in
        let restore := if Configuration.dirty view then []
-                      else reset_button id entry enabled "Restore default" in
-       [configuration_dialog generation id label trigger (part settings_root "close") view
+                      else reset_button id entry enabled "恢复默认" in
+       [configuration_dialog generation id section label trigger (part settings_root "close") view
          fields restore
-         (configuration_save id entry raw view enabled)]
+         (configuration_save id entry view enabled)]
      end
    else []
  | _, _ => []

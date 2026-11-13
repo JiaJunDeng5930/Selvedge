@@ -18,15 +18,19 @@ Fixpoint encode_key value:=match value with
 |Entity owner kind identity=>"e"++encode_key owner++key_payload kind++key_payload identity
 |Part owner name=>"r"++encode_key owner++key_payload name end.
 Definition key_part(parent name:string):=encode_key(Part(Place parent)name).
+Definition message_markdown_key key := String.append key "/markdown".
 
 Definition editor_key (e : editor) : string :=
   match e with
   | NewTask w => "new-task/" ++ id_text w | Message t => "message/" ++ show_natural t
   | Project i => "project/" ++ id_text i | Card i => "card/" ++ id_text i
+  | CardForConversation task => "conversation-card/" ++ show_natural task
   | Fork t => "fork/" ++ show_natural t
   | Compact t => "compact/" ++ show_natural t
   | TaskGraph i w => "graph/" ++ id_text i ++ "/work/" ++ id_text w
-  | WorkName w => "work/" ++ show_natural w | TitlePrompts => "title-prompts"
+  | WorkName w => "work/" ++ id_text w
+  | TitlePrompts ConversationTitles => "title-prompts"
+  | TitlePrompts BoardTitles => "board-title-prompt"
   end.
 Inductive task_view := PrimaryTask(task:N)|SideTask(task:N).
 Definition task_view_task view := match view with PrimaryTask task|SideTask task=>task end.
@@ -41,12 +45,16 @@ Inductive navigation_panel := GlobalMenu | WorkOverview | TasksDrawer.
 Definition navigation_panel_name value := match value with GlobalMenu => "global" | WorkOverview => "works" | TasksDrawer => "tasks" end.
 Definition decode_navigation_panel name := match name with "global" => Some GlobalMenu | "works" => Some WorkOverview | "tasks" => Some TasksDrawer | _ => None end.
 
-Inductive route := Start | Conversation (task : N) | Projects | ProjectHome (id:N)
+Inductive route := Start | GraphConversation (work : option N) (trigger : string)
+| Conversation (task : N) | Projects | ProjectHome (id:N)
 | Board | Graphs | HistorySearch | SharedUI (work:N) (task:option N).
 Definition encode_route r :=
   let pair name id := JObject [("kind",JString name);("id",optional_id id)] in
   match r with
-  | Start => pair "start" None | Conversation id => pair "conversation" (Some id)
+  | Start => pair "start" None
+  | GraphConversation work trigger => JObject [("kind",JString "graph_conversation");
+      ("id",optional_id work);("trigger",JString trigger)]
+  | Conversation id => pair "conversation" (Some id)
   | Projects => pair "projects" None | ProjectHome id => pair "project" (Some id)
   | Board => pair "board" None | Graphs => pair "graphs" None
   | HistorySearch => pair "search" None
@@ -54,7 +62,9 @@ Definition encode_route r :=
   end.
 Definition decode_route j :=
   match string_field "kind" j, id_field "id" j with
-  | Some "start",Some None => Some Start | Some "conversation",Some (Some t) => Some (Conversation t)
+  | Some "start",Some None => Some Start
+  | Some "graph_conversation",Some work => option_map (GraphConversation work) (string_field "trigger" j)
+  | Some "conversation",Some (Some t) => Some (Conversation t)
   | Some "projects",Some None => Some Projects | Some "project",Some (Some t) => Some (ProjectHome t)
   | Some "board",Some None => Some Board
   | Some "graphs",Some None => Some Graphs | Some "search",Some None => Some HistorySearch

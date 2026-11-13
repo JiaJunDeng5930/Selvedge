@@ -1,5 +1,6 @@
 From Selvedge.Programming Require Variant.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
+From Selvedge.Kernel Require Workspace.
 From Selvedge.Programming Require Import Schema.
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Adapters Require Import Common.
@@ -30,6 +31,12 @@ Definition request_plan (source : json) : json :=
     (* DEFENSE: A non-text primary, or an empty primary without a text cwd,
        cannot supply the declared workspace root. *)
     | None => type_error "Expected a workspace root" end
+  else if String.eqb (observation_kind request) "cloud-repository" && field_count_is 2 request then
+    match string_field "primary" request with
+    | Some primary=>if Workspace.valid_path primary then success (Variant.encode_packet
+      (Variant.pack ModelResultDeclarations.browser_cloud_repository [!primary!]))
+      else type_error "Expected a canonical workspace root"
+    | None=>type_error "Expected a workspace root" end
   else if String.eqb (observation_kind request) "browse-directories" && request_count_is 2 request then
     success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_browse_directories
       [!get request "path";empty_requested_path request;get source "project_root";field "task_id" request!]))
@@ -54,9 +61,12 @@ Definition completion (source : json) : json :=
   let value := get source "value" in
   if String.eqb kind "workspace-git" then
     success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("available",get source "available")])
+  else if String.eqb kind "cloud-repository" then
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_cloud_repository;("available",get source "available")])
   else if String.eqb kind "browse-directories" then
     if boolean_field source "ok" then success value
-    else success (JObject [("ok",JBool false);("error",get source "error")])
+    else success (JObject ([("ok",JBool false);("error",get source "error")] ++
+      match string_field "errno" source with Some code => [("errno",JString code)] | None => [] end)%list)
   else if String.eqb kind "directories" then
     success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_directories;("workspace",get value "workspace");("guidance",get value "guidance")])
   else if String.eqb kind "skill-catalog" then

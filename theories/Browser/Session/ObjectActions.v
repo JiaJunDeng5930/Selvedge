@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Features Require Domain.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Generated Require Commands.
@@ -9,6 +10,7 @@ From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services.
 From Selvedge.Interaction Require CommandAssessment CardDecisions ObjectDecisions.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Browser.Session Require State.
 Import ListNotations.
 Open Scope string_scope.
@@ -17,7 +19,8 @@ Module G := Selvedge.Generated.Commands.
 Module Decisions := ObjectDecisions.
 
 Inductive operation := NativeCommand(command:State.public_command)
-| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N).
+| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N)
+| InspectCard(card:N).
 Inductive status := Available | Awaiting | InFlight | Unavailable(reason:string) | AssessmentFailed(reason:string).
 Record action := Action {
  action_key:string; action_label:string; action_operation:operation;
@@ -39,16 +42,28 @@ Definition from_decision subject value :=
  native (Decisions.decision_key value) (Decisions.decision_label value)
   (option_map (fun caption=>(caption,confirmation_destination subject))(Decisions.decision_confirmation value))
   (Decisions.decision_proposal value).
+Definition add_to_board_key := "board/add".
+Definition open_board_card_key := "board/card".
+Definition menu_label subject := match subject with
+ |TaskActions _=>"对话操作"|ProjectActions _=>"项目操作"
+ |CardActions _=>"卡片操作"|GraphActions _=>"任务图操作" end.
+Definition fork_label := "创建对话分支".
+Definition task_fork_action task := local "fork" fork_label (Editor(Fork task)).
+Definition task_board_action snapshot task :=
+ match Read.board_cards snapshot with
+ |None=>[]
+ |Some cards=>match find(fun card=>Read.same_id (Read.card_task card) (Some task))cards with
+  |Some card=>[local open_board_card_key "打开关联卡片" (InspectCard(Read.card_id card))]
+  |None=>[local add_to_board_key "添加到看板" (Editor(CardForConversation task))] end
+ end.
 Definition declarations snapshot clock subject :=
  if Decisions.subject_exists snapshot subject then
  let commands := flat_map (fun value=>singleton(from_decision subject value))(Decisions.decisions snapshot clock subject) in
  match subject with
- |TaskActions id=>commands++
-  [local "side" "Side conversation"(SideConversation id);
-   local "fork" "Fork"(Editor(Fork id));local "compact" "Compact"(Editor(Compact id))]
- |ProjectActions id=>[local "details" "Project details"(Destination(ProjectHome id));
-   local "edit" "Edit project"(Editor(Project(Some id)))]++commands
- |CardActions id=>local "edit" "Edit card"(Editor(Card(Some id)))::commands
+ |TaskActions id=>local "compact" "压缩上下文"(Editor(Compact id))::
+  (commands++[local "side" "侧边对话"(SideConversation id)])
+ |ProjectActions id=>local "edit" "编辑项目"(Editor(Project(Some id)))::commands
+ |CardActions id=>local "edit" "编辑卡片"(Editor(Card(Some id)))::commands
  |GraphActions id=>local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))::commands
  end else [].
 Definition choice_key selected : string := match selected with
@@ -56,16 +71,22 @@ Definition choice_key selected : string := match selected with
 |CardDecisions.MoveTo(CardDecisions.BeforeCard _ target _)=>("before/"++show_natural target)%string
 |CardDecisions.LinkTo task=>("link/"++show_natural(CardDecisions.target_task task))%string end.
 Definition choice_label selected : string := match selected with
-|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("Move to "++Domain.stage_label stage)%string
-|CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("Move before "++title)%string
-|CardDecisions.LinkTo task=>("Link "++CardDecisions.target_title task)%string end.
-Definition choice_declaration opportunity now selected :=
- native(choice_key selected)(choice_label selected)None(CardDecisions.proposal opportunity now selected).
+|CardDecisions.MoveTo(CardDecisions.EndOfStage stage)=>("移至"++Domain.stage_label stage)%string
+|CardDecisions.MoveTo(CardDecisions.BeforeCard _ _ title)=>("移到「"++title++"」之前")%string
+|CardDecisions.LinkTo task=>CardDecisions.target_title task end.
+Definition choice_caption snapshot selected :=
+ let label:=choice_label selected in
+ match selected with
+ |CardDecisions.LinkTo task=>match Read.card_link_stage (CardDecisions.target_task task) snapshot with
+  |Some stage=>(label++" · 预计进入 "++Domain.stage_label stage)%string|None=>label end
+ |_=>label end.
+Definition choice_declaration snapshot opportunity now selected :=
+ native(choice_key selected)(choice_caption snapshot selected)None(CardDecisions.proposal opportunity now selected).
 Definition find_choice snapshot clock card decision key :=
  opportunity<-CardDecisions.observe snapshot card;;
  now<-clock;;
  selected<-find(fun candidate=>String.eqb key(choice_key candidate))(CardDecisions.choices decision opportunity);;
- choice_declaration opportunity now selected.
+ choice_declaration snapshot opportunity now selected.
 Definition assessment_revision s := State.generation(State.navigation_state s).
 Definition action_revision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with
@@ -92,15 +113,48 @@ Definition availability snapshot s subject value :=match command value with
 Definition observe snapshot s subject value :=Action(action_key value)(action_label value)(action_operation value)
  (action_confirmation value)(availability snapshot s subject value).
 Definition items snapshot s subject :=map(observe snapshot s subject)(declarations snapshot(State.now s)subject).
+Definition task_menu_actions (task:Read.task) (actions:list action) :=
+ filter (fun value=>match action_key value with
+  |"interrupt"|"unfreeze"=>false
+  |"freeze"=>String.eqb(Read.task_status task)"active"
+  |"stop"=>String.eqb(Read.task_status task)"active" && Read.task_working task
+  |"archive"=>negb(String.eqb(Read.task_status task)"archived")
+  |_=>true end) actions.
+Definition card_action_applies snapshot (card:Read.card) (value:action) :=
+ let editable:=negb(Read.card_archived card) in
+ match action_key value with
+ |"edit"|"pin"=>editable
+ |"run"=>editable && match Read.card_task card,Read.card_owner card with
+   |None,Domain.ProfileOwner _=>true
+   |_,_=>false end
+ |"regenerate"=>editable && match Read.board_configuration snapshot with
+   |Some settings=>negb(String.eqb(Read.board_draft_profile settings)"")
+   |None=>true end
+ |_=>true end.
+Definition menu_items snapshot s subject :=
+ let actions:=items snapshot s subject in
+ match subject with
+ |TaskActions id=>match Read.find_task id snapshot with
+  |Some task=>map(observe snapshot s subject)(task_board_action snapshot id)++task_menu_actions task actions
+  |None=>[]end
+ |CardActions id=>match Read.find_card id snapshot with
+   |Some card=>filter (card_action_applies snapshot card) actions
+   |None=>[]end
+ |_=>actions end.
 Definition active_decision s subject := match State.layers(State.navigation_state s),subject with
 |layer::_,CardActions card=>match State.layer_panel layer with
  |State.CardDecisionPanel source decision=>if N.eqb source card then Some decision else None
  |_=>None end
 |_,_=>None end.
 Definition resolve snapshot s subject key :=
- let declared:=match subject,active_decision s subject with
+ let matching:=fun value=>String.eqb key(action_key value)in
+ let declared:=if String.eqb key add_to_board_key || String.eqb key open_board_card_key then
+  match subject with
+  |TaskActions task=>if Decisions.subject_exists snapshot subject then find matching (task_board_action snapshot task) else None
+  |_=>None end
+ else match subject,active_decision s subject with
  |CardActions card,Some decision=>find_choice snapshot(State.now s)card decision key
- |_,_=>find(fun value=>String.eqb key(action_key value))(declarations snapshot(State.now s)subject)end in
+ |_,_=>find matching (declarations snapshot(State.now s)subject)end in
  option_map(observe snapshot s subject)declared.
 
 Definition observed_decision snapshot state task value :=

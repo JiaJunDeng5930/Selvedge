@@ -4,57 +4,57 @@ Open Scope string_scope.
 
 Inductive page :=
 | SharedInterface | Creation (composer : bool)
-| Conversation (composer approvals return_latest : bool)
-| ProjectOverview | ProjectCollection | TaskBoard | TaskGraphCollection | Unavailable.
+| Conversation (composer approvals : bool)
+| ProjectOverview | ProjectCollection | TaskBoard | TaskGraphCollection
+| HistorySearchCollection | Unavailable.
 
 Inductive measure := ReadingMeasure | OverviewMeasure | AvailableMeasure.
 Inductive heading := NoHeading | ConversationHeading | PageHeading.
 Inductive body :=
 | SharedInterfaceBody | CenteredCreation | ChronologicalReading
-| ProjectSections | ProjectRows | StageColumns | TaskGraphRows
+| ProjectSections | ProjectRows | StageColumns | TaskGraphRows | HistoryResultRows
 | UnavailableNotice.
 Inductive composer_position := NoComposer | CenteredInput | BottomInput.
 Inductive decision_position := NoDecisions | BeforeComposer.
-Inductive latest_position := NoLatest | AboveComposer.
 
 Record page_recipe := Recipe {
   reading_measure : measure;
   heading_kind : heading;
   body_kind : body;
   composer_kind : composer_position;
-  decisions_kind : decision_position;
-  latest_kind : latest_position
+  decisions_kind : decision_position
 }.
 
 Definition recipe value :=
   match value with
   | SharedInterface => Recipe OverviewMeasure PageHeading SharedInterfaceBody
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
   | Creation composer => Recipe ReadingMeasure NoHeading CenteredCreation
-      (if composer then CenteredInput else NoComposer) NoDecisions NoLatest
-  | Conversation composer approvals return_latest =>
+      (if composer then CenteredInput else NoComposer) NoDecisions
+  | Conversation composer approvals =>
       Recipe ReadingMeasure ConversationHeading ChronologicalReading
         (if composer then BottomInput else NoComposer)
         (if approvals then BeforeComposer else NoDecisions)
-        (if return_latest then AboveComposer else NoLatest)
   | ProjectOverview => Recipe OverviewMeasure PageHeading ProjectSections
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
   | ProjectCollection => Recipe OverviewMeasure PageHeading ProjectRows
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
   | TaskBoard => Recipe AvailableMeasure PageHeading StageColumns
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
   | TaskGraphCollection => Recipe OverviewMeasure PageHeading TaskGraphRows
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
+  | HistorySearchCollection => Recipe OverviewMeasure PageHeading HistoryResultRows
+      NoComposer NoDecisions
   | Unavailable => Recipe ReadingMeasure NoHeading UnavailableNotice
-      NoComposer NoDecisions NoLatest
+      NoComposer NoDecisions
   end.
 
 Inductive region :=
 | SharedTitle | SharedContent | ConversationHeader | ConversationTitle | TaskActions
 | TimelineContent | LatestAction | ApprovalDecisions
-| CreationIntroduction | CreationContext | ComposerInput
+| CreationIntroduction | ComposerInput
 | ProjectTitle | ProjectActions | DefaultWorkspace | ProjectGuidance | ProjectTasks
-| CollectionTitle | CollectionActions | ProjectEntries
+| CollectionTitle | CollectionActions | ProjectEntries | HistoryResults
 | BoardTitle | BoardControls | BoardStages | TaskGraphEntries
 | UnavailableMessage.
 
@@ -73,12 +73,13 @@ Definition region_name value :=
   | ConversationTitle => "conversation-title" | TaskActions => "task-actions"
   | TimelineContent => "timeline-content" | LatestAction => "latest-action"
   | ApprovalDecisions => "approval-decisions"
-  | CreationIntroduction => "creation-introduction" | CreationContext => "creation-context"
+  | CreationIntroduction => "creation-introduction"
   | ComposerInput => "composer-input"
   | ProjectTitle => "project-title" | ProjectActions => "project-actions"
   | DefaultWorkspace => "default-workspace" | ProjectGuidance => "project-guidance"
   | ProjectTasks => "project-tasks" | CollectionTitle => "collection-title"
   | CollectionActions => "collection-actions" | ProjectEntries => "project-entries"
+  | HistoryResults => "history-results"
   | BoardTitle => "board-title" | BoardControls => "board-controls"
   | BoardStages => "board-stages"
   | TaskGraphEntries => "task-graph-entries" | UnavailableMessage => "unavailable-message"
@@ -90,12 +91,12 @@ Definition structure_for plan :=
       (CreationIntroduction ::
         match composer_kind plan with CenteredInput => [ComposerInput] | _ => [] end) []
   | ChronologicalReading => Structure [ConversationHeader] [TimelineContent]
-      (List.app (match latest_kind plan with AboveComposer => [LatestAction] | _ => [] end)
-       (List.app (match decisions_kind plan with BeforeComposer => [ApprovalDecisions] | _ => [] end)
-       (match composer_kind plan with BottomInput => [ComposerInput] | _ => [] end)))
+      (List.app (match decisions_kind plan with BeforeComposer => [ApprovalDecisions] | _ => [] end)
+       (match composer_kind plan with BottomInput => [ComposerInput] | _ => [] end))
   | ProjectSections => Structure [ProjectTitle; ProjectActions]
       [DefaultWorkspace; ProjectGuidance; ProjectTasks] []
   | ProjectRows => Structure [CollectionTitle; CollectionActions] [ProjectEntries] []
+  | HistoryResultRows => Structure [CollectionTitle; CollectionActions] [HistoryResults] []
   | StageColumns => Structure [BoardTitle; BoardControls] [BoardStages] []
   | SharedInterfaceBody => Structure [SharedTitle] [SharedContent] []
   | TaskGraphRows => Structure [CollectionTitle; CollectionActions] [TaskGraphEntries] []

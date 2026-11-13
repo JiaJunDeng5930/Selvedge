@@ -4,7 +4,7 @@ From Selvedge.Interaction.Interactive Require Import Types State Local Syntax Re
 Import ListNotations.
 
 Definition authored_effect effect := match effect with
- | FillDraft _ _ _ | SendMessage _ _ _ _ | WriteClipboard _ _ _ _ | OpenUrl _ _ _ _ => true
+ | FillDraft _ _ _ _ | SendMessage _ _ _ _ | WriteClipboard _ _ _ _ | OpenUrl _ _ _ _ => true
  | _=>false end.
 Definition no_authored output := forallb (fun effect=>negb(authored_effect effect)) output.
 

@@ -23,7 +23,7 @@ Record command_binding := CommandBinding {
 Definition bindings := [
   CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
   CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
-  CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Results include a zero-based message_index; use read_task with after=message_index to read the original message.";
+  CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Message matches include a zero-based message_index; use read_task with after=message_index to read the original message. Set include_titles to also find conversations by their current title.";
  CommandBinding "read_task" "read" None "Read a task's identity, lifecycle, available controls and a bounded page of its original history.";
  CommandBinding "read_current_task" "read" (Some "task_id") "Read this task's identity, lifecycle and Work ownership.";
   CommandBinding "send_message_to_task" "send" None "Commit a user message to another task, or queue it while that task is busy or frozen.";

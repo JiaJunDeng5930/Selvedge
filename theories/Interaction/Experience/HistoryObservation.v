@@ -1,17 +1,29 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Kernel Require Domain HistoryRole.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction.Experience Require Read.
 Open Scope string_scope.
 
-Record history_hit := HistoryHit {
- hit_task : Read.task; hit_message : N;
- hit_before : string; hit_text : string; hit_after : string
+Record message_hit := MessageHit {
+ hit_message : N;
+ hit_speaker : Domain.speaker;
+ hit_preview : option string
 }.
+Inductive history_hit := TitleMatch (task : Read.task) | MessageMatch (task : Read.task) (hit : message_hit).
+Definition observe_speaker raw :=
+ role<-string_field "role" raw;;
+ match HistoryRole.parse role with
+ |Some HistoryRole.User=>Some Domain.UserSpeaker
+ |Some HistoryRole.Assistant=>Some Domain.AssistantSpeaker
+ |_=>None end.
 Definition observe_hit raw :=
- task<-bind(field "task" raw)Read.observe_task;;index<-natural_field "message_index" raw;;
- before<-string_field "before" raw;;snippet<-string_field "snippet" raw;;after<-string_field "after" raw;;
- Some(HistoryHit task index before snippet after).
+ task<-bind(field "task" raw)Read.observe_task_summary;;
+ match string_field "kind" raw with
+ |Some "title"=>Some(TitleMatch task)
+ |None=>index<-natural_field "message_index" raw;;speaker<-observe_speaker raw;;
+ Some(MessageMatch task(MessageHit index speaker (string_field "preview" raw)))
+ |_=>None end.
 Record history_page := HistoryPage { hits : list history_hit; page_after : N; next_after : option N }.
 Definition observe_page raw :=
  entries<-list_field observe_hit "hits" raw;;after<-natural_field "after" raw;;

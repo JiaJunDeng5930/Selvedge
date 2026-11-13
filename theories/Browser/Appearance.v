@@ -24,6 +24,7 @@ Definition symbols : list symbol := [
   Symbol "chevron-right" "M7.5 4.5 L13 10 L7.5 15.5" Outline;
   Symbol "chevron-left" "M12.5 4.5 L7 10 L12.5 15.5" Outline;
   Symbol "chevron-down" "M4.5 7.5 L10 13 L15.5 7.5" Outline;
+  Symbol "chevrons-up-down" "M5.5 8L10 3.5L14.5 8M5.5 12L10 16.5L14.5 12" Outline;
   Symbol "stop-square" "M6 5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" Outline;
   Symbol "pause-bars" "M7 5v10M13 5v10" Outline;
   Symbol "play-triangle" "m7 4 9 6-9 6Z" Outline;
@@ -170,7 +171,8 @@ Definition navigation_style selected gap radius := enclosure_fields (ChoicePaint
   Stretch RowFlow ContentFlow Enclosure.NavigationRow gap 32 100 true true.
 Definition role_style (role : Roles.role) :=
   match role with
-  | Roles.GlobalNavigation _ => fields NavigationPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 4 8 4 0 100 false false
+  | Roles.GlobalNavigation compact => fields NavigationPaint "transparent" 0 0 false Stretch ColumnFlow
+    (if compact then ContentFlow else ScrollFlow) 4 8 4 0 100 false false
   | Roles.GlobalNavigationEntry selected _ => navigation_style selected 4 6
   | Roles.CompactHeader => fields CanvasPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 0 40 100 false false
   | Roles.CompactWorkScope _ _ | Roles.WorkOverviewButton _ => button_style QuietActionPaint

@@ -67,6 +67,26 @@ dialog[data-semantic-key="global-navigation-menu"]::backdrop { background: trans
   --control-rest-background: var(--selvedge-selection) !important;
 }
 
+[data-workspace-navigation="shortcuts"] > button[data-help]::after {
+  position-area: inline-end;
+  position-try-fallbacks: flip-inline;
+}
+
+[data-workspace-sidebar] :is(
+  [data-workspace-navigation="global"],
+  [data-workspace-navigation="destinations"],
+  [data-semantic-key="task-creation"]
+) > button[data-surface-role="navigation-entry"] {
+  inline-size: 100% !important;
+  justify-content: start !important;
+}
+
+[data-workspace-navigation="header"] > button[data-semantic-key="home"] {
+  flex: 1 1 auto !important;
+  min-inline-size: 0 !important;
+  justify-content: start !important;
+}
+
 @media (max-height: 30rem) {
   [data-workspace-sidebar] > [data-workspace-navigation="global"] {
     display: grid !important;
@@ -141,67 +161,56 @@ dialog[data-semantic-key="task-navigation"] [data-navigation-slot="auxiliary"] >
 }
 
 dialog[data-semantic-key="work-overview"] {
-  --works-inset: 1rem;
-  --works-track: 16rem;
-  --works-gap: .5rem;
-  inline-size: calc(var(--works-track) + 2 * var(--works-inset)) !important;
+  inline-size: 14rem !important;
+  padding: .25rem !important;
   background: var(--selvedge-surface) !important;
-}
+  overscroll-behavior: contain;
 
-dialog[data-semantic-key="work-overview"]:has([data-semantic-key="work-choice"] ~ [data-semantic-key="work-choice"]) {
-  inline-size: calc(2 * var(--works-track) + var(--works-gap) + 2 * var(--works-inset)) !important;
-}
-
-dialog[data-semantic-key="work-overview"] >
-  :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
-  padding-inline: var(--works-inset) !important;
-}
-
-dialog[data-semantic-key="work-overview"] > [data-surface-role="dialog-header"] {
-  padding-block: .75rem .375rem !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: .5rem !important;
-}
-
-dialog[data-semantic-key="work-overview"] > [data-surface-role="dialog-header"] h2 { margin: 0; }
-
-dialog[data-semantic-key="work-overview"] > [data-surface-role="dialog-body"] {
-  padding-block: .375rem !important;
-}
-
-dialog[data-semantic-key="work-overview"] > [data-surface-role="dialog-actions"] {
-  padding-block: .375rem .75rem !important;
-  justify-content: flex-end !important;
-}
-
-[data-semantic-key="work-choices"] {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  gap: var(--works-gap) !important;
-}
-
-dialog[data-semantic-key="work-overview"] [data-semantic-key="work-choice"] {
-  inline-size: 100% !important;
-  min-block-size: max(3.75rem, 44px) !important;
-  padding-block: .625rem !important;
-}
-
-dialog[data-semantic-key="work-overview"] [data-semantic-key="work-choice"] [data-semantic-key="name"] {
-  display: -webkit-box !important;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal !important;
-  overflow-wrap: anywhere;
+  &:focus-visible {
+    outline: 2px solid var(--selvedge-focus) !important;
+    outline-offset: 2px;
+  }
+  &::backdrop { background: transparent; }
+  & > [role="menu"] { gap: .125rem !important; }
+  & button {
+    inline-size: 100% !important;
+    min-block-size: 2rem !important;
+    padding: .25rem .5rem !important;
+    justify-content: flex-start !important;
+  }
+  & [data-semantic-key="work-choice"] > span:has(> [data-semantic-key="name"]) {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem !important;
+  }
+  & [data-semantic-key="name"] {
+    flex: 1 1 0% !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap !important;
+  }
+  & [data-semantic-key="description"] {
+    flex: none !important;
+    inline-size: auto !important;
+    white-space: nowrap !important;
+  }
+  & [data-semantic-key="work/new"] {
+    border-block-start: 1px solid var(--selvedge-border) !important;
+    border-start-start-radius: 0 !important;
+    border-start-end-radius: 0 !important;
+  }
 }
 
 dialog[data-semantic-key="work-name-editor"] {
   inline-size: 24rem !important;
 }
-[data-workspace-sidebar] [data-navigation-slot="status"][data-task-working="true"] {
+[data-navigation-slot="status"][data-task-notice="running"] {
   color: var(--selvedge-accent) !important;
 }
-[data-task-status="frozen"] [data-navigation-slot="status"] {
+[data-navigation-slot="status"]:is([data-task-notice="waiting"], [data-task-notice="paused"]) {
   color: var(--selvedge-warning) !important;
+}
+[data-navigation-slot="status"][data-task-notice="failure"] {
+  color: var(--selvedge-danger) !important;
 }

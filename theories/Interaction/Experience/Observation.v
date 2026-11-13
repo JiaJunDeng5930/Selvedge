@@ -2,26 +2,44 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
-From Selvedge.Features Require Domain BoardParameters Work Titles TaskGraph.
+From Selvedge.Features Require Domain Board BoardFacts BoardParameters BoardDrafting Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
 From Selvedge.Interaction Require World.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Draft GraphAuthoring.
 From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Interaction.Experience Require EditorContext.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Experience Require Import Model Activity.
-From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Experience Require ContextObservation Read.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Module EC := EditorContext.
 Module FieldsObservation := Selvedge.Interaction.Submission.Observation.
-Definition profile_label := ContextObservation.profile_label.
-Definition selectable_profiles (profiles:list Selvedge.Kernel.Domain.profile):list Selvedge.Kernel.Domain.profile:=
- filter ModelSelection.selectable_profile profiles.
+Definition profile_choices profiles :=
+ map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)
+   (ContextObservation.profile_label profiles profile))profiles.
+Definition selectable_profile_choices snapshot :=
+ profile_choices(ModelSelection.selectable_profiles(FieldsObservation.catalog snapshot)).
+Definition drafting_profile_choices snapshot :=
+ profile_choices(filter FeatureRequestAdmission.ordinary_profile
+   (ModelSelection.selectable_profiles(FieldsObservation.catalog snapshot))).
+Definition board_default_drafting_profile snapshot :=
+ value_or "" (option_map Read.board_draft_profile(Read.board_configuration snapshot)).
+Definition drafting_profile_available snapshot profile :=
+ BoardDrafting.profile_available profile (FieldsObservation.catalog snapshot).
+Definition assistance_profile_available snapshot selected :=
+ drafting_profile_available snapshot
+   (BoardDrafting.profile_name (board_default_drafting_profile snapshot) selected).
+Definition assistance_profile_choices snapshot selected :=
+ let default:=board_default_drafting_profile snapshot in
+ (if assistance_profile_available snapshot selected then [] else [Fields.ChoiceValue selected "请选择模型"]) ++
+ (if drafting_profile_available snapshot default then [Fields.ChoiceValue "" "看板默认模型"] else []) ++
+ drafting_profile_choices snapshot.
 Definition observe_subject snapshot state {e}(subject:Model.subject e):Fields.observed:=
   let draft := EC.current_draft state e in
  match FieldsObservation.observe_field snapshot draft (subject_declaration subject) with
@@ -38,6 +56,26 @@ Definition profile_for_subject snapshot {e}(subject:Model.subject e) key:=match 
 Definition project_choices snapshot caption:=Fields.ChoiceValue "" caption::
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(show_natural id)name::rest|_,_=>rest end)[](items "projects" snapshot).
+Definition delivery_label intent:=match intent with
+ |Fields.Send=>"正常发送"|Fields.Steer=>"打断并调整"end.
+Definition delivery_task snapshot e:=
+ match e with Identity.Message id=>World.find_task id snapshot|_=>None end.
+Definition delivery_responding task :=
+ String.eqb (value_or "" (bind task(string_field "phase"))) "model_pending".
+Definition delivery_explanation snapshot e intent:=
+ let task:=delivery_task snapshot e in
+ let status:=value_or "" (bind task(string_field "status")) in
+ let responding:=delivery_responding task in
+ let paused:=String.eqb status "frozen" in
+ match intent with
+ |Fields.Send=>if paused then "消息会排队，直到你恢复对话。"
+   else if String.eqb status "active" && (match bind task(bool_field "working") with Some false=>true|_=>false end)
+   then "发送后开始新的回复。"
+   else if responding then "如果当前回复仍在生成，这条消息会排队。"
+   else "就绪时开始新的回复，有工作进行时先排队。"
+ |Fields.Steer=>if paused then "恢复对话后，用这条消息生成下一次回复。"
+   else if responding then "开始新的回复。如果当前回复仍在生成，会打断它。"
+   else "空闲时开始新的回复，有回复正在生成时会打断它。"end.
 Definition current_frozen_choice snapshot {e}(subject:Model.subject e):option Selvedge.Kernel.Domain.profile:=let declaration:=subject_declaration subject in match e,declaration with
 |Identity.Message task,Fields.ModelProfile=>FieldsObservation.task_profile task snapshot
 |Identity.Message task,Fields.ApprovalReviewer=>settings<-FieldsObservation.task_settings task snapshot;;
@@ -47,53 +85,60 @@ Definition retain_observed_choice snapshot {e}(subject:Model.subject e)(profiles
  match current_frozen_choice snapshot subject with
  |Some current=>if existsb(fun profile=>String.eqb(Selvedge.Kernel.Domain.profile_key current)(Selvedge.Kernel.Domain.profile_key profile))profiles then profiles else current::profiles
  |None=>profiles end.
+Definition model_profiles snapshot {e}(subject:Model.subject e) :=
+ ModelSelection.selectable_profiles(retain_observed_choice snapshot subject(FieldsObservation.catalog snapshot)).
 Definition context_origin_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
  let body:=Draft.contents(EC.current_draft state e)in
- let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "Parent task"]|_=>[]end in
+ let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "父对话"]|_=>[]end in
  let inherited_project:=match Values.body_configuration body with
  |Some configuration=>match Context.context_origin configuration with
-  |Context.ProjectForParent _ project=>[Fields.ChoiceValue(String.append "parent-project/" (show_natural project))"Project defaults"]
+  |Context.ProjectForParent _ project=>[Fields.ChoiceValue(String.append "parent-project/" (show_natural project))"项目默认配置"]
   |_=>[]end|None=>[]end in
- Fields.ChoiceValue "environment" "Environment defaults"::parent++inherited_project++
+ Fields.ChoiceValue "environment" "使用环境默认配置"::parent++inherited_project++
  fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
  |Some id,Some name=>Fields.ChoiceValue(String.append "project/" (show_natural id))name::rest
  |_,_=>rest end)[](items "projects" snapshot).
 Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(observe:unit->Fields.observed):list Fields.choice_value:=
- let profiles _:=FieldsObservation.catalog snapshot in
- let models _:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-   (selectable_profiles(retain_observed_choice snapshot subject(profiles tt)))in
+ let models _:=profile_choices(model_profiles snapshot subject)in
  match subject_declaration subject with
  |Fields.ContextOrigin=>context_origin_choices snapshot state subject
- |Fields.CardProject=>project_choices snapshot "No project"
+ |Fields.CardProject=>project_choices snapshot "不关联项目"
  |Fields.ModelProfile=>models tt
- |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models tt
+ |Fields.AssistanceProfile=>match observe tt with
+   |Fields.AssistanceValue _ selected=>assistance_profile_choices snapshot selected
+   |_=>[]end
  |Fields.AgentTitleProfile=>
-   let available:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-     (filter FeatureRequestAdmission.ordinary_profile(profiles tt))in
+   let available:=profile_choices(filter FeatureRequestAdmission.ordinary_profile(FieldsObservation.catalog snapshot))in
    let retained:=match observe tt with
    |Fields.OptionalTextValue(Some key)=>
      (* DEFENSE: Editing the service configuration can remove the saved title connection. *)
      if existsb(fun choice=>String.eqb key(Fields.choice_value_of choice))available then []
      else [Fields.ChoiceValue key (key++"（连接不可用）")]
    |_=>[]end in
-   Fields.ChoiceValue "" "Automatic"::retained++available
- |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
+   Fields.ChoiceValue "" "自动"::retained++available
+ |Fields.ApprovalReviewer=>profile_choices
    (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(EC.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe tt in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
- |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "Current workspace";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"Local worktree";
-   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"Tencent Cloud CVM"]
- |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "Workspace write";Fields.ChoiceValue "read-only" "Read only"]
- |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "Restricted";Fields.ChoiceValue "true" "Allowed"]
- |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "Ask for approval";
-   Fields.ChoiceValue "approval-for-me" "Automatic review";Fields.ChoiceValue "full-access" "Unrestricted"]
- |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" "Send message";Fields.ChoiceValue "steer" "Steer current response"]
+ |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "使用当前工作目录";
+   Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"在 Selvedge 主机上新建 Git 工作树"]++
+   if FieldsObservation.cloud_workspace_configured snapshot then
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"在腾讯云 CVM 上运行"]
+   else if FieldsObservation.cloud_workspace_requested(EC.current_draft state e) then
+    [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"腾讯云 CVM 不可用"]
+   else []
+ |Fields.SandboxMode=>[Fields.ChoiceValue "workspace-write" "工作目录内可写";Fields.ChoiceValue "read-only" "只读"]
+ |Fields.NetworkAccess=>[Fields.ChoiceValue "false" "受限";Fields.ChoiceValue "true" "允许"]
+ |Fields.ApprovalPolicy=>[Fields.ChoiceValue "ask-for-approval" "询问审批";
+   Fields.ChoiceValue "approval-for-me" "自动审批";Fields.ChoiceValue "full-access" "完全访问"]
+ |Fields.DeliveryIntent=>[Fields.ChoiceValue "send" (delivery_label Fields.Send);
+   Fields.ChoiceValue "steer" (delivery_label Fields.Steer)]
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
-    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles(profiles tt))
+    map(fun choice=>Fields.ChoiceValue("profile/"++Fields.choice_value_of choice)(Fields.choice_label choice))
+      (selectable_profile_choices snapshot)
  |Fields.WorkspacePrimary=>match observe tt with
    |Fields.WorkspaceValue workspace=>map(fun path=>Fields.ChoiceValue path path)(Selvedge.Kernel.Domain.workspace_roots workspace)
    |Fields.ContextValue(Context.ProspectiveContext _ _ workspace _ _ _)_=>let value:=match workspace with
@@ -134,20 +179,31 @@ Definition resolve_approval snapshot value:=match value with
 |Context.ChosenApproval Context.Unrestricted=>Some Selvedge.Kernel.Domain.FullAccess
 |Context.ChosenApproval(Context.AutomaticReview key)=>profile<-ModelSelection.observed_profile snapshot key;;
  if Selvedge.Kernel.ModelCapabilities.valid_reviewer_profile profile then Some(Selvedge.Kernel.Domain.ReviewWith profile)else None end.
-Definition permission_observation snapshot (value:Fields.observed) := match value with
- |Fields.ContextValue(Context.ProspectiveContext _ _ _ sandbox approval _)_=>
-   option_map (fun approval=>((match sandbox with Context.InheritedSandbox value|Context.ChosenSandbox value=>value end),approval)) (resolve_approval snapshot approval)
- |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_sandbox settings,
-   Selvedge.Kernel.Domain.settings_approval settings)
+Definition observed_approval snapshot value:=match value with
+ |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval
+ |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_approval settings)
  |_=>None end.
+Definition observed_permission_sandbox (value:Fields.observed) := match value with
+ |Fields.ContextValue(Context.ProspectiveContext _ _ _ sandbox _ _)_=>
+   Some(match sandbox with Context.InheritedSandbox value|Context.ChosenSandbox value=>value end)
+ |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_sandbox settings)
+ |_=>None end.
+Definition permission_observation snapshot (value:Fields.observed) :=
+ sandbox<-observed_permission_sandbox value;;
+ option_map(fun approval=>(sandbox,approval))(observed_approval snapshot value).
+Definition shared_permission_explanation value :=
+ match observed_permission_sandbox value with
+ |Some sandbox=>("询问和自动审批 · "++sandbox_label sandbox++" · "++network_label sandbox)%string
+ |None=>"询问和自动审批在 Bash 请求扩大权限时需要审批。"end.
 Definition filesystem_summary := ContextObservation.filesystem_summary.
 Definition network_summary := ContextObservation.network_summary.
-Definition permission_effects sandbox approval : list(Fields.field*string) :=
- [(Fields.SandboxMode,String.append "Filesystem: "(filesystem_summary sandbox approval));
+Definition permission_effects snapshot sandbox approval : list(Fields.field*string) :=
+ [(Fields.SandboxMode,String.append "文件系统 · "(ContextObservation.sandbox_summary sandbox approval "不受限" sandbox_label));
   (Fields.NetworkAccess,network_summary sandbox approval)]++
  match approval with
- |Selvedge.Kernel.Domain.FullAccess=>[(Fields.ApprovalReviewer,"No approval review")]
- |Selvedge.Kernel.Domain.ReviewWith reviewer=>[(Fields.ApprovalReviewer,String.append "Reviewer: "(profile_label reviewer))]
+ |Selvedge.Kernel.Domain.FullAccess=>[(Fields.ApprovalReviewer,"无需审批")]
+ |Selvedge.Kernel.Domain.ReviewWith reviewer=>[(Fields.ApprovalReviewer,String.append "审批模型 · "
+   (ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer))]
  |_=>[]end.
 Definition workspace_information {e}(subject:Model.subject e) workspace inherited:information e:=
  match Selvedge.Kernel.Domain.workspace_primary workspace,Selvedge.Kernel.Domain.workspace_roots workspace with
@@ -181,14 +237,15 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
  |Fields.NetworkAccess=>present(Model.TextValue(match approval with
    Some policy=>network_summary sandbox policy|None=>network_label sandbox end))
  |Fields.ApprovalReviewer=>match approval with
-  |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice(profile_label reviewer)"Reviewing model")
-  |Some _=>NotApplicable "A reviewing model is used only for automatic review."
-  |None=>RequiredAbsence "Choose an available reviewing model"end
+  |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice
+    (ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer)"审批模型")
+  |Some _=>NotApplicable "自动审批时使用审批模型。"
+  |None=>RequiredAbsence "请选择可用的审批模型。"end
  |Fields.ApprovalPolicy=>match approval with
   |None=>match unavailable_reviewer with
-    |Some _=>PresentInformation(SummaryValue subject(Model.TextValue "Automatic review"))
+    |Some _=>PresentInformation(SummaryValue subject(Model.TextValue "自动审批"))
       (related_summary(e:=e)Fields.SandboxMode(Model.TextValue(sandbox_label sandbox)))
-    |None=>InvalidInformation "The selected reviewing model is not available for automatic review."end
+    |None=>InvalidInformation "所选模型无法用于自动审批。"end
   |Some policy=>PresentInformation(SummaryValue subject(Model.TextValue(approval_caption policy)))
    (match policy with
    |Selvedge.Kernel.Domain.FullAccess=>None
@@ -202,14 +259,15 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
   |None=>match subject_declaration subject with
     |Fields.ModelProfile=>RequiredAbsence(if String.eqb key ""then "Choose a configured model"else "Missing model "++key)
     |_=>UnavailableInformation "Choose a configured model before inspecting its parameters"end
-  |Some profile=>if ModelSelection.permitted_profile profile effort then
+  |Some profile=>let label:=ContextObservation.profile_label(model_profiles snapshot subject)profile in
+    if ModelSelection.permitted_profile profile effort then
     match subject_declaration subject with
     |Fields.ReasoningEffort=>present(Model.TextValue effort)
-    |_=>PresentInformation(SummaryValue subject(NamedChoice(profile_label profile)"Model"))
+    |_=>PresentInformation(SummaryValue subject(NamedChoice label "Model"))
       (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))end
     else match subject_declaration subject with
       |Fields.ReasoningEffort=>RequiredAbsence "Choose an allowed reasoning effort"
-      |_=>present(NamedChoice(profile_label profile)"Model")end end
+      |_=>present(NamedChoice label "Model")end end
  |Fields.WorkspaceValue workspace=>workspace_information subject workspace false
  |Fields.ContextValue(Context.ContextUnavailable reason)_=>UnavailableInformation reason
  |Fields.ContextValue(Context.ProspectiveContext _ project workspace sandbox approval _)_=>
@@ -220,7 +278,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.CommittedContextValue _ settings _=>context_information snapshot subject
    (Selvedge.Kernel.Domain.settings_project settings)(Selvedge.Kernel.Domain.settings_workspace settings)false
    (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
- |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send"|Fields.Steer=>"Steer"end)"")
+ |Fields.DeliveryValue intent=>present(NamedChoice(delivery_label intent)"")
  |Fields.ProjectValue None=>OptionalAbsence
  |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
  |Fields.ToggleValue value=>present(Model.TextValue(if value then "Yes"else "No"))
@@ -228,9 +286,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.TextsValue values=>present(Model.TextValue(String.concat ", " values))
  |Fields.StageValue value=>present(Model.TextValue(Selvedge.Features.Domain.stage_label value))
  |Fields.PriorityValue value=>present(Model.TextValue(Selvedge.Features.Domain.priority_label value))
- |Fields.OwnerValue value=>present(Model.TextValue(match value with
-   |Selvedge.Features.Domain.Unassigned=>"未分配"|Selvedge.Features.Domain.Self=>"我"
-   |Selvedge.Features.Domain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with Some profile=>profile_label profile|None=>"Unavailable model"end end))
+ |Fields.OwnerValue value=>present(Model.TextValue(Read.card_owner_label snapshot value))
  |Fields.AttachmentsValue files=>present(Model.TextValue(String.concat ", "(map Selvedge.Features.Domain.attachment_name files)))
  |Fields.AssistanceValue enabled _=>present(Model.TextValue(if enabled then "Assisted capture"else "Manual capture"))
  |Fields.OptionalTextValue None=>OptionalAbsence|Fields.OptionalTextValue(Some text)=>present(Model.TextValue text)
@@ -246,16 +302,16 @@ Definition context_origin_label source:=match source with
  |Context.ProjectDefaults _|Context.ProjectForParent _ _=>"Project configuration"
  |Context.ParentTask task=>"Parent task "++show_natural task end.
 Definition permission_origin_label source:=match source with
- |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"Environment defaults"
- |Context.ParentTask task|Context.ProjectForParent task _=>"Parent task "++show_natural task end.
+ |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"环境默认配置"
+ |Context.ParentTask task|Context.ProjectForParent task _=>"父对话 #"++show_natural task end.
 Definition prospective_source kind source workspace sandbox approval:=match kind with
  |WorkspaceProperty=>match workspace with
    |Context.InheritedWorkspace _=>context_origin_label source
    |Context.EnteredWorkspace _=>"Custom workspace; overrides "++context_origin_label source end
- |PermissionsProperty=>"Filesystem and network: "++
-   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"Custom"end)++
-   String (Ascii.ascii_of_nat 10)("Approval: "++match approval with
-    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"Custom"end)
+ |PermissionsProperty=>"文件系统和联网 · "++
+   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"自定义"end)++
+   String (Ascii.ascii_of_nat 10)("审批 · "++match approval with
+    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"自定义"end)
  |_=>context_origin_label source end.
 Definition property_source_description snapshot state {e}(property:property e):string:=
  match property_kind_of property with
@@ -263,7 +319,7 @@ Definition property_source_description snapshot state {e}(property:property e):s
    |Identity.NewTask _=>"Configured model list for this new task"
    |Identity.Message _=>"Configured model list for this task; the current selection retains its captured model definition"
    |Identity.Fork _=>"Configured model list for the new fork"|_=>"Configured model list for this editor"end
- |DeliveryProperty=>"Message delivery for this task"
+ |DeliveryProperty=>"这条消息的发送方式"
  |kind=>match observe_subject snapshot state(property_subject property)with
    |Fields.ContextValue(Context.ContextUnavailable reason)_=>reason
    |Fields.ContextValue(Context.ProspectiveContext source project workspace sandbox approval _)_=>
@@ -272,12 +328,13 @@ Definition property_source_description snapshot state {e}(property:property e):s
         Some name=>" · "++name|None=>""end|_,_=>""end)
    |Fields.CommittedContextValue task _ _=>match kind with
       |WorkspaceProperty=>"Task workspace"
-      |PermissionsProperty=>"Filesystem and network: Task "++show_natural task++
-        String (Ascii.ascii_of_nat 10)("Approval: Task "++show_natural task)
+      |PermissionsProperty=>"文件系统和联网 · 对话 #"++show_natural task++
+        String (Ascii.ascii_of_nat 10)("审批 · 对话 #"++show_natural task)
       |_=>"Task context"end
    |Fields.ProjectValue None=>"Environment defaults"
    |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
-     Some name=>"Project configuration · "++name|None=>"The selected project is no longer available"end
+     |Some name=>(match e with Identity.Project _=>"项目配置 · "|_=>"Project configuration · "end)++name
+     |None=>match e with Identity.Project _=>"该项目已不可用。"|_=>"The selected project is no longer available"end end
    |Fields.WorkspaceValue _=>"Project workspace configuration"
    |_=>"The settings source is unavailable"end end.
 
@@ -296,13 +353,16 @@ Definition property_help_text snapshot state {e}(property:property e):string:=
     Some workspace=>String.concat(String(Ascii.ascii_of_nat 10)"")(Selvedge.Kernel.Domain.workspace_roots workspace)
     |None=>value end)
  |PermissionsProperty=>let effects:=match permission_observation snapshot(observe_subject snapshot state(property_subject property))with
-   |Some(sandbox,approval)=>String.concat " · "(map snd(permission_effects sandbox approval))
+   |Some(sandbox,approval)=>String.concat " · "(map snd(permission_effects snapshot sandbox approval))
    |None=>value++detail++match observe_subject snapshot state(property_subject property)with
      |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>
        match unavailable_reviewer_key snapshot approval with
-       |Some key=>" · Automatic review unavailable: "++key|None=>""end
+       |Some key=>" · 自动审批不可用（"++key++"）"|None=>""end
      |_=>""end end in
-   "Permissions: "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
+   property_label property++": "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
+ |DeliveryProperty=>match observe_subject snapshot state(property_subject property)with
+   |Fields.DeliveryValue intent=>property_label property++": "++value++"。"++delivery_explanation snapshot e intent
+   |_=>property_label property end
  |_=>property_label property++": "++value++detail end.
 Definition recognition_information snapshot {e}(subject:Model.subject e)(value:Fields.observed):information e:=
  let missing_project id:=PresentInformation
@@ -310,7 +370,7 @@ Definition recognition_information snapshot {e}(subject:Model.subject e)(value:F
  match value with
  |Fields.ModelValue key effort=>PresentInformation
    (SummaryValue subject(Model.TextValue(match profile_for_subject snapshot subject key with
-    |Some profile=>profile_label profile|None=>"Missing model "++key end)))
+    |Some profile=>ContextObservation.profile_label(model_profiles snapshot subject)profile|None=>"Missing model "++key end)))
    (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))
  |Fields.ProjectValue(Some id)=>match FieldsObservation.project_name id snapshot with
    |None=>missing_project id|Some _=>information_of snapshot subject value end
@@ -327,7 +387,7 @@ Definition observe_property snapshot state e kind:option(property e):=
  let information:=recognition_information snapshot subject observed in
  let information:=match kind,information,permission_observation snapshot observed with
  |PermissionsProperty,PresentInformation principal _,Some(sandbox,approval)=>
-   PresentInformation principal(Some(SummaryValue subject(TextValue(String.concat " · "(map snd(permission_effects sandbox approval))))))
+   PresentInformation principal(Some(SummaryValue subject(TextValue(String.concat " · "(map snd(permission_effects snapshot sandbox approval))))))
  |_,_,_=>information end in
  let property:=Property kind subject members information ""in
  Some(Property kind subject members information(property_help_text snapshot state property)).
@@ -340,37 +400,115 @@ Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_dr
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
  (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
 Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
-Definition admission snapshot state owner revision command:availability:=
+Definition awaiting_admission := "正在检查操作…".
+Definition admission_pending_code := "admission_pending".
+Definition checked_admission snapshot state owner revision command : option availability :=
  let sequence:=natural_field "sequence" snapshot in
- match sequence with None=>Unavailable "The current state has not been observed."
+ match sequence with None=>Some(Unavailable "The current state has not been observed.")
  |Some sequence=>match find(CommandAssessment.owned_assessment owner)(EC.command_assessments(EC.observed state))with
  |Some(Loaded _ request observation)=>if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation then
-   match CommandAssessment.observed_admission observation with CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
-   else Unavailable "Checking this action against the current state."
+   Some(match CommandAssessment.observed_admission observation with
+    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end)
+   else None
  |Some(Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request
-   then Unavailable reason else Unavailable "Checking this action against the current state."
- | _=>Unavailable "Checking this action against the current state."end end.
+   then Some(Unavailable reason) else None
+ | _=>None end end.
+Definition admission snapshot state owner revision command : availability :=
+ value_or (Unavailable awaiting_admission) (checked_admission snapshot state owner revision command).
+Definition card_save_consequence snapshot state (draft:Draft.draft) :=
+ let context:=EC.observed state in
+ let owner:=CommandAssessment.DraftOwner(Draft.owner draft) in
+ let revision:=Draft.revision draft in
+ sequence<-natural_field "sequence" snapshot;;
+ command<-Command.command(EC.current_time context)draft;;
+ match find(CommandAssessment.owned_assessment owner)(EC.command_assessments context) with
+ |Some(Loaded _ request observation)=>
+  if CommandAssessment.matches owner revision sequence command request &&
+     CommandAssessment.current_owned owner revision sequence observation then
+   match CommandAssessment.observed_admission observation with
+   |CommandAssessment.Admitted=>CommandAssessment.observed_card_save_consequence observation
+   |CommandAssessment.Refused _ _=>None end
+  else None
+ |_=>None end.
+Definition unadded_project_directory := "请先添加或清空目录路径。".
+Definition unadded_project_directory_code := "unadded_directory".
+Definition project_git_problem_message problem := match problem with
+ |FieldsObservation.GitPrimaryRequired=>"请先添加并选择主目录。"
+ |FieldsObservation.GitCheckPending=>"正在检查主目录是否可用于创建 Git 工作树。"
+ |FieldsObservation.GitRepositoryRequired=>"主目录需要位于包含至少一次提交的 Git 仓库中。"
+ |FieldsObservation.GitCheckFailed=>"无法检查主目录。请选择其他目录，或关闭默认创建 Git 工作树。"
+ end.
 Definition project_precondition snapshot state (draft:Draft.draft):option(option Fields.field*string*string):=
  match Draft.contents draft with
  |Draft.ProjectBody project name workspace worktree=>
    if negb(String.eqb(Draft.directory_entry draft)"") ||
       negb(String.eqb(EC.directory_entry(EC.observed state)(Draft.owner draft))"")
-   then Some(Some Fields.WorkspaceDirectories,"unadded_directory","Add or clear the directory before saving.")
-   else match project with
+   then Some(Some Fields.WorkspaceDirectories,unadded_project_directory_code,unadded_project_directory)
+   else match FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft with
+   |Some problem=>Some(Some Fields.CreateWorktree,"project_git_primary",project_git_problem_message problem)
+   |None=>match project with
     |None=>None
     |Some id=>match FieldsObservation.project_by_id id snapshot with
      |Some original=>match string_field "name" original,bind(field "workspace" original)Selvedge.Kernel.Codec.parse_workspace,bool_field "create_worktree" original with
       |Some previous,Some previous_workspace,Some previous_worktree=>
        if String.eqb name previous&&Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json previous_workspace)&&Bool.eqb worktree previous_worktree
-       then Some(None,"unchanged_project","No project changes to save.")else None
-      |_,_,_=>Some(None,"unavailable_project","The current project configuration has not been observed.")end
-     |None=>None end end
+       then Some(None,"unchanged_project","没有要保存的更改。")else None
+      |_,_,_=>Some(None,"unavailable_project","当前项目设置不可用。")end
+     |None=>None end end end
  |_=>None end.
 Definition requirement_obstruction e(field:option Fields.field)(code reason:string):obstruction e:=
  Obstruction(match field with Some field=>match Model.admit_subject e(Parameters.name field)with
    Some subject=>RepairField subject|None=>RepairEditor end|None=>RepairEditor end)code reason.
 Definition failed_requirement e (valid:bool) field code reason:list(obstruction e):=
  if valid then []else [requirement_obstruction e field code reason].
+Definition run_environment_git_message (problem:FieldsObservation.git_problem) :=
+ match problem with
+ |FieldsObservation.GitPrimaryRequired=>"请选择 Git 仓库中的主目录，或直接使用当前工作目录。"
+ |FieldsObservation.GitCheckPending=>"正在检查工作目录是否支持 Git 工作树…"
+ |FieldsObservation.GitRepositoryRequired=>"请选择包含提交的 Git 仓库，或直接使用当前工作目录。"
+ |FieldsObservation.GitCheckFailed=>"Git 检查失败。请选择另一个目录，或直接使用当前工作目录。"
+ end.
+Inductive cloud_repair := ChooseCloudDirectory | UseCloudProjectDirectory | EditCloudProject (project:N).
+Record run_environment_problem := RunEnvironmentProblem {
+ environment_problem_code:string; environment_problem_message:string;
+ environment_problem_repair:option cloud_repair; environment_problem_recheck:bool }.
+Definition cloud_source_caption snapshot draft := match FieldsObservation.draft_preview snapshot draft with
+ |Context.ProspectiveContext _ (Some _) _ _ _ _=>"腾讯云会克隆项目主目录对应的 GitHub 仓库。"
+ |_=>"腾讯云会克隆 Selvedge 主机上主目录对应的 GitHub 仓库。" end.
+Definition cloud_run_problem snapshot state draft : option run_environment_problem :=
+ let issue message repair recheck:=Some(RunEnvironmentProblem "cloud_workspace_unavailable" message repair recheck)in
+ match FieldsObservation.cloud_source_selection snapshot(EC.directory_result(EC.observed state)draft)draft with
+ |None=>None
+ |Some(inl problem)=>match problem with
+  |FieldsObservation.CloudDirectoryRequired=>issue "请选择此对话的主目录。" (Some ChooseCloudDirectory) false
+  |FieldsObservation.CloudDirectoryChecking=>issue "正在检查工作目录…" None false
+  |FieldsObservation.CloudDirectoryUnavailable=>issue "无法读取工作目录。" (Some ChooseCloudDirectory) false
+  |FieldsObservation.CloudProjectDirectoryRequired project=>issue "请为此项目设置主目录。" (Some(EditCloudProject project)) false
+  |FieldsObservation.CloudProjectPrimaryMismatch _=>issue "云端运行使用项目主目录。" (Some UseCloudProjectDirectory) false end
+ |Some(inr source)=>
+  let repair:=Some(match FieldsObservation.cloud_project source with Some project=>EditCloudProject project|None=>ChooseCloudDirectory end)in
+  match FieldsObservation.git_request_problem (Draft.owner draft,FieldsObservation.cloud_primary source)
+    (EC.cloud_repository_observation(EC.observed state))with
+  |None=>None
+  |Some FieldsObservation.GitCheckPending=>issue "正在检查 GitHub 仓库…" None false
+  |Some FieldsObservation.GitCheckFailed=>issue "无法检查 GitHub 仓库。" repair true
+  |Some _=>issue (match FieldsObservation.cloud_project source with
+    |Some _=>"项目主目录须位于包含提交和 GitHub 远端的 Git 仓库中。"
+    |None=>"请选择包含提交和 GitHub 远端的 Git 仓库中的主目录。" end) repair true end
+ end.
+Definition run_environment_problem_for snapshot state draft : option run_environment_problem :=
+ if FieldsObservation.cloud_workspace_requested draft then
+  if FieldsObservation.cloud_workspace_configured snapshot then cloud_run_problem snapshot state draft
+  else Some(RunEnvironmentProblem "cloud_backend_unavailable" "此 Selvedge 主机尚未配置腾讯云 CVM。" None false)
+ else
+ problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
+ Some(RunEnvironmentProblem "workspace_git_unavailable" (run_environment_git_message problem) None false).
+Definition run_environment_obstruction snapshot state e (draft:Draft.draft):option(obstruction e):=
+ match e with
+ |Identity.NewTask _=>
+   problem<-run_environment_problem_for snapshot state draft;;
+   Some(requirement_obstruction e (Some Fields.TaskEnvironment) (environment_problem_code problem) (environment_problem_message problem))
+ |_=>None end.
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
  match ModelSelection.observed_profile snapshot profile with
  |None=>[requirement_obstruction e(Some Fields.ModelProfile)"model_not_found" "Choose a configured model"]
@@ -400,6 +538,65 @@ Definition fork_requirements snapshot e task count (messages:list string):list(o
       "resource_limit" "An ancestor descendant limit prevents this fork."
    |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end
   |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end end.
+Definition handoff_conversations snapshot work : option (string + list Read.task) :=
+ option_map (fun all=>match Read.work_tasks work all with
+  |[]=>inl "请在此范围内新建两条对话。"
+  |[_]=>inl "请在此范围内再新建一条对话。"
+  |available=>inr available end)(Read.tasks snapshot).
+Definition handoff_conversations_loading := "正在读取对话…".
+Definition invalid_graph_declaration :=
+ ("invalid_task_graph_declaration","请检查任务图名称、对话和转发规则。").
+Definition graph_declaration_diagnostic snapshot graph parsed work :=
+ match bind parsed GraphAuthoring.observe_handoff with
+ |None=>invalid_graph_declaration
+ |Some handoff=>match GraphAuthoring.handoff_source handoff,GraphAuthoring.handoff_target handoff with
+  |Some _,Some _=>if String.eqb(GraphAuthoring.handoff_name handoff)"" then
+    ("invalid_task_graph_declaration",("请输入"++GraphAuthoring.handoff_name_label++"。")%string) else invalid_graph_declaration
+  |source,target=>
+   let scope:=match graph with
+    |None=>work|Some id=>bind(Read.find_graph id snapshot)Read.graph_work end in
+   ("graph_handoff_incomplete",match handoff_conversations snapshot scope with
+    |None=>handoff_conversations_loading
+    |Some(inl shortage)=>shortage
+    |Some(inr _)=>match source,target with
+     |None,None=>"请选择来源对话和接收对话。"
+     |None,Some _=>"请选择来源对话。"
+     |Some _,_=>"请选择接收对话。"end end)
+  end
+ end.
+Definition graph_declaration_valid body :=
+ match Command.command_json None body with Some value=>
+  match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
+  |Some _=>match TaskGraph.parse_declaration false value with
+    |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
+  |None=>false end
+ |None=>false end.
+Definition missing_required_input_code := "missing_required_input".
+Definition required_name e field name valid invalid_code prompt invalid_message :=
+ let present:=Utf8.nonblank name in
+ failed_requirement e (present && valid) (Some field)
+   (if present then invalid_code else missing_required_input_code)
+   (if present then invalid_message else prompt).
+Definition card_text_requirements e value assisted :=
+ let draft:=Board.normalized_draft assisted value in
+ let title:=Domain.draft_title draft in
+ failed_requirement e (BoardFacts.title_has_content title) (Some Fields.CardTitle) missing_required_input_code
+   (if assisted then "请输入标题或描述。" else Parameters.card_title_prompt++"。")++
+ failed_requirement e (BoardFacts.title_within_limit title) (Some Fields.CardTitle) "card_title_too_long" "标题太长，请缩短。"++
+ failed_requirement e (BoardFacts.description_within_limit (Domain.draft_description draft))
+   (Some Fields.CardDescription) "card_description_too_long" "描述太长，请缩短。".
+Definition card_assistance_requirements snapshot e assisted selected :=
+ if negb assisted || assistance_profile_available snapshot selected then [] else
+ let blocked code message:=[requirement_obstruction e (Some Fields.AssistanceProfile) code message] in
+ let unavailable:=blocked "draft_profile_unavailable" in
+ match drafting_profile_choices snapshot with
+ |[]=>unavailable "没有可用的整理模型。请配置模型，或关闭模型整理。"
+ |_=>if String.eqb selected "" then
+   if String.eqb (board_default_drafting_profile snapshot) "" then
+   blocked missing_required_input_code "请选择整理用的模型。"
+   else unavailable "看板默认整理模型不可用，请选择其他模型。"
+  else unavailable "所选整理模型不可用，请重新选择。"
+ end.
 Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  match body with
  |Draft.NewTaskBody message profile effort _ _ _=>
@@ -407,19 +604,18 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    model_requirements snapshot e profile effort
  |Draft.MessageBody _ message _=>failed_requirement e(text_has_content message)
    (Some Fields.MessageText)"empty_message" Tasks.input_required_message
- |Draft.WorkNameBody _ name=>failed_requirement e(Work.valid_name name)
-   (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
- |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
-   (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
+ |Draft.WorkNameBody _ name=>required_name e Fields.WorkName name (Work.valid_name name)
+   "invalid_work_name" (Parameters.work_name_prompt++"。") "工作组名称不能超过 4096 个 UTF-8 字节。"
+ |Draft.ProjectBody _ name _ _=>required_name e Fields.ProjectName name (Workspace.valid_project_name name)
+   "invalid_project_name" Parameters.project_name_prompt "项目名称不能超过 256 个 UTF-8 字节。"
+ |Draft.CardBody _ _ value assisted selected _=>card_text_requirements e value assisted++
+   card_assistance_requirements snapshot e assisted selected
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
- |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
-   (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
-     match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
-     |Some _=>match TaskGraph.parse_declaration false value with
-       |Some declaration=>TaskGraph.valid_declaration declaration|None=>false end
-     |None=>false end|None=>false end end)
-   (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
- |Draft.TitlePromptsBody _ task agent _=>
+ |Draft.TaskGraphBody graph _ parsed work=>
+   if graph_declaration_valid body then [] else
+   let '(code,reason):=graph_declaration_diagnostic snapshot graph parsed work in
+   [requirement_obstruction e (Some Fields.TaskGraphDeclaration) code reason]
+ |Draft.TitlePromptsBody _ _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
  |_=>[]end.
@@ -427,7 +623,7 @@ Definition record_requirements snapshot e (body:Draft.body):list(obstruction e):
  match body with
  |Draft.ProjectBody(Some id)_ _ _=>failed_requirement e
    (match FieldsObservation.project_by_id id snapshot with Some _=>true|None=>false end)
-   None "project_not_found" "The project does not exist."
+   None "project_not_found" "该项目已不存在。"
  |_=>[]end.
 Definition draft_requirements snapshot state e:list(obstruction e):=
  let draft:=EC.current_draft state e in
@@ -441,11 +637,15 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (match FieldsObservation.draft_context draft with None=>[]|Some _=>
   match FieldsObservation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
    [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
+ (match run_environment_obstruction snapshot state e draft with Some cause=>[cause]|None=>[]end)++
  record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
- String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending".
+ String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
+ String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
+ String.eqb(obstruction_code cause)admission_pending_code||
+ String.eqb(obstruction_code cause)missing_required_input_code.
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
 Definition action_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
@@ -456,16 +656,25 @@ Definition restrict_outcome {e}(reason:string)(outcome:assessment_result e):asse
  let cause:=Obstruction RepairEditor "control_unavailable" reason in
  match outcome with PreparationBlocked first rest=>PreparationBlocked first(rest++[cause])
  |_=>PreparationBlocked cause[]end.
-Definition preparation_admission snapshot state e draft command:availability:=
- match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
- |Unavailable reason=>Unavailable reason
- |Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
-  |Some update=>admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
+Definition preparation_admission snapshot state e draft command : option availability :=
+ match checked_admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
+ |Some Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
+  |Some update=>checked_admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
     (EC.admission_revision(EC.observed state))update
-  |None=>Available end end.
+  |None=>Some Available end
+ |outcome=>outcome end.
 Definition preliminary_assessment snapshot state e:assessment_result e:=
  let draft:=EC.current_draft state e in
- let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
+ let obstruction (reason:string):assessment_result e:=
+   PreparationBlocked (Obstruction RepairEditor "NotAdmitted" reason) [] in
+ let assess command:=
+   if EC.connected(EC.observed state)then
+    match preparation_admission snapshot state e draft command with
+    |Some Available=>PreparationReady
+    |Some(Unavailable reason)=>obstruction reason
+    |None=>PreparationBlocked (Obstruction RepairEditor admission_pending_code awaiting_admission) []
+    end
+   else PreparationReady in
  match draft_requirements snapshot state e with
  |first::rest=>PreparationBlocked first rest
  |[]=>match Draft.contents draft,EC.current_time(EC.observed state) with
@@ -473,16 +682,12 @@ Definition preliminary_assessment snapshot state e:assessment_result e:=
  |_,_=>match Draft.explicit_workspace draft with
  |Some workspace=>match EC.directory_result(EC.observed state)draft with
    |Some(inr observation)=>match Command.observed_command(EC.current_time(EC.observed state))draft observation with
-     |Some command=>if EC.connected(EC.observed state)then
-       match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
-       else PreparationReady
+     |Some command=>assess command
      |None=>obstruction "The draft does not yet form a command."end
    |Some(inl reason)=>PreparationBlocked(requirement_obstruction e(Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason)[]
    |_=>DirectoryObservationRequired workspace end
  |None=>match Command.command(EC.current_time(EC.observed state))draft with
-   |Some command=>if EC.connected(EC.observed state)then
-     match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
-     else PreparationReady
+   |Some command=>assess command
    |None=>obstruction "The draft does not yet form a command."end end end end.
 Definition observe_assessment snapshot state e:assessment e:=
  let draft:=EC.current_draft state e in
@@ -490,9 +695,11 @@ Definition observe_assessment snapshot state e:assessment e:=
  Assessment(ActionIdentity(Draft.revision draft))
  (if negb(EC.connected(EC.observed state))then restrict_outcome "Connect to continue." outcome
  else if EC.editor_uploading(EC.observed state)e then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
- else if negb(FieldsObservation.worktree_submission_allowed snapshot(EC.git_observation(EC.observed state)) draft)
- then restrict_outcome "Wait for Git verification of the primary workspace before creating a worktree." outcome
  else outcome).
+Definition awaits_only_admission {e}(assessment:assessment e) :=
+ match assessment_outcome assessment with
+ |PreparationBlocked cause []=>String.eqb(obstruction_code cause)admission_pending_code
+ |_=>false end.
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
 Definition assignment_shape snapshot {e}(subject:Model.subject e) form
@@ -520,16 +727,6 @@ Definition assignment_shape_available snapshot state {e}(assignment:assignment e
  assignment_shape snapshot subject(entry snapshot state subject)(fun _=>observe_subject snapshot state subject)
   (fun incoming=>includes_choice subject(choices snapshot state subject)incoming)
   (Schema.encode_value(subject_kind subject)(assignment_value assignment)).
-Definition workspace_choice_available snapshot state (draft:Draft.draft) incoming:availability:=
- if Json.equal incoming(JString(WorkspaceBackend.name WorkspaceBackend.Local))then
- match bind(FieldsObservation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
- |None=>Unavailable "Choose a primary working directory before creating a local worktree."
- |Some _=>match FieldsObservation.worktree_observation snapshot(EC.git_observation(EC.observed state)) draft with
-   |Some(Loaded _ _ true)=>Available
-   |Some(Loaded _ _ false)=>Unavailable "The primary working directory is not a Git repository."
-   |Some(Failed _ _ reason)=>Unavailable reason
-   |_=>Unavailable "Checking the primary working directory for Git."end end
- else Available.
 Definition reviewer_assignment_reason snapshot current {e}(assignment:assignment e):option string:=
  let incoming:=Schema.encode_value(subject_kind(assignment_subject assignment))(assignment_value assignment)in
  match subject_declaration(assignment_subject assignment),incoming with
@@ -553,12 +750,9 @@ Definition assignment_availability snapshot state {e}(assignment:assignment e) c
   |Some command=>admission snapshot state(candidate_owner subject
     (Schema.encode_value(subject_kind subject)(assignment_value assignment)))(Draft.revision current)command
   |None=>Unavailable "This configuration change is not available in the current task."end
- else match (match subject_declaration subject with Fields.TaskEnvironment=>workspace_choice_available snapshot state current
-    (Schema.encode_value(subject_kind subject)(assignment_value assignment))|_=>Available end)with
-  |Unavailable reason=>Unavailable reason
-  |Available=>match apply tt with
+ else match apply tt with
    |Some _=>Available
-   |None=>Unavailable "This field cannot be changed in the current context."end end
+   |None=>Unavailable "This field cannot be changed in the current context."end
  else Unavailable "Select a value permitted by the current field specification." end.
 Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
  let current:=EC.current_draft state e in
@@ -566,67 +760,48 @@ Definition assignment_available snapshot state {e}(assignment:assignment e):avai
   (fun _=>assignment_shape_available snapshot state assignment)
   (fun _=>Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment)
   (fun _=>Values.apply_assignment snapshot current assignment).
-Definition candidate_permissions snapshot {e}(subject:Model.subject e) candidate (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
- if Parameters.live_configuration e(subject_declaration subject)then
-  match e,command with
-  |Identity.Message task,Some command=>
-   settings<-FieldsObservation.task_settings task snapshot;;
-   profile<-FieldsObservation.task_profile task snapshot;;
-   let encoded:=Schema.encode_command command in
-   sandbox<-Selvedge.Kernel.Codec.select_optional
-     (Selvedge.Kernel.Codec.parse_sandbox_patch(Selvedge.Kernel.Domain.settings_sandbox settings))
-     "sandbox" encoded(Selvedge.Kernel.Domain.settings_sandbox settings);;
-   approval<-Selvedge.Kernel.Codec.select_optional
-     (Selvedge.Kernel.Codec.parse_approval profile(FieldsObservation.catalog snapshot))
-     "approval" encoded(Selvedge.Kernel.Domain.settings_approval settings);;Some(sandbox,approval)
-  |_,_=>None end
- else permission_observation snapshot(observe_subject snapshot candidate subject).
 Definition candidate_consequences snapshot state {e}(subject:Model.subject e)
     (observed:Fields.observed)(applied:option Draft.draft)
     (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
- let candidate:=match applied with
+ let candidate _:=match applied with
   |Some updated=>EC.with_draft updated state|None=>state end in
  match subject_declaration subject with
  |Fields.ModelProfile=>
    let next:=if Parameters.live_configuration e Fields.ModelProfile then
      bind command(fun command=>string_field "reasoning"(Schema.encode_command command))
-    else match observe_subject snapshot candidate subject with Fields.ModelValue _ effort=>Some effort|_=>None end in
+    else match observe_subject snapshot(candidate tt)subject with Fields.ModelValue _ effort=>Some effort|_=>None end in
    match observed,next with
    |Fields.ModelValue _ previous,Some effort=>if String.eqb previous effort then []else
      match related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue("Reasoning effort: "++effort))with
      |Some summary=>[summary]|None=>[]end
    |_,_=>[]end
- |Fields.ApprovalPolicy=>match candidate_permissions snapshot subject candidate command with
-   |Some(sandbox,approval)=>fold_right(fun '(field,text) rest=>match related_summary(e:=e)field(Model.TextValue text)with
-     |Some summary=>summary::rest|None=>rest end)[](permission_effects sandbox approval)
-   |None=>[]end
- |Fields.ReasoningEffort|Fields.ApprovalReviewer=>[]
+ |Fields.ReasoningEffort|Fields.ApprovalPolicy|Fields.ApprovalReviewer|Fields.DeliveryIntent=>[]
  |_=>match applied with
    |Some _=>let kinds:=match subject_declaration subject with
      |Fields.ContextOrigin=>[ProjectProperty;WorkspaceProperty;PermissionsProperty]
      |Fields.WorkspaceDirectories|Fields.WorkspacePrimary|Fields.TaskEnvironment=>[WorkspaceProperty]
-     |Fields.DeliveryIntent=>[DeliveryProperty]|_=>[PermissionsProperty]end in
-    flat_map(fun kind=>match observe_property snapshot candidate e kind with
+     |_=>[PermissionsProperty]end in
+    flat_map(fun kind=>match observe_property snapshot(candidate tt)e kind with
      |Some property=>information_summaries(property_information property)|None=>[]end)kinds
    |None=>[]end end.
-Definition alternative_explanation snapshot field (choice:Fields.choice_value) :=
+Definition alternative_explanation snapshot e field (choice:Fields.choice_value) :=
  match field with
  |Fields.ModelProfile|Fields.ApprovalReviewer=>match ModelSelection.observed_profile snapshot(Fields.choice_value_of choice)with
    |Some profile=>Selvedge.Kernel.Domain.profile_provider profile|None=>""end
  |Fields.SandboxMode=>match Fields.choice_value_of choice with
-   |"workspace-write"=>"Allow edits in the working directories."
-   |"read-only"=>"Read files without modifying them."|_=>""end
+   |"workspace-write"=>"允许修改工作目录内的文件。"
+   |"read-only"=>"只允许读取文件。"|_=>""end
  |Fields.NetworkAccess=>match Fields.choice_value_of choice with
-   |"true"=>"Allow network access."|"false"=>"Keep network access off."|_=>""end
+   |"true"=>"允许联网。"|"false"=>"限制联网。"|_=>""end
+ |Fields.DeliveryIntent=>match Fields.choice_value_of choice with
+   |"send"=>delivery_explanation snapshot e Fields.Send
+   |"steer"=>delivery_explanation snapshot e Fields.Steer
+   |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
-   |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
-   |"approval-for-me"=>"Review approvals with a configured model"
-   |"full-access"=>"Unrestricted execution without approval"|_=>""end
+   |"ask-for-approval"=>"需要扩大权限时会询问你。"
+   |"approval-for-me"=>"需要扩大权限时由模型审批。"
+   |"full-access"=>"文件访问和联网不受限制，无需审批。"|_=>""end
  |_=>""end.
-Definition observed_approval snapshot value:=match value with
- |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>resolve_approval snapshot approval
- |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_approval settings)
- |_=>None end.
 Definition selected_input snapshot {e}(subject:subject e)(observed:Fields.observed):option json:=
  match subject_declaration subject with
  |Fields.ApprovalPolicy=>match observed_approval snapshot observed with
@@ -647,7 +822,8 @@ Definition alternative_for_choice snapshot state {e}(subject:Model.subject e) cu
  let availability:=assignment_availability snapshot state assignment current
    (fun _=>assignment_shape snapshot subject form(fun _=>observed)listed incoming)
    (fun _=>command)(fun _=>applied)in
- Some(Alternative(Fields.choice_label choice)(alternative_explanation snapshot(subject_declaration subject)choice)value
+ Some(Alternative(Fields.choice_label choice)
+   (alternative_explanation snapshot e (subject_declaration subject) choice)value
    (match selected with Some value=>Json.equal offered value|None=>false end)availability
    (candidate_consequences snapshot state subject observed applied command))
  else None.

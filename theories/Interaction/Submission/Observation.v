@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Commands.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities Workspace WorkspaceBackend Commands.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
@@ -122,7 +122,7 @@ Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fie
    |_=>prospective context end
  |Draft.CompactBody _ summary=>match field with Fields.CompactionSummary=>Fields.OptionalTextValue summary|_=>Fields.NotApplicable end
  |Draft.TaskGraphBody _ declaration _ _=>match field with Fields.TaskGraphDeclaration=>Fields.TextValue declaration|_=>Fields.NotApplicable end
- |Draft.TitlePromptsBody _ task agent profile=>match field with
+ |Draft.TitlePromptsBody _ _ task agent profile=>match field with
    |Fields.TaskTitlePrompt=>Fields.TextValue task|Fields.AgentTitlePrompt=>Fields.TextValue agent
    |Fields.AgentTitleProfile=>Fields.OptionalTextValue profile|_=>Fields.NotApplicable end
  end.
@@ -141,16 +141,70 @@ Definition workspace_for_edit snapshot draft : string + Selvedge.Kernel.Domain.w
  |None=>match workspace_for snapshot draft with
    |Some workspace=>inr workspace|None=>inl "The working directories have not been observed." end
  end.
-Definition worktree_observation snapshot observation (draft:Draft.draft):option(resource(editor*string)bool):=
- match bind(workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary,resource_request observation with
- |Some primary,Some(owner,path)=>if same_editor owner(Draft.owner draft)&&String.eqb path primary
-   then Some observation else None
- |_,_=>None end.
-Definition worktree_available snapshot observation draft:=match worktree_observation snapshot observation draft with
- |Some(Loaded _ _ true)=>true|_=>false end.
-Definition worktree_submission_allowed snapshot observation draft:=match Draft.contents draft with
- |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>worktree_available snapshot observation draft
- |_=>true end.
+Definition workspace_git_request snapshot (draft:Draft.draft) : option (editor * string) :=
+ primary<-bind(workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary;;
+ Some(Draft.owner draft,primary).
+Definition workspace_git_request_matches (request:editor * string)
+    (observation:resource (editor * string) bool) : bool :=
+ let '(owner,path):=request in
+ match resource_request observation with
+ |Some(observed_owner,observed_path)=>same_editor owner observed_owner&&String.eqb path observed_path
+ |None=>false end.
+Inductive git_problem := GitPrimaryRequired | GitCheckPending | GitRepositoryRequired | GitCheckFailed.
+Definition git_request_problem request observation : option git_problem :=
+ if workspace_git_request_matches request observation then
+  match observation with
+  |Loaded _ _ true=>None
+  |Loaded _ _ false=>Some GitRepositoryRequired
+  |Failed _ _ _=>Some GitCheckFailed
+  |_=>Some GitCheckPending end
+ else Some GitCheckPending.
+Definition workspace_git_problem snapshot observation draft : option git_problem :=
+ match workspace_git_request snapshot draft with
+ |None=>Some GitPrimaryRequired
+ |Some request=>git_request_problem request observation end.
+Definition worktree_available snapshot observation draft:=match workspace_git_problem snapshot observation draft with
+ |None=>true|Some _=>false end.
+Definition worktree_required draft:=match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>true
+ |Draft.ProjectBody _ _ _ requested=>requested
+ |_=>false end.
+Definition cloud_workspace_requested draft:=match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.TencentCvm) _=>true
+ |_=>false end.
+Definition cloud_workspace_configured snapshot :=
+ match string_field "configured_cloud_backend" snapshot with
+ |Some backend=>String.eqb backend (WorkspaceBackend.name WorkspaceBackend.TencentCvm)
+ |None=>false end.
+Inductive cloud_directory_problem := CloudDirectoryRequired | CloudDirectoryChecking | CloudDirectoryUnavailable
+ | CloudProjectDirectoryRequired (project:N) | CloudProjectPrimaryMismatch (project:N).
+Record cloud_source := CloudSource { cloud_project:option N; cloud_primary:string }.
+Definition cloud_source_selection snapshot
+    (observed:option (string + (Selvedge.Kernel.Domain.workspace * json))) draft
+    : option (cloud_directory_problem + cloud_source) :=
+ if cloud_workspace_requested draft && cloud_workspace_configured snapshot then
+  match draft_preview snapshot draft with
+  |Context.ProspectiveContext _ project directory _ _ _=>
+   let project_space:=id<-project;;value<-project_by_id id snapshot;;bind(field "workspace" value)Codec.parse_workspace in
+   let selected effective := match Selvedge.Kernel.Domain.workspace_primary effective with
+    |Some primary=>match project,project_space with
+      |Some id,Some source=>if Workspace.same_primary effective source then inr(CloudSource project primary)
+       else inl(CloudProjectPrimaryMismatch id)
+      |_,_=>inr(CloudSource project primary)end
+    |None=>match project with Some id=>inl(CloudProjectPrimaryMismatch id)|None=>inl CloudDirectoryRequired end end in
+   match project,bind project_space Selvedge.Kernel.Domain.workspace_primary with
+   |Some id,None=>Some(inl(CloudProjectDirectoryRequired id))
+   |_,_=>Some(match directory with
+    |Context.InheritedWorkspace effective=>selected effective
+    |Context.EnteredWorkspace proposed=>match Selvedge.Kernel.Domain.workspace_primary proposed,observed with
+      |None,_=>selected proposed
+      |Some _,Some(inr(effective,_))=>selected effective
+      |Some _,Some(inl _)=>inl CloudDirectoryUnavailable
+      |Some _,None=>inl CloudDirectoryChecking end end)end
+  |Context.ContextUnavailable _=>None end
+ else None.
+Definition worktree_submission_problem snapshot observation draft :=
+ if worktree_required draft then workspace_git_problem snapshot observation draft else None.
 Definition worktree_preference snapshot observation (draft:Draft.draft):option(Schema.command_value Selvedge.Kernel.Commands.command_specs):=
  if worktree_available snapshot observation draft then match Draft.contents draft with
  |Draft.NewTaskBody _ _ _ configuration mode _=>match mode with
@@ -158,7 +212,11 @@ Definition worktree_preference snapshot observation (draft:Draft.draft):option(S
   |_=>match Context.context_origin configuration with
    |Context.ProjectDefaults id=>project<-project_by_id id snapshot;;previous<-bool_field "create_worktree" project;;
     let enabled:=match mode with Draft.ManagedWorkspace WorkspaceBackend.Local=>true|_=>false end in
-    if Bool.eqb previous enabled then None else Schema.decode_command Selvedge.Kernel.Commands.command_specs
+    let verified_project_primary:=match workspace_git_request snapshot draft,
+      bind(bind(field "workspace" project)Codec.parse_workspace)Selvedge.Kernel.Domain.workspace_primary with
+     |Some(_,checked),Some primary=>String.eqb checked primary|_,_=>false end in
+    if Bool.eqb previous enabled || (enabled && negb verified_project_primary) then None
+    else Schema.decode_command Selvedge.Kernel.Commands.command_specs
      (JObject[("op",JString "update_project");("project_id",number id);("create_worktree",JBool enabled)])
    |_=>None end end
  |_=>None end else None.

@@ -24,8 +24,8 @@ Inductive relationship := NavigationRows | MenuItems | InlineControls
 Definition separation value := match value with
 | NavigationRows | MenuItems | InlineControls => 4
 | ComposerControls | CardSections => 8
-| Cards | DialogActions | Sections => 12
-| BoardColumns | DialogSections | Messages => 16 end.
+| Cards | BoardColumns | DialogActions | Sections => 12
+| DialogSections | Messages => 16 end.
 
 Record extent := Extent { extent_width : nat; extent_height : nat }.
 Definition required_extent content_width content_height border area :=

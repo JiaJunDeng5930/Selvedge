@@ -41,6 +41,18 @@
 }
 .physical-markdown .markdown :where(ul, ol) { padding-inline-start: var(--physical-list-indent); }
 .physical-markdown .markdown li { margin: 0; padding: 0; }
+.physical-markdown .markdown li:has(> input[type="checkbox"]) {
+  position: relative;
+  list-style: none;
+}
+.physical-markdown .markdown li > input[type="checkbox"] {
+  position: absolute;
+  inset-inline-end: calc(100% + .4em);
+  inset-block-start: calc((1lh - .9em) / 2);
+  inline-size: .9em;
+  block-size: .9em;
+  margin: 0;
+}
 .physical-markdown .markdown a { color: var(--selvedge-accent); text-underline-offset: .16em; }
 .physical-markdown .markdown .code-block {
   box-sizing: border-box;
@@ -105,14 +117,132 @@
   color: var(--selvedge-muted);
 }
 .physical-markdown .markdown .table-scroll { overflow-x: auto; }
-.physical-markdown .markdown table { border-collapse: collapse; }
-.physical-markdown .markdown :where(th, td) {
-  padding: .375em .625em;
-  border-block-end: 1px solid var(--selvedge-border);
-}
-.physical-markdown .markdown th { background: var(--selvedge-inset); }
 .physical-markdown .markdown img { max-width: 100%; height: auto; }
 .physical-markdown .markdown :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) + :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) {
   margin-block-start: var(--physical-block-gap);
 }
 .physical-markdown .markdown .code-block[data-interactive-active="true"] > .code-language { display: none; }
+.physical-markdown .markdown .code-block[data-interactive-active="true"] > .interactive-preview-status {
+  display: none;
+}
+.physical-markdown .markdown .code-block[data-interactive-preview-candidate]:not([data-interactive-active="true"], [data-fallback-source-open]) > :is(pre, .code-toolbar, .code-language) {
+  display: none !important;
+}
+.interactive-preview-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  min-block-size: 2rem;
+  color: var(--selvedge-muted);
+  font-size: var(--rich-support-size);
+}
+.code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])
+  > .interactive-preview-status {
+  min-block-size: clamp(6rem, 22dvh, 10rem);
+  padding-inline: .75rem;
+  border-radius: .5rem;
+  background: var(--selvedge-inset);
+}
+:is(button[data-source-disclosure], [data-semantic-key="interactive-markdown/chart-controls"]) {
+  --source-disclosure-target: max(2rem, 32px);
+}
+@media (pointer: coarse) {
+  :is(button[data-source-disclosure], [data-semantic-key="interactive-markdown/chart-controls"]) {
+    --source-disclosure-target: max(2.75rem, 44px);
+  }
+}
+button[data-source-disclosure] {
+  flex: none;
+  inline-size: var(--source-disclosure-target) !important;
+  min-inline-size: var(--source-disclosure-target) !important;
+  min-block-size: var(--source-disclosure-target) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--selvedge-muted) !important;
+  cursor: pointer;
+}
+button[data-source-disclosure]:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--selvedge-inset) !important;
+  color: var(--selvedge-text) !important;
+}
+button[data-source-disclosure][data-help]::before {
+  content: "</>";
+  display: grid;
+  place-items: center;
+  font: 600 .8125rem / 1 ui-monospace, monospace;
+  letter-spacing: -.08em;
+}
+button[data-source-disclosure]::after {
+  font-size: var(--rich-support-size, .8125rem);
+  line-height: 1.35;
+}
+.physical-markdown .markdown .interactive-markdown-target:empty { display: none; }
+.physical-markdown .markdown .code-block[data-interactive-source-visible="false"] > .code-toolbar {
+  display: none !important;
+}
+.physical-markdown .markdown .code-block[data-interactive-source-visible="true"] {
+  & > :is(.code-toolbar, pre) {
+    padding-inline: var(--physical-code-padding-inline) !important;
+    background: var(--selvedge-inset);
+  }
+  & > .code-toolbar {
+    justify-content: flex-end !important;
+    margin-block-start: .5rem;
+    border-start-start-radius: var(--physical-code-border-radius);
+    border-start-end-radius: var(--physical-code-border-radius);
+  }
+  & > pre {
+    margin-block-start: 0;
+    padding-block-end: var(--physical-code-padding-block);
+    border-end-start-radius: var(--physical-code-border-radius);
+    border-end-end-radius: var(--physical-code-border-radius);
+  }
+}
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > h2 {
+  font-size: calc(var(--rich-section-size) * 1.125);
+  line-height: calc(var(--rich-section-line) * 1.125);
+  font-weight: var(--rich-title-weight);
+}
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > h3 {
+  font-size: var(--rich-section-size);
+  line-height: var(--rich-section-line);
+  font-weight: var(--rich-section-weight);
+}
+.physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > :is(h2, h3):not(:first-child) {
+  margin-block-start: max(1.35rem, calc(2 * var(--physical-block-gap)));
+}
+[data-semantic-key="interactive-markdown/source-controls"] {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: .25rem !important;
+  inline-size: 100% !important;
+  max-inline-size: 100% !important;
+  padding-block-start: .15rem;
+  border-block-start: 1px solid var(--selvedge-border) !important;
+
+  & > [data-interactive-component="button"] {
+    inline-size: fit-content !important;
+    min-inline-size: 0 !important;
+
+    & > button { font-size: var(--rich-support-size) !important; }
+  }
+}
+[data-semantic-key="interactive-markdown/chart-controls"] {
+  position: relative;
+  display: block !important;
+
+  /* Keep the source button outside the native summary activation target. */
+  & > button[data-source-disclosure] {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: .5rem;
+  }
+  & > [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
+    margin-inline-start: calc(.25rem + var(--source-disclosure-target)) !important;
+  }
+}

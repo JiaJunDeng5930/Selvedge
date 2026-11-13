@@ -58,10 +58,21 @@ Definition selected (project work : option N) (id : N) (task : task) (value : wo
 Definition task_hits (query : string) (project work : option N) (id : N) (task : task) (value : world) :=
  if selected project work id task value
  then history_hits query id task (world_features value) else [].
+Definition title_hit (query : string) (id : N) (task : task) (features : Features.Domain.state) :=
+ if contains (lower query) (lower (Features.Observation.task_title id task features))
+ then Some (JObject [("kind", JString "title"); ("task", Publication.task_summary id task features)])
+ else None.
+Definition title_hits (query : string) (project work : option N) (id : N) (task : task) (value : world) :=
+ if selected project work id task value then
+   match title_hit query id task (world_features value) with Some hit => [hit] | None => [] end
+ else [].
 Fixpoint drop_space (chunks : list (N * string)) :=
  match chunks with [] => [] | (scalar,_) :: rest => if Utf8.whitespace scalar then drop_space rest else chunks end.
 Definition trim (text : string) := match Utf8.chunks text with
  | None => text | Some chunks => Utf8.render_chunks (rev (drop_space (rev (drop_space chunks)))) end.
+Definition valid_length (length : nat) := Nat.leb 1 length && Nat.leb length 240.
+Definition valid_query (text : string) :=
+ match Utf8.scalar_count (trim text) with Some length => valid_length length | None => false end.
 Definition page_remaining (remaining : list json) (after limit : N) :=
  let more := N.ltb limit (N.of_nat (List.length remaining)) in
  State.success (JObject [("hits", JArray (firstn (N.to_nat limit) remaining)); ("after", number after);
@@ -69,7 +80,7 @@ Definition page_remaining (remaining : list json) (after limit : N) :=
 Definition page (hits : list json) (after limit : N) :=
  page_remaining (if N.leb after (N.of_nat (List.length hits)) then skipn (N.to_nat after) hits else []) after limit.
 Definition search (query : string) (project work : option N) (after : N)
- (size : Pagination.size Pagination.search_limit) (value : world) :=
+ (size : Pagination.size Pagination.search_limit) (include_titles : bool) (value : world) :=
  let limit := proj1_sig size in
  let project_exists := match project with None => true | Some id =>
    match registry_at id (world_projects value) with Some entry => negb (project_deleted entry) | None => false end end in
@@ -79,8 +90,11 @@ Definition search (query : string) (project work : option N) (after : N)
  if negb work_exists then State.failure "work_not_found" "The Work does not exist" else
  let query := trim query in
  match Utf8.scalar_count query with
- | Some length => if Nat.leb 1 length && Nat.leb length 240 then
-   let hits := concat (rev (indexed (fun id task => task_hits query project work id task value) 0 (world_tasks value))) in
-   page hits after limit
+ | Some length => if valid_length length then
+   let tasks := rev (indexed (fun id task => (id, task)) 0 (world_tasks value)) in
+   let titles := if include_titles then
+     flat_map (fun entry => title_hits query project work (fst entry) (snd entry) value) tasks else [] in
+   let messages := flat_map (fun entry => task_hits query project work (fst entry) (snd entry) value) tasks in
+   page (titles ++ messages) after limit
    else State.failure "invalid_search" "Search requires a query of 1..240 characters"
  | None => State.failure "invalid_search" "Search query must contain valid Unicode" end.

@@ -56,7 +56,7 @@ Definition duplicate_feedback path b :=
  |_=>let '(ticket,b):=State.take_ticket b in
    State.set_feedback path(Answered ticket false "This command is already pending.")b end.
 Definition action_effect who path ticket action := match action with
- | Draft text=>[FillDraft who path text]
+ | Draft text=>[FillDraft who path ticket text]
  | Submit text=>[SendMessage who path ticket text]
  | Copy text=>[WriteClipboard who path ticket text]
  | Navigate url=>[OpenUrl who path ticket url]
@@ -66,7 +66,6 @@ Definition perform_action event_id action b : option(block*list effect*bool) :=
  | Assign id value=>local<-Local.find_local id b.(locals);;next<-Local.assign local value;;
    Some(mark_edit(State.with_locals(Local.replace_local next b.(locals))b),[],true)
  | ResetAll=>Some(mark_edit(State.with_views [] (State.with_locals(map Local.reset b.(locals))b)),[],true)
- | Draft text=>Some(b,[FillDraft b.(block_owner) event_id.(path) text],false)
  | _=>if State.duplicate_pending action b then Some(duplicate_feedback event_id.(path)b,[],false)else
    let '(ticket,b):=replace_action event_id.(path) event_id.(occurrence) action b in
    Some(b,action_effect b.(block_owner) event_id.(path) ticket action,false)

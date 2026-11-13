@@ -86,7 +86,7 @@ Proof.
       as [priority|] eqn:Priority; [|discriminate].
     intros Glyph. inversion Glyph; subst symbol. destruct priority; vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
-  - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
+  - discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.
   - intros Glyph. inversion Glyph; subst symbol. vm_compute; discriminate.

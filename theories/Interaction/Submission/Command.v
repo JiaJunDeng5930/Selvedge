@@ -29,7 +29,8 @@ Definition present (name:string)(value:json)(fields:list(string*json)):=match va
 Definition command_json (now:option N)(value:Draft.body):option json:=
  let record name fields:=JObject(("op",JString name)::fields)in
  match value with
- |Draft.WorkNameBody work name=>Some(record "rename_work"[("work_id",number work);("name",JString name)])
+ |Draft.WorkNameBody work name=>Some(record (match work with None=>"create_work"|Some _=>"rename_work"end)
+   (present "work_id" (optional_id work) [("name",JString name)]))
  |Draft.NewTaskBody message profile reasoning configuration mode work=>
    let fields:=[("profile",JString profile);("reasoning",JString reasoning);("message",text_content message);("settings",settings configuration)]in
    Some(match mode with
@@ -44,16 +45,17 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
  |Draft.CardBody card revision value assist profile _=>
    let metadata:=object_fields(DraftCodec.encode_card value)in
    let metadata:=set_field "project"(JString(match Selvedge.Features.Domain.draft_project value with None=>""|Some id=>show_natural id end))metadata in
-   Some(record(match card with None=>"create_card"|Some _=>"update_card"end)
-    (present "card_id"(optional_id card)((match card with Some _=>[("revision",number revision)]|None=>[]end)++
-     (match now with Some now=>[("observed_at",JString(show_natural now))]|None=>[]end)++
-     (match card with None=>[("assisted",JBool assist);("draft_profile",JString profile)]|Some _=>[]end)++metadata)))
+   let metadata:=present "observed_at" (DraftCodec.option_text (option_map show_natural now)) metadata in
+   Some(match card with
+   |Identity.BoardCard None=>record "create_card" (("assisted",JBool assist)::("draft_profile",JString profile)::metadata)
+   |Identity.BoardCard(Some id)=>record "update_card" (("card_id",number id)::("revision",number revision)::metadata)
+   |Identity.ConversationCard task=>record "create_card" (("task_id",number task)::metadata) end)
  |Draft.ForkBody task count messages configuration=>Some(record "fork"[("task_id",number task);("child_count",number count);("messages",JArray(map(fun text=>content text [])messages));("settings",settings configuration);
    ("settings_origin",JString(match Context.context_origin configuration with Context.EnvironmentDefaults|Context.ProjectDefaults _=>"environment"|_=>"parent"end))])
  |Draft.CompactBody task summary=>Some(record "compact"(present "summary"(DraftCodec.option_text summary)[("task_id",number task)]))
  |Draft.TaskGraphBody graph declaration parsed work=>parsed<-parsed;;Some(record(match graph with None=>"create_task_graph"|Some _=>"update_task_graph"end)
    (present "graph_id"(optional_id graph)(match graph with None=>present "work_id"(optional_id work)(object_fields parsed)|Some _=>object_fields parsed end)))
- |Draft.TitlePromptsBody revision task agent profile=>Some(record "configure_title_settings"
+ |Draft.TitlePromptsBody _ revision task agent profile=>Some(record "configure_title_settings"
    (present "agent_profile" (DraftCodec.option_text profile) [("revision",number revision);("task_prompt",JString task);("agent_prompt",JString agent)]))end.
 Definition command now value :=source<-command_json now(Draft.contents value);;Schema.decode_command command_specs source.
 Definition admit_directories source:=kind<-string_field "kind" source;;if String.eqb kind "directories"then

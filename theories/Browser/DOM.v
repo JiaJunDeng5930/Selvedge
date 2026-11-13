@@ -34,19 +34,12 @@ Inductive node : Type :=
     (events : list event_binding) (metadata : json) (children : list node)
 | Markdown (key value : string) (complete : bool) (metadata : json)
 | Mount (target : string) (children : list node).
-Fixpoint encode_node value : json := match value with
-  | Text text => JObject [("kind", JString "text"); ("value", JString text)]
-  | Element key tag attributes styles events metadata children => JObject [
-      ("kind", JString "element"); ("key", JString key); ("tag", JString tag);
-      ("attributes", properties_json (if String.eqb key "" then attributes else ("data-key",key)::attributes)); ("styles", properties_json styles);
-      ("events", JArray (map binding_json events)); ("metadata", metadata);
-      ("children", JArray (map encode_node children))]
-  | Markdown key text complete metadata => JObject [("kind", JString "markdown");
-      ("key", JString key); ("value", JString text); ("complete", JBool complete);
-      ("metadata", metadata)]
-  | Mount target children => JObject [("kind", JString "portal");
-      ("target", JString target); ("children", JArray (map encode_node children))]
-  end.
+Definition element_description key tag attributes styles events metadata := JObject [
+  ("tag", JString tag);
+  ("attributes", properties_json (if String.eqb key "" then attributes else ("data-key",key)::attributes));
+  ("styles", properties_json styles); ("events", JArray (map binding_json events)); ("metadata", metadata)].
+Definition markdown_description key text complete metadata := JObject [
+  ("key", JString key); ("value", JString text); ("complete", JBool complete); ("metadata", metadata)].
 Record target_update := UpdateTarget {
   target : string; attributes : list (string * string); styles : list (string * string)
 }.
@@ -62,8 +55,9 @@ Record document := Document {
   root : node; title : string; document_generation : N;
   measurement_pending : bool; updates : list target_update; focus_scope : list Focus.scope
 }.
-Definition encode value := JObject [("root", encode_node (root value));
+Definition document_fields value := [
   ("title", JString (title value)); ("generation", JNumber (show_natural (document_generation value)));
   ("measurement_pending", JBool (measurement_pending value));
   ("target_updates", JArray (map update_json (updates value)));
   ("focus_scope", JArray(map scope_json (focus_scope value)))].
+Definition document_metadata value := JObject (document_fields value).

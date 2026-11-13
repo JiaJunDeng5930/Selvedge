@@ -48,28 +48,22 @@ Proof.
  rewrite Pending,Admitted. reflexivity.
 Qed.
 
-Theorem current_negative_git_observation_releases_local_worktree_choice
- snapshot ticket owner path state draft message profile reasoning configuration work :
- Services.workspace_git(SS.service_state state)=Resource.Loading ticket(owner,path) ->
- Draft.find_draft owner(SS.drafts(SS.authoring_state state))=Some draft ->
- bind(Observation.workspace_for snapshot draft)
-  Selvedge.Kernel.Domain.workspace_primary=Some path ->
- Draft.contents draft=Draft.NewTaskBody message profile reasoning configuration
-  (Draft.ManagedWorkspace Selvedge.Kernel.WorkspaceBackend.Local)work ->
- Authoring.service_step snapshot(Services.WorkspaceGitCompleted ticket(inr false))state=
- let settled:=SS.with_services(Services.with_workspace_git
-  (Resource.Loaded ticket(owner,path)false)(SS.service_state state))state in
- Authoring.keep(SS.save_draft(Draft.with_body
-  (Draft.NewTaskBody message profile reasoning configuration Draft.CurrentWorkspace work)draft)settled).
+(** Git receipts settle the ticketed observation without rewriting the
+    selected environment or any other draft field. *)
+Theorem git_observation_settles_only_the_workspace_check snapshot ticket outcome state :
+ Authoring.service_step snapshot(Services.WorkspaceGitCompleted ticket outcome)state=
+ Authoring.keep(SS.with_services(Services.with_workspace_git
+  (Resource.settle ticket outcome(Services.workspace_git(SS.service_state state)))
+  (SS.service_state state))state).
+Proof. reflexivity. Qed.
+
+Theorem a_blocked_directory_choice_does_not_change_the_draft snapshot state:
+ Observation.directory_selection_allowed(Observation.directory_preview snapshot state)=false ->
+ Authoring.service_step snapshot Services.ChooseDirectory state=Authoring.keep state.
 Proof.
- intros Loading Current Primary Body.
- unfold Authoring.service_step,Authoring.admitted_upload.
- cbn[Services.service_step]. rewrite Loading.
- cbn[Resource.settle]. rewrite N.eqb_refl.
- cbn[Services.keep Services.service_state Services.attached Services.service_effects].
- unfold Authoring.workspace_git_completed. rewrite Loading,N.eqb_refl.
- unfold Authoring.unavailable_local_workspace,SS.with_services.
- cbv [RecordSet.set]. cbn. rewrite Current,Primary,Body,String.eqb_refl. reflexivity.
+ intro Blocked. unfold Authoring.service_step, Authoring.directory_input_allowed.
+ destruct (Services.directory(SS.service_state state)); try reflexivity.
+ now rewrite Blocked, Bool.andb_false_r.
 Qed.
 
 Theorem a_captured_submission_waits_for_its_worker_verdict

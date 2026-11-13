@@ -1,7 +1,8 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
-From Selvedge.Features Require CompactionCodec Observation.
+From Selvedge.Kernel Require ContextTypes.
+From Selvedge.Features Require BoardFacts CompactionCodec Observation.
 
 Module Features := Selvedge.Features.Observation.
 
@@ -57,14 +58,27 @@ Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Do
  ("awaitingHuman", JBool (awaiting_human value));
  ("pendingMessages", number (N.of_nat (List.length (task_queued value))));
  ("statusLabel", JString (status_label value))].
+Definition observe_history (facts : list ContextTypes.snapshot * bool) (event : message) :=
+ let '(bindings,failed):=facts in
+ (ContextUpdates.update_bindings bindings event, BoardFacts.observe_failure failed event).
 Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
  match task_summary id value features with
- | JObject fields => JObject (fields ++ [("tools", JArray (map tool_json (contract_tools (task_contract value))));
+ | JObject fields =>
+ let history:=task_history value in
+ let busy:=task_busy value in
+ (* The context already visits the history. Observe the settled outcome in that
+    pass only when it can affect the projected stage. *)
+ let '(context,failed):=if busy then (ContextUpdates.bindings history,false)
+   else fold_left observe_history history ([],false) in
+ JObject (fields ++ [("tools", JArray (map tool_json (contract_tools (task_contract value))));
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
- ("history", JArray (map (public_message_json id) (task_history value)));
- ("context", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history value))));
+ ("history", JArray (map (public_message_json id) history));
+ ("context", JArray (map Context.snapshot_json context));
+ ("execution_failed", JBool failed);
+ ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
+   (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
  | _ => JNull end)])

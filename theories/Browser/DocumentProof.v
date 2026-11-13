@@ -26,7 +26,7 @@ Proof. repeat split; reflexivity. Qed.
 
 Theorem compiled_document_uses_configured_theme {A} (describe : A -> ControlPurpose.purpose)
     env generation (surface : Surface.surface A) :
-  field "target_updates" (compile describe env generation surface) = Some (JArray
+  field "target_updates" (DOM.document_metadata (compile_document describe env generation surface)) = Some (JArray
     (DOM.update_json (DOM.UpdateTarget "@document/root"
       [("data-theme",Appearance.theme_name (Surface.surface_appearance surface) (Layout.system_dark env))]
       [("color-scheme",Appearance.theme_name (Surface.surface_appearance surface) (Layout.system_dark env))]) ::
@@ -85,7 +85,7 @@ Proof. intros; simpl; left; reflexivity. Qed.
 Theorem active_preview_removes_original_code_frame : forall A env_view key semantic label role identity (children:list(Surface.node A)),
  In (DOM.UpdateTarget
    (Observation.physical_target env_view(DocumentPublication.target_key identity DocumentPublication.Frame))
-   [("data-interactive-active","true")]
+   [("data-interactive-active","true");("data-interactive-source-visible","false")]
    [("border","0");("background","transparent");("padding","0")])
  (Document.target_updates env_view
    (Surface.Node key semantic label role

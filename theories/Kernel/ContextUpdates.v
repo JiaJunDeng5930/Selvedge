@@ -26,7 +26,7 @@ Definition global_guidance_from_fields (values : fields global_guidance_fields) 
 
 Definition registered_key_candidate (source : json) : option context_key :=
  match string_field "type" source, parse_fields (value_or_null "identity" source),
- find (fun definition => JsonObjects.equivalent (definition_json definition) (value_or_null "definition" source)) definitions with
+ find (fun definition => JsonObjects.equivalent (definition_json definition) (value_or_null "definition" source)) observable_definitions with
  | Some kind, Some fields, Some definition =>
    if String.eqb kind (definition_kind definition)
    then admit_key definition fields else None
@@ -116,8 +116,9 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
  | Introduce value | Amend value _ _ => value :: remove_snapshot (snapshot_key value) values
  | Remove key _ => remove_snapshot key values
  end.
-Definition bindings (history : list message) := fold_left
- (fun values message => match message with ContextObservation change => apply_change change values | _ => values end) history [].
+Definition update_bindings (values:list snapshot) (event:message) :=
+ match event with ContextObservation change => apply_change change values | _ => values end.
+Definition bindings (history : list message) := fold_left update_bindings history [].
 Definition observation_changes (observation : context_observation) (values : list snapshot) : option (list context_change) :=
  match observation with
  | RejectedObservation => None
@@ -171,13 +172,15 @@ Fixpoint observe_all (observations : list context_observation) (values : list sn
      (changes ++ later,source_diagnostics observation ++ diagnostics) end
  end.
 
-(* DEFENSE: A registered NativeText descriptor can arrive with an obsolete
-   revision or changed body; only its exact advertised snapshot authorizes UI. *)
+(* DEFENSE: An observed descriptor, revision or body may differ from the
+   published declaration. Only an exact snapshot of a published definition
+   authorizes interactive output. *)
 Definition interactive_available (values : list snapshot) :=
- match definition_observer Context.interactive_markdown with
- | NativeText revision content => existsb (fun value =>
-    Json.equal (definition_json (key_definition (snapshot_key value)))
-      (definition_json Context.interactive_markdown) &&
-    String.eqb (snapshot_revision value) revision &&
-    Json.equal (fields_json (snapshot_fields value)) (fields_json [("content",content)])) values
- | _ => false end.
+ existsb (fun definition =>
+  match definition_observer definition with
+  | NativeText revision content => existsb (fun value =>
+     Json.equal (definition_json (key_definition (snapshot_key value)))
+       (definition_json definition) &&
+     String.eqb (snapshot_revision value) revision &&
+     Json.equal (fields_json (snapshot_fields value)) (fields_json [("content",content)])) values
+  | _ => false end) Context.interactive_markdown_definitions.

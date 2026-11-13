@@ -53,11 +53,22 @@ test('the Task model picker switches between its model list and effort control a
   const catalogBox = picker.locator('[data-semantic-key="model-picker-models"]');
   const summary = picker.getByRole('button', { name: /^Choose model:/ });
   const effort = picker.getByRole('slider', { name: 'Reasoning effort' });
+  const waitForClearTitle = () => page.waitForFunction(() => {
+    const heading = document.querySelector('[data-semantic-key="creation/title"]');
+    const menu = document.querySelector('dialog[aria-label="Model"][open]')?.getBoundingClientRect();
+    if (!heading || !menu) return false;
+    const title = document.createRange();
+    title.selectNodeContents(heading);
+    const text = title.getBoundingClientRect();
+    return text.width > 0 && text.height > 0 && (text.right <= menu.left || text.left >= menu.right ||
+      text.bottom <= menu.top || text.top >= menu.bottom);
+  });
 
   await trigger.click();
   await Promise.any([summary.waitFor(), catalogBox.waitFor()]);
   if (await summary.isVisible()) await summary.click();
   await catalogBox.waitFor();
+  await waitForClearTitle();
   await effort.waitFor({ state: 'hidden' });
   const profileNames = await catalogBox.getByRole('menuitemradio').evaluateAll(options =>
     options.map(option => option.getAttribute('aria-label')));
@@ -83,6 +94,7 @@ test('the Task model picker switches between its model list and effort control a
           ? box.width > innerWidth - 36 && innerHeight - box.bottom < 24
           : box.width < 340 && box.bottom <= innerHeight);
     }, portrait);
+    if (!portrait) await waitForClearTitle();
     const track = await effort.boundingBox();
     assert.ok(track && track.width > 200 && track.height >= (portrait ? 44 : 30));
   }

@@ -1,15 +1,16 @@
 import { boundary } from './model-boundary.mjs';
-import { browser, interaction, presentNative } from './browser-model-boundary.mjs';
+import { browser, interaction, presentNative, presentBrowserDocument } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
-import { Renderer, filesFromEvent } from './renderer.mjs';
+import { Presentation, filesFromEvent } from './native-dom.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
-import { createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
+import { createEditorRepairPlacement, createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
-import { safeHref } from './markdown.mjs';
+import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
+import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
 
@@ -30,14 +31,19 @@ const readings = new Map();
 const readingMeasurements = new Map();
 const readingPointers = new Map();
 const readingLayouts = new WeakMap();
+const readingVisits = new WeakMap();
+const readingBlocks = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
+const selections = new WeakMap();
 const codeBlocks = new Map();
 const storagePolicy = interaction('interactive_storage_policy');
 const storage = new InteractiveSnapshotStorage({ ...storagePolicy,
   maximumDocuments: Number(storagePolicy.maximumDocuments instanceof JsonNumber ? storagePolicy.maximumDocuments.source : storagePolicy.maximumDocuments),
   maximumBytes: Number(storagePolicy.maximumBytes instanceof JsonNumber ? storagePolicy.maximumBytes.source : storagePolicy.maximumBytes) });
 const activeModal = () => renderer.modal;
+const historyResultsSelector = 'main > [data-page-region="history-results"]';
 const reveal = createLayoutRevealer(surface, activeModal);
+const editorRepair = createEditorRepairPlacement(activeModal);
 const motion = new PresentationMotion(surface, activeModal);
 let state = interaction('initial');
 let world = null;
@@ -46,7 +52,6 @@ let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0
 let environment = null;
 let measuring = null;
 let measureAgain = false;
-let renderAfterMeasurement = null;
 let measurementFrame = null;
 let measurementTask = null;
 let connection = null;
@@ -54,13 +59,24 @@ let disposed = false;
 let clockRefresh = null;
 let sourceFresh = false;
 let layoutFrame = null;
+let readingLayoutFrame = null;
+let revealingReader = false;
 let pendingHistoryLocation = null;
+let historyLocation = null;
+let searchResultsPosition = null;
+let historyResultsNode = null;
+let boardTrack = null;
+let boardFirstLane = null;
+let boardScrollControls = null;
+let boardHasOverflow = false;
+const boardTrackResize = new ResizeObserver(updateBoardScroll);
 let focusRequest = 0;
 let pendingFocus = null;
 let suspendedFocus = null;
 let updateStorageProblem = '';
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
+const readDeadline = () => AbortSignal.timeout(20_000);
 
 function randomBrowserIdentifier() {
   // getRandomValues is available on private HTTP origins as well as HTTPS.
@@ -83,7 +99,7 @@ function showUpdateStatus({ status, operations, message }) {
 function reloadForRelease(release) {
   if (!documentRelease || !release || release === documentRelease) return false;
   if (publication.namespace) {
-    const session = interaction('update_session', { state });
+    const session = interaction('update_session', { state, world, environment });
     try {
       sessionStorage.setItem(updateSessionKey, stringifyJson({ namespace: publication.namespace, session }));
     } catch (error) {
@@ -104,7 +120,7 @@ function restoreUpdateSession() {
     if (stored === null) return;
     const { namespace, session } = parseJson(stored);
     if (namespace === publication.namespace) {
-      state = interaction('restore_update_session', { state, world, checkpoint: session });
+      state = interaction('restore_update_session', { state, world, environment, checkpoint: session });
     }
     sessionStorage.removeItem(updateSessionKey);
   } catch (error) {
@@ -206,7 +222,9 @@ function retireDocumentViews() {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
-  pendingHistoryLocation = null; pendingFocus = null; suspendedFocus = null; focusRequest++;
+  retireHistoryLocation(); pendingFocus = null; suspendedFocus = null; focusRequest++;
+  searchResultsPosition = null;
+  historyResultsNode = null;
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
@@ -243,13 +261,17 @@ function synchronizeNativeAuthority() {
   }
 }
 let suspendedPrefixFocus = null;
+function synchronizePrefixActions() {
+  if (renderer.prefixActions.size) renderer.synchronizePrefixActions(!prefixAdmitted(renderer.generation));
+}
 function synchronizePrefixAuthority() {
-  if (!renderer.prefixFields.size && !suspendedPrefixFocus) return;
+  if (!renderer.prefixFields.size && !renderer.prefixActions.size && !suspendedPrefixFocus) return;
   const inert = !prefixAdmitted(renderer.generation);
   const node = document.activeElement;
   if (inert && renderer.prefixFields.has(node) && !node.inert)
     suspendedPrefixFocus = { node, attempt: focusRequest };
   renderer.synchronizePrefixFields(inert);
+  renderer.synchronizePrefixActions(inert);
   if (!inert && suspendedPrefixFocus) {
     const retained = suspendedPrefixFocus;
     suspendedPrefixFocus = null;
@@ -260,8 +282,10 @@ function synchronizePrefixAuthority() {
 }
 function renderRecovery(reason) {
   surface.inert = false;
-  renderer.render(browser('recovery', { root_font_size_milli: physical.viewport().root_font_size_milli,
-    generation: publication.generation, reason }), publication.generation);
+  renderer.reset();
+  renderer.renderDocument(ops => presentBrowserDocument('recovery', {
+    root_font_size_milli: physical.viewport().root_font_size_milli, generation: publication.generation, reason,
+  }, ops), publication.generation);
 }
 function dispatch(input) {
   if (disposed) return;
@@ -286,9 +310,9 @@ function dispatch(input) {
   }
   publication = publicationEvent(decision.publication_event);
   if (decision.publication_event !== 'keep')
-    render(decision.native_stream ? 'stream' : decision.native_picker ? 'picker' : null);
+    render(decision.native_stream ? 'stream' : 'region');
   for (const effect of decision.effects) execute(effect).catch(fatal);
-  return decision.handled;
+  return decision;
 }
 function retryFocus() {
   const pending = pendingFocus;
@@ -306,43 +330,82 @@ function refreshClock() {
   if (document.visibilityState !== 'visible') return;
   dispatch({ type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) });
 }
-function render(local = null) {
+function render(mode = 'region') {
   if (disposed) return;
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
   if (!environment) return;
+  try { present(mode); }
+  catch (error) {
+    // DEFENSE: Native DOM updates can fail during a scene change. Keep the
+    // same recovery action available as for a failed physical observation.
+    fatal(error);
+  }
+}
+function refreshPageLayout(previous, scrollport, offset) {
+  const track = surface.querySelector('[data-page-region="board-stages"]');
+  const firstLane = track?.firstElementChild ?? null;
+  const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
+  if (controls !== boardScrollControls || track !== boardTrack) {
+    boardScrollControls = controls;
+    for (const button of controls?.querySelectorAll('[data-board-scroll]') ?? [])
+      button.setAttribute('aria-controls', track.id);
+  }
+  if (track !== boardTrack || firstLane !== boardFirstLane) {
+    boardTrackResize.disconnect();
+    if (track !== boardTrack) boardHasOverflow = false;
+    boardTrack = track;
+    boardFirstLane = firstLane;
+    if (track) boardTrackResize.observe(track);
+    if (firstLane) boardTrackResize.observe(firstLane);
+  }
+  if (controls && boardHasOverflow) controls.hidden = false;
+  const current = surface.querySelector(historyResultsSelector);
+  historyResultsNode = current;
+  if (previous === current) return;
+  if (previous) {
+    // The workspace keeps its main scrollport mounted across route changes.
+    searchResultsPosition = { key: previous.dataset.key, offset };
+    scrollport.scrollTop = 0;
+  }
+  if (current) current.parentElement.scrollTop =
+    current.dataset.key === searchResultsPosition?.key ? searchResultsPosition.offset : 0;
+}
+function updateBoardScroll() {
+  if (!boardTrack || !boardScrollControls) return;
+  const overflow = boardTrack.scrollWidth - boardTrack.clientWidth;
+  boardHasOverflow = overflow > 1;
+  boardScrollControls.hidden = !boardHasOverflow;
+  for (const button of boardScrollControls.querySelectorAll('[data-board-scroll]')) {
+    const available = button.dataset.boardScroll === 'next'
+      ? boardTrack.scrollLeft < overflow - 1
+      : boardTrack.scrollLeft > 1;
+    button.setAttribute('aria-disabled', String(!available));
+  }
+}
+function scrollBoard(direction) {
+  boardTrack.scrollBy({ left: direction * boardTrack.clientWidth / 2 });
+}
+function present(mode) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
-  const measuringDocument = measuring && renderer.document;
-  const deferRender = () => {
-    if (publication.native_displayed_generation === null) synchronizeNativeAuthority();
-    // A single transaction can still publish its local update after the
-    // measurement. Multiple transactions require the complete current view.
-    renderAfterMeasurement = { local: renderAfterMeasurement ? null : local };
-    measureAgain = true;
-  };
-  // A local update can use the last measured environment if its base is still
-  // mounted. Any older in-flight layout observation then fails its generation check.
-  if (measuringDocument && (!local || renderAfterMeasurement ||
-      !sameGeneration(renderer.generation, publication.native_displayed_generation))) {
-    deferRender(); return;
-  }
   const generation = publication.generation;
-  const materialize = ops => presentNative(local, state, world, environment, generation, ops);
-  const directlyPresented = local === 'picker' ? renderer.renderPicker(materialize, generation)
-    : local === 'stream' && renderer.renderStream(materialize, generation);
-  const streamed = local === 'stream' && directlyPresented;
-  if (!directlyPresented) {
-    if (measuringDocument) { deferRender(); return; }
-    const plan = interaction('observe', { state, world, environment, generation,
-      namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
-    surface.dataset.displayPending = String(publicationEvent('pending'));
-    if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
-      refreshPhysical().catch(fatal); return;
-    }
-    renderer.render(plan, generation);
-  }
-  surface.dataset.sourcesFresh = String(sourceFresh);
-  if (!streamed) physical.refresh();
+  const materialize = kind => ops => presentNative(kind, state, world, environment, generation, ops);
+  const starting = renderer.document == null;
+  if (starting) renderer.renderDocument(materialize('document'), generation);
+  const streamed = !starting && mode === 'stream' && renderer.renderStream(materialize('stream'), generation);
+  const previousResults = historyResultsNode?.isConnected ? historyResultsNode : null;
+  const scrollport = !streamed ? previousResults?.parentElement : null;
+  const offset = scrollport?.scrollTop;
+  const regions = !streamed && renderer.renderRegions(materialize('region'), generation);
+  if (!streamed && !regions) throw new Error('Unable to publish the native regions');
+  const pageChanged = starting || regions?.page_changed;
+  if (pageChanged) refreshPageLayout(previousResults, scrollport, offset);
+  const freshness = String(sourceFresh);
+  const freshnessChanged = surface.dataset.sourcesFresh !== freshness;
+  if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
+  const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
+  if (pageChanged || regions?.layout_changed && !regions.layers_changed) schedulePhysicalRefresh();
+  if (pageChanged || regions?.layers_changed) layoutReading(true);
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {
@@ -358,20 +421,25 @@ function render(local = null) {
       // The receipt changes input authority, not the compiled state/world/environment.
       // Keep the same DOM and finish the native work that was waiting for publication.
       surface.dataset.displayPending = String(publicationEvent('pending'));
-      if (!streamed && publicationEvent('ready')) {
+      if (layoutChanged && publicationEvent('ready')) {
         renderer.refreshNativeTargets();
-        // Document-derived targets are available after their parsers catch up.
-        reveal();
+        scheduleLayoutReveal();
       }
-      retryHistoryLocation(); retryFocus();
+      if (layoutChanged) scheduleReadingLayout();
+      retryFocus();
     };
     if (renderer.isCaughtUp()) publishPrefix(true);
     else {
       synchronizePrefixAuthority();
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
+  } else synchronizePrefixActions();
+  if (layoutChanged) {
+    scheduleLayoutReveal();
+    editorRepair.refresh();
+    retryHistoryLocation();
   }
-  if (!streamed) { reveal(); motion.refresh(); layoutReading(); retryHistoryLocation(); }
+  if (layoutChanged || freshnessChanged) motion.refresh();
 }
 function schedulePhysicalRefresh() {
   if (disposed || measurementFrame !== null || measurementTask !== null) return;
@@ -382,6 +450,14 @@ function schedulePhysicalRefresh() {
       measurementTask = null;
       refreshPhysical().catch(fatal);
     }, 0);
+  });
+}
+function scheduleLayoutReveal() {
+  if (layoutFrame !== null || disposed) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    reveal();
+    renderer.confineAnchoredLayers();
   });
 }
 async function refreshPhysical() {
@@ -424,14 +500,7 @@ async function refreshPhysical() {
       }
     } while (measureAgain && !disposed);
   })();
-  try { await measuring; } finally {
-    measuring = null;
-    if (renderAfterMeasurement && !disposed) {
-      const pending = renderAfterMeasurement;
-      renderAfterMeasurement = null;
-      render(pending.local);
-    }
-  }
+  try { await measuring; } finally { measuring = null; }
 }
 function observedSelection(node, composing = false) {
   const encode = value => new TextEncoder().encode(value).length;
@@ -444,7 +513,7 @@ function registerFiles(action, selected) {
     dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
-const renderer = new Renderer(surface, {
+const renderer = new Presentation(surface, {
   resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
   focusPlan(source) { return browser('focus_plan', source); },
@@ -481,6 +550,7 @@ const renderer = new Renderer(surface, {
   event(binding, event, key, node, generation) {
     if (binding.kind === 'retry_render') {
       event.preventDefault(); publication = publicationEvent('retry');
+      renderer.reset();
       refreshPhysical().then(render).catch(fatal); return;
     }
     if (!admitted(generation)) {
@@ -501,16 +571,28 @@ const renderer = new Renderer(surface, {
       }
       return;
     }
-    if (node.dataset.prefixField === 'true' && !prefixAdmitted(generation)) {
-      renderer.restorePrefixField(key);
+    if ((node.dataset.prefixField === 'true' || node.dataset.prefixAction === 'true') && !prefixAdmitted(generation)) {
+      if (node.dataset.prefixField === 'true') renderer.restorePrefixField(key);
+      else event.preventDefault();
       return;
     }
     if (binding.kind === 'files') {
       registerFiles(binding.action, filesFromEvent(event, node));
       if (node.type === 'file') node.value = '';
     }
-    else if (binding.kind === 'value') dispatch({ ...binding.action, value: node.value,
-      raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
+    else if (binding.kind === 'value') {
+      const publishReading = binding.event === 'change' && node.matches('select') &&
+        node.closest('[data-interactive-component="select"]') ? holdAuthoredReading(node) : null;
+      const selection = observedSelection(node, event.isComposing || renderer.composing.has(node));
+      // The input event already supplies the current caret. A later native
+      // selectionchange for that same caret adds no observation.
+      const decision = dispatch({ ...binding.action, value: node.value, raw: node.value, selection });
+      const field = renderer.records.get(key);
+      if (decision?.handled && decision.error === null && field?.node === node && field.metadata.selection_enabled)
+        selections.set(node, stringifyJson(selection));
+      else selections.delete(node);
+      publishReading?.();
+    }
     else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
     else if (binding.kind === 'checked') dispatch({ ...binding.action, value: node.checked });
     else {
@@ -541,8 +623,10 @@ const renderer = new Renderer(surface, {
     const radioArrow = node === event.target && keyboard.unmodified && !composing &&
       ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) ? selectingRadioGroup(node) : null;
     if (dialog && (event.key === 'Tab' || radioArrow)) {
-      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
-        target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') && !target.closest('[inert],[hidden]') &&
+      // DEFENSE: Controls inside a closed disclosure can still report visible layout rectangles.
+      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,details > summary,[tabindex]')).filter(target =>
+        target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') &&
+        !target.closest('[inert],[hidden],details:not([open]) > :not(summary)') &&
         target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
       const { targets, current } = radioArrow
         ? { targets: candidates.filter(target => selectingRadioGroup(target) === radioArrow), current: node }
@@ -590,9 +674,8 @@ const renderer = new Renderer(surface, {
       ['left', 'top', 'width', 'height'].map(name => [name, new JsonNumber(String(bounds[name]))])));
   },
   layout() {
-    if (layoutFrame === null) layoutFrame = requestAnimationFrame(() => {
-      layoutFrame = null; reveal(); renderer.confineMenus(); layoutReading();
-    });
+    scheduleReadingLayout();
+    if (surface.querySelector('[data-reading-initial]')) revealNewReaders();
   },
   codeSource(source, ordinal, text, view) {
     publishCode(browser('code_identity', { source, ordinal }), view, text);
@@ -600,45 +683,63 @@ const renderer = new Renderer(surface, {
   codePublication({ identity, view, text }) { publishCode(identity, view, text); },
   codeIdentity(source, ordinal) { return browser('code_identity', { source, ordinal }); },
   codeTargets(identity, view) { return browser('code_targets', { identity, view }); },
+  interactiveFence(info) {
+    return browser('interactive_fence', { raw_info: info, fence_kind: 'fenced', info_complete: true });
+  },
   fence(metadata, observed) {
-    dispatch({ type: 'code_observed', origin: metadata.origin, document_key: metadata.document_key,
+    return dispatch({ type: 'code_observed', origin: metadata.origin, document_key: metadata.document_key,
       epoch: metadata.epoch, revision: observed.inputRevision, ordinal: observed.ordinal,
       fence_kind: observed.kind, info_complete: observed.infoComplete,
       raw_info: observed.info, code_prefix: observed.code, closed: observed.closed,
-      input_prefix: observed.inputPrefix });
+      input_prefix: observed.inputPrefix })?.fence_admitted;
   },
 });
 
-const physical = createPhysicalMeasurer({ surface, onChange: schedulePhysicalRefresh });
+const physical = createPhysicalMeasurer({ surface, onChange() {
+  scheduleReadingLayout();
+  schedulePhysicalRefresh();
+  scheduleLayoutReveal();
+} });
 
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
   let entry = codeBlocks.get(key);
+  const viewKey = stringifyJson(view);
   if (!entry) {
-    const decision = browser('code_initial', { identity, view, text, environment });
+    const decision = browser('code_initial', { identity, text });
     entry = { key, identity, state: decision.state, views: new Map() };
     codeBlocks.set(key, entry);
   }
-  entry.views.set(stringifyJson(view), entry.views.get(stringifyJson(view)) ?? { view, renderer: null });
-  codeStep(entry, { type: 'source', text });
+  const previous = entry.views.get(viewKey);
+  const toolbar = renderer.target(browser('code_targets', { identity, view }).toolbar);
+  if (!previous || previous.renderer?.root !== toolbar)
+    entry.views.set(viewKey, { view, renderer: previous?.renderer ?? null });
+  const decision = browser('code_step', { state: entry.state, input: { type: 'source', text } });
+  // Source text feeds Copy, while only its copy status and wrapping affect
+  // the visible toolbar. Mount a new occurrence or update changed chrome.
+  if (!previous || previous.renderer?.root !== toolbar ||
+      entry.state.copy.type !== decision.state.copy.type) renderCode(entry, decision);
+  else entry.state = decision.state;
 }
 function renderCode(entry, decision) {
   entry.state = decision.state;
   for (const physical of entry.views.values()) {
-    const plan = browser('code_present', { state: entry.state, view: physical.view, environment });
-    const target = renderer.target(plan.targets.toolbar);
+    const targets = browser('code_targets', { identity: entry.identity, view: physical.view });
+    const target = renderer.target(targets.toolbar);
     if (target) {
       if (!physical.renderer || physical.renderer.root !== target) {
         physical.renderer?.dispose();
-        physical.renderer = new Renderer(target, { event(binding, event) {
+        physical.renderer = new Presentation(target, { event(binding, event) {
           if (!prefixAdmitted(renderer.generation)) return;
           event.preventDefault(); codeStep(entry, binding.action.input);
         } });
       }
-      physical.renderer.render(plan.document);
+      const metadata = physical.renderer.renderDocument(ops => presentBrowserDocument('code_present', {
+        state: entry.state, view: physical.view, environment,
+      }, ops));
+      const code = renderer.target(targets.body);
+      if (code) for (const { name, value } of metadata.body_styles) code.style.setProperty(name, value);
     }
-    const code = renderer.target(plan.targets.body);
-    if (code) for (const { name, value } of plan.body_styles) code.style.setProperty(name, value);
   }
   for (const effect of decision.effects) {
     if (effect.type === 'clipboard') navigator.clipboard.writeText(effect.text).then(
@@ -655,21 +756,27 @@ function renderCode(entry, decision) {
 function codeStep(entry, input) {
   // DEFENSE: a queued native event or clipboard completion can outlive its namespace's code view.
   if (codeBlocks.get(entry.key) !== entry) return;
-  renderCode(entry, browser('code_step', { state: entry.state, input, environment, view: entry.views.values().next().value.view }));
+  renderCode(entry, browser('code_step', { state: entry.state, input }));
 }
 
 const readingKey = node => node.dataset.taskId;
+const readingTop = node => node.getBoundingClientRect().top + node.clientTop;
+function readingAnchor(node, identity) {
+  return node.querySelector(`[data-reading-identity="${CSS.escape(identity)}"]`);
+}
 function readingState(key, node) {
   const bound = browser('reading_bind', { generation: new JsonNumber(node.dataset.readerGeneration),
     state: readings.get(readingKey(node)) ?? null });
   readings.set(readingKey(node), bound);
   return bound;
 }
-function acceptReading(key, node, decision, locationTarget) {
+function acceptReading(key, node, decision, locationTarget, publishIntent = true) {
   const previous = readings.get(readingKey(node))?.intent ?? 'follow';
   readings.set(readingKey(node), decision.state);
   for (const effect of decision.effects) {
     if (effect.type === 'leave_viewport') {
+      if (!locationTarget) retireHistoryLocation(node);
+      readingBlocks.delete(node);
       restoredReadingOffsets.delete(node);
       node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
@@ -677,34 +784,73 @@ function acceptReading(key, node, decision, locationTarget) {
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
     else if (effect.type === 'locate_message' && locationTarget) {
-      node.scrollTo({ top: node.scrollTop + locationTarget.getBoundingClientRect().top - node.getBoundingClientRect().top,
+      const { target, range } = locationTarget;
+      const bounds = (range && firstRangeRect(range)) || target.getBoundingClientRect();
+      const clearance = Number.parseFloat(getComputedStyle(node).scrollPaddingBlockStart);
+      node.scrollTo({ top: node.scrollTop + bounds.top - readingTop(node) - clearance,
         left: node.scrollLeft, behavior: 'instant' });
-      observeReadingAnchor(key, node, decision.state);
+      restoredReadingOffsets.set(node, node.scrollTop);
+      if (range) locationTarget.offset = (firstRangeRect(range)?.top ?? readingTop(node) + clearance) - readingTop(node);
+      observeReadingAnchor(node, decision.state, target);
     }
     else if (effect.type === 'preserve_anchor' && !currentReadingMeasurement(node)) {
-      const target = Array.from(node.querySelectorAll('[data-reading-identity]')).find(
-        candidate => candidate.dataset.readingIdentity === effect.anchor.key);
+      const target = readingAnchor(node, effect.anchor.key);
       if (target) {
-        node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
+        const location = currentHistoryLocation(node);
+        const bounds = location?.target === target && location.range && firstRangeRect(location.range);
+        const block = readingBlocks.get(node);
+        const local = block?.anchor === target && target.contains(block.node) ? block : null;
+        node.scrollTop += (bounds?.top ?? (local?.node ?? target).getBoundingClientRect().top) - readingTop(node) -
+          (bounds ? location.offset : local?.offset ?? Number(effect.anchor.offset));
         restoredReadingOffsets.set(node, node.scrollTop);
+        // Keep the ordinary message bookmark usable after this Range is retired.
+        if (bounds) observeReadingAnchor(node, decision.state, target);
       }
     } else if (effect.type === 'measure_anchor') {
       if (currentReadingMeasurement(node)) requestReadingAnchor(key, node);
-      else observeReadingAnchor(key, node, decision.state);
+      else observeReadingAnchor(node, decision.state);
     }
   }
-  if (previous !== decision.state.intent && node.dataset.readerGeneration !== undefined)
+  if (previous === decision.state.intent || node.dataset.readerGeneration === undefined) return;
+  const publish = () => {
+    if (!node.isConnected || readings.get(readingKey(node))?.intent !== decision.state.intent) return;
     dispatch({ type: 'read_timeline', task: new JsonNumber(node.dataset.taskId),
       generation: new JsonNumber(node.dataset.readerGeneration), intent: decision.state.intent });
+  };
+  if (publishIntent) publish();
+  else return publish;
 }
-function observeReadingAnchor(key, node, state) {
-  const viewport = node.getBoundingClientRect();
-  const anchor = Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => {
+function holdAuthoredReading(node) {
+  const reader = node.closest('[data-reading-root="true"]');
+  const anchor = node.closest('[data-reading-anchor]');
+  if (!reader || !anchor || !reader.contains(anchor)) return;
+  const key = reader.dataset.key;
+  const state = readingState(key, reader);
+  if (state.intent !== 'follow') return;
+  // Install the bookmark before the change can alter layout. Publish its
+  // intent afterward, so the change retains the generation that admitted it.
+  return acceptReading(key, reader, browser('reading', { state, event: 'read_at', anchor: {
+    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - readingTop(reader)),
+  } }), undefined, false);
+}
+function observeReadingAnchor(node, state, selected) {
+  const top = readingTop(node);
+  const anchor = selected ?? Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => {
     const bounds = target.getBoundingClientRect();
-    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+    return bounds.bottom > top && bounds.top < top + node.clientHeight;
   });
-  if (anchor) readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
-    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - viewport.top) } }).state);
+  if (!anchor) return;
+  const block = selected ? null : Array.from(anchor.querySelectorAll('.physical-markdown > .markdown > [data-stable]')).find(target => {
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > top && bounds.top < top + node.clientHeight &&
+      !target.matches('[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])');
+  });
+  // The durable bookmark identifies the message. A retained Markdown block
+  // also identifies the visible passage when an earlier widget in that message grows.
+  if (block) readingBlocks.set(node, { anchor, node: block, offset: block.getBoundingClientRect().top - top });
+  else readingBlocks.delete(node);
+  readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
+    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - top) } }).state);
 }
 function retireReadingMeasurement(node) {
   const pending = readingMeasurements.get(node);
@@ -735,7 +881,7 @@ function requestReadingAnchor(key, node, pointer) {
     // DEFENSE: an anchor frame can outlive the task reader that requested it.
     if (currentReadingMeasurement(node) !== pending) return;
     const state = readingState(key, node);
-    if (state.intent === 'history') observeReadingAnchor(key, node, state);
+    if (state.intent === 'history') observeReadingAnchor(node, state);
     if (!pending.pointers.size) retireReadingMeasurement(node);
   });
 }
@@ -748,25 +894,102 @@ function endReadingPointer(event) {
 }
 window.addEventListener('pointerup', endReadingPointer, true);
 window.addEventListener('pointercancel', endReadingPointer, true);
-function retryHistoryLocation() {
-  const pending = pendingHistoryLocation;
-  if (!pending) return;
-  // DEFENSE: a selected history message can await physical publication while
-  // navigation replaces its journal or reader occurrence.
-  if (pending.namespace !== publication.namespace) { pendingHistoryLocation = null; return; }
-  const root = [...renderer.records.values()].map(record => record.node).find(node =>
-    node.dataset.readingRoot === 'true' && node.dataset.taskId === integral(pending.task_id).toString());
-  if (root && root.dataset.readerGeneration !== integral(pending.reader_generation).toString()) {
-    pendingHistoryLocation = null; return;
+const historyHighlight = 'selvedge-history-match';
+const historyHighlightMs = 5000;
+const sameHistoryVisit = location => location.namespace === publication.namespace &&
+  location.navigationGeneration === integral(state.navigation.generation);
+const historyReaderOwns = (root, location) => root.dataset.readerGeneration === location.readerGeneration &&
+  root.dataset.taskId === location.taskId;
+function clearHistoryHighlight(location) {
+  CSS.highlights?.delete(historyHighlight);
+  location.target.removeAttribute('data-history-match');
+  if (location.timer !== undefined) {
+    clearTimeout(location.timer);
+    timers.delete(location.timer);
+    delete location.timer;
   }
-  if (!root || !publicationEvent('ready')) return;
-  const target = renderer.resolveTarget(pending.key, { modal: false });
-  if (!target || !root.contains(target)) return;
+}
+function retireHistoryLocation(root) {
+  const pending = pendingHistoryLocation;
+  if (pending && (!root || historyReaderOwns(root, pending))) {
+    if (pending.frame != null) cancelDisplay(pending.frame);
+    pendingHistoryLocation = null;
+  }
+  if (historyLocation && (!root || historyLocation.root === root)) {
+    clearHistoryHighlight(historyLocation);
+    historyLocation = null;
+  }
+}
+function currentHistoryLocation(root) {
+  const location = historyLocation;
+  // DEFENSE: parsing and layout can outlive the physical reader occurrence.
+  if (location && (!sameHistoryVisit(location) || !location.root.isConnected ||
+      !location.target.isConnected || !historyReaderOwns(location.root, location) ||
+      location.range && !location.target.contains(location.range.startContainer))) {
+    clearHistoryHighlight(location);
+    historyLocation = null;
+  }
+  return historyLocation && historyLocation.root === root ? historyLocation : null;
+}
+function locateHistoryRange(pending, root, target, range) {
   pendingHistoryLocation = null;
+  const location = { namespace: pending.namespace, navigationGeneration: pending.navigationGeneration,
+    readerGeneration: pending.readerGeneration, taskId: pending.taskId, root, target, range };
+  historyLocation = location;
   retireReadingMeasurement(root);
   const key = root.dataset.key;
   acceptReading(key, root, browser('reading', { state: readingState(key, root), event: 'locate',
-    index: pending.message_index }), target);
+    index: pending.message_index }), location);
+  if (root.hasAttribute('data-reading-initial')) layoutReading();
+  else revealHistoryLocation(location);
+}
+function revealHistoryLocation(location) {
+  const { target, range, readerGeneration } = location;
+  target.setAttribute('tabindex', '-1');
+  target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  target.focus({ preventScroll: true });
+  if (range && CSS.highlights && typeof Highlight === 'function') {
+    CSS.highlights.set(historyHighlight, new Highlight(range));
+  } else target.dataset.historyMatch = readerGeneration;
+  location.timer = setTimeout(() => clearHistoryHighlight(location), historyHighlightMs);
+  timers.add(location.timer);
+}
+function retryHistoryLocation() {
+  currentHistoryLocation();
+  const pending = pendingHistoryLocation;
+  if (!pending) return;
+  if (!sameHistoryVisit(pending)) { retireHistoryLocation(); return; }
+  if (!admitted(renderer.generation)) return;
+  const target = renderer.target(pending.key);
+  const root = target?.closest('[data-reading-root]');
+  if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
+      !historyReaderOwns(root, pending) || renderer.modal && !renderer.modal.contains(root)) return;
+  // Align the match against assembled text so content below it cannot change
+  // the initial scroll clamp after it has appeared.
+  if (root.querySelector('[data-markdown-parsing]')) return;
+  const record = renderer.records.get(pending.markdown_key);
+  const markdown = record?.markdown;
+  if (!markdown || !target.contains(record.node)) return;
+  // The committed article mounts before its individual Markdown parse and
+  // decorations finish. An incomplete prefix cannot prove a missing match.
+  if (pending.markdown !== markdown) {
+    pending.markdown = markdown;
+    pending.settled = false;
+    pending.scan = null;
+    markdown.whenSettled().then(settled => {
+      if (!settled || pendingHistoryLocation !== pending || pending.markdown !== markdown) return;
+      pending.settled = true;
+      retryHistoryLocation();
+    }).catch(fatal);
+  }
+  if (!pending.settled || pending.frame != null) return;
+  pending.scan ??= findHistoryRange(record.node, pending.query);
+  const deadline = performance.now() + 4;
+  do {
+    const result = pending.scan.next();
+    if (result.done) { locateHistoryRange(pending, root, target, result.value); return; }
+  } while (performance.now() < deadline);
+  pending.frame = scheduleDisplay(() => { pending.frame = null; retryHistoryLocation(); });
 }
 function readingStep(key, node, event) {
   const state = readingState(key, node);
@@ -776,16 +999,62 @@ function readingStep(key, node, event) {
     viewport_height: String(node.clientHeight), reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches });
   acceptReading(key, node, decision);
 }
-function layoutReading() {
-  for (const [key, record] of renderer.records) {
-    const node = record.node;
-    if (node.dataset.readingRoot !== 'true') continue;
+function scheduleReadingLayout() {
+  if (readingLayoutFrame !== null || disposed) return;
+  // Markdown batches, native mounts and resize observations can arrive in
+  // separate tasks in the same frame. Restore the reading position once.
+  readingLayoutFrame = requestAnimationFrame(() => {
+    readingLayoutFrame = null;
+    if (!disposed) { retryHistoryLocation(); layoutReading(); }
+  });
+}
+function revealNewReaders() {
+  if (revealingReader) return;
+  revealingReader = true;
+  // Align the newly mounted reader before exposing its first visible frame.
+  // Continuing Markdown takes the coalesced path once the reader is visible.
+  queueMicrotask(() => {
+    revealingReader = false;
+    if (!disposed) layoutReading(true);
+  });
+}
+function layoutReading(initialOnly = false) {
+  const modal = activeModal();
+  for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
+    if (modal && !modal.contains(node)) continue;
+    const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
+    const generation = node.dataset.readerGeneration;
+    const completing = node.hasAttribute('data-reading-initial');
+    if (initialOnly && readingVisits.get(node) === generation) continue;
+    if (readingVisits.get(node) !== generation) {
+      // Reveal at the reading position once the available text has arrived.
+      // Widgets keep their own placeholders and can finish after this first paint.
+      const loading = locating || node.querySelector('[data-markdown-parsing]');
+      node.toggleAttribute('data-reading-initial', Boolean(loading));
+      // Keep the text measurable for history search while the reader is hidden.
+      node.inert = Boolean(loading);
+      if (loading) continue;
+      // The same viewport that receives the first visible frame must receive
+      // its reading position before paint. Later live updates stay visible.
+      readingVisits.set(node, generation);
+      readingLayouts.delete(node);
+    }
+    if (locating) continue;
     const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
+    const bookmark = readings.get(readingKey(node))?.anchor;
+    const anchor = bookmark ? readingAnchor(node, bookmark.key) : null;
+    const block = readingBlocks.get(node);
+    const bookmarkNode = block?.anchor === anchor && anchor?.contains(block.node) ? block.node : anchor;
+    const location = currentHistoryLocation(node);
+    const hit = location?.range && firstRangeRect(location.range);
     const signature = JSON.stringify([node.dataset.readerGeneration, node.clientWidth, node.clientHeight,
-      node.scrollHeight, dock?.getBoundingClientRect().height ?? 0]);
+      node.scrollHeight, dock?.getBoundingClientRect().height ?? 0,
+      bookmarkNode ? bookmarkNode.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null,
+      hit ? hit.top - readingTop(node) + node.scrollTop : null]);
     if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
     readingLayouts.set(node, signature);
-    readingStep(key, node, 'layout');
+    readingStep(node.dataset.key, node, 'layout');
+    if (completing && location) revealHistoryLocation(location);
   }
 }
 function dismiss(event) {
@@ -866,7 +1135,7 @@ async function authenticate(effect) {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
-      request: (url, signal) => request(url, { signal }),
+      request: (url, signal) => request(url, { signal: AbortSignal.any([signal, readDeadline()]) }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
@@ -922,13 +1191,43 @@ async function authenticate(effect) {
 // The semantic surface declares every admissible destination; native drag only
 // supplies the observed target to that element's Place gesture.
 let draggedCard = null;
+let hoveredDropStage = null;
+function showCardDropStage(stage) {
+  if (hoveredDropStage === stage) return;
+  hoveredDropStage?.removeAttribute('data-card-drop-hover');
+  hoveredDropStage = stage;
+  hoveredDropStage?.setAttribute('data-card-drop-hover', '');
+}
+surface.addEventListener('scroll', event => {
+  if (event.target === boardTrack) updateBoardScroll();
+}, true);
+surface.addEventListener('click', event => {
+  const button = event.target.closest?.('[data-board-scroll]');
+  if (!boardTrack || !button || button.getAttribute('aria-disabled') === 'true') return;
+  scrollBoard(button.dataset.boardScroll === 'next' ? 1 : -1);
+});
 surface.addEventListener('keydown', event => {
+  // DEFENSE: WebKit does not scroll the focused board region on arrow keys.
+  if (!event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+      event.target === boardTrack && boardTrack.scrollWidth > boardTrack.clientWidth) {
+    event.preventDefault();
+    scrollBoard(event.key === 'ArrowRight' ? 1 : -1);
+  }
   if (event.key !== 'Escape') return;
   for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
 });
 for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
   const node = event.target.closest?.('[data-help-dismissed]');
   if (node && !node.contains(event.relatedTarget)) node.removeAttribute('data-help-dismissed');
+});
+surface.addEventListener('pointerover', event => {
+  const label = event.target.closest?.('[data-overflow-label]');
+  if (label && label.scrollWidth > label.clientWidth) label.title = label.dataset.overflowLabel;
+});
+surface.addEventListener('pointerout', event => {
+  const label = event.target.closest?.('[data-overflow-label]');
+  if (label && !label.contains(event.relatedTarget)) label.removeAttribute('title');
 });
 surface.addEventListener('dragstart', event => {
   const node = event.target.closest?.('[data-card-id][draggable="true"]');
@@ -940,10 +1239,17 @@ surface.addEventListener('dragstart', event => {
 });
 surface.addEventListener('dragover', event => {
   const target = event.target.closest?.('[data-drop-target]');
-  if (draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget)) event.preventDefault();
+  const allowed = draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget);
+  showCardDropStage(allowed ? target.closest('[data-board-stage]') : null);
+  if (allowed) event.preventDefault();
+});
+surface.addEventListener('dragleave', event => {
+  if (hoveredDropStage?.contains(event.target) && !hoveredDropStage.contains(event.relatedTarget))
+    showCardDropStage(null);
 });
 surface.addEventListener('drop', event => {
   const source = draggedCard; draggedCard = null;
+  showCardDropStage(null);
   const target = event.target.closest?.('[data-drop-target]');
   if (!source || !target || !admitted(source.generation)) return;
   const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
@@ -952,19 +1258,25 @@ surface.addEventListener('drop', event => {
     dispatch({ ...placement.action, generation: source.generation, value: placement.target });
   }
 });
-surface.addEventListener('dragend', () => { draggedCard = null; });
+surface.addEventListener('dragend', () => {
+  draggedCard = null;
+  showCardDropStage(null);
+});
 
 async function completeCommand(effect) {
   const namespace = publication.namespace;
   try {
-    const value = await requestCommand(effect.command);
+    const value = await requestCommand(effect.command, effect.read_only ? readDeadline() : undefined);
     if (publication.namespace === namespace && value !== undefined)
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
-    // DEFENSE: The server may have committed a command whose HTTP reply was lost.
-    // Preserve its ticket and duplicate protection instead of reporting rejection.
-    if (publication.namespace === namespace)
-      dispatch({ type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+    // DEFENSE: A lost reply ends a read observation. The server may have
+    // committed a mutation, so preserve its ticket and duplicate protection.
+    if (publication.namespace === namespace) {
+      dispatch(effect.read_only
+        ? { type: 'completed', ticket: effect.ticket, ok: false, error: error.message }
+        : { type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+    }
   }
 }
 
@@ -1028,6 +1340,32 @@ function configurationReply(reply) {
   if (reply?.ok !== true) throw new Error(reply?.error?.message ?? 'Configuration request failed');
   return reply.result;
 }
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // DEFENSE: Browser clipboard permissions can reject a direct write after a button click.
+    }
+  }
+  // DEFENSE: The async Clipboard API is absent on the VPN's HTTP origin.
+  const active = document.activeElement;
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;inset:0;inline-size:1px;block-size:1px;opacity:0;pointer-events:none';
+  (active?.closest('dialog:modal') ?? document.body).append(field);
+  try {
+    field.focus({ preventScroll: true });
+    field.select();
+    if (!document.execCommand('copy')) throw new Error('Clipboard write rejected');
+  } finally {
+    field.remove();
+    active?.focus({ preventScroll: true });
+  }
+}
+
 async function execute(effect) {
   const namespace = publication.namespace;
   const current = () => publication.namespace === namespace;
@@ -1091,6 +1429,10 @@ async function execute(effect) {
       if (body.ok === false) throw new Error(body.error);
       return body.available;
     });
+    case 'cloud_repository': return settled('cloud_repository_completed', effect.ticket, async () => {
+      const body = await post('/api/browser/observation', { kind: 'cloud-repository', primary: effect.primary });
+      return body.available;
+    });
     case 'list_directory': return settled('directory_listed', effect.ticket, async () => {
       return post('/api/browser/observation', taskObservation(effect, { kind: 'browse-directories', path: effect.path }));
     });
@@ -1121,16 +1463,33 @@ async function execute(effect) {
     }
     case 'follow_latest': {
       const node = renderer.resolveTarget(effect.key, { modal: false });
-      if (node) readingStep(node.dataset.key, node, 'follow');
+      if (node) { retireHistoryLocation(node); readingStep(node.dataset.key, node, 'follow'); }
       return;
     }
     case 'scroll_to_message': {
-      pendingHistoryLocation = { ...effect, namespace: publication.namespace };
+      retireHistoryLocation();
+      pendingHistoryLocation = { ...effect, namespace: publication.namespace,
+        navigationGeneration: integral(state.navigation.generation), readerGeneration: integral(effect.reader_generation).toString(),
+        taskId: integral(effect.task_id).toString() };
       retryHistoryLocation();
       return;
     }
     case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
-    case 'clipboard': await navigator.clipboard.writeText(effect.text); return;
+    case 'clipboard': {
+      try {
+        await copyText(effect.text);
+        if (current()) {
+          announcements.setAttribute('role', 'status');
+          announcements.setAttribute('aria-live', 'polite');
+          announcements.classList.add('visually-hidden');
+          announcements.textContent = '已复制';
+        }
+      } catch {
+        // DEFENSE: The browser can deny both clipboard mechanisms. The path stays visible for manual copying.
+        emit({ type: 'native_failed', error: '复制失败，请选中文本后复制。' });
+      }
+      return;
+    }
     case 'audio_login': return chatgptLogin.start(integral(effect.ticket), effect.method);
     case 'release_audio_login': return chatgptLogin.release(integral(effect.ticket));
     case 'copy_audio_login_code': return chatgptLogin.copy(integral(effect.ticket), effect.key, effect.code);
@@ -1192,7 +1551,6 @@ async function execute(effect) {
   }
 }
 
-const selections = new WeakMap();
 function selectionChanged() {
   const node = document.activeElement;
   if (!node || typeof node.selectionStart !== 'number') return;
@@ -1209,19 +1567,21 @@ function selectionChanged() {
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
+  boardTrackResize.disconnect();
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
   candidateAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
-  pendingHistoryLocation = null;
+  retireHistoryLocation();
   window.removeEventListener('pointerup', endReadingPointer, true);
   window.removeEventListener('pointercancel', endReadingPointer, true);
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+  if (readingLayoutFrame !== null) cancelAnimationFrame(readingLayoutFrame);
   if (measurementFrame !== null) cancelAnimationFrame(measurementFrame);
   if (measurementTask !== null) clearTimeout(measurementTask);
 }, { once: true });

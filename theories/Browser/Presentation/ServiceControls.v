@@ -2,20 +2,30 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Adapters Require Common.
 From Selvedge.Features Require Domain.
+From Selvedge.Kernel Require WorkspaceBackend.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
+From Selvedge.Interaction Require World.
+From Selvedge.Interaction.Experience Require Model.
+From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Experience Require Observation.
 From Selvedge.Browser.Session Require Import Appearance Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech.
 From Selvedge.Interaction Require Import Attachments.
 From Selvedge.Interaction.Submission Require Draft Fields.
+From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require State Authoring.
+From Selvedge.Browser.Session Require Observation.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection.
 From Selvedge.Browser.Presentation Require Roles Information Settings.
 Import ListNotations.
 Open Scope string_scope.
+Module SO := Selvedge.Browser.Session.Observation.
+Module Submission := Selvedge.Interaction.Submission.Observation.
+Module Experience := Selvedge.Interaction.Experience.Observation.
 
 Definition speech_button parent id label (enabled:bool) event :=
  declared parent Roles.Button(Control("speech/"++id)label Secondary(Input.SpeechInput event)
@@ -81,8 +91,8 @@ Definition upload_node (connected:bool) parent (upload:resource Services.upload_
     (Input.ServiceInput(Services.RetryUpload ticket))(if connected then Available else Unavailable "Reconnect to retry the upload"));
   declared parent Roles.Button(secondary("remove-upload/"++show_natural ticket)"Remove failed upload"(Input.ServiceInput(Services.CancelUpload ticket)))])
 |_=>None end.
-Definition file_picker e parent s :=
- Node(part parent "attach")"attach" "Attach files"Roles.Field
+Definition file_picker e parent s caption :=
+ Node(part parent "attach")"attach" caption Roles.Field
   (ReceiveFile e (Services.connected(State.service_state s)) (Input.attach_files e))[].
 Definition file_items e parent s :=
  let services:=State.service_state s in
@@ -90,9 +100,9 @@ Definition file_items e parent s :=
  (map(attachment_node e parent)(draft_files(State.current_draft s e))++
    fold_right(fun upload rest=>match Services.upload_owner upload,upload_node connected parent upload with
     |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services))%list.
-Definition files e parent s :=
- region parent "attachments" "Attachments" Roles.Section
-  (file_picker e parent s :: file_items e parent s).
+Definition files e parent s caption :=
+ region parent "attachments" caption Roles.Section
+  (file_picker e parent s caption :: file_items e parent s).
 Definition settings := Settings.view.
 
 Definition account_login_view s : list(node Input.input) :=
@@ -164,45 +174,112 @@ Proof.
  eexists. split; reflexivity.
 Qed.
 
-Definition directory_view s :=
+Definition directory_backend snapshot owner := match Identity.editor_task owner with
+ |None=>Some WorkspaceBackend.Local
+ |Some task=>settings<-ContextObservation.task_settings task snapshot;;
+  match Selvedge.Kernel.Domain.settings_resource settings with
+  |None=>Some WorkspaceBackend.Local
+  |Some workspace=>value<-World.find_world "worktrees" "task_id" workspace snapshot;;
+   bind(string_field "backend" value)WorkspaceBackend.decode
+  end
+ end.
+Definition directory_git_status (label:string->string->string) preview := match preview with
+ |None=>None
+ |Some SO.AwaitingDirectory=>Some(label "按 Enter 或点「前往」打开输入的目录。" "Press Enter or click Go to open the entered directory.")
+ |Some(SO.PreviewDirectory _ primary problem)=>Some(
+  (if primary then "" else label "将作为辅助目录添加。" "This will be added as an additional directory. ")++
+  match problem with
+  |None=>label "可作为 Git 工作树的主目录。" "This directory can be the primary for a Git worktree."
+  |Some Submission.GitCheckPending=>label "正在检查此目录是否支持 Git 工作树…" "Checking this directory for Git worktrees…"
+  |Some Submission.GitCheckFailed=>label "无法检查此目录是否支持 Git 工作树。" "Could not check this directory for Git worktrees."
+  |Some _=>if primary then label "主目录须位于包含提交的 Git 仓库中。" "The primary directory must be in a Git repository with a commit."
+    else label "此目录不能用作 Git 工作树的主目录。" "This directory cannot be the primary for a Git worktree." end)
+ end.
+Definition directory_error_message (label:string->string->string) code := match code with
+ |"ENOENT"=>label "找不到这个目录，请检查路径。" "Directory not found. Check the path."
+ |"ENOTDIR"=>label "这个路径不是目录。" "This path is not a directory."
+ |"EACCES"|"EPERM"=>label "无法访问此目录，请检查权限。" "Cannot access this directory. Check permissions."
+ |_=>label "无法读取目录，请检查路径或稍后再试。" "Cannot read this directory. Check the path or try again."
+ end.
+Definition directory_view snapshot s :=
  let services:=State.service_state s in
  match Services.directory services with
  |Resource.Dormant=>[]
  |resource=>match resource_ticket resource,resource_request resource with
   |Some ticket,Some request=>let parent:="/directory-browser"in
+   let owner:=Services.directory_editor request in
+   let label (chinese english:string):=match owner with Identity.Project _=>chinese|_=>english end in
+   let preview:=SO.directory_preview snapshot s in
+   let git_status:=directory_git_status label preview in
+   let draft:=State.current_draft s owner in
+   let source:=if SO.cloud_workspace_configured snapshot && SO.cloud_workspace_requested draft then
+    [information parent "cloud-workspace-source" Information.Description(Experience.cloud_source_caption snapshot draft)]
+    else[]in
+   let caption:=label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
+    |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
+    |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
+    |None=>"Choose a directory" end) in
+   let loading:=label "正在读取目录…" "Loading directories…" in
    let content:=match resource with
-    |Resource.Loading _ _=>[read_only parent "loading" "Working directories" "Loading directories…"]
-    |Resource.Failed _ _ reason=>[read_only parent "failure" "Directory listing failed"reason;
-      declared parent Roles.Button(secondary "retry" "Retry"(Input.ServiceInput Services.GoDirectory))]
-    |Resource.Loaded _ _ catalog=>(
-      map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
-       (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))(Selvedge.Interaction.Codec.items "entries" catalog)++
-      (if flag "truncated" catalog then[read_only parent "truncated" "Directories" "The directory listing is truncated"]else[]))%list
+    |Resource.Loading _ _=>[information parent "loading" Information.Status loading]
+    |Resource.Failed _ _ code=>
+      region parent "failure" "" Roles.Alert [information parent "failure-detail" Information.Description(directory_error_message label code)]::
+      (match Services.directory_previous request with None=>[]|Some path=>
+       [declared parent Roles.Button(secondary "previous" (label "返回上一个可用目录" "Back to previous directory")
+        (Input.ServiceInput(Services.VisitDirectory path)))]end)
+    |Resource.Loaded _ _ catalog=>let entries:=Selvedge.Interaction.Codec.items "entries" catalog in
+      (map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
+       (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))entries++
+      (if flag "truncated" catalog then[information parent "truncated" Information.Description
+        (label "目录列表仅显示部分结果。" "The directory listing is truncated.")]else
+        match entries,preview with
+        |[],Some SO.AwaitingDirectory=>[]
+        |[],_=>[information parent "empty-folders" Information.Status
+          (label "此目录没有子目录。" "This directory has no subdirectories.")]
+        |_,_=>[]end))%list
     |_=>[]end in
-   [Node parent "directory-browser" "Choose directory"Roles.Dialog
-    (LayerRegion(LayerBehavior ModalDialog false ticket
-     (match resource with Resource.Loaded _ _ _=>part parent "location"|_=>parent end)
-     (Services.directory_trigger request)"/main"(Services.directory_trigger request)
-     (Input.ServiceInput Services.CloseDirectory)true true))
-    [dialog_header parent [title parent "Choose directory"];
-     dialog_body parent(match resource with
-      |Resource.Loaded _ _ catalog=>
-       [region parent "navigation" "Folder navigation" Roles.Section
-        ([region parent "directory-location-actions" "" Roles.Toolbar
-         [Node(part parent "location")"directory-location" "Directory"Roles.Field
-          (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
+   let current_folder:=match resource with Resource.Loaded _ _ catalog=>
+     match string_field "path" catalog with
+     |Some path=>[information parent "directory-current-name" Information.GroupTitle
+       (Selvedge.Interaction.Experience.Model.directory_basename path)]
+     |None=>[]end
+     |_=>[]end in
+   let parent_path:=match resource with
+     |Resource.Loaded _ _ catalog=>string_field "parent" catalog
+     |_=>None end in
+   let parent_action:=declared parent Roles.Button
+    (Control "parent" (label "上一级" "Up") Secondary
+     (Input.ServiceInput(match parent_path with Some path=>Services.VisitDirectory path|None=>Services.GoDirectory end))
+     (match parent_path with Some _=>Available|None=>Unavailable "" end)) in
+   let choose_availability:=match resource with
+     |Resource.Loaded _ _ _=>if SO.directory_selection_allowed preview
+      then Available else Unavailable(value_or "" git_status)
+     |Resource.Loading _ _=>Unavailable loading
+     |Resource.Failed _ _ code=>Unavailable(directory_error_message label code)
+     |Resource.Dormant=>Unavailable "" end in
+   let navigation:=region parent "directory-location-actions" (label "目录导航" "Folder navigation") Roles.Section
+        [parent_action;
+         Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
+          (EnterDirectory owner (Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]]++
-         match string_field "parent" catalog with None=>[]|Some path=>
-          [declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end);
-        region parent "folders" "Folders" Roles.Section content]
-      |_=>content end);
+         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))] in
+   let checks:=((match resource,git_status with Resource.Loaded _ _ _,Some status=>
+    [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++
+    (match preview with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
+     [declared parent Roles.Button(secondary "retry-git" (label "重试 Git 检查" "Retry Git check")(Input.ServiceInput Services.GoDirectory))]|_=>[]end))%list in
+   [Node parent "directory-browser" caption Roles.Dialog
+    (LayerRegion(LayerBehavior ModalDialog false ticket (part parent "location")
+     (Services.directory_trigger request)"/main"(Services.directory_trigger request)
+     (Input.ServiceInput Services.CloseDirectory)true true))
+    [dialog_header parent [title parent caption];
+     dialog_body parent((source++navigation::
+      [region parent "folders" (label "子目录" "Folders") Roles.Section (current_folder++content);
+       region parent "directory-check" "" Roles.Section checks])%list);
      dialog_actions parent
-      (declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))::
-       match resource with Resource.Loaded _ _ _=>
-       [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
-       ]]
+      [declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory));
+       declared parent Roles.PrimaryButton(Control "choose" (label "使用此目录" "Use this directory") Secondary
+        (Input.ServiceInput Services.ChooseDirectory) choose_availability)]]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]

@@ -25,18 +25,17 @@ Definition edit_coordinates event := match event with
  |_=>None end.
 
 Definition visible_part context key index :=
- let task:=Streams.stream_task key in
- output<-find(fun output=>N.eqb(Streams.output_task output)task)(D.current_previews context);;
+ output<-D.current_preview context key;;
  part<-find(fun part=>N.eqb(fst part)index)(Streams.output_parts output);;
  Some(output,part).
 
 Definition make_preview context state part :=
- AuditReading.preview Input.Interactive context (State.document_retention state)
-   (State.interactive_state state)(fst part)(snd part).
+ let source:=AuditReading.preview_source context (fst part) (fst (snd part)) in
+ @AuditReading.preview_node Input.input (State.document_retention state) source (snd (snd part)) [].
 
-(** A plain text replacement keeps the same semantic source and no authored
-    attachment subtree. Changes to an attachment or document lifetime use the
-    complete scene, which owns all of their publication targets. *)
+(** This projection replaces only the preview element and its Markdown stream.
+    Authored components mount independently inside retained Markdown targets.
+    Appending within the same document lifetime preserves those mounts. *)
 Definition retains_preview (before after : S.node Input.input) :=
  String.eqb(S.node_key before)(S.node_key after) &&
  match S.node_children before,S.node_children after with

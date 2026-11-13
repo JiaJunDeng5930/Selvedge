@@ -95,22 +95,38 @@ Proof.
  unfold ContextUpdates.observation_changes; rewrite Found,Same,equal_is_reflexive; reflexivity.
 Qed.
 
+Theorem published_interactive_vocabulary_matches_the_executable_components :
+ Context.interactive_markdown_v3_vocabulary = Context.interactive_markdown_component_vocabulary.
+Proof. reflexivity. Qed.
+
 Theorem interactive_capability_requires_the_native_revision_and_body :
- forall values revision content,
- definition_observer Context.interactive_markdown = NativeText revision content ->
+ forall values,
  ContextUpdates.interactive_available values = true ->
- exists value, In value values /\ snapshot_revision value = revision /\
+ exists definition value revision content,
+ In definition Context.interactive_markdown_definitions /\
+ In value values /\
+ definition_observer definition = NativeText revision content /\
+ definition_json (key_definition (snapshot_key value)) = definition_json definition /\
+ snapshot_revision value = revision /\
  snapshot_fields value = [("content"%string,content)].
 Proof.
- intros values revision content Observer Available.
- unfold ContextUpdates.interactive_available in Available. rewrite Observer in Available.
+ intros values Available.
+ unfold ContextUpdates.interactive_available in Available.
+ apply existsb_exists in Available as [definition [Published Available]].
+ destruct (definition_observer definition) as [|revision content| | | | | | | | | ]
+   eqn:Observer; try discriminate.
  apply existsb_exists in Available as [value [Member Checked]].
  repeat rewrite andb_true_iff in Checked.
  destruct Checked as [[Declaration Revision] Fields].
+ apply equal_reflects_equality in Declaration, Fields.
  apply String.eqb_eq in Revision.
- apply equal_reflects_equality in Fields.
  apply context_fields_encoding_is_injective in Fields.
- exists value; repeat split; assumption.
+ exists definition, value, revision, content.
+ split; [exact Published|].
+ split; [exact Member|].
+ split; [exact Observer|].
+ split; [exact Declaration|].
+ split; [exact Revision|exact Fields].
 Qed.
 
 Theorem omitted_project_selection_preserves_environment_binding : forall model settings value,

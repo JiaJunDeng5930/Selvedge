@@ -4,14 +4,20 @@ From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
 
+Inductive title_prompt_scope := ConversationTitles | BoardTitles.
+
 Inductive editor :=
 | NewTask (work : option N) | Message (task : N) | Project (id : option N)
-| Card (id : option N) | Fork (task : N)
+| Card (id : option N) | CardForConversation (task : N) | Fork (task : N)
 | Compact (task : N) | TaskGraph (id work : option N)
-| WorkName (work : N) | TitlePrompts.
+| WorkName (work : option N) | TitlePrompts (scope : title_prompt_scope).
 
 (* Existing graphs keep their editor when the surrounding Work selection changes. *)
 Definition graph_editor id work := TaskGraph id (match id with Some _=>None|None=>work end).
+
+Inductive card_subject := BoardCard (id : option N) | ConversationCard (task : N).
+Definition card_editor subject := match subject with
+|BoardCard id=>Card id|ConversationCard task=>CardForConversation task end.
 
 Definition editor_task (e:editor) : option N := match e with
  |Message task|Fork task|Compact task=>Some task|_=>None end.
@@ -25,9 +31,12 @@ Definition encode_editor (e : editor) : json :=
   match e with
   | NewTask w => record "new_task" None w | Message t => record "message" (Some t) None
   | Project i => record "project" i None | Card i => record "card" i None
+  | CardForConversation task => record "conversation_card" (Some task) None
   | Fork t => record "fork" (Some t) None
   | Compact t => record "compact" (Some t) None | TaskGraph i w => record "graph" i w
-  | WorkName w => record "work" (Some w) None | TitlePrompts => record "title_prompts" None None
+  | WorkName w => record "work" w None
+  | TitlePrompts ConversationTitles => record "title_prompts" None None
+  | TitlePrompts BoardTitles => record "board_title_prompt" None None
   end.
 Definition decode_id (j : json) : option (option N) :=
   match j with JNull => Some None | JNumber n => option_map (@Some N) (parse_natural n) | _ => None end.
@@ -38,11 +47,13 @@ Definition decode_editor (j : json) : option editor :=
   | Some "message", Some (Some t), Some None => Some (Message t)
   | Some "project", Some i, Some None => Some (Project i)
   | Some "card", Some i, Some None => Some (Card i)
+  | Some "conversation_card", Some (Some task), Some None => Some (CardForConversation task)
   | Some "fork", Some (Some t), Some None => Some (Fork t)
   | Some "compact", Some (Some t), Some None => Some (Compact t)
   | Some "graph", Some i, Some w => Some (graph_editor i w)
-  | Some "work", Some (Some w), Some None => Some (WorkName w)
-  | Some "title_prompts", Some None, Some None => Some TitlePrompts
+  | Some "work", Some w, Some None => Some (WorkName w)
+  | Some "title_prompts", Some None, Some None => Some (TitlePrompts ConversationTitles)
+  | Some "board_title_prompt", Some None, Some None => Some (TitlePrompts BoardTitles)
   | _,_,_ => None
   end.
 Definition editor_eq_dec : forall (a b : editor), {a = b} + {a <> b}.

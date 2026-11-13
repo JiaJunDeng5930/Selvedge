@@ -144,12 +144,14 @@ await withBrowserFixture(async fixture => {
     const entry = exact(main, 'region', projectName);
     await entry.waitFor();
     await capturePage('projects');
-    const actions = () => click(entry, 'Project actions');
-    const edit = () => click(main, 'Edit project');
-    await captureLayer('project-new', 'activity', () => click(main, 'New project'));
+    const actions = () => click(entry, '项目操作');
+    const edit = async () => {
+      await click(main, '项目操作');
+      await click(dialog('object-actions'), '编辑项目');
+    };
+    await captureLayer('project-new', 'activity', () => click(main, '新建项目'));
     await captureLayer('project-list-menu', 'object-actions', actions);
-    await actions();
-    await click(dialog('object-actions'), 'Project details');
+    await click(entry, projectName);
     await exact(main, 'heading', projectName).waitFor();
     await capturePage('project');
     await captureLayer('project-edit', 'activity', edit);
@@ -161,13 +163,13 @@ await withBrowserFixture(async fixture => {
       await edit();
       await dialog('activity').getByRole('button', { name: /^Configuration source/ }).first().click();
     });
-    await captureLayer('project-details-menu', 'object-actions', () => click(main, 'More actions'));
+    await captureLayer('project-details-menu', 'object-actions', () => click(main, '项目操作'));
     const disposable = 'Disposable project for confirmation';
     await command({ op: 'create_project', name: disposable, workspace: { roots: [] } });
     await click(navigation, '项目');
     await captureLayer('project-delete', 'confirmation', async () => {
-      await click(exact(main, 'region', disposable), 'Project actions');
-      await click(dialog('object-actions'), 'Delete project');
+      await click(exact(main, 'region', disposable), '项目操作');
+      await click(dialog('object-actions'), '删除项目');
     });
     await click(navigation, '搜索对话');
     const search = main.getByRole('searchbox');
@@ -190,22 +192,22 @@ await withBrowserFixture(async fixture => {
     const archivedCard = await command({ op: 'read_card', card_id: archived.card_id });
     await command({ op: 'link_card', card_id: linked.card_id, revision: linkedCard.revision, task_id: target });
     await command({ op: 'archive_card', card_id: archived.card_id, revision: archivedCard.revision });
-    await click(navigation, '任务看板');
+    await click(navigation, '卡片看板');
     const card = main.locator(`article[data-card-id="${card_id}"]`);
     await card.waitFor();
     await capturePage('board');
-    const more = () => click(card, 'More actions');
-    await captureLayer('board-new-card', 'object-editor', () => click(main.locator('[data-board-group="primary-action"]'), '新建任务'));
-    await captureLayer('board-filters', 'board-filters', () => click(main, '筛选任务'));
+    const more = () => click(card, '卡片操作');
+    await captureLayer('board-new-card', 'object-editor', () => click(main.locator('[data-board-group="primary-action"]'), '新建卡片'));
+    await captureLayer('board-filters', 'board-filters', () => click(main, '筛选卡片'));
     await captureLayer('board-settings', 'board-settings', () => click(main, '看板设置'));
-    await captureLayer('board-archive', 'archived-cards', () => click(main, '归档任务'));
+    await captureLayer('board-archive', 'archived-cards', () => click(main, '归档卡片'));
     await captureLayer('board-card-details', 'card-details', () => click(card, `打开 ${title}`));
     await captureLayer('board-card-menu', 'object-actions', more);
+    await captureLayer('board-card-link', 'card-decision', () => click(card, '关联对话'));
     const cardActions = [
-      ['board-card-edit', 'Edit card', 'object-editor'],
-      ['board-card-move', 'Move card', 'card-decision'],
-      ['board-card-link', 'Link task', 'card-decision'],
-      ['board-card-delete', 'Delete card', 'confirmation'],
+      ['board-card-edit', '编辑卡片', 'object-editor'],
+      ['board-card-move', '移动卡片', 'card-decision'],
+      ['board-card-delete', '删除卡片', 'confirmation'],
     ];
     for (const [state, label, key] of cardActions) {
       await captureLayer(state, key, async () => {
@@ -246,8 +248,8 @@ await withBrowserFixture(async fixture => {
   if (group === 'shared') {
     const name = 'Workspace audit Work';
     const { work_id } = await command({ op: 'create_work', name });
-    await page.getByRole('button', { name: /^Work overview:/ }).click();
-    await exact(exact(page, 'dialog', 'Works'), 'radio', name).click();
+    await page.getByRole('button', { name: /^对话范围 · / }).click();
+    await exact(exact(page, 'dialog', '对话范围'), 'radio', name).click();
     await click(page, '共享 UI');
     await capturePage('shared-empty');
     await publishSharedView(fixture, work_id);

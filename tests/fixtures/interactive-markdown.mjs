@@ -25,7 +25,7 @@ function json(response, value, status = 200) {
 }
 
 /** A real service whose only fake boundary is the explicitly controlled model HTTP peer. */
-export async function interactiveMarkdownFixture() {
+export async function interactiveMarkdownFixture({ taskTitle = prompt => prompt.split('\n')[0], cloud = false } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-')));
   const requests = [];
   const failures = [];
@@ -40,7 +40,7 @@ export async function interactiveMarkdownFixture() {
       if (request.url.endsWith('/input_tokens')) return json(response, { input_tokens: 100 });
       if (input.text?.format?.name === 'task_title') {
         const prompt = input.input[0].content.split('\n\nUser prompt:\n').at(-1);
-        const title = prompt.split('\n')[0].slice(0, input.text.format.schema.properties.title.maxLength);
+        const title = taskTitle(prompt).slice(0, input.text.format.schema.properties.title.maxLength);
         const output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ title }) }] }];
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);
@@ -60,6 +60,11 @@ export async function interactiveMarkdownFixture() {
   });
   const endpoint = `${await listening(upstream)}/responses`;
   const config = validateConfig({ ...defaultConfig, port: 0, chatgpt: false,
+    cloud: cloud ? { backend: 'tencent_cvm', tencent_cvm: {
+      region: 'ap-guangzhou', zone: 'ap-guangzhou-3', image_id: 'img-fixture', instance_type: 'S5.MEDIUM2',
+      vpc_id: 'vpc-fixture', subnet_id: 'subnet-fixture', security_group_ids: ['sg-fixture'], key_id: 'skey-fixture',
+      ssh_private_key: path.join(root, 'unused-cvm-key'), spot_max_price: '0.1', api_endpoint: 'http://127.0.0.1:1',
+    } } : false,
     profiles: { ...defaultConfig.profiles, demo: { provider: 'echo', model: 'echo' }, interactive: {
       provider: 'responses', model: 'interactive-fixture', endpoint, api_key_env: apiKey,
     } },

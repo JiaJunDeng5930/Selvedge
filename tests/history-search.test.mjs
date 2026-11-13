@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { interactiveMarkdownFixture } from './fixtures/interactive-markdown.mjs';
+import { browserFixture } from './fixtures/browser.mjs';
 import { taskIdle } from './support.mjs';
 
 async function until(observe, description) {
@@ -143,4 +144,360 @@ test('HTTP and native agent search retain scoped original message locations acro
   fixture.finish(continuation.index, { text: 'Located the earlier conversation.' });
   await taskIdle(fixture.running.service, agent);
   assert.deepEqual(fixture.failures, []);
+});
+
+test('Search finds the displayed conversation title and lets the user retry a lost reply', async t => {
+  const title = '极光排班计划';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const prompt = 'Summarize last week’s availability.';
+  const { task_id } = await command({ op: 'create', profile: fixture.profile, message: prompt });
+  const modelRequest = await until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), 'the conversation model request');
+  fixture.finish(modelRequest.index, { text: 'The team is available Monday morning.' });
+  await taskIdle(fixture.running.service, task_id);
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await tree.getByRole('button', { name: title, exact: true }).waitFor();
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const submit = page.getByRole('button', { name: '搜索', exact: true });
+  assert.equal(await submit.isDisabled(), true, 'A blank query cannot be submitted');
+  const endpoint = '**/api/browser/command';
+  let requests = 0;
+  let finishReply;
+  const untilReply = new Promise(resolve => { finishReply = resolve; });
+  const dropReply = async route => {
+    if (route.request().postDataJSON()?.command?.op !== 'search_history') return route.continue();
+    requests++;
+    await route.fetch();
+    await untilReply;
+    return route.abort('failed');
+  };
+  await page.route(endpoint, dropReply);
+  try {
+    await query.fill(title);
+    await query.press('Enter');
+    await page.getByRole('status').filter({ hasText: /^正在搜索…$/u }).waitFor();
+    assert.equal(await submit.isDisabled(), true, 'A pending search disables repeated submission');
+    await query.press('Enter');
+    await until(() => requests, 'the search request');
+  } finally { finishReply(); }
+  await page.getByRole('status').filter({ hasText: '未能完成搜索，请重试。' }).waitFor();
+  await page.unroute(endpoint, dropReply);
+  assert.equal(requests, 1, 'Repeated Enter did not send another search');
+  await submit.click();
+  const match = page.getByRole('main').getByRole('button', { name: title, exact: true });
+  await match.click();
+  await page.getByRole('main').getByText('The team is available Monday morning.', { exact: true }).waitFor();
+  const back = page.getByRole('button', { name: '返回搜索结果', exact: true });
+  await back.click();
+  await match.and(page.locator(':focus')).waitFor();
+  assert.equal(await query.inputValue(), title);
+  await tree.getByRole('button', { name: title, exact: true }).click();
+  await page.getByRole('main').getByText('The team is available Monday morning.', { exact: true }).waitFor();
+  assert.equal(await back.count(), 0, 'An ordinary sidebar visit has no return to search');
+  await page.getByRole('button', { name: '新建对话', exact: true }).click();
+  await page.getByRole('main').getByRole('combobox', { name: 'Task', exact: true }).waitFor();
+  assert.equal(await page.getByText('This command is already pending.', { exact: true }).count(), 0);
+});
+
+test('Search gives the keyword room and keeps long scope choices usable on narrow screens', { timeout: 60000 }, async t => {
+  const title = '季度复核的交付记录';
+  const projectName = '季度复核与正式发布前需要逐项确认的文档归档项目';
+  const workName = '负责整理季度复核材料以及核对发布计划的协作工作组';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const root = path.join(fixture.root, 'release-review');
+  await mkdir(root);
+  const { project_id } = await command({ op: 'create_project', name: projectName, workspace: { roots: [root] } });
+  const { work_id } = await command({ op: 'create_work', name: workName });
+  const { task_id } = await command({ op: 'create_work_task', work_id, profile: fixture.profile,
+    settings: { project_id }, message: 'Record the delivery requirements.' });
+  const request = await until(() => fixture.requests[0], 'the scoped conversation request');
+  fixture.finish(request.index, { text: 'Delivery checklist recorded.' });
+  await taskIdle(fixture.running.service, task_id);
+
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const main = page.getByRole('main');
+  const query = main.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const project = main.getByRole('combobox', { name: '项目', exact: true });
+  const work = main.getByRole('combobox', { name: '工作组', exact: true });
+  const submit = main.getByRole('button', { name: '搜索', exact: true });
+  await query.fill('季度复核');
+  const bounds = async () => Promise.all([query, project, work, submit].map(control => control.boundingBox()));
+
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 820 });
+    if (width < 600) await page.locator('[data-semantic-key="compact-header"]').waitFor();
+    await project.selectOption('');
+    await work.selectOption('');
+    const [keyword, projectField, workField, action] = await bounds();
+    assert.ok(projectField.width <= 96 && workField.width <= 96, 'Short scopes only use a compact width');
+    if (width === 1280) {
+      assert.ok(keyword.width >= 2 * (projectField.width + workField.width), 'The keyword gets most of the toolbar');
+      assert.ok(Math.abs(keyword.y - action.y) <= 2, 'Search stays on the same row on desktop');
+    } else {
+      assert.ok(keyword.y + keyword.height <= projectField.y, 'The keyword moves to its own row at narrow widths');
+      assert.ok([keyword, projectField, workField, action].every(box => box.height >= 44 && box.width >= 44),
+        'All four controls retain touch targets');
+    }
+
+    await project.selectOption({ label: projectName });
+    await work.selectOption({ label: workName });
+    assert.equal(await project.locator('option:checked').textContent(), projectName);
+    assert.equal(await work.locator('option:checked').textContent(), workName);
+    assert.ok((await bounds()).every(box => box.x >= 0 && box.x + box.width <= width + 1),
+      'Long selected scopes stay in view');
+    assert.ok(await main.evaluate(node => node.scrollWidth <= node.clientWidth), 'The page has no horizontal overflow');
+  }
+  await submit.click();
+  await main.getByRole('button', { name: title, exact: true }).waitFor();
+});
+
+test('Returning from a search hit restores its filtered results page and reading position', { timeout: 60000 }, async t => {
+  const title = 'Archive reading fixture';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const projectName = 'Archive project';
+  const resultWork = 'Archive group';
+  const sourceWork = 'Source group';
+  const marker = '档案检索';
+  const directory = path.join(fixture.root, 'archive');
+  await mkdir(directory);
+  const { project_id } = await command({ op: 'create_project', name: projectName, workspace: { roots: [directory] } });
+  await command({ op: 'create_work', name: sourceWork });
+  const { work_id } = await command({ op: 'create_work', name: resultWork });
+  const prompt = 'Gather notes in the archive.';
+  const { task_id } = await command({ op: 'create_work_task', work_id, profile: fixture.profile,
+    settings: { project_id }, message: prompt });
+  const request = await until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), 'the archive model request');
+  fixture.finish(request.index, { output: Array.from({ length: 45 }, (_, index) => ({
+    type: 'message', role: 'assistant', content: [{ type: 'output_text',
+      text: `${marker} ${index + 1}. ${'Searchable notes for the project archive. '.repeat(4)}` }],
+  })) });
+  await taskIdle(fixture.running.service, task_id);
+
+  const main = page.getByRole('main');
+  const query = main.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  const project = main.getByRole('combobox', { name: '项目', exact: true });
+  const work = main.getByRole('combobox', { name: '工作组', exact: true });
+  const previous = main.getByRole('button', { name: '上一页', exact: true });
+  const back = main.getByRole('button', { name: '返回搜索结果', exact: true });
+  const hit = main.getByRole('button', { name: /^Archive reading fixture · (用户|助手)$/u }).nth(16);
+  const picker = page.getByRole('button', { name: /^对话范围 · / });
+  const scope = page.getByRole('menu', { name: '对话范围', exact: true });
+  await picker.click();
+  await scope.getByRole('menuitemradio', { name: sourceWork, exact: true }).click();
+  await page.getByRole('button', { name: `对话范围 · ${sourceWork}`, exact: true }).waitFor();
+  const search = page.getByRole('button', { name: '搜索对话', exact: true });
+  const enterSearch = async () => {
+    if (!(await search.isVisible()))
+      await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
+    await search.click();
+  };
+  await enterSearch();
+  await project.selectOption({ label: projectName });
+  await work.selectOption({ label: resultWork });
+  await query.fill(marker);
+  await query.press('Enter');
+  await main.getByRole('button', { name: '更多结果', exact: true }).click();
+  await previous.waitFor();
+  const hitName = await hit.textContent();
+  const checkSearch = async offset => {
+    await hit.waitFor();
+    await previous.waitFor();
+    assert.equal(await query.inputValue(), marker);
+    assert.equal(await project.inputValue(), String(project_id));
+    assert.equal(await work.inputValue(), String(work_id));
+    assert.equal(await hit.textContent(), hitName);
+    assert.ok(Math.abs((await main.evaluate(node => node.scrollTop)) - offset) <= 2,
+      'The search list returns to its previous scroll position');
+  };
+  const readPosition = async () => {
+    await hit.scrollIntoViewIfNeeded();
+    return hit.evaluate(node => {
+      node.scrollIntoView({ block: 'center', behavior: 'instant' });
+      return node.closest('main').scrollTop;
+    });
+  };
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    const offset = await readPosition();
+    assert.ok(offset > 100, 'The selected result is well below the first visible results');
+    await hit.click();
+    if (viewport.width === 1280)
+      await page.getByRole('button', { name: `对话范围 · ${resultWork}`, exact: true }).waitFor();
+    await back.click();
+    await hit.and(page.locator(':focus')).waitFor();
+    await checkSearch(offset);
+    if (viewport.width === 1280)
+      await page.getByRole('button', { name: `对话范围 · ${sourceWork}`, exact: true }).waitFor();
+  }
+
+  const offset = await readPosition();
+  await hit.click();
+  await back.waitFor();
+  await enterSearch();
+  await checkSearch(offset);
+
+  await query.fill('档案');
+  await query.press('Enter');
+  await main.getByRole('button', { name: '更多结果', exact: true }).waitFor();
+  assert.equal(await previous.count(), 0);
+  assert.equal(await main.evaluate(node => node.scrollTop), 0);
+});
+
+test('A search result opens and highlights a deep visible match while later replies render', { timeout: 60000 }, async t => {
+  const title = 'Conversation reading fixture';
+  const fixture = await browserFixture(t, { taskTitle: () => title });
+  const { page, command } = fixture;
+  const marker = '追加式数据集';
+  const enteredQuery = `　${marker}　`;
+  const firstPrompt = 'Start a conversation with a long introduction.';
+  const { task_id } = await command({ op: 'create', profile: fixture.profile, message: firstPrompt });
+  const requestFor = prompt => until(() => fixture.requests.find(entry => !entry.closed
+    && JSON.stringify(entry.input.input).includes(prompt)), `the model request for ${prompt}`);
+  const longText = (prefix, count) => Array.from({ length: count }, (_, index) =>
+    `${prefix} ${index + 1}. ${'Text with enough detail to wrap across multiple lines. '.repeat(8)}`).join('\n\n');
+  const calculator = [
+    '```selvedge-ui',
+    '<ui id="budget">',
+    '<state id="seats" type="integer" initial={5} min={1} max={20} />',
+    '<slider id="seat-slider" bind="seats" label="Budget seats" />',
+    `<button id="follow-up" label="Prepare a question" action="draft" message="${marker}" />`,
+    '</ui>',
+    '```',
+  ].join('\n');
+  const visibleMatch = `The audit record uses **${marker}** to keep the earlier entries readable.`;
+  fixture.finish((await requestFor(firstPrompt)).index, { text: [calculator, longText('Introduction', 48),
+    '## Audit record', visibleMatch, longText('Audit details', 24)].join('\n\n') });
+  const history = await taskIdle(fixture.running.service, task_id);
+  const index = history.messages.findIndex(message => JSON.stringify(message).includes(visibleMatch));
+  assert.ok(index >= 0, 'The real conversation contains the selected message');
+  const livePrompt = 'Add a long follow-up to the budget.';
+  await command({ op: 'send', task_id, message: livePrompt });
+  const live = await requestFor(livePrompt);
+  fixture.emit(live.index, longText('Live follow-up', 25));
+
+  const timelineSelector = `[data-reading-root][data-task-id="${task_id}"]`;
+  const timeline = page.locator(timelineSelector);
+  const atLatest = () => page.waitForFunction(selector => {
+    const root = document.querySelector(selector);
+    return root && root.scrollHeight - root.clientHeight - root.scrollTop <= 2;
+  }, timelineSelector);
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await tree.getByRole('button', { name: title, exact: true }).click();
+  await timeline.getByRole('slider', { name: 'Budget seats', exact: true }).waitFor();
+  await timeline.getByText(/Live follow-up 25/).waitFor();
+  await atLatest();
+
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  const query = page.getByRole('searchbox', { name: '标题或消息关键词', exact: true });
+  await query.fill(enteredQuery);
+  await query.press('Enter');
+  const hit = page.getByRole('main').getByRole('button', { name: `${title} · 助手`, exact: true });
+  await hit.press('Enter');
+  const keyword = timeline.getByText(marker, { exact: true });
+  await keyword.waitFor();
+  const highlighted = () => page.waitForFunction(({ task, marker }) => {
+    const root = document.querySelector(`[data-reading-root][data-task-id="${task}"]`);
+    const highlight = CSS.highlights.get('selvedge-history-match');
+    const [range] = highlight ?? [];
+    if (!root || highlight?.size !== 1 || range?.toString() !== marker ||
+        !range.startContainer.parentElement.closest('p')?.textContent.startsWith('The audit record uses')) return false;
+    const viewport = root.getBoundingClientRect(), bounds = range.getBoundingClientRect();
+    const article = range.startContainer.parentElement.closest('article').getBoundingClientRect();
+    return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1 && article.top < viewport.top - 1000;
+  }, { task: task_id, marker });
+  const checkFocusFrame = async () => {
+    await timeline.and(page.locator(':focus-visible')).waitFor();
+    const frame = await keyword.evaluate(node => {
+      const root = node.closest('[data-reading-root]');
+      const bounds = root.getBoundingClientRect();
+      const style = getComputedStyle(root);
+      const text = document.createRange();
+      text.selectNodeContents(node);
+      const ringInside = Math.max(0, -parseFloat(style.outlineOffset));
+      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth),
+        leftClearance: text.getBoundingClientRect().left - bounds.left - ringInside };
+    });
+    assert.equal(frame.style, 'solid');
+    assert.ok(frame.width >= 2);
+    assert.ok(frame.leftClearance >= 4,
+      `The timeline focus ring clears the assistant text by ${frame.leftClearance}px`);
+  };
+  const offset = () => keyword.evaluate(node => new Promise(resolve => {
+    requestAnimationFrame(() => setTimeout(() => {
+      const viewport = node.closest('[data-reading-root]').getBoundingClientRect();
+      resolve(node.getBoundingClientRect().top - viewport.top);
+    }, 0));
+  }));
+  await highlighted();
+  await checkFocusFrame();
+  const arrived = await offset();
+  const previousWidth = await timeline.evaluate(root => root.clientWidth);
+  await keyword.evaluate(node => {
+    window.firstResizedMessageOffset = new Promise(resolve => {
+      window.addEventListener('resize', () => setTimeout(() => {
+        const viewport = node.closest('[data-reading-root]')?.getBoundingClientRect();
+        resolve(viewport ? node.getBoundingClientRect().top - viewport.top : null);
+      }, 0), { once: true });
+    });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(({ selector, previousWidth }) =>
+    document.querySelector(selector)?.clientWidth < previousWidth, { selector: timelineSelector, previousWidth });
+  const resized = await page.evaluate(() => window.firstResizedMessageOffset);
+  assert.ok(resized !== null && Math.abs(resized - arrived) <= 2,
+    `The first resized frame retains the selected keyword (before ${arrived}px, after ${resized}px)`);
+  await checkFocusFrame();
+  const completion = longText('Finished follow-up', 30);
+  fixture.emit(live.index, '\n\n' + completion);
+  fixture.finish(live.index, {});
+  await taskIdle(fixture.running.service, task_id);
+  await timeline.getByText(/Finished follow-up 30/).waitFor();
+  const completed = await offset();
+  assert.ok(Math.abs(completed - arrived) <= 2,
+    `The selected keyword stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
+  await page.waitForFunction(() => !CSS.highlights.has('selvedge-history-match'));
+
+  const scrolledPast = previous => page.waitForFunction(({ selector, previous, marker }) => {
+    const root = document.querySelector(selector);
+    const keyword = [...root.querySelectorAll('strong')].find(text => text.textContent === marker);
+    return keyword && previous > keyword.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
+  }, { selector: timelineSelector, previous, marker });
+  await page.keyboard.press('PageDown');
+  await scrolledPast(arrived);
+  const afterPaging = await offset();
+  await timeline.hover();
+  await page.mouse.wheel(0, 180);
+  await scrolledPast(afterPaging);
+
+  await page.getByRole('button', { name: '返回搜索结果', exact: true }).click();
+  await hit.and(page.locator(':focus')).waitFor();
+  assert.equal(await query.inputValue(), enteredQuery);
+  await hit.press('Enter');
+  await highlighted();
+  await checkFocusFrame();
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).click();
+  await atLatest();
+});
+
+test('A stalled first connection is visible and the user can reconnect', async t => {
+  const { browser, running } = await browserFixture(t);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  t.after(() => page.close());
+  let first = true;
+  await page.route('**/api/browser/state', route => {
+    if (!first) return route.continue();
+    first = false;
+    // Leave the first state request unanswered so the browser's own deadline fires.
+  });
+  await page.goto(running.url);
+  await page.getByRole('status').filter({ hasText: /^正在连接 Selvedge…$/u }).waitFor();
+  const retry = page.getByRole('button', { name: '重新连接', exact: true });
+  await retry.click({ timeout: 25000 });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor({ timeout: 10000 });
 });

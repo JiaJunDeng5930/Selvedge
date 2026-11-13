@@ -19,10 +19,11 @@ import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, a
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
+import { browserHistoryReply } from './history-preview.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
-import { browseDirectories } from './directories.mjs';
+import { browseDirectories, directoryListingFailure } from './directories.mjs';
 import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
@@ -695,6 +696,10 @@ export class Service extends EventEmitter {
     const plan = workspaceCommandPlan(command);
     // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
     if (!plan.observe) return cloneJson(command);
+    // DEFENSE: A direct command or a retained draft can request an unconfigured cloud backend.
+    if (plan.worktree && command.backend === 'tencent_cvm' && this.config.cloud?.backend !== command.backend) {
+      throw new TypeError('Tencent Cloud CVM is not configured on this Selvedge host');
+    }
     // Cloud tasks inherit a fixed workspace. Core admits or rejects their options;
     // local repository observations cannot establish facts about that environment.
     if (command.task_id !== undefined) {
@@ -962,11 +967,15 @@ export class Service extends EventEmitter {
     }
   }
 
+  #browserProgram(program) {
+    return { ...program, configured_cloud_backend: this.config.cloud?.backend ?? null };
+  }
+
   browserSnapshot() {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.journal.program };
+    return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.#browserProgram(this.journal.program) };
   }
 
   browserStreams() {
@@ -975,7 +984,8 @@ export class Service extends EventEmitter {
 
   async browserCommand(command) {
     const result = await this.command(command);
-    return { namespace: this.journal.namespace, sequence: result.sequence, program: result.program, reply: result.reply };
+    return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program),
+      reply: browserHistoryReply(command, result) };
   }
 
   async browserObservation(observation) {
@@ -996,6 +1006,10 @@ export class Service extends EventEmitter {
         }
         finally { await environment?.filesystem.close(); }
       },
+      cloudRepository: async plan => {
+        const available = (await observeCloudRepository(plan.primary)) !== null;
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });
+      },
       browseDirectories: async plan => {
         let environment;
         let outcome;
@@ -1005,10 +1019,10 @@ export class Service extends EventEmitter {
             phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
           }), async location => (await canonicalWorkspace({ roots: [location] })).primary_root);
           const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
-          outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
+          outcome = result.ok ? { ok: true, value: result } : result;
         // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
         } catch (error) {
-          outcome = { ok: false, error: error.message };
+          outcome = directoryListingFailure(error);
         } finally { await environment?.filesystem.close(); }
         return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
       },

@@ -13,6 +13,8 @@ Definition valid_project_name (name : string) :=
 Definition path_constraints := WorkspacePath.constraints.
 Definition path_declaration := WorkspacePath.declaration.
 Definition canonical_path := WorkspacePath.canonical.
+Definition primary_path (value:workspace) := match workspace_primary value with Some root=>root|None=>"" end.
+Definition same_primary (left right:workspace) := String.eqb (primary_path left) (primary_path right).
 Definition valid_path (path : string) :=
  ArgumentDeclaration.check_text path_constraints path && canonical_path path.
 Definition valid_selection (value : workspace) :=

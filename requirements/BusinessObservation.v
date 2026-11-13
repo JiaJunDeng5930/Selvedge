@@ -16,7 +16,8 @@ From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Numbers NumbersProofs Registry.
 From Selvedge.Generated Require Commands.
-From Selvedge.Kernel Require Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Kernel Require Context ContextUpdates Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Features Require BoardFacts.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Audit World.
 From Selvedge.Interaction.Experience Require Publication Read.
@@ -42,7 +43,7 @@ Theorem observed_task_has_requested_identity snapshot id task :
 Proof.
  unfold Read.find_task, World.find_task.
  destruct (World.find_world "tasks" "id" id snapshot) as [value|] eqn:Selected; [|discriminate].
- cbn [bind]. unfold Read.observe_task.
+ cbn [bind]. unfold Read.observe_task, Read.observe_task_with_failure.
  rewrite (selected_world_identity _ _ _ _ _ Selected).
  cbn [bind].
  repeat match goal with
@@ -105,9 +106,10 @@ Proof.
    Publication.task_snapshot_in_world key selected value) _
    (State.world_tasks value) 0 id task Found).
  intros key selected.
- change (Selvedge.Foundation.Numbers.parse_natural
-   (Selvedge.Foundation.Numbers.show_natural key) = Some key).
- apply NumbersProofs.natural_print_parse.
+ unfold Publication.task_snapshot_in_world, Publication.task_snapshot, Publication.task_summary.
+ destruct (Domain.task_busy selected);
+   [|destruct (fold_left Publication.observe_history (Domain.task_history selected) ([],false))].
+ all: apply NumbersProofs.natural_print_parse.
 Qed.
 
 Lemma published_optional_id value :
@@ -118,14 +120,48 @@ Proof.
  now rewrite NumbersProofs.natural_print_parse.
 Qed.
 
+Lemma published_history_observes_context_and_failure history context failed :
+ fold_left Publication.observe_history history (context, failed) =
+ (fold_left ContextUpdates.update_bindings history context,
+  fold_left BoardFacts.observe_failure history failed).
+Proof.
+ revert context failed. induction history as [|event rest IH]; intros context failed.
+ - reflexivity.
+ - cbn [fold_left Publication.observe_history]. apply IH.
+Qed.
+
+Theorem task_snapshot_preserves_context_and_predicts_the_board_stage id task features :
+ let snapshot := Publication.task_snapshot id task features in
+ field "context" snapshot = Some (JArray (map Context.snapshot_json
+   (ContextUpdates.bindings (Domain.task_history task)))) /\
+ string_field "card_link_stage" snapshot = Some (Selvedge.Features.Domain.stage_name
+   (BoardFacts.stage_after_task BoardFacts.initial_link_stage task)).
+Proof.
+ unfold Publication.task_snapshot, Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
+ destruct (Domain.task_busy task).
+ - split; reflexivity.
+ - rewrite published_history_observes_context_and_failure. split; reflexivity.
+Qed.
+
+Theorem task_snapshot_reports_a_settled_execution_failure id task features :
+ bool_field "execution_failed" (Publication.task_snapshot id task features) =
+ Some (if Domain.task_busy task then false else BoardFacts.latest_failure task).
+Proof.
+ unfold Publication.task_snapshot, Publication.task_summary.
+ destruct (Domain.task_busy task).
+ - reflexivity.
+ - rewrite published_history_observes_context_and_failure. reflexivity.
+Qed.
+
 Lemma published_task_summary_is_observable id task features :
- Read.observe_task (Publication.task_summary id task features) =
+ Read.observe_task_summary (Publication.task_summary id task features) =
  Some (Read.ObservedTask id (Selvedge.Features.Observation.task_title id task features)
    (Domain.task_status task) (Publication.status_label task) (Domain.task_busy task)
    (Domain.settings_project (Domain.task_current_settings task))
-   (Observation.task_owner id task features) (hd_error (Domain.task_lineage task))).
+   (Observation.task_owner id task features) (hd_error (Domain.task_lineage task))
+   (Publication.awaiting_human task) false).
 Proof.
- unfold Read.observe_task.
+ unfold Read.observe_task_summary, Read.observe_task_with_failure.
  change (natural_field "id" (Publication.task_summary id task features)) with
    (Numbers.parse_natural (Numbers.show_natural id)).
  rewrite NumbersProofs.natural_print_parse.
@@ -147,6 +183,8 @@ Proof.
    (decode_id (Selvedge.Kernel.Codec.optional_number (Observation.task_owner id task features))).
  change (id_field "parent" (Publication.task_summary id task features)) with
    (decode_id (Selvedge.Kernel.Codec.optional_number (hd_error (Domain.task_lineage task)))).
+ change (Selvedge.Interaction.Codec.flag "awaitingHuman" (Publication.task_summary id task features)) with
+   (Publication.awaiting_human task).
  rewrite !published_optional_id.
  unfold Domain.task_status. destruct (Domain.task_lifecycle task); reflexivity.
 Qed.
@@ -158,14 +196,17 @@ Theorem browser_and_cli_read_the_same_task_summary request value task :
    (N.of_nat (List.length (Domain.task_history task))) = true ->
  let summary := Publication.task_summary id task (State.world_features value) in
  exists observed,
-  Read.find_task id (Packet.world_json value) = Some observed /\
-  Read.observe_task summary = Some observed /\
+  bind (World.find_task id (Packet.world_json value)) Read.observe_task_summary = Some observed /\
+  Read.observe_task_summary summary = Some observed /\
   bind (Packet.query (Commands.Cmd_read request) None value)
     (fun reply => bind (field "result" reply) (field "task")) = Some summary.
 Proof.
  cbn zeta. intros Found Page. eexists. split.
- - unfold Read.find_task. rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
-   apply published_task_summary_is_observable.
+ - rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
+   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot.
+   destruct (Domain.task_busy task);
+     [|destruct (fold_left Publication.observe_history (Domain.task_history task) ([],false))];
+     apply published_task_summary_is_observable.
  - split; [apply published_task_summary_is_observable|].
    change (bind (field "result" (Queries.handle_read request None value)) (field "task") =
      Some (Publication.task_summary (Commands.read_task_id request) task (State.world_features value))).
@@ -212,15 +253,21 @@ Theorem browser_card_face_uses_observed_facts snapshot state card board_parent c
  exists face,
   Surface.node_meaning rendered = Surface.CardContent face /\
   Model.card_title face = Read.card_title card /\
-  Model.card_status face = Read.card_activity_label (Read.card_activity card) /\
-  Model.card_owner face = Read.card_owner_label snapshot (Read.card_owner card).
+  Model.card_status face = Read.card_activity_label snapshot card /\
+  Model.card_owner face = match Read.card_owner card with
+  | Selvedge.Features.Domain.Unassigned => ""
+  | owner => Read.card_owner_label snapshot owner
+  end.
 Proof. intros rendered. eexists. repeat split; reflexivity. Qed.
 
 Theorem browser_task_detail_shows_observed_status snapshot state id task details parent :
  Projection.task_details_observation snapshot id = Some (task, details) ->
- In (Construction.read_only parent "status" "Status" (Read.task_caption task))
-    (Layers.task_details snapshot state id parent).
+ exists group, In group (Layers.task_details snapshot state id parent) /\
+  In (Construction.read_only parent "status" "状态" (Layers.task_execution_caption task))
+     (Surface.node_children group).
 Proof.
  intros Observed. unfold Layers.task_details. rewrite Observed.
- apply in_or_app. right. apply in_or_app. right. apply in_or_app. left. simpl. auto.
+ eexists. split.
+ - apply in_or_app. right. left. reflexivity.
+ - cbn [Layers.detail_group Construction.region Surface.node_children]. right. left. reflexivity.
 Qed.

@@ -6,7 +6,7 @@ From Selvedge.Browser.Session Require State NavigationCodec.
 From Selvedge.Interaction.Interactive Require Types.
 Import ListNotations.
 Open Scope string_scope.
-Definition service_receipts := ["connect";"command_assessed";"workspace_git_completed";
+Definition service_receipts := ["connect";"command_assessed";"workspace_git_completed";"cloud_repository_completed";
  "model_preference_restored";"storage_problem";"authenticated";"disconnected";
  "retry_connection";"uploaded";"previewed";"directory_listed";
  "service_configuration_loaded";"service_configuration_written"].

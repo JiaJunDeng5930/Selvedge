@@ -5,6 +5,8 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Receiver.
 From Selvedge.Foundation Require Import Registry.
 From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission.
+From Selvedge.Kernel Require Tasks.
+From Selvedge.Programming Require CommandResult.
 From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Features Require Import Domain BoardFacts BoardParameters Observation Titles.
 From Selvedge.Programming Require CardScope.
@@ -13,6 +15,19 @@ Open Scope string_scope.
 Open Scope N_scope.
 Module F := Selvedge.Features.Domain.
 Module S := FeatureRequest.
+
+Definition profile_name (default selected:string) :=
+ if String.eqb selected "" then default else selected.
+Definition require_profile {A} (name:string) catalog
+ (run:forall selected, Tasks.find_profile name catalog=Some selected ->
+    FeatureRequestAdmission.ordinary_profile selected=true -> CommandResult.result A) :=
+ FeatureRequestAdmission.observe (Tasks.find_profile name catalog)
+  (fun selected found => CommandResult.require (FeatureRequestAdmission.ordinary_profile selected)
+   (run selected found) "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
+  (fun _ => CommandResult.refuse "draft_profile_required" "Choose a configured ordinary drafting endpoint").
+Definition profile_available name catalog :=
+ match require_profile name catalog (fun _ _ _=>CommandResult.Accepted tt) with
+ |CommandResult.Accepted _=>true|CommandResult.Rejected _=>false end.
 
 Definition board_contents : Focus.t F.board (list (option F.card) * list N).
 Proof.

@@ -57,11 +57,12 @@ Record navigation := Navigation {
 Definition side_task n:=fold_right(fun layer rest=>match layer_panel layer with
 |SideConversationPanel task=>Some task|_=>rest end)None(layers n).
 Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_generation layer_generation : N) (trigger : string)
+| DraftAdmission (snapshot : draft) (preference : option public_command) (navigation_generation layer_generation : N) (trigger : string)
 | ConfirmationSubmission (navigation_generation occurrence : N)
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
-| WorkCreation (navigation_generation layer_generation:N)
+| MenuSubmission (occurrence : N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
 | LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)
@@ -72,12 +73,21 @@ Definition unknown_outcome requested reason current :=
  if N.eqb requested (ticket current) then
   Pending (ticket current) (accepted_command current) (purpose current) (Some reason)
  else current.
+Record search_page := SearchPage {
+  search_page_ticket : N;
+  search_reply : json
+}.
+Record search_origin := SearchOrigin {
+  search_origin_work : option N;
+  search_origin_hit : string
+}.
 Record search := Search {
   keyword : string;
   project_filter : option N;
   work_filter : option N;
-  search_result : option json;
-  search_latest : option N
+  search_result : option search_page;
+  search_latest : option N;
+  search_return : option search_origin
 }.
 Record skill_request := SkillRequest { skill_editor : editor; skill_workspace : Selvedge.Kernel.Domain.workspace }.
 Record authoring := Authoring {
@@ -108,11 +118,13 @@ Record state := State {
   next_layer : N
 }.
 Definition pending_editor owner state:=existsb(fun pending=>match purpose pending with
-|DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
+|DraftSubmission value _ _ _|DraftAdmission value _ _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
 |LanguageAdmission task _ _ _ _ _=>same_editor owner(Identity.Message task)
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
+Definition pending_search state:=existsb(fun pending=>match purpose pending with
+ |SearchSubmission _ _ _ _=>true|_=>false end)(awaiting(authoring_state state)).
 Definition pending_placement card state:=existsb(fun pending=>
  let raw:=Schema.encode_command(accepted_command pending)in
  String.eqb (Codec.text "op" raw) "move_card" &&
@@ -120,7 +132,7 @@ Definition pending_placement card state:=existsb(fun pending=>
  (awaiting(authoring_state state)).
 Definition initial := State
   (Navigation Start None [] AutomaticNavigation true 0 [])
-  (Authoring [] 0 [] (Search "" None None None None) [] [] false)
+  (Authoring [] 0 [] (Search "" None None None None None) [] [] false)
   Services.initial Speech.initial [] [] Selvedge.Interaction.Interactive.State.initial
   BoardFilter.empty DocumentState.initial_retention [] [] None 0.
 Definition with_navigation value := set navigation_state (fun _=>value).

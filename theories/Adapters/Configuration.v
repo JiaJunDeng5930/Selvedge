@@ -138,9 +138,27 @@ Definition configuration_head (definitions : json) (instructions : string) (sour
   else plan_object (Some (get value "ref"))
     (map (fun entry => plan_field (fst entry)
       (selected (observed_field value (fst entry)) (snd entry))) (object_fields (defaults definitions instructions))).
+Definition max_context_paths := 64%nat.
+Definition max_context_path_bytes := 4096.
+Definition context_path_admitted nonempty well_formed bytes :=
+  nonempty && well_formed && (bytes <=? max_context_path_bytes).
 Definition path_observation (value observed : json) :=
-  kind value "string" && negb (Nat.eqb (List.length (items (get value "units"))) 0%nat) &&
-  boolean_field observed "well_formed" && bound (get observed "bytes") 0 4096.
+  kind value "string" &&
+  match natural (get observed "bytes") with
+  | Some bytes => context_path_admitted
+      (negb (Nat.eqb (List.length (items (get value "units"))) 0%nat))
+      (boolean_field observed "well_formed") bytes
+  | None => false
+  end.
+Definition configured_paths_admitted source :=
+  match as_array source with
+  | Some paths => Nat.leb (List.length paths) max_context_paths &&
+    forallb (fun value => match as_string value with
+      | Some path => context_path_admitted (negb (String.eqb path "")) (Utf8.well_formed path)
+          (N.of_nat (Utf8.byte_length path))
+      | None => false end) paths
+  | None => false
+  end.
 Fixpoint paths_observation (values observations : list json) :=
   match values,observations with
   | [],[] => true
@@ -150,7 +168,7 @@ Fixpoint paths_observation (values observations : list json) :=
 Definition context_observation (definition value observed : json) :=
   if String.eqb (str (get definition "observer") "type") "config_text"
   then kind value "string" && boolean_field observed "well_formed" && bound (get observed "bytes") 0 Context.project_limit
-  else kind value "array" && (N.of_nat (List.length (items (get value "items"))) <=? 64) &&
+  else kind value "array" && Nat.leb (List.length (items (get value "items"))) max_context_paths &&
     paths_observation (items (get value "items")) (items (get observed "items")).
 Definition context_transport_valid (definitions : json) (source : json) :=
   (* DEFENSE: The skill catalog requests a subset of sources; supplied definitions
@@ -324,11 +342,21 @@ Definition remote (source : json) :=
     else type_error "remote requires only relay_url: an HTTPS origin on TCP 443 without credentials, path, query or fragment"
   end.
 
+(* The editable view uses the same disabled cloud value as runtime admission.
+   Configuration edits still apply to the original document. *)
+Definition editable_configuration definitions instructions source :=
+  let source := match field "cloud" source with
+    | Some cloud => if CloudConfiguration.disabled cloud
+        then set source "cloud" (JBool false) else source
+    | None => source
+    end in
+  Edit.editable (configuration_fields definitions instructions) source.
+
 Definition call (definitions : json) (instructions : string)
   (operation : string) (source : json) : json :=
   if String.eqb operation "config.defaults" then success (defaults definitions instructions)
   else if String.eqb operation "config.editable" then
-    Edit.editable (configuration_fields definitions instructions) (get source "configuration")
+    editable_configuration definitions instructions (get source "configuration")
   else if String.eqb operation "config.edit" then
     Edit.edit (configuration_fields definitions instructions) (get source "configuration") (get source "change")
   else if String.eqb operation "config.configuration_head" then success (configuration_head definitions instructions source)

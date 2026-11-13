@@ -63,7 +63,7 @@ Definition parameters env :=
     5 * Enclosure.separation Enclosure.ComposerControls + composer_edges in
   Parameters (scale 232) (page_edges + Nat.max authoring (advance * main_reading_characters))
     (scale 320) (advance * 84) (advance * 144) toolbar input_minimum
-    (Nat.max (scale 240) input_minimum) leading balanced (advance * 32 + 2 * scale 8)
+    (Nat.max (scale 240) input_minimum) leading balanced (scale 208)
     (scale 224) (metric_advance (primary_metric metrics)) (metric_advance (support_metric metrics)).
 
 Definition reading_minimum env :=
@@ -151,7 +151,7 @@ Definition page_properties env page : list (string * string) :=
       | Composition.OverviewMeasure => Typography.px (overview_maximum_width p + edges)
       | Composition.AvailableMeasure => "none" end)] ++
   match Composition.body_kind recipe with
-  | Composition.CenteredCreation => [("justify-content","safe center")]
+  | Composition.CenteredCreation => [("justify-content","flex-start")]
   | _ => [] end.
 
 Definition region_properties env (region : Composition.region) (position : Composition.position)
@@ -175,16 +175,16 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.TimelineContent => [("display","flex"); ("flex-direction","column");
       ("flex","1 1 auto"); ("min-block-size","0"); ("overflow","hidden");
       ("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p)); ("align-self","center")]
-  | Composition.ComposerInput | Composition.ApprovalDecisions | Composition.LatestAction =>
+  | Composition.ComposerInput | Composition.ApprovalDecisions =>
       [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]
-  | Composition.CreationContext => [("display","flex");("flex-direction","column");
-      ("align-items","center");("text-align","center");("padding-inline","0");
-      ("padding-block","0");("gap",Typography.px (Enclosure.separation Enclosure.Sections));("min-block-size","0")]
-  | Composition.BoardStages => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
+  | Composition.BoardStages => [("display","grid");
+      ("grid-auto-flow","column");
+      ("grid-auto-columns",("minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr)")%string);
+      ("grid-template-rows","minmax(0, 1fr)"); ("align-items","stretch");
       ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
-      ("overflow-x","auto"); ("overflow-y","hidden"); ("min-block-size","0"); ("flex","1 1 auto")]
+      ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.
 
 Definition workspace_properties env (navigation_visible supporting_visible : bool) : list (string * string) :=

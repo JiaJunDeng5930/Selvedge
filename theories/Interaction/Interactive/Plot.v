@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers Utf8.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Decimal Expression Types State Local Vocabulary Sources Expand.
 From Selvedge.Programming Require Import Outcome.
@@ -7,55 +7,132 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Open Scope Z_scope.
-Record point:=Point{x_number:option Decimal.decimal;y_number:Decimal.decimal}.
+Record point:=Point{x_number:option Decimal.decimal;x_text:string;y_number:Decimal.decimal}.
 Definition data_point x y row:=
  let vx:=get_path x row in let vy:=get_path y row in
  dy <-? from_option "Chart y field must be a finite fixed decimal"(decimal_value vy);;
  match vx with
- |JString s=>Good(Point None dy)
- |JNumber _=>dx <-? from_option "Chart x field must be finite"(decimal_value vx);;Good(Point(Some dx)dy)
+ |JString s=>Good(Point None s dy)
+ |JNumber _=>dx <-? from_option "Chart x field must be finite"(decimal_value vx);;
+             Good(Point(Some dx)(Decimal.text dx)dy)
  |_=>Error "Chart x field must be numeric or a string category"end.
-Definition chart_whole (value:Z)
- (valid:Z.leb (Z.abs(value*Decimal.scale)) Decimal.limit=true) :Decimal.decimal :=
- exist _ (value*Decimal.scale) (proj1 (Z.leb_le (Z.abs(value*Decimal.scale)) Decimal.limit) valid).
-Definition x_origin:=chart_whole 240 eq_refl.
-Definition y_origin:=chart_whole 120 eq_refl.
-Definition x_span:=chart_whole 200 eq_refl.
-Definition y_span:=chart_whole 90 eq_refl.
-Definition magnitude (project:point->Z) (points:list point) :outcome Decimal.decimal :=
- from_option "Chart domain exceeds the supported decimal range"
-  (Decimal.checked (fold_left (fun value p=>Z.max value (Z.abs(project p))) points 1)).
-(* The original numeric axes include zero and are symmetric. Divide before
-   scaling so the full admitted decimal range remains representable. *)
-Definition chart_coordinate (origin span:Decimal.decimal) (add:bool)
- (value domain:Decimal.decimal) :outcome string :=
- ratio <-? from_option "Chart coordinate exceeds the supported decimal range" (Decimal.binary "/" value domain);;
- offset <-? from_option "Chart coordinate exceeds the supported decimal range" (Decimal.binary "*" span ratio);;
- result <-? from_option "Chart coordinate exceeds the supported decimal range"
-  (Decimal.binary (if add then "+" else "-") origin offset);;
- Good(Decimal.text result).
-Definition chart_x domain index total p :outcome string :=
- match p.(x_number) with
- |Some value=>chart_coordinate x_origin x_span true value domain
- |None=>Good(show_nat ((40+index*400/Nat.max 1(total-1))%nat)) end.
-Fixpoint chart_coordinates (x_domain y_domain:Decimal.decimal) (index total:nat)
- (points:list point) :outcome(list(string*string)) :=
- match points with
- |[]=>Good[]
- |p::rest=>x <-? chart_x x_domain index total p;;
-  y <-? chart_coordinate y_origin y_span false p.(y_number) y_domain;;
-  rest <-? chart_coordinates x_domain y_domain (S index) total rest;;Good((x,y)::rest) end.
+
+Record chart_axis := ChartAxis { axis_lower:Z; axis_upper:Z; axis_step:Z }.
+Definition tick_step (span:Z) : Z :=
+ let rough:=Z.max 1 ((span+3)/4) in
+ let decade:=Z.pow 10 (Z.of_nat (Nat.pred (String.length (show_integer rough)))) in
+ if rough <=? decade then decade else
+ if rough <=? 2*decade then 2*decade else
+ if rough <=? 5*decade then 5*decade else 10*decade.
+Definition make_axis lower upper : chart_axis :=
+ let step:=if lower =? upper then Decimal.scale else tick_step (upper-lower) in
+ let start:=(lower/step)*step in
+ let stop:=(-((-upper)/step))*step in
+ ChartAxis start (Z.max (start+step) stop) step.
+Definition axis_ticks axis :=
+ map (fun index=>axis.(axis_lower)+Z.of_nat index*axis.(axis_step))
+   (seq 0 (Nat.min 7 (S (Z.to_nat ((axis.(axis_upper)-axis.(axis_lower))/axis.(axis_step)))))).
+Definition axis_coordinate origin span axis value :=
+ origin*Decimal.scale +
+ ((value-axis.(axis_lower))*span*Decimal.scale)/(axis.(axis_upper)-axis.(axis_lower)).
+Definition axis_pixel origin span axis value :=
+ (axis_coordinate origin span axis value + Decimal.scale/2)/Decimal.scale.
+Definition plot_left : Z := 98.
+Definition plot_right : Z := 640.
+Definition plot_top : Z := 28.
+Definition plot_bottom : Z := 144.
+Definition plot_width := plot_right-plot_left.
+Definition plot_height := plot_bottom-plot_top.
+Definition category_coordinate index total :=
+ plot_left*Decimal.scale + ((2*Z.of_nat index+1)*plot_width*Decimal.scale)/(2*Z.of_nat (Nat.max 1 total)).
+Definition chart_x axis index total p :=
+ match axis,p.(x_number) with
+ |Some domain,Some value=>axis_coordinate (plot_left+10) (plot_width-20) domain (Decimal.units value)
+ |_,_=>category_coordinate index total end.
+Definition chart_y axis value := axis_coordinate plot_bottom (-plot_height) axis value.
+Definition chart_coordinates (x_axis:option chart_axis) y_axis points :=
+ let total:=List.length points in
+ map (fun '(index,p)=>(Decimal.render (chart_x x_axis index total p),
+                       Decimal.render (chart_y y_axis (Decimal.units p.(y_number)))))
+   (combine (seq 0 total) points).
+
+Definition extend_axis '(lower,upper) value := (Z.min lower value,Z.max upper value).
+Definition numeric_x_axis points :=
+ let values:=fold_right (fun p rest=>match p.(x_number) with
+   |Some value=>Decimal.units value::rest|None=>rest end) [] points in
+ match values with
+ |first::rest=>if Nat.eqb (List.length values) (List.length points) then
+   let '(lower,upper):=fold_left extend_axis rest (first,first) in Some(make_axis lower upper)
+   else None
+ |_=>None end.
+Definition y_axis points :=
+ let '(lower,upper):=fold_left (fun bounds p=>extend_axis bounds (Decimal.units p.(y_number))) points (0,0) in
+ make_axis lower upper.
+Definition axis_title p label binding :=
+ let title:=property_text label p in
+ if String.eqb title "" then property_text binding p else title.
+Definition x_title p := axis_title p "x-label" "x".
+Definition y_title p := axis_title p "y-label" "y".
+Definition label_width (scalar:N) : nat := if (scalar <? 128)%N then 10 else 19.
+Fixpoint label_prefix budget (chunks:list(N*string)) :=
+ match chunks with
+ |[]=>[]
+ |(scalar,text)::rest=>let width:=label_width scalar in
+   if Nat.leb width budget then (scalar,text)::label_prefix (budget-width)%nat rest else [] end.
+Definition fit_label budget label :=
+ match Utf8.chunks label with
+ |Some chunks=>let width:=fold_left (fun total chunk=>(total+label_width (fst chunk))%nat) chunks 0%nat in
+   if Nat.leb width budget then label
+   else String.append (Utf8.render_chunks (label_prefix (budget-19)%nat chunks)) "…"
+ (* DEFENSE: Only valid UTF-8 is admitted in chart data. An invalid observation
+    cannot be displayed as a partial byte sequence. *)
+ |None=>"" end.
+Definition y_ticks axis : list(primitive input) :=
+ List.concat (map (fun tick=>
+   let y:=axis_pixel plot_bottom (-plot_height) axis tick in
+   let text:=grouped_decimal tick in
+   let fitted:=if Nat.ltb 9 (String.length text) then Some (Z.to_pos (plot_left-12)) else None in
+   [Line plot_left y plot_right y (if tick =? 0 then Neutral else Muted);
+    Label (plot_left-8) (y+5) LabelEnd text Muted fitted]) (axis_ticks axis)).
+Definition x_ticks axis : list(primitive input) :=
+ let ticks:=axis_ticks axis in
+ let label anchor tick:=Label (axis_pixel (plot_left+10) (plot_width-20) axis tick)
+   (plot_bottom+19) anchor (grouped_decimal tick) Muted None in
+ (* Close numeric values can require all six fractional digits at large
+    magnitudes. Keep exact endpoints without crowding their text. *)
+ if existsb (fun tick=>Nat.ltb 10 (String.length (grouped_decimal tick))) ticks
+ then [label LabelStart axis.(axis_lower);label LabelEnd axis.(axis_upper)]
+ else map (label LabelMiddle) ticks.
+Definition category_ticks points : list(primitive input) :=
+ let total:=List.length points in
+ let shown:=Nat.min 6 total in
+ let budget:=Nat.min 132 (Z.to_nat plot_width/Nat.max 1 shown-6)%nat in
+ flat_map (fun sample=>
+   let index:=(sample*Nat.pred total/Nat.max 1 (Nat.pred shown))%nat in
+   match nth_error points index with
+   |Some p=>let x:=(category_coordinate index total+Decimal.scale/2)/Decimal.scale in
+     [Label x (plot_bottom+19) LabelMiddle (fit_label budget p.(x_text)) Muted None]
+   |None=>[] end) (seq 0 shown).
+Definition chart_axes p x_axis y_axis points : list(primitive input) :=
+ y_ticks y_axis++[Line plot_left plot_top plot_left plot_bottom Muted]++
+ (match x_axis with Some axis=>x_ticks axis|None=>category_ticks points end)++
+ [Label plot_left 18 LabelStart (fit_label 500 (y_title p)) Muted None;
+  Label ((plot_left+plot_right)/2) (plot_bottom+38) LabelMiddle (fit_label 500 (x_title p)) Muted None].
 Fixpoint line_path (first:bool) (points:list(string*string)) :string :=
  match points with []=>""|(x,y)::rest=>
  ((if first then "M " else "L ")++x++" "++y++" "++line_path false rest)%string end.
 Fixpoint point_path (points:list(string*string)) :string :=
  match points with []=>""|(x,y)::rest=>
  ("M "++x++" "++y++" m -2 0 l 4 0 m -2 -2 l 0 4 "++point_path rest)%string end.
-Fixpoint bar_path (width:nat) (points:list(string*string)) :string :=
+Fixpoint bar_path (baseline:string) (width:nat) (points:list(string*string)) :string :=
  match points with []=>""|(x,y)::rest=>
- ("M "++x++" 120 m -"++show_nat ((width/2)%nat)++" 0 V "++y++" h "++show_nat width++
-  " V 120 Z "++bar_path width rest)%string end.
-Definition bar_width (count:nat) := Nat.min 20 (Nat.max 1 (Nat.div 320 (Nat.max 1 count))).
+ ("M "++x++" "++baseline++" m -"++show_nat ((width/2)%nat)++" 0 V "++y++" h "++show_nat width++
+  " V "++baseline++" Z "++bar_path baseline width rest)%string end.
+Definition bar_width (count:nat) := Nat.min 22 (Nat.max 1 (Nat.div 240 (Nat.max 1 count))).
+Definition chart_marks (is_bar:bool) y_axis coordinates : list(primitive input) :=
+ if is_bar then [FilledPath (bar_path (Decimal.render (chart_y y_axis 0))
+                               (bar_width (List.length coordinates)) coordinates) Accent]
+ else [StrokePath (line_path true coordinates) Accent;StrokePath (point_path coordinates) Accent].
 Definition chart_rows p:=firstn Bounds.chart_points(property_array "data"p).
 Definition chart p : outcome(plot input):=
  if negb(valid_field_path(property_text "x" p)&&valid_field_path(property_text "y" p))
@@ -63,14 +140,11 @@ Definition chart p : outcome(plot input):=
  (* Expansion validates every row's axis types. Fixed-decimal conversion is
     only needed for the plotted prefix; values outside it do not affect it. *)
  points <-? Outcome.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
- x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
- y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;
- coordinates <-? chart_coordinates x_domain y_domain 0 (List.length points) points;;
- let values:=if String.eqb p.(description).(component_tag) "bar-chart"
-  then [FilledPath (bar_path (bar_width (List.length points)) coordinates) Neutral]
-  else [StrokePath (line_path true coordinates) Neutral;StrokePath (point_path coordinates) Neutral] in
- Good(Plot 480%positive 240%positive
-  ([Line 40 20 40 220 Neutral;Line 40 120 460 120 Neutral]++values)).
+ let x_axis:=numeric_x_axis points in let y_axis:=y_axis points in
+ let coordinates:=chart_coordinates x_axis y_axis points in
+ Good(Plot 660%positive 192%positive
+  (chart_axes p x_axis y_axis points++
+   chart_marks (String.eqb p.(description).(component_tag) "bar-chart") y_axis coordinates)).
 Fixpoint node_index wanted index nodes:=match nodes with []=>None|node::rest=>
  match string_field "identity"node with Some id=>if String.eqb id wanted then Some index else node_index wanted(S index)rest|None=>None end end.
 Definition rounded_integer d:=match Decimal.rounded_division(Decimal.units d)Decimal.scale with Some n=>n|None=>0 end.

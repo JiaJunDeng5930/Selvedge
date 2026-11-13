@@ -43,13 +43,12 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.InformationText _ | Surface.Fact _ | Surface.ReadOnly _
   | Surface.Edit _ _ _ | Surface.RichText _ _ | Surface.PublishedText _
   | Surface.EmbeddedMarkdown _ => false
-  | Surface.TaskRow _ _ _ _ _ => false
+  | Surface.TaskRow _ _ _ _ => false
   | Surface.ActivityRow _ => false
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => activity
   | Surface.BoardGroup _ => false
   | Surface.PageRegion Composition.ConversationHeader _
   | Surface.PageRegion Composition.BoardControls _ => true
-  | Surface.PageRegion Composition.CreationContext _ => false
   | Surface.InteractiveNode component =>
       String.eqb (Vocabulary.component_tag (Expand.description (Presentation.component_properties component))) "row-layout"
   | Surface.PageRegion Composition.TaskActions _ => false
@@ -121,14 +120,14 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto");("overflow-x","hidden")]
   | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
-  | Surface.TaskRow _ _ _ _ _ =>
+  | Surface.TaskRow _ _ _ _ =>
       [("display","flex");("flex-direction","column");("min-inline-size","0")]
   | Surface.TaskChildren _ => Layout.member_properties env false true
   | Surface.ProjectChooser _ => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("gap","0"); ("padding","0")]
   | Surface.ActivityGroup _ _ _ _ => surface_properties env ++
       [("padding",pixels env 8); ("gap",pixels env 4)]
   | Surface.LayerRegion behavior =>
-      match Model.layer_presentation behavior with Model.AnchoredMenu => surface_properties env | _ => [] end
+      match Model.layer_presentation behavior with Model.AnchoredMenu | Model.ComposerMenu => surface_properties env | _ => [] end
   | Surface.ContextSummary _ => [("display","flex"); ("flex-direction","column"); ("gap","4px"); ("padding-inline","8px")]
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => member_properties env activity
   | Surface.ChoiceGroup | Surface.DecisionGroup _ _ | Surface.WorkspaceCollection _ _ =>
@@ -152,7 +151,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       (match row with Surface.SupportingRow => description_properties env ++ supporting_properties env | _ => [] end)
   | Surface.SettingEntry _ _ _ | Surface.SupportingControl _ _ _ _ => compact_control env
   | Surface.BoardLane _ _ => [("background",Appearance.token "--color-surface-secondary");
-      ("padding","8px"); ("min-inline-size",Typography.px (Layout.lane_minimum_width (Layout.parameters env)))]
+      ("padding",pixels env 8); ("min-inline-size","0")]
   | Surface.BoardGroup _ => [("display","flex");("flex-direction","row");
       ("flex-wrap","nowrap");("flex","1 1 0%");("min-inline-size","min-content")]
   | Surface.ActionFeedback _ _ _ | Surface.ActionExplanation _ _ =>
@@ -186,7 +185,7 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
   | Surface.WorkChoice _ _ _,Surface.InformationText _ =>
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
        ("text-overflow","ellipsis");("white-space","nowrap")]
-  | Surface.TaskRow _ _ _ _ selected, Surface.Activate _ =>
+  | Surface.TaskRow _ _ _ selected, Surface.Activate _ =>
       Appearance.style_properties env (Appearance.navigation_style selected 6 0) ++
       [("flex","1");("text-align","left");("white-space","nowrap");
        ("min-inline-size",Typography.px (Layout.motor_minimum env))]

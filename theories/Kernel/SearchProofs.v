@@ -10,6 +10,11 @@ Theorem rejected_scope_contributes_no_history : forall query project work id tas
  Search.task_hits query project work id task value = [].
 Proof. intros; unfold Search.task_hits; rewrite H; reflexivity. Qed.
 
+Theorem rejected_scope_contributes_no_titles : forall query project work id task value,
+ Search.selected project work id task value = false ->
+ Search.title_hits query project work id task value = [].
+Proof. intros; unfold Search.title_hits; rewrite H; reflexivity. Qed.
+
 (* Counting happens before visibility filtering: the returned offset addresses
    the committed history, rather than a list of searchable messages. *)
 Theorem every_original_record_advances_the_position : forall query summary index before hits message newer,

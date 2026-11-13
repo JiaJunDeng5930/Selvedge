@@ -8,8 +8,8 @@ import { taskIdle } from './support.mjs';
 
 test('a Project task keeps its readable context and its primary and supporting actions', async t => {
   const { page, command, root } = await browserFixture(t);
-  const workspace = path.join(root, 'Original project workspace');
-  await mkdir(workspace);
+  const workspace = path.join(root, 'Long path '.repeat(10).trim(), 'Original project workspace');
+  await mkdir(workspace, { recursive: true });
   await writeFile(path.join(workspace, 'AGENTS.md'), 'Original Project guidance.');
   const project = await command({ op: 'create_project', name: 'Harbour 海港',
     workspace: { roots: [workspace], primary_root: workspace } });
@@ -17,11 +17,9 @@ test('a Project task keeps its readable context and its primary and supporting a
   const revision = savedProject.guidance.revision;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('region', { name: 'Harbour 海港', exact: true }).hover();
-  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('button', { name: 'Project details', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
-  await page.getByText('Work on Harbour 海港', { exact: true }).waitFor();
+  await page.getByRole('main').getByRole('button', { name: 'Harbour 海港', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
+  await page.getByText('新建对话 · Harbour 海港', { exact: true }).waitFor();
 
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });
@@ -56,25 +54,81 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.equal(task.settings.project_id, project.project_id);
   assert.deepEqual(task.settings.workspace, { roots: [workspace], primary_root: workspace });
   await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.getByText('Harbour 海港', { exact: true }).waitFor();
-  assert.ok(await details.getByText(workspace, { exact: true }).count() > 0,
-    'Task details must include the Project workspace');
-  await details.getByText('Guidance revision', { exact: true }).waitFor();
+  for (const name of ['工作环境', '权限', '运行信息']) {
+    const heading = details.getByRole('heading', { name, exact: true });
+    await heading.waitFor();
+    if (name !== '工作环境') {
+      const separation = await heading.evaluate(node =>
+        node.getBoundingClientRect().top -
+        node.parentElement.previousElementSibling.lastElementChild.getBoundingClientRect().bottom);
+      assert.ok(separation >= 12, `${name} is separated from the preceding section`);
+    }
+  }
+  const pathText = details.getByText(workspace, { exact: true });
+  assert.equal(await pathText.isVisible(), false, 'The compact summary shows the directory name before revealing its path');
+  await details.getByText(`工作目录 · ${path.basename(workspace)}`, { exact: true }).click();
+  await pathText.waitFor();
+  assert.equal(await details.getByText(workspace, { exact: true }).count(), 1,
+    'Task details show a shared working and guidance directory once');
+  const pathLayout = await pathText.evaluate(node => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const lines = [...range.getClientRects()];
+    const region = node.closest('details').getBoundingClientRect();
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let text;
+    for (let current; (current = walker.nextNode());) if (current.length) text = current;
+    const end = text.length;
+    range.setStart(text, text.data.lastIndexOf('/') + 1);
+    range.setEnd(text, end);
+    return { lines: lines.length, fits: lines.every(line => line.left >= region.left && line.right <= region.right),
+      directoryLines: range.getClientRects().length };
+  });
+  assert.ok(pathLayout.lines > 1 && pathLayout.fits, 'The full directory path wraps inside the narrow details');
+  assert.equal(pathLayout.directoryLines, 1, 'A directory that fits a line wraps as a whole segment');
+  const copy = details.getByRole('button', { name: '复制工作目录路径', exact: true });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await copy.press('Enter');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), workspace);
+  await details.getByText('指引版本', { exact: true }).waitFor();
   await details.getByText(revision, { exact: true }).waitFor();
+  const model = details.getByText('模型', { exact: true });
+  const bottomRow = () => model.evaluate(label => {
+    const body = label.closest('[data-surface-role="dialog-body"]');
+    const viewport = body.getBoundingClientRect();
+    const row = label.parentElement.getBoundingClientRect();
+    return { fits: row.top >= viewport.top && row.bottom <= viewport.bottom, scrollable: body.scrollHeight > body.clientHeight };
+  });
+  assert.equal((await bottomRow()).fits, true, 'The expanded desktop details show the entire model row');
+  await page.setViewportSize({ width: 1280, height: 360 });
+  await page.waitForFunction(() => document.querySelector('[data-semantic-key="task-details"]')
+    ?.getBoundingClientRect().bottom <= innerHeight);
+  await model.scrollIntoViewIfNeeded();
+  assert.deepEqual(await bottomRow(), { fits: true, scrollable: true },
+    'A short details panel scrolls to expose the entire model row');
+  await page.setViewportSize({ width: 1280, height: 900 });
 });
 
 test('a projectless task identifies its context without inventing a Project revision', async t => {
   const { page, command } = await browserFixture(t);
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
   const { task } = await command({ op: 'read', task_id });
-  await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: task.title, exact: true }).click();
-  await page.getByRole('button', { name: 'Task details', exact: true }).click();
-  const details = page.getByRole('complementary', { name: 'Task details', exact: true });
-  await details.getByText('Projectless task', { exact: true }).waitFor();
-  assert.equal(await details.getByText('Guidance revision', { exact: true }).count(), 0,
+  const entry = page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true });
+  const caption = entry.getByText(task.title, { exact: true });
+  await caption.hover();
+  assert.equal(await caption.getAttribute('title'), null, 'Hovering a fully visible title does not repeat the label');
+  assert.equal(await entry.getAttribute('title'), null);
+  assert.equal(await entry.getAttribute('data-help'), null);
+  await entry.click();
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
+  await details.getByText('未关联项目', { exact: true }).waitFor();
+  assert.equal(await details.getByText('项目指引', { exact: true }).count(), 0);
+  assert.equal(await details.getByText('指引版本', { exact: true }).count(), 0,
     'A projectless task has no Project guidance revision');
 });
 

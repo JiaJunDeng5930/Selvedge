@@ -7,13 +7,20 @@ by a question. It starts from the parent's captured conversation while the
 parent continues. Closing the side keeps its Task; the explicit return action
 sends only its new content back to the parent.
 
-Conversation search finds user and assistant messages, with optional Project
-and Work filters. Selecting a result opens the original message. Running Tasks
-can use `search_history` with the same filters and history positions. Type `@`
+Conversation search finds current titles and user and assistant messages, with
+optional Project and Work filters. A title result opens the conversation.
+A message result opens the original message and highlights the matching text
+when it appears in the rendered message. Running Tasks can use
+`search_history` with the same filters and history positions. Set
+`include_titles` to include title matches. Type `@`
 in a message to select an available skill and insert its exact `SKILL.md` reference.
 
-Works group Tasks and task graphs independently of Projects. A graph connects
-ordinary Task outputs to inputs; it does not introduce another scheduler.
+Use **对话范围** above the conversation list to show **全部对话** or a named Work
+(工作组). A Work has its own conversation list, task graphs and shared interface.
+Projects independently organize conversations and provide default directories and
+instructions. Click a project name to see its configuration and conversations, or
+use its plus button to start a conversation there. A graph connects ordinary Task
+outputs to inputs.
 Interactive interfaces in `selvedge-ui` Markdown fences and a Work's persistent
 **共享 UI** page use the same bounded declarative language. A Task can inspect
 that page with `read_work_ui` and change it with revision-checked
@@ -43,11 +50,17 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 object with `project_id`, `workspace`, `sandbox`, `approval`, and
 `realtime_context`.
 
-When the primary workspace has a Git commit, the New task dialog lets you choose
-the current workspace, a local Git worktree, or Tencent Cloud CVM.
-A project's `create_worktree` preference initializes the local choice. Creating
-a Task with a local choice remembers that preference for the Project; choosing
-a cloud environment does not change it. The programmatic local entry is
+The gear in the new conversation composer opens the project, working directory
+and run settings. On a host with local execution, the worktree toggle switches
+between the current directory and a local Git worktree. Hosts with Tencent
+Cloud CVM configured also offer that environment. A local worktree requires verifying
+that the primary directory belongs to a Git repository with a commit. The
+selected environment remains in place during verification and if it fails, so
+you can correct the directory or choose another environment.
+A project's `create_worktree` preference initializes the local choice. The
+Project editor requires a verified primary to save with that default enabled.
+Starting a conversation with a local worktree remembers it as the Project default
+when the verified primary is also the Project primary. The programmatic local entry is
 `create_worktree_task`; `create_workspace_task` additionally accepts the typed
 `backend` name `local` or `tencent_cvm`. Both use the existing task startup and
 archive lifecycle.
@@ -114,7 +127,8 @@ Configure a CVM image, network and SSH key in the service configuration:
 }
 ```
 
-Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service
+`spot_max_price` is an hourly bid in the Tencent Cloud account's billing
+currency. Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service
 environment; `TENCENTCLOUD_TOKEN` is optional. Credentials do not belong in the
 configuration object. Optional settings are `ssh_user` (default `root`),
 `ssh_port` (22), `address_type` (`public` or `private`),

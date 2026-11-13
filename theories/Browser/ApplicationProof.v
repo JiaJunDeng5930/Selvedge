@@ -23,7 +23,7 @@ Theorem irrelevant_document_observation_is_idle request context namespace source
    (Selvedge.Browser.Session.Runtime.context namespace (Application.prepared_world context) state)
    source(SS.document_retention state)=Documents.IrrelevantObservation ->
  Application.input_decision request context namespace (Input.CodeObserved source)raw=
- (Authoring.keep state,"keep",context).
+ ((Authoring.keep state,"keep",context),Some false).
 Proof. cbn zeta. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
 (** A world refresh can follow ordinary command admission while the stream is
@@ -35,11 +35,13 @@ Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
  Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
 Proof. split;reflexivity. Qed.
 
-Theorem stale_element_cannot_produce_a_product_input actual generation raw incoming:
+Theorem stale_element_cannot_produce_a_product_input context generation raw incoming:
  natural_field "generation" raw=Some incoming -> incoming<>generation ->
- Application.element actual generation raw=None.
+ Application.context_element context generation raw=None.
 Proof.
- intros Incoming Different. unfold Application.element, Application.resolve_native_element. rewrite Incoming.
+ intros Incoming Different. unfold Application.context_element.
+ destruct (Application.prepared_controls context); [|reflexivity].
+ unfold Application.resolve_native_element. rewrite Incoming.
  apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
 Qed.
 
@@ -83,7 +85,7 @@ Theorem rejected_interactive_input_is_idle request context namespace language ra
  let state:=Application.prepared_state context in
  Selvedge.Browser.Session.Runtime.native_language namespace (Application.prepared_world context) state language=false ->
  Application.input_decision request context namespace (Input.Interactive language)raw=
- (Authoring.keep state,"keep",context).
+ ((Authoring.keep state,"keep",context),None).
 Proof. cbn zeta. intro Rejected; unfold Application.input_decision; rewrite Rejected; reflexivity. Qed.
 
 Theorem repeated_native_selection_keeps_its_publication input current updated :
@@ -92,21 +94,13 @@ Theorem repeated_native_selection_keeps_its_publication input current updated :
  Application.input_publication input current updated="keep".
 Proof. intros Equal NoSnapshot NoEnvironment; unfold Application.input_publication; destruct input; try contradiction; now rewrite Equal. Qed.
 
-(** Retaining the admitted state changes neither the new scene nor the
-    request's admission of the new world and environment. *)
-Theorem rebasing_the_same_admitted_state_keeps_the_prepared_scene request context :
- Application.state request = Some(Application.prepared_state context) ->
- option_map Application.prepared_scene (Application.rebase request context) =
- option_map Application.prepared_scene (Application.prepare request).
-Proof.
- intro Same. unfold Application.rebase, Application.prepare.
- destruct (field "world" request); cbn [bind]; [rewrite Same|]; reflexivity.
-Qed.
-
+(** Admitting a new world retains the controls and regions of the last publication. *)
 Theorem rebasing_a_canonical_prepared_state_agrees_with_prepare request context :
  Application.state request = Some(Application.prepared_state context) ->
  Application.prepared_encoding context = Application.SC.encode_state(Application.prepared_state context) ->
- Application.rebase request context = Application.prepare request.
+ Application.rebase request context = option_map
+   (Application.carry_publication context)
+   (Application.prepare request).
 Proof.
  intros Same Canonical. unfold Application.rebase, Application.prepare.
  destruct (field "world" request); cbn [bind]; [rewrite Same, Canonical|]; reflexivity.

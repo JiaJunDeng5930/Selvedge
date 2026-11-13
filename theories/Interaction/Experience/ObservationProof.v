@@ -65,7 +65,7 @@ Theorem available_admission_has_current_authority snapshot state owner revision 
   CommandAssessment.observed_sequence observation=sequence /\
   CommandAssessment.observed_admission observation=CommandAssessment.Admitted.
 Proof.
- unfold admission.
+ unfold admission,checked_admission.
  destruct(natural_field "sequence" snapshot)as[sequence|]eqn:Sequence;try discriminate.
  destruct(find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state)))
   as[resource|]eqn:Found;try discriminate.
@@ -144,8 +144,6 @@ Proof.
  destruct(negb(EditorContext.connected(EditorContext.observed state)));cbn[assessment_outcome];
  try(eexists;reflexivity).
  destruct(EditorContext.editor_uploading(EditorContext.observed state)e);cbn[assessment_outcome];try(eexists;reflexivity).
- destruct(negb(Selvedge.Interaction.Submission.Observation.worktree_submission_allowed snapshot(EditorContext.git_observation(EditorContext.observed state))(EditorContext.current_draft state e)));cbn[assessment_outcome];
- try(eexists;reflexivity).
  exists[]. rewrite app_nil_r. reflexivity.
 Qed.
 
@@ -156,8 +154,9 @@ Theorem attention_is_an_actual_nonpassive_cause e(outcome:assessment_result e)ca
 Proof.
  unfold attention_obstruction,passive_obstruction. intros Found.
  apply find_some in Found as[Member Active]. split;[exact Member|].
- apply Bool.negb_true_iff in Active. apply Bool.orb_false_iff in Active as[Empty Pending].
- apply String.eqb_neq in Empty. apply String.eqb_neq in Pending. auto.
+ apply Bool.negb_true_iff in Active.
+ repeat rewrite Bool.orb_false_iff in Active.
+ repeat rewrite String.eqb_neq in Active. tauto.
 Qed.
 
 Theorem observed_property_retains_complete_help snapshot state e kind value:

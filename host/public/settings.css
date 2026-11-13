@@ -1,6 +1,6 @@
 /* Settings.v declares what belongs to a category, setting or collection.
-   Space groups related rows; a rule separates topics. Editors have their own
-   reading measure and use a quieter surface than the controls they contain. */
+   Space groups related rows; a rule separates topics. Editors keep their own
+   reading measure. */
 dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
   --settings-related-gap: .1875rem;
   --settings-row-space: .625rem;
@@ -16,7 +16,6 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
   --settings-control-height: 2.125rem;
   --settings-control-font: .8125rem;
   --settings-surface: light-dark(#faf9f7, #252422);
-  --settings-scrim: light-dark(#1f1f1ab8, #080706a6);
   --settings-field: light-dark(#fffefd, #2f2d2a);
   --settings-selection: light-dark(#edeae4, #1b1917);
   --settings-disabled-control: light-dark(#edeae4, #34302c);
@@ -35,6 +34,8 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
 }
 dialog[data-semantic-key="settings"] {
   --settings-edge: clamp(1rem, 2vi, 1.75rem);
+  --settings-frame: 37.375rem;
+  --settings-rail: 5rem;
   container: settings-shell / inline-size;
   position: fixed !important;
   inset: 0 !important;
@@ -53,7 +54,7 @@ dialog[data-semantic-key="settings"] {
 }
 dialog[data-semantic-key="settings"][open] {
   display: grid !important;
-  grid-template-columns: minmax(0, max-content) !important;
+  grid-template-columns: minmax(0, var(--settings-frame)) !important;
   grid-template-rows: auto minmax(0, 1fr) !important;
   align-items: stretch !important;
   align-content: stretch !important;
@@ -63,6 +64,20 @@ dialog[data-semantic-key="settings"][open] {
   padding-inline: min(var(--settings-edge), 5vi) !important;
 }
 dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
+/* The Settings page moves out of the native top layer when its editor opens.
+   Keep the workspace measured without letting its floating controls paint above Settings. */
+[data-selvedge-root]:has(> [data-layer-stack] > dialog[data-semantic-key="settings"][open])
+  > [data-measure-region="workspace"] {
+  opacity: 0;
+}
+/* Settings owns these foreground dialogs. Keep its page visible beneath
+   their backdrop while the native modal makes the page inert. */
+[data-layer-stack] > dialog[data-semantic-key="settings"][open]:has(
+  ~ dialog:modal:is([data-semantic-key="settings-configuration-editor"],
+    [data-semantic-key="settings-title-editor"], [data-semantic-key="account-sign-in"])
+) {
+  visibility: visible !important;
+}
 [data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
   flex: none !important;
   flex-flow: row nowrap !important;
@@ -85,8 +100,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 }
 [data-semantic-key="settings-identity"] > [data-semantic-key="heading"] {
   margin: 0 !important;
-  font: 400 1.8125rem/1.2 Georgia, serif !important;
-  letter-spacing: -.025em !important;
+  font-family: inherit !important;
+  font-size: 1.8125rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
 }
 [data-semantic-key="settings-identity"] > button[data-semantic-key="close"] {
   position: absolute;
@@ -95,7 +112,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
   display: grid !important;
   /* Keep surplus outside the rail and the shared reading track. */
-  grid-template-columns: max-content minmax(0, max-content) !important;
+  grid-template-columns: var(--settings-rail) minmax(0, 1fr) !important;
   grid-template-rows: minmax(0, 1fr) !important;
   align-self: stretch !important;
   block-size: 100% !important;
@@ -106,7 +123,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding: 0 !important;
   overflow: clip !important;
 }
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button {
+:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:not(:where([data-surface-role="dialog-actions"] button)) {
   --control-rest-background: var(--settings-field) !important;
   --control-hover-background: var(--settings-control-hover) !important;
   --control-pressed-background: var(--selvedge-pressed) !important;
@@ -129,6 +146,22 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   font-weight: 500 !important;
   line-height: 1.35 !important;
   text-align: center;
+
+  &:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):not(:disabled, [aria-disabled="true"]) {
+    --control-rest-background: var(--settings-action) !important;
+    --control-hover-background: var(--settings-action) !important;
+    border-color: var(--settings-action) !important;
+    color: var(--settings-on-action) !important;
+  }
+
+  &:is(:disabled, [aria-disabled="true"]) { opacity: .46 !important; }
+
+  &:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):is(:disabled, [aria-disabled="true"]) {
+    background: var(--settings-disabled-control) !important;
+    border-color: transparent !important;
+    color: var(--settings-muted) !important;
+    opacity: 1 !important;
+  }
 }
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button > span {
   color: inherit !important;
@@ -136,23 +169,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   overflow-wrap: anywhere;
   text-overflow: clip !important;
 }
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:focus-visible,
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is(input, textarea, select):focus-visible {
+[data-semantic-key="settings"] button:focus-visible,
+[data-semantic-key="settings"] :is(input, textarea, select):focus-visible {
   outline: 2px solid var(--settings-focus) !important;
   outline-offset: 2px;
-}
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):not(:disabled, [aria-disabled="true"]) {
-  --control-rest-background: var(--settings-action) !important;
-  --control-hover-background: var(--settings-action) !important;
-  border-color: var(--settings-action) !important;
-  color: var(--settings-on-action) !important;
-}
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is(:disabled, [aria-disabled="true"]) { opacity: .46 !important; }
-:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="save"], [data-semantic-key="add"], [data-semantic-key="submit"]):is(:disabled, [aria-disabled="true"]) {
-  background: var(--settings-disabled-control) !important;
-  border-color: transparent !important;
-  color: var(--settings-muted) !important;
-  opacity: 1 !important;
 }
 [data-semantic-key="settings"] button[data-semantic-key="close"] {
   --control-rest-background: transparent !important;
@@ -196,6 +216,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-color: transparent !important;
   text-align: start;
 }
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"] > span {
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+}
 [data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
   --control-rest-background: var(--settings-selection) !important;
   --control-hover-background: var(--settings-selection) !important;
@@ -205,33 +229,15 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   display: none !important;
 }
 [data-semantic-key="settings-mobile-nav"] { display: none !important; }
-[data-semantic-key="settings-documents"] {
-  display: grid !important;
-  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
-  min-inline-size: 0 !important;
-  min-block-size: 0 !important;
-  block-size: 100% !important;
-  padding: 0 !important;
-  gap: 0 !important;
-}
-/* Inert documents contribute their preferred inline size to the same
-   track. Only the selected document occupies vertical reading space. */
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) {
-  grid-area: 1 / 1;
+[data-semantic-key="settings-content"] {
+  container: settings-content / inline-size;
   align-items: stretch !important;
   gap: 0 !important;
   padding: .3125rem .2rem 2.25rem !important;
   scrollbar-gutter: stable;
   scroll-padding-block: .5rem;
 }
-[data-semantic-key="settings-measure"] {
-  visibility: hidden;
-  block-size: 0 !important;
-  min-block-size: 0 !important;
-  padding-block: 0 !important;
-  overflow: hidden !important;
-}
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) :is(section, footer) { min-inline-size: 0 !important; }
+[data-semantic-key="settings-content"] :is(section, footer) { min-inline-size: 0 !important; }
 [data-semantic-key="settings-primary"] {
   align-items: stretch !important;
   gap: 0 !important;
@@ -254,7 +260,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings-title"] [data-semantic-key="settings-copy"]:has(> [data-semantic-key="description"]) {
   flex-basis: max-content !important;
 }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="description"],
+[data-semantic-key="settings-content"] [data-semantic-key="description"],
 [data-semantic-key="settings-configuration-editor"] [data-semantic-key="description"],
 [data-semantic-key="settings-values"] > [data-semantic-key] {
   color: var(--settings-muted) !important;
@@ -275,7 +281,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 :is([data-semantic-key="settings-primary"], [data-semantic-key="settings-group"]) + [data-semantic-key="settings-group"]:not(:has(> h3[data-semantic-key="heading"])) {
   border-block-start: 1px solid var(--settings-rule) !important;
 }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
+:is([data-semantic-key="settings-content"], [data-semantic-key="settings-configuration-editor"]) h3[data-semantic-key="heading"] {
   margin: 0 0 var(--settings-related-gap) !important;
   color: var(--selvedge-text) !important;
   font-size: .9375rem !important;
@@ -314,14 +320,14 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
    line boxes supply the spacing. The outer item keeps its separation after
    all of the copy, controls and details, even when any of them wraps. */
 [data-semantic-key="settings-copy"] { gap: 0 !important; }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="description"]) {
+[data-semantic-key="settings-content"] [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="description"]) {
   margin: 0 !important;
 }
 [data-semantic-key="settings-copy"] > :is([data-semantic-key="heading"], [data-semantic-key="setting-name"]) {
   inline-size: max-content !important;
   max-inline-size: 100% !important;
 }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
+[data-semantic-key="settings-content"] [data-semantic-key="settings-copy"] > [data-semantic-key="description"] {
   overflow-wrap: break-word;
 }
 [data-semantic-key="settings-copy"] > [data-semantic-key="setting-name"],
@@ -342,7 +348,16 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   justify-content: flex-end !important;
   align-items: center !important;
 }
+[data-semantic-key="settings-controls"]:has(> button[data-semantic-key="restore-default"]) {
+  max-inline-size: 100% !important;
+}
+[data-semantic-key="settings-controls"]:has(> button[data-semantic-key="restore-default"]):not(:has(> button[data-semantic-key="begin-add"])) {
+  flex-wrap: nowrap !important;
+}
 [data-semantic-key="settings-controls"]:empty { display: none !important; }
+[data-semantic-key="settings"] [data-semantic-key="settings-controls"] > button[data-semantic-key="title-prompts"] > svg {
+  display: none;
+}
 [data-semantic-key="settings-values"] {
   align-items: stretch !important;
   /* A saved URL or profile name wraps under the setting that describes it. */
@@ -400,13 +415,6 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 [data-semantic-key="settings-collection"] h3[data-semantic-key="heading"] {
   margin-block-end: 0 !important;
 }
-[data-semantic-key="settings-collection-actions"] {
-  flex-flow: row wrap !important;
-  justify-content: flex-start !important;
-  align-items: center !important;
-  gap: .5rem !important;
-  padding: 0 !important;
-}
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is(input[type="text"], select, textarea) {
   inline-size: 100% !important;
   min-inline-size: 0 !important;
@@ -436,7 +444,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   line-height: 1.35 !important;
   white-space: normal !important;
 }
-[data-semantic-key="settings-controls"] > :has(> input) {
+[data-semantic-key="settings-controls"] > :has(> :is(input, select)) {
   inline-size: var(--settings-control-width) !important;
   max-inline-size: 100% !important;
 }
@@ -498,19 +506,12 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   contain: inline-size;
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] {
-  /* Read all palettes at the same scale. The measured row is used only if
-     every equal track can fit the widest actual sample and caption. */
   display: grid !important;
-  grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   inline-size: 100% !important;
   min-inline-size: 0 !important;
   padding: 0 !important;
   gap: var(--settings-row-space) !important;
-}
-[data-semantic-key="settings"] [data-semantic-key="theme-options"][data-native-row-direction="row"] {
-  grid-template-columns: none;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
   --control-rest-background: transparent !important;
@@ -539,29 +540,28 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: nowrap !important;
   overflow-wrap: normal !important;
 }
-/* In a list, each option is still one control. Share the preview and label
-   columns across the whole list so the reader can compare down the page. */
-[data-semantic-key="settings"] [data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button {
-  grid-column: 1 / -1;
-  display: grid !important;
-  grid-template-columns: subgrid;
-}
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) {
-  grid-column: 1 / -1;
-  grid-template: none;
-  grid-template-columns: subgrid;
-  align-items: center;
-  column-gap: inherit !important;
-}
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-choice-label"] {
-  grid-area: 1 / 2;
-  text-align: start !important;
-  white-space: normal !important;
-  overflow-wrap: break-word !important;
-}
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button > span:not([aria-hidden="true"]) > :is([data-semantic-key="theme-sample-light"], [data-semantic-key="theme-sample-dark"]),
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) > button[aria-checked="true"] > span:not([aria-hidden="true"])::before {
-  grid-area: 1 / 1;
+/* A narrower document uses the same preview and label columns for every option. */
+@container settings-content (inline-size < 25rem) {
+  [data-semantic-key="settings"] [data-semantic-key="theme-options"] {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+  [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button {
+    grid-column: 1 / -1;
+    display: grid !important;
+    grid-template-columns: subgrid;
+  }
+  [data-semantic-key="theme-options"] > button > span:not([aria-hidden="true"]) {
+    grid-column: 1 / -1;
+    grid-template: "sample label" auto / 1fr 1fr;
+    grid-template-columns: subgrid;
+    align-items: center;
+    column-gap: inherit !important;
+  }
+  [data-semantic-key="theme-choice-label"] {
+    text-align: start !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+  }
 }
 [data-semantic-key="settings"] [data-semantic-key="theme-options"] > button[aria-checked="true"] {
   color: var(--selvedge-text) !important;
@@ -657,17 +657,13 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   white-space: nowrap;
   text-align: start;
 }
-[data-semantic-key="theme-options"]:not([data-native-row-direction="row"]) [data-semantic-key="theme-sample-task"] {
-  white-space: normal;
-  overflow-wrap: normal !important;
-}
 [data-semantic-key="theme-sample-title"] {
   font-weight: 650 !important;
   white-space: nowrap;
 }
 [data-semantic-key="theme-sample-composer"] {
   display: grid !important;
-  grid-template: "prompt prompt" auto "mode send" auto / minmax(min-content, 1fr) auto;
+  grid-template: "prompt prompt" auto ". send" auto / 1fr auto;
   align-items: center !important;
   gap: .7em .35em !important;
   padding: .65em !important;
@@ -676,15 +672,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   border-radius: .55em !important;
   text-align: start;
 }
-[data-semantic-key="theme-sample-prompt"] { grid-area: prompt; }
-[data-semantic-key="theme-sample-mode"] { grid-area: mode; }
-[data-semantic-key="theme-sample-composer"] :is([data-semantic-key="theme-sample-prompt"], [data-semantic-key="theme-sample-mode"]) {
-  color: var(--selvedge-muted) !important;
-  white-space: nowrap;
-}
 [data-semantic-key="theme-sample-composer"] [data-semantic-key="theme-sample-prompt"] {
-  /* Draw the prompt as a text stroke. The mode and send mark provide the
-     composer's intrinsic width, so the sample never needs a clipped label. */
+  /* A short stroke represents input without asking users to read thumbnail text. */
+  grid-area: prompt;
+  color: var(--selvedge-muted) !important;
   font-size: 0 !important;
 }
 [data-semantic-key="theme-sample-prompt"]::before {
@@ -702,7 +693,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   color: var(--selvedge-on-accent) !important;
   background: var(--selvedge-accent) !important;
 }
-:is([data-semantic-key="settings-content"], [data-semantic-key="settings-measure"]) [data-semantic-key="service-connected"] {
+[data-semantic-key="settings-content"] [data-semantic-key="service-connected"] {
   font-size: .8125rem !important;
   color: var(--settings-muted) !important;
 }
@@ -732,6 +723,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   color: var(--settings-muted) !important;
   align-self: flex-start !important;
 }
+[data-semantic-key="settings"] [data-semantic-key="settings-controls"] > button[data-semantic-key="restore-default"] {
+  align-self: center !important;
+}
 :is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) button:is([data-semantic-key="remove-value"],
   [data-semantic-key="remove-item"], [data-semantic-key="remove-cloud"]):is(:hover, :focus-visible) {
   color: var(--selvedge-danger) !important;
@@ -749,7 +743,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   line-height: 1.45 !important;
 }
 /* Temporary feedback uses the width set by the section's stable content. */
-[data-semantic-key="settings-documents"] :is([data-semantic-key="load-error"], [data-semantic-key="service-error"], [data-semantic-key="draft-notice"], [data-semantic-key="setting-feedback"]) {
+[data-semantic-key="settings-content"] :is([data-semantic-key="load-error"], [data-semantic-key="service-error"], [data-semantic-key="draft-notice"], [data-semantic-key="setting-feedback"]) {
   contain: inline-size;
   align-self: stretch !important;
   inline-size: auto !important;
@@ -776,11 +770,9 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   gap: .375rem !important;
   padding: 0 !important;
 }
-/* Offer the connection types together. A second column is useful only
-   when it leaves enough room for a provider name at the reader's size. */
 [data-semantic-key="settings-provider-options"] {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(45%, 8rem)), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: 1fr;
   align-items: stretch !important;
 }
@@ -817,7 +809,7 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   background: var(--settings-focus);
   box-shadow: inset 0 0 0 .125rem var(--settings-selection);
 }
-[data-semantic-key="settings-documents"] button[data-semantic-key="begin-add"]::before,
+[data-semantic-key="settings-content"] button[data-semantic-key="begin-add"]::before,
 [data-semantic-key="settings-configuration-editor"] button[data-semantic-key="add-value"]::before {
   content: "+";
   margin-inline-end: .125rem;
@@ -935,7 +927,6 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
 /* This switches the navigation control for the whole settings shell. Local
    row and theme wrapping are independent of the navigation mode. */
 @container settings-shell (inline-size < calc(8rem + 16rem + 9rem + 2.5rem)) {
-  [data-semantic-key="settings-measure"] { display: none !important; }
   [data-semantic-key="settings"] > [data-surface-role="dialog-body"] {
     grid-template-columns: minmax(0, 1fr) !important;
     padding: 0 !important;
@@ -1010,21 +1001,18 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   min-inline-size: 0 !important;
   gap: 0 !important;
   padding: min(1.25rem, 4vi, 6dvh) min(1.25rem, 4vi) !important;
-  border: 1px solid var(--settings-rule) !important;
-  border-radius: .875rem !important;
-  background: var(--settings-surface) !important;
   overflow: hidden !important;
-  box-shadow: 0 .625rem 2.5rem #1c18142e !important;
-}
-/* Keep the covered page's landmarks in place while the foreground task is
-   the only layer with crisp text. Both editors share this layer treatment. */
-dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"])::backdrop {
-  background: var(--settings-scrim);
-  backdrop-filter: blur(.125rem);
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] {
   flex: none !important;
+  gap: .25rem !important;
   padding: 0 .1875rem .375rem !important;
+}
+[data-semantic-key="settings-editor-context"] {
+  margin: 0 !important;
+  color: var(--settings-muted) !important;
+  font-size: .8125rem !important;
+  line-height: 1.25 !important;
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] > h2 {
   margin: 0 !important;
@@ -1048,58 +1036,27 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
-  padding: .25rem .1875rem .5rem !important;
+  padding: .25rem .1875rem .75rem !important;
   gap: .625rem !important;
   overflow: hidden auto !important;
   overscroll-behavior: contain;
-  scroll-padding-block: .375rem;
+  scrollbar-width: thin;
+  scroll-padding-block: .5rem;
 }
 [data-semantic-key="settings-title-editor"] [data-semantic-key="title-prompts/help"] {
   color: var(--settings-muted) !important;
+}
+[data-semantic-key="settings-title-editor"] [data-semantic-key="title-prompt"] textarea {
+  min-block-size: 7lh !important;
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] {
   flex: none !important;
   flex-flow: row wrap !important;
   justify-content: flex-end !important;
   gap: .5rem !important;
-  padding: .625rem .1875rem 0 !important;
-}
-/* A fitted form is continuous. Mark a fixed edge only when fields continue
-   behind it, using the form scrollport as the source of that state. */
-@supports (timeline-scope: --settings-form-scroll) and (animation-range: 0px 1px) {
-  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
-    timeline-scope: --settings-form-scroll;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
-    scroll-timeline: --settings-form-scroll block;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
-    position: relative;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"])::after {
-    position: absolute;
-    inset-inline: .1875rem;
-    block-size: 1px;
-    background: var(--settings-rule);
-    pointer-events: none;
-    content: "";
-    opacity: 0;
-    animation: settings-form-edge auto linear both;
-    animation-timeline: --settings-form-scroll;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-header"]::after {
-    inset-block-end: 0;
-    animation-range: 0px .375rem;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"]::after {
-    inset-block-start: 0;
-    animation-direction: reverse;
-    animation-range: calc(100% - .375rem) 100%;
-  }
-  @keyframes settings-form-edge {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+  margin-block-start: .375rem !important;
+  padding: .75rem .1875rem 0 !important;
+  border-block-start: 1px solid var(--settings-rule) !important;
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] button > svg {
   display: none !important;
@@ -1123,11 +1080,30 @@ dialog[data-semantic-key="settings-configuration-editor"] {
   --settings-text-action-height: 1.75rem;
 }
 dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="settings-instructions-field"]) {
-  --settings-editor-measure: 38rem;
-  block-size: min(23rem, calc(100dvh - 2 * var(--settings-dialog-clearance))) !important;
+  --settings-editor-measure: 46rem;
+  block-size: min(40rem, calc(100dvh - 2 * var(--settings-dialog-clearance))) !important;
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-body"] {
   gap: .875rem !important;
+}
+dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="cloud-credentials"]) {
+  --settings-editor-measure: 38rem;
+
+  & > [data-surface-role="dialog-body"] {
+    gap: .625rem !important;
+    scrollbar-gutter: stable;
+    scrollbar-color: var(--settings-muted) var(--settings-surface);
+    background:
+      linear-gradient(var(--settings-surface), transparent) top / 100% 1rem local,
+      linear-gradient(transparent, var(--settings-surface)) bottom / 100% 1rem local,
+      radial-gradient(ellipse at top, var(--settings-rule), transparent 70%) top / 100% .5rem scroll,
+      radial-gradient(ellipse at bottom, var(--settings-rule), transparent 70%) bottom / 100% .5rem scroll;
+    background-repeat: no-repeat;
+  }
+  & [data-semantic-key="settings-form-group"] + [data-semantic-key="settings-form-group"] {
+    margin-block-start: 0 !important;
+    padding-block-start: .5rem !important;
+  }
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
   flex-flow: column nowrap !important;
@@ -1192,22 +1168,36 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 [data-semantic-key="settings-instructions-field"],
 [data-semantic-key="settings-instructions-field"] :has(> textarea) {
   flex: 1 1 0 !important;
-  min-block-size: 3.5rem !important;
+  min-block-size: 0 !important;
   align-items: stretch !important;
   padding: 0 !important;
 }
-[data-semantic-key="settings-instructions-field"] textarea {
-  flex: 1 1 0 !important;
-  min-block-size: 3.5rem !important;
+[data-semantic-key="settings-instructions-field"] {
+  container-type: size;
+  min-block-size: 4lh !important;
+}
+dialog[data-semantic-key="settings-configuration-editor"] [data-semantic-key="settings-instructions-field"] textarea {
+  --instructions-padding: .5rem;
+  --instructions-insets: calc(var(--instructions-padding) + 2px);
+  flex: none !important;
+  min-block-size: 0 !important;
+  /* A textarea can paint part of the next line into its bottom padding. */
+  padding-block: var(--instructions-padding) 0 !important;
+  font-size: .9375rem !important;
+  line-height: 1.6 !important;
+  block-size: 100% !important;
+  /* Fit complete text lines in the available field after its padding and border. */
+  block-size: calc(round(down, 100cqb - var(--instructions-insets), 1lh) + var(--instructions-insets)) !important;
   resize: none !important;
 }
 [data-semantic-key="settings-instructions-field"] :has(> textarea) > span {
   display: none !important;
 }
 [data-semantic-key="settings-configuration-editor"] button[data-semantic-key="confirm-remove"]:not(:disabled, [aria-disabled="true"]) {
-  --settings-remove-fill: light-dark(#9e4037, #a3483e);
+  --settings-remove-fill: light-dark(var(--selvedge-danger), #9d3b51);
   --control-rest-background: var(--settings-remove-fill) !important;
-  --control-hover-background: light-dark(#84372f, #a95046) !important;
-  border-color: var(--settings-remove-fill) !important;
+  --control-hover-background: light-dark(#8d263c, #a33c54) !important;
+  --control-pressed-background: var(--control-hover-background) !important;
+  --control-focus-ring: currentColor !important;
   color: #fff !important;
 }

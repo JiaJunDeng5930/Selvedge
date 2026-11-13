@@ -18,17 +18,23 @@ Definition origin_choice source := match source with
 |Context.ProjectDefaults project=>String.append "project/" (show_natural project)
 |Context.ParentTask _=>"parent"
 |Context.ProjectForParent _ project=>String.append "parent-project/" (show_natural project) end.
+Definition title_prompt_field scope := match scope with
+| ConversationTitles => AgentTitlePrompt | BoardTitles => TaskTitlePrompt end.
 Definition fields e := match e with
 | Identity.NewTask _ => [MessageText; TaskEnvironment] ++ model_fields ++ context_fields
 | Identity.Message _ => [MessageText; DeliveryIntent]
 | Identity.Project _ => [ProjectName; WorkspaceDirectories; WorkspacePrimary; CreateWorktree]
 | Identity.Card _ => [CardTitle; CardDescription; CardStage; CardPriority; CardOwner;
     CardProject; CardLabels; CardAttachments; ContinueCapture; AssistedCapture; AssistanceProfile]
+| Identity.CardForConversation _ => [CardTitle; CardDescription; CardPriority; CardOwner;
+    CardProject; CardLabels; CardAttachments]
 | Identity.Fork _ => [ForkCount; ForkMessages] ++ context_fields
 | Identity.Compact _ => [CompactionSummary]
 | Identity.TaskGraph _ _ => [TaskGraphDeclaration]
 | Identity.WorkName _ => [WorkName]
-| Identity.TitlePrompts => [TaskTitlePrompt; AgentTitleProfile; AgentTitlePrompt] end.
+| Identity.TitlePrompts scope => match scope with
+  | ConversationTitles => [AgentTitleProfile; title_prompt_field scope]
+  | BoardTitles => [title_prompt_field scope] end end.
 Definition field_eq_dec : forall a b : field, {a=b}+{a<>b}.
 Proof. decide equality. Defined.
 Definition live_fields := model_fields++[SandboxMode;NetworkAccess;ApprovalPolicy;ApprovalReviewer].
@@ -52,20 +58,23 @@ Definition name field := match field with
 | ForkCount => "child_count" | ForkMessages => "messages"
 | CompactionSummary => "summary" | TaskGraphDeclaration => "declaration"
 | TaskTitlePrompt => "task_prompt" | AgentTitlePrompt => "agent_prompt" | AgentTitleProfile => "agent_profile" end.
+Definition work_name_prompt := "请输入工作组名称".
+Definition project_name_prompt := "请输入项目名称".
+Definition card_title_prompt := "请输入标题".
 Definition label field := match field with
-| WorkName | ProjectName => "Name" | MessageText => "Message"
-| CreateWorktree => "Create worktree for new tasks" | TaskEnvironment => "Task environment"
+| WorkName => "工作组名称" | ProjectName => "项目名称" | MessageText => "Message"
+| CreateWorktree => "新对话默认创建 Git 工作树" | TaskEnvironment => "Run environment"
 | WorkspaceDirectories => "Working directories" | WorkspacePrimary => "Primary directory"
-| ContextOrigin => "Project" | SandboxMode => "Filesystem access" | NetworkAccess => "Network access"
-| ApprovalPolicy => "Execution policy" | ApprovalReviewer => "Reviewing model" | ModelProfile => "Model"
-| ReasoningEffort => "Reasoning effort" | DeliveryIntent => "Send as" | CardTitle => "Title"
-| CardDescription => "Description" | CardStage => "Stage" | CardPriority => "Priority"
-| CardOwner => "Assignee" | CardProject => "Project" | CardLabels => "Labels"
-| CardAttachments => "Attachments" | ContinueCapture => "Create another after saving"
-| AssistedCapture => "Assist with title and description" | AssistanceProfile => "Assistance model"
-| ForkCount => "Number of tasks" | ForkMessages => "Initial messages" | CompactionSummary => "Summary override"
-| TaskGraphDeclaration => "Declaration" | TaskTitlePrompt => "Task title prompt"
-| AgentTitlePrompt => "Conversation title prompt" | AgentTitleProfile => "Conversation title model" end.
+| ContextOrigin => "项目" | SandboxMode => "文件系统权限" | NetworkAccess => "联网权限"
+| ApprovalPolicy => "审批方式" | ApprovalReviewer => "审批模型" | ModelProfile => "Model"
+| ReasoningEffort => "Reasoning effort" | DeliveryIntent => "发送方式" | CardTitle => "标题"
+| CardDescription => "描述" | CardStage => "状态" | CardPriority => "优先级"
+| CardOwner => "负责人" | CardProject => "所属项目" | CardLabels => "标签"
+| CardAttachments => "附件" | ContinueCapture => "创建后继续添加"
+| AssistedCapture => "用模型整理标题和描述" | AssistanceProfile => "整理用的模型"
+| ForkCount => "分支数量" | ForkMessages => "初始消息" | CompactionSummary => "指定摘要"
+| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "整理规则"
+| AgentTitlePrompt => "标题生成提示词" | AgentTitleProfile => "对话标题模型" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary
 | TaskTitlePrompt | AgentTitlePrompt | CardLabels => Fields.Multiline

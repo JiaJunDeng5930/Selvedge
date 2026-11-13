@@ -17,22 +17,24 @@ Open Scope string_scope.
 Module IC := Selvedge.Interaction.Interactive.Codec.
 Definition encode_purpose value:=match value with
 |DraftSubmission draft generation layer trigger=>JObject[("kind",JString "draft");("draft",encode_draft draft);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
+|DraftAdmission draft preference generation layer trigger=>JObject[("kind",JString "draft_admission");("draft",encode_draft draft);("preference",DraftCodec.optional_value encode_command preference);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |ConfirmationSubmission generation occurrence=>JObject[("kind",JString "confirmation");("generation",number generation);("occurrence",number occurrence)]
 |LiveConfiguration draft occurrence remember=>JObject[("kind",JString "configuration");("draft",encode_draft draft);("occurrence",optional_id occurrence);("remember_model",JBool remember)]
 |ProjectPreference draft command generation layer trigger=>JObject[("kind",JString "project_preference");("draft",encode_draft draft);("command",encode_command command);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |DirectSubmission=>JObject[("kind",JString "direct")]
-|WorkCreation generation layer=>JObject[("kind",JString "work");("generation",number generation);("layer",number layer)]
+|MenuSubmission occurrence=>JObject[("kind",JString "menu");("occurrence",number occurrence)]
 |SideCreation parent generation layer trigger=>JObject[("kind",JString "side");("parent",number parent);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |SearchSubmission query project work submitted=>JObject[("kind",JString "search");("ticket",number submitted);("query",JString query);("project",optional_id project);("work",optional_id work)]
 |LanguageAdmission task revision text owner path ticket=>JObject[("kind",JString "language_admission");("task",number task);("revision",number revision);("text",JString text);("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]
 |LanguageSubmission editor owner path ticket=>JObject[("kind",JString "language");("editor",encode_editor editor);("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]end.
 Definition decode_purpose value:=match string_field "kind" value with
 |Some "draft"=>draft<-bind(field "draft" value)decode_draft;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(DraftSubmission draft generation layer trigger)
+|Some "draft_admission"=>draft<-bind(field "draft" value)decode_draft;;preference<-bind(field "preference" value)(DraftCodec.parse_optional(decode_command command_specs));;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(DraftAdmission draft preference generation layer trigger)
 |Some "confirmation"=>generation<-natural_field "generation" value;;occurrence<-natural_field "occurrence" value;;Some(ConfirmationSubmission generation occurrence)
 |Some "configuration"=>draft<-bind(field "draft" value)decode_draft;;occurrence<-bind(field "occurrence" value)decode_id;;remember<-bool_field "remember_model" value;;Some(LiveConfiguration draft occurrence remember)
 |Some "project_preference"=>draft<-bind(field "draft" value)decode_draft;;command<-bind(field "command" value)(decode_command command_specs);;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(ProjectPreference draft command generation layer trigger)
 |Some "direct"=>Some DirectSubmission
-|Some "work"=>generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;Some(WorkCreation generation layer)
+|Some "menu"=>option_map MenuSubmission(natural_field "occurrence" value)
 |Some "side"=>parent<-natural_field "parent" value;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(SideCreation parent generation layer trigger)
 |Some "search"=>query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;submitted<-natural_field "ticket" value;;Some(SearchSubmission query project work submitted)
 |Some "language_admission"=>task<-natural_field "task" value;;revision<-natural_field "revision" value;;text<-string_field "text" value;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageAdmission task revision text owner path ticket)
@@ -40,8 +42,25 @@ Definition decode_purpose value:=match string_field "kind" value with
 |_=>None end.
 Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));("purpose",encode_purpose(purpose value));("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
 Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;purpose<-bind(field "purpose" value)decode_purpose;;unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose unknown).
-Definition encode_search value:=JObject[("query",JString(keyword value));("project",optional_id(project_filter value));("work",optional_id(work_filter value));("result",DraftCodec.optional_value(fun x=>x)(search_result value));("latest",optional_id(search_latest value))].
-Definition decode_search value:=query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;result<-bind(field "result" value)(DraftCodec.parse_optional(fun x=>Some x));;latest<-bind(field "latest" value)decode_id;;Some(Search query project work result latest).
+Definition encode_search_page value:=JObject[
+ ("ticket",number(search_page_ticket value));("reply",search_reply value)].
+Definition decode_search_page value:=ticket<-natural_field "ticket" value;;
+ reply<-field "reply" value;;Some(SearchPage ticket reply).
+Definition encode_search_origin value:=JObject[
+ ("work",optional_id(search_origin_work value));("hit",JString(search_origin_hit value))].
+Definition decode_search_origin value:=work<-bind(field "work" value)decode_id;;
+ hit<-string_field "hit" value;;Some(SearchOrigin work hit).
+Definition encode_search value:=JObject[("query",JString(keyword value));
+ ("project",optional_id(project_filter value));("work",optional_id(work_filter value));
+ ("result",DraftCodec.optional_value encode_search_page(search_result value));
+ ("latest",optional_id(search_latest value));
+ ("return",DraftCodec.optional_value encode_search_origin(search_return value))].
+Definition decode_search value:=query<-string_field "query" value;;
+ project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;
+ result<-bind(field "result" value)(DraftCodec.parse_optional decode_search_page);;
+ latest<-bind(field "latest" value)decode_id;;
+ origin<-bind(field "return" value)(DraftCodec.parse_optional decode_search_origin);;
+ Some(Search query project work result latest origin).
 Definition encode_skill_request value:=JObject[("editor",encode_editor(skill_editor value));("workspace",Selvedge.Kernel.Codec.workspace_json(skill_workspace value))].
 Definition decode_skill_request value:=e<-bind(field "editor" value)decode_editor;;workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;Some(SkillRequest e workspace).
 Definition encode_mention_entry value:=JObject[("editor",encode_editor(fst value));("mention",SkillMention.encode_mention(snd value))].

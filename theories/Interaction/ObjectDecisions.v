@@ -25,30 +25,30 @@ Definition subject_exists snapshot subject := match subject with
 |CardActions id=>present(Read.find_card id snapshot) end.
 
 Definition task_decisions task := [
- immediate "interrupt" "Interrupt" (G.Cmd_interrupt(G.Build_interrupt task));
- immediate "freeze" "Freeze" (G.Cmd_freeze(G.Build_freeze task));
- immediate "unfreeze" "Resume" (G.Cmd_unfreeze(G.Build_unfreeze task));
- immediate "stop" "Stop" (G.Cmd_stop(G.Build_stop task));
- immediate "archive" "Archive" (G.Cmd_archive(G.Build_archive task))].
+ immediate "interrupt" "停止当前执行" (G.Cmd_interrupt(G.Build_interrupt task));
+ immediate "freeze" "暂停对话" (G.Cmd_freeze(G.Build_freeze task));
+ immediate "unfreeze" "恢复对话" (G.Cmd_unfreeze(G.Build_unfreeze task));
+ immediate "stop" "工具完成后停止" (G.Cmd_stop(G.Build_stop task));
+ immediate "archive" "归档对话" (G.Cmd_archive(G.Build_archive task))].
 Definition card_decisions snapshot clock (card:Read.card) :=
  match clock with None=>[] | Some now=>
   let id:=Read.card_id card in
   let revision:=Read.card_revision card in
   let observed:=Some(show_natural now) in
-  [immediate "run" "Run" (G.Cmd_run_card(G.Build_run_card id revision observed));
+  [immediate "run" "启动对话" (G.Cmd_run_card(G.Build_run_card id revision observed));
    if Read.card_archived card
-    then immediate "archive" "Restore" (G.Cmd_restore_card(G.Build_restore_card id revision observed))
-    else immediate "archive" "Archive" (G.Cmd_archive_card(G.Build_archive_card id revision observed));
-   immediate "pin" (if Read.card_pinned card then "Unpin" else "Pin")
+    then immediate "archive" "恢复卡片" (G.Cmd_restore_card(G.Build_restore_card id revision observed))
+    else immediate "archive" "归档卡片" (G.Cmd_archive_card(G.Build_archive_card id revision observed));
+   immediate "pin" (if Read.card_pinned card then "取消置顶" else "置顶卡片")
      (G.Cmd_pin_card(G.Build_pin_card id revision observed(Some(negb(Read.card_pinned card)))));
-   confirmed "delete" "Delete card" (G.Cmd_delete_card(G.Build_delete_card id revision observed));
-   immediate "regenerate" "Regenerate title" (G.Cmd_regenerate_card_title
-     (G.Build_regenerate_card_title id revision observed (option_map Read.board_draft_profile(Read.board_configuration snapshot))))]
+   immediate "regenerate" "重新生成标题" (G.Cmd_regenerate_card_title
+     (G.Build_regenerate_card_title id revision observed (option_map Read.board_draft_profile(Read.board_configuration snapshot))));
+   confirmed "delete" "删除卡片" (G.Cmd_delete_card(G.Build_delete_card id revision observed))]
  end.
 Definition decisions snapshot clock subject :=
  if subject_exists snapshot subject then match subject with
  |TaskActions id=>task_decisions id
- |ProjectActions id=>[confirmed "delete" "Delete project" (G.Cmd_delete_project(G.Build_delete_project id))]
+ |ProjectActions id=>[confirmed "delete" "删除项目" (G.Cmd_delete_project(G.Build_delete_project id))]
  |CardActions id=>match Read.find_card id snapshot with
   |Some card=>card_decisions snapshot clock card|None=>[] end
  |GraphActions id=>[confirmed "delete" "Delete task graph" (G.Cmd_delete_task_graph(G.Build_delete_task_graph id))]
@@ -65,7 +65,7 @@ Definition approval_decision task operation (allow:bool) :=
    (if allow then "Approve once" else "Deny")
    (G.Cmd_review_approval(G.Build_review_approval task operation decision None)).
 Definition cancellation_decision task operation :=
- immediate ("cancel/"++show_natural operation)%string ("Cancel operation #"++show_natural operation)%string
+ immediate ("cancel/"++show_natural operation)%string "Cancel tool call"
    (G.Cmd_cancel_operation(G.Build_cancel_operation task operation)).
 Definition worktree_retry_decision snapshot task :=
  value<-Read.task_workspace task snapshot;;

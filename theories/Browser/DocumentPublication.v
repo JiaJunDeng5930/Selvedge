@@ -25,7 +25,10 @@ Definition source_properties policy : list (string * string) :=
 Definition frame_properties policy : list (string * string) :=
  if preview_active policy then [("border","0");("background","transparent");("padding","0")] else [].
 Definition frame_attributes policy :=
- if preview_active policy then [("data-interactive-active","true")] else [].
+ if preview_active policy then
+   [("data-interactive-active","true");
+    ("data-interactive-source-visible",if source_visible policy then "true" else "false")]
+ else [].
 Definition encode_policy policy := JObject [
  ("targets",encode_targets (fence_identity policy));
  ("source_visible",JBool (source_visible policy));

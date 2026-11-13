@@ -3,10 +3,115 @@
   overflow-y: auto !important;
   scrollbar-width: thin;
 }
-[data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
-[data-reading-root] { gap: .75rem !important; }
+[data-view] > [data-page-region="timeline-content"] {
+  --reader-navigation-gutter: 2.5rem;
+  min-block-size: min(2lh, 12dvh) !important;
+  padding-inline-end: var(--reader-navigation-gutter) !important;
+  position: relative;
+}
+[data-reading-root] {
+  gap: .75rem !important;
+  /* The focus stroke stays in the border, with room inside for message outlines. */
+  border: var(--native-focus-width) solid transparent !important;
+  padding-inline: 6px !important;
+  overflow-anchor: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--selvedge-muted) 46%, transparent) transparent;
+  scroll-padding-block-start: .5rem;
+  contain: layout;
+}
+[data-reading-root]:focus-visible {
+  outline-offset: calc(-1 * var(--native-focus-width));
+}
+[data-reading-initial] {
+  opacity: 0;
+}
+[data-semantic-key="reading-initial-status"] {
+  display: none !important;
+  position: absolute;
+  inset: 50% var(--reader-navigation-gutter) auto 0;
+  transform: translateY(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+[data-reading-initial] ~ [data-semantic-key="reading-initial-status"] {
+  display: block !important;
+}
+[data-reading-initial] ~ [data-page-region="latest-action"] {
+  visibility: hidden;
+}
+@media (min-width: 48rem) and (pointer: fine) {
+  [data-reading-root] { padding-inline-end: 1.25rem !important; }
+  [data-view^="main-task/"] {
+    /* Give the scrollbar part of the page inset without narrowing the reader. */
+    --reader-scrollbar-outset: min(1.5rem, 22px);
+    inline-size: calc(100% + var(--reader-scrollbar-outset)) !important;
+    max-inline-size: none !important;
+    padding-inline-end: var(--reader-scrollbar-outset) !important;
+
+    & > [data-page-region="timeline-content"] {
+      overflow: visible !important;
+    }
+    & > [data-page-region="timeline-content"] > [data-reading-root] {
+      inline-size: calc(100% + var(--reader-scrollbar-outset)) !important;
+      max-inline-size: none !important;
+      padding-inline-end: calc(1.25rem + var(--reader-scrollbar-outset)) !important;
+    }
+  }
+}
+[data-semantic-key="timeline-tail"],
+[data-semantic-key="discarded-unfinished-slot"] {
+  /* Own an independently updated subtree without adding a reader flex item. */
+  display: contents !important;
+}
+[data-reading-root] button[data-semantic-key="fork-current-history"] {
+  align-self: flex-start;
+}
+[data-page-region="task-actions"] [data-semantic-key="interrupt-unavailable"] { display: none !important; }
+[data-reading-root] [data-semantic-key="reply-pending"] {
+  align-self: flex-start;
+  padding-inline: .25rem;
+  color: var(--selvedge-muted);
+}
+[data-semantic-key="pending-conversation-reading"] {
+  gap: .75rem !important;
+  padding-inline: 6px;
+}
+[data-semantic-key="pending-user-message"] {
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="pending-first-reply"] {
+  color: var(--selvedge-muted) !important;
+  padding-inline: .25rem;
+}
+[data-reading-root]:has([data-markdown-parsing], .code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed]))
+  > button[data-semantic-key="fork-current-history"] {
+  visibility: hidden;
+}
+[data-reading-root] [data-history-match] {
+  outline: 2px solid var(--selvedge-accent);
+  outline-offset: 2px;
+}
+[data-reading-root] [data-reading-anchor][tabindex="-1"]:focus-visible {
+  outline: 1px solid var(--selvedge-focus);
+  outline-offset: 2px;
+}
+::highlight(selvedge-history-match) {
+  background-color: var(--selvedge-accent);
+  color: var(--selvedge-on-accent);
+}
 [data-reading-root] [data-surface-role="activity"][data-expanded="false"] { gap: .1rem !important; }
-[data-reading-root] [data-activity-summary] { color: var(--selvedge-muted); }
+[data-reading-root] button[data-semantic-key="activity-disclosure"] {
+  align-self: flex-start;
+  justify-content: flex-start !important;
+  max-inline-size: 100%;
+  color: var(--selvedge-muted);
+}
+[data-reading-root] button[data-semantic-key="activity-disclosure"]:is(:hover, :focus-visible) {
+  color: var(--selvedge-text);
+}
 [data-reading-root] [data-surface-role="activity"][data-expanded="true"] > section {
   min-inline-size: 0;
   padding: .5rem .7rem;
@@ -22,7 +127,7 @@
 
 /* The language and native code actions share a line. The source itself still
    controls wrapping and owns its horizontal scrollport. */
-[data-reading-root] .code-block:has(> .code-toolbar:not(:empty)) {
+[data-reading-root] .code-block:not([data-interactive-active="true"]):has(> .code-toolbar:not(:empty)) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -47,12 +152,28 @@
   border: 1px solid var(--selvedge-border) !important;
   border-radius: 8px !important;
 }
-[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) {
+[data-reading-root] [data-semantic-key="operation"] {
   flex-flow: row wrap !important;
-  gap: .1rem .4rem !important;
+  align-items: center !important;
+  gap: .15rem .5rem !important;
 }
-[data-reading-root] [data-semantic-key="operation"] > :is([data-semantic-key="call"], [data-semantic-key="state"], [data-semantic-key="status"]) > * {
+[data-reading-root] [data-semantic-key="operation"] > * {
   inline-size: auto !important;
+}
+[data-interactive-slider] {
+  display: grid;
+  gap: .2rem;
+  max-inline-size: 22rem;
+}
+[data-interactive-slider] input[type="range"] {
+  margin-inline: 0;
+  accent-color: var(--selvedge-accent);
+}
+[data-interactive-slider] output { color: var(--selvedge-text); }
+:is([data-page-region="task-actions"], [data-semantic-key="side/actions"]) > [data-semantic-key="run-status"] {
+  align-self: center;
+  color: var(--selvedge-accent);
+  white-space: nowrap;
 }
 [data-reading-root] [data-semantic-key="unfinished-notice"] {
   display: flex !important;
@@ -80,11 +201,35 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+[data-workspace-heading]:has(> [data-semantic-key="return-to-search"]) > [data-page-region="conversation-title"] {
+  flex-basis: 5rem !important;
+  min-inline-size: 0 !important;
+}
+[data-semantic-key="return-to-search"] { flex: none !important; }
 [data-semantic-key="conversation-empty"], [data-semantic-key="conversation-unavailable"] {
   margin-block-start: .75rem;
   overflow-wrap: anywhere;
 }
-[data-page-region="latest-action"] { align-items: flex-end !important; }
+[data-page-region="latest-action"] {
+  position: absolute !important;
+  inset-inline-end: 0;
+  inset-block-end: .5rem;
+  inline-size: max-content !important;
+  z-index: 1;
+}
+@media (min-width: 48rem) and (pointer: fine) {
+  [data-view^="main-task/"] [data-page-region="latest-action"] {
+    inset-inline-end: calc(-1 * var(--reader-scrollbar-outset));
+  }
+}
+[data-page-region="latest-action"] > button {
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 50% !important;
+  background: var(--selvedge-surface) !important;
+}
+[data-page-region="latest-action"] > button:is(:hover, :focus-visible) {
+  background: var(--selvedge-hover) !important;
+}
 
 /* Keep the dock from using the whole reading viewport when an operation has
    long arguments. Its decisions remain outside the argument scrollport. */
@@ -173,9 +318,21 @@
 }
 
 [data-semantic-key="task-details"][data-workspace-side] {
-  block-size: 100% !important;
+  /* The inspector must not resize the reading column or composer. */
+  position: fixed;
+  z-index: 3;
+  inset-block-start: 4rem;
+  inset-inline-end: .75rem;
+  inline-size: 16rem !important;
+  max-inline-size: calc(100vw - 1.5rem);
+  block-size: fit-content !important;
+  max-block-size: calc(100dvh - 4.75rem) !important;
   min-block-size: 0 !important;
+  padding: 0 !important;
   overflow: hidden !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .625rem;
+  box-shadow: var(--selvedge-shadow);
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-header"] > [data-semantic-key="details"] {
   justify-content: center !important;
@@ -185,7 +342,9 @@
   display: none;
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-body"] {
-  gap: .55lh !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--selvedge-muted) transparent;
+  scrollbar-gutter: stable;
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-body"] [data-semantic-key="label"] {
   color: var(--selvedge-muted) !important;

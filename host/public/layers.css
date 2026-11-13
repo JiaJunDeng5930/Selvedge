@@ -3,12 +3,205 @@
 :where(dialog[data-surface-role], [data-workspace-side])
   :where([data-surface-role="dialog-body"]) { min-inline-size: 0 !important; }
 
-:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side])
+/* Covered dialogs retain their contents and attention targets. Only the
+   last centered modal and its backdrop are painted. Menus keep their anchors. */
+[data-layer-stack] > dialog[aria-modal="true"]:not([data-native-layer]):has(~ dialog:modal:not([data-native-layer])) {
+  visibility: hidden !important;
+}
+[data-layer-stack] > dialog[aria-modal="true"]:not([data-native-layer]):has(~ dialog:modal:not([data-native-layer]))::backdrop {
+  visibility: hidden;
+}
+
+dialog[data-semantic-key="project-editor"] {
+  inline-size: 30rem !important;
+}
+[data-semantic-key="project-directory-input"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  align-items: end !important;
+  gap: .25rem !important;
+  margin-block-start: .5rem !important;
+}
+[data-semantic-key="project-directory-input"] > div { min-inline-size: 0 !important; }
+[data-semantic-key="project-directory-input"] > button { white-space: nowrap !important; }
+[data-semantic-key="declaration"][data-field-entry="multiline"] {
+  min-block-size: min(12rem, 36dvh) !important;
+  font-family: ui-monospace, monospace !important;
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  overflow: auto !important;
+}
+[data-semantic-key="graph-options"] {
+  border-block-start: 1px solid var(--selvedge-border);
+  padding-block-start: .375rem;
+
+  & > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 6px;
+    font-weight: 500;
+    color: var(--selvedge-muted);
+  }
+  & > summary::-webkit-details-marker { display: none; }
+  & > summary::after {
+    content: "";
+    flex: none;
+    inline-size: .45em;
+    block-size: .45em;
+    margin-inline-end: .375rem;
+    border: solid currentColor;
+    border-width: 0 .1em .1em 0;
+    transform: rotate(-45deg);
+  }
+  &[open] > summary::after { transform: rotate(45deg); }
+  & > summary:is(:hover, :focus-visible),
+  &[open] > summary { color: var(--selvedge-text); }
+  & > [data-editor-options-body] {
+    padding: .625rem;
+    border: 1px solid var(--selvedge-border);
+    border-radius: 8px;
+    background: var(--selvedge-inset);
+  }
+  & textarea[data-semantic-key="declaration"] {
+    block-size: clamp(5.5rem, 20dvh, 9rem) !important;
+    min-block-size: 0 !important;
+    resize: none !important;
+  }
+}
+@media (min-width: 600px) and (max-height: 460px) {
+  dialog:has([data-semantic-key="graph-options"][open]) {
+    inline-size: min(40rem, calc(100dvw - 1.5rem)) !important;
+    max-inline-size: calc(100dvw - 1.5rem) !important;
+
+    & [data-surface-role="dialog-body"]:has(> [data-semantic-key="graph-options"][open]) {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-auto-rows: max-content;
+      align-content: start !important;
+      gap: .5rem 1rem !important;
+
+      & > * { grid-column: 1; }
+      & > [data-semantic-key="assessment"] { grid-column: 1 / -1; }
+      & > [data-semantic-key="graph-options"] {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        border-block-start: 0;
+        padding-block-start: 0;
+      }
+    }
+  }
+}
+
+:is([data-semantic-key="task-details"], [data-semantic-key="task-context"]) {
+  gap: 0 !important;
+  & > [data-surface-role="dialog-body"] { gap: 0 !important; }
+
+  & :is([data-semantic-key="task-environment"], [data-semantic-key="task-permissions"], [data-semantic-key="task-execution"]) {
+    padding-block: 0 .65rem !important;
+    gap: .375rem !important;
+
+    & + section {
+      border-block-start: 1px solid var(--selvedge-border) !important;
+      padding-block-start: .65rem !important;
+    }
+    &:last-child { padding-block-end: 0 !important; }
+    & > h3 { font-weight: 600 !important; }
+    & > div:has(> [data-semantic-key="label"]) {
+      display: grid !important;
+      grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+      gap: .625rem !important;
+    }
+    & [data-semantic-key="label"] { color: var(--selvedge-muted) !important; }
+  }
+
+  & :is([data-semantic-key="directory-path"], [data-semantic-key="project-guidance"]) > summary {
+    min-inline-size: 0;
+    padding-block: .125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+}
+
+[data-semantic-key="directory-path-entry"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start !important;
+  position: relative;
+
+  & > details { grid-column: 1 / -1; }
+  & > details > summary {
+    padding-inline-end: 2.25rem !important;
+    min-block-size: 2rem;
+    align-content: center;
+  }
+  & > button {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+  }
+}
+[data-semantic-key="directory-path-value"] {
+  display: block;
+  max-inline-size: 100%;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  font-family: ui-monospace, monospace;
+}
+[data-path-segment] {
+  display: inline-block;
+  inline-size: max-content;
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+:is([data-semantic-key="handoff-route"], [data-semantic-key="task-graph/empty-route"]) {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: .25rem .5rem !important;
+}
+[data-semantic-key="handoff-route"] { grid-template-rows: auto auto; }
+
+[data-semantic-key="handoff-route"] > div {
+  display: grid !important;
+  grid-row: 1 / span 2;
+  grid-template-rows: subgrid;
+  row-gap: normal !important;
+  min-inline-size: 0 !important;
+}
+
+[data-semantic-key="handoff-route"] > div:first-child { grid-column: 1; }
+[data-semantic-key="handoff-route"] > div:last-child { grid-column: 3; }
+[data-semantic-key="handoff-route"] > div > select {
+  align-self: stretch !important;
+  block-size: auto !important;
+}
+
+[data-semantic-key="handoff-direction"] {
+  display: grid !important;
+  grid-area: 2 / 2;
+  align-self: stretch !important;
+  block-size: auto !important;
+  place-items: center !important;
+  min-block-size: 2rem;
+  color: var(--selvedge-muted) !important;
+}
+
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side])
   :where([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
   flex: none !important;
 }
 
-:is(dialog[data-surface-role]:not([data-native-layer]), [data-workspace-side]):not(
+/* A modal editor exposes focus on the field or action receiving it. */
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side])
+  > form[data-semantic-key="editor"]:focus-within { outline: none; }
+
+:is(dialog[data-surface-role]:not([data-native-layer="menu"]), [data-workspace-side]):not(
   [data-semantic-key^="settings"], [data-semantic-key="task-navigation"],
   [data-semantic-key="work-overview"], [data-semantic-key="side-conversation"]
 ) {
@@ -20,10 +213,6 @@
   &:is(dialog):has(> :is([data-surface-role="dialog-body"], form[data-semantic-key="editor"])) {
     padding: 0 !important;
   }
-  /* A form exposes focus on the field or action receiving it. Its layout
-     wrapper must not draw a second ring across the dialog header. */
-  & > form[data-semantic-key="editor"]:focus-within { outline: none; }
-
   :is(&, & > form[data-semantic-key="editor"]) >
     :is([data-surface-role="dialog-header"], [data-surface-role="dialog-body"], [data-surface-role="dialog-actions"]) {
     padding-inline: var(--panel-inset) !important;
@@ -44,6 +233,11 @@
     overflow-wrap: anywhere;
     scrollbar-width: thin;
   }
+  /* Centered dialogs share a title tier when their content comes from an activity. */
+  &:is(dialog):not([data-semantic-key="model-picker"]) > [data-surface-role="dialog-header"] > h2 {
+    font-size: var(--rich-title-size) !important;
+    line-height: var(--rich-title-line) !important;
+  }
   & > [data-surface-role="dialog-header"] > h2[tabindex="-1"] { outline: none !important; }
   & > [data-surface-role="dialog-header"] > button { flex: none !important; }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] {
@@ -52,6 +246,7 @@
     padding-block: var(--panel-related-space) var(--panel-inset) !important;
     overflow: hidden auto !important;
     overscroll-behavior: contain;
+    &:has(> [data-semantic-key="card-options"]) { padding-block: .25lh .5lh !important; }
   }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-actions"] {
     display: flex !important;
@@ -64,6 +259,14 @@
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
   }
+  & :is([data-semantic-key="card-save-consequence"], [data-semantic-key="editor-commit-reason"],
+        [data-semantic-key="editor-commit-status"]) {
+    flex: 1 0 100%;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  & [data-semantic-key="editor-commit-reason"] { color: var(--selvedge-warning) !important; }
+  & [data-semantic-key="editor-commit-status"] { order: -1; }
   & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
     max-inline-size: 100% !important;
   }
@@ -99,6 +302,47 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
   [data-semantic-key="board-settings"], [data-semantic-key="archived-cards"]:has([data-semantic-key="empty"])) {
   inline-size: fit-content !important;
 }
+dialog[data-semantic-key="archived-cards"]::backdrop { background: transparent; }
+dialog[data-semantic-key="archived-cards"]:not(:has([data-semantic-key="empty"])) {
+  inline-size: 26rem !important;
+}
+[data-semantic-key="board-automation"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: var(--panel-related-space) !important;
+}
+[data-semantic-key="automation-copy"] { gap: .125rem !important; }
+[data-semantic-key="automation-label"] { font-weight: 600 !important; }
+button[data-semantic-key="automation"][role="switch"] {
+  display: grid !important;
+  place-items: center;
+  inline-size: max(44px, 2.75rem) !important;
+  min-block-size: max(44px, 2.75rem) !important;
+  padding: 0 !important;
+  --control-rest-background: transparent !important;
+  --control-hover-background: var(--selvedge-hover) !important;
+}
+button[data-semantic-key="automation"][role="switch"] > * { display: none !important; }
+button[data-semantic-key="automation"][role="switch"]::before,
+button[data-semantic-key="automation"][role="switch"]::after {
+  grid-area: 1 / 1;
+  border-radius: 999px;
+  content: "";
+}
+button[data-semantic-key="automation"][role="switch"]::before {
+  inline-size: 2.125rem;
+  block-size: 1.25rem;
+  background: var(--selvedge-muted);
+}
+button[data-semantic-key="automation"][role="switch"]::after {
+  inline-size: .875rem;
+  block-size: .875rem;
+  background: var(--selvedge-surface);
+  translate: -.4375rem 0;
+}
+button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::before { background: var(--selvedge-accent); }
+button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::after { translate: .4375rem 0; }
 [data-semantic-key="file-preview"] [data-semantic-key="preview-image"] {
   inline-size: auto !important;
   max-inline-size: 100% !important;
@@ -107,23 +351,48 @@ dialog:is([data-semantic-key="confirmation"], [data-semantic-key="file-preview"]
   object-fit: contain;
 }
 
-/* Directory location and Go are one operation. The folder list and the
-   action that confirms the current location occupy separate parts. */
-[data-semantic-key="directory-browser"] [data-semantic-key="directory-location-actions"] {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: end !important;
-  gap: var(--panel-related-space) !important;
-}
-[data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
-[data-semantic-key="directory-browser"] [data-semantic-key="folders"] {
-  gap: 0 !important;
-  border-block-start: 1px solid var(--selvedge-border) !important;
-}
-[data-semantic-key="folders"] > button {
-  inline-size: 100% !important;
-  justify-content: flex-start !important;
-  text-align: start !important;
+dialog[data-semantic-key="directory-browser"] {
+  inline-size: 30rem !important;
+  block-size: min(31rem, calc(100dvb - 1.5rem)) !important;
+
+  & > [data-surface-role="dialog-body"] {
+    gap: .5rem !important;
+    padding-block-end: .5rem !important;
+  }
+  & [data-semantic-key="directory-location-actions"] {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    flex: none !important;
+    align-items: end !important;
+    gap: .375rem !important;
+  }
+  & [data-semantic-key="directory-location-actions"] > div { min-inline-size: 0 !important; }
+  & [data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
+  & [data-semantic-key="folders"] {
+    flex: 1 1 0 !important;
+    min-block-size: 0 !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding-block-start: .5rem;
+    gap: .125rem !important;
+    border-block-start: 1px solid var(--selvedge-border) !important;
+  }
+  & [data-semantic-key="folders"] > * { flex-shrink: 0 !important; }
+  & [data-semantic-key="folders"] > button {
+    inline-size: 100% !important;
+    justify-content: flex-start !important;
+    text-align: start !important;
+  }
+  & [data-semantic-key="directory-check"] {
+    min-inline-size: 0;
+    flex: none !important;
+  }
+  & [data-semantic-key="directory-git-status"] {
+    overflow-wrap: anywhere;
+    flex-shrink: 0;
+  }
+  & [data-semantic-key="directory-check"]:empty { display: none !important; }
 }
 
 /* Local action lists are anchored to their trigger. Each row owns the
@@ -306,6 +575,7 @@ input[data-model-effort-range]::-moz-range-thumb {
   block-size: var(--effort-thumb);
 }
 dialog[data-semantic-key="model-picker"]::backdrop { background: transparent; }
+dialog[data-semantic-key="model-picker"] > [role="menu"] { min-block-size: 0 !important; }
 button[data-semantic-key="composer/model"] { touch-action: manipulation; }
 button[data-semantic-key="composer/model"][data-native-anchor-owner] {
   --control-rest-color: var(--selvedge-accent) !important;
@@ -368,6 +638,18 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   block-size: 1px !important;
   clip-path: inset(50%);
 }
+[data-semantic-key="object-actions"] > [role="menu"] > [data-surface-role="destructive-button"] {
+  position: relative;
+  margin-block-start: .5rem;
+}
+[data-semantic-key="object-actions"] > [role="menu"] > [data-surface-role="destructive-button"]::before {
+  content: "";
+  position: absolute;
+  inset-block-start: -.3rem;
+  inset-inline: 0;
+  border-block-start: 1px solid var(--selvedge-border);
+  pointer-events: none;
+}
 [data-semantic-key="workspace-member"] {
   display: flex !important;
   flex-flow: row wrap !important;
@@ -380,6 +662,35 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   gap: 0 !important;
   overflow-wrap: anywhere;
 }
+[data-semantic-key="workspace-member-heading"] {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  gap: .5rem !important;
+}
+[data-semantic-key="workspace-member-heading"] > [data-semantic-key="name"] {
+  flex: 0 1 auto !important;
+  inline-size: auto !important;
+  min-inline-size: 0 !important;
+  font-weight: 600 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-semantic-key="workspace-member-heading"] > [data-semantic-key="primary-state"] {
+  flex: none !important;
+  inline-size: auto !important;
+  padding: .08rem .4rem !important;
+  border-radius: 999px !important;
+  background: var(--selvedge-inset) !important;
+  white-space: nowrap;
+}
+[data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {
+  display: block !important;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
 [data-semantic-key="workspace-member-actions"],
 [data-semantic-key="directory-entry-actions"] {
   display: flex !important;
@@ -391,12 +702,42 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   gap: var(--layer-gap, .5em) !important;
 }
 [data-semantic-key="workspace-member-actions"]:empty { display: none !important; }
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-rows: auto auto;
+  align-items: start !important;
+  column-gap: var(--layer-gap, .5em) !important;
+  row-gap: .2rem !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] {
+  display: contents !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-heading"] {
+  grid-column: 1;
+  grid-row: 1;
+  min-inline-size: 0 !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  max-inline-size: 100% !important;
+}
+[data-semantic-key="project-editor"] [data-semantic-key="workspace-member-actions"] {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start !important;
+  justify-content: flex-end !important;
+  margin-inline-start: 0 !important;
+}
 [data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] > div {
   padding-inline: 0 !important;
   gap: var(--layer-gap) !important;
 }
-[data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] h3 {
-  color: var(--selvedge-muted) !important;
+[data-semantic-key="shared-explanation"] {
+  border-block-start: 1px solid var(--selvedge-border);
+  padding-block-start: .5rem !important;
+  margin-block-start: .125rem;
 }
 :is([data-semantic-key="object-actions"], [data-semantic-key="property-source"]) {
   & button:not([data-semantic-key="back"]) {
@@ -423,23 +764,164 @@ dialog[data-semantic-key="property-source"] {
   overflow-wrap: anywhere;
 }
 
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] {
+dialog[data-semantic-key="board-filters"] {
+  inline-size: min(32rem, calc(100% - 2 * var(--panel-related-space))) !important;
+  min-inline-size: 0 !important;
+}
+/* The fixed reason is the default until the inline repair fits the scrollport. */
+dialog:not([data-editor-repair-inline]) > form[data-semantic-key="editor"]:has([data-semantic-key="editor-commit-reason"])
+  > [data-surface-role="dialog-body"] [data-semantic-key="property-repair"] {
+  visibility: hidden;
+}
+dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-semantic-key="editor-commit-reason"] {
+  display: none !important;
+}
+
+[data-semantic-key="board-filters"] > [data-surface-role="dialog-body"] {
+  gap: .5rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="board-filter-group"] {
+  display: grid !important;
+  grid-template-columns: 4em minmax(0, 1fr);
+  align-items: start !important;
+  gap: .375rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="board-filter-group"] > h3 {
+  padding-block: .5rem !important;
+  padding-inline: 0 !important;
+  font-size: .875rem !important;
+  line-height: 1.1 !important;
+  white-space: nowrap;
+  color: var(--selvedge-muted) !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-choices"] {
   display: flex !important;
   flex-flow: row wrap !important;
-  align-items: center !important;
-  gap: var(--panel-related-space) !important;
+  gap: .25rem !important;
 }
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"] > h3 { flex-basis: 100%; }
-[data-semantic-key="board-filters"] [data-semantic-key^="filter/"]:not(:has(> button)) { display: none !important; }
 [data-semantic-key="board-filters"] button[data-semantic-key="filter-option"] {
   inline-size: fit-content !important;
+  min-inline-size: 2rem !important;
+  flex: none !important;
+  padding-inline: .5rem !important;
+  padding-block: .2rem !important;
+  font-size: .875rem !important;
+  gap: .25rem !important;
   border: 1px solid var(--selvedge-border) !important;
 }
 [data-semantic-key="board-filters"] button[data-semantic-key="filter-option"][aria-checked="true"] {
   background: var(--selvedge-selection) !important;
+  border-color: var(--selvedge-accent) !important;
 }
-[data-semantic-key="board-filters"] button[data-semantic-key="filters/clear"] {
-  align-self: end !important;
+[data-semantic-key="board-filters"] [data-semantic-key="filter-choices"] > button > span[aria-hidden="true"]:last-child {
+  display: none !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter/assignee"] {
+  display: block !important;
+  padding-inline: .5rem !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: .5rem !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter/assignee"] > summary {
+  padding-block: .4rem;
+  cursor: pointer;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
+  --assignee-row-size: 2rem;
+  max-block-size: max(var(--assignee-row-size), min(11.5rem, 36dvh)) !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  padding: 0 .25rem !important;
+  gap: 0 !important;
+  /* The local layer covers the scroll cue when the content ends. */
+  background:
+    linear-gradient(var(--panel-background), var(--panel-background)) bottom / 100% .5rem no-repeat local,
+    linear-gradient(transparent, var(--selvedge-border)) bottom / 100% .5rem no-repeat scroll !important;
+}
+[data-semantic-key="filter-assignee-options"] :is([data-semantic-key="filter-assignee-people"], [data-semantic-key="filter-assignee-models"]) {
+  flex: none !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+[data-semantic-key="filter-assignee-options"] h3 {
+  display: flex !important;
+  align-items: end;
+  box-sizing: border-box;
+  block-size: 1.15rem !important;
+  margin: 0;
+  padding: 0 .5rem !important;
+  flex: none !important;
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size) !important;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] button {
+  inline-size: 100% !important;
+  block-size: var(--assignee-row-size) !important;
+  min-block-size: var(--assignee-row-size) !important;
+  flex: none !important;
+  justify-content: start !important;
+  border: 0 !important;
+  border-radius: .375rem !important;
+}
+[data-semantic-key="filter-assignee-options"] > button {
+  box-shadow: inset 0 1px var(--selvedge-border);
+}
+[data-semantic-key="filter-assignee-options"] button:focus-visible {
+  outline: 2px solid var(--selvedge-focus) !important;
+  outline-offset: -2px !important;
+}
+[data-semantic-key="filter-assignee-options"] button[aria-checked="false"]:focus-visible:not(:hover) {
+  background: transparent !important;
+}
+[data-semantic-key="filter-assignee-options"] button[aria-checked="true"] > span[aria-hidden="true"]:last-child {
+  color: var(--selvedge-accent) !important;
+}
+[data-semantic-key="filter-assignee-options"] button > span:not([aria-hidden]) {
+  display: block !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
+    --assignee-row-size: max(2.25rem, 44px);
+  }
+}
+
+[data-surface-role="dialog-body"]:has(> [data-semantic-key="card-options"]) {
+  gap: .25rem !important;
+}
+[data-semantic-key="card-content"] {
+  display: flex !important;
+  flex-direction: column;
+  gap: .25rem !important;
+}
+[data-semantic-key="card-content"] textarea[data-semantic-key="description"] {
+  min-block-size: 3.75rem !important;
+}
+[data-semantic-key="card-options"] > [data-editor-options-body] {
+  gap: .25rem;
+}
+[data-semantic-key="card-options"] [data-semantic-key="card-option-pair"] {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: .5rem !important;
+}
+[data-semantic-key="card-options"] textarea[data-semantic-key="labels"] {
+  max-block-size: calc(3lh + 1rem) !important;
+  resize: none !important;
+}
+[data-surface-role="dialog-actions"] > label:has(input[data-semantic-key="keep_open"]) {
+  inline-size: auto !important;
+  flex: 0 0 auto !important;
+  margin-inline-end: auto;
+}
+[data-semantic-key="card-content"] [data-semantic-key="attachments"] > [data-file-picker] {
+  align-self: flex-start;
+  padding-inline: .375rem;
+}
+[data-semantic-key="card-content"] [data-semantic-key="attachments"] > [data-file-picker]:hover {
+  background: var(--selvedge-hover);
 }
 
 /* Startup and rendering failures can appear before the workspace exists. */

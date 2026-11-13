@@ -6,7 +6,7 @@ From Selvedge.Interaction.Submission Require Fields.
 (** Native control intent is derived once from the actual action at publication.
     It carries the original control grammar; it is not another action registry. *)
 Inductive purpose :=
-| MessageSubmission | NamedAction | CreateItem | EditItem | ForkTask | CompactTask | ProjectTaskCreation
+| MessageSubmission | NamedAction | AuthoredAction | CreateItem | EditItem | ForkTask | CompactTask | ProjectTaskCreation
 | WorkCreation
 | OpenCardDetails (card : N)
 | ProjectDisclosure (project : N)
@@ -21,7 +21,7 @@ Inductive purpose :=
 | StopExecution | PauseExecution | ResumeExecution | InterruptExecution | AbortOperation
 | ApprovalDecision (allow : bool) | DeleteItem | ArchiveItem (archived : bool)
 | PinItem (pinned : bool) | AutomaticScheduling (enabled : bool) | Regenerate
-| CopyCode (state : CodeBlock.copy_state) | WrapCode (enabled : bool)
+| CopyPath | CopyCode (state : CodeBlock.copy_state) | WrapCode (enabled : bool)
 | ActivityDestination | ActivityBack | ShowActivity (expanded : bool) | Latest | ToggleNavigation (expanded : bool)
 | ResetDefaults | RemoveValue | RetryTransfer | PreviewFile | DownloadFile
 | Connect (connecting : bool) (failure : option string)

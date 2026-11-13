@@ -11,7 +11,7 @@ Theorem editing_history_search_discards_previous_result state query project work
  State.location(State.navigation_state state)=NavigationIdentity.HistorySearch ->
  State.history_search(State.authoring_state
   (Navigation.result_state(Navigation.edit_search query project work state)))=
- State.Search query project work None None.
+ State.Search query project work None None None.
 Proof.
  intro Location. unfold Navigation.edit_search. rewrite Location.
  reflexivity.
@@ -19,14 +19,24 @@ Qed.
 
 Theorem submitted_history_search_uses_shared_bounded_query state after:
  State.location(State.navigation_state state)=NavigationIdentity.HistorySearch ->
+ Navigation.search_obstruction state=None ->
  let search:=State.history_search(State.authoring_state state)in
  let ticket:=State.next(State.authoring_state state)in
  Navigation.submit_search after state=
  Navigation.generated(Commands.Cmd_search_history(Commands.Build_search_history
-  (State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)))
+  (State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)(Some true)))
   (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)
-  (Navigation.set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state).
-Proof. intro Location. unfold Navigation.submit_search. rewrite Location. reflexivity. Qed.
+  (Navigation.set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket)None)state).
+Proof. intros Location Ready. unfold Navigation.submit_search. now rewrite Location, Ready. Qed.
+
+Theorem a_pending_history_search_does_not_submit_twice state after:
+ State.location(State.navigation_state state)=NavigationIdentity.HistorySearch ->
+ State.pending_search state=true ->
+ Navigation.submit_search after state=Navigation.keep state.
+Proof.
+ intros Location Pending. unfold Navigation.submit_search, Navigation.search_obstruction.
+ now rewrite Location, Pending.
+Qed.
 
 Lemma reader_for_task state task :
  State.reading_task(Navigation.reader_for state task)=task.
@@ -46,13 +56,11 @@ Proof.
  apply N.eqb_neq. apply N.neq_succ_diag_r.
 Qed.
 
-Theorem new_selection_intent_prevents_work_completion_selection snapshot state layer outcome :
- Navigation.outcome_success outcome=true ->
- Navigation.complete snapshot
-  (State.WorkCreation(State.generation(State.navigation_state state))layer)outcome
-  (Navigation.selection_intent state)=Some(Navigation.keep(Navigation.selection_intent state)).
+Theorem new_selection_intent_prevents_work_completion_selection state layer :
+ Navigation.foreground_current (State.generation(State.navigation_state state)) layer
+  (Navigation.selection_intent state)=false.
 Proof.
- intro Success. cbn[Navigation.complete]. rewrite Success. cbn.
+ unfold Navigation.foreground_current.
  rewrite selection_intent_invalidates_prior_generation. reflexivity.
 Qed.
 

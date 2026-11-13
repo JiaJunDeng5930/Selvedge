@@ -16,8 +16,8 @@ Inductive workspace_change := AddDirectory (path:string) | RemoveDirectory (path
 | ChoosePrimaryDirectory (path:string) | InheritWorkspace.
 Inductive selection_change := SelectionChanged | SelectionFocused | SelectionBlurred.
 Inductive input :=
-| ResetTitlePrompts
 | ToggleProjectGroup(project:N) | ToggleTaskBranches(task:N) | BeginTask(project:option N)
+| BeginGraphConversation | ReturnToGraphSetup
 | BeginVoiceNew(origin:editor) | SelectSharedTask(work:N)(task:option N)
 | OpenNavigation(kind:navigation_panel)(trigger:string)
 | OpenObjectActions(subject:object_subject)(trigger:string)
@@ -41,6 +41,7 @@ Inductive input :=
 | Command(command:State.public_command)
 | Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
 | NativeFailed(reason:string)
+| CopyPath(value:string)
 | ServiceInput(input:service_input) | SpeechInput(input:speech_input)
 | TogglePropertySource(owner:editor)(occurrence:N)
 | InspectSource(owner:editor)(request:activity_request)(trigger:string)
@@ -49,7 +50,8 @@ Inductive input :=
 | BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide
 | NavigationExpanded(value:bool) | TaskListVisible(value:bool)
 | WriteHistoryQuery(query:string) | ChooseHistoryScope(project:bool)(scope:option N)
-| SubmitHistorySearch(after:N) | OpenHistoryMessage(task index:N)
+| SubmitHistorySearch(after:N) | OpenHistoryResult(task:N)(index:option N)(trigger:string)
+| ReturnToHistorySearch
 | ReadTimeline(task generation:N)(intent:State.reading_intent)
 | FollowLatest(task:N) | SetDisclosure(task group occurrence:N)(expanded:bool)
 | CardPlaced(id revision observed_at:N)(status:string)(before:option N)
@@ -66,7 +68,7 @@ Inductive input :=
 (* Geometry, motion, parser and reading observations change presentation, without
    making already published product content semantically stale. *)
 Definition semantic_change incoming := match incoming with
- |EnvironmentObserved|CodeObserved _|ReadTimeline _ _ _|FollowLatest _=>false
+ |EnvironmentObserved|CodeObserved _|ReadTimeline _ _ _|FollowLatest _|CopyPath _=>false
  |_=>true end.
 
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,
@@ -78,7 +80,7 @@ Definition acknowledges_feedback (incoming:input) := match incoming with
 |LoadSkills _ explicit=>explicit
 |ServiceInput service=>match service with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
- |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.Connect
+ |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.CloudRepositoryCompleted _ _|Services.Connect
  |Services.Authenticated _ _|Services.Disconnected _ _ _|Services.RetryConnection _
  |Services.Uploaded _ _|Services.Previewed _ _|Services.DirectoryListed _ _
  |Services.ConfigurationLoaded _ _|Services.ConfigurationWritten _ _=>false

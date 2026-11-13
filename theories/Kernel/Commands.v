@@ -71,7 +71,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "return_side_conversation" task_identity);
   DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [typed Compaction.summary_declaration (opt "summary" KText)]));
   DeclareCommand KernelQuery TaskAllowed (WireCommand "read" (task_identity ++ [u32 (opt "after" KNatural); bounded 1 Pagination.history_limit (opt "limit" KNatural)]));
-  DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural)]);
+  DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural); opt "include_titles" KBool]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "describe" []);
   DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [typed Workspace.project_name_declaration (req "name" KText); typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson))]);
@@ -82,7 +82,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "review_approval" (task_identity ++ [u32 (req "operation_id" KNatural); req "decision" (KEnum "allow" ["deny"]); typed ApprovalProtocol.reason_declaration (opt "reason" KText)]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "record_speech_transcript" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "item_id" KText); req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); typed D.nonblank_text (req "text" KText)]));
   DeclareCommand KernelChange TaskExcluded (WireCommand "accept_speech_delegation" (task_identity ++ [typed D.nonblank_text (req "session_id" KText); typed D.nonblank_text (req "delegation_id" KText); typed D.nonblank_text (req "message" KText); req "mode" (KEnum "send" ["steer"])]));
-  DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "create_card" (typed board_clock (opt "observed_at" KText) :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText; u32 (opt "task_id" KNatural)]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "update_card" (card_identity ++ card_metadata));
   DeclareCommand BoardChange TaskExcluded (WireCommand "move_card" (card_identity ++ [required (typed board_status (opt "status" KText)); optional_identity_text (opt "before_card" KText)]));
   DeclareCommand BoardChange TaskExcluded (WireCommand "archive_card" card_identity);
@@ -172,7 +172,9 @@ Definition command_field_description (command field : string) :=
   if String.eqb field "item_id" then "Stable upstream speech item identity within the session; reuse it when replaying the same transcript." else
   if String.eqb field "delegation_id" then "Stable upstream delegation identity within the session; repeating it does not deliver the input again." else
   if String.eqb command "search_history" && String.eqb field "query" then
-    "Literal keyword or phrase to search committed user and assistant messages; 1..240 Unicode scalar values after trimming." else
+    "Literal keyword or phrase to search; 1..240 Unicode scalar values after trimming." else
+  if String.eqb command "search_history" && String.eqb field "include_titles" then
+    "Include current conversation titles before message matches. Title matches have kind=title and no message_index. Defaults to false." else
   if String.eqb command "search_history" && String.eqb field "project_id" then
     "Restrict results to this project." else
   if String.eqb command "search_history" && String.eqb field "work_id" then
@@ -222,7 +224,7 @@ Definition command_descriptions : list (string * string) := [
   ("return_side_conversation", "Append only this side conversation's new content to its parent, excluding side instructions and parent lifecycle updates. Current work continues.");
   ("compact", "Checkpoint an idle task without deleting original history. Without summary, request a model summary (active tasks only). A supplied bounded summary also works on stopped or frozen tasks, without calling a model.");
   ("read", "Read a bounded history page without advancing the task.");
-  ("search_history", "Search committed conversation text across tasks, optionally restricted to a project or Work. Read an original message with read after=message_index (0-based).");
+ ("search_history", "Search committed conversation text across tasks, optionally including titles or restricting to a project or Work. Read an original message with read after=message_index (0-based).");
   ("list", "Read task summaries and the currently available model profiles and tools.");
   ("describe", "Read this executable command vocabulary and the effect-boundary limits.");
   ("create_project", "Create an organizational project with default workspace roots; existing tasks never follow later default changes.");
@@ -233,7 +235,7 @@ Definition command_descriptions : list (string * string) := [
   ("review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.");
   ("record_speech_transcript", "Record a final speech transcript without invoking or scheduling the task model.");
   ("accept_speech_delegation", "Accept a voice work delegation through ordinary task input, retaining its receipt in the same decision.");
-  ("create_card", "Capture planned work without starting a task; assisted creation requests a separate bounded title/description suggestion.");
+  ("create_card", "Capture planned work without starting a task. An optional task_id links the card to an existing conversation in the same command. Assisted creation requests a separate bounded title/description suggestion.");
   ("update_card", "Update named plan fields at the observed card revision without rewriting its Task. Linked assignees stay fixed; active Tasks keep cards in progress.");
   ("move_card", "Move a revision-bound card before another card, or to the end when before_card is empty. Preserve the relative order of other cards.");
   ("archive_card", "Archive a card and interrupt its active execution. Its stage and linked task history are retained.");

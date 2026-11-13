@@ -9,7 +9,7 @@ const crossingDraft = 'Preserve this draft across the sidebar boundary';
 const button = (root, name) => root.getByRole('button', { name, exact: true });
 const dialog = (root, name) => root.getByRole('dialog', { name, exact: true });
 const taskTree = root => root.getByRole('navigation', { name: 'Task tree', exact: true });
-const workPicker = root => root.getByRole('button', { name: /^Work overview:/ });
+const workPicker = root => root.getByRole('button', { name: /^对话范围 · / });
 const published = page => page.locator('#surface[data-display-pending="false"]').waitFor();
 
 async function withPage(fixture, viewport, run) {
@@ -124,7 +124,7 @@ async function seedNavigation({ command, running }) {
 async function captureCompactNavigation(page, viewport) {
   const global = dialog(page, 'Global navigation');
   const drawer = dialog(page, 'Task tree');
-  const works = dialog(page, 'Works');
+  const works = dialog(page, '对话范围');
   await captureState(page, 'compact-header', viewport);
   await button(page, 'Global navigation').click();
   await global.waitFor();
@@ -146,7 +146,7 @@ async function captureCompactNavigation(page, viewport) {
 
 async function captureNavigation(page, viewport, { parent, nested }) {
   const compact = await isCompact(page);
-  const works = dialog(page, 'Works');
+  const works = dialog(page, '对话范围');
   if (compact) {
     await captureCompactNavigation(page, viewport);
     for (const state of ['desktop-sidebar', 'desktop-collapsed']) {
@@ -168,12 +168,12 @@ async function captureNavigation(page, viewport, { parent, nested }) {
     await captureState(page, 'works-many', viewport, 'bottom');
   }
   await works.getByRole('radio', { name: workName, exact: true }).click();
-  await button(page, `Work overview: ${workName}`).waitFor();
+  await button(page, `对话范围 · ${workName}`).waitFor();
   await openTaskTree(page);
   await captureState(page, 'work-tree', viewport);
 
   const project = taskTree(page).getByRole('region', { name: projectName, exact: true });
-  const projectActions = button(project, 'Project actions');
+  const projectActions = button(project, '项目操作');
   await project.locator('[data-navigation-owner]').hover();
   await projectActions.focus();
   await captureState(page, 'project-actions-revealed', viewport);
@@ -187,9 +187,9 @@ async function captureNavigation(page, viewport, { parent, nested }) {
   await branchRow.locator('button[aria-expanded="true"]').click();
   await captureState(page, 'branches-collapsed', viewport);
   await branchRow.locator('button[aria-expanded="false"]').click();
-  await button(project, 'Collapse project').click();
+  await button(project, '收起项目').click();
   await captureState(page, 'project-collapsed', viewport);
-  await button(project, 'Expand project').click();
+  await button(project, '展开项目').click();
 
   await project.locator(`[data-task-id="${nested}"] > [data-task-tree-row] [data-semantic-key="open"]`).click();
   await openTaskTree(page);
@@ -221,11 +221,11 @@ async function captureNavigation(page, viewport, { parent, nested }) {
 }
 
 async function captureWorkCreation(page, viewport) {
-  const works = dialog(page, 'Works');
+  const works = dialog(page, '对话范围');
   await workPicker(page).click();
-  await button(works, 'New Work').click();
+  await button(works, '新建工作组').click();
   await works.waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: /^Work overview: Work #/ }).waitFor();
+  await page.getByRole('button', { name: /^对话范围 · Work #/ }).waitFor();
   await page.getByRole('combobox', { name: 'Task', exact: true }).waitFor();
   await captureState(page, 'new-work-created', viewport);
 
@@ -236,7 +236,7 @@ async function captureWorkCreation(page, viewport) {
   await editor.getByRole('textbox', { name: 'Name', exact: true }).fill(renamed);
   await button(editor, 'Save').click();
   await editor.waitFor({ state: 'hidden' });
-  await button(page, `Work overview: ${renamed}`).waitFor();
+  await button(page, `对话范围 · ${renamed}`).waitFor();
   await captureState(page, 'work-renamed', viewport);
 }
 
@@ -290,7 +290,7 @@ async function captureSidebarBreakpoint(fixture) {
 await withBrowserFixture(async fixture => {
   await forViewports(fixture, async (page, viewport) => {
     await workPicker(page).click();
-    await dialog(page, 'Works').waitFor();
+    await dialog(page, '对话范围').waitFor();
     await captureState(page, 'works-single', viewport);
   });
   const tasks = await seedNavigation(fixture);

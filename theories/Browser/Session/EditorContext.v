@@ -1,4 +1,4 @@
-From Stdlib Require Import String List.
+From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import Codec Identity.
@@ -6,12 +6,20 @@ From Selvedge.Browser.Session Require Services.
 From Selvedge.Browser.Session Require State Observation.
 From Selvedge.Interaction.Experience Require Import Model Activity.
 From Selvedge.Interaction.Experience Require EditorContext Observation.
-From Selvedge.Interaction.Submission Require Parameters.
+From Selvedge.Interaction.Submission Require Fields Parameters.
 Import ListNotations.
 Open Scope string_scope.
 Module SO := Selvedge.Browser.Session.Observation.
 Module EO := Selvedge.Interaction.Experience.Observation.
 Module EC := Selvedge.Interaction.Experience.EditorContext.
+
+Definition run_environment_request := Activity.SubjectActivity(Parameters.name Fields.TaskEnvironment).
+Definition is_run_environment_request request:=match request with
+ |Activity.SubjectActivity name=>String.eqb name(Parameters.name Fields.TaskEnvironment)
+ |_=>false end.
+Definition run_environment_panel owner panel:=match panel with
+ |State.PropertyPanel e request=>same_editor owner e&&is_run_environment_request request
+ |_=>false end.
 
 Definition project_directory_buffer state owner:=
  match find(fun layer=>match State.layer_panel layer with State.PropertyPanel e _|State.EditorPanel e=>same_editor owner e|_=>false end)
@@ -30,7 +38,8 @@ Definition editor_context state :=
  EC.Context (State.current_draft state)
    (EC.Resources (fun e=>State.pending_editor e state) (fun e=>Services.preparing e services)
      (fun e=>Services.blocks e services) (project_directory_buffer state) (directory_result state)
-     (Services.workspace_git services) (Services.connected services) (State.generation(State.navigation_state state))
+     (Services.workspace_git services) (Services.cloud_repository services)
+     (Services.connected services) (State.generation(State.navigation_state state))
      (Services.command_assessments services) (State.now state)).
 Coercion editor_context : State.state >-> EC.context.
 

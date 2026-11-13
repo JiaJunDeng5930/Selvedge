@@ -108,14 +108,14 @@ Definition property_editor {e} (_ : property e) := e.
 Definition property_owner {e} (p : property e) := subject_object (property_subject p).
 Definition property_subjects {e} (p : property e) := property_subject p :: property_members p.
 Definition property_label {e} (p : property e) := match property_kind_of p with
-| ProjectProperty => "Project" | WorkspaceProperty => "Workspace"
-| PermissionsProperty => "Permissions" | ModelProperty => "Model" | DeliveryProperty => "Send as" end.
+| ProjectProperty => "项目" | WorkspaceProperty => "工作目录"
+| PermissionsProperty => "权限" | ModelProperty => "Model" | DeliveryProperty => "发送方式" end.
 Definition property_status {e} (p : property e) := match property_information p with
 | PresentInformation _ _ => Selected | OptionalAbsence | RequiredAbsence _ => Absent
 | InvalidInformation _ => Invalid | _ => UnavailableObservation end.
 Definition principal_information {e} (p : property e) := match property_information p with
 | PresentInformation principal _ => readable_text (summary_observation principal)
-| OptionalAbsence => match property_kind_of p with ProjectProperty=>"No project"|WorkspaceProperty=>"No working directory"|_=>"Not set"end
+| OptionalAbsence => match property_kind_of p with ProjectProperty=>"未关联项目"|WorkspaceProperty=>"未设置工作目录"|_=>"Not set"end
 | NotApplicable reason | RequiredAbsence reason | InvalidInformation reason | UnavailableInformation reason => reason end.
 Definition secondary_information {e} (p : property e) := match property_information p with
 | PresentInformation _ (Some secondary) => Some (readable_text (summary_observation secondary))

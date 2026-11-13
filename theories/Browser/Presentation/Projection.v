@@ -15,9 +15,6 @@ Definition domain_availability(value:Selvedge.Interaction.Experience.Model.avail
 |Selvedge.Interaction.Experience.Model.Available=>Available
 |Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
 
-Definition in_work selected value := match selected with
-|None=>true|Some work=>same_id (Some work) (task_work value)end.
-Definition work_tasks selected := filter (in_work selected).
 Inductive task_tree := TaskTree (entry:task)(children:list task_tree).
 Definition tree_entry(tree:task_tree):task:=match tree with TaskTree entry _=>entry end.
 (** Snapshots retain the kernel's parent-before-child registry order.  Folding
@@ -44,7 +41,7 @@ Definition selected_project snapshot s :=
  match State.location navigation with
  |ProjectHome id=>Some id
  |Conversation task=>bind(find_task task snapshot)task_project
- |Start=>match SessionObservation.draft_preview snapshot
+ |Start|GraphConversation _ _=>match SessionObservation.draft_preview snapshot
    (State.current_draft s (NewTask(State.active_work navigation)))with
    |Context.ProspectiveContext _ project _ _ _ _=>project
    |_=>None end

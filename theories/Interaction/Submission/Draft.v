@@ -12,18 +12,19 @@ Open Scope string_scope.
 Record text := Text { text_value : string; text_images : list Selvedge.Features.Domain.attachment }.
 Inductive task_workspace := CurrentWorkspace | ManagedWorkspace (backend : WorkspaceBackend.backend).
 Inductive body :=
-| WorkNameBody (work : N) (name : string)
+| WorkNameBody (work : option N) (name : string)
 | NewTaskBody (message : text) (profile reasoning : string)
     (context : Context.configuration) (workspace_mode : task_workspace) (work : option N)
 | MessageBody (task : N) (message : text) (delivery : Fields.delivery)
 | ProjectBody (project : option N) (name : string)
     (workspace : Selvedge.Kernel.Domain.workspace) (create_worktree : bool)
-| CardBody (card : option N) (revision : N) (value : Selvedge.Features.Domain.card_draft)
+| CardBody (card : Identity.card_subject) (revision : N) (value : Selvedge.Features.Domain.card_draft)
     (assist : bool) (profile : string) (keep_open : bool)
 | ForkBody (task count : N) (messages : list string) (context : Context.configuration)
 | CompactBody (task : N) (summary : option string)
 | TaskGraphBody (graph : option N) (declaration : string) (parsed : option json) (work : option N)
-| TitlePromptsBody (revision : N) (task_prompt agent_prompt : string) (agent_profile : option string).
+| TitlePromptsBody (scope : title_prompt_scope) (revision : N)
+    (task_prompt agent_prompt : string) (agent_profile : option string).
 Inductive feedback := Editing | Accepted (revision : N) (reply : json)
 | Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string).
 Inductive selection_direction := DirectionNone | DirectionForward | DirectionBackward.
@@ -51,25 +52,27 @@ Definition owner value := match contents value with
 | NewTaskBody _ _ _ _ _ work => Identity.NewTask work
 | MessageBody task _ _ => Identity.Message task
 | ProjectBody project _ _ _ => Identity.Project project
-| CardBody card _ _ _ _ _ => Identity.Card card
+| CardBody card _ _ _ _ _ => Identity.card_editor card
 | ForkBody task _ _ _ => Identity.Fork task
 | CompactBody task _ => Identity.Compact task
 | TaskGraphBody graph _ _ work => Identity.graph_editor graph work
-| TitlePromptsBody _ _ _ _ => Identity.TitlePrompts end.
+| TitlePromptsBody scope _ _ _ _ => Identity.TitlePrompts scope end.
 Definition empty_text := Text "" [].
 Definition empty_workspace := Selvedge.Kernel.Domain.Workspace [] None.
+Definition new_card card title stage project := CardBody card 0
+ (Selvedge.Features.Domain.CardDraft title "" stage
+   Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned project [] []) false "" false.
 Definition new_body e := match e with
 | Identity.NewTask work => NewTaskBody empty_text "" "" Context.initial CurrentWorkspace work
 | Identity.Message task => MessageBody task empty_text Fields.Send
 | Identity.Project id => ProjectBody id "" empty_workspace false
-| Identity.Card id => CardBody id 0
-    (Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Backlog
-      Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] []) false "" false
+| Identity.Card id => new_card (Identity.BoardCard id) "" Selvedge.Features.Domain.Backlog None
+| Identity.CardForConversation task => new_card (Identity.ConversationCard task) "" Selvedge.Features.Domain.InProgress None
 | Identity.Fork task => ForkBody task 1 [] (Context.Configuration (Context.ParentTask task) None None None)
 | Identity.Compact task => CompactBody task None
 | Identity.TaskGraph id work => TaskGraphBody id "" None work
 | Identity.WorkName work => WorkNameBody work ""
-| Identity.TitlePrompts => TitlePromptsBody 0 "" "" None end.
+| Identity.TitlePrompts scope => TitlePromptsBody scope 0 "" "" None end.
 Definition new_draft e := Draft 0 (new_body e) Editing "" None.
 Definition with_body value d := Draft (N.succ (revision d)) value Editing (directory_entry d) (message_selection d).
 Definition with_directory_entry value d := Draft (revision d) (contents d) (draft_feedback d) value (message_selection d).

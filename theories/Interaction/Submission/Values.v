@@ -139,6 +139,11 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
      |Fields.ContinueCapture=>keep<-as_bool incoming;;Some(Draft.CardBody card revision value assist profile keep)
      |_=>updated<-DraftCodec.decode_card(replace(Parameters.name field)incoming(DraftCodec.encode_card value));;Some(Draft.CardBody card revision updated assist profile keep)end
    |_,_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing "" None))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end end.
+Definition add_workspace_directory snapshot body workspace path :=
+ let roots:=Domain.workspace_roots workspace in
+ let roots:=if existsb(String.eqb path)roots then roots else (roots++[path])%list in
+ update_body snapshot body Fields.WorkspaceDirectories (JArray(map JString roots)).
+
 Definition apply_assignment snapshot value {e}(assignment:Activity.assignment e):option Draft.draft:=
  if same_editor e(Draft.owner value) && Parameters.editable e(Model.subject_declaration(Activity.assignment_subject assignment))
    && negb(Parameters.live_configuration e(Model.subject_declaration(Activity.assignment_subject assignment)))then

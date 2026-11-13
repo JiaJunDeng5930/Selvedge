@@ -1,10 +1,11 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Kernel Require Codec Domain Images Guidance.
+From Selvedge.Kernel Require Codec Domain Images Guidance Conversation.
 From Selvedge.Features Require BoardFilter BoardParameters Domain.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Attachments Audit World ModelSelection.
 From Selvedge.Interaction.Experience Require ContextObservation.
+From Selvedge.Interaction.Submission Require Observation.
 Import ListNotations.
 Open Scope string_scope.
 Module KernelDomain := Selvedge.Kernel.Domain.
@@ -15,21 +16,27 @@ Module BoardDomain := Selvedge.Features.Domain.
     Each entry decides which facts to present and how to present them. *)
 Record task := ObservedTask {
  task_id : N; task_title : string; task_status : string; task_caption : string;
- task_working : bool; task_project : option N; task_work : option N; task_parent : option N
+ task_working : bool; task_project : option N; task_work : option N; task_parent : option N;
+ task_awaiting_human : bool; task_execution_failed : bool
 }.
-Definition observe_task value :=
+Definition observe_task_with_failure (include_failure:bool) value :=
  id<-natural_field "id" value;;name<-string_field "title" value;;
  status<-string_field "status" value;;
  if existsb(String.eqb status)["active";"frozen";"stopped";"archived"]then
  caption<-string_field "status_label" value;;working<-bool_field "working" value;;
  settings<-field "settings" value;;project<-id_field "project_id" settings;;
  work<-id_field "work_id" value;;parent<-id_field "parent" value;;
- Some(ObservedTask id name status caption working project work parent)else None.
+ Some(ObservedTask id name status caption working project work parent
+   (flag "awaitingHuman" value) (if include_failure then flag "execution_failed" value else false))else None.
+Definition observe_task_summary := observe_task_with_failure false.
+Definition observe_task := observe_task_with_failure true.
 Definition tasks snapshot := list_field observe_task "tasks" snapshot.
 Definition find_task id snapshot := bind(World.find_task id snapshot)observe_task.
 Definition same_id lhs rhs := match lhs,rhs with
 |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition project_tasks selected := filter(fun value=>same_id selected(task_project value)).
+Definition work_tasks selected :=
+ filter (fun value=>match selected with None=>true|Some work=>same_id(Some work)(task_work value)end).
 
 Record project := ObservedProject {
  project_id : N; project_name : string; project_workspace : KernelDomain.workspace;
@@ -58,9 +65,15 @@ Record committed_context := CommittedContext {
  context_workspace : KernelDomain.workspace; context_guidance : Guidance.t;
  context_filesystem : string; context_network : string; context_approval : string
 }.
-Definition approval_description approval := match approval with
- |KernelDomain.FullAccess=>"Unrestricted"|KernelDomain.AskForApproval=>"Ask"
- |KernelDomain.ReviewWith reviewer=>"Automatic review: "++ContextObservation.profile_label reviewer end.
+Definition approval_description snapshot approval := match approval with
+ |KernelDomain.FullAccess=>"无需审批"|KernelDomain.AskForApproval=>"询问"
+ |KernelDomain.ReviewWith reviewer=>"自动审批 · "++ContextObservation.profile_label(Observation.catalog snapshot)reviewer end.
+Definition filesystem_description sandbox approval :=
+ ContextObservation.sandbox_summary sandbox approval "完全访问" (fun limited=>
+  match KernelDomain.sandbox_access limited with KernelDomain.ReadOnly=>"只读"|KernelDomain.WorkspaceWrite=>"工作目录内可写"end).
+Definition network_description sandbox approval :=
+ ContextObservation.sandbox_summary sandbox approval "允许" (fun limited=>
+  if KernelDomain.sandbox_network limited then "允许"else"受限").
 Definition task_context id snapshot :=
  settings<-ContextObservation.task_settings id snapshot;;
  let project:=KernelDomain.settings_project settings in
@@ -68,8 +81,8 @@ Definition task_context id snapshot :=
  let approval:=KernelDomain.settings_approval settings in
  Some(CommittedContext project (bind project(fun id=>option_map project_name(find_project id snapshot)))
    (KernelDomain.settings_workspace settings)(KernelDomain.settings_guidance settings)
-   (ContextObservation.filesystem_summary sandbox approval)
-   (ContextObservation.network_summary sandbox approval)(approval_description approval)).
+   (filesystem_description sandbox approval)
+   (network_description sandbox approval)(approval_description snapshot approval)).
 Definition context_guidance_root context := string_field "workspace"(Guidance.json(context_guidance context)).
 Definition context_guidance_revision context := string_field "revision"(Guidance.json(context_guidance context)).
 Definition context_instructions context := guidance_instructions(context_guidance context).
@@ -79,7 +92,7 @@ Record task_operation := TaskOperation {
  operation_stage : string; operation_status : string; operation_arguments : option json;
  operation_human : bool; operation_directory : option string; operation_reviewer : option string
 }.
-Definition observe_operation value :=
+Definition observe_operation snapshot value :=
  id<-natural_field "operation_id" value;;tool<-string_field "tool" value;;
  call_id<-string_field "call_id" value;;stage<-string_field "stage" value;;
  status<-string_field "status" value;;human<-bool_field "awaitingHuman" value;;
@@ -87,9 +100,9 @@ Definition observe_operation value :=
    bind(field "workspace" settings)(string_field "primary_root")) in
  let reviewer:=bind(bind(field "reviewer" value)(field "profile"))KernelCodec.parse_profile in
  Some(TaskOperation id tool call_id stage status (bind(field "call" value)(field "arguments"))
-  human directory(option_map ContextObservation.profile_label reviewer)).
+  human directory(option_map(fun profile=>ContextObservation.profile_label(Observation.catalog snapshot)profile)reviewer)).
 Definition task_operations id snapshot :=
- bind(World.find_task id snapshot)(list_field observe_operation "operations").
+ bind(World.find_task id snapshot)(list_field(observe_operation snapshot)"operations").
 Definition pending_approvals operations :=
  filter(fun operation=>String.eqb "approval_pending"(operation_stage operation))operations.
 
@@ -98,13 +111,13 @@ Record task_worktree := TaskWorktree {
  worktree_root : option string; worktree_message : string
 }.
 Definition worktree_status_caption status := match status with
- |"creating"=>"Creating workspace…"
- |"creating_archived"=>"Creating workspace before archiving…"
- |"ready"=>"Workspace ready"
- |"create_failed"=>"Workspace creation failed"
- |"archiving"=>"Archiving workspace…"
- |"archived"=>"Workspace archived"
- |"archive_failed"=>"Workspace archive failed"
+ |"creating"=>"正在创建工作区…"
+ |"creating_archived"=>"正在创建工作区以完成归档…"
+ |"ready"=>"工作区已就绪"
+ |"create_failed"=>"工作区创建失败"
+ |"archiving"=>"正在归档工作区…"
+ |"archived"=>"工作区已归档"
+ |"archive_failed"=>"工作区归档失败"
  |_=>"" end.
 Definition observe_worktree value :=
  status<-string_field "status" value;;source<-string_field "source_root" value;;
@@ -136,6 +149,9 @@ Definition task_timeline id snapshot :=
  option_map(Audit.retained 0)(array_field "history" value).
 
 Definition board_value snapshot := field "board" snapshot.
+Definition card_link_stage task snapshot :=
+ value<-World.find_task task snapshot;;
+ bind(string_field "card_link_stage" value)BoardParameters.stage.
 
 Inductive generation := Idle | Generating | GenerationFailed(reason:string).
 Definition observe_generation value := match string_field "status" value with
@@ -170,29 +186,39 @@ Definition observe_card value :=
 Definition board_cards snapshot := bind(board_value snapshot)(list_field observe_card "cards").
 Definition find_card id snapshot := value<-board_value snapshot;;
  bind(World.find_world "cards" "card_id" id value)observe_card.
-Definition card_activity_label name:=value_or "未开始"
+Definition card_activity_label snapshot card:=
+ let name:=card_activity card in
+ if String.eqb name "completed" then
+  match bind(card_task card)(fun id=>World.find_task id snapshot)with
+  |Some task=>if existsb Conversation.json_message_assistant (items "history" task)
+    then "对话已完成"else "对话已就绪"
+  |None=>"" end
+ else value_or "未开始"
  (option_map snd(find(fun entry=>String.eqb name(fst entry))
  [("generating","生成中");("draft_failed","生成失败");("queued","排队中");("working","工作中");
   ("evaluating","评估推理等级");("compacting","整理上下文");("awaiting_approval","等待授权");
-  ("completed","已完成");("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")])).
+  ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")])).
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with
- |Some profile=>ContextObservation.profile_label profile|None=>"模型 "++key++" 不可用"end end.
+ |Some profile=>ContextObservation.profile_label(ModelSelection.selectable_profiles(Observation.catalog snapshot))profile
+ |None=>"模型 "++key++" 不可用"end end.
 Definition card_project_label snapshot project := match project with
  |Some id=>match find_project id snapshot with
   |Some project=>project_name project|None=>"项目 #"++show_natural id++" 不可用"end|None=>""end.
 Definition ordered_cards snapshot :=
  value<-board_value snapshot;;order<-list_field natural "order" value;;
  traverse(fun id=>World.find_world "cards" "card_id" id value)order.
-Definition visible_cards snapshot selection now :=
+Definition visible_card_values snapshot selection now :=
  values<-ordered_cards snapshot;;
- traverse observe_card(BoardFilter.apply_in_world selection now values snapshot).
+ Some(BoardFilter.apply_in_world selection now values snapshot).
+Definition visible_cards snapshot selection now :=
+ values<-visible_card_values snapshot selection now;;traverse observe_card values.
 Definition display_cards (cards:list card) := List.app (filter card_pinned cards) (filter(fun value=>negb(card_pinned value))cards).
 Definition archived_cards snapshot := option_map(filter card_archived)(board_cards snapshot).
-Definition count_working snapshot :=
- value<-board_value snapshot;;cards<-array_field "cards" value;;
- Some(N.of_nat(List.length(filter(fun card=>BoardFilter.task_working card snapshot)cards))).
+Definition count_working snapshot selection now :=
+ option_map(fun cards=>N.of_nat(List.length cards))
+  (visible_card_values snapshot (BoardFilter.set_tab "working" selection) now).
 Record board_settings := BoardSettings { board_automatic : bool; board_draft_profile : string }.
 Definition board_configuration snapshot :=
  value<-board_value snapshot;;automatic<-bool_field "automatic" value;;

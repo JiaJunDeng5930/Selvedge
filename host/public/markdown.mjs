@@ -29,8 +29,8 @@ export function cancelDisplay(id) {
 // Target text, visible cursor, and parser stack are deliberately independent.
 // The parser sees each character once; closed DOM nodes never get reparsed.
 export class PacedText {
-  constructor(write, end, { frame = scheduleDisplay, cancel = cancelDisplay, smooth = true } = {}) {
-    Object.assign(this, { write, end, frame, cancel, smooth, target: '', visible: 0, done: false, stopped: false, scheduled: null, last: -Infinity });
+  constructor(write, end, { frame = scheduleDisplay, cancel = cancelDisplay, smooth = true, defer } = {}) {
+    Object.assign(this, { write, end, frame, cancel, smooth, defer, target: '', visible: 0, done: false, stopped: false, scheduled: null, last: -Infinity });
     this.finished = null;
     this.completion = new Promise(resolve => { this.resolveCompletion = resolve; });
     this.prefixWaiters = new Set();
@@ -48,7 +48,8 @@ export class PacedText {
     return this.visible >= length && (!this.stopped || this.finished === true);
   }
   whenCaughtUp(length = this.target.length) {
-    if (this.visible >= length) return Promise.resolve(!this.stopped || this.finished === true);
+    // A synchronous terminal fence report can request a receipt before end() returns.
+    if (this.visible >= length) return this.stopped ? this.completion : Promise.resolve(true);
     if (this.stopped) return Promise.resolve(false);
     return new Promise(resolve => this.prefixWaiters.add({ length, resolve }));
   }
@@ -65,7 +66,7 @@ export class PacedText {
   tick(time) {
     this.scheduled = null;
     if (this.stopped) return;
-    if (time - this.last < 32) { this.schedule(); return; }
+    if (this.defer?.() || this.smooth && time - this.last < 32) { this.schedule(); return; }
     this.last = time;
     const backlog = this.target.length - this.visible;
     const size = this.smooth && !this.done ? Math.max(24, Math.ceil(backlog / 5)) : 4096;
@@ -78,7 +79,7 @@ export class PacedText {
       this.metrics.batches++;
       this.metrics.largestBatch = Math.max(this.metrics.largestBatch, chunk.length);
       const start = performance.now();
-      this.write(chunk);
+      this.write(chunk, end === this.target.length);
       this.metrics.maxParseMs = Math.max(this.metrics.maxParseMs, performance.now() - start);
       this.visible = end;
       this.settlePrefixes();
@@ -252,7 +253,7 @@ const tags = new Map([
   [smd.STRIKE, 's'], [smd.LINK, 'a'], [smd.RAW_URL, 'a'], [smd.IMAGE, 'a'],
   [smd.LINE_BREAK, 'br'], [smd.RULE, 'hr'], [smd.LIST_UNORDERED, 'ul'], [smd.LIST_ORDERED, 'ol'],
   [smd.LIST_ITEM, 'li'], [smd.CHECKBOX, 'input'], [smd.TABLE, 'table'], [smd.TABLE_ROW, 'tr'],
-  [smd.TABLE_CELL, 'td'], [smd.EQUATION_BLOCK, 'div'], [smd.EQUATION_INLINE, 'span'],
+  [smd.EQUATION_BLOCK, 'div'], [smd.EQUATION_INLINE, 'span'],
 ]);
 for (let i = 0; i < 6; i++) tags.set(smd.HEADING_1 + i, `h${i + 1}`);
 
@@ -267,13 +268,42 @@ export class Markdown {
     this.settled = new Promise(resolve => { this.resolveSettled = resolve; });
     let ordinal = 0n;
     const codeSources = new Map();
+    const document = root.ownerDocument;
+    const showPreviewFailure = source => {
+      source.frame.dataset.interactivePreviewFailed = '';
+      source.status.firstChild.textContent = '无法显示交互界面';
+      const disclosure = document.createElement('button');
+      disclosure.type = 'button';
+      disclosure.dataset.sourceDisclosure = '';
+      const describe = expanded => {
+        const label = expanded ? '收起源码' : '展开源码';
+        disclosure.setAttribute('aria-label', label);
+        disclosure.setAttribute('aria-expanded', String(expanded));
+        disclosure.dataset.help = label;
+      };
+      describe(false);
+      disclosure.addEventListener('click', () => {
+        describe(source.frame.toggleAttribute('data-fallback-source-open'));
+        options.onChange?.();
+      });
+      source.status.append(disclosure);
+      options.onChange?.();
+    };
+    this.refusePreview = ordinal => {
+      // DEFENSE: The fence observer may finish before the Markdown node exists.
+      const source = codeSources.get(ordinal) ?? {};
+      if (source.refused) return;
+      source.refused = true;
+      codeSources.set(ordinal, source);
+      if (source.status) showPreviewFailure(source);
+    };
     const reportCode = () => {
-      for (const [node, identity] of codeSources) {
-        const text = node.textContent;
-        if (identity.text !== text) { identity.text = text; options.codeSource?.(identity.ordinal, text); }
+      for (const [ordinal, source] of codeSources) {
+        if (!source.node) continue;
+        const text = source.node.textContent;
+        if (source.text !== text) { source.text = text; options.codeSource?.(ordinal, text); }
       }
     };
-    const document = root.ownerDocument;
     const stack = [{ node: root, type: smd.DOCUMENT }];
     const close = (completed) => {
       const entry = stack.pop();
@@ -309,7 +339,7 @@ export class Markdown {
       add_token: (_, type, equation) => {
         if (type === smd.DOCUMENT) return;
         let parent = stack.at(-1).node;
-        let node;
+        let node, codeSource;
         if ([smd.CODE_BLOCK, smd.CODE_FENCE].includes(type)) {
           const block = document.createElement('div'); block.className = 'code-block';
           const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
@@ -324,10 +354,18 @@ export class Markdown {
               options.target?.(targets[name], target);
             }
           }
-          codeSources.set(node, { ordinal: codeOrdinal, text: null });
-          pre.append(node); block.append(toolbar, pre, ui); parent.append(block);
+          codeSource = Object.assign(codeSources.get(codeOrdinal) ?? {}, { frame: block, node, text: null });
+          codeSources.set(codeOrdinal, codeSource);
+          pre.append(node); block.append(ui, toolbar, pre); parent.append(block);
         } else {
-          node = document.createElement(tags.get(type));
+          if (type === smd.TABLE_ROW) {
+            parent = parent.tHead ? parent.tBodies[0] ?? parent.createTBody() : parent.createTHead();
+          }
+          if (type === smd.TABLE_CELL) {
+            const heading = parent.parentElement.tagName === 'THEAD';
+            node = document.createElement(heading ? 'th' : 'td');
+            if (heading) node.scope = 'col';
+          } else node = document.createElement(tags.get(type));
           if (type === smd.TABLE) {
             const scroll = document.createElement('div'); scroll.className = 'table-scroll'; parent.append(scroll); parent = scroll;
           }
@@ -337,7 +375,7 @@ export class Markdown {
           parent.append(node);
         }
         node.dataset.pending = 'true';
-        stack.push({ node, type, equation });
+        stack.push({ node, type, equation, codeSource });
       },
       end_token: (_, completed = true) => close(completed),
       add_text: (_, text) => {
@@ -358,6 +396,19 @@ export class Markdown {
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
           const entry = stack.at(-1);
+          if (entry.type === smd.CODE_FENCE && options.interactiveFence?.(value)) {
+            const source = entry.codeSource;
+            const status = document.createElement('div');
+            status.className = 'interactive-preview-status';
+            const caption = document.createElement('span');
+            caption.setAttribute('role', 'status');
+            caption.textContent = '正在加载交互界面…';
+            status.append(caption);
+            source.status = status;
+            source.frame.setAttribute('data-interactive-preview-candidate', '');
+            source.frame.prepend(status);
+            if (source.refused) showPreviewFailure(source);
+          }
           if (!entry.language) {
             entry.language = document.createElement('span');
             entry.language.className = 'code-language';
@@ -370,17 +421,28 @@ export class Markdown {
       },
     };
     const parser = smd.parser(sink);
-    this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); reportCode(); options.onChange?.(); }, () => {
+    this.buffer = new PacedText((chunk, caughtUp) => {
+      smd.parser_write(parser, chunk);
+      if (!this.buffer.done && caughtUp) delete root.dataset.markdownParsing;
+      reportCode(); options.onChange?.();
+    }, () => {
       smd.parser_end(parser);
       while (stack.length > 1) close(false);
+      delete root.dataset.markdownParsing;
       reportCode(); options.onChange?.();
       this.parserEnded = true;
       this.settleIfFinished();
     }, options);
   }
   get text() { return this.buffer.target; }
-  append(text) { this.buffer.append(text); }
-  finish() { this.buffer.finish(); }
+  append(text) {
+    this.buffer.append(text);
+    if (this.buffer.visible < this.buffer.target.length) this.root.dataset.markdownParsing = '';
+  }
+  finish() {
+    if (!this.parserEnded) this.root.dataset.markdownParsing = '';
+    this.buffer.finish();
+  }
   isCaughtUp() { return !this.disposed && this.buffer.isCaughtUp() && this.decorations.size === 0; }
   async whenCaughtUp(length = this.buffer.target.length) {
     if (!await this.buffer.whenCaughtUp(length) || this.disposed) return false;
