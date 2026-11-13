@@ -18,22 +18,34 @@ Definition task_graphs_label := "任务图".
 Definition settings_label := "设置".
 Definition home_destination : destination := ("home","首页",Start).
 Definition graph_destination : destination := ("task-graphs",task_graphs_label,Graphs).
+Definition history_search_destination : destination := ("history-search","搜索对话",HistorySearch).
 Definition destinations : list destination := [
  ("board","卡片看板",Board);("projects","项目",Projects);
- ("history-search","搜索对话",HistorySearch)].
+ history_search_destination].
 Definition route_eq_dec : forall a b:route,{a=b}+{a<>b}.
 Proof. repeat decide equality. Defined.
 Definition same_route a b := if route_eq_dec a b then true else false.
-Definition destination_node current parent (entry:destination) :=
+Definition destination_node entry_role current parent (entry:destination) :=
  let '(identity,label,target):=entry in
- declared parent (Roles.NavigationEntry(same_route current target))
+ declared parent (entry_role(same_route current target))
   (secondary identity label(Input.Navigate target)).
+Definition new_task entry_role current :=
+ declared "/navigation" (entry_role(same_route current Start))
+  (secondary "new-task" new_conversation_label(Input.BeginTask None)).
 Definition global_navigation s :=
  let current:=State.location(State.navigation_state s) in
  region "/workspace" "global-navigation" "Global navigation" (Roles.GlobalNavigation false)
-  (List.app(map(destination_node current "/global-navigation")destinations)
+  (List.app(map(destination_node Roles.NavigationEntry current "/global-navigation")destinations)
     [declared "/global-navigation" (Roles.NavigationEntry false)
      (secondary "settings/open" settings_label (Input.ServiceInput Services.OpenSettings))]).
+Definition desktop_shortcuts s :=
+ let current:=State.location(State.navigation_state s) in
+ let entry_role selected:=Roles.GlobalNavigationEntry selected true in
+ region "/workspace" "desktop-shortcuts" "快捷操作" (Roles.GlobalNavigation true)
+  [declared "/global-navigation" (entry_role false)
+    (secondary "tasks/expand" "Expand Task sidebar"(Input.TaskListVisible true));
+   new_task entry_role current;
+   destination_node entry_role current "/global-navigation" history_search_destination].
 Definition all_conversations_label := "全部对话".
 Definition conversation_scope_label := "对话范围".
 Definition work_label snapshot s :=
@@ -94,7 +106,7 @@ Definition work_destinations s controls :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
  region "/navigation" "work-destinations" "Work destinations" Roles.NavigationSection
-  (destination_node current "/global-navigation" graph_destination::
+  (destination_node Roles.NavigationEntry current "/global-navigation" graph_destination::
    List.app (match State.active_work navigation with None=>[]|Some work=>
     [declared "/navigation"(Roles.NavigationEntry(match current with SharedUI selected _=>N.eqb selected work|_=>false end))
       (secondary "work/shared-ui" "共享 UI"(Input.Navigate(SharedUI work
@@ -117,8 +129,7 @@ Definition task_collection snapshot s :=
  |_,_=>[read_only "/navigation" "unavailable" "Tasks" "Task navigation observations unavailable"]end in
  region "/navigation" "contents" "" Roles.NavigationCollection
   (region "/navigation" "task-creation" "" Roles.NavigationSection
-    [declared "/navigation"(Roles.NavigationEntry(same_route current Start))
-      (secondary "new-task" new_conversation_label(Input.BeginTask None))]::content).
+    [new_task Roles.NavigationEntry current]::content).
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   [region "/navigation" "header" "Task tree" Roles.NavigationHeader
@@ -171,9 +182,7 @@ Definition compact_header snapshot s :=
 Definition navigation_base snapshot s capacity :=
  let expanded:=SessionNavigation.expanded_for(navigation_beside_content capacity)s in
  if navigation_beside_content capacity then
-  if expanded then [desktop_task_navigation snapshot s] else
-   [declared "/global-navigation" Roles.Button
-     (secondary "tasks/expand" "Expand Task sidebar" (Input.TaskListVisible true))]
+  if expanded then [desktop_task_navigation snapshot s] else [desktop_shortcuts s]
  else if expanded then[]else[compact_header snapshot s].
 Definition navigation_layers snapshot s capacity :=
  if navigation_beside_content capacity || negb(SessionNavigation.expanded_for false s)then[]else

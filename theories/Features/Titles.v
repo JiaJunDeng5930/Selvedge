@@ -51,6 +51,11 @@ Definition instruction := ArgumentDeclaration.denote instruction_declaration.
 Definition instruction_text (value : instruction) := proj1_sig value.
 Definition default_instructions : instruction.
 Proof. refine (exist _ instructions _). vm_compute. reflexivity. Defined.
+Definition default_board_instructions : instruction.
+Proof.
+ refine (exist _ "Write in the user's language. Give the card a single-line title of at most 36 characters and fewer than five words when possible. Start with an imperative verb. Use sentence case and preserve ticket references, proper nouns, acronyms and code terms exactly. Omit quotes, markdown and trailing punctuation. When asked for a description, state the task and its constraints. Do not answer the request." _).
+ vm_compute. reflexivity.
+Defined.
 Definition valid_instructions (text : string) :=
  ArgumentDeclaration.check instruction_declaration (JString text).
 

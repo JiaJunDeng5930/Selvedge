@@ -160,6 +160,10 @@ test('authored motion, metrics and tables remain readable in the conversation', 
   assert.match(await align(details.getByRole('cell', { name: '007', exact: true })), /^(start|left)$/,
     'Text that resembles a number retains text alignment');
   const sort = details.getByRole('button', { name: '收入', exact: true });
+  const cue = sort.locator('svg[aria-hidden="true"]');
+  await cue.waitFor();
+  const cueShape = () => cue.locator('path').getAttribute('d');
+  const unsorted = await cueShape();
   const textRight = locator => locator.evaluate(node => {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -169,11 +173,16 @@ test('authored motion, metrics and tables remain readable in the conversation', 
     'The sortable column title aligns with its numeric values');
   await sort.click();
   await details.locator('th[aria-sort="ascending"]').waitFor();
+  const ascending = await cueShape();
+  assert.notEqual(ascending, unsorted, 'Sorting replaces the neutral marker with its direction');
   await sort.click();
   await details.locator('th[aria-sort="descending"]').waitFor();
+  const descending = await cueShape();
+  assert.ok(descending !== ascending && descending !== unsorted, 'Both sort directions have distinct markers');
   assert.deepEqual(await details.getByRole('row').nth(1).getByRole('cell').allTextContents(), ['Beta', '¥8.00']);
 
   const paged = main.getByRole('table', { name: '产品目录', exact: true });
+  assert.equal(await paged.getByRole('columnheader').locator('svg').count(), 0);
   const pages = paged.locator('..');
   const next = pages.getByRole('button', { name: '下一页', exact: true });
   const previous = pages.getByRole('button', { name: '上一页', exact: true });

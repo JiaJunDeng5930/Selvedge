@@ -307,7 +307,7 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   const editor = page.getByRole('dialog', { name: '编辑「interactive」', exact: true });
   const provider = editor.getByRole('radiogroup', { name: '提供方', exact: true });
   const responses = provider.getByRole('radio', { name: 'Responses API', exact: true });
-  const model = editor.getByRole('textbox', { name: '模型', exact: true });
+  const model = editor.getByRole('textbox', { name: '模型标识', exact: true });
   await page.setViewportSize({ width: 629, height: 588 });
 
   async function openProfile() {
@@ -322,7 +322,7 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   const modelSettings = settings.getByRole('heading', { name: '模型', exact: true, includeHidden: true });
   assert.equal(await modelSettings.count(), 1);
   assert.equal(await modelSettings.isVisible(), false, 'The covered settings stay mounted without being painted');
-  assert.equal(await settings.getByRole('textbox', { name: '模型', exact: true, includeHidden: true }).count(), 0);
+  assert.equal(await settings.getByRole('textbox', { name: '模型标识', exact: true, includeHidden: true }).count(), 0);
   await page.keyboard.press('Tab');
   assert.equal(await editor.evaluate(dialog => dialog.matches(':modal') && dialog.contains(document.activeElement)), true);
 
@@ -381,14 +381,17 @@ test('new model profiles start blank, hide the offline demo, and require a provi
   await settings.getByRole('button', { name: '添加模型配置', exact: true }).click();
 
   const editor = page.getByRole('dialog', { name: '新建模型配置', exact: true });
-  const name = editor.getByRole('textbox', { name: '名称', exact: true });
-  const model = editor.getByRole('textbox', { name: '模型', exact: true });
+  const name = editor.getByRole('textbox', { name: '配置名称', exact: true });
+  const model = editor.getByRole('textbox', { name: '模型标识', exact: true });
   const provider = editor.getByRole('radiogroup', { name: '提供方', exact: true });
   const responses = provider.getByRole('radio', { name: 'Responses API', exact: true });
   const account = provider.getByRole('radio', { name: 'ChatGPT 账号', exact: true });
   const web = provider.getByRole('radio', { name: 'ChatGPT Web API', exact: true });
   const add = editor.getByRole('button', { name: '添加模型配置', exact: true });
 
+  await editor.getByText('配置名称', { exact: true }).waitFor();
+  await editor.getByText('模型标识', { exact: true }).waitFor();
+  assert.equal(await name.inputValue(), '');
   assert.equal(await model.inputValue(), '');
   assert.equal(await editor.getByRole('radio', { name: '离线回显', exact: true }).count(), 0);
   assert.equal(await provider.getByRole('radio').count(), 3);
@@ -430,15 +433,27 @@ test('new model profiles start blank, hide the offline demo, and require a provi
   await model.fill('   ');
   assert.equal(await add.isEnabled(), false);
   await model.fill('provider-model');
+  await name.fill('demo');
+  assert.equal(await add.isEnabled(), false);
+  await name.fill('production');
   assert.equal(await add.isEnabled(), true);
   await add.click();
   await editor.waitFor({ state: 'hidden' });
-  await settings.getByRole('button', { name: '编辑「production」', exact: true }).waitFor();
+  const saved = settings.getByRole('button', { name: '编辑「production」', exact: true });
+  await saved.waitFor();
+
+  await page.setViewportSize({ width: 1280, height: 740 });
+  await saved.click();
+  const production = page.getByRole('dialog', { name: '编辑「production」', exact: true });
+  await production.getByRole('heading', { name: '编辑「production」', exact: true }).waitFor();
+  assert.equal(await production.getByRole('textbox', { name: '模型标识', exact: true }).inputValue(), 'provider-model');
+  await production.getByRole('button', { name: '取消', exact: true }).click();
+  await production.waitFor({ state: 'hidden' });
 
   await settings.getByRole('button', { name: '编辑「demo」', exact: true }).click();
   const existing = page.getByRole('dialog', { name: '编辑「demo」', exact: true });
   assert.equal(await existing.getByRole('radio', { name: '离线回显', exact: true }).getAttribute('aria-checked'), 'true');
-  assert.equal(await existing.getByRole('textbox', { name: '模型', exact: true }).inputValue(), 'echo');
+  assert.equal(await existing.getByRole('textbox', { name: '模型标识', exact: true }).inputValue(), 'echo');
 });
 
 

@@ -22,16 +22,18 @@ Definition more parent subject :=declared parent Roles.Button
 Definition browse_heading {A} parent leading (trailing : list (node A)) :=
  region parent "workspace-browse-heading" "" Roles.Section (leading :: trailing).
 Definition projects_page snapshot s parent :=
+ let project_list:=projects snapshot in
+ let create:=declared parent Roles.PrimaryButton(primary "project/new" "新建项目"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition
      [title parent "项目";
       information parent "project-purpose" Information.Description "项目归类对话，并提供默认工作目录和指引。"])
-   [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     [declared parent Roles.PrimaryButton(primary "project/new" "新建项目"(Input.OpenEditor(Identity.Project None)(part parent "project/new")))]];
+   (match project_list with Some []=>[]|_=>[page_region parent Composition.CollectionActions Composition.HeadingPosition [create]]end);
   page_region parent Composition.ProjectEntries Composition.BodyPosition
-   (match projects snapshot,tasks snapshot with
-   |Some [],_=>[information parent "empty" Information.Description "还没有项目。"]
-   |Some projects,Some tasks=>map(Navigation.project_entry snapshot s(State.location(State.navigation_state s))parent tasks)projects
+   (match project_list,tasks snapshot with
+   |Some [],_=>[region parent "project/empty" "" Roles.Section
+      [information parent "project/empty-description" Information.Description "还没有项目。";create]]
+   |Some values,Some tasks=>map(Navigation.project_entry snapshot s(State.location(State.navigation_state s))parent tasks)values
    |_,_=>[information parent "unavailable" Information.Description "项目列表不可用。"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in

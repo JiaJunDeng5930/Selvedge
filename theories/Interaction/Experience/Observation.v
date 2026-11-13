@@ -402,16 +402,20 @@ Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_dr
  (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
 Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
 Definition awaiting_admission := "正在检查操作…".
-Definition admission snapshot state owner revision command:availability:=
+Definition admission_pending_code := "admission_pending".
+Definition checked_admission snapshot state owner revision command : option availability :=
  let sequence:=natural_field "sequence" snapshot in
- match sequence with None=>Unavailable "The current state has not been observed."
+ match sequence with None=>Some(Unavailable "The current state has not been observed.")
  |Some sequence=>match find(CommandAssessment.owned_assessment owner)(EC.command_assessments(EC.observed state))with
  |Some(Loaded _ request observation)=>if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation then
-   match CommandAssessment.observed_admission observation with CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
-   else Unavailable awaiting_admission
+   Some(match CommandAssessment.observed_admission observation with
+    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end)
+   else None
  |Some(Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request
-   then Unavailable reason else Unavailable awaiting_admission
- | _=>Unavailable awaiting_admission end end.
+   then Some(Unavailable reason) else None
+ | _=>None end end.
+Definition admission snapshot state owner revision command : availability :=
+ value_or (Unavailable awaiting_admission) (checked_admission snapshot state owner revision command).
 Definition card_save_consequence snapshot state (draft:Draft.draft) :=
  let context:=EC.observed state in
  let owner:=CommandAssessment.DraftOwner(Draft.owner draft) in
@@ -641,7 +645,7 @@ Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruc
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
  String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
  String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
- String.eqb(obstruction_code cause)"card_admission_pending"||
+ String.eqb(obstruction_code cause)admission_pending_code||
  String.eqb(obstruction_code cause)missing_required_input_code.
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
@@ -653,22 +657,25 @@ Definition restrict_outcome {e}(reason:string)(outcome:assessment_result e):asse
  let cause:=Obstruction RepairEditor "control_unavailable" reason in
  match outcome with PreparationBlocked first rest=>PreparationBlocked first(rest++[cause])
  |_=>PreparationBlocked cause[]end.
-Definition preparation_admission snapshot state e draft command:availability:=
- match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
- |Unavailable reason=>Unavailable reason
- |Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
-  |Some update=>admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
+Definition preparation_admission snapshot state e draft command : option availability :=
+ match checked_admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
+ |Some Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
+  |Some update=>checked_admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
     (EC.admission_revision(EC.observed state))update
-  |None=>Available end end.
+  |None=>Some Available end
+ |outcome=>outcome end.
 Definition preliminary_assessment snapshot state e:assessment_result e:=
  let draft:=EC.current_draft state e in
  let obstruction (reason:string):assessment_result e:=
-   let checking_card:=match e with
-    |Identity.Card _|Identity.CardForConversation _=>String.eqb reason awaiting_admission
-    |_=>false end in
-   PreparationBlocked
-     (if checking_card then Obstruction RepairEditor "card_admission_pending" "正在检查卡片。"
-      else Obstruction RepairEditor "NotAdmitted" reason)[]in
+   PreparationBlocked (Obstruction RepairEditor "NotAdmitted" reason) [] in
+ let assess command:=
+   if EC.connected(EC.observed state)then
+    match preparation_admission snapshot state e draft command with
+    |Some Available=>PreparationReady
+    |Some(Unavailable reason)=>obstruction reason
+    |None=>PreparationBlocked (Obstruction RepairEditor admission_pending_code awaiting_admission) []
+    end
+   else PreparationReady in
  match draft_requirements snapshot state e with
  |first::rest=>PreparationBlocked first rest
  |[]=>match Draft.contents draft,EC.current_time(EC.observed state) with
@@ -676,16 +683,12 @@ Definition preliminary_assessment snapshot state e:assessment_result e:=
  |_,_=>match Draft.explicit_workspace draft with
  |Some workspace=>match EC.directory_result(EC.observed state)draft with
    |Some(inr observation)=>match Command.observed_command(EC.current_time(EC.observed state))draft observation with
-     |Some command=>if EC.connected(EC.observed state)then
-       match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
-       else PreparationReady
+     |Some command=>assess command
      |None=>obstruction "The draft does not yet form a command."end
    |Some(inl reason)=>PreparationBlocked(requirement_obstruction e(Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason)[]
    |_=>DirectoryObservationRequired workspace end
  |None=>match Command.command(EC.current_time(EC.observed state))draft with
-   |Some command=>if EC.connected(EC.observed state)then
-     match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
-     else PreparationReady
+   |Some command=>assess command
    |None=>obstruction "The draft does not yet form a command."end end end end.
 Definition observe_assessment snapshot state e:assessment e:=
  let draft:=EC.current_draft state e in

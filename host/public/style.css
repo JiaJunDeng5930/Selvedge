@@ -1491,6 +1491,10 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   margin-inline-start: auto;
   padding-inline-end: 0 !important;
 }
+[data-interactive-component="table"] th > button > svg { color: var(--selvedge-muted); }
+[data-interactive-component="table"] th:is([aria-sort="ascending"], [aria-sort="descending"]) > button > svg {
+  color: var(--selvedge-accent);
+}
 [data-interactive-component="table"] caption { font-weight: var(--rich-strong-weight); }
 [data-interactive-component="table"] caption:empty { display: none; }
 [data-interactive-component="table"] > [data-semantic-key="interactive-markdown/toolbar"] { flex-wrap: wrap; }

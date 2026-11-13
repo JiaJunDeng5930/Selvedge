@@ -197,6 +197,8 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     Source copy and wrapping appear beside the revealed source.
     A final reset for the fence shares its action bar.
     Markdown and authored tables share row separators and header emphasis.
+    Sortable column headings show the available control and its current
+    direction while numeric headings remain aligned with their values.
     Default and muted badges differ in visual weight. Danger and accent
     remain distinct in both light and dark appearance.
     Graph node controls
@@ -269,6 +271,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     separate allocations from the viewport, so a temporary dialog cannot itself
     force an otherwise viable desktop navigation mode. Centered dialogs fit
     the current viewport while a new layout observation is pending.
+    Collapsed desktop navigation keeps the new conversation and search actions
+    beside the control that reopens the sidebar.
 
     A Work scopes the conversation tree, graph views and shared interface.
     Project groups organize the conversations in that scope independently of
@@ -290,6 +294,7 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     title. Optional settings remain available at the corresponding editor.
     A project can be created with its name alone. Its editor marks the default
     working directory as optional and uses the language of the project page.
+    The project empty state groups its explanation with the creation action.
     A directory chooser identifies the execution environment that owns its paths.
     Confirmation applies to an opened directory that matches the address
     field. A failed lookup explains the problem in the chooser's language,
@@ -334,8 +339,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     excerpt and distinguish the matching text within it. A result group names
     its conversation once and identifies each message by its speaker role.
     A source-only match links to the original message and shows a short label.
-    Opening a readable match scrolls to and highlights the matching text
-    once it is rendered.
+    Opening a readable match scrolls to the matching text once it is rendered
+    and marks it long enough to identify the landing point.
     The conversation offers a direct return to the result list at the reader's
     previous position.
     Before adding a conversation to the board or linking it to an existing
@@ -348,12 +353,14 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     align their labels and keep their order while service checks change their
     availability. Unavailable actions explain why they cannot be used.
     A linked conversation's execution state appears beside its open action.
+    Assisted capture places its model controls beside the card title and description.
     Assisted capture offers the board default when it names an eligible
     drafting model. When models are available and no default applies, the picker
     prompts for a selection. An unavailable configured model explains the repair.
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
     stage selected by its entry point.
+    The action area shows progress while a submitted edit is being processed.
     The fixed action area shows the same repair when the field or its inline
     explanation does not fit in view. Each repair is visible in one place.
     Selected project directories show the short name and role before the full

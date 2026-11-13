@@ -65,7 +65,7 @@ Theorem available_admission_has_current_authority snapshot state owner revision 
   CommandAssessment.observed_sequence observation=sequence /\
   CommandAssessment.observed_admission observation=CommandAssessment.Admitted.
 Proof.
- unfold admission.
+ unfold admission,checked_admission.
  destruct(natural_field "sequence" snapshot)as[sequence|]eqn:Sequence;try discriminate.
  destruct(find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state)))
   as[resource|]eqn:Found;try discriminate.

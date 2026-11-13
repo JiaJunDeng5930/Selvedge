@@ -625,7 +625,7 @@ Definition collection_editor generation id entry draft view enabled item : list 
  match Configuration.new_item view with
  | Some (name, value) =>
    [dialog ("新建" ++ item) add
-     [ConfigurationForms.new_item_field id name enabled;
+     [ConfigurationForms.new_item_field path id name enabled;
       ConfigurationForms.item_fields path id value view enabled] []
      (configuration_action id "add" "添加" ("添加" ++ item) Primary (enabled && Configuration.can_add_item view)
        Services.SetConfiguration)]

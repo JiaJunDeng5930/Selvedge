@@ -73,7 +73,7 @@ Definition label field := match field with
 | CardAttachments => "附件" | ContinueCapture => "创建后继续添加"
 | AssistedCapture => "用模型整理标题和描述" | AssistanceProfile => "整理用的模型"
 | ForkCount => "分支数量" | ForkMessages => "初始消息" | CompactionSummary => "指定摘要"
-| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "卡片提示词"
+| TaskGraphDeclaration => "JSON 定义" | TaskTitlePrompt => "整理规则"
 | AgentTitlePrompt => "对话提示词" | AgentTitleProfile => "对话标题模型" end.
 Definition entry_for field := match field with
 | MessageText | CardDescription | ForkMessages | CompactionSummary

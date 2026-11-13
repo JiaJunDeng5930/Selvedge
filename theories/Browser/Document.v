@@ -377,6 +377,7 @@ Definition navigation_target env role area :=
   | _, _ => false end.
 Definition icon_control purpose area role :=
   match role, C.action_purpose purpose with
+  | Roles.GlobalNavigationEntry _ true, _ => true
   | Roles.CompactNavigationEntry _, _
   | Roles.NavigationEntry _, C.ApplicationSettings _ => false
   | _, _ => icon_only purpose area end.
@@ -634,8 +635,9 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
  |Roles.WorkOverviewButton _=>[("margin-inline-start","auto")]
  |Roles.CompactWorkScope _ _=>[("min-inline-size","0");("justify-content","space-between")]++
    (match current_area with TouchNavigationArea=>[("flex","1")]|_=>[("inline-size","100%");("flex","none")]end)
- |Roles.GlobalNavigationEntry _ compact=>[("display","flex");("flex-direction",if compact then "row" else "column");("align-items","center");("justify-content","center");("inline-size","100%")]
- |Roles.GlobalNavigation _=>[("inline-size","100%");("min-block-size","0");("flex","none");("margin-block-start","auto")]
+ |Roles.GlobalNavigationEntry _ false=>[("display","flex");("flex-direction","column");("align-items","center");("justify-content","center");("inline-size","100%")]
+ |Roles.GlobalNavigation true=>[("inline-size","fit-content");("block-size","100%");("min-block-size","0");("flex","none")]
+ |Roles.GlobalNavigation false=>[("inline-size","100%");("min-block-size","0");("flex","none");("margin-block-start","auto")]
  |Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));
    ("block-size","100%");("min-block-size","0");("flex","none");("overflow","hidden")]
  |Roles.Main=>[("flex","1");("min-inline-size","0")] |_=>[] end) ++
@@ -742,7 +744,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
- |Roles.GlobalNavigation _,_=>[("data-workspace-navigation","global")]
+ |Roles.GlobalNavigation true,_=>[("data-workspace-sidebar","");("data-workspace-navigation","shortcuts")]
+ |Roles.GlobalNavigation false,_=>[("data-workspace-navigation","global")]
  |Roles.NavigationCollection,S.Region=>
    if String.eqb(S.semantic_key value)"contents" then [("data-workspace-navigation","collection")]else[]
  |Roles.NavigationSection,S.Region=>
@@ -1110,12 +1113,17 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.InteractiveTable table=>DOM.Element key "table" attrs (styles++table_properties) [] empty
  [DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text(IP.table_caption table)];
  DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
- (map(fun column=>let identity:=IP.column_key key column in DOM.Element identity "th"
- ([("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)]++
+ (map(fun column=>let identity:=IP.column_key key column in
+ let order:=IP.column_order column in
+ let heading:=DOM.Text(IP.column_heading column) in
+ DOM.Element identity "th"
+ ([("scope","col");("aria-sort",match order with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)]++
   if IP.column_numeric column then [("data-numeric-cell","")] else []) table_cell_properties [] empty
- (match IP.column_sort column with None=>[DOM.Text(IP.column_heading column)]|Some _=>
+ (match IP.column_sort column with None=>[heading]|Some _=>
+ let indicator:=glyph(match order with None=>"chevrons-up-down"|Some true=>"arrow-down"|Some false=>"arrow-up" end) in
  [DOM.Element (identity++"/control")%string "button" ([("type","button");("data-prefix-action","true")]++disabled(IP.column_enabled column))
- (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
+ (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty
+ (if IP.column_numeric column then indicator++[heading] else heading::indicator)]end)) (IP.table_columns table))];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
  (map(fun row=>let row_key:=NavigationIdentity.key_part key(IP.row_identity row) in
   DOM.Element row_key "tr" [] [] [] empty
@@ -1282,11 +1290,8 @@ Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=
  (Model.layer_initial_attention behavior) (Model.layer_return_attention behavior)
  (Model.layer_fallback_attention behavior) (Some(Model.layer_occurrence behavior))]else[]
  |_=>[]end)values.
-Definition is_navigation {A}(describe:A->C.purpose)(value:S.node A) :=
- match S.node_role value with Roles.Navigation=>true|_=>
-  match S.node_meaning value with S.Activate control=>
-   match describe(Model.control_input control)with C.ToggleNavigation false=>true|_=>false end
-  |_=>false end end.
+Definition is_navigation {A}(value:S.node A) :=
+ match S.node_role value with Roles.Navigation|Roles.GlobalNavigation true=>true|_=>false end.
 Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.CompactHeader=>true|_=>false end.
 Definition beside_layer {A}(value:S.node A) := match S.node_meaning value with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
@@ -1295,8 +1300,8 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  let compile:=compile_node describe env generation OutsideArea false S.Region None None in
  let base:=S.base surface in
  let headers:=filter is_header base in
- let navigation:=filter (is_navigation describe) base in
- let main:=filter(fun value=>negb(is_header value || is_navigation describe value))base in
+ let navigation:=filter is_navigation base in
+ let main:=filter(fun value=>negb(is_header value || is_navigation value))base in
  let beside:=filter beside_layer (S.overlays surface) in
  let layers:=filter(fun value=>negb(beside_layer value))(S.overlays surface) in
  let theme:=NativeAppearance.theme_name (S.surface_appearance surface) (Layout.system_dark env) in

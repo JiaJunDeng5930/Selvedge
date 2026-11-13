@@ -334,7 +334,6 @@ test('assisted card creation keeps model selection truthful when the catalog cha
   async function openAssistedCard(title) {
     await page.getByRole('button', { name: '新建卡片', exact: true }).click();
     await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
-    await dialog.getByText('更多卡片选项', { exact: true }).click();
     await profile.waitFor({ state: 'hidden' });
     await assisted.check();
   }
@@ -396,7 +395,6 @@ test('assisted card creation can fall back to manual save when no drafting model
   const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
   const title = 'Preserve this card draft';
   await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
-  await dialog.getByText('更多卡片选项', { exact: true }).click();
   const assisted = dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
   await assisted.check();
   await dialog.getByRole('alert').filter({ hasText: '没有可用的整理模型。请配置模型，或关闭模型整理。' }).waitFor();
@@ -579,9 +577,14 @@ test('the mobile card editor keeps real repairs visible and missing model choice
   await title.fill('A card with a long description');
   await titleReason.waitFor({ state: 'hidden' });
 
+  await options.click();
+  const stage = dialog.getByRole('combobox', { name: '状态', exact: true });
+  await stage.waitFor({ state: 'hidden' });
   await description.fill('Review this step and keep the details in the card.\n'.repeat(18));
-  await dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true }).check();
+  const assisted = dialog.getByRole('checkbox', { name: '用模型整理标题和描述', exact: true });
   const model = dialog.getByRole('combobox', { name: '整理用的模型', exact: true });
+  await model.waitFor({ state: 'hidden' });
+  await assisted.check();
   const submitId = await submit.getAttribute('id');
   async function needsModel() {
     await page.waitForFunction(({ submitId, reasonText }) => {
@@ -595,42 +598,33 @@ test('the mobile card editor keeps real repairs visible and missing model choice
   }
   await model.scrollIntoViewIfNeeded();
   assert.equal(await model.locator('option:checked').textContent(), '请选择模型');
-  await needsModel();
-  await options.click();
-  await model.waitFor({ state: 'hidden' });
+  const [textBox, toggleBox, modelBox, optionsBox] = await Promise.all(
+    [description, assisted, model, options].map(control => control.boundingBox()));
+  assert.ok(textBox && toggleBox && modelBox && optionsBox &&
+    textBox.y + textBox.height <= toggleBox.y &&
+    toggleBox.y + toggleBox.height <= modelBox.y && modelBox.y + modelBox.height <= optionsBox.y);
   await needsModel();
   await title.press('Enter');
   await needsModel();
   assert.deepEqual((await command({ op: 'list_cards' })).cards, []);
-  await options.click();
 
   await title.focus();
   await page.keyboard.press('Tab');
-  await page.waitForFunction(({ descriptionId, modelId, submitId }) => {
-    const input = document.getElementById(descriptionId);
-    const picker = document.getElementById(modelId);
-    const panel = input?.closest('dialog');
-    const body = panel?.querySelector('[data-surface-role="dialog-body"]');
-    const footer = panel?.querySelector('[data-surface-role="dialog-actions"]');
-    const commit = document.getElementById(submitId);
-    if (!body || !picker || document.activeElement !== input || body.scrollHeight <= body.clientHeight) return false;
-    const bodyBounds = body.getBoundingClientRect();
-    const rect = commit?.getBoundingClientRect();
-    return picker.getBoundingClientRect().top >= bodyBounds.bottom &&
-      footer?.contains(commit) && rect && rect.top >= bodyBounds.bottom && rect.bottom <= innerHeight &&
-      rect.left >= 0 && rect.right <= innerWidth;
-  }, { descriptionId: await description.getAttribute('id'), modelId: await model.getAttribute('id'), submitId });
-
-  await needsModel();
   const focused = locator => locator.evaluate(element => element === document.activeElement);
-  for (let index = 0; index < 12 && !(await focused(model)); index++) await page.keyboard.press('Tab');
+  assert.equal(await focused(description), true);
+  for (let index = 0; index < 4 && !(await focused(model)); index++) await page.keyboard.press('Tab');
   assert.equal(await focused(model), true, 'Tab reaches the required model selector');
   await page.keyboard.press('i');
   assert.equal(await model.inputValue(), 'interactive');
   await reason.waitFor({ state: 'hidden' });
   await footer.getByText('保存后先生成卡片内容，暂不启动对话。', { exact: true }).waitFor();
   assert.equal(await submit.isEnabled(), true);
+  const disclosure = dialog.locator('summary').filter({ hasText: '更多卡片选项' });
   await page.keyboard.press('Tab');
+  assert.equal(await focused(disclosure), true, 'Tab reaches the collapsed disclosure heading');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(footer.getByRole('button', { name: '取消', exact: true })), true,
+    'Tab skips fields in the closed disclosure');
   await page.keyboard.press('Tab');
   assert.equal(await focused(submit), true);
   await page.keyboard.press('Enter');

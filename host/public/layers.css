@@ -172,12 +172,14 @@ dialog[data-semantic-key="project-editor"] {
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-body"] + [data-surface-role="dialog-actions"] {
     border-block-start: 1px solid var(--selvedge-border) !important;
   }
-  & :is([data-semantic-key="card-save-consequence"], [data-semantic-key="editor-commit-reason"]) {
+  & :is([data-semantic-key="card-save-consequence"], [data-semantic-key="editor-commit-reason"],
+        [data-semantic-key="editor-commit-status"]) {
     flex: 1 0 100%;
     min-inline-size: 0;
     overflow-wrap: anywhere;
   }
   & [data-semantic-key="editor-commit-reason"] { color: var(--selvedge-warning) !important; }
+  & [data-semantic-key="editor-commit-status"] { order: -1; }
   & :is(button, [data-surface-role="field"], [data-surface-role="alert"]) {
     max-inline-size: 100% !important;
   }

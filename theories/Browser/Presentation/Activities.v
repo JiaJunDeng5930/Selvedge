@@ -328,7 +328,7 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in
    [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
-     (Editors.commit_reason parent assessment++[Editors.assessment_nodes parent assessment]++
+     (Editors.commit_reason parent assessment++Editors.commit_status parent action++[Editors.assessment_nodes parent assessment]++
       Composer.action_feedback parent action(Editors.draft_feedback draft)++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
         [Node(part parent "submit")"submit"(Editors.submit_label snapshot draft e)Roles.PrimaryButton

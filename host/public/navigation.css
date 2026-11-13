@@ -67,6 +67,11 @@ dialog[data-semantic-key="global-navigation-menu"]::backdrop { background: trans
   --control-rest-background: var(--selvedge-selection) !important;
 }
 
+[data-workspace-navigation="shortcuts"] > button[data-help]::after {
+  position-area: inline-end;
+  position-try-fallbacks: flip-inline;
+}
+
 @media (max-height: 30rem) {
   [data-workspace-sidebar] > [data-workspace-navigation="global"] {
     display: grid !important;

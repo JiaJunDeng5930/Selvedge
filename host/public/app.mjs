@@ -580,8 +580,10 @@ const renderer = new Renderer(surface, {
     const radioArrow = node === event.target && keyboard.unmodified && !composing &&
       ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) ? selectingRadioGroup(node) : null;
     if (dialog && (event.key === 'Tab' || radioArrow)) {
-      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
-        target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') && !target.closest('[inert],[hidden]') &&
+      // DEFENSE: Controls inside a closed disclosure can still report visible layout rectangles.
+      const candidates = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,details > summary,[tabindex]')).filter(target =>
+        target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') &&
+        !target.closest('[inert],[hidden],details:not([open]) > :not(summary)') &&
         target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
       const { targets, current } = radioArrow
         ? { targets: candidates.filter(target => selectingRadioGroup(target) === radioArrow), current: node }
@@ -827,6 +829,7 @@ function endReadingPointer(event) {
 window.addEventListener('pointerup', endReadingPointer, true);
 window.addEventListener('pointercancel', endReadingPointer, true);
 const historyHighlight = 'selvedge-history-match';
+const historyHighlightMs = 5000;
 const sameHistoryVisit = location => location.namespace === publication.namespace &&
   location.navigationGeneration === integral(state.navigation.generation);
 const historyReaderOwns = (root, location) => root.dataset.readerGeneration === location.readerGeneration &&
@@ -874,7 +877,7 @@ function locateHistoryRange(pending, root, target, range) {
   root.focus({ preventScroll: true });
   if (range && CSS.highlights && typeof Highlight === 'function') CSS.highlights.set(historyHighlight, new Highlight(range));
   else target.dataset.historyMatch = pending.readerGeneration;
-  location.timer = setTimeout(() => clearHistoryHighlight(location), 2400);
+  location.timer = setTimeout(() => clearHistoryHighlight(location), historyHighlightMs);
   timers.add(location.timer);
 }
 function retryHistoryLocation() {

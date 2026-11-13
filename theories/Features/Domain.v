@@ -116,7 +116,7 @@ Record state := State {
 }.
 Definition initial := State (Board [] [] false ""%string) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
- (TitleSettings 0 Titles.default_instructions Titles.default_instructions None) CompactionTypes.initial.
+ (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial.
 
 Definition resource_json (tree : worktree) := JObject [
  ("task_id"%string, JNumber (show_natural (worktree_task tree)));

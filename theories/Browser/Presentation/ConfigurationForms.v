@@ -91,7 +91,7 @@ Definition profile_fields parent enabled profile view : list (node Input.input) 
    (value_text (Common.get profile key)) None enabled (Services.EditModelProfileField key) in
  let details keys fields := optional_details parent "connection-overrides" "自定义连接参数"
    view profile keys enabled fields in
- ([ModelProfiles.provider_choices parent enabled profile; edit parent "model" "模型"] ++
+ ([ModelProfiles.provider_choices parent enabled profile; edit parent "model" "模型标识"] ++
   match ProviderCatalog.backend profile with
   | Some (ProviderCatalog.EnvironmentSSE _ _ _) | Some (ProviderCatalog.WebConnection _ _) =>
     details ["endpoint"; "api_key_env"; "timeout_ms"] (fun fields =>
@@ -155,8 +155,9 @@ Definition collection_item_fields path parent source view enabled commit : list 
         ++ map (fun '(key, label) => optional_field fields key label source enabled optional_number commit) plugin_options))%list
  end.
 
-Definition new_item_field parent name enabled : node Input.input :=
- ModelProfiles.field parent "item-name" "名称" false name None enabled
+Definition new_item_field path parent name enabled : node Input.input :=
+ let label := match path with ["profiles"] => "配置名称" | _ => "名称" end in
+ ModelProfiles.field parent "item-name" label false name None enabled
    Services.EditConfigurationItemName.
 
 Definition item_fields path parent source view enabled : node Input.input :=

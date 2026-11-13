@@ -220,6 +220,40 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
 
 });
 
+test('collapsed desktop navigation can search and start a conversation with the keyboard', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile } = fixture;
+  const { task_id } = await command({ op: 'create_idle', profile });
+  await selectTask(fixture, task_id);
+  const collapse = page.getByRole('button', { name: 'Collapse Task sidebar', exact: true });
+  await collapse.focus();
+  await page.keyboard.press('Enter');
+  const shortcuts = page.getByRole('navigation', { name: '快捷操作', exact: true });
+  const expand = shortcuts.getByRole('button', { name: 'Expand Task sidebar', exact: true });
+  const create = shortcuts.getByRole('button', { name: '新建对话', exact: true });
+  const search = shortcuts.getByRole('button', { name: '搜索对话', exact: true });
+  const focused = page.locator(':focus');
+  await expand.and(focused).waitFor();
+  assert.equal(await page.getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true);
+  await page.keyboard.press('Tab');
+  await create.and(focused).waitFor();
+  await page.keyboard.press('Tab');
+  await search.and(focused).waitFor();
+  await page.keyboard.press('Space');
+  await page.getByRole('heading', { name: '搜索对话', exact: true }).and(focused).waitFor();
+  await page.keyboard.press('Tab');
+  await page.getByRole('searchbox', { name: '标题或消息关键词', exact: true }).and(focused).waitFor();
+  await create.click();
+  const draft = page.getByRole('combobox', { name: 'Task', exact: true });
+  await draft.and(focused).waitFor();
+  await draft.fill('Keep the new conversation draft.');
+  await expand.focus();
+  await page.keyboard.press('Enter');
+  await collapse.and(focused).waitFor();
+  await shortcuts.waitFor({ state: 'hidden' });
+  assert.equal(await draft.inputValue(), 'Keep the new conversation draft.');
+});
+
 test('late Side creation cannot reopen a side after newer navigation or Work creation', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;

@@ -35,7 +35,9 @@ test('a canceled card capture gives the next stage a fresh draft, while successf
   await todo.click();
   assert.equal(await title.inputValue(), '');
   assert.equal(await description.inputValue(), '');
-  assert.equal(await assistance.isVisible(), false);
+  assert.equal(await assistance.isVisible(), true);
+  assert.equal(await assistance.isChecked(), false);
+  assert.equal(await draftingModel.isVisible(), false);
   const savedTitle = 'Saved in the requested stage';
   await title.fill(savedTitle);
   assert.equal(await editor.getByText(/先生成卡片内容/).count(), 0);
@@ -231,7 +233,7 @@ test('a typed Project directory shows one instruction and leaves both footer act
     { width: 1280, height: 900, name: '手动添加目录', action: '添加目录', workspace: { roots: [directory], primary_root: directory } },
     { width: 390, height: 620, name: '清空未添加的目录', action: '清空', workspace: { roots: [], primary_root: null } },
   ];
-  for (const { width, height, name, action } of cases) {
+  for (const { width, height, name, action, workspace } of cases) {
     await page.setViewportSize({ width, height });
     await create.click();
     await project.getByRole('textbox', { name: '项目名称', exact: true }).fill(name);
@@ -254,7 +256,8 @@ test('a typed Project directory shows one instruction and leaves both footer act
 
     await project.getByRole('button', { name: action, exact: true }).click();
     await status.waitFor({ state: 'hidden' });
-    assert.equal(await location.inputValue(), '');
+    const nextDirectoryLabel = workspace.roots.length ? '添加另一个目录' : '目录路径';
+    assert.equal(await project.getByRole('textbox', { name: nextDirectoryLabel, exact: true }).inputValue(), '');
     await submit.click();
     await project.waitFor({ state: 'hidden' });
   }
@@ -301,7 +304,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const boardSettings = page.getByRole('dialog', { name: '看板设置', exact: true });
   const editCardPrompt = boardSettings.getByRole('button', { name: '编辑卡片提示词', exact: true });
   const cardEditor = page.getByRole('dialog', { name: '卡片提示词', exact: true });
-  const cardPrompt = cardEditor.getByRole('textbox', { name: '卡片提示词', exact: true });
+  const cardPrompt = cardEditor.getByRole('textbox', { name: '整理规则', exact: true });
   const titleModel = titlePrompts.getByLabel('对话标题模型', { exact: true });
   const nav = page.getByRole('navigation', { name: 'Global navigation', exact: true });
   const readSettings = () => command({ op: 'read_title_settings' });
@@ -341,23 +344,34 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   }
 
   const initial = await readSettings();
+  assert.notEqual(initial.task_prompt, initial.agent_prompt);
+  assert.match(initial.task_prompt, /When asked for a description/);
   const held = Promise.withResolvers();
-  const checking = assessment(titlePrompts).getByText('正在检查操作…', { exact: true });
+  const requested = Promise.withResolvers();
+  const checking = titlePrompts.getByText('正在检查操作…', { exact: true })
+    .and(titlePrompts.locator(':not(.visually-hidden)'));
+  const saving = titlePrompts.locator('[data-surface-role="dialog-actions"]')
+    .getByRole('status').filter({ hasText: '正在提交…' });
   await page.route('**/api/assess', async route => {
-    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') await held.promise;
+    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') {
+      requested.resolve();
+      await held.promise;
+    }
     await route.continue();
   });
   try {
     await openTitlePrompts();
     assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
-    assert.equal(await titlePrompts.getByRole('textbox', { name: '卡片提示词', exact: true }).count(), 0);
+    assert.equal(await titlePrompts.getByRole('textbox', { name: '整理规则', exact: true }).count(), 0);
     assert.equal(await restoreConversation.count(), 0);
-    await checking.waitFor();
+    await requested.promise;
     assert.equal(await save(titlePrompts).isDisabled(), true);
+    assert.equal(await save(titlePrompts).getAttribute('title'), '正在检查操作…');
+    assert.equal(await checking.count(), 0);
+    assert.equal(await saving.count(), 0);
   } finally {
     held.resolve();
   }
-  await checking.waitFor({ state: 'hidden' });
   await conversationPrompt.fill('Unsaved conversation title prompt');
   await close(titlePrompts);
   await editTitlePrompts.waitFor();
@@ -376,12 +390,32 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   assert.ok(configured, 'The selector exposes the configured interactive model connection');
   assert.equal(await titleModel.inputValue(), automatic.value, 'Automatic selection is the initial title model');
   await titleModel.selectOption(configured.value);
-  const conversationSaved = await store(titlePrompts);
+  const started = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  await page.route('**/api/browser/command', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') {
+      started.resolve();
+      await release.promise;
+    }
+    await route.continue();
+  });
+  try {
+    await save(titlePrompts).click();
+    await started.promise;
+    await saving.waitFor();
+    assert.equal(await save(titlePrompts).getAttribute('aria-busy'), 'true');
+    assert.equal(await save(titlePrompts).isDisabled(), true);
+  } finally {
+    release.resolve();
+  }
+  await titlePrompts.waitFor({ state: 'hidden' });
+  const conversationSaved = await readSettings();
   assert.equal(conversationSaved.agent_prompt, conversationInstruction);
   assert.equal(conversationSaved.task_prompt, initial.task_prompt);
   await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
 
   await openBoardPrompts();
+  await cardEditor.getByText('新建时勾选模型整理，会生成标题和描述。重新生成标题时保留描述。', { exact: true }).waitFor();
   assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
   assert.equal(await cardEditor.getByRole('textbox', { name: '对话提示词', exact: true }).count(), 0);
   assert.equal(await restoreCard.count(), 0);

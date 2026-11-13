@@ -125,6 +125,10 @@ Definition commit_reason {e} parent (assessment:UX.assessment e) : list(node Inp
     |Fields.CreateWorktree=>Information.Status|_=>Information.Description end in
     [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
  |None=>[]end.
+Definition commit_status {e} parent (unit:UX.action_unit e) : list(node Input.input) :=
+ if UX.action_pending unit then
+   [information parent "editor-commit-status" Information.Status "正在提交…"]
+ else [].
 Definition field_nodes snapshot (s:Session.state) e parent fields :=
  let obstruction:=visible_field_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))in
  fold_right(fun field rest=>match field_node snapshot s e parent field with
@@ -249,18 +253,17 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
    [pair "classification" (List.app stage [Fields.CardPriority]);
     pair "ownership" [Fields.CardOwner;Fields.CardProject]]
    (field_nodes snapshot s e parent [Fields.CardLabels]) in
- let content:=Node(part parent "card-content")"card-content" "" Roles.Content Region
-   (field_nodes snapshot s e parent [Fields.CardDescription;Fields.CardAttachments]) in
- let capture:=match target with
+ let '(assistance,capture):=match target with
   |Identity.BoardCard None=>
-    let fields:=[Fields.ContinueCapture;Fields.AssistedCapture] in
     let fields:=match Draft.contents(Session.current_draft s e)with
-      |Draft.CardBody _ _ _ true _ _=>List.app fields [Fields.AssistanceProfile]
-      |_=>fields end in
-    [field_section snapshot s e parent "创建设置" fields]
-  |_=>[]end in
+      |Draft.CardBody _ _ _ true _ _=>[Fields.AssistedCapture;Fields.AssistanceProfile]
+      |_=>[Fields.AssistedCapture] end in
+    (fields,[Fields.ContinueCapture])
+  |_=> ([],[])end in
+ let content:=Node(part parent "card-content")"card-content" "" Roles.Content Region
+   (field_nodes snapshot s e parent ([Fields.CardDescription;Fields.CardAttachments]++assistance)) in
  (source++field_nodes snapshot s e parent [Fields.CardTitle]++
- [content;editor_options parent "card-options" "更多卡片选项" (details++capture)])%list.
+ [content;editor_options parent "card-options" "更多卡片选项" (details++field_nodes snapshot s e parent capture)])%list.
 Definition fork_editor snapshot s e parent task :=
  let source:=value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)) in
  [read_only parent "fork-source" "来源对话" source;
@@ -335,9 +338,11 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
  end.
 Definition title_prompt_reset snapshot s scope parent : list (node Input.input) :=
  let owner := TitlePrompts scope in
+ let default := Titles.instruction_text (match scope with
+  |ConversationTitles=>Titles.default_instructions|BoardTitles=>Titles.default_board_instructions end) in
  match UX.admit_subject owner (Parameters.name (Parameters.title_prompt_field scope)) with
- |Some subject=>match Observe.observe_subject snapshot s subject, Input.assign_subject subject (JString Titles.instructions) with
-  |Fields.TextValue value, Some input=>if String.eqb value Titles.instructions then [] else
+ |Some subject=>match Observe.observe_subject snapshot s subject, Input.assign_subject subject (JString default) with
+  |Fields.TextValue value, Some input=>if String.eqb value default then [] else
    let label := match scope with
     |ConversationTitles=>"恢复默认对话提示词"|BoardTitles=>"恢复默认卡片提示词" end in
    [declared parent Roles.Button(Control "title-prompts/reset" label Secondary input
@@ -367,6 +372,9 @@ Definition title_prompt_help e parent : list (node Input.input) := match e with
 |TitlePrompts ConversationTitles=>
  [information parent "title-prompts/help" Information.Description
    "对话标题根据首条消息生成。标题最多 36 个字符，更改只影响之后的生成。"]
+|TitlePrompts BoardTitles=>
+ [information parent "title-prompts/help" Information.Description
+   "新建时勾选模型整理，会生成标题和描述。重新生成标题时保留描述。"]
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
@@ -374,7 +382,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  let reason:=commit_reason parent assessment in
- let consequence:=match e with
+ let consequence:=if UX.action_pending unit then [] else match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some value=>[information parent "card-save-consequence" Information.Description
    (match value with
@@ -396,7 +404,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      (reason ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
+      (reason ++ commit_status parent unit ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
         (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

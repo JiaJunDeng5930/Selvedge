@@ -192,7 +192,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   flex: none !important;
 }
 
-[data-semantic-key="task-graph/empty"] {
+:is([data-semantic-key="task-graph/empty"], [data-semantic-key="project/empty"]) {
   align-items: center !important;
   gap: .75rem !important;
   inline-size: min(100%, 32rem) !important;
@@ -217,7 +217,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   inline-size: auto !important;
   color: var(--selvedge-muted) !important;
 }
-[data-semantic-key="task-graph/empty-description"] {
+:is([data-semantic-key="task-graph/empty-description"], [data-semantic-key="project/empty-description"]) {
   text-align: center !important;
   color: var(--selvedge-muted) !important;
 }
