@@ -79,8 +79,8 @@ test('interactive answer sections keep a readable outline and each source contro
   const timeline = page.getByRole('main').getByRole('region', { name: 'Conversation', exact: true });
   const heading = timeline.getByRole('heading', { name: '2. 详细检查', exact: true });
   const panels = timeline.locator('.code-block[data-interactive-active="true"]');
-  const single = panels.filter({ has: timeline.getByText('单图数据', { exact: true }) });
-  const compare = panels.filter({ has: timeline.getByText('乙', { exact: true }) });
+  const single = panels.filter({ has: page.getByText('单图数据', { exact: true }) });
+  const compare = panels.filter({ has: page.getByText('乙', { exact: true }) });
   await compare.waitFor();
 
   for (const width of [1280, 390]) {
