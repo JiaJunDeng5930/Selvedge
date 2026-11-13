@@ -318,6 +318,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   [data-page-region="board-controls"] > [data-board-group="search"] {
     flex: 1 1 min(8rem, 100%) !important;
     min-inline-size: 0 !important;
+    max-inline-size: 16rem !important;
     padding-inline-start: 0;
     border-inline-start: 0;
   }
@@ -325,6 +326,7 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 @container board-controls (max-width: 305px) {
   [data-page-region="board-controls"] > [data-board-group="search"] {
     flex-basis: 100% !important;
+    max-inline-size: 100% !important;
   }
 }
 [data-board-group="view-choices"] > [data-semantic-key="filters"] {
